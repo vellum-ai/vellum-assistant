@@ -40,6 +40,7 @@ private struct PersistedThread: Codable {
     var lastActivityAt: Date?
     var isArchived: Bool?
     var isPrivate: Bool?
+    var sessionId: String?
 }
 
 // MARK: - IOSThreadStore
@@ -65,6 +66,7 @@ class IOSThreadStore: ObservableObject {
     private var viewModels: [UUID: ChatViewModel] = [:]
     private var daemonClient: any DaemonClientProtocol
     private static let persistenceKey = "ios_threads_v1"
+    private static let connectedCacheKey = "ios_connected_threads_cache_v1"
     private var cancellables: Set<AnyCancellable> = []
     /// Maps daemon session IDs to thread IDs for history loading.
     private var pendingHistoryBySessionId: [String: UUID] = [:]
@@ -95,11 +97,16 @@ class IOSThreadStore: ObservableObject {
         self.daemonClient = daemonClient
 
         if let daemon = daemonClient as? DaemonClient {
-            // Connected mode — load threads from daemon
+            // Connected mode — show cached threads instantly or spinner on first launch
             isConnectedMode = true
-            isLoadingInitialThreads = true
-            let defaultThread = IOSThread()
-            threads = [defaultThread]
+            let cached = Self.loadConnectedCache()
+            if cached.isEmpty {
+                isLoadingInitialThreads = true
+                threads = [IOSThread()]
+            } else {
+                isLoadingInitialThreads = false
+                threads = cached
+            }
             setupDaemonCallbacks(daemon)
         } else {
             // Standalone mode — load from local persistence
@@ -213,13 +220,16 @@ class IOSThreadStore: ObservableObject {
         pendingHistoryBySessionId.removeAll()
 
         if let daemon = newClient as? DaemonClient {
-            // Connected mode — reset thread list and re-fetch from the new daemon.
-            // Bump the generation so any in-flight response from the old client is
-            // discarded by the handler (setupDaemonCallbacks will bump it again on
-            // the fresh page-1 send, keeping expectedSessionListGeneration in sync).
+            // Connected mode — show cached threads instantly or spinner on first launch.
             isConnectedMode = true
-            isLoadingInitialThreads = true
-            threads = [IOSThread()]
+            let cached = Self.loadConnectedCache()
+            if cached.isEmpty {
+                isLoadingInitialThreads = true
+                threads = [IOSThread()]
+            } else {
+                isLoadingInitialThreads = false
+                threads = cached
+            }
             threadListOffset = 0
             sessionListGeneration += 1
             hasMoreThreads = false
@@ -229,6 +239,7 @@ class IOSThreadStore: ObservableObject {
             // Switched back to standalone mode — reload persisted threads.
             isConnectedMode = false
             isLoadingInitialThreads = false
+            clearConnectedCache()
             let loaded = Self.load()
             if loaded.isEmpty {
                 let thread = IOSThread()
@@ -307,6 +318,7 @@ class IOSThreadStore: ObservableObject {
                 }
                 threads = newThreads + threads
             }
+            saveConnectedCache()
         } else {
             // Subsequent pages: append only sessions not already in the list.
             let existingSessionIds: Set<String> = Set(threads.compactMap { thread -> String? in
@@ -320,6 +332,7 @@ class IOSThreadStore: ObservableObject {
                     threads.append(restored)
                 }
             }
+            saveConnectedCache()
         }
     }
 
@@ -527,10 +540,40 @@ class IOSThreadStore: ObservableObject {
 
     // MARK: - Persistence
 
+    // MARK: Connected-mode cache
+
+    private func saveConnectedCache() {
+        guard isConnectedMode else { return }
+        let cacheable = threads.filter { $0.sessionId != nil && !$0.isPrivate }
+        guard !cacheable.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: Self.connectedCacheKey)
+            return
+        }
+        let persisted = cacheable.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: false, sessionId: $0.sessionId) }
+        if let data = try? JSONEncoder().encode(persisted) {
+            UserDefaults.standard.set(data, forKey: Self.connectedCacheKey)
+        }
+    }
+
+    private static func loadConnectedCache() -> [IOSThread] {
+        guard let data = UserDefaults.standard.data(forKey: connectedCacheKey),
+              let persisted = try? JSONDecoder().decode([PersistedThread].self, from: data) else {
+            return []
+        }
+        return persisted.compactMap { p in
+            guard p.sessionId != nil, !(p.isPrivate ?? false) else { return nil }
+            return IOSThread(id: p.id, title: p.title, createdAt: p.createdAt, lastActivityAt: p.lastActivityAt, sessionId: p.sessionId, isArchived: p.isArchived ?? false, isPrivate: false)
+        }
+    }
+
+    private func clearConnectedCache() {
+        UserDefaults.standard.removeObject(forKey: Self.connectedCacheKey)
+    }
+
     private func save() {
         // Don't persist daemon-synced threads — they're loaded on connect.
         guard !isConnectedMode else { return }
-        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: $0.isPrivate) }
+        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: $0.isPrivate, sessionId: $0.sessionId) }
         if let data = try? JSONEncoder().encode(persisted) {
             UserDefaults.standard.set(data, forKey: Self.persistenceKey)
         }
@@ -541,7 +584,7 @@ class IOSThreadStore: ObservableObject {
               let persisted = try? JSONDecoder().decode([PersistedThread].self, from: data) else {
             return []
         }
-        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived ?? false, isPrivate: $0.isPrivate ?? false) }
+        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, sessionId: $0.sessionId, isArchived: $0.isArchived ?? false, isPrivate: $0.isPrivate ?? false) }
     }
 }
 #endif
