@@ -56,6 +56,8 @@ private struct OrbitItem: Identifiable {
     let emoji: String?
     let color: Color
     let filePath: String?
+    let description: String?
+    let category: SkillCategory?
 }
 
 private struct CategoryGroup: Identifiable {
@@ -343,6 +345,65 @@ private enum HexKind {
     case leaf(OrbitItem)
 }
 
+// MARK: - Skill Popover View
+
+private struct SkillPopoverView: View {
+    let item: OrbitItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Emoji/icon + name row
+            HStack(spacing: VSpacing.sm) {
+                if let emoji = item.emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: 20))
+                } else {
+                    Image(systemName: item.icon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(item.color)
+                }
+
+                Text(item.label)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(2)
+            }
+
+            // Description
+            if let description = item.description, !description.isEmpty {
+                Text(description)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                    .lineLimit(4)
+            }
+
+            // Category badge
+            if let category = item.category {
+                Text(category.displayName)
+                    .font(VFont.small)
+                    .foregroundColor(category.color)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xxs)
+                    .background(
+                        Capsule()
+                            .fill(category.color.opacity(0.15))
+                    )
+            }
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: 250, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .vShadow(.md)
+    }
+}
+
 // MARK: - Constellation View
 
 struct ConstellationView: View {
@@ -357,6 +418,8 @@ struct ConstellationView: View {
     @State private var dragOffset: CGSize = .zero
     @State private var zoomScale: CGFloat = 1.0
     @State private var baseZoomScale: CGFloat = 1.0
+    @State private var selectedSkillItem: OrbitItem?
+    @State private var popoverAnchor: CGPoint = .zero
 
     // Uniform hex size for both positioning and rendering — hubs are
     // visually distinguished via styling (heavier border, higher fill
@@ -373,7 +436,8 @@ struct ConstellationView: View {
             let path: String? = node.label.hasSuffix(".md") ? node.path : nil
             return OrbitItem(
                 id: "core-\(idx)", label: node.label, icon: "doc.text.fill",
-                emoji: nil, color: SkillCategory.core.color, filePath: path
+                emoji: nil, color: SkillCategory.core.color, filePath: path,
+                description: nil, category: nil
             )
         }
 
@@ -387,7 +451,9 @@ struct ConstellationView: View {
                 icon: cat.icon,
                 emoji: skill.emoji,
                 color: cat.color,
-                filePath: nil
+                filePath: nil,
+                description: skill.description,
+                category: cat
             )
             categoryMap[cat, default: []].append(item)
         }
@@ -502,6 +568,31 @@ struct ConstellationView: View {
                 canvas(size: proxy.size)
                     .scaleEffect(zoomScale)
                     .offset(totalOffset)
+
+                // Dismiss layer: clear tap target behind the popover
+                if selectedSkillItem != nil {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(VAnimation.fast) {
+                                selectedSkillItem = nil
+                            }
+                        }
+                }
+
+                // Skill popover overlay — transform anchor from canvas space
+                // into the outer coordinate space. scaleEffect scales around
+                // the view center, so offset the anchor relative to center,
+                // scale, then re-add center and pan offset.
+                if let selected = selectedSkillItem {
+                    let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    let scaledX = viewCenter.x + (popoverAnchor.x - viewCenter.x) * zoomScale + totalOffset.width
+                    let scaledY = viewCenter.y + (popoverAnchor.y - viewCenter.y) * zoomScale + totalOffset.height - 80
+
+                    SkillPopoverView(item: selected)
+                        .position(x: scaledX, y: scaledY)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
             }
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
@@ -534,6 +625,17 @@ struct ConstellationView: View {
                         phase = .complete
                     }
                 }
+                #if os(macOS)
+                .onKeyPress(.escape) {
+                    if selectedSkillItem != nil {
+                        withAnimation(VAnimation.fast) {
+                            selectedSkillItem = nil
+                        }
+                        return .handled
+                    }
+                    return .ignored
+                }
+                #endif
         }
     }
 
@@ -577,9 +679,20 @@ struct ConstellationView: View {
                         emoji: item.emoji,
                         color: item.color,
                         size: hexSize,
-                        onTap: item.filePath.map { path in
-                            { onFileSelected?(path) }
-                        }
+                        onTap: item.filePath != nil
+                            ? { onFileSelected?(item.filePath!) }
+                            : item.description != nil
+                                ? {
+                                    withAnimation(VAnimation.fast) {
+                                        if selectedSkillItem?.id == item.id {
+                                            selectedSkillItem = nil
+                                        } else {
+                                            selectedSkillItem = item
+                                            popoverAnchor = position
+                                        }
+                                    }
+                                }
+                                : nil
                     )
                     .position(position)
                     .scaleEffect(phase.leavesVisible ? 1 : 0.4)
