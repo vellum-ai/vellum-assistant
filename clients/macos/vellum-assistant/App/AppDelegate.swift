@@ -800,11 +800,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // to the vellum channel with start_new_conversation strategy.
         daemonClient.onNotificationThreadCreated = { [weak self] msg in
             guard let self, !self.isAwaitingFirstLaunchReady else { return }
-            self.mainWindow?.threadManager.createNotificationThread(
-                conversationId: msg.conversationId,
-                title: msg.title,
-                sourceEventName: msg.sourceEventName
-            )
+            self.handleNotificationThreadCreated(msg)
         }
 
         // Handle escalation: text_qa -> computer_use via computer_use_request_control

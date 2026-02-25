@@ -98,9 +98,9 @@ The IPC event payload:
 
 The macOS/iOS client listens for this event and surfaces the thread in the sidebar, enabling deep-link navigation to the notification thread.
 
-### `skipVellumThread` Option
+### Per-Dispatch Thread Callback
 
-Callers that manage their own vellum conversations (e.g. `guardian-dispatch`, which creates a guardian question thread before entering the notification pipeline) pass `skipVellumThread: true` to `emitNotificationSignal()`. This suppresses the automatic `notification_thread_created` IPC push so the caller can emit the event directly with its own conversation ID.
+`emitNotificationSignal()` accepts an optional `onThreadCreated` callback. This lets producers run domain side effects (for example, creating cross-channel guardian delivery rows) as soon as vellum pairing occurs, without introducing a second thread-creation path.
 
 ## Channel Delivery Architecture
 
@@ -129,27 +129,17 @@ Connected channels are resolved at signal emission time by `getConnectedChannels
 
 ## Conversation Materialization
 
-The system supports two conversation materialization patterns:
+The system uses a single conversation materialization path for all notifications, including ASK_GUARDIAN:
 
-### 1. Generic notifications (notification_intent IPC)
+1. `emitNotificationSignal()` evaluates the signal and dispatches to channels.
+2. `NotificationBroadcaster` pairs each delivery with a conversation via `pairDeliveryWithConversation()`.
+3. For vellum deliveries, the broadcaster merges `conversationId` into `deepLinkMetadata` and emits `notification_thread_created`.
 
-The standard pipeline emits `notification_intent` via the Vellum adapter. The decision engine can include `deepLinkTarget` metadata in the decision, which is passed through to the adapter as `deepLinkMetadata`. This allows the client to deep-link to an existing conversation or context without the daemon creating a new conversation.
-
-### 2. Guardian dispatch (guardian_request_thread_created IPC)
-
-The guardian dispatch (`calls/guardian-dispatch.ts`) creates a dedicated server-side conversation **before** entering the notification pipeline:
-
-1. Creates a `guardian_action_request` row
-2. Fires `emitNotificationSignal()` (fire-and-forget) for the LLM decision engine
-3. Creates a conversation via `getOrCreateConversation()` with key `asst:${assistantId}:guardian:request:${request.id}`
-4. Persists the LLM-generated initial message and thread title
-5. Emits `guardian_request_thread_created` IPC event with `{ conversationId, requestId, callSessionId, title, questionText }`
-
-The macOS `ThreadManager` listens for this event and creates a visible thread bound to the conversation.
+Guardian dispatch follows this same path and uses the optional `onThreadCreated` callback to attach guardian-delivery bookkeeping to the canonical vellum conversation.
 
 ### Conversation Pairing Invariant
 
-For notification flows that create conversations (guardian dispatch, task runs), the conversation must be created **before** the IPC event is emitted. This ensures the macOS client can immediately fetch the conversation contents when it receives the thread-created event.
+For notification flows that create conversations, the conversation must be created **before** the IPC event is emitted. This ensures the macOS client can immediately fetch the conversation contents when it receives the thread-created event.
 
 ## Key Files
 

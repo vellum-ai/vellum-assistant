@@ -73,18 +73,6 @@ extension AppDelegate {
             options: []
         )
 
-        let viewGuardianAction = UNNotificationAction(
-            identifier: "VIEW_GUARDIAN",
-            title: "View",
-            options: [.foreground]
-        )
-        let guardianRequestCategory = UNNotificationCategory(
-            identifier: "GUARDIAN_REQUEST",
-            actions: [viewGuardianAction],
-            intentIdentifiers: [],
-            options: []
-        )
-
         let viewNotificationIntentAction = UNNotificationAction(
             identifier: "VIEW_NOTIFICATION_INTENT",
             title: "View",
@@ -102,7 +90,6 @@ extension AppDelegate {
             toolConfirmationCategory,
             rideShotgunCategory,
             voiceResponseCategory,
-            guardianRequestCategory,
             notificationIntentCategory,
         ])
     }
@@ -249,16 +236,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             await MainActor.run {
                 guard !self.isAwaitingFirstLaunchReady else { return }
                 self.showMainWindow()
-            }
-            return
-        }
-
-        // Handle guardian request notifications — open the guardian thread in the main window
-        if categoryId == "GUARDIAN_REQUEST" {
-            let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
-            await MainActor.run {
-                guard !self.isAwaitingFirstLaunchReady else { return }
-                self.openConversationThread(conversationId: conversationId)
             }
             return
         }

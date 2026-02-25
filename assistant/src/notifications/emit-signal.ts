@@ -16,13 +16,13 @@ import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import { getLogger } from '../util/logger.js';
 import { type BroadcastFn, VellumAdapter } from './adapters/macos.js';
 import { TelegramAdapter } from './adapters/telegram.js';
-import { NotificationBroadcaster } from './broadcaster.js';
+import { type ThreadCreatedInfo, NotificationBroadcaster } from './broadcaster.js';
 import { evaluateSignal } from './decision-engine.js';
 import { type DeterministicCheckContext, runDeterministicChecks } from './deterministic-checks.js';
 import { createEvent, updateEventDedupeKey } from './events-store.js';
 import { dispatchDecision } from './runtime-dispatch.js';
 import type { AttentionHints, NotificationSignal } from './signal.js';
-import type { NotificationChannel } from './types.js';
+import type { NotificationChannel, NotificationDeliveryResult } from './types.js';
 
 const log = getLogger('emit-signal');
 
@@ -40,12 +40,6 @@ export function registerBroadcastFn(fn: BroadcastFn): void {
   registeredBroadcastFn = fn;
   // Reset the broadcaster so it picks up the new broadcast function
   broadcasterInstance = null;
-}
-
-/** Expose the registered broadcast function so external dispatchers
- *  (e.g. guardian-dispatch) can emit IPC events directly. */
-export function getRegisteredBroadcastFn(): BroadcastFn | null {
-  return registeredBroadcastFn;
 }
 
 function getBroadcaster(): NotificationBroadcaster {
@@ -134,16 +128,23 @@ export interface EmitSignalParams {
   /** Optional deduplication key. */
   dedupeKey?: string;
   /**
-   * When true, suppress the pipeline's notification_thread_created IPC event
-   * for the vellum channel. Used by callers (e.g. guardian-dispatch) that
-   * create their own vellum conversation and emit the event directly.
+   * Optional callback invoked immediately when the broadcaster pairs a vellum
+   * thread and emits `notification_thread_created`.
    */
-  skipVellumThread?: boolean;
+  onThreadCreated?: (info: ThreadCreatedInfo) => void;
   /**
    * When true, rethrow pipeline errors to the caller instead of only logging.
    * Useful for direct user-invoked actions that must fail closed.
    */
   throwOnError?: boolean;
+}
+
+export interface EmitSignalResult {
+  signalId: string;
+  deduplicated: boolean;
+  dispatched: boolean;
+  reason: string;
+  deliveryResults: NotificationDeliveryResult[];
 }
 
 /**
@@ -153,7 +154,7 @@ export interface EmitSignalParams {
  * Fire-and-forget safe by default: errors are caught and logged unless
  * `throwOnError` is enabled by the caller.
  */
-export async function emitNotificationSignal(params: EmitSignalParams): Promise<void> {
+export async function emitNotificationSignal(params: EmitSignalParams): Promise<EmitSignalResult> {
   const signalId = uuid();
   const assistantId = params.assistantId ?? 'self';
 
@@ -183,7 +184,13 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
 
     if (!eventRow) {
       log.info({ signalId, dedupeKey: params.dedupeKey }, 'Signal deduplicated at event store level');
-      return;
+      return {
+        signalId,
+        deduplicated: true,
+        dispatched: false,
+        reason: 'Signal deduplicated at event store level',
+        deliveryResults: [],
+      };
     }
 
     // Step 2: Evaluate the signal through the decision engine
@@ -213,7 +220,13 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
           { signalId, reason: checkResult.reason },
           'Signal blocked by deterministic checks',
         );
-        return;
+        return {
+          signalId,
+          deduplicated: false,
+          dispatched: false,
+          reason: `Signal blocked by deterministic checks: ${checkResult.reason}`,
+          deliveryResults: [],
+        };
       }
     }
 
@@ -227,7 +240,7 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
       signal,
       decision,
       broadcaster,
-      params.skipVellumThread ? { skipThreadPush: true } : undefined,
+      params.onThreadCreated ? { onThreadCreated: params.onThreadCreated } : undefined,
     );
 
     log.info(
@@ -239,6 +252,13 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
       },
       'Signal pipeline complete',
     );
+    return {
+      signalId,
+      deduplicated: false,
+      dispatched: dispatchResult.dispatched,
+      reason: dispatchResult.reason,
+      deliveryResults: dispatchResult.deliveryResults,
+    };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.error(
@@ -248,5 +268,12 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
     if (params.throwOnError) {
       throw err instanceof Error ? err : new Error(errMsg);
     }
+    return {
+      signalId,
+      deduplicated: false,
+      dispatched: false,
+      reason: `Signal pipeline failed: ${errMsg}`,
+      deliveryResults: [],
+    };
   }
 }

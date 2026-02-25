@@ -35,6 +35,9 @@ export interface ThreadCreatedInfo {
   sourceEventName: string;
 }
 export type OnThreadCreatedFn = (info: ThreadCreatedInfo) => void;
+export interface BroadcastDecisionOptions {
+  onThreadCreated?: OnThreadCreatedFn;
+}
 
 export class NotificationBroadcaster {
   private adapters: Map<NotificationChannel, ChannelAdapter>;
@@ -64,7 +67,7 @@ export class NotificationBroadcaster {
   async broadcastDecision(
     signal: NotificationSignal,
     decision: NotificationDecision,
-    options?: { skipThreadPush?: boolean },
+    options?: BroadcastDecisionOptions,
   ): Promise<NotificationDeliveryResult[]> {
     const destinations = resolveDestinations(signal.assistantId, decision.selectedChannels);
 
@@ -121,29 +124,40 @@ export class NotificationBroadcaster {
 
       // For the vellum channel, merge the conversationId into deep-link metadata
       // so the macOS/iOS client can navigate directly to the notification thread.
-      // Skip when skipThreadPush is true — the caller manages its own conversation
-      // and deep-link metadata (e.g., guardian-dispatch).
       let deepLinkTarget = decision.deepLinkTarget;
-      if (channel === 'vellum' && pairing.conversationId && !options?.skipThreadPush) {
+      if (channel === 'vellum' && pairing.conversationId) {
         deepLinkTarget = { ...deepLinkTarget, conversationId: pairing.conversationId };
 
         // Emit notification_thread_created immediately when the vellum
         // conversation is paired, BEFORE waiting for adapter send or other
         // channel deliveries. This avoids a race where slow Telegram delivery
         // delays the IPC push past the macOS deep-link retry window.
-        if (pairing.strategy === 'start_new_conversation' && this.onThreadCreated && !options?.skipThreadPush) {
+        if (pairing.strategy === 'start_new_conversation') {
           const threadTitle =
             copy.threadTitle ??
             copy.title ??
             signal.sourceEventName;
-          try {
-            this.onThreadCreated({
-              conversationId: pairing.conversationId,
-              title: threadTitle,
-              sourceEventName: signal.sourceEventName,
-            });
-          } catch (err) {
-            log.error({ err, signalId: signal.signalId }, 'onThreadCreated callback failed — continuing broadcast');
+          const info: ThreadCreatedInfo = {
+            conversationId: pairing.conversationId,
+            title: threadTitle,
+            sourceEventName: signal.sourceEventName,
+          };
+          if (this.onThreadCreated) {
+            try {
+              this.onThreadCreated(info);
+            } catch (err) {
+              log.error({ err, signalId: signal.signalId }, 'onThreadCreated callback failed — continuing broadcast');
+            }
+          }
+          if (options?.onThreadCreated) {
+            try {
+              options.onThreadCreated(info);
+            } catch (err) {
+              log.error(
+                { err, signalId: signal.signalId },
+                'per-dispatch onThreadCreated callback failed — continuing broadcast',
+              );
+            }
           }
         }
       }

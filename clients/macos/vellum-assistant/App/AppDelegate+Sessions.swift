@@ -240,9 +240,37 @@ extension AppDelegate {
         }
     }
 
+    /// Creates the thread in the sidebar and applies urgency surfacing policy.
+    /// Guardian questions are time-sensitive, so they are foregrounded when the
+    /// app is active and guaranteed a native alert when backgrounded.
+    func handleNotificationThreadCreated(_ msg: IPCNotificationThreadCreated) {
+        mainWindow?.threadManager.createNotificationThread(
+            conversationId: msg.conversationId,
+            title: msg.title,
+            sourceEventName: msg.sourceEventName
+        )
+
+        guard msg.sourceEventName == "guardian.question" else { return }
+
+        if NSApp.isActive {
+            openConversationThread(conversationId: msg.conversationId)
+            return
+        }
+
+        deliverNotificationIntent(
+            NotificationIntentMessage(
+                type: "notification_intent",
+                sourceEventName: msg.sourceEventName,
+                title: msg.title,
+                body: "A guardian question needs your attention.",
+                deepLinkMetadata: ["conversationId": AnyCodable(msg.conversationId)]
+            )
+        )
+    }
+
     /// Opens the main window and navigates to the thread for the given conversation ID.
     /// Retries if the thread isn't populated yet (e.g., ThreadManager hasn't loaded it).
-    /// Used by Quick Chat, Guardian Request, and other notification deep links.
+    /// Used by Quick Chat and notification deep links.
     func openConversationThread(conversationId: String?) {
         showMainWindow()
         guard let conversationId else { return }
