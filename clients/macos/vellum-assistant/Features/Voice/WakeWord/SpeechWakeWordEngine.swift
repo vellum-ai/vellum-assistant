@@ -37,6 +37,10 @@ final class SpeechWakeWordEngine: WakeWordEngine {
     private var consecutiveFailures = 0
     private static let maxBackoffSeconds: TimeInterval = 30
 
+    /// Generation counter to prevent stale completion callbacks from
+    /// tearing down a newly-started session after a timer-triggered restart.
+    private var sessionGeneration = 0
+
     /// Word-boundary regex for matching the keyword in transcriptions.
     private let keywordPattern: Regex<Substring>?
 
@@ -44,8 +48,9 @@ final class SpeechWakeWordEngine: WakeWordEngine {
     private static let sessionDuration: TimeInterval = 55
 
     init(keyword: String = "computer") {
-        self.keyword = keyword
-        let escaped = NSRegularExpression.escapedPattern(for: keyword)
+        let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.keyword = trimmed.isEmpty ? "computer" : trimmed
+        let escaped = NSRegularExpression.escapedPattern(for: self.keyword)
         self.keywordPattern = try? Regex("(?i)\\b\(escaped)\\b")
     }
 
@@ -152,6 +157,8 @@ final class SpeechWakeWordEngine: WakeWordEngine {
         }
 
         // 3. Create the recognition task
+        sessionGeneration += 1
+        let currentGeneration = sessionGeneration
         let sessionStartTime = Date()
 
         recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
@@ -168,13 +175,18 @@ final class SpeechWakeWordEngine: WakeWordEngine {
 
                 if let error {
                     let nsError = error as NSError
-                    if nsError.domain != "kAFAssistantErrorDomain" || nsError.code != 216 {
-                        log.error("Recognition ended after \(String(format: "%.1f", sessionDuration), privacy: .public)s: \(nsError.domain, privacy: .public)/\(nsError.code, privacy: .public) \(error.localizedDescription, privacy: .public)")
+                    // Cancellation errors (code 216) are expected during intentional
+                    // restarts — don't log or restart for them.
+                    if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
+                        return
                     }
+                    log.error("Recognition ended after \(String(format: "%.1f", sessionDuration), privacy: .public)s: \(nsError.domain, privacy: .public)/\(nsError.code, privacy: .public) \(error.localizedDescription, privacy: .public)")
                 }
 
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.isRunning else { return }
+                    // Ignore stale callbacks from a cancelled previous session
+                    guard self.sessionGeneration == currentGeneration else { return }
 
                     if sessionDuration < 1.0 {
                         self.consecutiveFailures += 1
@@ -185,6 +197,7 @@ final class SpeechWakeWordEngine: WakeWordEngine {
                         log.warning("Session failed fast (\(self.consecutiveFailures, privacy: .public)x) — retry in \(String(format: "%.0f", backoff), privacy: .public)s")
                         DispatchQueue.main.asyncAfter(deadline: .now() + backoff) { [weak self] in
                             guard let self, self.isRunning else { return }
+                            guard self.sessionGeneration == currentGeneration else { return }
                             self.restartSession()
                         }
                     } else {
