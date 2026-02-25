@@ -28,6 +28,7 @@ import type {
   ConversationSearchRequest,
 } from '../ipc-protocol.js';
 import { getConfig } from '../../config/loader.js';
+import { GENERATING_TITLE } from '../../memory/conversation-title-service.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import {
   log,
@@ -271,8 +272,9 @@ export async function handleSessionCreate(
   ctx: HandlerContext,
 ): Promise<void> {
   const threadType = normalizeThreadType(msg.threadType);
+  const title = msg.title ?? (msg.initialMessage ? GENERATING_TITLE : 'New Conversation');
   const conversation = conversationStore.createConversation({
-    title: msg.title ?? 'New Conversation',
+    title,
     threadType,
   });
   const session = await ctx.getOrCreateSession(conversation.id, socket, true, {

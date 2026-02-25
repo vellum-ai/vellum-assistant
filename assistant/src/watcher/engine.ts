@@ -7,6 +7,7 @@
 
 import { getLogger } from '../util/logger.js';
 import { createConversation } from '../memory/conversation-store.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { getWatcherProvider } from './provider-registry.js';
 import {
   claimDueWatchers,
@@ -143,8 +144,12 @@ export async function runWatchersOnce(
       let conversationId = watcher.conversationId;
       if (!conversationId) {
         const conv = createConversation({
-          title: `Watcher: ${watcher.name}`,
+          title: GENERATING_TITLE,
           threadType: 'background' as 'standard' | 'private',
+        });
+        queueGenerateConversationTitle({
+          conversationId: conv.id,
+          context: { origin: 'watcher', systemHint: `Watcher: ${watcher.name}` },
         });
         conversationId = conv.id;
         setWatcherConversationId(watcher.id, conversationId);

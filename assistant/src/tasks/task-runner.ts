@@ -1,5 +1,6 @@
 import { getLogger } from '../util/logger.js';
 import { createConversation } from '../memory/conversation-store.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { getTask, createTaskRun, updateTaskRun } from './task-store.js';
 import { buildTaskRules, setTaskRunRules, clearTaskRunRules } from './ephemeral-permissions.js';
 import { sanitizeToolList } from './tool-sanitizer.js';
@@ -43,7 +44,11 @@ export async function runTask(
   }
 
   const run = createTaskRun(task.id);
-  const conversation = createConversation({ title: `Task: ${task.title}`, threadType: 'background' });
+  const conversation = createConversation({ title: GENERATING_TITLE, threadType: 'background' });
+  queueGenerateConversationTitle({
+    conversationId: conversation.id,
+    context: { origin: 'task', systemHint: `Task: ${task.title}` },
+  });
 
   updateTaskRun(run.id, {
     conversationId: conversation.id,
