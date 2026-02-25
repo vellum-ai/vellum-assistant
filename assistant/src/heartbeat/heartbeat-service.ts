@@ -97,6 +97,7 @@ export class HeartbeatService {
       const conversation = createConversation({
         title: GENERATING_TITLE,
         threadType: 'background',
+        source: 'heartbeat',
       });
       queueGenerateConversationTitle({
         conversationId: conversation.id,
