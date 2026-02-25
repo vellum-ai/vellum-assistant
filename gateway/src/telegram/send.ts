@@ -2,6 +2,7 @@ import type { GatewayConfig } from "../config.js";
 import type { ApprovalPayload } from "../http/routes/telegram-deliver.js";
 import { getLogger } from "../logger.js";
 import { downloadAttachment, downloadAttachmentById, type RuntimeAttachmentMeta } from "../runtime/client.js";
+import { splitText } from "../util/split-text.js";
 import { callTelegramApi, callTelegramApiMultipart } from "./api.js";
 
 const log = getLogger("telegram-send");
@@ -12,25 +13,6 @@ const TELEGRAM_MAX_MESSAGE_LEN = 4000;
 export const TELEGRAM_MAX_CALLBACK_DATA_BYTES = 64;
 
 const IMAGE_MIME_PREFIXES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-
-function splitText(text: string): string[] {
-  if (text.length <= TELEGRAM_MAX_MESSAGE_LEN) {
-    return [text];
-  }
-
-  const chunks: string[] = [];
-  let cursor = 0;
-  while (cursor < text.length) {
-    let end = Math.min(cursor + TELEGRAM_MAX_MESSAGE_LEN, text.length);
-    // Avoid splitting a surrogate pair
-    if (end < text.length && text.charCodeAt(end - 1) >= 0xd800 && text.charCodeAt(end - 1) <= 0xdbff) {
-      end--;
-    }
-    chunks.push(text.slice(cursor, end));
-    cursor = end;
-  }
-  return chunks;
-}
 
 export function buildInlineKeyboard(
   approval: ApprovalPayload,
@@ -59,7 +41,7 @@ export async function sendTelegramReply(
   text: string,
   approval?: ApprovalPayload,
 ): Promise<void> {
-  const chunks = splitText(text);
+  const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
 
   for (let i = 0; i < chunks.length; i++) {
     const payload: Record<string, unknown> = {
@@ -158,5 +140,3 @@ export async function sendTypingIndicator(config: GatewayConfig, chatId: string)
     return false;
   }
 }
-
-export { splitText };

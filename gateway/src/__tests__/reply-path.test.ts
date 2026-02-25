@@ -4,24 +4,26 @@ import {
   TELEGRAM_CHANNEL_TRANSPORT_HINTS,
   TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF,
 } from "../channels/transport-hints.js";
-import { splitText } from "../telegram/send.js";
+import { splitText } from "../util/split-text.js";
 
 describe("splitText", () => {
+  const MAX_LEN = 4000;
+
   test("returns single chunk for short text", () => {
-    const chunks = splitText("Hello!");
+    const chunks = splitText("Hello!", MAX_LEN);
     expect(chunks).toEqual(["Hello!"]);
   });
 
   test("returns single chunk for exactly max length", () => {
-    const text = "x".repeat(4000);
-    const chunks = splitText(text);
+    const text = "x".repeat(MAX_LEN);
+    const chunks = splitText(text, MAX_LEN);
     expect(chunks).toHaveLength(1);
     expect(chunks[0]).toBe(text);
   });
 
   test("splits text exceeding max length", () => {
     const text = "x".repeat(8500);
-    const chunks = splitText(text);
+    const chunks = splitText(text, MAX_LEN);
     expect(chunks).toHaveLength(3);
     expect(chunks[0]).toHaveLength(4000);
     expect(chunks[1]).toHaveLength(4000);
@@ -30,7 +32,7 @@ describe("splitText", () => {
   });
 
   test("handles empty string", () => {
-    const chunks = splitText("");
+    const chunks = splitText("", MAX_LEN);
     expect(chunks).toEqual([""]);
   });
 });
