@@ -754,7 +754,7 @@ final class ScreenRecorder: NSObject {
     ///
     /// Called on the main actor. Checks whether the recorded display was
     /// removed or changed resolution.
-    private func handleDisplayReconfiguration(displayID: CGDirectDisplayID, flags: CGDisplayChangeSummaryFlags) {
+    fileprivate func handleDisplayReconfiguration(displayID: CGDirectDisplayID, flags: CGDisplayChangeSummaryFlags) {
         guard isRecordingActive, let recordedID = recordedDisplayID else { return }
         guard displayID == recordedID else { return }
 
