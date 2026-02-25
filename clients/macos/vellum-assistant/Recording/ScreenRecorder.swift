@@ -897,6 +897,10 @@ final class ScreenRecorder: NSObject {
         }
         stream = nil
         ctx.deactivate()
+        // Drain the output queue before cancelling to avoid concurrent writer access.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            outputQueue.async { continuation.resume() }
+        }
         ctx.writer.cancelWriting()
         try? FileManager.default.removeItem(at: outputURL)
         cleanUpWriter()
@@ -1070,8 +1074,11 @@ final class ScreenRecorder: NSObject {
         stream = nil
 
         // Deactivate the writer context to prevent any remaining buffers on the
-        // output queue from being appended, then cancel the writer.
+        // output queue from being appended, then drain the queue before cancelling.
+        // The sync drain ensures no concurrent writer access (a buffer that already
+        // passed the _isActive check finishes before cancelWriting runs).
         writerContext?.deactivate()
+        outputQueue.sync {}
         writerContext?.writer.cancelWriting()
 
         // Remove the partial file to avoid leaving corrupted output
@@ -1134,8 +1141,12 @@ final class ScreenRecorder: NSObject {
             // Unregister display monitoring since the recording session is ending.
             unregisterDisplayReconfiguration()
 
-            // Deactivate the writer context and cancel the writer
+            // Deactivate the writer context, then drain the output queue before
+            // cancelling to avoid concurrent writer access with in-flight appends.
             writerContext?.deactivate()
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                self.outputQueue.async { continuation.resume() }
+            }
             writerContext?.writer.cancelWriting()
             if let outputURL = writerContext?.writer.outputURL {
                 try? FileManager.default.removeItem(at: outputURL)
@@ -1218,6 +1229,9 @@ final class ScreenRecorder: NSObject {
                 // Unregister display monitoring since the recording session is ending.
                 self.unregisterDisplayReconfiguration()
                 self.writerContext?.deactivate()
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    self.outputQueue.async { continuation.resume() }
+                }
                 self.writerContext?.writer.cancelWriting()
                 if let outputURL = self.writerContext?.writer.outputURL {
                     try? FileManager.default.removeItem(at: outputURL)
