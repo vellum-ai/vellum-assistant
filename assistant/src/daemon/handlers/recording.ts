@@ -114,6 +114,19 @@ export function handleRecordingStop(
   return recordingId;
 }
 
+// ─── Internal helpers ─────────────────────────────────────────────────────────
+
+/** Remove a recording from both deterministic maps. */
+function cleanupMaps(recordingId: string, conversationId: string | undefined): void {
+  standaloneRecordingConversationId.delete(recordingId);
+  if (conversationId) {
+    const current = recordingOwnerByConversation.get(conversationId);
+    if (current === recordingId) {
+      recordingOwnerByConversation.delete(conversationId);
+    }
+  }
+}
+
 // ─── Status (client → server lifecycle updates) ─────────────────────────────
 
 function handleRecordingStatus(
@@ -122,13 +135,19 @@ function handleRecordingStatus(
   ctx: HandlerContext,
 ): void {
   const recordingId = msg.sessionId;
-  const conversationId = standaloneRecordingConversationId.get(recordingId);
+  let conversationId = standaloneRecordingConversationId.get(recordingId);
 
-  // Only accept status updates for recordings we initiated. Rejecting unknown
-  // IDs prevents forged recording_status messages from driving attachment
-  // finalization with arbitrary file paths.
+  // Fall back to attachToConversationId when the in-memory map is missing
+  // (e.g. after daemon restart). The daemon originally sent this ID to the
+  // client in recording_start, so it is trustworthy. The allowedDir path
+  // restriction below still prevents arbitrary file attachment.
+  if (!conversationId && msg.attachToConversationId) {
+    conversationId = msg.attachToConversationId;
+    log.info({ recordingId, conversationId }, 'Resolved conversationId from attachToConversationId (daemon restart fallback)');
+  }
+
   if (!conversationId) {
-    log.warn({ recordingId }, 'Ignoring recording_status for unknown recording ID');
+    log.warn({ recordingId }, 'Ignoring recording_status for unknown recording ID with no attachToConversationId');
     return;
   }
 
@@ -154,6 +173,8 @@ function handleRecordingStatus(
         );
         if (!resolvedPath.startsWith(allowedDir + path.sep) && resolvedPath !== allowedDir) {
           log.warn({ recordingId, filePath: msg.filePath, allowedDir }, 'Recording file path outside allowed directory — rejecting');
+          // Clean up maps before breaking so future recordings aren't blocked
+          cleanupMaps(recordingId, conversationId);
           break;
         }
 
@@ -171,8 +192,6 @@ function handleRecordingStatus(
                 ctx.send(errSocket, { type: 'message_complete', sessionId: conversationId });
               }
             }
-          } else if (!conversationId) {
-            log.warn({ recordingId }, 'No conversationId found for recording — cannot link attachment');
           } else {
             const stat = statSync(resolvedPath);
             const sizeBytes = stat.size;
@@ -238,14 +257,7 @@ function handleRecordingStatus(
         }
       }
 
-      // Clean up deterministic maps
-      standaloneRecordingConversationId.delete(recordingId);
-      if (conversationId) {
-        const current = recordingOwnerByConversation.get(conversationId);
-        if (current === recordingId) {
-          recordingOwnerByConversation.delete(conversationId);
-        }
-      }
+      cleanupMaps(recordingId, conversationId);
       break;
     }
 
@@ -271,14 +283,7 @@ function handleRecordingStatus(
         }
       }
 
-      // Clean up deterministic maps
-      standaloneRecordingConversationId.delete(recordingId);
-      if (conversationId) {
-        const current = recordingOwnerByConversation.get(conversationId);
-        if (current === recordingId) {
-          recordingOwnerByConversation.delete(conversationId);
-        }
-      }
+      cleanupMaps(recordingId, conversationId);
       break;
     }
   }
