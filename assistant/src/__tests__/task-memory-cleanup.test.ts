@@ -55,7 +55,7 @@ mock.module('../config/loader.js', () => ({
 }));
 
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { conversations, memoryItems, memoryItemSources, messages } from '../memory/schema.js';
+import { conversations, cronJobs, cronRuns, memoryItems, memoryItemSources, messages, taskRuns, tasks } from '../memory/schema.js';
 import { invalidateAssistantInferredItemsForConversation } from '../memory/task-memory-cleanup.js';
 
 describe('invalidateAssistantInferredItemsForConversation', () => {
@@ -72,6 +72,10 @@ describe('invalidateAssistantInferredItemsForConversation', () => {
     db.run('DELETE FROM memory_item_sources');
     db.run('DELETE FROM memory_items');
     db.run('DELETE FROM messages');
+    db.run('DELETE FROM cron_runs');
+    db.run('DELETE FROM cron_jobs');
+    db.run('DELETE FROM task_runs');
+    db.run('DELETE FROM tasks');
     db.run('DELETE FROM conversations');
   });
 
@@ -265,5 +269,212 @@ describe('invalidateAssistantInferredItemsForConversation', () => {
 
     const affected = invalidateAssistantInferredItemsForConversation('conv-nonexistent');
     expect(affected).toBe(0);
+  });
+
+  test('invalidates items when corroborating conversation is also from a failed task run', () => {
+    const db = getDb();
+    const convA = 'conv-failed-task-a';
+    const convB = 'conv-failed-task-b';
+
+    // Create two conversations, each from a failed task run
+    for (const id of [convA, convB]) {
+      db.insert(conversations).values({
+        id,
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+    }
+
+    db.insert(messages).values([
+      { id: 'msg-a', conversationId: convA, role: 'assistant', content: '[]', createdAt: now + 10 },
+      { id: 'msg-b', conversationId: convB, role: 'assistant', content: '[]', createdAt: now + 20 },
+    ]).run();
+
+    // Both conversations are from failed task runs
+    db.insert(tasks).values({
+      id: 'task-1',
+      title: 'Test task',
+      template: 'template',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+
+    db.insert(taskRuns).values([
+      { id: 'run-a', taskId: 'task-1', conversationId: convA, status: 'failed', createdAt: now + 10 },
+      { id: 'run-b', taskId: 'task-1', conversationId: convB, status: 'failed', createdAt: now + 20 },
+    ]).run();
+
+    // A memory item sourced from both conversations
+    db.insert(memoryItems).values({
+      id: 'item-cross-sourced',
+      kind: 'fact',
+      subject: 'cross-sourced claim',
+      statement: 'Claim from two failed tasks.',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.7,
+      fingerprint: 'fp-cross-sourced',
+      verificationState: 'assistant_inferred',
+      scopeId: 'default',
+      firstSeenAt: now + 10,
+      lastSeenAt: now + 20,
+    }).run();
+
+    db.insert(memoryItemSources).values([
+      { memoryItemId: 'item-cross-sourced', messageId: 'msg-a', evidence: 'claim from A', createdAt: now + 10 },
+      { memoryItemId: 'item-cross-sourced', messageId: 'msg-b', evidence: 'claim from B', createdAt: now + 20 },
+    ]).run();
+
+    // Invalidating for convA should succeed because convB is also from a failed task
+    const affected = invalidateAssistantInferredItemsForConversation(convA);
+    expect(affected).toBe(1);
+
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-cross-sourced')).get();
+    expect(item?.status).toBe('invalidated');
+    expect(item?.invalidAt).not.toBeNull();
+  });
+
+  test('invalidates items when corroborating conversation is from a failed schedule run', () => {
+    const db = getDb();
+    const convA = 'conv-failed-sched-a';
+    const convB = 'conv-failed-sched-b';
+
+    for (const id of [convA, convB]) {
+      db.insert(conversations).values({
+        id,
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+    }
+
+    db.insert(messages).values([
+      { id: 'msg-sched-a', conversationId: convA, role: 'assistant', content: '[]', createdAt: now + 10 },
+      { id: 'msg-sched-b', conversationId: convB, role: 'assistant', content: '[]', createdAt: now + 20 },
+    ]).run();
+
+    // Both conversations are from failed schedule runs
+    db.insert(cronJobs).values({
+      id: 'cron-1',
+      name: 'Test schedule',
+      cronExpression: '0 9 * * *',
+      message: 'test',
+      nextRunAt: now + 100_000,
+      createdBy: 'agent',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+
+    db.insert(cronRuns).values([
+      { id: 'cron-run-a', jobId: 'cron-1', status: 'error', conversationId: convA, startedAt: now + 10, createdAt: now + 10 },
+      { id: 'cron-run-b', jobId: 'cron-1', status: 'error', conversationId: convB, startedAt: now + 20, createdAt: now + 20 },
+    ]).run();
+
+    db.insert(memoryItems).values({
+      id: 'item-cross-sched',
+      kind: 'fact',
+      subject: 'cross-sourced schedule claim',
+      statement: 'Claim from two failed schedules.',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.7,
+      fingerprint: 'fp-cross-sched',
+      verificationState: 'assistant_inferred',
+      scopeId: 'default',
+      firstSeenAt: now + 10,
+      lastSeenAt: now + 20,
+    }).run();
+
+    db.insert(memoryItemSources).values([
+      { memoryItemId: 'item-cross-sched', messageId: 'msg-sched-a', evidence: 'claim from A', createdAt: now + 10 },
+      { memoryItemId: 'item-cross-sched', messageId: 'msg-sched-b', evidence: 'claim from B', createdAt: now + 20 },
+    ]).run();
+
+    const affected = invalidateAssistantInferredItemsForConversation(convA);
+    expect(affected).toBe(1);
+
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-cross-sched')).get();
+    expect(item?.status).toBe('invalidated');
+  });
+
+  test('preserves items when corroborating conversation is from a successful task run', () => {
+    const db = getDb();
+    const convFailed = 'conv-failed-task';
+    const convSuccess = 'conv-success-task';
+
+    for (const id of [convFailed, convSuccess]) {
+      db.insert(conversations).values({
+        id,
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+    }
+
+    db.insert(messages).values([
+      { id: 'msg-failed', conversationId: convFailed, role: 'assistant', content: '[]', createdAt: now + 10 },
+      { id: 'msg-success', conversationId: convSuccess, role: 'assistant', content: '[]', createdAt: now + 20 },
+    ]).run();
+
+    db.insert(tasks).values({
+      id: 'task-2',
+      title: 'Test task 2',
+      template: 'template',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+
+    db.insert(taskRuns).values([
+      { id: 'run-failed', taskId: 'task-2', conversationId: convFailed, status: 'failed', createdAt: now + 10 },
+      { id: 'run-success', taskId: 'task-2', conversationId: convSuccess, status: 'completed', createdAt: now + 20 },
+    ]).run();
+
+    db.insert(memoryItems).values({
+      id: 'item-with-good-corroboration',
+      kind: 'fact',
+      subject: 'corroborated claim',
+      statement: 'Claim corroborated by successful task.',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.7,
+      fingerprint: 'fp-good-corroboration',
+      verificationState: 'assistant_inferred',
+      scopeId: 'default',
+      firstSeenAt: now + 10,
+      lastSeenAt: now + 20,
+    }).run();
+
+    db.insert(memoryItemSources).values([
+      { memoryItemId: 'item-with-good-corroboration', messageId: 'msg-failed', evidence: 'claim from failed', createdAt: now + 10 },
+      { memoryItemId: 'item-with-good-corroboration', messageId: 'msg-success', evidence: 'claim from success', createdAt: now + 20 },
+    ]).run();
+
+    // The successful task run corroborates the claim, so it should NOT be invalidated
+    const affected = invalidateAssistantInferredItemsForConversation(convFailed);
+    expect(affected).toBe(0);
+
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-with-good-corroboration')).get();
+    expect(item?.status).toBe('active');
   });
 });
