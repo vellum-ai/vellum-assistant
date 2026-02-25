@@ -26,6 +26,7 @@ public struct InlineTableWidget: View {
                         .font(VFont.captionMedium)
                         .foregroundColor(VColor.textMuted)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
                 }
             }
             .padding(.bottom, VSpacing.xxs)
@@ -80,6 +81,7 @@ public struct InlineTableWidget: View {
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
             }
         }
         .padding(.vertical, VSpacing.xs)
