@@ -291,7 +291,7 @@ private struct HubHexTileView: View {
 
         VStack(spacing: 3) {
             Image(systemName: category.icon)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 17, weight: .bold))
                 .foregroundColor(category.color)
 
             Text(category.displayName)
@@ -299,14 +299,15 @@ private struct HubHexTileView: View {
                 .foregroundColor(VColor.textPrimary)
                 .lineLimit(1)
         }
+        .padding(4)
         .frame(width: hexWidth, height: hexHeight)
         .background(
             HexagonShape()
-                .fill(category.color.opacity(isHovered ? 0.22 : 0.12))
+                .fill(category.color.opacity(isHovered ? 0.26 : 0.16))
         )
         .overlay(
             HexagonShape()
-                .stroke(category.color.opacity(isHovered ? 0.8 : 0.45), lineWidth: isHovered ? 2.5 : 2)
+                .stroke(category.color.opacity(isHovered ? 0.85 : 0.55), lineWidth: isHovered ? 3 : 2.5)
         )
         .contentShape(HexagonShape())
         .onHover { hovering in
@@ -357,9 +358,10 @@ struct ConstellationView: View {
     @State private var zoomScale: CGFloat = 1.0
     @State private var baseZoomScale: CGFloat = 1.0
 
-    // Hex sizing constants
-    private let leafHexSize: CGFloat = 58
-    private let hubHexSize: CGFloat = 72
+    // Uniform hex size for both positioning and rendering — hubs are
+    // visually distinguished via styling (heavier border, higher fill
+    // opacity, larger font) rather than a physically bigger hexagon.
+    private let hexSize: CGFloat = 62
     private let hexGap: CGFloat = 4
 
     private var existingFiles: [WorkspaceFileNode] {
@@ -426,18 +428,33 @@ struct ConstellationView: View {
             ))
         }
 
-        // Place leaf items adjacent to their hub, fanning outward
-        for (groupIdx, group) in layoutGroups.prefix(hubCount).enumerated() {
-            let hubCoord = hubCoords[groupIdx]
-            var leafQueue = group.items
-            var frontier: [HexCoord] = [hubCoord]
-            var visitedForGroup: Set<HexCoord> = usedCoords
+        // Place leaf items in round-robin across categories so that no
+        // single category starves later ones of free neighbor positions.
+        // Each category maintains its own expansion frontier rooted at its hub.
+        struct CategoryState {
+            var leafQueue: [OrbitItem]
+            let hubCoord: HexCoord
+            var frontier: [HexCoord]
+        }
 
-            while !leafQueue.isEmpty {
+        var states: [CategoryState] = (0..<hubCount).map { i in
+            CategoryState(
+                leafQueue: layoutGroups[i].items,
+                hubCoord: hubCoords[i],
+                frontier: [hubCoords[i]]
+            )
+        }
+
+        var anyPlaced = true
+        while anyPlaced {
+            anyPlaced = false
+            for idx in 0..<states.count {
+                if states[idx].leafQueue.isEmpty { continue }
+
                 // Expand frontier: find all unused neighbors of current frontier
                 var candidateCoords: [HexCoord] = []
-                for f in frontier {
-                    let neighbors = neighborsOf(f, excluding: visitedForGroup)
+                for f in states[idx].frontier {
+                    let neighbors = neighborsOf(f, excluding: usedCoords)
                     for n in neighbors where !candidateCoords.contains(where: { $0 == n }) {
                         candidateCoords.append(n)
                     }
@@ -445,33 +462,28 @@ struct ConstellationView: View {
 
                 // Sort candidates by distance from center to prefer outward expansion,
                 // then by distance from hub to keep the group clustered
+                let hub = states[idx].hubCoord
                 candidateCoords.sort { a, b in
                     let distA = abs(a.q) + abs(a.r) + abs(a.q + a.r)
                     let distB = abs(b.q) + abs(b.r) + abs(b.q + b.r)
                     if distA != distB { return distA < distB }
-                    let hubDistA = abs(a.q - hubCoord.q) + abs(a.r - hubCoord.r)
-                    let hubDistB = abs(b.q - hubCoord.q) + abs(b.r - hubCoord.r)
+                    let hubDistA = abs(a.q - hub.q) + abs(a.r - hub.r)
+                    let hubDistB = abs(b.q - hub.q) + abs(b.r - hub.r)
                     return hubDistA < hubDistB
                 }
 
-                if candidateCoords.isEmpty { break }
-
-                var nextFrontier: [HexCoord] = []
-                for coord in candidateCoords {
-                    if leafQueue.isEmpty { break }
-                    if visitedForGroup.contains(coord) { continue }
-
-                    let item = leafQueue.removeFirst()
+                // Place one leaf per category per round
+                if let coord = candidateCoords.first {
+                    let item = states[idx].leafQueue.removeFirst()
                     usedCoords.insert(coord)
-                    visitedForGroup.insert(coord)
-                    nextFrontier.append(coord)
+                    states[idx].frontier.append(coord)
                     result.append(PositionedHex(
                         id: item.id,
                         coord: coord,
                         kind: .leaf(item)
                     ))
+                    anyPlaced = true
                 }
-                frontier = nextFrontier
             }
         }
 
@@ -543,12 +555,12 @@ struct ConstellationView: View {
 
             // Hex tiles
             ForEach(Array(hexes.enumerated()), id: \.element.id) { idx, hex in
-                let pixelPos = hex.coord.toPixel(size: leafHexSize, gap: hexGap)
+                let pixelPos = hex.coord.toPixel(size: hexSize, gap: hexGap)
                 let position = CGPoint(x: center.x + pixelPos.x, y: center.y + pixelPos.y)
 
                 switch hex.kind {
                 case .hub(let category):
-                    HubHexTileView(category: category, size: hubHexSize)
+                    HubHexTileView(category: category, size: hexSize)
                         .position(position)
                         .scaleEffect(phase.hubsVisible ? 1 : 0.3)
                         .opacity(phase.hubsVisible ? 1 : 0)
@@ -564,7 +576,7 @@ struct ConstellationView: View {
                         icon: item.icon,
                         emoji: item.emoji,
                         color: item.color,
-                        size: leafHexSize,
+                        size: hexSize,
                         onTap: item.filePath.map { path in
                             { onFileSelected?(path) }
                         }
@@ -586,12 +598,12 @@ struct ConstellationView: View {
                 .background(
                     HexagonShape()
                         .fill(VColor.background.opacity(0.9))
-                        .frame(width: sqrt(3) * hubHexSize, height: 2 * hubHexSize)
+                        .frame(width: sqrt(3) * hexSize, height: 2 * hexSize)
                 )
                 .overlay(
                     HexagonShape()
                         .stroke(Forest._500.opacity(0.4), lineWidth: 2)
-                        .frame(width: sqrt(3) * hubHexSize, height: 2 * hubHexSize)
+                        .frame(width: sqrt(3) * hexSize, height: 2 * hexSize)
                 )
                 .allowsHitTesting(false)
                 .position(center)
