@@ -67,7 +67,7 @@ function tagged(tier: ResponseTier, reason: string): ResponseTier {
 
 const TIER_SCALE: Record<ResponseTier, number> = {
   low: 0.125,
-  medium: 0.5,
+  medium: 0.375,
   high: 1,
 };
 
