@@ -1,27 +1,5 @@
 import { cancelCall } from '../../calls/call-domain.js';
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-
-const definition: ToolDefinition = {
-  name: 'call_end',
-  description: 'End an active phone call',
-  input_schema: {
-    type: 'object',
-    properties: {
-      call_session_id: {
-        type: 'string',
-        description: 'The call session ID to end',
-      },
-      reason: {
-        type: 'string',
-        description: 'Reason for ending the call',
-      },
-    },
-    required: ['call_session_id'],
-  },
-};
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 
 export async function executeCallEnd(
   input: Record<string, unknown>,
@@ -55,20 +33,3 @@ export async function executeCallEnd(
 
   return { content: lines.join('\n'), isError: false };
 }
-
-class CallEndTool implements Tool {
-  name = 'call_end';
-  description = definition.description;
-  category = 'communication';
-  defaultRiskLevel = RiskLevel.Medium;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-    return executeCallEnd(input, context);
-  }
-}
-
-registerTool(new CallEndTool());

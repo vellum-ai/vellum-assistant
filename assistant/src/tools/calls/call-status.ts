@@ -1,23 +1,5 @@
 import { getCallStatus } from '../../calls/call-domain.js';
-import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-
-const definition: ToolDefinition = {
-  name: 'call_status',
-  description: 'Check the status of an active or recent phone call',
-  input_schema: {
-    type: 'object',
-    properties: {
-      call_session_id: {
-        type: 'string',
-        description: 'Specific call session ID to check. If omitted, checks for an active call in the current conversation.',
-      },
-    },
-    required: [],
-  },
-};
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 
 export async function executeCallStatus(
   input: Record<string, unknown>,
@@ -69,20 +51,3 @@ export async function executeCallStatus(
 
   return { content: lines.join('\n'), isError: false };
 }
-
-class CallStatusTool implements Tool {
-  name = 'call_status';
-  description = definition.description;
-  category = 'communication';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-    return executeCallStatus(input, context);
-  }
-}
-
-registerTool(new CallStatusTool());
