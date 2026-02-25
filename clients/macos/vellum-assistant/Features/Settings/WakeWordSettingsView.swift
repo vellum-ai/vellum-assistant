@@ -29,7 +29,7 @@ struct WakeWordSettingsView: View {
     private var statusSection: some View {
         HStack(spacing: VSpacing.sm) {
             Circle()
-                .fill(VColor.success)
+                .fill(wakeWordEnabled ? VColor.success : VColor.textMuted)
                 .frame(width: 8, height: 8)
 
             Text(wakeWordEnabled ? "Listening for \"\(wakeWordKeyword)\"" : "Wake word disabled")
@@ -41,10 +41,10 @@ struct WakeWordSettingsView: View {
         .padding(VSpacing.lg)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.success.opacity(0.08))
+                .fill(wakeWordEnabled ? VColor.success.opacity(0.08) : VColor.surfaceSubtle)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .strokeBorder(VColor.success.opacity(0.2), lineWidth: 1)
+                        .strokeBorder(wakeWordEnabled ? VColor.success.opacity(0.2) : VColor.surfaceBorder, lineWidth: 1)
                 )
         )
     }
