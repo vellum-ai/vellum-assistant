@@ -307,6 +307,10 @@ struct InlineVideoAttachmentView: View {
         await MainActor.run {
             self.player = avPlayer
             self.isPlaying = true
+            // Reset retry flags on successful playback so future failures
+            // get a fresh retry cycle.
+            self.hasRetriedFromFailedTile = false
+            self.hasAutoRetried = false
             avPlayer.play()
         }
     }
