@@ -24,6 +24,7 @@ struct MessageListView: View {
 
     var threadId: UUID?
     @Binding var isNearBottom: Bool
+    @Environment(\.conversationZoomScale) private var conversationZoomScale
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
@@ -315,6 +316,12 @@ struct MessageListView: View {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
                 }
+            }
+            .onChange(of: conversationZoomScale) {
+                if isNearBottom {
+                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                }
+                // When mid-scroll, do nothing — let SwiftUI handle the text reflow naturally.
             }
         }
         .id(threadId)
