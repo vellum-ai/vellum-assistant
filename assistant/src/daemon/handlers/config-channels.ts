@@ -44,8 +44,8 @@ export type GuardianVerificationResult = Omit<GuardianVerificationResponse, 'typ
 /** Maximum SMS sends per verification session. */
 export const MAX_SENDS_PER_SESSION = 5;
 
-/** Cooldown between resends in milliseconds (60 seconds). */
-export const RESEND_COOLDOWN_MS = 60_000;
+/** Cooldown between resends in milliseconds (15 seconds). */
+export const RESEND_COOLDOWN_MS = 15_000;
 
 /** Maximum sends per destination within a rolling window. */
 export const MAX_SENDS_PER_DESTINATION_WINDOW = 10;
@@ -522,6 +522,9 @@ function handleStartOutboundTelegram(
 
     const telegramBootstrapUrl = `https://t.me/${botUsername}?start=gv_${bootstrapToken}`;
 
+    // Do not expose the secret in the pending_bootstrap response — the
+    // verification code must not be revealed until identity is bound
+    // through the deep-link bootstrap flow.
     ctx.send(socket, {
       type: 'guardian_verification_response',
       success: true,
@@ -737,6 +740,7 @@ function handleResendOutbound(
       type: 'guardian_verification_response',
       success: true,
       verificationSessionId: newSession.sessionId,
+      secret: newSession.secret,
       nextResendAt,
       sendCount: newSendCount,
       channel,
@@ -797,6 +801,7 @@ function handleResendOutbound(
       type: 'guardian_verification_response',
       success: true,
       verificationSessionId: newSession.sessionId,
+      secret: newSession.secret,
       nextResendAt,
       sendCount: newSendCount,
       channel,
