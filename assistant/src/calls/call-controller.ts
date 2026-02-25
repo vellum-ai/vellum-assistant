@@ -69,6 +69,8 @@ export class CallController {
   private isInbound: boolean;
   /** Instructions queued while an LLM turn is in-flight or during waiting_on_user */
   private pendingInstructions: string[] = [];
+  /** Caller utterances queued while waiting_on_user to prevent re-entrant turns */
+  private pendingCallerUtterances: Array<{transcript: string, speaker?: PromptSpeakerContext}> = [];
   /** Ensures the call opener is triggered at most once per call. */
   private initialGreetingStarted = false;
   /** Marks that the next caller turn should be treated as an opening acknowledgment. */
@@ -149,6 +151,17 @@ export class CallController {
    * Handle a final caller utterance from the ConversationRelay.
    */
   async handleCallerUtterance(transcript: string, speaker?: PromptSpeakerContext): Promise<void> {
+    // Do not start a new turn while waiting for guardian input — queue
+    // the utterance so it can be processed after the answer arrives.
+    if (this.state === 'waiting_on_user') {
+      log.warn(
+        { callSessionId: this.callSessionId },
+        'Caller utterance received while waiting_on_user — queued for after answer.',
+      );
+      this.pendingCallerUtterances.push({ transcript, speaker });
+      return;
+    }
+
     const interruptedInFlight = this.state === 'processing' || this.state === 'speaking';
     // If we're already processing or speaking, abort the in-flight generation
     if (interruptedInFlight) {
@@ -229,9 +242,11 @@ export class CallController {
 
     // Fire-and-forget: unblock the caller so the HTTP response and answer
     // persistence happen immediately, before LLM streaming begins.
-    this.runTurn(content).catch((err) =>
-      log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after user answer'),
-    );
+    this.runTurn(content)
+      .then(() => this.drainPendingCallerUtterances())
+      .catch((err) =>
+        log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after user answer'),
+      );
     return true;
   }
 
@@ -511,6 +526,7 @@ export class CallController {
             updateCallSession(this.callSessionId, { status: 'in_progress' });
             expirePendingQuestions(this.callSessionId);
             this.flushPendingInstructions();
+            this.drainPendingCallerUtterances();
           }
         }, getUserConsultationTimeoutMs());
         return;
@@ -612,6 +628,24 @@ export class CallController {
     // Fire-and-forget so we don't block the current turn's cleanup.
     this.runTurn(content).catch((err) =>
       log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after flushing queued instructions'),
+    );
+  }
+
+  /**
+   * Drain caller utterances that were queued while waiting_on_user.
+   * Only the most recent utterance is processed — older ones are discarded
+   * as stale since the caller likely moved on.
+   */
+  private drainPendingCallerUtterances(): void {
+    if (this.pendingCallerUtterances.length === 0) return;
+
+    // Keep only the most recent utterance; discard stale older ones
+    const latest = this.pendingCallerUtterances[this.pendingCallerUtterances.length - 1];
+    this.pendingCallerUtterances = [];
+
+    // Fire-and-forget so we don't block the current turn's cleanup.
+    this.handleCallerUtterance(latest.transcript, latest.speaker).catch((err) =>
+      log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after draining queued caller utterance'),
     );
   }
 

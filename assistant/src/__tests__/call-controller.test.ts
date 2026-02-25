@@ -800,6 +800,128 @@ describe('call-controller', () => {
     controller.destroy();
   });
 
+  // ── waiting_on_user re-entry guard ────────────────────────────────
+
+  test('handleCallerUtterance: does NOT trigger startVoiceTurn when waiting_on_user', async () => {
+    // Trigger ASK_GUARDIAN to enter waiting_on_user state
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Hold on. [ASK_GUARDIAN: What time works?]'],
+    ));
+    const { controller } = setupController();
+    await controller.handleCallerUtterance('Book me in');
+    expect(controller.getState()).toBe('waiting_on_user');
+
+    // Track calls to startVoiceTurn from this point
+    let turnCallCount = 0;
+    mockStartVoiceTurn.mockImplementation(async (opts: { onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      turnCallCount++;
+      opts.onTextDelta('Should not appear.');
+      opts.onComplete();
+      return { runId: 'run-blocked', abort: () => {} };
+    });
+
+    // Caller speaks while waiting — should be queued, not processed
+    await controller.handleCallerUtterance('Hello? Are you still there?');
+    expect(turnCallCount).toBe(0);
+    expect(controller.getState()).toBe('waiting_on_user');
+
+    controller.destroy();
+  });
+
+  test('queued caller utterance IS processed after handleUserAnswer resolves', async () => {
+    // Trigger ASK_GUARDIAN to enter waiting_on_user state
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Checking. [ASK_GUARDIAN: Confirm appointment?]'],
+    ));
+    const { relay, controller } = setupController();
+    await controller.handleCallerUtterance('I want to schedule');
+    expect(controller.getState()).toBe('waiting_on_user');
+
+    // Caller speaks while waiting — queued
+    await controller.handleCallerUtterance('Actually make it 4pm');
+
+    // Set up mocks for the answer turn and subsequent queued utterance turn
+    let turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(async (opts: { content: string; onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      turnContents.push(opts.content);
+      if (opts.content.includes('[USER_ANSWERED:')) {
+        opts.onTextDelta('Confirmed.');
+      } else {
+        opts.onTextDelta('Got it, 4pm.');
+      }
+      opts.onComplete();
+      return { runId: `run-${turnContents.length}`, abort: () => {} };
+    });
+
+    const accepted = await controller.handleUserAnswer('Yes, confirmed');
+    expect(accepted).toBe(true);
+
+    // Give fire-and-forget turns time to complete
+    await new Promise((r) => setTimeout(r, 100));
+
+    // The answer turn should have fired
+    expect(turnContents.some((c) => c.includes('[USER_ANSWERED: Yes, confirmed]'))).toBe(true);
+    // The queued caller utterance should also have been processed
+    expect(turnContents.some((c) => c.includes('Actually make it 4pm'))).toBe(true);
+
+    controller.destroy();
+  });
+
+  test('no duplicate guardian dispatch: subsequent handleCallerUtterance during waiting_on_user does not produce another ASK_GUARDIAN', async () => {
+    // Trigger ASK_GUARDIAN to enter waiting_on_user
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Let me ask. [ASK_GUARDIAN: Preferred date?]'],
+    ));
+    const { session, controller } = setupController();
+    await controller.handleCallerUtterance('Schedule please');
+    expect(controller.getState()).toBe('waiting_on_user');
+
+    // Count how many times startVoiceTurn is invoked after this point
+    let postGuardianTurnCount = 0;
+    mockStartVoiceTurn.mockImplementation(async (opts: { onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      postGuardianTurnCount++;
+      // Simulate the model trying to emit another ASK_GUARDIAN
+      opts.onTextDelta('[ASK_GUARDIAN: Preferred date again?]');
+      opts.onComplete();
+      return { runId: 'run-dup', abort: () => {} };
+    });
+
+    // Multiple caller utterances during waiting_on_user — all should be queued
+    await controller.handleCallerUtterance('Hello?');
+    await controller.handleCallerUtterance('Anyone there?');
+
+    // No turns should have started
+    expect(postGuardianTurnCount).toBe(0);
+    // State should still be waiting_on_user
+    expect(controller.getState()).toBe('waiting_on_user');
+
+    controller.destroy();
+  });
+
+  test('handleUserAnswer: returns false when not in waiting_on_user state (stale/duplicate guard)', async () => {
+    const { controller } = setupController();
+
+    // idle state
+    expect(await controller.handleUserAnswer('some answer')).toBe(false);
+
+    // processing state — trigger a turn first
+    mockStartVoiceTurn.mockImplementation(async (opts: { onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      // Slow turn — give time to call handleUserAnswer while processing
+      await new Promise((r) => setTimeout(r, 200));
+      opts.onTextDelta('Response.');
+      opts.onComplete();
+      return { runId: 'run-proc', abort: () => {} };
+    });
+    const turnPromise = controller.handleCallerUtterance('Test');
+    // Give it a moment to enter processing state
+    await new Promise((r) => setTimeout(r, 10));
+    expect(await controller.handleUserAnswer('stale answer')).toBe(false);
+
+    // Clean up
+    await turnPromise.catch(() => {});
+    controller.destroy();
+  });
+
   test('handleUserInstruction: does not trigger turn when controller is not idle', async () => {
     // First, trigger ASK_GUARDIAN so controller enters waiting_on_user
     mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
