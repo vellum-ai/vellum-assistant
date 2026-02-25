@@ -139,6 +139,8 @@ extension DaemonClient {
             onSlackWebhookConfigResponse?(msg)
         case .ingressConfigResponse(let msg):
             onIngressConfigResponse?(msg)
+        case .platformConfigResponse(let msg):
+            onPlatformConfigResponse?(msg)
         case .vercelApiConfigResponse(let msg):
             onVercelApiConfigResponse?(msg)
         case .guardianVerificationResponse(let msg):

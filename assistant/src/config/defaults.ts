@@ -266,6 +266,9 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     provider: 'twilio' as const,
     phoneNumber: '',
   },
+  platform: {
+    baseUrl: 'https://platform.vellum.ai',
+  },
   ingress: {
     enabled: undefined,
     publicBaseUrl: '',

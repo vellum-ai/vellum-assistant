@@ -134,6 +134,11 @@ public final class SettingsStore: ObservableObject {
 
     @Published var assistantEmail: String?
 
+    // MARK: - Platform Config State
+
+    @Published var platformBaseUrl: String = ""
+    private var pendingPlatformUrl: String?
+
     // MARK: - Ingress Config State
 
     @Published var ingressEnabled: Bool = false
@@ -380,6 +385,25 @@ public final class SettingsStore: ObservableObject {
                 }
                 self.pendingIngressUrl = nil
                 self.pendingIngressEnabled = nil
+            }
+        }
+
+        // Wire up platform config IPC response
+        daemonClient?.onPlatformConfigResponse = { [weak self] response in
+            guard let self else { return }
+            if response.success {
+                self.platformBaseUrl = response.baseUrl
+                AuthService.shared.configuredBaseURL = response.baseUrl
+            } else {
+                // Revert optimistic state on failure
+                if let previous = self.pendingPlatformUrl {
+                    self.platformBaseUrl = previous
+                    AuthService.shared.configuredBaseURL = previous
+                    self.pendingPlatformUrl = nil
+                }
+                if let error = response.error {
+                    log.error("Platform config update failed: \(error)")
+                }
             }
         }
 
@@ -1171,6 +1195,34 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    // MARK: - Platform Config
+
+    func refreshPlatformConfig() {
+        do {
+            try daemonClient?.send(PlatformConfigRequestMessage(action: "get"))
+        } catch {
+            log.error("Failed to send platform config get: \(error)")
+        }
+    }
+
+    func savePlatformBaseUrl(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previous = platformBaseUrl
+        pendingPlatformUrl = previous
+        platformBaseUrl = trimmed
+        vellumPlatformReachable = nil
+        vellumPlatformError = nil
+        AuthService.shared.configuredBaseURL = trimmed
+        do {
+            try daemonClient?.send(PlatformConfigRequestMessage(action: "set", baseUrl: trimmed))
+        } catch {
+            pendingPlatformUrl = nil
+            platformBaseUrl = previous
+            AuthService.shared.configuredBaseURL = previous
+            log.error("Failed to send platform config set: \(error)")
+        }
+    }
+
     // MARK: - Ingress Config
 
     func refreshIngressConfig() {
@@ -1273,7 +1325,7 @@ public final class SettingsStore: ObservableObject {
         isCheckingVellumPlatform = true
         defer { isCheckingVellumPlatform = false }
 
-        let baseUrl = AuthService.shared.baseURL
+        let baseUrl = platformBaseUrl.isEmpty ? AuthService.shared.baseURL : platformBaseUrl
         let normalized = baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl
         guard let url = URL(string: "\(normalized)/healthz") else {
             vellumPlatformReachable = false

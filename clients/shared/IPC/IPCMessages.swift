@@ -1828,6 +1828,40 @@ extension IngressConfigResponseMessage: Decodable {
     }
 }
 
+// MARK: - Platform Config Messages
+
+public struct PlatformConfigRequestMessage: Encodable, Sendable {
+    public let type = "platform_config"
+    public let action: String
+    public let baseUrl: String?
+
+    public init(action: String, baseUrl: String? = nil) {
+        self.action = action
+        self.baseUrl = baseUrl
+    }
+}
+
+public struct PlatformConfigResponseMessage: Sendable {
+    public let type: String
+    public let baseUrl: String
+    public let success: Bool
+    public let error: String?
+}
+
+extension PlatformConfigResponseMessage: Decodable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        baseUrl = try container.decodeIfPresent(String.self, forKey: .baseUrl) ?? ""
+        success = try container.decode(Bool.self, forKey: .success)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type, baseUrl, success, error
+    }
+}
+
 // MARK: - Model Config Messages
 
 /// Request the current model/provider configuration.
@@ -2175,6 +2209,7 @@ public enum ServerMessage: Decodable, Sendable {
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case ingressConfigResponse(IngressConfigResponseMessage)
+    case platformConfigResponse(PlatformConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
     case guardianVerificationResponse(GuardianVerificationResponseMessage)
     case telegramConfigResponse(TelegramConfigResponseMessage)
@@ -2478,6 +2513,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "ingress_config_response":
             let message = try IngressConfigResponseMessage(from: decoder)
             self = .ingressConfigResponse(message)
+        case "platform_config_response":
+            let message = try PlatformConfigResponseMessage(from: decoder)
+            self = .platformConfigResponse(message)
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)

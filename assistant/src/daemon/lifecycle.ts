@@ -50,6 +50,7 @@ import { createApprovalCopyGenerator, createApprovalConversationGenerator } from
 import { initializeProvidersAndTools, registerWatcherProviders, registerMessagingProviders } from './providers-setup.js';
 import { installShutdownHandlers } from './shutdown-handlers.js';
 import { writePid, cleanupPidFile } from './daemon-control.js';
+import type { ServerMessage } from './ipc-protocol.js';
 import { initPairingHandlers } from './handlers/pairing.js';
 
 // Re-export public API so existing consumers don't need to change imports
@@ -361,7 +362,7 @@ export async function runDaemon(): Promise<void> {
   try {
     await runtimeHttp.start();
     setRelayBroadcast((msg) => server.broadcast(msg));
-    runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg));
+    runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg as ServerMessage));
     initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
     server.setHttpPort(httpPort);
     log.info({ port: httpPort, hostname }, 'Daemon startup: runtime HTTP server listening');
