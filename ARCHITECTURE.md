@@ -4408,8 +4408,8 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the controlle
 
 1. **Request creation**: A `guardian_action_request` row is created with a unique 6-character hex request code, the question text, a `pending` status, and an expiry timestamp.
 
-2. **Delivery fan-out**: Deliveries are created for each configured channel:
-   - **Mac (always)**: A server-side conversation is created with key `asst:${assistantId}:guardian:request:${request.id}`. The dispatch engine emits a `guardian_request_thread_created` IPC event so the desktop UI can display the question thread.
+2. **Delivery fan-out**: Deliveries are created for each configured channel. The guardian dispatch also fires `emitNotificationSignal()` (fire-and-forget) into the generic notification pipeline for logging and potential future routing to additional channels.
+   - **Vellum (always)**: A server-side conversation is created with key `asst:${assistantId}:guardian:request:${request.id}`. The dispatch engine emits a `guardian_request_thread_created` IPC event so the desktop UI can display the question thread. LLM-generated copy (thread title and initial message) is awaited only for this branch to avoid delaying external channel dispatch.
    - **Telegram/SMS (if guardian binding exists)**: A `POST /deliver/{channel}` request is sent to the gateway with the question text and request code.
 
 3. **Answer resolution**: The first channel to respond wins. Answer resolution uses an atomic `WHERE status = 'pending'` check on the `guardian_action_requests` table -- only the first writer succeeds in transitioning the request to `answered` status. The winning answer text and responding channel are recorded on the request row.
@@ -4690,9 +4690,40 @@ The notification module (`assistant/src/notifications/`) uses a signal-based arc
 
 ```
 Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Adapters → Delivery
-                                       ↑
-                               Preference Summary
+                                       ↑                                                        ↓
+                               Preference Summary                              notification_intent IPC (vellum)
 ```
+
+### Notification Conversation Materialization
+
+The notification pipeline supports two conversation materialization paths depending on the producer:
+
+1. **Generic notification pipeline** (`emitNotificationSignal` → decision engine → broadcaster → adapters): The broadcaster dispatches a `notification_intent` IPC event via the Vellum adapter. The IPC payload includes `deepLinkMetadata` (e.g. `{ conversationId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification.
+
+2. **Guardian dispatch** (`dispatchGuardianQuestion`): Creates a server-side conversation **before** entering the notification pipeline. The guardian dispatch:
+   - Creates a `guardian_action_request` row with a unique request code
+   - Creates a dedicated conversation via `getOrCreateConversation()`
+   - Adds the guardian question as the initial message in the thread
+   - Emits a `guardian_request_thread_created` IPC event so the macOS client surfaces the thread immediately
+   - Also fires `emitNotificationSignal()` (fire-and-forget) for the LLM decision engine to potentially route to additional channels
+
+### IPC Thread-Created Events
+
+Two IPC push events surface new threads in the macOS/iOS client sidebar:
+
+- **`guardian_request_thread_created`** — Emitted by `guardian-dispatch.ts` when a voice call ASK_GUARDIAN question creates a vellum thread. Payload: `{ conversationId, requestId, callSessionId, title, questionText }`.
+- **`task_run_thread_created`** — Emitted by `work-item-runner.ts` when a task run creates a conversation. Payload: `{ conversationId, workItemId, title }`.
+
+Both events follow the same pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the IPC event so the macOS `ThreadManager` can create a visible thread in the sidebar.
+
+### Channel Delivery
+
+Notifications are delivered to two channel types:
+
+- **Vellum (always connected)**: Local IPC via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata`.
+- **Telegram (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/telegram` endpoint. Requires an active guardian binding for the assistant.
+
+Connected channels are resolved at signal emission time: vellum is always included, and binding-based channels (Telegram) are included only when an active guardian binding exists for the assistant.
 
 **Key modules:**
 
@@ -4702,14 +4733,18 @@ Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Chec
 | `assistant/src/notifications/decision-engine.ts` | LLM-based routing decisions with deterministic fallback |
 | `assistant/src/notifications/deterministic-checks.ts` | Hard invariant checks (dedupe, source-active suppression, channel availability) |
 | `assistant/src/notifications/broadcaster.ts` | Dispatches decisions to channel adapters |
-| `assistant/src/notifications/adapters/` | Per-channel delivery (macOS IPC, Telegram gateway) |
+| `assistant/src/notifications/adapters/macos.ts` | Vellum adapter — broadcasts `notification_intent` via IPC with deep-link metadata |
+| `assistant/src/notifications/adapters/telegram.ts` | Telegram adapter — POSTs to gateway `/deliver/telegram` |
+| `assistant/src/notifications/destination-resolver.ts` | Resolves per-channel endpoints (vellum IPC, Telegram chat ID from guardian binding) |
+| `assistant/src/notifications/copy-composer.ts` | Template-based fallback copy when LLM copy is unavailable |
 | `assistant/src/notifications/preference-extractor.ts` | Detects preference statements in conversation messages |
 | `assistant/src/notifications/preferences-store.ts` | CRUD for user notification preferences |
 | `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline |
+| `assistant/src/calls/guardian-dispatch.ts` | Guardian question dispatch with dedicated conversation materialization and `guardian_request_thread_created` IPC |
 
 **Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries`
 
-**Configuration:** `notifications.decisionModel` in `config.json`.
+**Configuration:** `notifications.decisionModelIntent` in `config.json`.
 
 ---
 
