@@ -19,6 +19,7 @@ import {
   rescheduleEnrollment,
   updateEnrollmentThreadId,
 } from './store.js';
+import { checkAllPreSend, recordSend } from './guardrails.js';
 import type { Sequence, SequenceEnrollment, SequenceStep } from './types.js';
 
 const log = getLogger('sequence-engine');
@@ -96,6 +97,19 @@ async function processEnrollment(
     return;
   }
 
+  // Enforce guardrails before allocating resources for the send
+  const guardrailResult = checkAllPreSend(sequence.id, enrollment, step.delaySeconds);
+  if (!guardrailResult.ok) {
+    log.info({
+      enrollmentId: enrollment.id,
+      sequenceId: sequence.id,
+      guardrail: guardrailResult.guardrail,
+      reason: guardrailResult.reason,
+    }, 'Guardrail blocked sequence step — rescheduling');
+    rescheduleEnrollment(enrollment.id, Date.now() + ERROR_RETRY_DELAY_MS);
+    return;
+  }
+
   // Build the prompt for the assistant to generate and send the email
   const prompt = buildStepPrompt(enrollment, sequence, step);
 
@@ -115,6 +129,9 @@ async function processEnrollment(
   }, 'Processing sequence step');
 
   await processMessage(conversation.id, prompt);
+
+  // Track the send for rate-limiting guardrails
+  recordSend(sequence.id);
 
   // Try to extract the email thread ID from conversation tool results so
   // subsequent steps can reply in the same thread.
