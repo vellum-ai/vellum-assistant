@@ -41,6 +41,7 @@ function buildCacheKey(
   query: string,
   conversationId: string,
   options?: MemoryRecallOptions,
+  configFingerprint?: string,
 ): string {
   const parts = [
     query,
@@ -51,6 +52,7 @@ function buildCacheKey(
       : '',
     options?.excludeMessageIds ? [...options.excludeMessageIds].sort().join(',') : '',
     options?.maxInjectTokensOverride != null ? String(options.maxInjectTokensOverride) : '',
+    configFingerprint ?? '',
   ];
   return createHash('sha256').update(parts.join('\0')).digest('hex');
 }
@@ -60,8 +62,9 @@ export function getCachedRecall(
   query: string,
   conversationId: string,
   options?: MemoryRecallOptions,
+  configFingerprint?: string,
 ): MemoryRecallResult | undefined {
-  const key = buildCacheKey(query, conversationId, options);
+  const key = buildCacheKey(query, conversationId, options, configFingerprint);
   const entry = _cache.get(key);
   if (!entry) return undefined;
   if (entry.version !== _version || Date.now() - entry.createdAt > TTL_MS) {
@@ -88,12 +91,13 @@ export function setCachedRecall(
   options: MemoryRecallOptions | undefined,
   result: MemoryRecallResult,
   snapshotVersion?: number,
+  configFingerprint?: string,
 ): void {
   // If a snapshot version was provided, only cache when it still matches
   // the current version — otherwise the result may be stale.
   if (snapshotVersion !== undefined && snapshotVersion !== _version) return;
 
-  const key = buildCacheKey(query, conversationId, options);
+  const key = buildCacheKey(query, conversationId, options, configFingerprint);
 
   // Evict oldest entries if at capacity
   if (_cache.size >= MAX_ENTRIES && !_cache.has(key)) {
