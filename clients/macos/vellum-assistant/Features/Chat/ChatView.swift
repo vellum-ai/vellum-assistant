@@ -21,6 +21,7 @@ struct ChatView: View {
     let isRetryableError: Bool
     let onRetryError: () -> Void
     let isConnectionError: Bool
+    var hasRetryPayload: Bool = true
     let isSecretBlockError: Bool
     let onSendAnyway: () -> Void
     let onAcceptSuggestion: () -> Void
@@ -192,6 +193,7 @@ struct ChatView: View {
                             isRetryableError: isRetryableError,
                             onRetryError: onRetryError,
                             isConnectionError: isConnectionError,
+                            hasRetryPayload: hasRetryPayload,
                             connectionDiagnosticHint: connectionDiagnosticHint,
                             onSend: onSend,
                             onStop: onStop,

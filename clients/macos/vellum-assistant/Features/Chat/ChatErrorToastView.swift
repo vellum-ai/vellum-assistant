@@ -9,6 +9,7 @@ struct ChatErrorBanner: View {
     let isRetryableError: Bool
     let onRetryError: () -> Void
     let isConnectionError: Bool
+    var hasRetryPayload: Bool = true
     var connectionDiagnosticHint: String? = nil
     let onDismissError: () -> Void
 
@@ -44,7 +45,7 @@ struct ChatErrorBanner: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Send message anyway")
-            } else if isRetryableError || isConnectionError {
+            } else if isRetryableError || (isConnectionError && hasRetryPayload) {
                 Button(action: onRetryError) {
                     Text("Retry")
                         .font(VFont.captionMedium)

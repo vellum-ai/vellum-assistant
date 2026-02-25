@@ -16,6 +16,7 @@ struct ComposerSection: View {
     let isRetryableError: Bool
     let onRetryError: () -> Void
     let isConnectionError: Bool
+    var hasRetryPayload: Bool = true
     var connectionDiagnosticHint: String? = nil
     let onSend: () -> Void
     let onStop: () -> Void
@@ -50,6 +51,7 @@ struct ComposerSection: View {
                     isRetryableError: isRetryableError,
                     onRetryError: onRetryError,
                     isConnectionError: isConnectionError,
+                    hasRetryPayload: hasRetryPayload,
                     connectionDiagnosticHint: connectionDiagnosticHint,
                     onDismissError: onDismissError
                 )
