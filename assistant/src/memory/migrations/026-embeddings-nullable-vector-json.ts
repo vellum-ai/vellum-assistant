@@ -67,6 +67,7 @@ export function migrateEmbeddingsNullableVectorJson(database: DrizzleDb): void {
         id, target_type, target_id, provider, model, dimensions,
         vector_json, vector_blob, content_hash, created_at, updated_at
       FROM memory_embeddings
+      ORDER BY updated_at DESC
     `);
     raw.exec(/*sql*/ `DROP TABLE memory_embeddings`);
     raw.exec(/*sql*/ `ALTER TABLE memory_embeddings_new RENAME TO memory_embeddings`);
