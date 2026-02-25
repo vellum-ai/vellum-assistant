@@ -18,10 +18,11 @@
  * - Session creation (3 preactivated skills): < 300ms
  * - Session constructor (sync, no loadFromDb): < 10ms
  */
-import { afterAll, describe, expect, mock, test } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, describe, expect, mock, test } from 'bun:test';
 
 /** Return the median of a sorted-ascending array of numbers. */
 function median(sorted: number[]): number {

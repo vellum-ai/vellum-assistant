@@ -1,10 +1,11 @@
-import { readdirSync, readFileSync, type Dirent } from 'node:fs';
-import { join, resolve, relative } from 'node:path';
+import { type Dirent,readdirSync, readFileSync } from 'node:fs';
+import { join, relative,resolve } from 'node:path';
+
 import { pathExists } from '../util/fs.js';
+import { getLogger } from '../util/logger.js';
 import { getHooksDir } from '../util/platform.js';
 import { loadHooksConfig } from './config.js';
-import { getLogger } from '../util/logger.js';
-import type { HookManifest, DiscoveredHook } from './types.js';
+import type { DiscoveredHook,HookManifest } from './types.js';
 
 const log = getLogger('hooks-discovery');
 

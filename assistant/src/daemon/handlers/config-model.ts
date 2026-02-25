@@ -1,12 +1,13 @@
 import * as net from 'node:net';
+
 import { getConfig, loadRawConfig, saveRawConfig } from '../../config/loader.js';
 import { initializeProviders } from '../../providers/registry.js';
 import type {
-  ModelSetRequest,
   ImageGenModelSetRequest,
+  ModelSetRequest,
 } from '../ipc-protocol.js';
-import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
+import { CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext,log } from './shared.js';
 
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();

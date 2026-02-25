@@ -1,9 +1,3 @@
-export {
-  type MigrationRegistryEntry,
-  MIGRATION_REGISTRY,
-  type MigrationValidationResult,
-} from './registry.js';
-export { validateMigrationState } from './validate-migration-state.js';
 export { migrateJobDeferrals } from './001-job-deferrals.js';
 export { migrateToolInvocationsFk } from './002-tool-invocations-fk.js';
 export { migrateMemoryFtsBackfill } from './003-memory-fts-backfill.js';
@@ -26,6 +20,10 @@ export { migrateNotificationTablesSchema } from './019-notification-tables-schem
 export { migrateRenameChannelToVellum } from './020-rename-macos-ios-channel-to-vellum.js';
 export { migrateConversationStatusIndexes } from './021-conversation-status-indexes.js';
 export { migrateAddOriginInterface } from './022-add-origin-interface.js';
+export { migrateMemoryItemSourcesIndexes } from './023-memory-item-sources-indexes.js';
+export { migrateEmbeddingVectorBlob } from './024-embedding-vector-blob.js';
+export { migrateMessagesFtsBackfill } from './025-messages-fts-backfill.js';
+export { migrateEmbeddingsNullableVectorJson } from './026-embeddings-nullable-vector-json.js';
 export { createCoreTables } from './100-core-tables.js';
 export { createWatchersAndLogsTables } from './101-watchers-and-logs.js';
 export { addCoreColumns } from './102-alter-table-columns.js';
@@ -42,3 +40,11 @@ export { createAssistantInboxTables } from './112-assistant-inbox.js';
 export { runLateMigrations } from './113-late-migrations.js';
 export { createNotificationTables } from './114-notifications.js';
 export { createSequenceTables } from './115-sequences.js';
+export { createMessagesFts } from './116-messages-fts.js';
+export { migrateGuardianVerificationSessions } from './026-guardian-verification-sessions.js';
+export {
+  MIGRATION_REGISTRY,
+  type MigrationRegistryEntry,
+  type MigrationValidationResult,
+} from './registry.js';
+export { validateMigrationState } from './validate-migration-state.js';

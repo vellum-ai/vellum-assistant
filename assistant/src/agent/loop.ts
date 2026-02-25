@@ -1,9 +1,10 @@
 import * as Sentry from '@sentry/node';
-import type { Provider, Message, ToolDefinition, ContentBlock } from '../providers/types.js';
-import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
-import { getHookManager } from '../hooks/manager.js';
+
 import { truncateOversizedToolResults } from '../context/tool-result-truncation.js';
+import { getHookManager } from '../hooks/manager.js';
+import type { ContentBlock,Message, Provider, ToolDefinition } from '../providers/types.js';
 import type { ToolResultContent } from '../providers/types.js';
+import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 
 const log = getLogger('agent-loop');
 
@@ -13,6 +14,8 @@ export interface AgentLoopConfig {
   thinking?: { enabled: boolean; budgetTokens: number };
   toolChoice?: { type: 'auto' } | { type: 'any' } | { type: 'tool'; name: string };
   maxToolUseTurns?: number;
+  /** Minimum interval (ms) between consecutive LLM calls to prevent spin when tools return instantly */
+  minTurnIntervalMs?: number;
 }
 
 export interface CheckpointInfo {
@@ -37,6 +40,7 @@ export type AgentEvent =
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxTokens: 16000,
   maxToolUseTurns: 60,
+  minTurnIntervalMs: 150,
 };
 
 const PROGRESS_CHECK_INTERVAL = 5;
@@ -46,12 +50,19 @@ const PROGRESS_CHECK_REMINDER = 'You have been using tools for several turns. Ch
 const APPROACHING_LIMIT_OFFSET = 5;
 const APPROACHING_LIMIT_WARNING = 'You are approaching the tool-use turn limit. You have {remaining} turns remaining. Wrap up your current task — summarize progress and present results to the user. If you cannot finish, explain what remains and ask the user how to proceed.';
 
+export interface ResolvedSystemPrompt {
+  systemPrompt: string;
+  maxTokens?: number;
+  model?: string;
+}
+
 export class AgentLoop {
   private provider: Provider;
   private systemPrompt: string;
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
+  private resolveSystemPrompt: ((history: Message[]) => ResolvedSystemPrompt) | null;
   private toolExecutor: ((name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[] }>) | null;
 
   constructor(
@@ -61,12 +72,14 @@ export class AgentLoop {
     tools?: ToolDefinition[],
     toolExecutor?: (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[] }>,
     resolveTools?: (history: Message[]) => ToolDefinition[],
+    resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt,
   ) {
     this.provider = provider;
     this.systemPrompt = systemPrompt;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
+    this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
   }
 
@@ -80,6 +93,7 @@ export class AgentLoop {
     const history = [...messages];
     let toolUseTurns = 0;
     let nudgedForEmptyResponse = false;
+    let lastLlmCallTime = 0;
     const debug = isDebug();
     const rlog = requestId ? log.child({ requestId }) : log;
 
@@ -96,12 +110,24 @@ export class AgentLoop {
           ? this.resolveTools(history)
           : this.tools;
 
-        const providerConfig: Record<string, unknown> = { max_tokens: this.config.maxTokens };
-        if (this.config.thinking?.enabled) {
-          // Anthropic requires budget_tokens < max_tokens
+        // Resolve system prompt, per-turn maxTokens, and model
+        const resolved = this.resolveSystemPrompt
+          ? this.resolveSystemPrompt(history)
+          : null;
+        const turnSystemPrompt = resolved?.systemPrompt ?? this.systemPrompt;
+        const turnMaxTokens = resolved?.maxTokens ?? this.config.maxTokens;
+        const turnModel = resolved?.model;
+
+        const providerConfig: Record<string, unknown> = { max_tokens: turnMaxTokens };
+        if (turnModel) {
+          providerConfig.model = turnModel;
+        }
+        if (this.config.thinking?.enabled && turnMaxTokens >= 4000) {
+          // Skip thinking when turnMaxTokens is too low (e.g. low tier) to
+          // avoid the thinking budget consuming nearly all output tokens.
           const budgetTokens = Math.min(
             this.config.thinking.budgetTokens,
-            this.config.maxTokens - 1,
+            Math.floor(turnMaxTokens * 0.75),
           );
           providerConfig.thinking = {
             type: 'enabled',
@@ -115,7 +141,7 @@ export class AgentLoop {
 
         if (debug) {
           rlog.debug({
-            systemPrompt: truncateForLog(this.systemPrompt, 200),
+            systemPrompt: truncateForLog(turnSystemPrompt, 200),
             messageCount: history.length,
             lastMessage: history.length > 0
               ? summarizeMessage(history[history.length - 1])
@@ -126,7 +152,7 @@ export class AgentLoop {
         }
 
         const preLlmResult = await getHookManager().trigger('pre-llm-call', {
-          systemPrompt: this.systemPrompt,
+          systemPrompt: turnSystemPrompt,
           messages: history,
           toolCount: currentTools.length,
         });
@@ -136,7 +162,17 @@ export class AgentLoop {
           break;
         }
 
+        // Rate-limit consecutive LLM calls to prevent spin when tools return instantly
+        const minInterval = this.config.minTurnIntervalMs ?? 0;
+        if (minInterval > 0 && lastLlmCallTime > 0) {
+          const elapsed = Date.now() - lastLlmCallTime;
+          if (elapsed < minInterval) {
+            await Bun.sleep(minInterval - elapsed);
+          }
+        }
+
         const providerStart = Date.now();
+        lastLlmCallTime = providerStart;
 
         // Strip image contentBlocks from older tool results to prevent
         // screenshots from accumulating in the context window. The LLM
@@ -147,7 +183,7 @@ export class AgentLoop {
         const response = await this.provider.sendMessage(
           providerHistory,
           currentTools.length > 0 ? currentTools : undefined,
-          this.systemPrompt,
+          turnSystemPrompt,
           {
             config: providerConfig,
             onEvent: (event) => {

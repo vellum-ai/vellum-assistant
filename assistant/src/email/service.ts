@@ -5,33 +5,33 @@
  * The CLI layer calls only this; never the provider directly.
  */
 
+import {
+  addAddressRule,
+  type AddressRule,
+  checkSendGuardrails,
+  getGuardrailsStatus,
+  incrementDailySendCount,
+  listRules,
+  removeAddressRule,
+  setDailySendCap,
+  setOutboundPaused,
+} from '../cli/email-guardrails.js';
+import { loadRawConfig, saveRawConfig,setNestedValue } from '../config/loader.js';
+import { ConfigError } from '../util/errors.js';
 import type { EmailProvider } from './provider.js';
+import { createProvider, getActiveProviderName, type SupportedProvider } from './providers/index.js';
 import type {
-  EmailDomain,
+  CreateDraftInput,
   DnsRecord,
-  EmailInbox,
+  EmailDomain,
   EmailDraft,
+  EmailInbox,
   EmailMessage,
   EmailThread,
   EmailWebhook,
   ProviderHealth,
   SendResult,
-  CreateDraftInput,
 } from './types.js';
-import {
-  checkSendGuardrails,
-  incrementDailySendCount,
-  getGuardrailsStatus,
-  setOutboundPaused,
-  setDailySendCap,
-  addAddressRule,
-  removeAddressRule,
-  listRules,
-  type AddressRule,
-} from '../cli/email-guardrails.js';
-import { createProvider, getActiveProviderName, type SupportedProvider } from './providers/index.js';
-import { loadRawConfig, setNestedValue, saveRawConfig } from '../config/loader.js';
-import { ConfigError } from '../util/errors.js';
 
 // ---------------------------------------------------------------------------
 // Guardrail error

@@ -1,7 +1,8 @@
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
-import { getMemoryBackendStatus } from './embedding-backend.js';
+import { listPendingConflictDetails, resolveConflict } from './conflict-store.js';
 import { rawGet } from './db.js';
+import { getMemoryBackendStatus } from './embedding-backend.js';
 import { enqueueBackfillJob, enqueueRebuildIndexJob } from './indexer.js';
 import {
   enqueueCleanupResolvedConflictsJob,
@@ -198,4 +199,67 @@ export async function queryMemory(
   conversationId: string,
 ) {
   return queryMemoryForCli(query, conversationId, getConfig());
+}
+
+export interface DismissConflictsResult {
+  dismissed: number;
+  remaining: number;
+  details: Array<{ id: string; existingStatement: string; candidateStatement: string }>;
+}
+
+/**
+ * Dismiss pending memory conflicts. With `all: true`, dismisses every
+ * pending conflict. Otherwise, dismisses only conflicts matching the
+ * given `pattern` regex against either statement.
+ */
+export function dismissPendingConflicts(
+  options: { all?: boolean; pattern?: RegExp; scopeId?: string },
+): DismissConflictsResult {
+  const scopeId = options.scopeId ?? 'default';
+  const dismissed: DismissConflictsResult['details'] = [];
+  const BATCH_SIZE = 1000;
+
+  // Fetch and dismiss in batches to handle arbitrarily large backlogs
+  let batch = listPendingConflictDetails(scopeId, BATCH_SIZE);
+  while (batch.length > 0) {
+    let batchHadMatch = false;
+    for (const conflict of batch) {
+      const matches = options.all
+        || (options.pattern && (
+          options.pattern.test(conflict.existingStatement)
+          || options.pattern.test(conflict.candidateStatement)
+        ));
+      if (!matches) continue;
+
+      batchHadMatch = true;
+      resolveConflict(conflict.id, {
+        status: 'dismissed',
+        resolutionNote: options.all
+          ? 'Bulk dismissed via CLI (dismiss-conflicts --all).'
+          : `Dismissed via CLI (pattern: ${options.pattern?.source}).`,
+      });
+      dismissed.push({
+        id: conflict.id,
+        existingStatement: conflict.existingStatement,
+        candidateStatement: conflict.candidateStatement,
+      });
+    }
+    // If nothing matched in this batch, no point fetching more — remaining
+    // conflicts won't match either (pattern mode) or we already got them all.
+    if (!batchHadMatch) break;
+    batch = listPendingConflictDetails(scopeId, BATCH_SIZE);
+  }
+
+  // Get true remaining count via SQL to avoid batch-size truncation
+  const remaining = rawGet<{ c: number }>(
+    `SELECT COUNT(*) AS c FROM memory_item_conflicts WHERE scope_id = ? AND status = 'pending_clarification'`,
+    scopeId,
+  )?.c ?? 0;
+
+  log.info({ dismissed: dismissed.length, remaining, scopeId }, 'Dismissed pending conflicts');
+  return {
+    dismissed: dismissed.length,
+    remaining,
+    details: dismissed,
+  };
 }

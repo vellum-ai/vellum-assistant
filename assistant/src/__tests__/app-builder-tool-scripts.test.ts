@@ -1,8 +1,9 @@
-import { describe, test, expect, mock } from 'bun:test';
-import type { ToolContext } from '../tools/types.js';
-import type { AppStore } from '../tools/apps/executors.js';
+import { describe, expect, mock,test } from 'bun:test';
+
 import type { AppDefinition } from '../memory/app-store.js';
+import type { AppStore } from '../tools/apps/executors.js';
 import type { EditEngineResult } from '../tools/shared/filesystem/edit-engine.js';
+import type { ToolContext } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
 // Mock factory helpers
@@ -69,14 +70,14 @@ mock.module('../memory/app-store.js', () => mockStore);
 // ---------------------------------------------------------------------------
 
 import * as appCreateScript from '../config/bundled-skills/app-builder/tools/app-create.js';
+import * as appDeleteScript from '../config/bundled-skills/app-builder/tools/app-delete.js';
+import * as appFileEditScript from '../config/bundled-skills/app-builder/tools/app-file-edit.js';
+import * as appFileListScript from '../config/bundled-skills/app-builder/tools/app-file-list.js';
+import * as appFileReadScript from '../config/bundled-skills/app-builder/tools/app-file-read.js';
+import * as appFileWriteScript from '../config/bundled-skills/app-builder/tools/app-file-write.js';
 import * as appListScript from '../config/bundled-skills/app-builder/tools/app-list.js';
 import * as appQueryScript from '../config/bundled-skills/app-builder/tools/app-query.js';
 import * as appUpdateScript from '../config/bundled-skills/app-builder/tools/app-update.js';
-import * as appDeleteScript from '../config/bundled-skills/app-builder/tools/app-delete.js';
-import * as appFileListScript from '../config/bundled-skills/app-builder/tools/app-file-list.js';
-import * as appFileReadScript from '../config/bundled-skills/app-builder/tools/app-file-read.js';
-import * as appFileEditScript from '../config/bundled-skills/app-builder/tools/app-file-edit.js';
-import * as appFileWriteScript from '../config/bundled-skills/app-builder/tools/app-file-write.js';
 
 // ---------------------------------------------------------------------------
 // Tests

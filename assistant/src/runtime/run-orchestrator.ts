@@ -13,20 +13,20 @@
  * status and submit a decision or secret via the respective endpoints.
  */
 
-import type { ChannelId, InterfaceId, TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
+import type { ChannelId, InterfaceId, TurnChannelContext } from '../channels/types.js';
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
-import * as runsStore from '../memory/runs-store.js';
-import type { Run } from '../memory/runs-store.js';
-import type { Session } from '../daemon/session.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
-import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
+import type { Session } from '../daemon/session.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
+import type { Run } from '../memory/runs-store.js';
+import * as runsStore from '../memory/runs-store.js';
 import type { UserDecision } from '../permissions/types.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
-import { assistantEventHub } from './assistant-event-hub.js';
 import { buildAssistantEvent } from './assistant-event.js';
+import { assistantEventHub } from './assistant-event-hub.js';
 
 const log = getLogger('run-orchestrator');
 

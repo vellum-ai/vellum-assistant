@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import * as realChildProcess from 'node:child_process';
+
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const execSyncMock = mock((_command: string, _opts?: unknown): unknown => undefined);
 const execFileSyncMock = mock(

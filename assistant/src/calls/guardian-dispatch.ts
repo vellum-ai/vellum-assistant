@@ -9,20 +9,20 @@
  * 5. Emits IPC events for the mac channel
  */
 
-import { getLogger } from '../util/logger.js';
-import { emitNotificationSignal } from '../notifications/emit-signal.js';
+import type { ServerMessage } from '../daemon/ipc-contract.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
-import {
-  createGuardianActionRequest,
-  createGuardianActionDelivery,
-  updateDeliveryStatus,
-} from '../memory/guardian-action-store.js';
-import { getUserConsultationTimeoutMs } from './call-constants.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import { addMessage, updateConversationTitle } from '../memory/conversation-store.js';
-import type { CallPendingQuestion } from './types.js';
-import type { ServerMessage } from '../daemon/ipc-contract.js';
+import {
+  createGuardianActionDelivery,
+  createGuardianActionRequest,
+  updateDeliveryStatus,
+} from '../memory/guardian-action-store.js';
+import { emitNotificationSignal } from '../notifications/emit-signal.js';
+import { getLogger } from '../util/logger.js';
+import { getUserConsultationTimeoutMs } from './call-constants.js';
 import { generateGuardianCopy } from './guardian-question-copy.js';
+import type { CallPendingQuestion } from './types.js';
 
 const log = getLogger('guardian-dispatch');
 

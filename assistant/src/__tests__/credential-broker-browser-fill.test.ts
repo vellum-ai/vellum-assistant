@@ -1,8 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
-import { mkdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mock logger
@@ -26,8 +27,8 @@ _overrideDeps({
   execFileSync: (() => '') as unknown as typeof import('node:child_process').execFileSync,
 });
 
-import { _resetBackend } from '../security/secure-keys.js';
 import { _setStorePath } from '../security/encrypted-store.js';
+import { _resetBackend } from '../security/secure-keys.js';
 
 const TEST_DIR = join(tmpdir(), `vellum-broker-fill-test-${randomBytes(4).toString('hex')}`);
 const STORE_PATH = join(TEST_DIR, 'keys.enc');
@@ -44,9 +45,9 @@ mock.module('../tools/registry.js', () => ({
 // Imports under test
 // ---------------------------------------------------------------------------
 
-import { CredentialBroker } from '../tools/credentials/broker.js';
-import { upsertCredentialMetadata, _setMetadataPath } from '../tools/credentials/metadata-store.js';
 import { setSecureKey } from '../security/secure-keys.js';
+import { CredentialBroker } from '../tools/credentials/broker.js';
+import { _setMetadataPath,upsertCredentialMetadata } from '../tools/credentials/metadata-store.js';
 
 afterAll(() => { mock.restore(); });
 

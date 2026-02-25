@@ -1,18 +1,19 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import type { AppDefinition } from '../memory/app-store.js';
-import type { EditEngineResult } from '../tools/shared/filesystem/edit-engine.js';
 import type { AppStore, ProxyResolver } from '../tools/apps/executors.js';
 import {
   executeAppCreate,
+  executeAppDelete,
+  executeAppFileEdit,
+  executeAppFileList,
+  executeAppFileRead,
+  executeAppFileWrite,
   executeAppList,
   executeAppQuery,
   executeAppUpdate,
-  executeAppDelete,
-  executeAppFileList,
-  executeAppFileRead,
-  executeAppFileEdit,
-  executeAppFileWrite,
 } from '../tools/apps/executors.js';
+import type { EditEngineResult } from '../tools/shared/filesystem/edit-engine.js';
 
 // ---------------------------------------------------------------------------
 // Mock factory

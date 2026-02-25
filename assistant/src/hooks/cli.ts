@@ -1,11 +1,13 @@
-import { Command } from 'commander';
-import { cpSync, readFileSync, chmodSync, rmSync } from 'node:fs';
-import { pathExists } from '../util/fs.js';
+import { chmodSync, cpSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { discoverHooks, isValidInstallManifest } from './discovery.js';
-import { setHookEnabled, ensureHookInConfig, removeHook } from './config.js';
+
+import { Command } from 'commander';
+
+import { pathExists } from '../util/fs.js';
 import { getCliLogger } from '../util/logger.js';
 import { getHooksDir } from '../util/platform.js';
+import { ensureHookInConfig, removeHook,setHookEnabled } from './config.js';
+import { discoverHooks, isValidInstallManifest } from './discovery.js';
 
 const log = getCliLogger('hooks');
 

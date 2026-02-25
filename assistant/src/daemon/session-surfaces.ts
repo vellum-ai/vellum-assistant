@@ -1,23 +1,24 @@
 import { v4 as uuid } from 'uuid';
-import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
+
+import {
+  findSeededHomeBaseApp,
+  getPrebuiltHomeBasePreview,
+} from '../home-base/prebuilt/seed.js';
+import { getApp, updateApp } from '../memory/app-store.js';
+import type { ToolExecutionResult } from '../tools/types.js';
+import { getLogger } from '../util/logger.js';
+import { isPlainObject } from '../util/object.js';
 import type {
-  ServerMessage,
-  SurfaceType,
-  SurfaceData,
   CardSurfaceData,
   DynamicPageSurfaceData,
   FileUploadSurfaceData,
+  ServerMessage,
+  SurfaceData,
+  SurfaceType,
   UiSurfaceShow,
 } from './ipc-protocol.js';
-import type { ToolExecutionResult } from '../tools/types.js';
-import { getApp, updateApp } from '../memory/app-store.js';
-import { getLogger } from '../util/logger.js';
+import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
 import { buildSessionErrorMessage } from './session-error.js';
-import {
-  getPrebuiltHomeBasePreview,
-  findSeededHomeBaseApp,
-} from '../home-base/prebuilt/seed.js';
-import { isPlainObject } from '../util/object.js';
 
 const log = getLogger('session-surfaces');
 

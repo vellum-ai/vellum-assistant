@@ -1,48 +1,50 @@
 import * as net from 'node:net';
-import { isChannelId, parseChannelId, parseInterfaceId, type InterfaceId } from '../../channels/types.js';
-import { silentlyWithLog } from '../../util/silently.js';
+
 import { v4 as uuid } from 'uuid';
+
+import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '../../channels/types.js';
+import { getConfig } from '../../config/loader.js';
+import { getAttachmentsForMessage, setAttachmentThumbnail } from '../../memory/attachments-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
-import { classifySessionError, buildSessionErrorMessage } from '../session-error.js';
-import { getAttachmentsForMessage, setAttachmentThumbnail } from '../../memory/attachments-store.js';
-import { generateVideoThumbnail } from '../video-thumbnail.js';
+import { getSubagentManager } from '../../subagent/index.js';
+import { silentlyWithLog } from '../../util/silently.js';
+import { truncate } from '../../util/truncate.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
-import { normalizeThreadType } from '../ipc-protocol.js';
 import type {
-  UserMessage,
-  ConfirmationResponse,
-  SecretResponse,
-  SessionCreateRequest,
-  SessionSwitchRequest,
-  SessionRenameRequest,
   CancelRequest,
+  ConfirmationResponse,
+  ConversationSearchRequest,
   DeleteQueuedMessage,
   HistoryRequest,
-  UndoRequest,
   RegenerateRequest,
-  UsageRequest,
   SandboxSetRequest,
+  SecretResponse,
   ServerMessage,
-  ConversationSearchRequest,
+  SessionCreateRequest,
+  SessionRenameRequest,
+  SessionSwitchRequest,
+  UndoRequest,
+  UsageRequest,
+  UserMessage,
 } from '../ipc-protocol.js';
-import { getConfig } from '../../config/loader.js';
-import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
-import { getSubagentManager } from '../../subagent/index.js';
+import { normalizeThreadType } from '../ipc-protocol.js';
+import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
+import { generateVideoThumbnail } from '../video-thumbnail.js';
 import {
-  log,
-  wireEscalationHandler,
-  renderHistoryContent,
-  mergeToolResults,
-  pendingStandaloneSecrets,
-  type HandlerContext,
   defineHandlers,
-  type HistoryToolCall,
+  type HandlerContext,
   type HistorySurface,
+  type HistoryToolCall,
+  log,
+  mergeToolResults,
   type ParsedHistoryMessage,
+  pendingStandaloneSecrets,
+  renderHistoryContent,
+  wireEscalationHandler,
 } from './shared.js';
-import { truncate } from '../../util/truncate.js';
 
 export async function handleUserMessage(
   msg: UserMessage,
@@ -305,7 +307,7 @@ export async function handleSessionCreate(
   // Pre-activate skills before sending session_info so they're available
   // for the initial message processing.
   if (msg.preactivatedSkillIds?.length) {
-    session.preactivatedSkillIds = msg.preactivatedSkillIds;
+    session.setPreactivatedSkillIds(msg.preactivatedSkillIds);
   }
 
   ctx.send(socket, {

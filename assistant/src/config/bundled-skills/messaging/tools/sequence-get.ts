@@ -1,6 +1,6 @@
+import { countActiveEnrollments,getSequence, listEnrollments } from '../../../../sequence/store.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { getSequence, listEnrollments, countActiveEnrollments } from '../../../../sequence/store.js';
-import { ok, err } from './shared.js';
+import { err,ok } from './shared.js';
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
   const id = input.id as string;
@@ -30,7 +30,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       '',
       `Enrollments: ${allEnrollments.length} total, ${activeCount} active`,
       ...Object.entries(statusCounts).map(([k, v]) => `  ${k}: ${v}`),
-    ].filter((line): line is string => line !== null);
+    ].filter((line): line is string => line != null);
 
     return ok(lines.join('\n'));
   } catch (e) {

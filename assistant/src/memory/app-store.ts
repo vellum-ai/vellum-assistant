@@ -11,24 +11,25 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-  readFileSync,
-  writeFileSync,
-  readdirSync,
   existsSync,
   mkdirSync,
-  unlinkSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
   rmSync,
   statSync,
-  realpathSync,
+  unlinkSync,
+  writeFileSync,
 } from 'node:fs';
-import { join, resolve, relative, isAbsolute, dirname, basename } from 'node:path';
-import { getDataDir } from '../util/platform.js';
-import { applyEdit } from '../tools/shared/filesystem/edit-engine.js';
-import type { EditEngineResult } from '../tools/shared/filesystem/edit-engine.js';
+import { basename,dirname, isAbsolute, join, relative, resolve } from 'node:path';
+
 import {
   isPrebuiltHomeBaseApp,
   validatePrebuiltHomeBaseHtml,
 } from '../home-base/prebuilt-home-base-updater.js';
+import type { EditEngineResult } from '../tools/shared/filesystem/edit-engine.js';
+import { applyEdit } from '../tools/shared/filesystem/edit-engine.js';
+import { getDataDir } from '../util/platform.js';
 
 export interface AppDefinition {
   id: string;

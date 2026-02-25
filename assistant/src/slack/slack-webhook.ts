@@ -1,5 +1,5 @@
-import { getLogger } from '../util/logger.js';
 import { ProviderError } from '../util/errors.js';
+import { getLogger } from '../util/logger.js';
 
 const log = getLogger('slack-webhook');
 

@@ -1036,14 +1036,35 @@ struct MainWindowView: View {
         }
     }
 
+    // MARK: - Home Base Helpers
+
+    /// Whether the Home Base nav item should appear active.
+    private var homeBaseIsActive: Bool {
+        if case .app(let appId) = windowState.selection {
+            return appListManager.displayApps.first(where: { $0.id == appId })?.name.caseInsensitiveCompare("Home Base") == .orderedSame
+        }
+        return windowState.activePanel == .directory
+    }
+
+    /// Open the Home Base app directly, or show the directory as fallback.
+    private func openHomeBaseApp() {
+        if let homeBase = appListManager.displayApps.first(where: { $0.name.caseInsensitiveCompare("Home Base") == .orderedSame }) {
+            try? daemonClient.sendAppOpen(appId: homeBase.id)
+            windowState.selection = .app(homeBase.id)
+        } else {
+            // No Home Base app exists — fall back to directory
+            windowState.togglePanel(.directory)
+        }
+    }
+
     @ViewBuilder
     private var expandedSidebarContent: some View {
         VStack(spacing: VSpacing.sm) {
             Spacer().frame(height: 0)
 
             // MARK: Nav Items (fixed)
-            SidebarNavRow(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory) {
-                windowState.togglePanel(.directory)
+            SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: homeBaseIsActive) {
+                openHomeBaseApp()
             }
             SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
                 windowState.togglePanel(.identity)
@@ -1053,6 +1074,9 @@ struct MainWindowView: View {
             }
             SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox) {
                 windowState.togglePanel(.assistantInbox)
+            }
+            SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps) {
+                windowState.togglePanel(.apps)
             }
 
             // Divider between nav items and threads
@@ -1154,8 +1178,8 @@ struct MainWindowView: View {
         VStack(spacing: VSpacing.sm) {
             Spacer().frame(height: 0)
 
-            SidebarNavRow(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory, isExpanded: false) {
-                windowState.togglePanel(.directory)
+            SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: homeBaseIsActive, isExpanded: false) {
+                openHomeBaseApp()
             }
             SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity, isExpanded: false) {
                 windowState.togglePanel(.identity)
@@ -1165,6 +1189,9 @@ struct MainWindowView: View {
             }
             SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox, isExpanded: false) {
                 windowState.togglePanel(.assistantInbox)
+            }
+            SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps, isExpanded: false) {
+                windowState.togglePanel(.apps)
             }
 
             VColor.divider

@@ -9,43 +9,12 @@
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
+import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("pairing-proxy");
 
 /** 64 KB — pairing payloads are tiny JSON; cap well below maxWebhookPayloadBytes. */
 const MAX_PAIRING_PAYLOAD_BYTES = 64 * 1024;
-
-const HOP_BY_HOP_HEADERS = [
-  "connection",
-  "keep-alive",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-];
-
-function stripHopByHop(headers: Headers): Headers {
-  const cleaned = new Headers(headers);
-  const connectionValue = cleaned.get("connection");
-  if (connectionValue) {
-    for (const name of connectionValue.split(",")) {
-      const trimmed = name.trim().toLowerCase();
-      if (trimmed) {
-        try {
-          cleaned.delete(trimmed);
-        } catch {
-          // Ignore invalid header names
-        }
-      }
-    }
-  }
-  for (const h of HOP_BY_HOP_HEADERS) {
-    cleaned.delete(h);
-  }
-  return cleaned;
-}
 
 export function createPairingProxyHandler(config: GatewayConfig) {
   const TIMEOUT_MS = 15_000;

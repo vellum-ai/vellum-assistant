@@ -1,5 +1,5 @@
-import type { SkillSummary } from '../config/skills.js';
 import type { ResolvedSkill } from '../config/skill-state.js';
+import type { SkillSummary } from '../config/skills.js';
 
 /**
  * Parse whether user input starts with a slash-like command token.

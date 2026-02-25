@@ -1,8 +1,9 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import {
+  getFailoverProvider,
   initializeProviders,
   resolveProviderSelection,
-  getFailoverProvider,
 } from '../providers/registry.js';
 
 /**

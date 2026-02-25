@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
-import type { Message, ProviderResponse } from '../providers/types.js';
+
 import type { AgentEvent } from '../agent/loop.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { Message, ProviderResponse } from '../providers/types.js';
 
 let runCalls: Message[][] = [];
 let profileCompilerCalls = 0;
@@ -235,8 +236,8 @@ mock.module('../agent/loop.js', () => ({
   },
 }));
 
-import { Session, DEFAULT_MEMORY_POLICY } from '../daemon/session.js';
 import type { SessionMemoryPolicy } from '../daemon/session.js';
+import { DEFAULT_MEMORY_POLICY,Session } from '../daemon/session.js';
 import {
   injectDynamicProfileIntoUserMessage,
   stripDynamicProfileMessages,

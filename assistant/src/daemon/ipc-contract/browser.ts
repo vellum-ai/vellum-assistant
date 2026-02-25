@@ -72,3 +72,18 @@ export interface BrowserHandoffRequest {
   message: string;
   bringToFront?: boolean;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _BrowserClientMessages =
+  | BrowserCDPResponse
+  | BrowserUserClick
+  | BrowserUserScroll
+  | BrowserUserKeypress
+  | BrowserInteractiveMode;
+
+export type _BrowserServerMessages =
+  | BrowserFrame
+  | BrowserCDPRequest
+  | BrowserInteractiveModeChanged
+  | BrowserHandoffRequest;

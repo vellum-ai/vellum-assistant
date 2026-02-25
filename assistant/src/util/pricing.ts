@@ -1,5 +1,5 @@
-import type { PricingResult } from '../usage/types.js';
 import type { ModelPricingOverride } from '../config/schema.js';
+import type { PricingResult } from '../usage/types.js';
 
 interface ModelPricing {
   inputPer1M: number;  // USD per 1M input tokens

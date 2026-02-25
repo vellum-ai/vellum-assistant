@@ -15,7 +15,7 @@ export interface RunWorkerTaskOptions {
   dependencyOutputs?: Array<{ taskId: string; summary: string }>;
   backend: SwarmWorkerBackend;
   workingDir: string;
-  model?: string;
+  modelIntent?: string;
   timeoutMs: number;
   onStatus?: WorkerStatusCallback;
   signal?: AbortSignal;
@@ -89,7 +89,7 @@ export async function runWorkerTask(opts: RunWorkerTaskOptions): Promise<SwarmTa
       prompt,
       profile,
       workingDir,
-      model: opts.model,
+      modelIntent: opts.modelIntent,
       timeoutMs,
       signal,
     });

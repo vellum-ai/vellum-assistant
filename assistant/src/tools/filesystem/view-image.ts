@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
+
 import { RiskLevel } from '../../permissions/types.js';
 import type { ImageContent, ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';

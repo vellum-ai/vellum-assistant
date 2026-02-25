@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { createContextSummaryMessage } from '../context/window-manager.js';
 import { buildMemoryQuery } from '../memory/query-builder.js';
 import type { Message } from '../providers/types.js';

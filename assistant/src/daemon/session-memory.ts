@@ -1,18 +1,18 @@
-import type { Message } from '../providers/types.js';
-import type { ServerMessage } from './ipc-protocol.js';
-import type { Provider } from '../providers/types.js';
 import { getConfig } from '../config/loader.js';
-import {
-  buildMemoryRecall,
-  injectMemoryRecallIntoUserMessage,
-  injectMemoryRecallAsSeparateMessage,
-} from '../memory/retriever.js';
-import type { ScopePolicyOverride } from '../memory/search/types.js';
+import { estimatePromptTokens } from '../context/token-estimator.js';
+import { getMemoryConflictAndCleanupStats } from '../memory/admin.js';
+import { compileDynamicProfile } from '../memory/profile-compiler.js';
 import { buildMemoryQuery } from '../memory/query-builder.js';
 import { computeRecallBudget } from '../memory/retrieval-budget.js';
-import { estimatePromptTokens } from '../context/token-estimator.js';
-import { compileDynamicProfile } from '../memory/profile-compiler.js';
-import { getMemoryConflictAndCleanupStats } from '../memory/admin.js';
+import {
+  buildMemoryRecall,
+  injectMemoryRecallAsSeparateMessage,
+  injectMemoryRecallIntoUserMessage,
+} from '../memory/retriever.js';
+import type { ScopePolicyOverride } from '../memory/search/types.js';
+import type { Message } from '../providers/types.js';
+import type { Provider } from '../providers/types.js';
+import type { ServerMessage } from './ipc-protocol.js';
 import type { ConflictGate } from './session-conflict-gate.js';
 import { injectDynamicProfileIntoUserMessage } from './session-dynamic-profile.js';
 
@@ -35,6 +35,8 @@ export interface MemoryPrepareContext {
   scopeId: string;
   includeDefaultFallback: boolean;
   guardianActorRole?: 'guardian' | 'non-guardian' | 'unverified_channel';
+  /** When false (e.g. scheduled tasks), skip conflict clarification prompts. */
+  isInteractive?: boolean;
 }
 
 /**
@@ -87,8 +89,10 @@ export async function prepareMemoryContext(
   const runtimeConfig = getConfig();
   const memoryEnabled = runtimeConfig.memory?.enabled !== false;
 
-  // Conflict gate
-  const conflictConfig = memoryEnabled ? runtimeConfig.memory?.conflicts : undefined;
+  // Conflict gate — skip entirely for non-interactive sessions (scheduled tasks,
+  // work items) since there is no human to answer the clarification question.
+  const isInteractive = ctx.isInteractive !== false;
+  const conflictConfig = memoryEnabled && isInteractive ? runtimeConfig.memory?.conflicts : undefined;
   const conflictGateResult = conflictConfig
     ? await ctx.conflictGate.evaluate(content, conflictConfig, ctx.scopeId)
     : null;

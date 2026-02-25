@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'conv-store-test-'));
 
@@ -23,24 +24,24 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import {
-  createConversation,
-  getConversation,
-  getConversationThreadType,
-  getConversationMemoryScopeId,
-  addMessage,
-  getMessages,
-  deleteLastExchange,
-  isLastUserMessageToolResult,
-  clearAll,
-} from '../memory/conversation-store.js';
-import {
-  uploadAttachment,
-  linkAttachmentToMessage,
-  getAttachmentsForMessage,
   getAttachmentById,
+  getAttachmentsForMessage,
+  linkAttachmentToMessage,
+  uploadAttachment,
 } from '../memory/attachments-store.js';
+import {
+  addMessage,
+  clearAll,
+  createConversation,
+  deleteLastExchange,
+  getConversation,
+  getConversationMemoryScopeId,
+  getConversationThreadType,
+  getMessages,
+  isLastUserMessageToolResult,
+} from '../memory/conversation-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 
 // Initialize db once before all tests
 initializeDb();

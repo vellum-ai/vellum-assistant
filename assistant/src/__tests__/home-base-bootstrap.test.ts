@@ -1,7 +1,8 @@
-import { beforeEach, afterAll, describe, expect, mock, test } from 'bun:test';
-import { join } from 'node:path';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const testRoot = mkdtempSync(join(tmpdir(), 'home-base-bootstrap-test-'));
 const dataDir = join(testRoot, 'data');
@@ -29,10 +30,10 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, resetDb } from '../memory/db.js';
-import { deleteApp } from '../memory/app-store.js';
-import { bootstrapHomeBaseAppLink, resolveHomeBaseAppId } from '../home-base/bootstrap.js';
 import { getHomeBaseAppLink } from '../home-base/app-link-store.js';
+import { bootstrapHomeBaseAppLink, resolveHomeBaseAppId } from '../home-base/bootstrap.js';
+import { deleteApp } from '../memory/app-store.js';
+import { initializeDb, resetDb } from '../memory/db.js';
 
 describe('home base bootstrap', () => {
   beforeEach(() => {

@@ -1,36 +1,37 @@
 import * as net from 'node:net';
-import type { IngressInviteRequest, IngressMemberRequest, AssistantInboxEscalationRequest, AssistantInboxReplyRequest } from '../ipc-protocol.js';
+
 import type { ChannelId } from '../../channels/types.js';
 import { isChannelId, isInterfaceId } from '../../channels/types.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import { getGatewayInternalBaseUrl, getRuntimeProxyBearerToken } from '../../config/env.js';
+import { getLatestStoredPayload } from '../../memory/channel-delivery-store.js';
+import type { GuardianApprovalRequest } from '../../memory/channel-guardian-store.js';
 import {
-  createInvite,
-  listInvites,
-  revokeInvite,
-  redeemInvite,
-  type InviteStatus,
-} from '../../memory/ingress-invite-store.js';
-import {
-  upsertMember,
-  listMembers,
-  revokeMember,
-  blockMember,
-  type IngressMember,
-} from '../../memory/ingress-member-store.js';
-import {
+  type ApprovalRequestStatus,
   listPendingApprovalRequests,
   resolveApprovalRequest,
-  type ApprovalRequestStatus,
 } from '../../memory/channel-guardian-store.js';
-import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
 import { addMessage, getMessages } from '../../memory/conversation-store.js';
 import { getBindingByConversation } from '../../memory/external-conversation-store.js';
+import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
 import { updateThreadActivity } from '../../memory/inbox-thread-store.js';
-import { getLatestStoredPayload } from '../../memory/channel-delivery-store.js';
+import {
+  createInvite,
+  type InviteStatus,
+  listInvites,
+  redeemInvite,
+  revokeInvite,
+} from '../../memory/ingress-invite-store.js';
+import {
+  blockMember,
+  type IngressMember,
+  listMembers,
+  revokeMember,
+  upsertMember,
+} from '../../memory/ingress-member-store.js';
 import { deliverChannelReply } from '../../runtime/gateway-client.js';
-import { getGatewayInternalBaseUrl, getRuntimeProxyBearerToken } from '../../config/env.js';
+import type { AssistantInboxEscalationRequest, AssistantInboxReplyRequest,IngressInviteRequest, IngressMemberRequest } from '../ipc-protocol.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 import { renderHistoryContent } from './shared.js';
-import type { GuardianApprovalRequest } from '../../memory/channel-guardian-store.js';
 
 export function handleIngressInvite(
   msg: IngressInviteRequest,
@@ -419,7 +420,7 @@ async function executeApprove(
   // Process the message through the agent loop (no IPC event callback
   // since this is a background execution without a connected client)
   const noop = () => {};
-  await session.processMessage(messageContent, [], noop);
+  await session.processMessage(messageContent, [], noop, undefined, undefined, undefined, { isInteractive: false });
 
   // Deliver the assistant's reply to the external user via the gateway
   const replyCallbackUrl = typeof payload?.replyCallbackUrl === 'string'

@@ -321,3 +321,44 @@ export interface SessionErrorMessage {
   retryable: boolean;
   debugDetails?: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _SessionsClientMessages =
+  | AuthMessage
+  | PingMessage
+  | CancelRequest
+  | DeleteQueuedMessage
+  | ModelGetRequest
+  | ModelSetRequest
+  | ImageGenModelSetRequest
+  | HistoryRequest
+  | UndoRequest
+  | RegenerateRequest
+  | UsageRequest
+  | SandboxSetRequest
+  | SessionListRequest
+  | SessionCreateRequest
+  | SessionSwitchRequest
+  | SessionRenameRequest
+  | SessionsClearRequest
+  | ConversationSearchRequest;
+
+export type _SessionsServerMessages =
+  | AuthResult
+  | PongMessage
+  | DaemonStatusMessage
+  | GenerationCancelled
+  | GenerationHandoff
+  | ModelInfo
+  | HistoryResponse
+  | UndoComplete
+  | UsageUpdate
+  | UsageResponse
+  | ContextCompacted
+  | SessionErrorMessage
+  | SessionInfo
+  | SessionTitleUpdated
+  | SessionListResponse
+  | SessionsClearResponse
+  | ConversationSearchResponse;

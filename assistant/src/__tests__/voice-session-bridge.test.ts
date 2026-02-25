@@ -1,7 +1,9 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
 
@@ -38,10 +40,10 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { createConversation } from '../memory/conversation-store.js';
-import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { setVoiceBridgeOrchestrator, startVoiceTurn } from '../calls/voice-session-bridge.js';
+import { createConversation } from '../memory/conversation-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 
 initializeDb();
 

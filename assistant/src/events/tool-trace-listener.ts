@@ -1,6 +1,6 @@
+import type { TraceEmitter } from '../daemon/trace-emitter.js';
 import type { EventBus, Subscription } from './bus.js';
 import type { AssistantDomainEvents } from './domain-events.js';
-import type { TraceEmitter } from '../daemon/trace-emitter.js';
 
 export function registerToolTraceListener(
   eventBus: EventBus<AssistantDomainEvents>,

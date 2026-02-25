@@ -1,15 +1,16 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import type { CommitContext } from '../workspace/commit-message-provider.js';
+import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
 
 import {
-  CommitEnrichmentService,
   _resetEnrichmentService,
+  CommitEnrichmentService,
 } from '../workspace/commit-message-enrichment-service.js';
-import { WorkspaceGitService, _resetGitServiceRegistry } from '../workspace/git-service.js';
+import type { CommitContext } from '../workspace/commit-message-provider.js';
+import { _resetGitServiceRegistry,WorkspaceGitService } from '../workspace/git-service.js';
 
 describe('CommitEnrichmentService', () => {
   let testDir: string;

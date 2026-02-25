@@ -1,4 +1,4 @@
-import type { Provider, Message, ModelIntent } from '../providers/types.js';
+import type { Message, ModelIntent,Provider } from '../providers/types.js';
 import type { SwarmTaskResult } from './types.js';
 
 /**
@@ -9,10 +9,9 @@ export async function synthesizeResults(opts: {
   objective: string;
   results: SwarmTaskResult[];
   provider: Provider;
-  model?: string;
   modelIntent?: ModelIntent;
 }): Promise<string> {
-  const { objective, results, provider, model, modelIntent } = opts;
+  const { objective, results, provider, modelIntent } = opts;
 
   // Cap individual summaries and total input to avoid blowing up context on large plans
   const MAX_SUMMARY_CHARS = 500;
@@ -48,7 +47,7 @@ Synthesize these results into a clear, complete answer for the user.`;
       messages,
       undefined,
       systemPrompt,
-      { config: { max_tokens: 4096, ...(model ? { model } : { modelIntent }) } },
+      { config: { max_tokens: 4096, modelIntent } },
     );
 
     const textBlock = response.content.find((b) => b.type === 'text');

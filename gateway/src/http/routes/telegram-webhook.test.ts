@@ -31,6 +31,7 @@ mock.module("../../runtime/client.js", () => ({
   resetConversation: resetConversationMock,
   uploadAttachment: mock(() => Promise.resolve({ id: "att-1" })),
   AttachmentValidationError: class extends Error {},
+  CircuitBreakerOpenError: class extends Error {},
 }));
 
 mock.module("../../telegram/verify.js", () => ({
@@ -88,6 +89,7 @@ const baseConfig: GatewayConfig = {
   whatsappTimeoutMs: 15000,
   whatsappMaxRetries: 3,
   whatsappInitialBackoffMs: 1000,
+    trustProxy: false,
 };
 
 function makeCallbackQueryBody(data: string, updateId = 200) {

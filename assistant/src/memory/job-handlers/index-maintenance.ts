@@ -1,8 +1,9 @@
 import { eq } from 'drizzle-orm';
+
 import { getLogger } from '../../util/logger.js';
 import { getDb, rawExec } from '../db.js';
-import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { asString, BackendUnavailableError } from '../job-utils.js';
+import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { getQdrantClient } from '../qdrant-client.js';
 import { memoryEmbeddings, memoryItems, memorySegments, memorySummaries } from '../schema.js';
 

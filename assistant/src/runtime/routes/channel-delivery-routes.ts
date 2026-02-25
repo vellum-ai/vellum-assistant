@@ -2,10 +2,10 @@
  * Channel delivery routes: delivery ack, dead letters, reply delivery,
  * and post-decision delivery scheduling.
  */
-import * as conversationStore from '../../memory/conversation-store.js';
+import { renderHistoryContent } from '../../daemon/handlers.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
-import { renderHistoryContent } from '../../daemon/handlers.js';
+import * as conversationStore from '../../memory/conversation-store.js';
 import { getLogger } from '../../util/logger.js';
 import { deliverChannelReply } from '../gateway-client.js';
 import type { RuntimeAttachmentMetadata } from '../http-types.js';

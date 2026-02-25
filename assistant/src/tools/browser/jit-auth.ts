@@ -1,5 +1,5 @@
-import type { AuthChallenge, AuthField } from './auth-detector.js';
 import type { FormField, FormSurfaceData } from '../../daemon/ipc-protocol.js';
+import type { AuthChallenge, AuthField } from './auth-detector.js';
 
 /**
  * Build a FormSurfaceData suitable for ui_show that prompts the user

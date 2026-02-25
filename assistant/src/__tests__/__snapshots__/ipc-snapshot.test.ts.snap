@@ -1823,11 +1823,11 @@ exports[`IPC message snapshots ServerMessage types watcher_escalation serializes
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types agent_heartbeat_alert serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types heartbeat_alert serializes to expected JSON 1`] = `
 {
   "body": "No activity detected in the last 60 minutes.",
-  "title": "Agent heartbeat stalled",
-  "type": "agent_heartbeat_alert",
+  "title": "Heartbeat stalled",
+  "type": "heartbeat_alert",
 }
 `;
 

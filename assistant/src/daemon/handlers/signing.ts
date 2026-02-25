@@ -1,4 +1,4 @@
-import { log, pendingSignBundlePayload, pendingSigningIdentity, defineHandlers } from './shared.js';
+import { defineHandlers,log, pendingSignBundlePayload, pendingSigningIdentity } from './shared.js';
 
 export const signingHandlers = defineHandlers({
   sign_bundle_payload_response: (msg) => {

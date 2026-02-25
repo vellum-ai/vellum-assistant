@@ -1,6 +1,7 @@
-import { describe, test, expect, mock, spyOn } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+
+import { describe, expect, mock, spyOn,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing modules that use them

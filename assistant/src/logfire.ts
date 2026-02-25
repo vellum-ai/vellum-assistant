@@ -1,14 +1,13 @@
-import type { Provider, ProviderResponse, SendMessageOptions, Message, ToolDefinition } from './providers/types.js';
-import { APP_VERSION } from './version.js';
-import { getLogger } from './util/logger.js';
 import { getLogfireToken, isMonitoringEnabled } from './config/env.js';
+import type { Message, Provider, ProviderResponse, SendMessageOptions, ToolDefinition } from './providers/types.js';
+import { getLogger } from './util/logger.js';
+import { APP_VERSION } from './version.js';
 
 const log = getLogger('logfire');
 
 type LogfireModule = typeof import('@pydantic/logfire-node');
 
 const LOGFIRE_ENABLED: boolean =
-  APP_VERSION === '0.0.0-dev' &&
   !!getLogfireToken() &&
   isMonitoringEnabled();
 

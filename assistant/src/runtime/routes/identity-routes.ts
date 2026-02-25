@@ -2,11 +2,12 @@
  * Identity and health endpoint handlers.
  */
 
-import { existsSync, readFileSync, statSync, statfsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { existsSync, readFileSync, statfsSync,statSync } from 'node:fs';
+import { dirname,join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getWorkspacePromptPath, readLockfile } from '../../util/platform.js';
+
 import { getBaseDataDir } from '../../config/env-registry.js';
+import { getWorkspacePromptPath, readLockfile } from '../../util/platform.js';
 
 interface DiskSpaceInfo {
   path: string;

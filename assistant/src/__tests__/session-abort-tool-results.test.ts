@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test';
-import type { Message, ProviderResponse, ContentBlock } from '../providers/types.js';
+
 import type { AgentEvent } from '../agent/loop.js';
+import type { ContentBlock,Message, ProviderResponse } from '../providers/types.js';
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, { get: () => () => {} }),

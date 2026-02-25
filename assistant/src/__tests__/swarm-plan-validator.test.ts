@@ -1,10 +1,11 @@
-import { describe, test, expect } from 'bun:test';
-import {
-  validateAndNormalizePlan,
-  SwarmPlanValidationError,
-  resolveSwarmLimits,
-} from '../swarm/index.js';
+import { describe, expect,test } from 'bun:test';
+
 import type { SwarmPlan } from '../swarm/index.js';
+import {
+  resolveSwarmLimits,
+  SwarmPlanValidationError,
+  validateAndNormalizePlan,
+} from '../swarm/index.js';
 
 const DEFAULT_LIMITS = resolveSwarmLimits({
   maxWorkers: 3,
@@ -82,7 +83,7 @@ describe('validateAndNormalizePlan', () => {
   test('rejects invalid role', () => {
     const plan = makePlan({
       tasks: [
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- testing invalid role
+         
         { id: 'bad', role: 'hacker' as any, objective: 'Hack', dependencies: [] },
       ],
     });
@@ -229,7 +230,7 @@ describe('validateAndNormalizePlan', () => {
     const plan: SwarmPlan = {
       objective: 'Test',
       tasks: [
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- testing missing dependencies
+         
         { id: 'a', role: 'coder', objective: 'A', dependencies: undefined as any },
       ],
     };
@@ -241,7 +242,7 @@ describe('validateAndNormalizePlan', () => {
     const plan = makePlan({
       objective: '',
       tasks: [
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- testing invalid role
+         
         { id: 'a', role: 'invalid' as any, objective: 'A', dependencies: ['nonexistent'] },
         { id: 'a', role: 'coder', objective: 'B', dependencies: [] },
       ],

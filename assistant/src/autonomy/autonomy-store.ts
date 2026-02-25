@@ -7,13 +7,14 @@
  * preferences), so it belongs on disk rather than in the SQLite database.
  */
 
-import { writeFileSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { getWorkspaceDir } from '../util/platform.js';
+import { mkdirSync,writeFileSync } from 'node:fs';
+import { dirname,join } from 'node:path';
+
 import { readTextFileSync } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
+import { getWorkspaceDir } from '../util/platform.js';
 import type { AutonomyConfig, AutonomyTier } from './types.js';
-import { DEFAULT_AUTONOMY_CONFIG, AUTONOMY_TIERS } from './types.js';
+import { AUTONOMY_TIERS,DEFAULT_AUTONOMY_CONFIG } from './types.js';
 
 const log = getLogger('autonomy-store');
 

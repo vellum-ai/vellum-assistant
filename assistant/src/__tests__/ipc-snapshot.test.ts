@@ -1,9 +1,10 @@
-import { describe, test, expect } from 'bun:test';
-import { serialize } from '../daemon/ipc-protocol.js';
+import { describe, expect,test } from 'bun:test';
+
 import type {
   ClientMessage,
   ServerMessage,
 } from '../daemon/ipc-protocol.js';
+import { serialize } from '../daemon/ipc-protocol.js';
 
 /**
  * Snapshot tests for every IPC message type.
@@ -1126,9 +1127,9 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     title: 'Urgent email from Alice',
     body: 'Meeting rescheduled to 3pm today.',
   },
-  agent_heartbeat_alert: {
-    type: 'agent_heartbeat_alert',
-    title: 'Agent heartbeat stalled',
+  heartbeat_alert: {
+    type: 'heartbeat_alert',
+    title: 'Heartbeat stalled',
     body: 'No activity detected in the last 60 minutes.',
   },
   watch_started: {

@@ -8,8 +8,8 @@
  */
 
 import { getLogger } from '../util/logger.js';
-import { findActiveEnrollmentsByEmail, exitEnrollment, getSequence } from './store.js';
 import { recordEvent } from './analytics.js';
+import { exitEnrollment, findActiveEnrollmentsByEmail, getSequence } from './store.js';
 
 const log = getLogger('sequence:reply-matcher');
 

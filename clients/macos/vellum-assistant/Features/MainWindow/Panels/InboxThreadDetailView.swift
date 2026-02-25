@@ -84,7 +84,7 @@ struct InboxThreadDetailView: View {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
-                    .onChange(of: viewModel.messages.count) { _ in
+                    .onChange(of: viewModel.messages.count) {
                         if let lastMessage = viewModel.messages.last {
                             withAnimation(VAnimation.fast) {
                                 proxy.scrollTo(lastMessage.id, anchor: .bottom)

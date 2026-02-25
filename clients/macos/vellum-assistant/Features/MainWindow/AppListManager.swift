@@ -1,5 +1,6 @@
 import Foundation
 import os
+import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppListManager")
 
@@ -15,6 +16,10 @@ final class AppListManager: ObservableObject {
         var lastOpenedAt: Date
         var isPinned: Bool = false
         var pinnedOrder: Int? = nil
+        /// SF Symbol name for the generated app icon (e.g., "chart.line.uptrend.xyaxis")
+        var sfSymbol: String? = nil
+        /// Pair of hex color strings for the gradient background (e.g., ["#7C3AED", "#4F46E5"])
+        var iconBackground: [String]? = nil
     }
 
     @Published var apps: [AppItem] = []
@@ -53,8 +58,15 @@ final class AppListManager: ObservableObject {
             if let icon { apps[index].icon = icon }
             if let previewBase64 { apps[index].previewBase64 = previewBase64 }
             if let appType { apps[index].appType = appType }
+            // Auto-assign icon if this app doesn't have one yet
+            if apps[index].sfSymbol == nil {
+                let generated = VAppIconGenerator.generate(from: name, type: appType ?? apps[index].appType)
+                apps[index].sfSymbol = generated.sfSymbol
+                apps[index].iconBackground = generated.colors
+            }
         } else {
-            let item = AppItem(
+            let generated = VAppIconGenerator.generate(from: name, type: appType)
+            var item = AppItem(
                 id: id,
                 name: name,
                 icon: icon,
@@ -62,6 +74,8 @@ final class AppListManager: ObservableObject {
                 appType: appType,
                 lastOpenedAt: Date()
             )
+            item.sfSymbol = generated.sfSymbol
+            item.iconBackground = generated.colors
             apps.append(item)
         }
         save()
@@ -96,6 +110,13 @@ final class AppListManager: ObservableObject {
 
     func removeApp(id: String) {
         apps.removeAll { $0.id == id }
+        save()
+    }
+
+    func updateAppIcon(id: String, sfSymbol: String, iconBackground: [String]) {
+        guard let index = apps.firstIndex(where: { $0.id == id }) else { return }
+        apps[index].sfSymbol = sfSymbol
+        apps[index].iconBackground = iconBackground
         save()
     }
 
@@ -146,6 +167,19 @@ final class AppListManager: ObservableObject {
             decoder.dateDecodingStrategy = .iso8601
             apps = try decoder.decode([AppItem].self, from: data)
             log.info("Loaded \(self.apps.count) app list entries")
+
+            // Migrate existing apps that don't have icons assigned yet
+            var didMigrate = false
+            for index in apps.indices where apps[index].sfSymbol == nil {
+                let generated = VAppIconGenerator.generate(from: apps[index].name, type: apps[index].appType)
+                apps[index].sfSymbol = generated.sfSymbol
+                apps[index].iconBackground = generated.colors
+                didMigrate = true
+            }
+            if didMigrate {
+                save()
+                log.info("Migrated app icons for existing entries")
+            }
         } catch {
             log.error("Failed to load app list: \(error.localizedDescription)")
         }

@@ -1,10 +1,10 @@
+export { SubagentManager } from './manager.js';
 export type {
-  SubagentStatus,
   SubagentConfig,
   SubagentState,
+  SubagentStatus,
 } from './types.js';
-export { TERMINAL_STATUSES, SUBAGENT_LIMITS } from './types.js';
-export { SubagentManager } from './manager.js';
+export { SUBAGENT_LIMITS,TERMINAL_STATUSES } from './types.js';
 
 import { SubagentManager } from './manager.js';
 

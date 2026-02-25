@@ -2,7 +2,7 @@
  * Route handlers for attachment upload, download, and deletion.
  */
 import * as attachmentsStore from '../../memory/attachments-store.js';
-import { validateAttachmentUpload, AttachmentUploadError } from '../../memory/attachments-store.js';
+import { AttachmentUploadError,validateAttachmentUpload } from '../../memory/attachments-store.js';
 
 /** 30 MB — base64-encoded 20 MB attachment ≈ 27 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;

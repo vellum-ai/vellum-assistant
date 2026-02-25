@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createApp, listApps, type AppDefinition } from '../../memory/app-store.js';
+
+import { type AppDefinition,createApp, listApps } from '../../memory/app-store.js';
 import { getLogger } from '../../util/logger.js';
 import {
   HOME_BASE_PREBUILT_DESCRIPTION_PREFIX,

@@ -6,11 +6,11 @@
  * Falls back to listing recent unread messages if the historyId has expired (404).
  */
 
-import { withValidToken } from '../../security/token-manager.js';
-import { getProfile, batchGetMessages } from '../../messaging/providers/gmail/client.js';
+import { batchGetMessages,getProfile } from '../../messaging/providers/gmail/client.js';
 import type { GmailMessage } from '../../messaging/providers/gmail/types.js';
-import type { WatcherProvider, WatcherItem, FetchResult } from '../provider-types.js';
+import { withValidToken } from '../../security/token-manager.js';
 import { getLogger } from '../../util/logger.js';
+import type { FetchResult,WatcherItem, WatcherProvider } from '../provider-types.js';
 
 const log = getLogger('watcher:gmail');
 

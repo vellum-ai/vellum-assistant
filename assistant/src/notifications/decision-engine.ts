@@ -10,9 +10,11 @@
  */
 
 import { v4 as uuid } from 'uuid';
+
 import { getConfig } from '../config/loader.js';
+import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
+import type { ModelIntent } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
-import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/provider-send-message.js';
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal } from './signal.js';
@@ -254,7 +256,7 @@ export async function evaluateSignal(
   preferenceContext?: string,
 ): Promise<NotificationDecision> {
   const config = getConfig();
-  const decisionModel = config.notifications.decisionModel;
+  const decisionModelIntent = config.notifications.decisionModelIntent;
 
   // When no explicit preference context is provided, load the user's
   // stored notification preferences from the memory-backed store.
@@ -280,7 +282,7 @@ export async function evaluateSignal(
 
   let decision: NotificationDecision;
   try {
-    decision = await classifyWithLLM(signal, availableChannels, resolvedPreferenceContext, decisionModel);
+    decision = await classifyWithLLM(signal, availableChannels, resolvedPreferenceContext, decisionModelIntent);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.warn({ err: errMsg }, 'Notification decision LLM call failed, using fallback');
@@ -298,7 +300,7 @@ async function classifyWithLLM(
   signal: NotificationSignal,
   availableChannels: NotificationChannel[],
   preferenceContext: string | undefined,
-  model: string,
+  modelIntent: ModelIntent,
 ): Promise<NotificationDecision> {
   const provider = getConfiguredProvider()!;
   const { signal: abortSignal, cleanup } = createTimeout(DECISION_TIMEOUT_MS);
@@ -314,7 +316,7 @@ async function classifyWithLLM(
       systemPrompt,
       {
         config: {
-          model,
+          modelIntent,
           max_tokens: 2048,
           tool_choice: { type: 'tool' as const, name: 'record_notification_decision' },
         },

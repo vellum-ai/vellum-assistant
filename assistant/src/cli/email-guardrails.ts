@@ -3,10 +3,12 @@
  * Stores state in ~/.vellum/email-guardrails.json.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync,readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getRootDir } from '../util/platform.js';
+
 import { minimatch } from 'minimatch';
+
+import { getRootDir } from '../util/platform.js';
 
 export interface AddressRule {
   id: string;

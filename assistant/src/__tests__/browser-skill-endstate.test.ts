@@ -4,21 +4,21 @@
  * Locks the final invariants from the BROWSER_SKILL plan so that future
  * changes cannot silently regress any of the migration guarantees.
  */
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { afterAll,beforeAll, describe, expect, test } from 'bun:test';
 
+import { projectSkillTools, resetSkillToolProjection } from '../daemon/session-skill-tools.js';
+import { getDefaultRuleTemplates } from '../permissions/defaults.js';
+import {
+  __resetRegistryForTesting,
+  getAllToolDefinitions,
+  getAllTools,
+  initializeTools,
+} from '../tools/registry.js';
 import { eagerModuleToolNames } from '../tools/tool-manifest.js';
 import {
-  initializeTools,
-  getAllTools,
-  getAllToolDefinitions,
-  __resetRegistryForTesting,
-} from '../tools/registry.js';
-import { getDefaultRuleTemplates } from '../permissions/defaults.js';
-import { projectSkillTools, resetSkillToolProjection } from '../daemon/session-skill-tools.js';
-import {
-  BROWSER_TOOL_NAMES,
-  BROWSER_TOOL_COUNT,
   BROWSER_SKILL_ID,
+  BROWSER_TOOL_COUNT,
+  BROWSER_TOOL_NAMES,
   buildSkillLoadHistory,
 } from './test-support/browser-skill-harness.js';
 

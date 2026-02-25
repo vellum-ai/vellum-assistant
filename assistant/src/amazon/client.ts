@@ -48,15 +48,15 @@
  * not that we're rate-limited. Check the response body before classifying the error.
  */
 
-import {
-  loadSession,
-  type AmazonSession,
-} from './session.js';
-import type { ExtractedCredential } from '../tools/browser/network-recording-types.js';
-import { extensionRelayServer } from '../browser-extension-relay/server.js';
 import type { ExtensionCommand, ExtensionResponse } from '../browser-extension-relay/protocol.js';
-import { readHttpToken } from '../util/platform.js';
+import { extensionRelayServer } from '../browser-extension-relay/server.js';
 import { getRuntimeHttpPort } from '../config/env.js';
+import type { ExtractedCredential } from '../tools/browser/network-recording-types.js';
+import { readHttpToken } from '../util/platform.js';
+import {
+  type AmazonSession,
+  loadSession,
+} from './session.js';
 
 export const AMAZON_BASE = 'https://www.amazon.com';
 
@@ -357,13 +357,13 @@ export interface PlaceOrderResult {
 // Re-export public API from submodules
 // ---------------------------------------------------------------------------
 
-export { search } from './search.js';
-export { getProductDetails } from './product-details.js';
 export { addToCart, removeFromCart, viewCart } from './cart.js';
 export {
-  getFreshDeliverySlots,
-  selectFreshDeliverySlot,
-  getPaymentMethods,
   getCheckoutSummary,
+  getFreshDeliverySlots,
+  getPaymentMethods,
   placeOrder,
+  selectFreshDeliverySlot,
 } from './checkout.js';
+export { getProductDetails } from './product-details.js';
+export { search } from './search.js';

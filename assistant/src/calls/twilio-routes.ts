@@ -6,29 +6,30 @@
  * - handleConnectAction: called when the ConversationRelay connection ends
  */
 
-import { getLogger } from '../util/logger.js';
-import { getCallWelcomeGreeting } from '../config/env.js';
-import {
-  getCallSession,
-  getCallSessionByCallSid,
-  updateCallSession,
-  recordCallEvent,
-  expirePendingQuestions,
-  buildCallbackDedupeKey,
-  claimCallback,
-  releaseCallbackClaim,
-  finalizeCallbackClaim,
-} from './call-store.js';
-import type { CallStatus } from './types.js';
-import { logDeadLetterEvent } from './call-recovery.js';
-import { isTerminalState } from './call-state-machine.js';
-import { getTwilioConfig } from './twilio-config.js';
+import { getCallWelcomeGreeting, getRuntimeProxyBearerToken } from '../config/env.js';
 import { loadConfig } from '../config/loader.js';
 import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
-import { fireCallCompletionNotifier } from './call-state.js';
+import { getLogger } from '../util/logger.js';
+import { readHttpToken } from '../util/platform.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
-import { resolveVoiceQualityProfile, isVoiceProfileValid } from './voice-quality.js';
 import { createInboundVoiceSession } from './call-domain.js';
+import { logDeadLetterEvent } from './call-recovery.js';
+import { fireCallCompletionNotifier } from './call-state.js';
+import { isTerminalState } from './call-state-machine.js';
+import {
+  buildCallbackDedupeKey,
+  claimCallback,
+  expirePendingQuestions,
+  finalizeCallbackClaim,
+  getCallSession,
+  getCallSessionByCallSid,
+  recordCallEvent,
+  releaseCallbackClaim,
+  updateCallSession,
+} from './call-store.js';
+import { getTwilioConfig } from './twilio-config.js';
+import type { CallStatus } from './types.js';
+import { isVoiceProfileValid,resolveVoiceQualityProfile } from './voice-quality.js';
 
 const log = getLogger('twilio-routes');
 
@@ -48,15 +49,17 @@ export function generateTwiML(
   relayUrl: string,
   welcomeGreeting: string | null,
   profile: { language: string; transcriptionProvider: string; ttsProvider: string; voice: string },
+  relayToken?: string,
 ): string {
   const greetingAttr = welcomeGreeting && welcomeGreeting.trim().length > 0
     ? `\n      welcomeGreeting="${escapeXml(welcomeGreeting.trim())}"`
     : '';
+  const tokenParam = relayToken ? `&amp;token=${escapeXml(encodeURIComponent(relayToken))}` : '';
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <ConversationRelay
-      url="${escapeXml(relayUrl)}?callSessionId=${escapeXml(callSessionId)}"
+      url="${escapeXml(relayUrl)}?callSessionId=${escapeXml(callSessionId)}${tokenParam}"
 ${greetingAttr}
       voice="${escapeXml(profile.voice)}"
       language="${escapeXml(profile.language)}"
@@ -237,7 +240,11 @@ function buildVoiceWebhookTwiml(
   }
   const welcomeGreeting = buildWelcomeGreeting(task, getCallWelcomeGreeting());
 
-  const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile);
+  // Use the same token resolution the gateway uses for runtimeProxyBearerToken:
+  // env var override first, then the on-disk http-token file.
+  const relayToken = getRuntimeProxyBearerToken() ?? readHttpToken() ?? undefined;
+
+  const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile, relayToken);
 
   log.info({ callSessionId }, 'Returning ConversationRelay TwiML');
 

@@ -2,8 +2,8 @@ import { getApp } from '../memory/app-store.js';
 import { getLogger } from '../util/logger.js';
 import {
   getHomeBaseAppLink,
-  setHomeBaseAppLink,
   type HomeBaseAppLink,
+  setHomeBaseAppLink,
 } from './app-link-store.js';
 import { ensurePrebuiltHomeBaseSeeded, findSeededHomeBaseApp } from './prebuilt/seed.js';
 

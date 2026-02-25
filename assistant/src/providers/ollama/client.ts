@@ -1,5 +1,5 @@
-import { OpenAIProvider } from '../openai/client.js';
 import { getOllamaBaseUrlEnv } from '../../config/env.js';
+import { OpenAIProvider } from '../openai/client.js';
 
 export interface OllamaProviderOptions {
   apiKey?: string;

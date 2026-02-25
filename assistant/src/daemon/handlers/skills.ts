@@ -1,29 +1,30 @@
-import * as net from 'node:net';
 import { existsSync, rmSync } from 'node:fs';
+import * as net from 'node:net';
 import { join } from 'node:path';
-import { getConfig, loadRawConfig, saveRawConfig, invalidateConfigCache } from '../../config/loader.js';
-import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../../config/skills.js';
+
+import { getConfig, invalidateConfigCache,loadRawConfig, saveRawConfig } from '../../config/loader.js';
 import { resolveSkillStates } from '../../config/skill-state.js';
+import { ensureSkillIcon,loadSkillBySelector, loadSkillCatalog } from '../../config/skills.js';
+import { createTimeout,extractText, getConfiguredProvider, userMessage } from '../../providers/provider-send-message.js';
+import { clawhubCheckUpdates, clawhubInspect, clawhubInstall, clawhubSearch, type ClawhubSearchResultItem,clawhubUpdate } from '../../skills/clawhub.js';
+import { createManagedSkill,deleteManagedSkill, removeSkillsIndexEntry, validateManagedSkillId } from '../../skills/managed-store.js';
+import { checkVellumSkill,installFromVellumCatalog, listCatalogEntries } from '../../tools/skills/vellum-catalog.js';
 import { getWorkspaceSkillsDir } from '../../util/platform.js';
-import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect, type ClawhubSearchResultItem } from '../../skills/clawhub.js';
-import { removeSkillsIndexEntry, deleteManagedSkill, validateManagedSkillId, createManagedSkill } from '../../skills/managed-store.js';
-import { listCatalogEntries, installFromVellumCatalog, checkVellumSkill } from '../../tools/skills/vellum-catalog.js';
-import { getConfiguredProvider, extractText, userMessage, createTimeout } from '../../providers/provider-send-message.js';
 import type {
   SkillDetailRequest,
-  SkillsEnableRequest,
-  SkillsDisableRequest,
+  SkillsCheckUpdatesRequest,
   SkillsConfigureRequest,
+  SkillsCreateRequest,
+  SkillsDisableRequest,
+  SkillsDraftRequest,
+  SkillsEnableRequest,
+  SkillsInspectRequest,
   SkillsInstallRequest,
+  SkillsSearchRequest,
   SkillsUninstallRequest,
   SkillsUpdateRequest,
-  SkillsCheckUpdatesRequest,
-  SkillsSearchRequest,
-  SkillsInspectRequest,
-  SkillsDraftRequest,
-  SkillsCreateRequest,
 } from '../ipc-protocol.js';
-import { log, CONFIG_RELOAD_DEBOUNCE_MS, ensureSkillEntry, defineHandlers, type HandlerContext } from './shared.js';
+import { CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, ensureSkillEntry, type HandlerContext,log } from './shared.js';
 
 export function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();

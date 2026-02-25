@@ -1,4 +1,4 @@
-import { parse, type ParsedCommand, type CommandSegment, type DangerousPattern } from '../tools/terminal/parser.js';
+import { type CommandSegment, type DangerousPattern,parse, type ParsedCommand } from '../tools/terminal/parser.js';
 import type { AllowlistOption } from './types.js';
 
 export type { ParsedCommand };

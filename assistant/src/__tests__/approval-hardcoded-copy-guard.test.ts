@@ -6,9 +6,9 @@
  * since that is where deterministic fallback copy legitimately lives.
  */
 
+import { describe, expect,test } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { describe, test, expect } from 'bun:test';
 
 const SCANNED_FILES = [
   'runtime/channel-approvals.ts',

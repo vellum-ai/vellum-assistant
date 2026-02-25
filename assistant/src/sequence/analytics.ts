@@ -7,11 +7,11 @@
  */
 
 import {
-  listSequences,
-  listEnrollments,
   countActiveEnrollments,
+  listEnrollments,
+  listSequences,
 } from './store.js';
-import type { Sequence, SequenceEnrollment } from './types.js';
+import type { Sequence } from './types.js';
 
 // ── Event tracking ──────────────────────────────────────────────────
 

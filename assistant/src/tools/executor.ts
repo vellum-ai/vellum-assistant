@@ -1,27 +1,29 @@
 import { readFileSync } from 'node:fs';
-import { pathExists, safeStatSync } from '../util/fs.js';
-import { getTool, getAllTools } from './registry.js';
-import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
-import { RiskLevel } from '../permissions/types.js';
+
+import { getConfig } from '../config/loader.js';
+import { getHookManager } from '../hooks/manager.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
-import { addRule } from '../permissions/trust-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
-import { ToolError, PermissionDeniedError } from '../util/errors.js';
+import { addRule } from '../permissions/trust-store.js';
+import { RiskLevel } from '../permissions/types.js';
+import { isToolBlocked } from '../security/parental-control-store.js';
+import { redactSensitiveFields } from '../security/redaction.js';
+import { redactSecrets,scanText } from '../security/secret-scanner.js';
 import { TokenExpiredError } from '../security/token-manager.js';
+import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
+import { PermissionDeniedError,ToolError } from '../util/errors.js';
+import { pathExists, safeStatSync } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
+import { resolveExecutionTarget } from './execution-target.js';
+import { executeWithTimeout,safeTimeoutMs } from './execution-timeout.js';
+import { buildPolicyContext } from './policy-context.js';
+import { getAllTools,getTool } from './registry.js';
+import { applyEdit } from './shared/filesystem/edit-engine.js';
 import { sandboxPolicy } from './shared/filesystem/path-policy.js';
 import { MAX_FILE_SIZE_BYTES } from './shared/filesystem/size-guard.js';
-import { applyEdit } from './shared/filesystem/edit-engine.js';
+import { isSideEffectTool } from './side-effects.js';
 import { wrapCommand } from './terminal/sandbox.js';
-import { getConfig } from '../config/loader.js';
-import { scanText, redactSecrets } from '../security/secret-scanner.js';
-import { redactSensitiveFields } from '../security/redaction.js';
-import { getHookManager } from '../hooks/manager.js';
-import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
-import { safeTimeoutMs, executeWithTimeout } from './execution-timeout.js';
-import { buildPolicyContext } from './policy-context.js';
-import { resolveExecutionTarget } from './execution-target.js';
-import { isToolBlocked } from '../security/parental-control-store.js';
+import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 
 const log = getLogger('tool-executor');
 
@@ -437,8 +439,22 @@ export class ToolExecutor {
 
       // Execute the tool — proxy tools delegate to an external resolver
       let execResult: ToolExecutionResult;
-      const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
-      const toolTimeoutMs = safeTimeoutMs(rawTimeoutSec);
+      let toolTimeoutMs: number;
+      if (name === 'bash' || name === 'host_bash') {
+        // Shell tools manage their own timeouts (SIGKILL on expiry).
+        // Compute the same effective timeout so the executor wrapper
+        // doesn't prematurely kill them with the generic toolExecutionTimeoutSec.
+        const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = getConfig().timeouts;
+        const requestedSec = typeof input.timeout_seconds === 'number'
+          ? input.timeout_seconds
+          : shellDefaultTimeoutSec;
+        const shellTimeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
+        // Buffer so the shell's own timeout fires first and handles cleanup
+        toolTimeoutMs = (shellTimeoutSec + 5) * 1000;
+      } else {
+        const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
+        toolTimeoutMs = safeTimeoutMs(rawTimeoutSec);
+      }
 
       const execContext = context;
 
@@ -748,62 +764,9 @@ export class ToolExecutor {
   }
 }
 
-// ── Side-effect tool classifier ─────────────────────────────────────
-// Tools that modify state outside the assistant (filesystem writes,
-// shell commands, network requests that trigger actions, etc.).
-// Used by private-thread gating to decide whether a tool invocation
-// should be blocked in a read-only thread context.
-
-const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
-  'file_write',
-  'file_edit',
-  'host_file_write',
-  'host_file_edit',
-  'bash',
-  'host_bash',
-  'web_fetch',
-  'browser_navigate',
-  'browser_click',
-  'browser_type',
-  'browser_press_key',
-  'browser_scroll',
-  'browser_select_option',
-  'browser_hover',
-  'browser_close',
-  'browser_fill_credential',
-  'document_create',
-  'document_update',
-  'reminder_create',
-  'reminder_cancel',
-  'schedule_create',
-  'schedule_update',
-  'schedule_delete',
-]);
-
-/**
- * Returns `true` if the given tool name is classified as having side effects
- * (i.e. it can modify the filesystem, execute arbitrary commands, or trigger
- * external actions). Read-only and informational tools return `false`.
- *
- * For mixed-action tools (e.g. account_manage, reminder), the optional
- * `input` parameter is inspected to distinguish mutating actions (create,
- * update, cancel) from read-only ones (list, get).
- */
-export function isSideEffectTool(toolName: string, input?: Record<string, unknown>): boolean {
-  if (SIDE_EFFECT_TOOLS.has(toolName)) return true;
-
-  // Action-aware checks for mixed-action tools
-  if (toolName === 'account_manage') {
-    const action = input?.action;
-    return action === 'create' || action === 'update';
-  }
-  if (toolName === 'credential_store') {
-    const action = input?.action;
-    return action === 'store' || action === 'delete' || action === 'prompt' || action === 'oauth2_connect';
-  }
-
-  return false;
-}
+// Re-export from the canonical source so existing consumers of
+// `executor.ts` continue to work without changing their imports.
+export { isSideEffectTool } from './side-effects.js';
 
 /**
  * Sanitize tool inputs before they are emitted in lifecycle events and hooks.

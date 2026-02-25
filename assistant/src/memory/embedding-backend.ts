@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
+
+import { getOllamaBaseUrlEnv } from '../config/env.js';
 import type { AssistantConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
-import { getOllamaBaseUrlEnv } from '../config/env.js';
 import { GeminiEmbeddingBackend } from './embedding-gemini.js';
 import { LocalEmbeddingBackend } from './embedding-local.js';
 import { OllamaEmbeddingBackend } from './embedding-ollama.js';

@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
-import { getClipboardCommand } from './platform.js';
+
 import { PlatformError } from './errors.js';
+import { getClipboardCommand } from './platform.js';
 
 export function copyToClipboard(text: string): void {
   const cmd = getClipboardCommand();

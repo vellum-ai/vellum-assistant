@@ -5,9 +5,9 @@
  * agent loop is in flight.
  */
 
-import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
+import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 
 const log = getLogger('session-queue');
 
@@ -21,6 +21,8 @@ export interface QueuedMessage {
   metadata?: Record<string, unknown>;
   turnChannelContext?: TurnChannelContext;
   turnInterfaceContext?: TurnInterfaceContext;
+  /** When false, the turn has no interactive user and should skip clarification prompts. */
+  isInteractive?: boolean;
   /** Timestamp (ms) when the message was enqueued. */
   queuedAt: number;
 }

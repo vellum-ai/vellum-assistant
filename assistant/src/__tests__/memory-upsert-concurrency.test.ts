@@ -17,10 +17,11 @@
  * processes and is not tested here.
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 
 const testDir = mkdtempSync(join(tmpdir(), 'memory-upsert-concurrency-'));
@@ -74,15 +75,15 @@ mock.module('../config/loader.js', () => ({
   invalidateConfigCache: () => {},
 }));
 
+import { createOrUpdatePendingConflict, listPendingConflicts } from '../memory/conflict-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { indexMessageNow } from '../memory/indexer.js';
 import {
   conversations,
   memoryItems,
   memorySegments,
   messages,
 } from '../memory/schema.js';
-import { indexMessageNow } from '../memory/indexer.js';
-import { createOrUpdatePendingConflict, listPendingConflicts } from '../memory/conflict-store.js';
 
 // Initialize DB once for the entire file. Each test cleans its own tables.
 initializeDb();

@@ -1,8 +1,9 @@
-import { describe, test, expect, mock, beforeEach, afterAll } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
+import * as net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as net from 'node:net';
+
+import { afterAll,beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'handlers-telegram-cfg-test-'));
 
@@ -114,13 +115,13 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
 let _fetchMock: ((url: string | URL | Request) => Promise<Response>) | null = null;
 const originalFetch = globalThis.fetch;
 
-import { initializeDb, resetDb } from '../memory/db.js';
-import { handleTelegramConfig } from '../daemon/handlers/config.js';
 import type { HandlerContext } from '../daemon/handlers.js';
+import { handleTelegramConfig } from '../daemon/handlers/config.js';
 import type {
-  TelegramConfigRequest,
   ServerMessage,
+  TelegramConfigRequest,
 } from '../daemon/ipc-contract.js';
+import { initializeDb, resetDb } from '../memory/db.js';
 import { DebouncerMap } from '../util/debounce.js';
 
 // Initialize the database for guardian verification tests

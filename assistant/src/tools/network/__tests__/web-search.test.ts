@@ -1,5 +1,5 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+ 
+import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // Mutable mock state — set per test
 let mockWebSearchProvider: string | undefined = 'perplexity';

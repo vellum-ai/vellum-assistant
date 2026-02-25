@@ -211,3 +211,30 @@ export interface TraceEvent {
   summary: string;
   attributes?: Record<string, string | number | boolean | null>;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _MessagesClientMessages =
+  | UserMessage
+  | ConfirmationResponse
+  | SecretResponse
+  | SuggestionRequest;
+
+export type _MessagesServerMessages =
+  | UserMessageEcho
+  | AssistantTextDelta
+  | AssistantThinkingDelta
+  | ToolUseStart
+  | ToolOutputChunk
+  | ToolInputDelta
+  | ToolResult
+  | ConfirmationRequest
+  | SecretRequest
+  | MessageComplete
+  | ErrorMessage
+  | SecretDetected
+  | MessageQueued
+  | MessageDequeued
+  | MessageQueuedDeleted
+  | SuggestionResponse
+  | TraceEvent;

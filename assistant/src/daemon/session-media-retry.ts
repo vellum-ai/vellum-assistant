@@ -6,8 +6,8 @@
  * text stubs to shrink the payload before retrying.
  */
 
-import type { Message, ContentBlock } from '../providers/types.js';
 import { getSummaryFromContextMessage } from '../context/window-manager.js';
+import type { ContentBlock,Message } from '../providers/types.js';
 
 const RETRY_KEEP_LATEST_MEDIA_BLOCKS = 3;
 const MAX_MEDIA_STUB_TEXT = 2_000;

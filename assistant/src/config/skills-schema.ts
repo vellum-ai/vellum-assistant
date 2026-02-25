@@ -20,9 +20,9 @@ export const SkillsInstallConfigSchema = z.object({
 });
 
 export const SkillsConfigSchema = z.object({
-  entries: z.record(z.string(), SkillEntryConfigSchema).default({}),
-  load: SkillsLoadConfigSchema.default({ extraDirs: [], watch: true, watchDebounceMs: 250 }),
-  install: SkillsInstallConfigSchema.default({ nodeManager: 'npm' }),
+  entries: z.record(z.string(), SkillEntryConfigSchema).default({} as any),
+  load: SkillsLoadConfigSchema.default({} as any),
+  install: SkillsInstallConfigSchema.default({} as any),
   allowBundled: z.array(z.string()).nullable().default(null),
 });
 

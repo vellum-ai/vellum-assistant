@@ -1,8 +1,9 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
+import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
 import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
 
 describe('registerToolNotificationListener', () => {
   test('forwards tool.secret.detected events to IPC secret_detected messages', async () => {

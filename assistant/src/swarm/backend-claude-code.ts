@@ -6,6 +6,8 @@
  */
 
 import { getConfig } from '../config/loader.js';
+import { resolveModelIntent } from '../providers/model-intents.js';
+import type { ModelIntent } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import type { SwarmWorkerBackend, SwarmWorkerBackendInput } from './worker-backend.js';
 import { getProfilePolicy } from './worker-backend.js';
@@ -73,7 +75,9 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
           prompt: input.prompt,
           options: {
             cwd: input.workingDir,
-            model: input.model ?? 'claude-sonnet-4-6',
+            model: input.modelIntent
+              ? resolveModelIntent('anthropic', input.modelIntent as ModelIntent)
+              : 'claude-sonnet-4-6',
             canUseTool,
             permissionMode: 'default',
             maxTurns: 30,

@@ -1,21 +1,22 @@
-import { describe, test, expect, beforeEach, afterEach, afterAll } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import type { CommitMessageProvider, CommitContext, CommitMessageResult } from '../workspace/commit-message-provider.js';
+import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
+import { afterAll,afterEach, beforeEach, describe, expect, test } from 'bun:test';
+
+import { _resetEnrichmentService, getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
+import type { CommitContext, CommitMessageProvider, CommitMessageResult } from '../workspace/commit-message-provider.js';
 import {
-  WorkspaceGitService,
   _resetGitServiceRegistry,
+  WorkspaceGitService,
 } from '../workspace/git-service.js';
 import {
-  HeartbeatService,
   _resetHeartbeatState,
+  WorkspaceHeartbeatService,
 } from '../workspace/heartbeat-service.js';
-import { _resetEnrichmentService, getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
 
-describe('HeartbeatService', () => {
+describe('WorkspaceHeartbeatService', () => {
   let testDir: string;
   let service: WorkspaceGitService;
   let services: Map<string, WorkspaceGitService>;
@@ -49,7 +50,7 @@ describe('HeartbeatService', () => {
 
   describe('heartbeat check with age threshold', () => {
     test('does not commit when workspace is clean', async () => {
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 0, // Immediate
         fileThreshold: 1,
         getServices: () => services,
@@ -65,7 +66,7 @@ describe('HeartbeatService', () => {
     test('does not commit when changes are below age and file thresholds', async () => {
       writeFileSync(join(testDir, 'file.txt'), 'content');
 
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 10 * 60 * 1000, // 10 minutes
         fileThreshold: 100,
         getServices: () => services,
@@ -82,7 +83,7 @@ describe('HeartbeatService', () => {
       writeFileSync(join(testDir, 'file.txt'), 'content');
 
       let currentTime = 1000000;
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 5 * 60 * 1000, // 5 minutes
         fileThreshold: 100,
         getServices: () => services,
@@ -115,7 +116,7 @@ describe('HeartbeatService', () => {
         writeFileSync(join(testDir, `file${i}.txt`), `content ${i}`);
       }
 
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 10 * 60 * 1000, // 10 minutes (not yet)
         fileThreshold: 20,
         getServices: () => services,
@@ -136,7 +137,7 @@ describe('HeartbeatService', () => {
 
   describe('normal operation does not create spurious commits', () => {
     test('clean workspace produces no heartbeat commits', async () => {
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 0,
         fileThreshold: 1,
         getServices: () => services,
@@ -160,7 +161,7 @@ describe('HeartbeatService', () => {
       // Create a small number of files (below file threshold)
       writeFileSync(join(testDir, 'small-change.txt'), 'content');
 
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 10 * 60 * 1000, // 10 minutes
         fileThreshold: 100, // Very high
         getServices: () => services,
@@ -175,7 +176,7 @@ describe('HeartbeatService', () => {
       writeFileSync(join(testDir, 'file.txt'), 'content');
 
       let currentTime = 1000000;
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 5 * 60 * 1000,
         fileThreshold: 100,
         getServices: () => services,
@@ -202,7 +203,7 @@ describe('HeartbeatService', () => {
     test('commits pending changes on shutdown', async () => {
       writeFileSync(join(testDir, 'unsaved.txt'), 'uncommitted content');
 
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         getServices: () => services,
       });
 
@@ -222,7 +223,7 @@ describe('HeartbeatService', () => {
     });
 
     test('does not commit on shutdown when workspace is clean', async () => {
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         getServices: () => services,
       });
 
@@ -243,7 +244,7 @@ describe('HeartbeatService', () => {
       writeFileSync(join(testDir, 'file1.txt'), 'content1');
       writeFileSync(join(testDir2, 'file2.txt'), 'content2');
 
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         getServices: () => services,
       });
 
@@ -269,7 +270,7 @@ describe('HeartbeatService', () => {
 
       writeFileSync(join(testDir, 'file.txt'), 'content');
 
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 0,
         fileThreshold: 1,
         getServices: () => mixedServices,
@@ -291,7 +292,7 @@ describe('HeartbeatService', () => {
   describe('threshold behavior', () => {
     test('resets dirty tracking after successful commit', async () => {
       let currentTime = 1000000;
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 5 * 60 * 1000,
         fileThreshold: 100,
         getServices: () => services,
@@ -323,7 +324,7 @@ describe('HeartbeatService', () => {
     test('commit message includes trigger metadata', async () => {
       writeFileSync(join(testDir, 'file.txt'), 'content');
 
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 0,
         fileThreshold: 1,
         getServices: () => services,
@@ -343,7 +344,7 @@ describe('HeartbeatService', () => {
 
   describe('start and stop', () => {
     test('start and stop are idempotent', async () => {
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         intervalMs: 60000,
         getServices: () => services,
       });
@@ -370,7 +371,7 @@ describe('HeartbeatService', () => {
       };
 
       let currentTime = 1000000;
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 5 * 60 * 1000,
         fileThreshold: 100,
         getServices: () => services,
@@ -407,7 +408,7 @@ describe('HeartbeatService', () => {
         },
       };
 
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         getServices: () => services,
         commitMessageProvider: customProvider,
       });
@@ -436,7 +437,7 @@ describe('HeartbeatService', () => {
       };
 
       let currentTime = 1000000;
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 5 * 60 * 1000,
         fileThreshold: 100,
         getServices: () => services,
@@ -470,7 +471,7 @@ describe('HeartbeatService', () => {
         },
       };
 
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         getServices: () => services,
         commitMessageProvider: customProvider,
       });

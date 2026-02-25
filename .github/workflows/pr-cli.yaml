@@ -27,7 +27,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: '1.3.8'
+          bun-version: '1.3.9'
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -39,6 +39,4 @@ jobs:
         run: bun run typecheck
 
       - name: Compile check
-        run: |
-          bun build --compile src/index.ts --outfile /tmp/vellum-cli-compile-check
-          rm -f /tmp/vellum-cli-compile-check
+        run: bun build --compile src/index.ts --outfile /dev/null

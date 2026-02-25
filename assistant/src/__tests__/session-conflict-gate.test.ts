@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
-import type { Message, ProviderResponse } from '../providers/types.js';
+
 import type { AgentEvent } from '../agent/loop.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { Message, ProviderResponse } from '../providers/types.js';
 
 let runCalls: Message[][] = [];
 let resolverCallCount = 0;

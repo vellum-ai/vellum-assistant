@@ -61,21 +61,109 @@ Once baseline is ready, run a full readiness check including remote (Twilio API)
 
 Examine the remote check results:
 - If all remote checks pass, proceed to Step 4.
-- If compliance issues are found (e.g., toll-free verification needed), guide the user through the compliance flow:
-  1. Check compliance status using the `twilio_config` IPC with `action: "sms_compliance_status"` (if available).
-  2. If toll-free verification is needed, collect user information and submit via `twilio_config` with `action: "sms_submit_tollfree_verification"`.
-  3. Report verification status and next steps.
+- If compliance issues are found (e.g., toll-free verification needed), guide the user through the compliance flow.
 
-**Note:** Compliance actions (sms_compliance_status, sms_submit_tollfree_verification, etc.) may not be available yet. If the IPC action is not recognized, tell the user: *"Compliance automation isn't available yet. You may need to check Twilio Console manually for toll-free verification status."*
+### Toll-Free Verification Submission
 
-### Data Collection for Verification (Individual-First)
+When the remote check returns `toll_free_verification` as a failing check, use the daemon's built-in IPC compliance actions. These handle credential lookup, phone number SID resolution, field validation, and Twilio API calls internally.
 
-When collecting information for toll-free verification:
-- Assume the user is an **individual / sole proprietor** by default
-- Do NOT ask for EIN, business registration number, or business registration authority
-- Explain that Twilio labels some fields as "business" fields even for individual submitters
-- Only collect what's required: business name (can be personal name), website (can be personal site), notification email, use case, message samples, opt-in info
-- If Twilio rejects the submission requiring business registration, explain the situation and guide through the fallback path
+**Step 3a: Check compliance status.** First check if a verification already exists:
+
+```json
+{
+  "type": "twilio_config",
+  "action": "sms_compliance_status"
+}
+```
+
+The response includes a `compliance` object with `numberType`, `verificationSid`, `verificationStatus`, `rejectionReason`, `rejectionReasons`, `editAllowed`, and `editExpiration` fields.
+
+- If `verificationStatus` is `PENDING_REVIEW` or `IN_REVIEW`, tell the user verification is already in progress and skip submission.
+- If `verificationStatus` is `TWILIO_APPROVED`, compliance is complete — proceed to Step 4.
+- If `verificationStatus` is `TWILIO_REJECTED` and `editAllowed` is true, offer to update the existing verification (Step 3d) instead of resubmitting.
+- If no verification exists (`verificationSid` is absent), proceed to collect information and submit.
+
+**Step 3b: Collect user information.** Collect the following from the user (assume individual/sole proprietor by default):
+
+| Field | `verificationParams` key | Notes |
+|---|---|---|
+| Name | `businessName` | Can be personal name |
+| Business type | `businessType` | Use `SOLE_PROPRIETOR` for individuals. Valid values: `PRIVATE_PROFIT`, `PUBLIC_PROFIT`, `SOLE_PROPRIETOR`, `NON_PROFIT`, `GOVERNMENT` |
+| Website | `businessWebsite` | LinkedIn or personal site is fine |
+| Notification email | `notificationEmail` | Where Twilio sends status updates |
+| Use case category | `useCaseCategories` | Array, e.g. `["ACCOUNT_NOTIFICATIONS"]` |
+| Use case summary | `useCaseSummary` | Plain English description |
+| Message volume | `messageVolume` | Must be one of: `10`, `100`, `1,000`, `10,000`, `100,000`, `250,000`, `500,000`, `750,000`, `1,000,000`, `5,000,000`, `10,000,000+` |
+| Sample message | `productionMessageSample` | A realistic example message |
+| Opt-in type | `optInType` | `VERBAL`, `WEB_FORM`, `PAPER_FORM`, `VIA_TEXT`, `MOBILE_QR_CODE` |
+| Opt-in image URL | `optInImageUrls` | Array of URLs showing opt-in mechanism (can be website URL) |
+
+The `tollfreePhoneNumberSid` can be obtained from the `sms_compliance_status` response (which resolves the configured phone number to its Twilio SID). Do NOT ask for EIN, business registration number, or business registration authority. Explain that Twilio labels some fields as "business" fields even for individual submitters.
+
+**Step 3c: Submit verification:**
+
+```json
+{
+  "type": "twilio_config",
+  "action": "sms_submit_tollfree_verification",
+  "verificationParams": {
+    "tollfreePhoneNumberSid": "<PN SID from sms_compliance_status or use the daemon to resolve it>",
+    "businessName": "...",
+    "businessWebsite": "...",
+    "notificationEmail": "...",
+    "useCaseCategories": ["ACCOUNT_NOTIFICATIONS"],
+    "useCaseSummary": "...",
+    "productionMessageSample": "...",
+    "optInImageUrls": ["..."],
+    "optInType": "VERBAL",
+    "messageVolume": "100",
+    "businessType": "SOLE_PROPRIETOR"
+  }
+}
+```
+
+The daemon validates all fields before submitting to Twilio and returns clear error messages for invalid values.
+
+**On success:** The response contains `compliance.verificationSid` and `compliance.verificationStatus` (typically `PENDING_REVIEW`). Tell the user Twilio typically reviews within 1-5 business days.
+
+**On failure:** Report the exact error from the response and guide the user through resolution.
+
+**Step 3d: Update a rejected verification** (if `editAllowed` is true):
+
+```json
+{
+  "type": "twilio_config",
+  "action": "sms_update_tollfree_verification",
+  "verificationSid": "<sid from compliance status>",
+  "verificationParams": {
+    "businessName": "updated value",
+    "useCaseSummary": "updated value"
+  }
+}
+```
+
+Only include fields that need to change. The daemon checks edit eligibility and expiration before attempting the update.
+
+**Step 3e: Delete and resubmit** (if editing is not allowed):
+
+```json
+{
+  "type": "twilio_config",
+  "action": "sms_delete_tollfree_verification",
+  "verificationSid": "<sid from compliance status>"
+}
+```
+
+After deletion, return to Step 3b to collect information and resubmit. Warn the user that deleting resets their position in the review queue.
+
+**Common errors:**
+- `"Customer profiles submitted with verifications must be either ISV Starters or Secondary Customer Profiles"` — The number is linked to a Primary Customer Profile in Trust Hub, which blocks toll-free verification. Tell the user and suggest they resolve the profile assignment in the Twilio Console.
+- Missing required fields — The daemon validates and reports which fields are missing.
+- Invalid enum values — The daemon validates `optInType`, `messageVolume`, and `useCaseCategories` and reports valid values.
+
+**On success:** Tell the user the verification has been submitted and is now `PENDING_REVIEW`. Twilio typically reviews within 1-5 business days. They'll receive status updates at the notification email provided.
+
+**On failure:** Report the exact error message and guide the user through resolution.
 
 ## Step 4: Test Send
 
@@ -83,10 +171,14 @@ Run a test SMS to verify end-to-end delivery:
 
 Tell the user: *"Let's send a test SMS to verify everything works. What phone number should I send the test to?"*
 
+**Important:** If toll-free verification is pending (not yet approved), inform the user that test messages may be silently dropped by carriers even though Twilio accepts them. Offer to attempt the test anyway, but set expectations.
+
+**Trial account limitation:** On Twilio trial accounts, SMS can only be sent to verified phone numbers. If the send fails with a "not verified" error, tell the user to verify the recipient number in the Twilio Console under Verified Caller IDs, or upgrade their account.
+
 After the user provides a number, send a test message using the messaging tools:
 - Use `messaging_send` with `platform: "sms"`, `conversation_id: "<phone number>"`, and a test message like "Test SMS from your Vellum assistant."
 - Report the result honestly:
-  - If the send succeeds: *"The message was accepted by Twilio. Note: 'accepted' means Twilio received it for delivery, not that it reached the handset yet. Delivery can take a few seconds to a few minutes."*
+  - If the send succeeds: *"The message was accepted by Twilio. Note: 'accepted' means Twilio received it for delivery, not that it reached the handset yet. Delivery can take a few seconds to a few minutes. If verification is still pending, carriers may silently drop the message."*
   - If the send fails: report the error and suggest troubleshooting steps
 
 ## Step 5: Final Status Report
@@ -113,6 +205,21 @@ If the user returns to this skill after initial setup:
 3. Focus on the specific issue the user is experiencing
 
 Common issues:
-- **"Messages not delivering"** — Check compliance status, verify the number isn't flagged
+- **"Messages not delivering"** — Check compliance status (toll-free verification), verify the number isn't flagged
 - **"Twilio error on send"** — Check credentials, phone number assignment, and ingress
 - **"Trial account limitations"** — Explain that trial accounts can only send to verified numbers
+- **"Customer profiles must be ISV Starters or Secondary"** — The toll-free number is linked to a Primary Customer Profile in Trust Hub. Must be unlinked or reassigned before verification can be submitted.
+
+## Accessing the Twilio API
+
+The skill references IPC messages (`channel_readiness`, `twilio_config`) that are sent via Unix socket to the daemon. The assistant does not have an HTTP endpoint for IPC. Use the following pattern to send IPC messages:
+
+```bash
+cd "$(git rev-parse --show-toplevel)/assistant" && bun -e '
+import { sendOneMessage } from "./src/cli/ipc-client.js";
+const res = await sendOneMessage({ type: "twilio_config", action: "get" });
+console.log(JSON.stringify(res, null, 2));
+'
+```
+
+All compliance operations (status checks, verification submission, updates, and deletion) are handled through the `twilio_config` IPC actions — no direct Twilio REST calls are needed.

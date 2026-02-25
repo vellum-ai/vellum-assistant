@@ -1,22 +1,23 @@
-import { spawn, execSync } from 'node:child_process';
+import { execSync,spawn } from 'node:child_process';
 import { platform } from 'node:os';
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
+
 import { getConfig } from '../../config/loader.js';
-import { getLogger } from '../../util/logger.js';
+import { RiskLevel } from '../../permissions/types.js';
+import type { ToolDefinition } from '../../providers/types.js';
 import { redactSecrets } from '../../security/secret-scanner.js';
-import { wrapCommand } from './sandbox.js';
-import { formatShellOutput } from '../shared/shell-output.js';
-import { buildSanitizedEnv } from './safe-env.js';
+import { getLogger } from '../../util/logger.js';
+import { getDataDir } from '../../util/platform.js';
+import { resolveCredentialRef } from '../credentials/resolve.js';
 import {
   getOrStartSession,
   getSessionEnv,
 } from '../network/script-proxy/index.js';
-import { getDataDir } from '../../util/platform.js';
-import { resolveCredentialRef } from '../credentials/resolve.js';
 import { buildCredentialRefTrace } from '../network/script-proxy/logging.js';
+import { registerTool } from '../registry.js';
+import { formatShellOutput } from '../shared/shell-output.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import { buildSanitizedEnv } from './safe-env.js';
+import { wrapCommand } from './sandbox.js';
 
 const log = getLogger('shell-tool');
 

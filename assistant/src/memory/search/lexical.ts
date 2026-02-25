@@ -1,9 +1,10 @@
 import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
+
 import { getLogger } from '../../util/logger.js';
 import { getDb, rawAll } from '../db.js';
 import { memorySegments } from '../schema.js';
-import type { Candidate, CandidateType } from './types.js';
 import { computeRecencyScore } from './ranking.js';
+import type { Candidate, CandidateType } from './types.js';
 
 const log = getLogger('memory-retriever');
 

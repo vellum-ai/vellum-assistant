@@ -1,8 +1,9 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import type {
   ClientMessage as ContractClient,
-  ServerMessage as ContractServer,
   IPCContractSchema,
+  ServerMessage as ContractServer,
 } from '../daemon/ipc-contract.js';
 import type {
   ClientMessage as ProtocolClient,

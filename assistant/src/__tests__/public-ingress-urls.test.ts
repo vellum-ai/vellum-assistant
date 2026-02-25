@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mocks — silence logger output during tests
@@ -17,13 +17,13 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import {
+  getOAuthCallbackUrl,
   getPublicBaseUrl,
-  getTwilioVoiceWebhookUrl,
-  getTwilioStatusCallbackUrl,
+  getTelegramWebhookUrl,
   getTwilioConnectActionUrl,
   getTwilioRelayUrl,
-  getOAuthCallbackUrl,
-  getTelegramWebhookUrl,
+  getTwilioStatusCallbackUrl,
+  getTwilioVoiceWebhookUrl,
 } from '../inbound/public-ingress-urls.js';
 
 // ---------------------------------------------------------------------------

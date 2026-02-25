@@ -8,6 +8,7 @@
  */
 
 import { and, eq } from 'drizzle-orm';
+
 import { getDb } from '../memory/db.js';
 import { notificationEvents } from '../memory/schema.js';
 import { getLogger } from '../util/logger.js';

@@ -5,10 +5,11 @@
  */
 
 import { createServer, type Server } from 'node:http';
-import type { ConnectionOptions } from 'node:tls';
 import type { Socket } from 'node:net';
-import { forwardHttpRequest, type PolicyCallback } from './http-forwarder.js';
+import type { ConnectionOptions } from 'node:tls';
+
 import { handleConnect } from './connect-tunnel.js';
+import { forwardHttpRequest, type PolicyCallback } from './http-forwarder.js';
 import { handleMitm, type RewriteCallback } from './mitm-handler.js';
 import type { RouteDecision } from './router.js';
 

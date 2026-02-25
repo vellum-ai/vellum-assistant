@@ -2,13 +2,14 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute } from 'node:path';
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+
 import { getConfig } from '../../config/loader.js';
-import { getLogger } from '../../util/logger.js';
+import { RiskLevel } from '../../permissions/types.js';
+import type { ToolDefinition } from '../../providers/types.js';
 import { redactSecrets } from '../../security/secret-scanner.js';
+import { getLogger } from '../../util/logger.js';
 import { formatShellOutput } from '../shared/shell-output.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 const log = getLogger('host-shell-tool');
 

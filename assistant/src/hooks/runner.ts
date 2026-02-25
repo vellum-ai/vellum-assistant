@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import { basename, extname, join } from 'node:path';
-import { pathExists } from '../util/fs.js';
 import { homedir } from 'node:os';
+import { basename, extname, join } from 'node:path';
+
+import { pathExists } from '../util/fs.js';
 import { getRootDir, getWorkspaceDir } from '../util/platform.js';
 import { getHookSettings } from './config.js';
 import type { DiscoveredHook, HookEventData } from './types.js';

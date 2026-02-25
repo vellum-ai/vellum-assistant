@@ -17,11 +17,11 @@
  * comments, logs, and developer-facing docs.
  */
 
-export { executeTaskSave } from './task-save.js';
-export { executeTaskRun } from './task-run.js';
-export { executeTaskList } from './task-list.js';
 export { executeTaskDelete } from './task-delete.js';
-export { executeTaskListShow } from './work-item-list.js';
+export { executeTaskList } from './task-list.js';
+export { executeTaskRun } from './task-run.js';
+export { executeTaskSave } from './task-save.js';
 export { executeTaskListAdd } from './work-item-enqueue.js';
-export { executeTaskListUpdate } from './work-item-update.js';
+export { executeTaskListShow } from './work-item-list.js';
 export { executeTaskListRemove } from './work-item-remove.js';
+export { executeTaskListUpdate } from './work-item-update.js';

@@ -1,21 +1,24 @@
 import { getDb } from './db-connection.js';
 import {
-  createCoreTables,
-  createWatchersAndLogsTables,
   addCoreColumns,
-  runComplexMigrations,
-  createCoreIndexes,
-  createContactsAndTriageTables,
-  createCallSessionsTables,
-  createFollowupsTables,
-  createTasksAndWorkItemsTables,
-  createExternalConversationBindingsTables,
-  createChannelGuardianTables,
-  createMediaAssetsTables,
   createAssistantInboxTables,
-  runLateMigrations,
+  createCallSessionsTables,
+  createChannelGuardianTables,
+  createContactsAndTriageTables,
+  createCoreIndexes,
+  createCoreTables,
+  createExternalConversationBindingsTables,
+  createFollowupsTables,
+  createMediaAssetsTables,
+  createMessagesFts,
   createNotificationTables,
   createSequenceTables,
+  createTasksAndWorkItemsTables,
+  createWatchersAndLogsTables,
+  migrateGuardianVerificationSessions,
+  migrateMessagesFtsBackfill,
+  runComplexMigrations,
+  runLateMigrations,
   validateMigrationState,
 } from './migrations/index.js';
 
@@ -55,6 +58,9 @@ export function initializeDb(): void {
   // 11. Channel guardian
   createChannelGuardianTables(database);
 
+  // 11b. Guardian verification session columns (outbound identity binding)
+  migrateGuardianVerificationSessions(database);
+
   // 12. Media assets
   createMediaAssetsTables(database);
 
@@ -69,6 +75,10 @@ export function initializeDb(): void {
 
   // 16. Sequences (multi-step outreach)
   createSequenceTables(database);
+
+  // 17. Messages FTS (full-text search over message content)
+  createMessagesFts(database);
+  migrateMessagesFtsBackfill(database);
 
   validateMigrationState(database);
 }

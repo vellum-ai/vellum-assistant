@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+
 import { getSocketPath, getWorkspaceDir } from "../util/platform.js";
 
 const LEFT_PANEL_WIDTH = 36;

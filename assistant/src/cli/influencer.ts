@@ -6,11 +6,12 @@
  */
 
 import { Command } from 'commander';
+
 import {
-  searchInfluencers,
-  getInfluencerProfile,
   compareInfluencers,
+  getInfluencerProfile,
   type InfluencerSearchCriteria,
+  searchInfluencers,
 } from '../influencer/client.js';
 
 // ---------------------------------------------------------------------------

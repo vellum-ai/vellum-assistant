@@ -1,11 +1,13 @@
-import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, describe, expect, test } from 'bun:test';
+
 import {
-  MAX_FILE_SIZE_BYTES,
-  checkFileSizeOnDisk,
   checkContentSize,
+  checkFileSizeOnDisk,
+  MAX_FILE_SIZE_BYTES,
 } from '../tools/shared/filesystem/size-guard.js';
 
 const testDirs: string[] = [];

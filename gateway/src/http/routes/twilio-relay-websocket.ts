@@ -1,5 +1,6 @@
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
+import { validateBearerToken } from "../auth/bearer.js";
 
 const log = getLogger("twilio-relay-ws");
 
@@ -27,6 +28,12 @@ export function createTwilioRelayWebsocketHandler(config: GatewayConfig) {
       return new Response("Missing callSessionId", { status: 400 });
     }
 
+    // Authenticate before upgrading. Twilio ConversationRelay passes the
+    // token as a query parameter since WebSocket upgrades don't support
+    // arbitrary headers.
+    const authResponse = checkRelayAuth(req, url, config);
+    if (authResponse) return authResponse;
+
     const upgraded = server.upgrade(req, {
       data: { callSessionId, config },
     });
@@ -38,6 +45,44 @@ export function createTwilioRelayWebsocketHandler(config: GatewayConfig) {
     // Return undefined to indicate upgrade was handled
     return undefined;
   };
+}
+
+/**
+ * Validate the relay WebSocket upgrade request.
+ *
+ * Accepts a bearer token via:
+ *   1. `Authorization: Bearer <token>` header (standard clients)
+ *   2. `token` query parameter (Twilio ConversationRelay — no custom headers)
+ *
+ * Fail-closed: rejects when no token is configured unless the SMS deliver
+ * auth bypass flag is set (reusing the same local-dev escape hatch).
+ */
+function checkRelayAuth(
+  req: Request,
+  url: URL,
+  config: GatewayConfig,
+): Response | null {
+  if (!config.runtimeProxyBearerToken) {
+    if (config.smsDeliverAuthBypass) {
+      return null;
+    }
+    log.error("Relay WS: no bearer token configured — rejecting (fail-closed)");
+    return new Response("Service not configured: bearer token required", { status: 503 });
+  }
+
+  // Try Authorization header first, then fall back to query param
+  const authHeader = req.headers.get("authorization");
+  const queryToken = url.searchParams.get("token");
+
+  const tokenSource = authHeader ?? (queryToken ? `Bearer ${queryToken}` : null);
+
+  const result = validateBearerToken(tokenSource, config.runtimeProxyBearerToken);
+  if (!result.authorized) {
+    log.warn({ reason: result.reason }, "Relay WS: authentication failed");
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  return null;
 }
 
 /**

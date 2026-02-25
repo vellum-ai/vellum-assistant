@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import { attachmentsToContentBlocks } from '../agent/attachments.js';
 import { createUserMessage } from '../agent/message-types.js';
 

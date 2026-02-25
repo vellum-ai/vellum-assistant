@@ -1,7 +1,8 @@
 import * as net from 'node:net';
+
 import { loadRawConfig, saveRawConfig } from '../../config/loader.js';
 import type { PlatformConfigRequest } from '../ipc-protocol.js';
-import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
+import { CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext,log } from './shared.js';
 
 export async function handlePlatformConfig(
   msg: PlatformConfigRequest,

@@ -1,25 +1,25 @@
 import { z } from 'zod';
 
-export const AgentHeartbeatConfigSchema = z.object({
+export const HeartbeatConfigSchema = z.object({
   enabled: z
-    .boolean({ error: 'agentHeartbeat.enabled must be a boolean' })
+    .boolean({ error: 'heartbeat.enabled must be a boolean' })
     .default(false),
   intervalMs: z
-    .number({ error: 'agentHeartbeat.intervalMs must be a number' })
-    .int('agentHeartbeat.intervalMs must be an integer')
-    .positive('agentHeartbeat.intervalMs must be a positive integer')
+    .number({ error: 'heartbeat.intervalMs must be a number' })
+    .int('heartbeat.intervalMs must be an integer')
+    .positive('heartbeat.intervalMs must be a positive integer')
     .default(3_600_000),
   activeHoursStart: z
-    .number({ error: 'agentHeartbeat.activeHoursStart must be a number' })
-    .int('agentHeartbeat.activeHoursStart must be an integer')
-    .min(0, 'agentHeartbeat.activeHoursStart must be >= 0')
-    .max(23, 'agentHeartbeat.activeHoursStart must be <= 23')
+    .number({ error: 'heartbeat.activeHoursStart must be a number' })
+    .int('heartbeat.activeHoursStart must be an integer')
+    .min(0, 'heartbeat.activeHoursStart must be >= 0')
+    .max(23, 'heartbeat.activeHoursStart must be <= 23')
     .optional(),
   activeHoursEnd: z
-    .number({ error: 'agentHeartbeat.activeHoursEnd must be a number' })
-    .int('agentHeartbeat.activeHoursEnd must be an integer')
-    .min(0, 'agentHeartbeat.activeHoursEnd must be >= 0')
-    .max(23, 'agentHeartbeat.activeHoursEnd must be <= 23')
+    .number({ error: 'heartbeat.activeHoursEnd must be a number' })
+    .int('heartbeat.activeHoursEnd must be an integer')
+    .min(0, 'heartbeat.activeHoursEnd must be >= 0')
+    .max(23, 'heartbeat.activeHoursEnd must be <= 23')
     .optional(),
 }).superRefine((config, ctx) => {
   const hasStart = config.activeHoursStart != null;
@@ -28,14 +28,14 @@ export const AgentHeartbeatConfigSchema = z.object({
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [hasStart ? 'activeHoursEnd' : 'activeHoursStart'],
-      message: 'agentHeartbeat.activeHoursStart and agentHeartbeat.activeHoursEnd must both be set or both be omitted',
+      message: 'heartbeat.activeHoursStart and heartbeat.activeHoursEnd must both be set or both be omitted',
     });
   }
   if (hasStart && hasEnd && config.activeHoursStart === config.activeHoursEnd) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['activeHoursEnd'],
-      message: 'agentHeartbeat.activeHoursStart and agentHeartbeat.activeHoursEnd must not be equal (would create an empty window)',
+      message: 'heartbeat.activeHoursStart and heartbeat.activeHoursEnd must not be equal (would create an empty window)',
     });
   }
 });
@@ -74,13 +74,17 @@ export const SwarmConfigSchema = z.object({
       coder: z.number().int().positive().optional(),
       reviewer: z.number().int().positive().optional(),
     })
-    .default({}),
-  plannerModel: z
-    .string({ error: 'swarm.plannerModel must be a string' })
-    .default('claude-haiku-4-5-20251001'),
-  synthesizerModel: z
-    .string({ error: 'swarm.synthesizerModel must be a string' })
-    .default('claude-sonnet-4-6'),
+    .default({} as any),
+  plannerModelIntent: z
+    .enum(['latency-optimized', 'quality-optimized', 'vision-optimized'], {
+      error: 'swarm.plannerModelIntent must be a valid model intent',
+    })
+    .default('latency-optimized'),
+  synthesizerModelIntent: z
+    .enum(['latency-optimized', 'quality-optimized', 'vision-optimized'], {
+      error: 'swarm.synthesizerModelIntent must be a valid model intent',
+    })
+    .default('quality-optimized'),
 });
 
 export const WorkspaceGitConfigSchema = z.object({
@@ -127,7 +131,7 @@ export const WorkspaceGitConfigSchema = z.object({
   commitMessageLLM: z.object({
     enabled: z.boolean({ error: 'workspaceGit.commitMessageLLM.enabled must be a boolean' }).default(false),
     useConfiguredProvider: z.boolean({ error: 'workspaceGit.commitMessageLLM.useConfiguredProvider must be a boolean' }).default(true),
-    providerFastModelOverrides: z.record(z.string(), z.string()).default({}),
+    providerFastModelOverrides: z.record(z.string(), z.string()).default({} as any),
     timeoutMs: z.number({ error: 'workspaceGit.commitMessageLLM.timeoutMs must be a number' })
       .int('workspaceGit.commitMessageLLM.timeoutMs must be an integer')
       .positive('workspaceGit.commitMessageLLM.timeoutMs must be a positive integer')
@@ -159,21 +163,10 @@ export const WorkspaceGitConfigSchema = z.object({
         .int().positive().default(2000),
       backoffMaxMs: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.backoffMaxMs must be a number' })
         .int().positive().default(60000),
-    }).default({ openAfterFailures: 3, backoffBaseMs: 2000, backoffMaxMs: 60000 }),
-  }).default({
-    enabled: false,
-    useConfiguredProvider: true,
-    providerFastModelOverrides: {},
-    timeoutMs: 600,
-    maxTokens: 120,
-    temperature: 0.2,
-    maxFilesInPrompt: 30,
-    maxDiffBytes: 12000,
-    minRemainingTurnBudgetMs: 1000,
-    breaker: { openAfterFailures: 3, backoffBaseMs: 2000, backoffMaxMs: 60000 },
-  }),
+    }).default({} as any),
+  }).default({} as any),
 });
 
-export type AgentHeartbeatConfig = z.infer<typeof AgentHeartbeatConfigSchema>;
+export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;
 export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 export type WorkspaceGitConfig = z.infer<typeof WorkspaceGitConfigSchema>;

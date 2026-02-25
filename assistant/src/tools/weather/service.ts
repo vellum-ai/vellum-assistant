@@ -1,5 +1,5 @@
-import type { ToolExecutionResult, ProxyToolResolver } from '../types.js';
 import { getLogger } from '../../util/logger.js';
+import type { ProxyToolResolver,ToolExecutionResult } from '../types.js';
 
 const log = getLogger('weather-service');
 

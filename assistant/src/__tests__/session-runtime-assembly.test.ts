@@ -1,5 +1,7 @@
-import { describe, test, expect } from 'bun:test';
-import type { Message } from '../providers/types.js';
+import { describe, expect,test } from 'bun:test';
+
+import { buildChannelAwarenessSection } from '../config/system-prompt.js';
+import type { ChannelCapabilities, ChannelTurnContextParams, GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import {
   applyRuntimeInjections,
   buildChannelTurnContextBlock,
@@ -13,8 +15,7 @@ import {
   stripGuardianContext,
   stripTemporalContext,
 } from '../daemon/session-runtime-assembly.js';
-import type { ChannelCapabilities, ChannelTurnContextParams, GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
-import { buildChannelAwarenessSection } from '../config/system-prompt.js';
+import type { Message } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------
 // resolveChannelCapabilities

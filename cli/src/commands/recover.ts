@@ -11,7 +11,7 @@ import { exec } from "../lib/step-runner";
 export async function recover(): Promise<void> {
   const name = process.argv[3];
   if (!name) {
-    console.error("Usage: vellum-cli recover <name>");
+    console.error("Usage: vellum recover <name>");
     process.exit(1);
   }
 

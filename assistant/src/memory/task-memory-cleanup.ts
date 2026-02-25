@@ -21,7 +21,7 @@ export function isConversationFailed(conversationId: string): boolean {
     conversationId,
     conversationId,
   );
-  return row !== null;
+  return row != null;
 }
 
 /**

@@ -10,16 +10,17 @@
  */
 
 import { v4 as uuid } from 'uuid';
-import { getLogger } from '../util/logger.js';
+
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
-import { createEvent, updateEventDedupeKey } from './events-store.js';
-import { evaluateSignal } from './decision-engine.js';
-import { runDeterministicChecks, type DeterministicCheckContext } from './deterministic-checks.js';
-import { dispatchDecision } from './runtime-dispatch.js';
-import { NotificationBroadcaster } from './broadcaster.js';
-import { VellumAdapter, type BroadcastFn } from './adapters/macos.js';
+import { getLogger } from '../util/logger.js';
+import { type BroadcastFn,VellumAdapter } from './adapters/macos.js';
 import { TelegramAdapter } from './adapters/telegram.js';
-import type { NotificationSignal, AttentionHints } from './signal.js';
+import { NotificationBroadcaster } from './broadcaster.js';
+import { evaluateSignal } from './decision-engine.js';
+import { type DeterministicCheckContext,runDeterministicChecks } from './deterministic-checks.js';
+import { createEvent, updateEventDedupeKey } from './events-store.js';
+import { dispatchDecision } from './runtime-dispatch.js';
+import type { AttentionHints,NotificationSignal } from './signal.js';
 import type { NotificationChannel } from './types.js';
 
 const log = getLogger('emit-signal');

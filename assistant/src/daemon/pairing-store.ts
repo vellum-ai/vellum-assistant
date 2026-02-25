@@ -7,6 +7,7 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto';
+
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('pairing-store');

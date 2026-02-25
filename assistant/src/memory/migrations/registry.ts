@@ -79,6 +79,17 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     version: 11,
     description: 'Rename macos and ios channel identifiers to vellum across all tables',
   },
+  {
+    key: 'migration_embedding_vector_blob_v1',
+    version: 12,
+    description: 'Add vector_blob BLOB column to memory_embeddings and backfill from vector_json for compact binary storage',
+  },
+  {
+    key: 'migration_embeddings_nullable_vector_json_v1',
+    version: 13,
+    dependsOn: ['migration_embedding_vector_blob_v1'],
+    description: 'Rebuild memory_embeddings to make vector_json nullable (pre-100 DBs had NOT NULL)',
+  },
 ];
 
 export interface MigrationValidationResult {

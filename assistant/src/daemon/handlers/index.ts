@@ -1,44 +1,43 @@
 import * as net from 'node:net';
+
 import type { ClientMessage } from '../ipc-protocol.js';
 import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
-import { handleOpenBundle } from './open-bundle-handler.js';
-import { log, defineHandlers, type HandlerContext, type DispatchMap } from './shared.js';
-
-import { sessionHandlers } from './sessions.js';
-import { skillHandlers } from './skills.js';
 import { appHandlers } from './apps.js';
-import { configHandlers } from './config.js';
-import { computerUseHandlers } from './computer-use.js';
-import { publishHandlers } from './publish.js';
-import { homeBaseHandlers } from './home-base.js';
-import { diagnosticsHandlers } from './diagnostics.js';
-import { miscHandlers } from './misc.js';
-import { documentHandlers } from './documents.js';
-import { workItemHandlers } from './work-items.js';
-import { subagentHandlers } from './subagents.js';
 import { browserHandlers } from './browser.js';
-import { signingHandlers } from './signing.js';
-import { twitterAuthHandlers } from './twitter-auth.js';
-import { workspaceFileHandlers } from './workspace-files.js';
-import { identityHandlers } from './identity.js';
-import { dictationHandlers } from './dictation.js';
+import { computerUseHandlers } from './computer-use.js';
+import { configHandlers } from './config.js';
 import { inboxInviteHandlers } from './config-inbox.js';
+import { diagnosticsHandlers } from './diagnostics.js';
+import { dictationHandlers } from './dictation.js';
+import { documentHandlers } from './documents.js';
+import { homeBaseHandlers } from './home-base.js';
+import { identityHandlers } from './identity.js';
+import { miscHandlers } from './misc.js';
+import { handleOpenBundle } from './open-bundle-handler.js';
 import { pairingHandlers } from './pairing.js';
+import { publishHandlers } from './publish.js';
+import { sessionHandlers } from './sessions.js';
+import { defineHandlers, type DispatchMap,type HandlerContext, log } from './shared.js';
+import { signingHandlers } from './signing.js';
+import { skillHandlers } from './skills.js';
+import { subagentHandlers } from './subagents.js';
+import { twitterAuthHandlers } from './twitter-auth.js';
+import { workItemHandlers } from './work-items.js';
+import { workspaceFileHandlers } from './workspace-files.js';
 
 // Re-export types and utilities for backwards compatibility
 export type {
   HandlerContext,
-  SessionCreateOptions,
-  HistoryToolCall,
   HistorySurface,
-  RenderedHistoryContent,
+  HistoryToolCall,
   ParsedHistoryMessage,
+  RenderedHistoryContent,
+  SessionCreateOptions,
 } from './shared.js';
-
 export {
-  renderHistoryContent,
   mergeToolResults,
+  renderHistoryContent,
 } from './shared.js';
 
 // ─── Typed dispatch ──────────────────────────────────────────────────────────

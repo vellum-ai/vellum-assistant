@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
-import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'runtime-attach-meta-test-')));
 
@@ -34,13 +35,13 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import {
-  uploadAttachment,
   linkAttachmentToMessage,
+  uploadAttachment,
 } from '../memory/attachments-store.js';
+import { getOrCreateConversation } from '../memory/conversation-key-store.js';
+import * as conversationStore from '../memory/conversation-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 
 initializeDb();

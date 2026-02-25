@@ -11,9 +11,9 @@
  */
 
 import type { TriageResult } from '../messaging/types.js';
+import { getAutonomyConfig } from './autonomy-store.js';
 import type { AutonomyTier } from './types.js';
 import { AUTONOMY_TIERS } from './types.js';
-import { getAutonomyConfig } from './autonomy-store.js';
 
 /**
  * Resolve the autonomy tier for a triaged message.

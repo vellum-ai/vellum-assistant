@@ -17,6 +17,15 @@ public extension Color {
             opacity: alpha
         )
     }
+
+    /// Parse a hex color string (e.g., "#7C3AED" or "7C3AED") into a Color.
+    init(hexString: String, alpha: Double = 1.0) {
+        let cleaned = hexString.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "#", with: "")
+        var hexValue: UInt64 = 0
+        Scanner(string: cleaned).scanHexInt64(&hexValue)
+        self.init(hex: UInt(hexValue), alpha: alpha)
+    }
 }
 
 // MARK: - Adaptive Color Helper

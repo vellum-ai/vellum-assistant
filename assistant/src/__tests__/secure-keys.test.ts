@@ -1,8 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { existsSync,mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mock logger (no-op — compatible with other test files' identical mock)
@@ -65,15 +66,15 @@ function installKeychainDeps(): void {
   });
 }
 
+import { _setStorePath } from '../security/encrypted-store.js';
 import {
-  getSecureKey,
-  setSecureKey,
-  deleteSecureKey,
-  listSecureKeys,
   _resetBackend,
   _setBackend,
+  deleteSecureKey,
+  getSecureKey,
+  listSecureKeys,
+  setSecureKey,
 } from '../security/secure-keys.js';
-import { _setStorePath } from '../security/encrypted-store.js';
 
 // ---------------------------------------------------------------------------
 // Use a temp directory for encrypted store tests

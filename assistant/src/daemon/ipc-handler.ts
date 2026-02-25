@@ -4,10 +4,11 @@
  * concerns from session management and business logic.
  */
 import * as net from 'node:net';
-import { serialize, type ServerMessage } from './ipc-protocol.js';
-import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
+import { assistantEventHub } from '../runtime/assistant-event-hub.js';
 import { getLogger } from '../util/logger.js';
+import { serialize, type ServerMessage } from './ipc-protocol.js';
 
 const log = getLogger('ipc-handler');
 

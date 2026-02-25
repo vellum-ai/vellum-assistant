@@ -5,9 +5,10 @@
  * directives, tool content blocks, and file reads.
  */
 
-import { basename } from 'node:path';
 import { readFileSync, statSync } from 'node:fs';
-import { sandboxPolicy, hostPolicy } from '../tools/shared/filesystem/path-policy.js';
+import { basename } from 'node:path';
+
+import { hostPolicy,sandboxPolicy } from '../tools/shared/filesystem/path-policy.js';
 
 // ---------------------------------------------------------------------------
 // Constants

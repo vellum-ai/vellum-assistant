@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
-import { rmSync, mkdtempSync } from 'node:fs';
+import { mkdtempSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'entity-search-test-'));
 
@@ -23,11 +24,12 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+import { Database } from 'bun:sqlite';
+
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { upsertEntity, upsertEntityRelation } from '../memory/entity-extractor.js';
-import { findNeighborEntities, findMatchedEntities, getEntityLinkedItemCandidates, collectTypedNeighbors, intersectReachable } from '../memory/search/entity.js';
-import { memoryItems, memoryItemEntities } from '../memory/schema.js';
-import { Database } from 'bun:sqlite';
+import { memoryItemEntities,memoryItems } from '../memory/schema.js';
+import { collectTypedNeighbors, findMatchedEntities, findNeighborEntities, getEntityLinkedItemCandidates, intersectReachable } from '../memory/search/entity.js';
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;

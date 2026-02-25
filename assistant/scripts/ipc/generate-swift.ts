@@ -15,8 +15,8 @@
  *   bun run generate:ipc -- --check   # fail if output would differ (CI)
  */
 
-import * as path from 'path';
 import * as fs from 'fs';
+import * as path from 'path';
 import * as TJS from 'typescript-json-schema';
 
 const ROOT = path.resolve(import.meta.dirname ?? __dirname, '../..');
@@ -117,6 +117,8 @@ function generateSchemas(): Record<string, SchemaDef> {
   const skipped: string[] = [];
 
   for (const symbol of symbols) {
+    // Skip domain-level union aliases (_<Domain>ClientMessages / _<Domain>ServerMessages)
+    if (symbol.startsWith('_') && (symbol.endsWith('ClientMessages') || symbol.endsWith('ServerMessages'))) continue;
     if (SKIP_TYPES.has(symbol)) continue;
     try {
       const schema = generator.getSchemaForSymbol(symbol) as SchemaDef | null;
