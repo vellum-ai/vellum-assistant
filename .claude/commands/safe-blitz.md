@@ -215,13 +215,27 @@ Instead of using the full sweep+swarm machinery (which creates new PRs), per-mil
 
 Maintain an internal counter for worktree naming (e.g., `fix-1`, `fix-2`, ...) and a **cycle counter** starting at 0. The maximum number of feedback cycles is **3** — after 3 full rounds of addressing feedback, merge the milestone PR regardless.
 
+**Determining aggregate review status from `check-pr-reviews` output:**
+
+The `check-pr-reviews` script returns **per-reviewer** statuses at `codex.status` and `devin.status` — there is no top-level `status` field. Derive an aggregate status as follows:
+- **approved**: Both `codex.status` and `devin.status` are `approved` (or `skipped` for Devin).
+- **pending**: Either reviewer is `pending`.
+- **rate_limited**: Either reviewer is `rate_limited` (and the other is not `changes_requested`).
+- **changes_requested**: Either reviewer has `changes_requested` (and neither is `pending`).
+
+Use this aggregate status in the feedback loop below.
+
+**Handling stale `changes_requested` from old reviews:**
+
+The `check-pr-reviews` script reports **cumulative** review status — it counts all reviews ever posted, not just unresolved ones. After fixes are pushed and threads are resolved, old reviews still exist in the GitHub API, so `check-pr-reviews` may still return `changes_requested` even though the feedback has been addressed. To avoid infinite loops, maintain a `last_fix_push_time` timestamp and use the `gh api` to check whether any reviews were posted **after** that timestamp before treating `changes_requested` as actionable.
+
 **Feedback loop:**
 
-1. **Check for reviews**: Poll `.claude/check-pr-reviews <milestone-pr-number>` to check review status.
-   - If status is `pending`, wait 60 seconds and poll again.
-   - If status is `rate_limited`, wait 120 seconds and poll again.
-   - If status is `approved`, proceed to Phase 4c.5.
-   - If status is `changes_requested`, proceed to step 2.
+1. **Check for reviews**: Poll `.claude/check-pr-reviews <milestone-pr-number>` to get per-reviewer statuses. Derive the aggregate status (see above).
+   - If aggregate status is `pending`, wait 60 seconds and poll again.
+   - If aggregate status is `rate_limited`, wait 120 seconds and poll again.
+   - If aggregate status is `approved`, proceed to Phase 4c.5.
+   - If aggregate status is `changes_requested`, proceed to step 2.
 
 2. **Check cycle limit**: If the cycle counter has reached 3, log: `"Reached maximum feedback cycles (3) for milestone PR #<milestone-pr-number>. Merging as-is."` and proceed to Phase 4c.5.
 
@@ -241,6 +255,7 @@ Maintain an internal counter for worktree naming (e.g., `fix-1`, `fix-2`, ...) a
       git fetch origin <milestone-pr-branch>
       LATEST_COMMIT=$(git rev-parse origin/<milestone-pr-branch>)
       ```
+   f. Record the current UTC time as `last_fix_push_time` (e.g., `date -u +%Y-%m-%dT%H:%M:%SZ`).
 
 4. **Re-request reviews**: After fixes are pushed, explicitly tag both reviewers to re-request their review by posting two separate comments on the milestone PR:
    ```bash
@@ -249,14 +264,22 @@ Maintain an internal counter for worktree naming (e.g., `fix-1`, `fix-2`, ...) a
    ```
    Log: `"Re-requested reviews from Codex and Devin on milestone PR #<milestone-pr-number> (cycle <cycle-counter>/3, commit $LATEST_COMMIT)."`
 
-5. **Wait for fresh reviews**: Poll for new reviews on the milestone PR:
-   - Poll `.claude/check-pr-reviews <milestone-pr-number>` every 60 seconds.
-   - If status is `pending`, wait 60 seconds and poll again.
-   - If status is `rate_limited`, wait 120 seconds and poll again.
-   - If status is `changes_requested`, return to step 2 (which checks the cycle limit).
-   - If status is `approved`, proceed to Phase 4c.5.
+5. **Wait for fresh reviews**: After fixes are pushed, poll for **new** reviews posted after `last_fix_push_time`:
+   - Poll every 60 seconds for up to **3 minutes**.
+   - On each poll, use `gh api` to check for reviews and inline comments posted after `last_fix_push_time`:
+     ```bash
+     gh api "repos/{owner}/{repo}/pulls/<milestone-pr-number>/reviews" \
+       --jq '[.[] | select(.submitted_at > "'$last_fix_push_time'")] | length'
+     gh api "repos/{owner}/{repo}/pulls/<milestone-pr-number>/comments" \
+       --jq '[.[] | select(.created_at > "'$last_fix_push_time'")] | length'
+     ```
+   - If new reviews exist, run `.claude/check-pr-reviews <milestone-pr-number>` and derive the aggregate status:
+     - If aggregate status is `approved`, proceed to Phase 4c.5.
+     - If aggregate status is `changes_requested`, return to step 2 (which checks the cycle limit).
+     - If aggregate status is `pending` or `rate_limited`, continue polling.
+   - If **3 minutes** pass with no new reviews (zero new reviews/comments since `last_fix_push_time`), proceed to Phase 4c.5. Log: `"No new reviews within 3 minutes after fixes pushed. Proceeding to merge."`
 
-Repeat steps 1-5 until the exit condition: either `approved` status, or the cycle counter has reached 3.
+Repeat steps 1-5 until the exit condition: either `approved` aggregate status, 3-minute timeout with no new reviews after a fix push, or the cycle counter has reached 3.
 
 #### 4c.5. Merge milestone PR into feature branch
 
