@@ -159,6 +159,10 @@ if [[ "${COVERAGE}" == "true" ]]; then
     /^SF:/ {
       sf = $0
       sub(/^SF:/, "", sf)
+      # Reset per-block FN/FNDA positional counters for this source block
+      for (k = 1; k <= blk_fn_count; k++) delete blk_fn_at[k]
+      blk_fn_count = 0
+      blk_fnda_idx = 0
       next
     }
     /^DA:/ {
@@ -179,27 +183,34 @@ if [[ "${COVERAGE}" == "true" ]]; then
       next
     }
     /^FN:/ {
-      # FN:line_number,function_name — keep first occurrence per file
+      # FN:line_number,function_name — deduplicate by line+name
       sub(/^FN:/, "")
       key = sf SUBSEP $0
       if (!(key in fn_seen)) {
         fn_seen[key] = 1
         fn_list[sf] = fn_list[sf] SUBSEP $0
       }
+      # Track FN order within this lcov block so we can pair
+      # each subsequent FNDA with its corresponding FN by position
+      blk_fn_count++
+      blk_fn_at[blk_fn_count] = $0
       next
     }
     /^FNDA:/ {
-      # FNDA:execution_count,function_name — sum counts
+      # FNDA:execution_count,function_name — pair with FN by position
       sub(/^FNDA:/, "")
       split($0, parts, ",")
       count = parts[1] + 0
-      fname = parts[2]
-      key = sf SUBSEP fname
+      # Use positional index to find the matching FN (line,name)
+      blk_fnda_idx++
+      fn_full = blk_fn_at[blk_fnda_idx]
+      if (fn_full == "") fn_full = parts[2]
+      key = sf SUBSEP fn_full
       if (key in fnda) {
         fnda[key] += count
       } else {
         fnda[key] = count
-        fnda_order[sf] = fnda_order[sf] SUBSEP fname
+        fnda_order[sf] = fnda_order[sf] SUBSEP fn_full
       }
       next
     }
@@ -209,12 +220,22 @@ if [[ "${COVERAGE}" == "true" ]]; then
       split($0, parts, ",")
       bkey = sf SUBSEP parts[1] "," parts[2] "," parts[3]
       taken = parts[4]
-      if (taken == "-") taken = 0
-      taken += 0
-      if (bkey in brda) {
-        brda[bkey] += taken
+      if (taken == "-") {
+        # "-" means not executed — only set if no shard provided a numeric value
+        if (!(bkey in brda_numeric)) {
+          brda[bkey] = 0
+        }
       } else {
-        brda[bkey] = taken
+        taken += 0
+        if (bkey in brda_numeric) {
+          brda[bkey] += taken
+        } else {
+          brda[bkey] = taken
+        }
+        brda_numeric[bkey] = 1
+      }
+      if (!(bkey in brda_seen)) {
+        brda_seen[bkey] = 1
         brda_id[sf] = brda_id[sf] SUBSEP parts[1] "," parts[2] "," parts[3]
       }
       next
@@ -231,11 +252,15 @@ if [[ "${COVERAGE}" == "true" ]]; then
         }
 
         # Function execution counts
-        n = split(fnda_order[sf], fnames, SUBSEP)
+        n = split(fnda_order[sf], fn_entries, SUBSEP)
         fnf = 0; fnh = 0
         for (i = 2; i <= n; i++) {
-          key = sf SUBSEP fnames[i]
-          print "FNDA:" fnda[key] "," fnames[i]
+          key = sf SUBSEP fn_entries[i]
+          # fn_entries[i] is "line,name" — extract just the name for FNDA output
+          split(fn_entries[i], fnda_parts, ",")
+          fname_out = fnda_parts[2]
+          if (fname_out == "") fname_out = fn_entries[i]
+          print "FNDA:" fnda[key] "," fname_out
           fnf++
           if (fnda[key] > 0) fnh++
         }
@@ -248,9 +273,14 @@ if [[ "${COVERAGE}" == "true" ]]; then
         for (i = 2; i <= n; i++) {
           key = sf SUBSEP brs[i]
           taken = brda[key]
-          print "BRDA:" brs[i] "," (taken > 0 ? taken : "-")
-          brf++
-          if (taken > 0) brh++
+          if (key in brda_numeric) {
+            print "BRDA:" brs[i] "," taken
+            brf++
+            if (taken > 0) brh++
+          } else {
+            print "BRDA:" brs[i] ",-"
+            brf++
+          }
         }
         if (brf > 0) {
           print "BRF:" brf
