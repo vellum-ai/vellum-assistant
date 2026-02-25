@@ -3075,13 +3075,15 @@ public struct IPCRecordingOptions: Codable, Sendable {
     public let displayId: String?
     public let windowId: Double?
     public let includeAudio: Bool?
+    public let includeMicrophone: Bool?
     public let promptForSource: Bool?
 
-    public init(captureScope: String? = nil, displayId: String? = nil, windowId: Double? = nil, includeAudio: Bool? = nil, promptForSource: Bool? = nil) {
+    public init(captureScope: String? = nil, displayId: String? = nil, windowId: Double? = nil, includeAudio: Bool? = nil, includeMicrophone: Bool? = nil, promptForSource: Bool? = nil) {
         self.captureScope = captureScope
         self.displayId = displayId
         self.windowId = windowId
         self.includeAudio = includeAudio
+        self.includeMicrophone = includeMicrophone
         self.promptForSource = promptForSource
     }
 }
