@@ -78,6 +78,8 @@ struct SettingsConnectTab: View {
             store.refreshChannelGuardianStatus(channel: "sms")
             store.refreshChannelGuardianStatus(channel: "voice")
             gatewayExpanded = store.ingressPublicBaseUrl.isEmpty
+            Task { await store.testGatewayOnly() }
+            Task { await store.testTunnelOnly() }
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
             if !isGatewayUrlFocused {
