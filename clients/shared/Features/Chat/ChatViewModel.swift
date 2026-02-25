@@ -1738,8 +1738,24 @@ public final class ChatViewModel: ObservableObject {
                         imageData: tc.imageData
                     )
                     // Defer expensive formatting — store the raw dict for lazy computation
-                    // when the user expands the tool call chip.
-                    toolCall.inputRawDict = tc.input
+                    // when the user expands the tool call chip. Cap the raw dict size
+                    // to prevent unbounded memory from large tool inputs (mirrors the
+                    // 10k-char cap applied in formatAllToolInput).
+                    if let input = tc.input {
+                        let estimatedSize: Int
+                        if let data = try? JSONSerialization.data(withJSONObject: input.mapValues { $0.value ?? NSNull() }) {
+                            estimatedSize = data.count
+                        } else {
+                            estimatedSize = 0
+                        }
+                        if estimatedSize > 10_000 {
+                            // Too large — format eagerly (with truncation) rather than
+                            // retaining the full raw dictionary in memory.
+                            toolCall.inputFull = ToolCallData.formatAllToolInput(input)
+                        } else {
+                            toolCall.inputRawDict = input
+                        }
+                    }
                     return toolCall
                 }
             }

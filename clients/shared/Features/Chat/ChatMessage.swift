@@ -1023,14 +1023,6 @@ public struct ToolCallData: Identifiable, Equatable {
         return result
     }
 
-    /// If `inputFull` is empty and `inputRawDict` is available, compute the
-    /// formatted input on demand. Call this before displaying `inputFull`.
-    public mutating func ensureInputFullFormatted() {
-        guard inputFull.isEmpty, let dict = inputRawDict else { return }
-        inputFull = Self.formatAllToolInput(dict)
-        inputRawDict = nil
-    }
-
     private static func stringifyValue(_ value: AnyCodable) -> String {
         if let s = value.value as? String { return s }
         if let b = value.value as? Bool { return b ? "true" : "false" }
