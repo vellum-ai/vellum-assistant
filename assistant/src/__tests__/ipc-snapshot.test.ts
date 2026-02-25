@@ -1107,12 +1107,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: 'sess-001',
     requestId: 'req-queue-001',
   },
-  reminder_fired: {
-    type: 'reminder_fired',
-    reminderId: 'rem-001',
-    label: 'Call Sidd',
-    message: 'Remember to call Sidd about the project',
-  },
   notification_intent: {
     type: 'notification_intent',
     sourceEventName: 'guardian.question',
@@ -1127,21 +1121,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     conversationId: 'conv-notif-001',
     title: 'Weather alert for your area',
     sourceEventName: 'watcher.escalation',
-  },
-  schedule_complete: {
-    type: 'schedule_complete',
-    scheduleId: 'sched-001',
-    name: 'Daily backup',
-  },
-  watcher_notification: {
-    type: 'watcher_notification',
-    title: 'Watcher disabled: My Gmail',
-    body: 'Disabled after 5 consecutive errors.',
-  },
-  watcher_escalation: {
-    type: 'watcher_escalation',
-    title: 'Urgent email from Alice',
-    body: 'Meeting rescheduled to 3pm today.',
   },
   heartbeat_alert: {
     type: 'heartbeat_alert',

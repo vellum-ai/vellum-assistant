@@ -1443,14 +1443,6 @@ public struct SessionErrorMessage: Decodable, Sendable {
     }
 }
 
-/// Reminder fired notification from daemon.
-/// Backed by generated `IPCReminderFired`.
-public typealias ReminderFiredMessage = IPCReminderFired
-
-/// Schedule complete notification from daemon.
-/// Backed by generated `IPCScheduleComplete`.
-public typealias ScheduleCompleteMessage = IPCScheduleComplete
-
 /// Generic notification intent from daemon.
 /// Backed by generated `IPCNotificationIntent`.
 public typealias NotificationIntentMessage = IPCNotificationIntent
@@ -2209,10 +2201,8 @@ public enum ServerMessage: Decodable, Sendable {
     case toolInputDelta(ToolInputDeltaMessage)
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
-    case reminderFired(ReminderFiredMessage)
     case notificationIntent(NotificationIntentMessage)
     case notificationThreadCreated(IPCNotificationThreadCreated)
-    case scheduleComplete(ScheduleCompleteMessage)
     case watchStarted(WatchStartedMessage)
     case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
@@ -2461,18 +2451,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "tool_result":
             let message = try ToolResultMessage(from: decoder)
             self = .toolResult(message)
-        case "reminder_fired":
-            let message = try ReminderFiredMessage(from: decoder)
-            self = .reminderFired(message)
         case "notification_intent":
             let message = try NotificationIntentMessage(from: decoder)
             self = .notificationIntent(message)
         case "notification_thread_created":
             let message = try IPCNotificationThreadCreated(from: decoder)
             self = .notificationThreadCreated(message)
-        case "schedule_complete":
-            let message = try ScheduleCompleteMessage(from: decoder)
-            self = .scheduleComplete(message)
         case "watch_started":
             let message = try WatchStartedMessage(from: decoder)
             self = .watchStarted(message)

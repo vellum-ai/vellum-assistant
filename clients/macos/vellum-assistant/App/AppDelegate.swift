@@ -716,42 +716,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // so status changes on the replacement client trigger icon updates.
         rebindConnectionStatusObserver()
 
-        // Show macOS notification when a reminder fires
-        daemonClient.onReminderFired = { msg in
-            let content = UNMutableNotificationContent()
-            content.title = "Reminder: \(msg.label)"
-            content.body = msg.message
-            content.sound = .default
-
-            let request = UNNotificationRequest(
-                identifier: "reminder-\(msg.reminderId)",
-                content: content,
-                trigger: nil
-            )
-            UNUserNotificationCenter.current().add(request) { error in
-                if let error {
-                    log.error("Failed to post reminder notification: \(error.localizedDescription)")
-                }
-            }
-        }
-
-        daemonClient.onScheduleComplete = { msg in
-            let content = UNMutableNotificationContent()
-            content.title = msg.name
-            content.sound = .default
-
-            let request = UNNotificationRequest(
-                identifier: "schedule-\(msg.scheduleId)",
-                content: content,
-                trigger: nil
-            )
-            UNUserNotificationCenter.current().add(request) { error in
-                if let error {
-                    log.error("Failed to post schedule notification: \(error.localizedDescription)")
-                }
-            }
-        }
-
         daemonClient.onNotificationIntent = { [weak self] msg in
             self?.deliverNotificationIntent(msg)
         }

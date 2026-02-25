@@ -3221,20 +3221,6 @@ public struct IPCReminderCancel: Codable, Sendable {
     }
 }
 
-public struct IPCReminderFired: Codable, Sendable {
-    public let type: String
-    public let reminderId: String
-    public let label: String
-    public let message: String
-
-    public init(type: String, reminderId: String, label: String, message: String) {
-        self.type = type
-        self.reminderId = reminderId
-        self.label = label
-        self.message = message
-    }
-}
-
 public struct IPCRemindersList: Codable, Sendable {
     public let type: String
 
@@ -3361,18 +3347,6 @@ public struct IPCSandboxSetRequest: Codable, Sendable {
     public init(type: String, enabled: Bool) {
         self.type = type
         self.enabled = enabled
-    }
-}
-
-public struct IPCScheduleComplete: Codable, Sendable {
-    public let type: String
-    public let scheduleId: String
-    public let name: String
-
-    public init(type: String, scheduleId: String, name: String) {
-        self.type = type
-        self.scheduleId = scheduleId
-        self.name = name
     }
 }
 
@@ -5618,30 +5592,6 @@ public struct IPCWatchCompleteRequest: Codable, Sendable {
         self.type = type
         self.sessionId = sessionId
         self.watchId = watchId
-    }
-}
-
-public struct IPCWatcherEscalation: Codable, Sendable {
-    public let type: String
-    public let title: String
-    public let body: String
-
-    public init(type: String, title: String, body: String) {
-        self.type = type
-        self.title = title
-        self.body = body
-    }
-}
-
-public struct IPCWatcherNotification: Codable, Sendable {
-    public let type: String
-    public let title: String
-    public let body: String
-
-    public init(type: String, title: String, body: String) {
-        self.type = type
-        self.title = title
-        self.body = body
     }
 }
 

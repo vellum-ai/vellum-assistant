@@ -45,9 +45,6 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   // Page publishing — not yet consumed by the macOS client
   'publish_page_response',
   'unpublish_page_response',
-  // Watcher messages — not yet consumed by the macOS client
-  'watcher_escalation',
-  'watcher_notification',
   // Heartbeat alerts — not yet consumed by the macOS client
   'heartbeat_alert',
   // Browser handoff — not yet consumed by the macOS client

@@ -77,14 +77,10 @@ extension DaemonClient {
             onTaskRouted?(msg)
         case .dictationResponse(let msg):
             onDictationResponse?(msg)
-        case .reminderFired(let msg):
-            onReminderFired?(msg)
         case .notificationIntent(let msg):
             onNotificationIntent?(msg)
         case .notificationThreadCreated(let msg):
             onNotificationThreadCreated?(msg)
-        case .scheduleComplete(let msg):
-            onScheduleComplete?(msg)
         case .trustRulesListResponse(let msg):
             onTrustRulesListResponse?(msg.rules)
         case .toolPermissionSimulateResponse(let msg):

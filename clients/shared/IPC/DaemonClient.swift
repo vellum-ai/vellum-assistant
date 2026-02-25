@@ -219,17 +219,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `dictation_response` message.
     public var onDictationResponse: ((DictationResponseMessage) -> Void)?
 
-    /// Called when a reminder fires.
-    public var onReminderFired: ((ReminderFiredMessage) -> Void)?
-
     /// Called when the daemon emits a generic `notification_intent` payload.
     public var onNotificationIntent: ((NotificationIntentMessage) -> Void)?
 
     /// Called when a notification delivery creates a new vellum conversation thread.
     public var onNotificationThreadCreated: ((IPCNotificationThreadCreated) -> Void)?
-
-    /// Called when a scheduled task completes.
-    public var onScheduleComplete: ((ScheduleCompleteMessage) -> Void)?
 
     /// Called when the daemon sends a `trust_rules_list_response` message.
     public var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?

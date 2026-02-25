@@ -65,31 +65,6 @@ export interface RemindersListResponse {
   }>;
 }
 
-export interface ReminderFired {
-  type: 'reminder_fired';
-  reminderId: string;
-  label: string;
-  message: string;
-}
-
-export interface ScheduleComplete {
-  type: 'schedule_complete';
-  scheduleId: string;
-  name: string;
-}
-
-export interface WatcherNotification {
-  type: 'watcher_notification';
-  title: string;
-  body: string;
-}
-
-export interface WatcherEscalation {
-  type: 'watcher_escalation';
-  title: string;
-  body: string;
-}
-
 export interface HeartbeatAlert {
   type: 'heartbeat_alert';
   title: string;
@@ -109,8 +84,4 @@ export type _SchedulesClientMessages =
 export type _SchedulesServerMessages =
   | SchedulesListResponse
   | RemindersListResponse
-  | ReminderFired
-  | ScheduleComplete
-  | WatcherNotification
-  | WatcherEscalation
   | HeartbeatAlert;
