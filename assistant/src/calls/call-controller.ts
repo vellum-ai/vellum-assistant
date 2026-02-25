@@ -685,7 +685,17 @@ export class CallController {
 
     if (contentPrefix) {
       // Merge prefix content with the caller utterance into a single turn
-      const callerContent = this.formatCallerUtterance(latest.transcript, latest.speaker);
+      let callerContent = this.formatCallerUtterance(latest.transcript, latest.speaker);
+
+      // Preserve opening-ack semantics when draining bypasses handleCallerUtterance
+      if (this.awaitingOpeningAck) {
+        callerContent = callerContent.length > 0
+          ? `${CALL_OPENING_ACK_MARKER}\n${callerContent}`
+          : CALL_OPENING_ACK_MARKER;
+        this.awaitingOpeningAck = false;
+        this.lastSentWasOpener = false;
+      }
+
       const combined = `${contentPrefix}\n${callerContent}`;
       this.resetSilenceTimer();
       this.runTurn(combined).catch((err) =>
