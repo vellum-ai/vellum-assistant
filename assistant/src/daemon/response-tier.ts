@@ -107,7 +107,7 @@ export function resolveWithHint(
   const timeAge = Date.now() - hint.timestamp;
 
   if (turnAge > HINT_MAX_TURN_AGE || timeAge > HINT_MAX_AGE_MS) {
-    log.info({ turnAge, timeAge }, 'Session tier hint is stale, ignoring');
+    log.debug({ turnAge, timeAge }, 'Session tier hint is stale, ignoring');
     return classification.tier;
   }
 
@@ -181,24 +181,24 @@ export async function classifyResponseTierAsync(
       const match = raw.match(/\b(low|medium|high)\b/);
       if (match) {
         const tier = match[1] as ResponseTier;
-        log.info({ tier, raw }, 'Async tier classification result');
+        log.debug({ tier, raw }, 'Async tier classification result');
         return tier;
       }
 
-      log.warn({ raw }, 'Async tier classification returned unexpected value');
+      log.debug({ raw }, 'Async tier classification returned unexpected value');
       return null;
     } finally {
       cleanup();
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.warn({ err: message }, 'Async tier classification failed');
+    log.debug({ err: message }, 'Async tier classification failed');
     return null;
   }
 }
 
 function tagged(tier: ResponseTier, reason: string, confidence: TierConfidence): TierClassification {
-  log.info({ tier, reason, confidence }, 'Classified response tier');
+  log.debug({ tier, reason, confidence }, 'Classified response tier');
   return { tier, reason, confidence };
 }
 

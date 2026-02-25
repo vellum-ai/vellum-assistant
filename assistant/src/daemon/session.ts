@@ -25,7 +25,6 @@ import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
-import { getLogger } from '../util/logger.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
 import {
   classifyResponseTier,
@@ -267,10 +266,6 @@ export class Session {
         // filtered out as injected context.
         isToolResultOnly = userText.trim().length === 0;
       }
-
-      // Temporary: log what the classifier sees
-      const _tierLog = getLogger('response-tier');
-      _tierLog.info({ userTextLen: userText.trim().length, userTextPreview: userText.trim().slice(0, 200), blockCount: lastUserMsg?.content.length }, 'Classifier input');
 
       let tier: import('./response-tier.js').ResponseTier;
 
