@@ -13,7 +13,8 @@ import { getSubagentManager } from '../../subagent/index.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { truncate } from '../../util/truncate.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
-import { isRecordingOnly, isStopRecordingOnly } from '../recording-intent.js';
+import { getAssistantName } from '../identity-helpers.js';
+import { classifyRecordingIntent } from '../recording-intent.js';
 import { handleRecordingStart, handleRecordingStop } from './recording.js';
 import type {
   CancelRequest,
@@ -93,29 +94,39 @@ export async function handleUserMessage(
     const config = getConfig();
     const messageText = msg.content ?? '';
     if (config.daemon.standaloneRecording && messageText) {
-      if (isStopRecordingOnly(messageText)) {
-        const stopped = handleRecordingStop(msg.sessionId, ctx) !== undefined;
-        rlog.info('Recording stop intent intercepted in user_message');
-        ctx.send(socket, {
-          type: 'assistant_text_delta',
-          text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
-          sessionId: msg.sessionId,
-        });
-        ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        return;
-      }
+      const name = getAssistantName();
+      const dynamicNames = [name].filter(Boolean) as string[];
+      const intentClass = classifyRecordingIntent(messageText, dynamicNames);
 
-      if (isRecordingOnly(messageText)) {
-        const recordingId = handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
-        rlog.info('Recording-only intent intercepted in user_message');
-
-        if (recordingId) {
-          ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: msg.sessionId });
-        } else {
-          ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: msg.sessionId });
+      switch (intentClass) {
+        case 'stop_only': {
+          const stopped = handleRecordingStop(msg.sessionId, ctx) !== undefined;
+          rlog.info('Recording stop intent intercepted in user_message');
+          ctx.send(socket, {
+            type: 'assistant_text_delta',
+            text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+            sessionId: msg.sessionId,
+          });
+          ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+          return;
         }
-        ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        return;
+        case 'start_only': {
+          const recordingId = handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
+          rlog.info('Recording-only intent intercepted in user_message');
+
+          if (recordingId) {
+            ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: msg.sessionId });
+          } else {
+            ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: msg.sessionId });
+          }
+          ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+          return;
+        }
+        case 'mixed':
+          rlog.info('Mixed recording intent detected in user_message — not intercepting');
+          break;
+        case 'none':
+          break;
       }
     }
 
