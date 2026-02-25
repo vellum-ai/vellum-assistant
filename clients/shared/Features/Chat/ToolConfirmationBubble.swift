@@ -512,6 +512,7 @@ public struct ToolConfirmationBubble: View {
 
     /// Activate the currently selected row in the nested popover.
     private func activatePopoverSelection() {
+        markCommandExplanationSeen()
         guard let model = popoverKeyboardModel else { return }
         let index = model.selectedIndex
 
@@ -746,6 +747,7 @@ public struct ToolConfirmationBubble: View {
                             label: scopeOption.label,
                             isKeyboardSelected: popoverKeyboardModel?.mode == .scopes && popoverKeyboardModel?.selectedIndex == index
                         ) {
+                            markCommandExplanationSeen()
                             showAlwaysAllowMenu = false
                             pendingPattern = nil
                             popoverKeyboardModel = nil
@@ -765,6 +767,7 @@ public struct ToolConfirmationBubble: View {
                             subtitle: option.description,
                             isKeyboardSelected: popoverKeyboardModel?.mode == .patterns && popoverKeyboardModel?.selectedIndex == index
                         ) {
+                            markCommandExplanationSeen()
                             if option.pattern.isEmpty {
                                 showAlwaysAllowMenu = false
                                 popoverKeyboardModel = nil
@@ -814,6 +817,7 @@ public struct ToolConfirmationBubble: View {
                     label: scopeOption.label,
                     isKeyboardSelected: popoverKeyboardModel?.mode == .scopes && popoverKeyboardModel?.selectedIndex == index
                 ) {
+                    markCommandExplanationSeen()
                     showScopePickerMenu = false
                     popoverKeyboardModel = nil
                     if let pattern = pendingPattern {
