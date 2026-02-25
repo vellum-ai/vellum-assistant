@@ -95,6 +95,10 @@ const inlineHandlers = defineHandlers({
     ctx.send(socket, { type: 'assistant_inbox_response', success: false, error: 'Not yet implemented' });
   },
 
+  // Stub: recording lifecycle updates from the client. Server-side handling
+  // will be wired in a follow-up milestone (M4).
+  recording_status: () => { /* no-op — standalone recording finalization not yet implemented */ },
+
 });
 
 const handlers = {
