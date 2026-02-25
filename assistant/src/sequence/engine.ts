@@ -133,10 +133,6 @@ async function processEnrollment(
 
   await processMessage(conversation.id, prompt);
 
-  // Track the send for rate-limiting guardrails and analytics
-  recordSend(sequence.id);
-  recordEvent(sequence.id, enrollment.id, 'send', step.index);
-
   // Try to extract the email thread ID from conversation tool results so
   // subsequent steps can reply in the same thread.
   const threadId = extractThreadIdFromConversation(conversation.id) ?? undefined;
@@ -157,6 +153,12 @@ async function processEnrollment(
     }, 'Step requires approval — pausing advancement until draft is approved');
     return;
   }
+
+  // Track the send for rate-limiting guardrails and analytics.
+  // Placed after the requireApproval gate so draft-only steps don't inflate
+  // rate-limit counters — only actual sends are counted.
+  recordSend(sequence.id);
+  recordEvent(sequence.id, enrollment.id, 'send', step.index);
 
   // Advance to the next step
   const nextStepIndex = enrollment.currentStep + 1;

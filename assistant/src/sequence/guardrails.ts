@@ -182,12 +182,15 @@ export function checkAllPreSend(
   enrollment: SequenceEnrollment,
   stepDelaySec: number,
 ): GuardrailResult {
+  // checkDuplicateEnrollment is intentionally excluded here — it's an
+  // enrollment-time guard, not a per-step guard. During step processing the
+  // current enrollment is still status='active', so it would always find
+  // itself and block every step.
   const checks: GuardrailResult[] = [
     checkDailyCap(),
     checkHourlyRate(sequenceId),
     checkMinDelay(stepDelaySec),
     checkEnrollmentCap(sequenceId),
-    checkDuplicateEnrollment(sequenceId, enrollment.contactEmail),
     checkCooldown(sequenceId, enrollment.contactEmail),
   ];
 
