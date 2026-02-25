@@ -8,15 +8,26 @@ export function isChannelId(value: unknown): value is ChannelId {
   return typeof value === 'string' && (CHANNEL_IDS as readonly string[]).includes(value);
 }
 
+/** Legacy channel IDs that were renamed but may still arrive from pre-rename clients. */
+const LEGACY_CHANNEL_ALIASES: Record<string, ChannelId> = {
+  macos: 'vellum',
+  ios: 'vellum',
+};
+
 export function parseChannelId(value: unknown): ChannelId | null {
-  return isChannelId(value) ? value : null;
+  if (isChannelId(value)) return value;
+  if (typeof value === 'string' && value in LEGACY_CHANNEL_ALIASES) {
+    return LEGACY_CHANNEL_ALIASES[value]!;
+  }
+  return null;
 }
 
 export function assertChannelId(value: unknown, field: string): ChannelId {
-  if (!isChannelId(value)) {
+  const parsed = parseChannelId(value);
+  if (parsed === null) {
     throw new Error(`Invalid channel ID for ${field}: ${String(value)}. Valid values: ${CHANNEL_IDS.join(', ')}`);
   }
-  return value;
+  return parsed;
 }
 
 export interface TurnChannelContext {
