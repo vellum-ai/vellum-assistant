@@ -115,7 +115,9 @@ extension ChatBubble {
         panel.canCreateDirectories = true
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            try? data.write(to: url)
+            DispatchQueue.global(qos: .userInitiated).async {
+                try? data.write(to: url)
+            }
         }
     }
 
