@@ -293,16 +293,6 @@ async function fetchAssignedIssueUpdates(
  */
 const knownIssueStateIdsByWatcher = new Map<string, Map<string, string>>();
 
-/**
- * Tracks the set of assigned issue IDs returned by the previous poll, scoped
- * by watcher key. Used to detect unassignment: if an issue was in the previous
- * poll's assigned set but is absent from the current one, it has been
- * unassigned and its cached state should be evicted. This prevents false
- * `linear_status_changed` events when an issue is unassigned, changes state,
- * and is later reassigned.
- */
-const lastSeenAssignedIdsByWatcher = new Map<string, Set<string>>();
-
 /** Get (or lazily create) the per-watcher state map. */
 function getStateCache(watcherKey: string): Map<string, string> {
   let cache = knownIssueStateIdsByWatcher.get(watcherKey);
@@ -320,7 +310,6 @@ function getStateCache(watcherKey: string): Map<string, string> {
  */
 export function clearLinearStateCache(watcherKey: string): void {
   knownIssueStateIdsByWatcher.delete(watcherKey);
-  lastSeenAssignedIdsByWatcher.delete(watcherKey);
 }
 
 // ── Event type mapping ────────────────────────────────────────────────────────
@@ -450,33 +439,13 @@ export const linearProvider: WatcherProvider = {
       // credentialService so that multiple Linear watchers sharing the same credential
       // maintain independent baselines and cannot clobber each other's state.
       const stateCache = getStateCache(watcherKey);
-      const prevSeenIds = lastSeenAssignedIdsByWatcher.get(watcherKey);
-      const currentSeenIds = new Set<string>();
       for (const issue of assignedIssues) {
-        currentSeenIds.add(issue.id);
         const previousStateId = stateCache.get(issue.id);
-        // Only emit a status change if the issue was also seen in the previous
-        // poll (continuously assigned). If it wasn't seen last time, it may have
-        // been unassigned and reassigned — the cached state is stale, so we
-        // re-seed instead of emitting a false event.
-        const wasPreviouslySeen = prevSeenIds === undefined || prevSeenIds.has(issue.id);
-        if (previousStateId !== undefined && previousStateId !== issue.state.id && wasPreviouslySeen) {
+        if (previousStateId !== undefined && previousStateId !== issue.state.id) {
           items.push(issueToStatusChangeItem(issue, previousStateId));
         }
         stateCache.set(issue.id, issue.state.id);
       }
-
-      // Evict cached state for issues that were seen last poll but not this one
-      // — they've been unassigned. This prevents stale entries from accumulating
-      // and avoids false-positive events if the issue is later reassigned.
-      if (prevSeenIds) {
-        for (const id of prevSeenIds) {
-          if (!currentSeenIds.has(id)) {
-            stateCache.delete(id);
-          }
-        }
-      }
-      lastSeenAssignedIdsByWatcher.set(watcherKey, currentSeenIds);
 
       const newWatermark = new Date().toISOString();
       log.info(
