@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Full-screen apps grid view showing all apps as an icon grid with search and pinned/recent sections.
 struct AppsGridView: View {
