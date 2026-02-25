@@ -105,7 +105,7 @@ import {
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
 import { addMessage, createConversation, getConversationMemoryScopeId, messageMetadataSchema, provenanceFromGuardianContext } from '../memory/conversation-store.js';
-import { backfillJob } from '../memory/job-handlers/backfill.js';
+import { backfillEntityRelationsJob, backfillJob } from '../memory/job-handlers/backfill.js';
 import { buildConversationSummaryJob, buildGlobalSummaryJob } from '../memory/job-handlers/summarization.js';
 import {
   conversations,
@@ -4430,6 +4430,127 @@ describe('Memory regressions', () => {
     expect(segments.length).toBeGreaterThan(0);
     for (const seg of segments) {
       expect(seg.scopeId).toBe(conv.memoryScopeId);
+    }
+  });
+
+  test('backfillJob preserves provenance trust gating during reindex', () => {
+    const db = getDb();
+
+    const conv = createConversation('Backfill provenance trust gate');
+    const msgId = 'msg-backfill-untrusted-provenance';
+    db.insert(messages).values({
+      id: msgId,
+      conversationId: conv.id,
+      role: 'user',
+      content: 'Untrusted sender says preferences should not become durable profile memory.',
+      metadata: JSON.stringify({
+        provenanceActorRole: 'non-guardian',
+        provenanceSourceChannel: 'telegram',
+      }),
+      createdAt: conv.createdAt + 1,
+    }).run();
+
+    const fakeJob = {
+      id: 'job-backfill-untrusted-provenance',
+      type: 'backfill' as const,
+      payload: { force: true },
+      status: 'running' as const,
+      attempts: 0,
+      deferrals: 0,
+      runAfter: 0,
+      lastError: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    backfillJob(fakeJob, TEST_CONFIG);
+
+    const segments = db
+      .select()
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, msgId))
+      .all();
+    expect(segments.length).toBeGreaterThan(0);
+
+    const extractJobs = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all()
+      .filter((job) => JSON.parse(job.payload).messageId === msgId);
+    expect(extractJobs).toHaveLength(0);
+  });
+
+  test('relation backfill skips untrusted provenance messages', () => {
+    const db = getDb();
+    const now = Date.now();
+    const originalEnabled = TEST_CONFIG.memory.entity.enabled;
+    const originalRelationsEnabled = TEST_CONFIG.memory.entity.extractRelations.enabled;
+    const originalBatchSize = TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize;
+
+    TEST_CONFIG.memory.entity.enabled = true;
+    TEST_CONFIG.memory.entity.extractRelations.enabled = true;
+    TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize = 50;
+
+    try {
+      db.insert(conversations).values({
+        id: 'conv-relation-provenance-gate',
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+
+      db.insert(messages).values([
+        {
+          id: 'msg-relation-trusted',
+          conversationId: 'conv-relation-provenance-gate',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: 'Trusted guardian message for relation backfill.' }]),
+          metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+          createdAt: now + 1,
+        },
+        {
+          id: 'msg-relation-untrusted',
+          conversationId: 'conv-relation-provenance-gate',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: 'Untrusted message that should be excluded from relation backfill extraction.' }]),
+          metadata: JSON.stringify({ provenanceActorRole: 'non-guardian', provenanceSourceChannel: 'telegram' }),
+          createdAt: now + 2,
+        },
+      ]).run();
+
+      const relationJob = {
+        id: 'job-relation-provenance-gate',
+        type: 'backfill_entity_relations' as const,
+        payload: { force: true },
+        status: 'running' as const,
+        attempts: 0,
+        deferrals: 0,
+        runAfter: 0,
+        lastError: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      backfillEntityRelationsJob(relationJob, TEST_CONFIG);
+
+      const extractJobs = db
+        .select()
+        .from(memoryJobs)
+        .where(eq(memoryJobs.type, 'extract_entities'))
+        .all();
+      const extractedMessageIds = extractJobs.map((job) => JSON.parse(job.payload).messageId);
+
+      expect(extractedMessageIds).toContain('msg-relation-trusted');
+      expect(extractedMessageIds).not.toContain('msg-relation-untrusted');
+    } finally {
+      TEST_CONFIG.memory.entity.enabled = originalEnabled;
+      TEST_CONFIG.memory.entity.extractRelations.enabled = originalRelationsEnabled;
+      TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize = originalBatchSize;
     }
   });
 
