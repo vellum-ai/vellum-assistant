@@ -843,7 +843,7 @@ export class DaemonServer {
     const resolvedContent = slashResult.content;
 
     if (slashResult.kind === 'rewritten') {
-      (session as unknown as { preactivatedSkillIds?: string[] }).preactivatedSkillIds = [slashResult.skillId];
+      session.setPreactivatedSkillIds([slashResult.skillId]);
     }
 
     const requestId = crypto.randomUUID();
@@ -851,7 +851,7 @@ export class DaemonServer {
     try {
       messageId = session.persistUserMessage(resolvedContent, attachments, requestId);
     } catch (err) {
-      (session as unknown as { preactivatedSkillIds?: string[] }).preactivatedSkillIds = undefined;
+      session.setPreactivatedSkillIds(undefined);
       throw err;
     }
 

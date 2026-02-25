@@ -358,6 +358,10 @@ export class Session {
     this.commandIntent = intent ?? undefined;
   }
 
+  setPreactivatedSkillIds(ids: string[] | undefined): void {
+    this.preactivatedSkillIds = ids;
+  }
+
   setTurnChannelContext(ctx: TurnChannelContext): void {
     this.currentTurnChannelContext = ctx;
   }
