@@ -382,6 +382,32 @@ export async function handleChannelInbound(
     { sourceMessageId, assistantId: canonicalAssistantId },
   );
 
+  // ── Retry pending verification reply on duplicate ──
+  // If a previous verification delivery failed and stored a pending reply,
+  // gateway retries (duplicates) re-attempt delivery here. On success the
+  // pending marker is cleared so further duplicates short-circuit normally.
+  if (result.duplicate && replyCallbackUrl) {
+    const pendingReply = channelDeliveryStore.getPendingVerificationReply(result.eventId);
+    if (pendingReply) {
+      try {
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: pendingReply.chatId,
+          text: pendingReply.text,
+          assistantId: pendingReply.assistantId,
+        }, bearerToken);
+        channelDeliveryStore.clearPendingVerificationReply(result.eventId);
+        log.info({ eventId: result.eventId }, 'Retried pending verification reply: delivered');
+      } catch (retryErr) {
+        log.error({ err: retryErr, eventId: result.eventId }, 'Retry of pending verification reply failed; will retry on next duplicate');
+      }
+      return Response.json({
+        accepted: true,
+        duplicate: true,
+        eventId: result.eventId,
+      });
+    }
+  }
+
   // external_conversation_bindings is assistant-agnostic. Restrict writes to
   // self so assistant-scoped legacy routes do not overwrite each other's
   // channel binding metadata for the same chat.
@@ -602,7 +628,23 @@ export async function handleChannelInbound(
           assistantId,
         }, bearerToken);
       } catch (err) {
-        log.error({ err, externalChatId }, 'Failed to deliver deterministic verification reply');
+        // The challenge is already consumed and side effects applied, so
+        // we cannot simply re-throw and let the gateway retry the full
+        // flow. Instead, persist the reply so that gateway retries
+        // (which arrive as duplicates) can re-attempt delivery.
+        log.error({ err, externalChatId }, 'Failed to deliver deterministic verification reply; persisting for retry');
+        channelDeliveryStore.storePendingVerificationReply(result.eventId, {
+          chatId: externalChatId,
+          text: replyText,
+          assistantId,
+        });
+        return Response.json({
+          accepted: true,
+          duplicate: false,
+          eventId: result.eventId,
+          guardianVerification: guardianVerifyOutcome,
+          deliveryPending: true,
+        });
       }
     }
 
