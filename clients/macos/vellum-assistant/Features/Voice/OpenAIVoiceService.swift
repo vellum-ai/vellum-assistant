@@ -51,9 +51,10 @@ final class OpenAIVoiceService: ObservableObject {
     private var silenceHandled = false
     private var hasSpeechOccurred = false
     private var enginePrewarmed = false
+    private var rmsLogCounter = 0
 
-    private static let silenceThreshold: Float = 0.002
-    private static let speechThreshold: Float = 0.004
+    private static let silenceThreshold: Float = 0.003
+    private static let speechThreshold: Float = 0.003
     private static let silenceTimeout: TimeInterval = 1.0
     private static let minRecordingDuration: TimeInterval = 0.5
 
@@ -126,6 +127,7 @@ final class OpenAIVoiceService: ObservableObject {
 
         silenceHandled = false
         hasSpeechOccurred = false
+        rmsLogCounter = 0
         latestTranscription = ""
 
         let inputNode = audioEngine.inputNode
@@ -221,6 +223,12 @@ final class OpenAIVoiceService: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self, self.isRecording else { return }
                 self.amplitude = min(rms * 5, 1.0)
+
+                // Log RMS every ~50 buffers (~1s) for diagnostics
+                self.rmsLogCounter += 1
+                if self.rmsLogCounter % 50 == 0 {
+                    log.info("Voice RMS: \(rms, privacy: .public) (speech threshold: \(Self.speechThreshold, privacy: .public), hasSpeech: \(self.hasSpeechOccurred, privacy: .public))")
+                }
 
                 if rms > Self.speechThreshold {
                     self.hasSpeechOccurred = true

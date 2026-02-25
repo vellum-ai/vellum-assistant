@@ -313,7 +313,7 @@ export async function rerankWithLLM(
     'You are a relevance scoring assistant. Given a query and a list of memory candidates, rate each candidate\'s relevance to the query on a scale of 0-10. Return ONLY a JSON array of objects with "index" (the candidate index) and "score" (0-10 integer). No explanation.',
     {
       config: {
-        model: rerankingConfig.model,
+        modelIntent: rerankingConfig.modelIntent,
         max_tokens: 1024,
       },
     },

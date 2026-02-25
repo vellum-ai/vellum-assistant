@@ -24,6 +24,7 @@ struct MarkdownSegmentView: View {
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)
                         .font(.system(size: 13))
+                        .lineSpacing(4)
                         .foregroundColor(textColor)
                         .tint(tintColor)
                         .textSelection(.enabled)
@@ -212,6 +213,7 @@ struct MarkdownSegmentView: View {
                     let textColumn = leftMargin + prefixSize.width
 
                     nonisolated(unsafe) let paraStyle = NSMutableParagraphStyle()
+                    paraStyle.lineSpacing = 4
                     paraStyle.firstLineHeadIndent = leftMargin
                     paraStyle.headIndent = textColumn
                     paraStyle.tabStops = []

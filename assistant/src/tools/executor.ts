@@ -22,6 +22,7 @@ import { safeTimeoutMs, executeWithTimeout } from './execution-timeout.js';
 import { buildPolicyContext } from './policy-context.js';
 import { resolveExecutionTarget } from './execution-target.js';
 import { isToolBlocked } from '../security/parental-control-store.js';
+import { isSideEffectTool } from './side-effects.js';
 
 const log = getLogger('tool-executor');
 
@@ -748,62 +749,9 @@ export class ToolExecutor {
   }
 }
 
-// ── Side-effect tool classifier ─────────────────────────────────────
-// Tools that modify state outside the assistant (filesystem writes,
-// shell commands, network requests that trigger actions, etc.).
-// Used by private-thread gating to decide whether a tool invocation
-// should be blocked in a read-only thread context.
-
-const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
-  'file_write',
-  'file_edit',
-  'host_file_write',
-  'host_file_edit',
-  'bash',
-  'host_bash',
-  'web_fetch',
-  'browser_navigate',
-  'browser_click',
-  'browser_type',
-  'browser_press_key',
-  'browser_scroll',
-  'browser_select_option',
-  'browser_hover',
-  'browser_close',
-  'browser_fill_credential',
-  'document_create',
-  'document_update',
-  'reminder_create',
-  'reminder_cancel',
-  'schedule_create',
-  'schedule_update',
-  'schedule_delete',
-]);
-
-/**
- * Returns `true` if the given tool name is classified as having side effects
- * (i.e. it can modify the filesystem, execute arbitrary commands, or trigger
- * external actions). Read-only and informational tools return `false`.
- *
- * For mixed-action tools (e.g. account_manage, reminder), the optional
- * `input` parameter is inspected to distinguish mutating actions (create,
- * update, cancel) from read-only ones (list, get).
- */
-export function isSideEffectTool(toolName: string, input?: Record<string, unknown>): boolean {
-  if (SIDE_EFFECT_TOOLS.has(toolName)) return true;
-
-  // Action-aware checks for mixed-action tools
-  if (toolName === 'account_manage') {
-    const action = input?.action;
-    return action === 'create' || action === 'update';
-  }
-  if (toolName === 'credential_store') {
-    const action = input?.action;
-    return action === 'store' || action === 'delete' || action === 'prompt' || action === 'oauth2_connect';
-  }
-
-  return false;
-}
+// Re-export from the canonical source so existing consumers of
+// `executor.ts` continue to work without changing their imports.
+export { isSideEffectTool } from './side-effects.js';
 
 /**
  * Sanitize tool inputs before they are emitted in lifecycle events and hooks.

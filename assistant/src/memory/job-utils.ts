@@ -12,6 +12,20 @@ export { BackendUnavailableError };
 
 const log = getLogger('memory-jobs-worker');
 
+// ── Vector BLOB encoding/decoding ───────────────────────────────────
+
+/** Encode a number[] into a compact Float32Array BLOB for SQLite storage. */
+export function vectorToBlob(vector: number[]): Buffer {
+  const f32 = new Float32Array(vector);
+  return Buffer.from(f32.buffer, f32.byteOffset, f32.byteLength);
+}
+
+/** Decode a BLOB (Buffer/Uint8Array) back into a number[]. */
+export function blobToVector(buf: Buffer | Uint8Array): number[] {
+  const f32 = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
+  return Array.from(f32);
+}
+
 // ── Error classification for LLM / API errors ─────────────────────
 
 export type ErrorCategory = 'retryable' | 'fatal';
@@ -117,7 +131,11 @@ export async function embedAndUpsert(
   const db = getDb();
   const expectedDim = config.memory.qdrant.vectorSize;
   let cachedRow = db
-    .select({ vectorJson: memoryEmbeddings.vectorJson, dimensions: memoryEmbeddings.dimensions })
+    .select({
+      vectorBlob: memoryEmbeddings.vectorBlob,
+      vectorJson: memoryEmbeddings.vectorJson,
+      dimensions: memoryEmbeddings.dimensions,
+    })
     .from(memoryEmbeddings)
     .where(
       and(
@@ -130,7 +148,12 @@ export async function embedAndUpsert(
   if (cachedRow && cachedRow.dimensions !== expectedDim) cachedRow = undefined;
 
   if (cachedRow) {
-    vector = JSON.parse(cachedRow.vectorJson);
+    // Prefer BLOB (compact), fall back to JSON for unmigrated rows
+    if (cachedRow.vectorBlob) {
+      vector = blobToVector(cachedRow.vectorBlob as Buffer);
+    } else {
+      vector = JSON.parse(cachedRow.vectorJson!);
+    }
   } else {
     const embedded = await embedWithBackend(config, [text]);
     vector = embedded.vectors[0];
@@ -142,6 +165,7 @@ export async function embedAndUpsert(
   // Persist embedding in SQLite for cross-restart cache
   const now = Date.now();
   try {
+    const blobValue = vectorToBlob(vector);
     db.insert(memoryEmbeddings)
       .values({
         id: randomUUID(),
@@ -150,7 +174,8 @@ export async function embedAndUpsert(
         provider,
         model,
         dimensions: vector.length,
-        vectorJson: JSON.stringify(vector),
+        vectorBlob: blobValue,
+        vectorJson: null,
         contentHash,
         createdAt: now,
         updatedAt: now,
@@ -158,7 +183,8 @@ export async function embedAndUpsert(
       .onConflictDoUpdate({
         target: [memoryEmbeddings.targetType, memoryEmbeddings.targetId, memoryEmbeddings.provider, memoryEmbeddings.model],
         set: {
-          vectorJson: JSON.stringify(vector),
+          vectorBlob: blobValue,
+          vectorJson: null,
           dimensions: vector.length,
           contentHash,
           updatedAt: now,

@@ -24,4 +24,7 @@ export {
   migrateMemoryItemsIndexes,
   migrateRemainingTableIndexes,
   migrateAddOriginInterface,
+  migrateMemoryItemSourcesIndexes,
+  migrateEmbeddingVectorBlob,
+  migrateMessagesFtsBackfill,
 } from './migrations/index.js';

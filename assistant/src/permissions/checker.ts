@@ -614,131 +614,150 @@ function friendlyHostname(url: URL): string {
   return url.hostname.replace(/^www\./, '');
 }
 
-export async function generateAllowlistOptions(toolName: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<AllowlistOption[]> {
-  signal?.throwIfAborted();
-  if (toolName === 'bash' || toolName === 'host_bash') {
-    const command = ((input.command as string) ?? '').trim();
-    return buildShellAllowlistOptions(command);
+// ── Per-tool allowlist option strategies ─────────────────────────────────────
+// Each strategy receives the tool name and raw input and returns allowlist
+// options. Adding support for a new tool type means adding a function here
+// and registering it in ALLOWLIST_STRATEGIES below.
+
+type AllowlistStrategy = (toolName: string, input: Record<string, unknown>) => Promise<AllowlistOption[]> | AllowlistOption[];
+
+function shellAllowlistStrategy(_toolName: string, input: Record<string, unknown>): Promise<AllowlistOption[]> {
+  const command = ((input.command as string) ?? '').trim();
+  return buildShellAllowlistOptions(command);
+}
+
+function fileAllowlistStrategy(toolName: string, input: Record<string, unknown>): AllowlistOption[] {
+  const filePath = (input.path as string) ?? (input.file_path as string) ?? '';
+  const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
+  const options: AllowlistOption[] = [];
+
+  // Patterns must match the "tool:path" format used by check()
+  options.push({ label: filePath, description: `This file only`, pattern: `${toolName}:${filePath}` });
+
+  // Ancestor directory wildcards — walk up from immediate parent, stop at home dir or /
+  const home = homedir();
+  let dir = dirname(filePath);
+  const maxLevels = 3;
+  let levels = 0;
+  while (dir && dir !== '/' && dir !== '.' && levels < maxLevels) {
+    const dirName = friendlyBasename(dir);
+    options.push({ label: `${dir}/**`, description: `Anything in ${dirName}/`, pattern: `${toolName}:${dir}/**` });
+    if (dir === home) break;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+    levels++;
   }
 
-  if (
-    toolName === 'file_write' || toolName === 'file_read' || toolName === 'file_edit'
-    || toolName === 'host_file_write' || toolName === 'host_file_read' || toolName === 'host_file_edit'
-  ) {
-    const filePath = (input.path as string) ?? (input.file_path as string) ?? '';
-    const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
-    const options: AllowlistOption[] = [];
+  options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `${toolName}:*` });
+  return options;
+}
 
-    // Patterns must match the "tool:path" format used by check()
-    // Exact file
-    options.push({ label: filePath, description: `This file only`, pattern: `${toolName}:${filePath}` });
+function urlAllowlistStrategy(toolName: string, input: Record<string, unknown>): AllowlistOption[] {
+  const rawUrl = getStringField(input, 'url').trim();
+  const normalized = normalizeWebFetchUrl(rawUrl);
+  const exact = normalized?.href ?? rawUrl;
 
-    // Ancestor directory wildcards — walk up from immediate parent, stop at home dir or /
-    const home = homedir();
-    let dir = dirname(filePath);
-    const maxLevels = 3;
-    let levels = 0;
-    while (dir && dir !== '/' && dir !== '.' && levels < maxLevels) {
-      const dirName = friendlyBasename(dir);
-      options.push({ label: `${dir}/**`, description: `Anything in ${dirName}/`, pattern: `${toolName}:${dir}/**` });
-      if (dir === home) break;
-      const parent = dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-      levels++;
-    }
-
-    // Tool wildcard
-    options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `${toolName}:*` });
-
-    return options;
+  const options: AllowlistOption[] = [];
+  if (exact) {
+    options.push({ label: exact, description: 'This exact URL', pattern: `${toolName}:${escapeMinimatchLiteral(exact)}` });
   }
-
-  if (toolName === 'web_fetch' || toolName === 'browser_navigate' || toolName === 'network_request') {
-    const rawUrl = getStringField(input, 'url').trim();
-    const normalized = normalizeWebFetchUrl(rawUrl);
-    const exact = normalized?.href ?? rawUrl;
-
-    const options: AllowlistOption[] = [];
-    if (exact) {
-      options.push({ label: exact, description: 'This exact URL', pattern: `${toolName}:${escapeMinimatchLiteral(exact)}` });
-    }
-    if (normalized) {
-      const host = friendlyHostname(normalized);
-      options.push({
-        label: `${normalized.origin}/*`,
-        description: `Any page on ${host}`,
-        pattern: `${toolName}:${escapeMinimatchLiteral(normalized.origin)}/*`,
-      });
-    }
-    const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
-    // Use standalone "**" globstar — minimatch only treats ** as globstar when
-    // it is its own path segment, so "${toolName}:*" would fail to match URL
-    // candidates containing "/".  The tool field is already filtered separately.
-    options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `**` });
-
-    const seen = new Set<string>();
-    return options.filter((o) => {
-      if (seen.has(o.pattern)) return false;
-      seen.add(o.pattern);
-      return true;
-    });
-  }
-
-  if (toolName === 'scaffold_managed_skill' || toolName === 'delete_managed_skill') {
-    const skillId = getStringField(input, 'skill_id').trim();
-    const toolLabel = toolName === 'scaffold_managed_skill' ? 'scaffold' : 'delete';
-    const options: AllowlistOption[] = [];
-    if (skillId) {
-      options.push({
-        label: skillId,
-        description: `This skill only`,
-        pattern: `${toolName}:${skillId}`,
-      });
-    }
+  if (normalized) {
+    const host = friendlyHostname(normalized);
     options.push({
-      label: `${toolName}:*`,
-      description: `All managed skill ${toolLabel}s`,
-      pattern: `${toolName}:*`,
+      label: `${normalized.origin}/*`,
+      description: `Any page on ${host}`,
+      pattern: `${toolName}:${escapeMinimatchLiteral(normalized.origin)}/*`,
     });
-    return options;
   }
+  const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
+  // Use standalone "**" globstar — minimatch only treats ** as globstar when
+  // it is its own path segment, so "${toolName}:*" would fail to match URL
+  // candidates containing "/".  The tool field is already filtered separately.
+  options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `**` });
 
-  if (toolName === 'skill_load') {
-    const rawSelector = getStringField(input, 'skill').trim();
+  const seen = new Set<string>();
+  return options.filter((o) => {
+    if (seen.has(o.pattern)) return false;
+    seen.add(o.pattern);
+    return true;
+  });
+}
 
-    if (rawSelector) {
-      const resolved = resolveSkillIdAndHash(rawSelector);
-      if (resolved && resolved.versionHash) {
-        // Always pin approval to the exact version
-        return [
-          {
-            label: `${resolved.id}@${resolved.versionHash}`,
-            description: 'This exact version',
-            pattern: `skill_load:${resolved.id}@${resolved.versionHash}`,
-          },
-        ];
-      }
-      // No version hash — use the resolved id or raw selector
-      const id = resolved ? resolved.id : rawSelector;
+function managedSkillAllowlistStrategy(toolName: string, input: Record<string, unknown>): AllowlistOption[] {
+  const skillId = getStringField(input, 'skill_id').trim();
+  const toolLabel = toolName === 'scaffold_managed_skill' ? 'scaffold' : 'delete';
+  const options: AllowlistOption[] = [];
+  if (skillId) {
+    options.push({
+      label: skillId,
+      description: `This skill only`,
+      pattern: `${toolName}:${skillId}`,
+    });
+  }
+  options.push({
+    label: `${toolName}:*`,
+    description: `All managed skill ${toolLabel}s`,
+    pattern: `${toolName}:*`,
+  });
+  return options;
+}
+
+function skillLoadAllowlistStrategy(_toolName: string, input: Record<string, unknown>): AllowlistOption[] {
+  const rawSelector = getStringField(input, 'skill').trim();
+
+  if (rawSelector) {
+    const resolved = resolveSkillIdAndHash(rawSelector);
+    if (resolved && resolved.versionHash) {
       return [
         {
-          label: id,
-          description: 'This skill',
-          pattern: `skill_load:${id}`,
+          label: `${resolved.id}@${resolved.versionHash}`,
+          description: 'This exact version',
+          pattern: `skill_load:${resolved.id}@${resolved.versionHash}`,
         },
       ];
     }
-
-    // No selector at all — fallback to wildcard
+    const id = resolved ? resolved.id : rawSelector;
     return [
       {
-        label: 'skill_load:*',
-        description: 'All skill loads',
-        pattern: 'skill_load:*',
+        label: id,
+        description: 'This skill',
+        pattern: `skill_load:${id}`,
       },
     ];
   }
+
+  return [
+    {
+      label: 'skill_load:*',
+      description: 'All skill loads',
+      pattern: 'skill_load:*',
+    },
+  ];
+}
+
+const ALLOWLIST_STRATEGIES: Record<string, AllowlistStrategy> = {
+  bash: shellAllowlistStrategy,
+  host_bash: shellAllowlistStrategy,
+  file_read: fileAllowlistStrategy,
+  file_write: fileAllowlistStrategy,
+  file_edit: fileAllowlistStrategy,
+  host_file_read: fileAllowlistStrategy,
+  host_file_write: fileAllowlistStrategy,
+  host_file_edit: fileAllowlistStrategy,
+  web_fetch: urlAllowlistStrategy,
+  browser_navigate: urlAllowlistStrategy,
+  network_request: urlAllowlistStrategy,
+  scaffold_managed_skill: managedSkillAllowlistStrategy,
+  delete_managed_skill: managedSkillAllowlistStrategy,
+  skill_load: skillLoadAllowlistStrategy,
+};
+
+export async function generateAllowlistOptions(toolName: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<AllowlistOption[]> {
+  signal?.throwIfAborted();
+
+  const strategy = ALLOWLIST_STRATEGIES[toolName];
+  if (strategy) return strategy(toolName, input);
 
   return [{ label: '*', description: 'Everything', pattern: '*' }];
 }

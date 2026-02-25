@@ -22,15 +22,15 @@ mock.module('../config/loader.js', () => ({
       maxRetriesPerTask: 1,
       workerTimeoutSec: 900,
       roleTimeoutsSec: {},
-      plannerModel: 'claude-haiku-4-5-20251001',
-      synthesizerModel: 'claude-sonnet-4-6',
+      plannerModelIntent: 'latency-optimized',
+      synthesizerModelIntent: 'quality-optimized',
     },
   }),
   getSwarmDisabledConfig: () => ({
     provider: 'anthropic',
     providerOrder: ['anthropic'],
     apiKeys: { anthropic: 'test-key' },
-    swarm: { enabled: false, maxWorkers: 3, maxTasks: 8, maxRetriesPerTask: 1, workerTimeoutSec: 900, roleTimeoutsSec: {}, plannerModel: 'h', synthesizerModel: 's' },
+    swarm: { enabled: false, maxWorkers: 3, maxTasks: 8, maxRetriesPerTask: 1, workerTimeoutSec: 900, roleTimeoutsSec: {}, plannerModelIntent: 'latency-optimized', synthesizerModelIntent: 'quality-optimized' },
   }),
 }));
 

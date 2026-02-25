@@ -49,7 +49,7 @@ mock.module('../memory/qdrant-client.js', () => ({
 
 import { and, eq } from 'drizzle-orm';
 import { DEFAULT_CONFIG } from '../config/defaults.js';
-import { currentMonthWindow } from '../memory/job-utils.js';
+import { currentMonthWindow, vectorToBlob } from '../memory/job-utils.js';
 
 // Disable LLM extraction in tests to avoid real API calls and ensure
 // deterministic pattern-based extraction.
@@ -1647,7 +1647,7 @@ describe('Memory regressions', () => {
         provider: 'openai',
         model: 'text-embedding-3-small',
         dimensions: 3,
-        vectorJson: '[0,0,0]',
+        vectorBlob: vectorToBlob([0, 0, 0]),
         createdAt: now - 1000,
         updatedAt: now - 1000,
       },
@@ -1658,7 +1658,7 @@ describe('Memory regressions', () => {
         provider: 'openai',
         model: 'text-embedding-3-small',
         dimensions: 3,
-        vectorJson: '[0,0,0]',
+        vectorBlob: vectorToBlob([0, 0, 0]),
         createdAt: now - 1000,
         updatedAt: now - 1000,
       },

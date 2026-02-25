@@ -190,22 +190,18 @@ public final class ChatViewModel: ObservableObject {
     let daemonClient: any DaemonClientProtocol
     public var sessionId: String? {
         didSet {
-            #if os(iOS)
             // If the daemon reconnected before this VM had a session ID, a deferred
             // flush was requested. Now that we have a session, run it.
             if sessionId != nil && needsOfflineFlush {
                 needsOfflineFlush = false
                 flushOfflineQueue()
             }
-            #endif
         }
     }
     private var reconnectObserver: NSObjectProtocol?
-    #if os(iOS)
     /// Set to true when daemonDidReconnect fires before sessionId is populated.
     /// Cleared and actioned in the sessionId didSet observer.
     private var needsOfflineFlush: Bool = false
-    #endif
     /// Set to true when reconnecting after an SSE gap while a run was in progress.
     /// Causes `populateFromHistory` to do a full message replace instead of
     /// prepending, so the missed assistant response is displayed.
@@ -474,7 +470,6 @@ public final class ChatViewModel: ObservableObject {
                         self?.onReconnectHistoryNeeded?(sessionId)
                     }
                 }
-                #if os(iOS)
                 // If we already have a session ID, flush immediately. Otherwise
                 // defer: sessionId's didSet will trigger flushOfflineQueue() once
                 // the session is restored from history (cold-start reconnect case).
@@ -483,7 +478,6 @@ public final class ChatViewModel: ObservableObject {
                 } else {
                     self?.needsOfflineFlush = true
                 }
-                #endif
             }
         }
     }
@@ -698,8 +692,7 @@ public final class ChatViewModel: ObservableObject {
         guard daemonClient.isConnected else {
             log.error("Cannot send user_message: daemon not connected")
 
-            #if os(iOS)
-            // On iOS, buffer the primary (non-queued-retry) send in the offline queue
+            // Buffer the primary (non-queued-retry) send in the offline queue
             // instead of surfacing an error. The message stays visible with a
             // "pending" indicator and is flushed automatically on reconnect.
             if queuedMessageId == nil {
@@ -715,7 +708,6 @@ public final class ChatViewModel: ObservableObject {
                 // communicates the offline state without interrupting the conversation.
                 return
             }
-            #endif
 
             // Always track the failed message for retry support.
             lastFailedMessageText = text
@@ -783,9 +775,8 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Offline Queue Flush (iOS only)
+    // MARK: - Offline Queue Flush
 
-    #if os(iOS)
     /// Drain the persistent offline queue and send all buffered messages in order.
     ///
     /// Called automatically when the daemon reconnects. Only flushes messages whose
@@ -831,7 +822,6 @@ public final class ChatViewModel: ObservableObject {
             sendUserMessage(queued.text, attachments: queued.ipcAttachments)
         }
     }
-    #endif
 
     public func startMessageLoop() {
         messageLoopTask?.cancel()
@@ -1565,6 +1555,17 @@ public final class ChatViewModel: ObservableObject {
         self.suggestion = nil
     }
 
+    /// Strip the voice mode instruction prefix from user messages so it
+    /// doesn't clutter the chat when conversations are reloaded from history.
+    private static let voicePrefixPattern = /^\[Voice conversation\s—[^\]]*\]\n\n/
+
+    private func stripVoicePrefix(_ text: String) -> String {
+        if let match = text.prefixMatch(of: Self.voicePrefixPattern) {
+            return String(text[match.range.upperBound...])
+        }
+        return text
+    }
+
     /// Populate messages from history data returned by the daemon.
     /// If the user hasn't sent any messages yet, replaces messages entirely.
     /// If the user already sent messages (late history_response), prepends
@@ -1640,13 +1641,16 @@ public final class ChatViewModel: ObservableObject {
             if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty { continue }
             let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
 
+            // Strip voice mode instruction prefix from user messages
+            let displayText = role == .user ? stripVoicePrefix(item.text) : item.text
+
             // Use the database message ID if available (for matching surfaces)
             var chatMsg: ChatMessage
             if let dbId = item.id, let uuid = UUID(uuidString: dbId) {
                 chatMsg = ChatMessage(
                     id: uuid,
                     role: role,
-                    text: item.text,
+                    text: displayText,
                     timestamp: timestamp,
                     attachments: attachments,
                     toolCalls: toolCalls
@@ -1654,7 +1658,7 @@ public final class ChatViewModel: ObservableObject {
             } else {
                 chatMsg = ChatMessage(
                     role: role,
-                    text: item.text,
+                    text: displayText,
                     timestamp: timestamp,
                     attachments: attachments,
                     toolCalls: toolCalls

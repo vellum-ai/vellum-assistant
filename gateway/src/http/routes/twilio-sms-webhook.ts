@@ -92,6 +92,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
     // --- MMS intercept: detect media attachments and reply with unsupported notice ---
     // Treat as MMS when NumMedia > 0, or when any MediaUrl/MediaContentType
     // fields are present (some Twilio configurations omit NumMedia).
+    // The text body is still forwarded as a regular SMS so it isn't silently dropped.
     const numMedia = parseInt(params.NumMedia || "0", 10);
     const hasMediaFields = Object.keys(params).some(
       (key) =>
@@ -108,8 +109,16 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
       ).catch((err) => {
         tlog.error({ err, to: params.From }, "Failed to send MMS unsupported notice");
       });
-      dedupCache.mark(messageSid);
-      return Response.json({ ok: true });
+
+      // If the MMS has no text body, we're done — nothing to forward.
+      const mmsTextBody = (params.Body || "").trim();
+      if (!mmsTextBody) {
+        dedupCache.mark(messageSid);
+        return Response.json({ ok: true });
+      }
+
+      // Fall through to process the text body as a regular message.
+      tlog.info({ messageSid }, "MMS has text body, forwarding as SMS");
     }
 
     const normalized = normalizeSmsPayload(params);

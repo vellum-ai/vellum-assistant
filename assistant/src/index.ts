@@ -16,6 +16,7 @@ import {
   registerCompletionsCommand,
 } from './cli/core-commands.js';
 import {
+  registerConfigCommand,
   registerKeysCommand,
   registerTrustCommand,
   registerMemoryCommand,
@@ -40,6 +41,7 @@ registerDefaultAction(program);
 registerDaemonCommand(program);
 registerDevCommand(program);
 registerSessionsCommand(program);
+registerConfigCommand(program);
 registerKeysCommand(program);
 registerTrustCommand(program);
 registerMemoryCommand(program);

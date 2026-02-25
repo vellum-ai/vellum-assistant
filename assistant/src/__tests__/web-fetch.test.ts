@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { PassThrough } from 'node:stream';
 import type { IncomingHttpHeaders } from 'node:http';
@@ -107,6 +107,8 @@ describe('web_fetch tool', () => {
     expect(requestedUrl).toBe('https://example.com:8443/docs');
   });
 
+  // ── SSRF protection: direct IP/hostname blocking ──────────────
+
   test('blocks localhost targets unless explicitly enabled', async () => {
     let called = false;
     globalThis.fetch = (async () => {
@@ -118,6 +120,150 @@ describe('web_fetch tool', () => {
     }) as any;
 
     const result = await executeWithMockFetch({ url: 'http://localhost:3000/health' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
+  test('blocks 127.0.0.1 loopback targets', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://127.0.0.1:8080/admin' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
+  test('blocks 10.x.x.x private network targets', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://10.0.0.1/internal' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
+  test('blocks 192.168.x.x private network targets', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://192.168.1.1/' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
+  test('blocks 172.16-31.x.x private network targets', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://172.16.0.1/' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
+  test('blocks 169.254.x.x link-local targets', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://169.254.169.254/latest/meta-data/' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
+  test('blocks 0.0.0.0 targets', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://0.0.0.0/' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
+  test('blocks cloud metadata endpoint (metadata.google.internal)', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://metadata.google.internal/computeMetadata/v1/' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
+  test('blocks .local mDNS suffix targets', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://my-nas.local/admin' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
+  test('blocks CGNAT range 100.64-127.x.x targets', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://100.100.100.100/' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Refusing to fetch local/private network target');
     expect(called).toBe(false);
@@ -169,6 +315,282 @@ describe('web_fetch tool', () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Refusing to fetch local/private network target');
     expect(called).toBe(false);
+  });
+
+  test('allows public IP addresses', async () => {
+    const result = await executeWithMockFetch(
+      { url: 'http://93.184.216.34/page' },
+      {
+        resolveHostAddresses: async () => ['93.184.216.34'],
+        requestExecutor: async () =>
+          new Response('public content', {
+            status: 200,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          }),
+      },
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('public content');
+  });
+
+  test('allows public hostnames that resolve to public IPs', async () => {
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/page' },
+      {
+        resolveHostAddresses: async () => ['93.184.216.34'],
+        requestExecutor: async () =>
+          new Response('public content', {
+            status: 200,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          }),
+      },
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('public content');
+  });
+
+  // ── SSRF protection: DNS rebinding ────────────────────────────
+
+  test('blocks hostnames that resolve to private addresses unless explicitly enabled', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch(
+      { url: 'https://evil.example.com/health' },
+      {
+        resolveHostAddresses: async () => ['10.0.0.5'],
+      },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('resolves to local/private network address 10.0.0.5');
+    expect(called).toBe(false);
+  });
+
+  test('blocks hostnames that resolve to loopback via DNS rebinding', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch(
+      { url: 'https://rebind.example.com/steal' },
+      {
+        resolveHostAddresses: async () => ['127.0.0.1'],
+      },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('resolves to local/private network address 127.0.0.1');
+    expect(called).toBe(false);
+  });
+
+  test('blocks hostnames that resolve to IPv6 loopback via DNS', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch(
+      { url: 'https://evil.example.com/steal' },
+      {
+        resolveHostAddresses: async () => ['::1'],
+      },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('resolves to local/private network address ::1');
+    expect(called).toBe(false);
+  });
+
+  test('blocks hostnames resolving to link-local 169.254.x.x (AWS metadata)', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch(
+      { url: 'https://evil.example.com/metadata' },
+      {
+        resolveHostAddresses: async () => ['169.254.169.254'],
+      },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('resolves to local/private network address 169.254.169.254');
+    expect(called).toBe(false);
+  });
+
+  test('blocks when any resolved address is private (mixed public/private DNS)', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch(
+      { url: 'https://dual.example.com/' },
+      {
+        resolveHostAddresses: async () => ['93.184.216.34', '192.168.1.1'],
+      },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('resolves to local/private network address 192.168.1.1');
+    expect(called).toBe(false);
+  });
+
+  // ── SSRF protection: redirect-to-internal-IP ──────────────────
+
+  test('blocks redirects to 10.x.x.x private targets', async () => {
+    let callCount = 0;
+    globalThis.fetch = (async (_url: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response('', {
+          status: 302,
+          headers: { location: 'http://10.0.0.1/internal' },
+        });
+      }
+      return new Response('should-not-be-fetched', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'https://example.com/start' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing redirect to local/private network target');
+    expect(callCount).toBe(1);
+  });
+
+  test('blocks redirects to 192.168.x.x private targets', async () => {
+    let callCount = 0;
+    globalThis.fetch = (async (_url: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response('', {
+          status: 302,
+          headers: { location: 'http://192.168.0.1/admin' },
+        });
+      }
+      return new Response('should-not-be-fetched', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'https://example.com/start' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing redirect to local/private network target');
+    expect(callCount).toBe(1);
+  });
+
+  test('blocks redirects to 169.254.169.254 (cloud metadata via redirect)', async () => {
+    let callCount = 0;
+    globalThis.fetch = (async (_url: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response('', {
+          status: 302,
+          headers: { location: 'http://169.254.169.254/latest/meta-data/' },
+        });
+      }
+      return new Response('should-not-be-fetched', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'https://example.com/start' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing redirect to local/private network target');
+    expect(callCount).toBe(1);
+  });
+
+  test('blocks redirect chain where intermediate hop resolves to private IP', async () => {
+    let callCount = 0;
+
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/start' },
+      {
+        resolveHostAddresses: async (hostname) => {
+          if (hostname === 'example.com') return ['93.184.216.34'];
+          if (hostname === 'evil-redirect.example') return ['192.168.1.100'];
+          return ['93.184.216.34'];
+        },
+        requestExecutor: async (_url, requestOptions) => {
+          callCount++;
+          if (callCount === 1) {
+            return new Response('', {
+              status: 302,
+              headers: { location: 'https://evil-redirect.example/steal' },
+            });
+          }
+          return new Response('should-not-be-fetched', {
+            status: 200,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          });
+        },
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('resolves to local/private network address 192.168.1.100');
+    expect(callCount).toBe(1);
+  });
+
+  test('blocks redirect to non-http protocol', async () => {
+    let callCount = 0;
+    globalThis.fetch = (async (_url: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response('', {
+          status: 302,
+          headers: { location: 'file:///etc/passwd' },
+        });
+      }
+      return new Response('should-not-be-fetched', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'https://example.com/start' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing redirect to unsupported protocol');
+    expect(callCount).toBe(1);
+  });
+
+  test('blocks excessive redirects', async () => {
+    let callCount = 0;
+    globalThis.fetch = (async (_url: string) => {
+      callCount++;
+      return new Response('', {
+        status: 302,
+        headers: { location: `https://example.com/hop${callCount}` },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'https://example.com/start' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Too many redirects');
   });
 
   test('blocks hostnames that resolve to private addresses unless explicitly enabled', async () => {

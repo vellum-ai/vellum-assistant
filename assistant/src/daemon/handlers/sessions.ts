@@ -337,7 +337,7 @@ export async function handleSessionCreate(
   // Pre-activate skills before sending session_info so they're available
   // for the initial message processing.
   if (msg.preactivatedSkillIds?.length) {
-    session.preactivatedSkillIds = msg.preactivatedSkillIds;
+    session.setPreactivatedSkillIds(msg.preactivatedSkillIds);
   }
 
   ctx.send(socket, {

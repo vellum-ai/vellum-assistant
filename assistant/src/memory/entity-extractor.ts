@@ -143,7 +143,7 @@ export async function extractEntitiesWithLLM(
         ENTITY_EXTRACTION_SYSTEM_PROMPT,
         {
           config: {
-            model: entityConfig.model,
+            modelIntent: entityConfig.modelIntent,
             max_tokens: 1024,
             tool_choice: { type: 'tool' as const, name: 'store_entities' },
           },

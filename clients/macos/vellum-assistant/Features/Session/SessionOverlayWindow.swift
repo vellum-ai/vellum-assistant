@@ -36,8 +36,12 @@ final class SessionOverlayWindow {
         sizeAndPosition(panel)
         stateCancellable = session.$state
             .sink { [weak self, weak panel] _ in
-                guard let self, let panel else { return }
-                self.sizeAndPosition(panel)
+                // Defer to next run loop iteration to avoid re-entrant constraint
+                // invalidation during an active SwiftUI layout pass (crashes AppKit).
+                DispatchQueue.main.async { [weak self, weak panel] in
+                    guard let self, let panel else { return }
+                    self.sizeAndPosition(panel)
+                }
             }
 
         panel.orderFront(nil)

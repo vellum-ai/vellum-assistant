@@ -1964,8 +1964,10 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
     /// Whether a pending verification challenge exists for this (assistantId, channel). Used by relay setup to detect active voice verification sessions.
     public let hasPendingChallenge: Bool?
     public let error: String?
+    /// Human-readable error detail (e.g. for already_bound failures).
+    public let message: String?
 
-    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, hasPendingChallenge: Bool? = nil, error: String? = nil) {
+    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, hasPendingChallenge: Bool? = nil, error: String? = nil, message: String? = nil) {
         self.type = type
         self.success = success
         self.secret = secret
@@ -1979,6 +1981,7 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
         self.guardianDisplayName = guardianDisplayName
         self.hasPendingChallenge = hasPendingChallenge
         self.error = error
+        self.message = message
     }
 }
 
@@ -5466,10 +5469,10 @@ public struct IPCUserMessage: Codable, Sendable {
     public let bypassSecretCheck: Bool?
     /// Originating channel identifier (e.g. 'vellum'). Defaults to 'vellum' when absent.
     public let channel: String?
-    /// Originating interface identifier (e.g. 'macos'). Falls back to channel when absent.
-    public let interface: String?
+    /// Originating interface identifier (e.g. 'macos').
+    public let interface: String
 
-    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String? = nil) {
+    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String) {
         self.type = type
         self.sessionId = sessionId
         self.content = content

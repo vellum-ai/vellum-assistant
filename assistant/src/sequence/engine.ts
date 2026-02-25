@@ -25,7 +25,6 @@ import type { Sequence, SequenceEnrollment, SequenceStep } from './types.js';
 
 const log = getLogger('sequence-engine');
 
-const MAX_RETRIES = 3;
 const BATCH_SIZE = 10;
 const ERROR_RETRY_DELAY_MS = 60_000;
 

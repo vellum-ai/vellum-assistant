@@ -16,6 +16,8 @@ import {
   runLateMigrations,
   createNotificationTables,
   createSequenceTables,
+  createMessagesFts,
+  migrateMessagesFtsBackfill,
   validateMigrationState,
 } from './migrations/index.js';
 
@@ -69,6 +71,10 @@ export function initializeDb(): void {
 
   // 16. Sequences (multi-step outreach)
   createSequenceTables(database);
+
+  // 17. Messages FTS (full-text search over message content)
+  createMessagesFts(database);
+  migrateMessagesFtsBackfill(database);
 
   validateMigrationState(database);
 }

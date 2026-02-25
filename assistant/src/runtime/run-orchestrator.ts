@@ -13,7 +13,7 @@
  * status and submit a decision or secret via the respective endpoints.
  */
 
-import type { ChannelId, InterfaceId, TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
+import type { ChannelId, InterfaceId, TurnChannelContext } from '../channels/types.js';
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
 import * as runsStore from '../memory/runs-store.js';
 import type { Run } from '../memory/runs-store.js';

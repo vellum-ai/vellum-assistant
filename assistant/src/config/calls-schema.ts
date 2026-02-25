@@ -76,17 +76,7 @@ export const CallsVoiceConfigSchema = z.object({
   fallbackToStandardOnError: z
     .boolean({ error: 'calls.voice.fallbackToStandardOnError must be a boolean' })
     .default(true),
-  elevenlabs: CallsElevenLabsConfigSchema.default({
-    voiceId: '',
-    voiceModelId: '',
-    speed: 1.0,
-    stability: 0.5,
-    similarityBoost: 0.75,
-    useSpeakerBoost: true,
-    agentId: '',
-    apiBaseUrl: 'https://api.elevenlabs.io',
-    registerCallTimeoutMs: 5000,
-  }),
+  elevenlabs: CallsElevenLabsConfigSchema.default({}),
 });
 
 export const CallerIdentityConfigSchema = z.object({
@@ -135,41 +125,14 @@ export const CallsConfigSchema = z.object({
     .positive('calls.userConsultTimeoutSeconds must be a positive integer')
     .max(2_147_483, 'calls.userConsultTimeoutSeconds must be at most 2147483 (setTimeout-safe limit)')
     .default(120),
-  disclosure: CallsDisclosureConfigSchema.default({
-    enabled: true,
-    text: 'At the very beginning of the call, introduce yourself as an assistant calling on behalf of the person you represent. Do not say "AI assistant".',
-  }),
-  safety: CallsSafetyConfigSchema.default({
-    denyCategories: [],
-  }),
-  voice: CallsVoiceConfigSchema.default({
-    mode: 'twilio_standard',
-    language: 'en-US',
-    transcriptionProvider: 'Deepgram',
-    fallbackToStandardOnError: true,
-    elevenlabs: {
-      voiceId: '',
-      voiceModelId: '',
-      speed: 1.0,
-      stability: 0.5,
-      similarityBoost: 0.75,
-      useSpeakerBoost: true,
-      agentId: '',
-      apiBaseUrl: 'https://api.elevenlabs.io',
-      registerCallTimeoutMs: 5000,
-    },
-  }),
+  disclosure: CallsDisclosureConfigSchema.default({}),
+  safety: CallsSafetyConfigSchema.default({}),
+  voice: CallsVoiceConfigSchema.default({}),
   model: z
     .string({ error: 'calls.model must be a string' })
     .optional(),
-  callerIdentity: CallerIdentityConfigSchema.default({
-    allowPerCallOverride: true,
-  }),
-  verification: CallsVerificationConfigSchema.default({
-    enabled: false,
-    maxAttempts: 3,
-    codeLength: 6,
-  }),
+  callerIdentity: CallerIdentityConfigSchema.default({}),
+  verification: CallsVerificationConfigSchema.default({}),
 });
 
 export type CallsConfig = z.infer<typeof CallsConfigSchema>;

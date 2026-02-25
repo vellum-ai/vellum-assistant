@@ -2,7 +2,6 @@ import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { ensureDataDir, getWorkspaceConfigPath, migrateToDataLayout, migrateToWorkspaceLayout } from '../util/platform.js';
 import { ConfigError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
-import { DEFAULT_CONFIG } from './defaults.js';
 import { AssistantConfigSchema } from './schema.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../security/secure-keys.js';
 import type { AssistantConfig } from './types.js';
@@ -32,7 +31,7 @@ function ensureMigratedDataDir(): void {
 
 
 function cloneDefaultConfig(): AssistantConfig {
-  return structuredClone(DEFAULT_CONFIG);
+  return AssistantConfigSchema.parse({});
 }
 
 /**

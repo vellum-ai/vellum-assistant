@@ -1302,7 +1302,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             bearerToken = httpTransport.bearerToken
         } else if let gatewayBaseURL {
             baseURL = gatewayBaseURL
-            bearerToken = nil
+            bearerToken = readHttpToken()
         } else {
             return nil
         }
