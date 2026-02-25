@@ -129,7 +129,7 @@ Connected channels are resolved at signal emission time by `getConnectedChannels
 
 ## Conversation Materialization
 
-The system uses a single conversation materialization path for all notifications, including ASK_GUARDIAN:
+The system uses a single conversation materialization path for **all** notifications -- there are no legacy bypass paths or dual-broadcast mechanisms. Every notification, including guardian questions and ingress escalation alerts, flows through `emitNotificationSignal()`:
 
 1. `emitNotificationSignal()` evaluates the signal and dispatches to channels.
 2. `NotificationBroadcaster` pairs each delivery with a conversation via `pairDeliveryWithConversation()`.
