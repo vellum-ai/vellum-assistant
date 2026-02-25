@@ -17,7 +17,7 @@ OAuth uses the official X API v2. It is the most reliable connection method and 
 
 - Supports: **post** and **reply**
 - Read-only operations (timeline, search, home, bookmarks, notifications, likes, followers, following, media) always use the browser path directly, regardless of the strategy setting.
-- Setup: Collect the OAuth Client ID (and optional Client Secret) from the user in chat using `credential_store` with `action: "prompt"` (canonical field names: `client_id`, `client_secret`), then initiate the `oauth_connect_start` IPC flow. See the **First-Use Decision Flow** for the full sequence.
+- Setup: Collect the OAuth Client ID (and optional Client Secret) from the user in chat using `credential_store` with `action: "prompt"` (canonical field names: `client_id`, `client_secret`), then initiate the `twitter_auth_start` IPC flow. See the **First-Use Decision Flow** for the full sequence.
 - Set the strategy: `vellum x strategy set oauth`
 
 ### Browser session (no developer credentials needed)
