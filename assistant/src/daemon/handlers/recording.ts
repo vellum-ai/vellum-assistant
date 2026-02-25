@@ -264,6 +264,18 @@ function handleRecordingStatus(
             }
           }
         }
+      } else {
+        // No file path — recording stopped without producing a file
+        log.warn({ recordingId, conversationId }, 'Recording stopped without file path');
+        const errSocket = findSocketForSession(conversationId, ctx);
+        if (errSocket) {
+          ctx.send(errSocket, {
+            type: 'assistant_text_delta',
+            text: 'Recording stopped but no file was produced.',
+            sessionId: conversationId,
+          });
+          ctx.send(errSocket, { type: 'message_complete', sessionId: conversationId });
+        }
       }
 
       cleanupMaps(recordingId, conversationId);
