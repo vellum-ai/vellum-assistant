@@ -2,7 +2,7 @@
 name: "Google OAuth Setup"
 description: "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation"
 user-invocable: true
-includes: ["browser"]
+includes: ["browser", "public-ingress"]
 metadata: {"vellum": {"emoji": "\ud83d\udd11"}}
 ---
 
@@ -200,6 +200,25 @@ Google Cloud Console's UI changes frequently. Do NOT memorize or depend on speci
 4. **Never assume DOM structure.** Dropdowns may be `<select>`, `<mat-select>`, `<div role="listbox">`, or something else entirely. Use the snapshot to identify what's on the page and interact accordingly.
 5. **When stuck, screenshot and describe.** If you cannot find an expected element after 2 attempts, take a screenshot, describe what you see to the user, and ask for guidance.
 
+## Anti-Loop Guardrails
+
+Each step has a **retry budget of 3 attempts**. An attempt is one try at the step's primary action (e.g., clicking a button, filling a form). If a step fails after 3 attempts:
+
+1. **Stop trying.** Do not continue retrying the same approach.
+2. **Fall back to manual.** Tell the user what you were trying to do and ask them to complete that step manually in the browser. Give them the direct URL and clear text instructions.
+3. **Resume automation** at the next step once the user confirms the manual step is done.
+
+If **two or more steps** require manual fallback, abandon the automated flow entirely and switch to giving the user the remaining steps as text instructions with links (same format as Path A).
+
+## Things That Do Not Work — Do Not Attempt
+
+These actions are technically impossible in the browser automation environment. Attempting them wastes time and leads to loops:
+
+- **Downloading files.** `browser_click` on a Download button does not save files to disk. The downloaded file will not appear anywhere accessible.
+- **Reading masked/redacted values.** Google masks secrets with `****`. No amount of clicking, hovering, or inspecting will reveal them.
+- **Clipboard operations.** You cannot copy/paste via browser automation.
+- **Deleting and recreating OAuth clients** to get a fresh secret — this orphans the stored client_id and causes `invalid_client` errors.
+
 ## Step 1: Single Upfront Confirmation
 
 Use `ui_show` with `surface_type: "confirmation"` and this message:
@@ -293,9 +312,17 @@ Otherwise, work through the consent screen wizard. The wizard has multiple pages
 
 **Verify:** The consent screen dashboard shows "Vellum Assistant" with the configured scopes.
 
-## Step 6: Create OAuth Credentials
+## Step 6: Create OAuth Credentials and Capture Both Client ID and Secret
 
-**Goal:** A "Desktop app" OAuth client exists for the project, and its Client ID is stored in the vault.
+**Goal:** A "Desktop app" OAuth client exists, and both its Client ID and Client Secret are stored in the vault.
+
+**IMPORTANT — read before acting:** When you create the OAuth client, Google shows a dialog with the Client ID, Client Secret, and a Download button. You MUST handle this dialog correctly:
+- **Client ID**: Read it from the screen — it is visible and not masked.
+- **Client Secret**: You CANNOT read it, download it, or extract it in any way. It MUST come from the user via `credential_store prompt`. Present the prompt while the dialog is still open so the user can copy-paste from it.
+- **Download button**: Do NOT click it. File downloads do not work in this environment.
+- **Do NOT close the dialog** until the user has pasted the secret into the secure prompt.
+
+### 6a: Create the credential
 
 Tell the user: "Creating OAuth credentials..."
 
@@ -310,6 +337,8 @@ On the creation form:
 
 Submit the form.
 
+### 6b: Store Client ID
+
 After creation, a dialog or page will display the new Client ID. It looks like `123456789-xxxxx.apps.googleusercontent.com`. Read this value from the screen.
 
 Store it immediately:
@@ -321,47 +350,32 @@ credential_store store:
   value: "<the Client ID you read from the screen>"
 ```
 
-Close/dismiss any creation dialog.
+### 6c: Capture Client Secret via secure prompt
 
-**Verify:** `credential_store list` shows the `integration:gmail` `client_id` entry.
-
-## Step 7: Capture the Client Secret
-
-**Goal:** The user generates a client secret on the credential detail page and pastes it into a secure prompt.
-
-### Hard constraints — do NOT violate these under any circumstances:
-- Do NOT try to read or extract the client secret from the page via browser automation. Google masks secrets immediately — they appear as `****xxxx` and cannot be revealed.
-- Do NOT try to download the credentials JSON file. This does not work in headless/automated browsers.
-- Do NOT delete and recreate the OAuth client.
-- Do NOT navigate to legacy or old-style credential pages.
-- The secret MUST come from the user via `credential_store prompt`. No other method is acceptable.
-
-### Procedure:
-
-Navigate to the credential detail page for the client you just created. From the credentials list, find the OAuth client whose Client ID matches the one stored in Step 6 and click it to open its detail page.
+**Do NOT close the creation dialog yet.** The Client Secret is visible in this dialog but will be masked after you close it.
 
 Tell the user:
 
-> "Almost done! I need the client secret to complete the connection. On the page in the browser, find the **Client secrets** section and click the button to add or generate a new secret. Google will show the new secret value **once** — copy it immediately, then paste it into the secure prompt below."
+> "Almost done! I need the client secret to complete the connection. In the dialog that just appeared in the browser, you should see the **Client Secret** value. Copy it, then paste it into the secure prompt below."
 
-Then immediately present the secure prompt so it's ready when the user has the value:
+Then immediately present the secure prompt so it's ready:
 
 ```
 credential_store prompt:
   service: "integration:gmail"
   field: "client_secret"
   label: "Google OAuth Client Secret"
-  description: "Generate a new secret on the page, copy the value Google shows you, and paste it here"
+  description: "Copy the Client Secret from the Google Cloud Console dialog and paste it here."
   placeholder: "GOCSPX-..."
 ```
 
 Wait for the user to complete the prompt.
 
-If the user has trouble finding the button, take a `browser_screenshot` and help them locate it based on what's actually visible on the page.
+If the user has trouble, take a `browser_screenshot` and help them locate the Client Secret value on the page.
 
 **Verify:** `credential_store list` shows both `client_id` and `client_secret` for `integration:gmail`.
 
-## Step 8: OAuth2 Authorization
+## Step 7: OAuth2 Authorization
 
 **Goal:** The user authorizes Vellum to access their Gmail and Calendar via OAuth.
 
@@ -380,7 +394,7 @@ This auto-reads client_id and client_secret from the secure store and auto-fills
 
 **Verify:** The `oauth2_connect` call returns a success message with the connected account email.
 
-## Step 9: Done!
+## Step 8: Done!
 
 "**Gmail and Calendar are connected!** You can now read, search, and send emails, plus view and manage your calendar. Try asking me to check your inbox or show your upcoming events!"
 
