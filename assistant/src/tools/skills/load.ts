@@ -76,14 +76,21 @@ export class SkillLoadTool implements Tool {
 
     const body = skill.body.length > 0 ? skill.body : '(No body content)';
 
-    // Build immediate children metadata section
+    // Build immediate children metadata section and load included skill bodies
     let immediateChildrenSection: string;
+    const includedBodies: string[] = [];
     if (skill.includes && skill.includes.length > 0 && catalogIndex) {
       const childLines: string[] = [];
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
         if (child) {
           childLines.push(`  - ${child.id}: ${child.name} — ${child.description} (${child.skillFilePath})`);
+
+          // Load the included skill's body content
+          const childLoaded = loadSkillBySelector(childId);
+          if (childLoaded.skill && childLoaded.skill.body.length > 0) {
+            includedBodies.push(`--- Included Skill: ${childLoaded.skill.name} (${childId}) ---\n${childLoaded.skill.body}`);
+          }
         }
       }
       immediateChildrenSection = `Included Skills (immediate):\n${childLines.join('\n')}`;
@@ -126,6 +133,7 @@ export class SkillLoadTool implements Tool {
         '',
         body,
         '',
+        ...includedBodies.flatMap(b => [b, '']),
         immediateChildrenSection,
         '',
         `<loaded_skill id="${skill.id}"${versionAttr} />`,
