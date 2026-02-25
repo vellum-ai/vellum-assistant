@@ -1,6 +1,7 @@
 import type { Provider, Message } from '../providers/types.js';
 import { parseJsonSafe } from '../util/json.js';
 import type { SwarmPlan, SwarmTaskNode } from './types.js';
+import { VALID_SWARM_ROLES } from './types.js';
 import type { SwarmLimits } from './limits.js';
 import { validateAndNormalizePlan } from './plan-validator.js';
 import { ROUTER_SYSTEM_PROMPT, buildPlannerUserMessage } from './router-prompts.js';
@@ -43,9 +44,14 @@ export async function generatePlan(opts: {
       return makeFallbackPlan(objective);
     }
 
+    const validatedTasks = validateRawTasks(rawPlan.tasks);
+    if (validatedTasks.length === 0) {
+      return makeFallbackPlan(objective);
+    }
+
     const plan: SwarmPlan = {
       objective,
-      tasks: rawPlan.tasks as SwarmTaskNode[],
+      tasks: validatedTasks,
     };
 
     return validateAndNormalizePlan(plan, limits);
@@ -77,6 +83,36 @@ function tryParsePlan(jsonStr: string): { tasks: Array<{ id: string; role: strin
     return parsed as { tasks: Array<{ id: string; role: string; objective: string; dependencies: string[] }> };
   }
   return null;
+}
+
+/**
+ * Validate that raw parsed task objects have the required fields and correct types
+ * before treating them as SwarmTaskNode[]. Filters out malformed entries so a
+ * partially valid LLM response can still produce a usable plan.
+ */
+function validateRawTasks(raw: unknown[]): SwarmTaskNode[] {
+  const validRoles = new Set<string>(VALID_SWARM_ROLES);
+  const validated: SwarmTaskNode[] = [];
+
+  for (const item of raw) {
+    if (item == null || typeof item !== 'object') continue;
+    const t = item as Record<string, unknown>;
+
+    if (typeof t.id !== 'string' || t.id === '') continue;
+    if (typeof t.role !== 'string' || !validRoles.has(t.role)) continue;
+    if (typeof t.objective !== 'string' || t.objective === '') continue;
+
+    validated.push({
+      id: t.id,
+      role: t.role as SwarmTaskNode['role'],
+      objective: t.objective,
+      dependencies: Array.isArray(t.dependencies)
+        ? t.dependencies.filter((d): d is string => typeof d === 'string')
+        : [],
+    });
+  }
+
+  return validated;
 }
 
 /**
