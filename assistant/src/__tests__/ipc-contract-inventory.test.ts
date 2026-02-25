@@ -20,6 +20,8 @@ describe('IPC contract inventory', () => {
 
     expect(current.clientMessageTypes).toEqual(snapshot.clientMessageTypes);
     expect(current.serverMessageTypes).toEqual(snapshot.serverMessageTypes);
+    expect(current.clientWireTypes).toEqual(snapshot.clientWireTypes);
+    expect(current.serverWireTypes).toEqual(snapshot.serverWireTypes);
   });
 
   test('extracted types are sorted alphabetically', () => {

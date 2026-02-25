@@ -89,6 +89,8 @@ if (!snapshot) {
 const diffs: string[] = [
   ...diffArrays('ClientMessage', snapshot.clientMessageTypes, inventory.clientMessageTypes),
   ...diffArrays('ServerMessage', snapshot.serverMessageTypes, inventory.serverMessageTypes),
+  ...diffArrays('ClientWireType', snapshot.clientWireTypes, inventory.clientWireTypes),
+  ...diffArrays('ServerWireType', snapshot.serverWireTypes, inventory.serverWireTypes),
 ];
 
 if (diffs.length > 0) {
