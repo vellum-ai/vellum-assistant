@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { createConversation, addMessage } from '../../../../memory/conversation-store.js';
+import { createConversation, addMessage, setConversationOriginInterfaceIfUnset } from '../../../../memory/conversation-store.js';
 import { getDb } from '../../../../memory/db.js';
 import { conversations, messages as messagesTable, conversationKeys } from '../../../../memory/schema.js';
 
@@ -110,6 +110,9 @@ export async function run(
     for (const msg of conv.messages) {
       addMessage(conversation.id, msg.role, JSON.stringify(msg.content), importChannelMetadata);
     }
+
+    // addMessage auto-fills originChannel but not originInterface, so set it explicitly
+    setConversationOriginInterfaceIfUnset(conversation.id, 'vellum');
 
     // Override timestamps to match ChatGPT originals
     db.update(conversations)
