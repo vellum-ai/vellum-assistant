@@ -43,7 +43,7 @@ Comments should explain **why** something is done and provide non-obvious contex
 
 ## Keep the Architecture Diagram up to date
 
-Whenever you introduce, remove, or significantly modify a service, module, or data flow, you MUST update `ARCHITECTURE.md` to reflect the change. The Mermaid diagrams should always accurately represent the current system architecture, including new services, IPC message types, storage locations, and data flows.
+Whenever you introduce, remove, or significantly modify a service, module, or data flow, you MUST update the relevant architecture docs to reflect the change. Keep the root `ARCHITECTURE.md` index aligned, and update impacted domain docs (for example `assistant/ARCHITECTURE.md`, `gateway/ARCHITECTURE.md`, `clients/ARCHITECTURE.md`, or `assistant/docs/architecture/*`). Mermaid diagrams should always accurately represent the current system architecture, including new services, IPC message types, storage locations, and data flows.
 
 ## Keep AGENTS.md up to date
 
