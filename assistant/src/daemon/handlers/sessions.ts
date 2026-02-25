@@ -132,9 +132,9 @@ export async function handleUserMessage(
             handleRecordingStop(msg.sessionId, ctx);
             rlog.info('Mixed intent — stopping recording');
           }
+          const startResult = hasStart ? handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx) : null;
           if (hasStart) {
-            handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
-            rlog.info('Mixed intent — starting recording');
+            rlog.info({ started: !!startResult }, 'Mixed intent — starting recording');
           }
 
           // Strip recording clauses from the message
@@ -144,7 +144,14 @@ export async function handleUserMessage(
 
           // If nothing substantive remains (just fillers, names, punctuation), complete now
           if (!hasSubstantiveContent(remaining, dynamicNames)) {
-            const text = hasStart ? 'Starting screen recording.' : 'Stopping the recording.';
+            let text: string;
+            if (hasStart && startResult) {
+              text = hasStop ? 'Stopping current recording and starting a new one.' : 'Starting screen recording.';
+            } else if (hasStart) {
+              text = 'A recording is already active.';
+            } else {
+              text = 'Stopping the recording.';
+            }
             ctx.send(socket, { type: 'assistant_text_delta', text, sessionId: msg.sessionId });
             ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
             return;

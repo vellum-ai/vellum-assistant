@@ -158,9 +158,16 @@ export async function handleTaskSubmit(
               ctx.socketToSession.set(socket, sessionId);
             }
             if (hasStop) handleRecordingStop(sessionId, ctx);
-            if (hasStart) handleRecordingStart(sessionId, { promptForSource: true }, socket, ctx);
+            const startResult = hasStart ? handleRecordingStart(sessionId, { promptForSource: true }, socket, ctx) : null;
             ctx.send(socket, { type: 'task_routed', sessionId, interactionType: 'text_qa' });
-            const text = hasStart ? 'Starting screen recording.' : 'Stopping the recording.';
+            let text: string;
+            if (hasStart && startResult) {
+              text = hasStop ? 'Stopping current recording and starting a new one.' : 'Starting screen recording.';
+            } else if (hasStart) {
+              text = 'A recording is already active.';
+            } else {
+              text = 'Stopping the recording.';
+            }
             ctx.send(socket, { type: 'assistant_text_delta', text, sessionId });
             ctx.send(socket, { type: 'message_complete', sessionId });
             return;
