@@ -6,7 +6,6 @@ import { v4 as uuid } from 'uuid';
 
 import { linkAttachmentToMessage, setAttachmentThumbnail,uploadFileBackedAttachment } from '../../memory/attachments-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
-import { silentlyWithLog } from '../../util/silently.js';
 import type { RecordingOptions,RecordingStatus } from '../ipc-protocol.js';
 import { generateVideoThumbnailFromPath } from '../video-thumbnail.js';
 import { defineHandlers, findSocketForSession, type HandlerContext,log } from './shared.js';
@@ -168,11 +167,11 @@ function cleanupMaps(recordingId: string, conversationId: string | undefined): v
 
 // ─── Status (client → server lifecycle updates) ─────────────────────────────
 
-function handleRecordingStatus(
+async function handleRecordingStatus(
   msg: RecordingStatus,
   reportingSocket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   const recordingId = msg.sessionId;
   let conversationId = standaloneRecordingConversationId.get(recordingId);
 
@@ -283,13 +282,19 @@ function handleRecordingStatus(
             linkAttachmentToMessage(messageId, attachment.id, 0);
             log.info({ recordingId, messageId, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
 
-            // Fire-and-forget thumbnail generation from the on-disk file
-            silentlyWithLog(
-              generateVideoThumbnailFromPath(resolvedPath).then((thumb) => {
-                if (thumb) setAttachmentThumbnail(attachment.id, thumb);
-              }),
-              'recording thumbnail generation',
-            );
+            // Generate thumbnail before notifying the client so it's included
+            // in the message_complete payload (fire-and-forget would race).
+            let thumbnailData: string | undefined;
+            try {
+              const thumb = await generateVideoThumbnailFromPath(resolvedPath);
+              if (thumb) {
+                setAttachmentThumbnail(attachment.id, thumb);
+                thumbnailData = thumb;
+                log.info({ recordingId, attachmentId: attachment.id }, 'Thumbnail generated for recording');
+              }
+            } catch (err) {
+              log.warn({ err, recordingId }, 'Thumbnail generation failed — continuing without thumbnail');
+            }
 
             // Notify the client via the reporting socket
             if (notifySocket) {
@@ -307,6 +312,7 @@ function handleRecordingStatus(
                   mimeType: attachment.mimeType,
                   data: '',  // empty for file-backed; client uses content endpoint
                   sizeBytes: attachment.sizeBytes,
+                  thumbnailData,
                 }],
               });
             }
