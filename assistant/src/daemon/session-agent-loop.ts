@@ -253,6 +253,7 @@ export async function runAgentLoopImpl(
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
         guardianActorRole: ctx.guardianContext?.actorRole,
+        isInteractive: !ctx.hasNoClient,
       },
       content,
       userMessageId,
