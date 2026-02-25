@@ -213,7 +213,7 @@ Address the review feedback on PR #<milestone-pr-number> (<milestone-pr-url>):
 
 Instead of using the full sweep+swarm machinery (which creates new PRs), per-milestone feedback is handled by pushing fixes directly to the milestone PR branch. This is faster and avoids the overhead of creating, reviewing, and merging intermediate feedback PRs.
 
-Maintain an internal counter for worktree naming (e.g., `fix-1`, `fix-2`, ...).
+Maintain an internal counter for worktree naming (e.g., `fix-1`, `fix-2`, ...) and a **cycle counter** starting at 0. The maximum number of feedback cycles is **3** — after 3 full rounds of addressing feedback, merge the milestone PR regardless.
 
 **Feedback loop:**
 
@@ -223,7 +223,9 @@ Maintain an internal counter for worktree naming (e.g., `fix-1`, `fix-2`, ...).
    - If status is `approved`, proceed to Phase 4c.5.
    - If status is `changes_requested`, proceed to step 2.
 
-2. **Address the feedback**:
+2. **Check cycle limit**: If the cycle counter has reached 3, log: `"Reached maximum feedback cycles (3) for milestone PR #<milestone-pr-number>. Merging as-is."` and proceed to Phase 4c.5.
+
+3. **Address the feedback**: Increment the cycle counter by 1.
    a. Read the review comments to understand what's requested.
    b. Create a worktree from the milestone PR branch:
       ```bash
@@ -234,21 +236,31 @@ Maintain an internal counter for worktree naming (e.g., `fix-1`, `fix-2`, ...).
       ```bash
       .claude/worktree remove swarm/<namespace>/fix-<counter> --delete-branch
       ```
-   e. Fetch the updated milestone branch:
+   e. Fetch the updated milestone branch and get the latest commit SHA:
       ```bash
       git fetch origin <milestone-pr-branch>
+      LATEST_COMMIT=$(git rev-parse origin/<milestone-pr-branch>)
       ```
 
-3. **Wait for new reviews**: After fixes are pushed, poll for new reviews on the milestone PR:
-   - Poll `.claude/check-pr-reviews <milestone-pr-number>` every 60 seconds.
-   - If `changes_requested`, return to step 2.
-   - If no new reviews arrive within **3 minutes**, or status is `approved`, proceed to Phase 4c.5.
+4. **Re-request reviews**: After fixes are pushed, explicitly tag both reviewers to re-request their review by posting two separate comments on the milestone PR:
+   ```bash
+   gh pr comment <milestone-pr-number> --body "@codex review this PR again — the previous issues have been fixed in commit $LATEST_COMMIT"
+   gh pr comment <milestone-pr-number> --body "@devin review this PR again — the previous issues have been fixed in commit $LATEST_COMMIT"
+   ```
+   Log: `"Re-requested reviews from Codex and Devin on milestone PR #<milestone-pr-number> (cycle <cycle-counter>/3, commit $LATEST_COMMIT)."`
 
-Repeat steps 1-3 until the exit condition: no remaining feedback AND either `approved` or no new reviews for 3 minutes.
+5. **Wait for fresh reviews**: Poll for new reviews on the milestone PR:
+   - Poll `.claude/check-pr-reviews <milestone-pr-number>` every 60 seconds.
+   - If status is `pending`, wait 60 seconds and poll again.
+   - If status is `rate_limited`, wait 120 seconds and poll again.
+   - If status is `changes_requested`, return to step 2 (which checks the cycle limit).
+   - If status is `approved`, proceed to Phase 4c.5.
+
+Repeat steps 1-5 until the exit condition: either `approved` status, or the cycle counter has reached 3.
 
 #### 4c.5. Merge milestone PR into feature branch
 
-This step runs ONLY after the per-milestone feedback loop completes cleanly (all reviews addressed, no pending feedback). This is the review-before-merge gate.
+This step runs after the per-milestone feedback loop exits — either because all reviews are approved, or the maximum feedback cycle limit (3) was reached. This is the review-before-merge gate.
 
 Since feedback was pushed directly to the milestone branch (no intermediate feedback PRs to merge), simply merge the milestone PR:
 
