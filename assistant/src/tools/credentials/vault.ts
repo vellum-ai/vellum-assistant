@@ -36,6 +36,8 @@ interface WellKnownOAuthConfig {
   tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
   /** Injection templates auto-applied to the access_token credential after a successful OAuth2 connect. */
   injectionTemplates?: CredentialInjectionTemplate[];
+  /** Force a specific callback transport (e.g. 'loopback' for Desktop app credentials). */
+  callbackTransport?: 'loopback' | 'gateway';
 }
 
 const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
@@ -52,6 +54,7 @@ const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
     ],
     userinfoUrl: 'https://www.googleapis.com/oauth2/v2/userinfo',
     extraParams: { access_type: 'offline', prompt: 'consent' },
+    callbackTransport: 'loopback',
   },
   'integration:slack': {
     authUrl: 'https://slack.com/oauth/v2/authorize',
@@ -602,6 +605,7 @@ class CredentialStoreTool implements Tool {
                 context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` });
               },
             },
+            wellKnown?.callbackTransport ? { callbackTransport: wellKnown.callbackTransport } : undefined,
           );
 
           const tokenStored = setSecureKey(`credential:${service}:access_token`, tokens.accessToken);
