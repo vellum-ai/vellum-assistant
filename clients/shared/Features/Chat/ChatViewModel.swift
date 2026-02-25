@@ -1628,20 +1628,15 @@ public final class ChatViewModel: ObservableObject {
                     // Use sessionId from the view model (assumes history is for current session)
                     if let sessionId = self.sessionId,
                        let surface = Surface.from(surf, sessionId: sessionId) {
-                        // Reconstruct a UiSurfaceShowMessage so the card remains
+                        // Build a lightweight SurfaceRef so the card remains
                         // clickable after the app restarts (history restore).
-                        let reconstructedActions: [SurfaceActionData]? = surf.actions?.map { action in
-                            SurfaceActionData(id: action.id, label: action.label, style: action.style)
-                        }
-                        let reconstructedMessage = UiSurfaceShowMessage(
-                            sessionId: sessionId,
+                        // The full UiSurfaceShowMessage is not retained to avoid
+                        // keeping entire HTML payloads in memory.
+                        let ref = SurfaceRef(
                             surfaceId: surf.surfaceId,
+                            sessionId: sessionId,
                             surfaceType: surf.surfaceType,
-                            title: surf.title,
-                            data: AnyCodable(surf.data.mapValues { $0.value }),
-                            actions: reconstructedActions,
-                            display: surf.display,
-                            messageId: item.id
+                            title: surf.title
                         )
                         let inlineSurface = InlineSurfaceData(
                             id: surface.id,
@@ -1649,7 +1644,7 @@ public final class ChatViewModel: ObservableObject {
                             title: surface.title,
                             data: surface.data,
                             actions: surface.actions,
-                            surfaceMessage: reconstructedMessage
+                            surfaceRef: ref
                         )
                         inlineSurfaces.append(inlineSurface)
                     }
@@ -1695,6 +1690,12 @@ public final class ChatViewModel: ObservableObject {
             // anchor to it. This is the database ID from the daemon, not the
             // client-side UUID.
             chatMsg.daemonMessageId = item.id
+
+            // Drop base64 data from history attachments — the daemon already
+            // persisted them, so we only need thumbnails for display.
+            for i in chatMsg.attachments.indices {
+                chatMsg.attachments[i].data = ""
+            }
 
             // Populate inlineSurfaces from history
             chatMsg.inlineSurfaces = inlineSurfaces

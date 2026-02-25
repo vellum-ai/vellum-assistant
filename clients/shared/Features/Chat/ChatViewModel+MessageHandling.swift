@@ -125,7 +125,9 @@ extension ChatViewModel {
             }
         }
 
-        return lines.joined(separator: "\n")
+        var result = lines.joined(separator: "\n")
+        if result.count > 10_000 { result = String(result.prefix(10_000)) + "... [truncated]" }
+        return result
     }
 
     private func stringifyValue(_ value: AnyCodable) -> String {
@@ -624,10 +626,14 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
-            // Reset processing messages to sent
+            // Reset processing messages to sent and drop attachment base64 data
+            // since the daemon has persisted it at this point.
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent
+                    for j in messages[i].attachments.indices {
+                        messages[i].attachments[j].data = ""
+                    }
                 }
             }
             dispatchPendingSendDirect()
@@ -1054,8 +1060,10 @@ extension ChatViewModel {
                 messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
                 messages[msgIndex].toolCalls[tcIndex].isComplete = true
                 messages[msgIndex].toolCalls[tcIndex].completedAt = Date()
-                messages[msgIndex].toolCalls[tcIndex].imageData = msg.imageData
-                messages[msgIndex].toolCalls[tcIndex].cachedImage = ToolCallData.decodeImage(from: msg.imageData)
+                let decoded = ToolCallData.decodeImage(from: msg.imageData)
+                // Keep cachedImage for display, nil out raw base64 to save ~2.7MB per screenshot
+                messages[msgIndex].toolCalls[tcIndex].cachedImage = decoded
+                messages[msgIndex].toolCalls[tcIndex].imageData = decoded == nil ? msg.imageData : nil
                 if let status = msg.status, !status.isEmpty {
                     messages[msgIndex].toolCalls[tcIndex].buildingStatus = status
                 }
@@ -1127,7 +1135,7 @@ extension ChatViewModel {
                 title: surface.title,
                 data: surface.data,
                 actions: surface.actions,
-                surfaceMessage: msg
+                surfaceRef: SurfaceRef(from: msg)
             )
 
             // If messageId is provided, attach to that specific message (rarely used now that
@@ -1187,7 +1195,7 @@ extension ChatViewModel {
                             title: updated.title,
                             data: updated.data,
                             actions: updated.actions,
-                            surfaceMessage: existing.surfaceMessage
+                            surfaceRef: existing.surfaceRef
                         )
                         // Update floating overlay for task_progress cards (macOS only)
                         #if os(macOS)

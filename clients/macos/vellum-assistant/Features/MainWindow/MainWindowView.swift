@@ -742,6 +742,7 @@ struct MainWindowView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
+                // Full message from daemon live IPC (AppDelegate path)
                 windowState.activeDynamicSurface = msg
                 windowState.activeDynamicParsedSurface = Surface.from(msg)
                 // Determine the app ID from the surface if available
@@ -760,6 +761,13 @@ struct MainWindowView: View {
                 } else {
                     windowState.selection = .app(msg.surfaceId)
                 }
+            } else if let ref = notification.userInfo?["surfaceRef"] as? SurfaceRef {
+                // Lightweight ref from inline surface click — the daemon will
+                // send a fresh ui_surface_show via live IPC with the full payload.
+                // Open by surfaceId to trigger the workspace view.
+                windowState.selection = .app(ref.surfaceId)
+                // Request the daemon to re-show the surface
+                try? daemonClient.sendAppOpen(appId: ref.surfaceId)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
