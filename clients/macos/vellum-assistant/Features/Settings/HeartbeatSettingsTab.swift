@@ -294,7 +294,7 @@ struct HeartbeatSettingsTab: View {
                             .padding(VSpacing.sm)
 
                             if expandedRunId == run.id {
-                                Text(run.summary)
+                                Text(run.summary ?? "No summary available")
                                     .font(VFont.mono)
                                     .foregroundColor(VColor.textSecondary)
                                     .textSelection(.enabled)

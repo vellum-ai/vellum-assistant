@@ -1928,9 +1928,9 @@ public struct IPCHeartbeatRunsListResponseRun: Codable, Sendable {
     public let title: String
     public let createdAt: Int
     public let result: String
-    public let summary: String
+    public let summary: String?
 
-    public init(id: String, title: String, createdAt: Int, result: String, summary: String) {
+    public init(id: String, title: String, createdAt: Int, result: String, summary: String? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt

@@ -116,7 +116,7 @@ export interface HeartbeatRunsListResponse {
     title: string;
     createdAt: number;
     result: string;
-    summary: string;
+    summary?: string;
   }>;
 }
 
