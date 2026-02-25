@@ -40,7 +40,7 @@ export async function ssh(): Promise<void> {
     if (name) {
       console.error(`No assistant instance found with name '${name}'.`);
     } else {
-      console.error("No assistant instance found. Run `vellum-cli hatch` first.");
+      console.error("No assistant instance found. Run `vellum hatch` first.");
     }
     process.exit(1);
   }
@@ -50,7 +50,7 @@ export async function ssh(): Promise<void> {
   if (cloud === "local") {
     console.error(
       "Cannot SSH into a local assistant. Local assistants run directly on this machine.\n" +
-      `Use 'vellum-cli ps ${entry.assistantId}' to check its processes instead.`,
+      `Use 'vellum ps ${entry.assistantId}' to check its processes instead.`,
     );
     process.exit(1);
   }

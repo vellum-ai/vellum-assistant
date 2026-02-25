@@ -298,3 +298,38 @@ export interface OpenUrl {
   url: string;
   title?: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _IntegrationsClientMessages =
+  | SlackWebhookConfigRequest
+  | IngressConfigRequest
+  | PlatformConfigRequest
+  | VercelApiConfigRequest
+  | TwitterIntegrationConfigRequest
+  | TelegramConfigRequest
+  | TwilioConfigRequest
+  | ChannelReadinessRequest
+  | GuardianVerificationRequest
+  | TwitterAuthStartRequest
+  | TwitterAuthStatusRequest
+  | IntegrationListRequest
+  | IntegrationConnectRequest
+  | IntegrationDisconnectRequest
+  | LinkOpenRequest;
+
+export type _IntegrationsServerMessages =
+  | SlackWebhookConfigResponse
+  | IngressConfigResponse
+  | PlatformConfigResponse
+  | VercelApiConfigResponse
+  | TwitterIntegrationConfigResponse
+  | TelegramConfigResponse
+  | TwilioConfigResponse
+  | ChannelReadinessResponse
+  | GuardianVerificationResponse
+  | TwitterAuthResult
+  | TwitterAuthStatusResponse
+  | IntegrationListResponse
+  | IntegrationConnectResult
+  | OpenUrl;

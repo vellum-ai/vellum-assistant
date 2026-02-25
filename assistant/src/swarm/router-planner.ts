@@ -1,4 +1,4 @@
-import type { Provider, Message } from '../providers/types.js';
+import type { Provider, Message, ModelIntent } from '../providers/types.js';
 import { parseJsonSafe } from '../util/json.js';
 import type { SwarmPlan, SwarmTaskNode } from './types.js';
 import { VALID_SWARM_ROLES } from './types.js';
@@ -13,10 +13,10 @@ import { ROUTER_SYSTEM_PROMPT, buildPlannerUserMessage } from './router-prompts.
 export async function generatePlan(opts: {
   objective: string;
   provider: Provider;
-  model: string;
+  modelIntent: ModelIntent;
   limits: SwarmLimits;
 }): Promise<SwarmPlan> {
-  const { objective, provider, model, limits } = opts;
+  const { objective, provider, modelIntent, limits } = opts;
 
   try {
     const messages: Message[] = [
@@ -30,7 +30,7 @@ export async function generatePlan(opts: {
       messages,
       undefined,
       ROUTER_SYSTEM_PROMPT,
-      { config: { max_tokens: 2048, model } },
+      { config: { max_tokens: 2048, modelIntent } },
     );
 
     // Extract text from response

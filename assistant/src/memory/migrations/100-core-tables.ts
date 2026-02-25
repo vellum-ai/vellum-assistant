@@ -128,7 +128,8 @@ export function createCoreTables(database: DrizzleDb): void {
       provider TEXT NOT NULL,
       model TEXT NOT NULL,
       dimensions INTEGER NOT NULL,
-      vector_json TEXT NOT NULL,
+      vector_json TEXT,
+      vector_blob BLOB,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       UNIQUE (target_type, target_id, provider, model)

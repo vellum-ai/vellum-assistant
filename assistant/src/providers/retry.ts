@@ -29,12 +29,19 @@ function normalizeSendMessageOptions(providerName: string, options?: SendMessage
   const intent = isModelIntent(config.modelIntent) ? config.modelIntent : undefined;
   const hasIntent = config.modelIntent !== undefined;
 
-  if (!hasIntent && explicitModel === config.model) {
+  const needsThinkingStrip = providerName !== 'anthropic' && config.thinking !== undefined;
+
+  if (!hasIntent && explicitModel === config.model && !needsThinkingStrip) {
     return options;
   }
 
   const nextConfig: Record<string, unknown> = { ...config };
   delete nextConfig.modelIntent;
+
+  // thinking/budget_tokens is Anthropic-specific; strip it for other providers
+  if (providerName !== 'anthropic' && nextConfig.thinking !== undefined) {
+    delete nextConfig.thinking;
+  }
 
   if (explicitModel) {
     nextConfig.model = explicitModel;

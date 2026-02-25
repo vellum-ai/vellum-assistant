@@ -358,6 +358,10 @@ export class Session {
     this.commandIntent = intent ?? undefined;
   }
 
+  setPreactivatedSkillIds(ids: string[] | undefined): void {
+    this.preactivatedSkillIds = ids;
+  }
+
   setTurnChannelContext(ctx: TurnChannelContext): void {
     this.currentTurnChannelContext = ctx;
   }
@@ -389,7 +393,7 @@ export class Session {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean },
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
   ): Promise<void> {
     return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
   }

@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 import { join } from 'node:path';
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../../permissions/checker.js';
-import { isSideEffectTool } from '../../tools/executor.js';
+import { isSideEffectTool } from '../../tools/side-effects.js';
 import { resolveExecutionTarget, type ManifestOverride } from '../../tools/execution-target.js';
 import { getAllTools, getTool } from '../../tools/registry.js';
 import { loadSkillCatalog } from '../../config/skills.js';

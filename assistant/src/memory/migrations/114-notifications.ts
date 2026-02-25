@@ -1,6 +1,6 @@
 import type { DrizzleDb } from '../db-connection.js';
 import { migrateNotificationTablesSchema } from './019-notification-tables-schema-migration.js';
-import { migrateNotificationDeliveryPairingColumns } from './023-notification-delivery-pairing-columns.js';
+import { migrateNotificationDeliveryPairingColumns } from './026-notification-delivery-pairing-columns.js';
 
 /**
  * Notification system tables: preferences, events, decisions, and deliveries.

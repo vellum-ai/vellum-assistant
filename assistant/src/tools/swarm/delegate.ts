@@ -90,7 +90,7 @@ export const swarmDelegateTool: Tool = {
       const plan = await generatePlan({
         objective: extraContext ? `${objective}\n\nContext: ${extraContext}` : objective,
         provider: planProvider,
-        model: config.swarm.plannerModel,
+        modelIntent: config.swarm.plannerModelIntent,
         limits,
       });
 
@@ -118,9 +118,9 @@ export const swarmDelegateTool: Tool = {
         limits,
         backend,
         workingDir: context.workingDir,
-        model: config.swarm.synthesizerModel,
+        modelIntent: config.swarm.synthesizerModelIntent,
         synthesisProvider,
-        synthesisModel: config.swarm.synthesizerModel,
+        synthesisModelIntent: config.swarm.synthesizerModelIntent,
         signal: context.signal,
         onStatus: (event) => {
           switch (event.kind) {

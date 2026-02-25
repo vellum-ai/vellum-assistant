@@ -128,7 +128,7 @@ export async function extractPreferences(message: string): Promise<ExtractionRes
   }
 
   const config = getConfig();
-  const model = config.notifications.decisionModel;
+  const modelIntent = config.notifications.decisionModelIntent;
 
   const { signal, cleanup } = createTimeout(EXTRACTION_TIMEOUT_MS);
 
@@ -139,7 +139,7 @@ export async function extractPreferences(message: string): Promise<ExtractionRes
       SYSTEM_PROMPT,
       {
         config: {
-          model,
+          modelIntent,
           max_tokens: 1024,
           tool_choice: { type: 'tool' as const, name: 'extract_notification_preferences' },
         },

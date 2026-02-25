@@ -122,6 +122,8 @@ function createFakeUpstreamWs() {
 // ---------------------------------------------------------------------------
 
 describe("createTwilioRelayWebsocketHandler", () => {
+  const TEST_TOKEN = "test-relay-token-abc123";
+
   test("returns 400 when callSessionId is missing", () => {
     const handler = createTwilioRelayWebsocketHandler(makeConfig());
     const req = new Request("http://localhost:7830/ws/twilio/relay");
@@ -133,11 +135,11 @@ describe("createTwilioRelayWebsocketHandler", () => {
     expect(fakeServer.upgrade).not.toHaveBeenCalled();
   });
 
-  test("calls server.upgrade with callSessionId and config on valid request", () => {
-    const config = makeConfig();
+  test("calls server.upgrade with callSessionId and config on valid request with query token", () => {
+    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
     const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
-      "http://localhost:7830/ws/twilio/relay?callSessionId=sess-42",
+      `http://localhost:7830/ws/twilio/relay?callSessionId=sess-42&token=${TEST_TOKEN}`,
     );
     const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
@@ -153,16 +155,87 @@ describe("createTwilioRelayWebsocketHandler", () => {
     expect(upgradeData.config).toBe(config);
   });
 
-  test("returns 500 when server.upgrade fails", () => {
-    const handler = createTwilioRelayWebsocketHandler(makeConfig());
+  test("calls server.upgrade when Authorization header provides valid token", () => {
+    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
-      "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
+      "http://localhost:7830/ws/twilio/relay?callSessionId=sess-42",
+      { headers: { authorization: `Bearer ${TEST_TOKEN}` } },
+    );
+    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeUndefined();
+    expect(fakeServer.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns 500 when server.upgrade fails", () => {
+    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const handler = createTwilioRelayWebsocketHandler(config);
+    const req = new Request(
+      `http://localhost:7830/ws/twilio/relay?callSessionId=sess-1&token=${TEST_TOKEN}`,
     );
     const fakeServer = { upgrade: mock(() => false) } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeInstanceOf(Response);
     expect(res!.status).toBe(500);
+  });
+
+  // --- Auth tests ---
+
+  test("returns 503 when no bearer token is configured and bypass is off", () => {
+    const handler = createTwilioRelayWebsocketHandler(makeConfig());
+    const req = new Request(
+      "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
+    );
+    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(503);
+    expect(fakeServer.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("allows upgrade when no token configured but smsDeliverAuthBypass is true", () => {
+    const config = makeConfig({ smsDeliverAuthBypass: true });
+    const handler = createTwilioRelayWebsocketHandler(config);
+    const req = new Request(
+      "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
+    );
+    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeUndefined();
+    expect(fakeServer.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns 401 when token is missing from request", () => {
+    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const handler = createTwilioRelayWebsocketHandler(config);
+    const req = new Request(
+      "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
+    );
+    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(401);
+    expect(fakeServer.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("returns 401 when token is wrong", () => {
+    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const handler = createTwilioRelayWebsocketHandler(config);
+    const req = new Request(
+      "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1&token=wrong-token",
+    );
+    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(401);
+    expect(fakeServer.upgrade).not.toHaveBeenCalled();
   });
 });
 

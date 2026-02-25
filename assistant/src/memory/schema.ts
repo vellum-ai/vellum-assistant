@@ -99,7 +99,9 @@ export const memoryItemSources = sqliteTable('memory_item_sources', {
     .references(() => messages.id, { onDelete: 'cascade' }),
   evidence: text('evidence'),
   createdAt: integer('created_at').notNull(),
-});
+}, (table) => [
+  index('idx_memory_item_sources_memory_item_id').on(table.memoryItemId),
+]);
 
 export const memoryItemConflicts = sqliteTable('memory_item_conflicts', {
   id: text('id').primaryKey(),
@@ -145,7 +147,8 @@ export const memoryEmbeddings = sqliteTable('memory_embeddings', {
   provider: text('provider').notNull(),
   model: text('model').notNull(),
   dimensions: integer('dimensions').notNull(),
-  vectorJson: text('vector_json').notNull(),
+  vectorJson: text('vector_json'),
+  vectorBlob: blob('vector_blob'),
   contentHash: text('content_hash'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),

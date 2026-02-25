@@ -35,6 +35,8 @@ export interface MemoryPrepareContext {
   scopeId: string;
   includeDefaultFallback: boolean;
   guardianActorRole?: 'guardian' | 'non-guardian' | 'unverified_channel';
+  /** When false (e.g. scheduled tasks), skip conflict clarification prompts. */
+  isInteractive?: boolean;
 }
 
 /**
@@ -87,8 +89,10 @@ export async function prepareMemoryContext(
   const runtimeConfig = getConfig();
   const memoryEnabled = runtimeConfig.memory?.enabled !== false;
 
-  // Conflict gate
-  const conflictConfig = memoryEnabled ? runtimeConfig.memory?.conflicts : undefined;
+  // Conflict gate — skip entirely for non-interactive sessions (scheduled tasks,
+  // work items) since there is no human to answer the clarification question.
+  const isInteractive = ctx.isInteractive !== false;
+  const conflictConfig = memoryEnabled && isInteractive ? runtimeConfig.memory?.conflicts : undefined;
   const conflictGateResult = conflictConfig
     ? await ctx.conflictGate.evaluate(content, conflictConfig, ctx.scopeId)
     : null;

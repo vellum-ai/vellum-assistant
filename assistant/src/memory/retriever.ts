@@ -324,32 +324,29 @@ async function collectAndMergeCandidates(
   };
 }
 
-export async function buildMemoryRecall(
+/** Result of the embedding generation stage. */
+interface EmbeddingResult {
+  queryVector: number[] | null;
+  provider: string | undefined;
+  model: string | undefined;
+  degraded: boolean;
+  reason: string | undefined;
+}
+
+/**
+ * Generate an embedding vector for the query. Handles backend availability
+ * checks, retry with backoff, and graceful degradation when embeddings are
+ * optional.
+ *
+ * Returns `null` when the caller should return an early-exit `emptyResult`
+ * (the empty result is included). Otherwise returns the embedding state.
+ */
+async function generateQueryEmbedding(
   query: string,
-  conversationId: string,
   config: AssistantConfig,
-  options?: MemoryRecallOptions,
-): Promise<MemoryRecallResult> {
-  const start = Date.now();
-  const versionSnapshot = getMemoryVersion();
-  const excludeMessageIds = options?.excludeMessageIds?.filter((id) => id.length > 0) ?? [];
-  const signal = options?.signal;
-  if (!config.memory.enabled) {
-    return emptyResult({ enabled: false, degraded: false, reason: 'memory.disabled', latencyMs: Date.now() - start });
-  }
-  if (signal?.aborted) {
-    return emptyResult({ enabled: true, degraded: false, reason: 'memory.aborted', latencyMs: Date.now() - start });
-  }
-
-  // Check recall cache — serves identical results instantly when the query
-  // and memory state haven't changed since the last recall.
-  const configFingerprint = buildConfigFingerprint(config);
-  const cached = getCachedRecall(query, conversationId, options, configFingerprint);
-  if (cached) {
-    log.debug({ query: truncate(query, 120), latencyMs: Date.now() - start }, 'Memory recall served from cache');
-    return { ...cached, latencyMs: Date.now() - start };
-  }
-
+  signal: AbortSignal | undefined,
+  start: number,
+): Promise<EmbeddingResult | { earlyExit: MemoryRecallResult }> {
   const backendStatus = getMemoryBackendStatus(config);
   let queryVector: number[] | null = null;
   let provider: string | undefined;
@@ -367,119 +364,105 @@ export async function buildMemoryRecall(
       reason = undefined;
     } catch (err) {
       if (signal?.aborted || isAbortError(err)) {
-        return emptyResult({
+        return { earlyExit: emptyResult({
           enabled: true,
           degraded: false,
           reason: 'memory.aborted',
           provider: backendStatus.provider,
           model: backendStatus.model ?? undefined,
           latencyMs: Date.now() - start,
-        });
+        }) };
       }
       logMemoryEmbeddingWarning(err, 'query');
       degraded = config.memory.embeddings.required;
       reason = `memory.embedding_failure: ${err instanceof Error ? err.message : String(err)}`;
       if (config.memory.embeddings.required) {
-        return emptyResult({
+        return { earlyExit: emptyResult({
           enabled: true,
           degraded,
           reason,
           provider: backendStatus.provider,
           model: backendStatus.model ?? undefined,
           latencyMs: Date.now() - start,
-        });
+        }) };
       }
     }
   } else if (config.memory.embeddings.required) {
-    return emptyResult({
+    return { earlyExit: emptyResult({
       enabled: true,
       degraded: true,
       reason: reason ?? 'memory.embedding_backend_missing',
       latencyMs: Date.now() - start,
-    });
+    }) };
   }
 
-  let collected: CollectedCandidates;
-  try {
-    collected = await collectAndMergeCandidates(query, config, {
-      queryVector,
-      provider,
-      model,
-      conversationId,
-      excludeMessageIds,
-      scopeId: options?.scopeId,
-      scopePolicyOverride: options?.scopePolicyOverride,
-    });
-  } catch (err) {
-    if (signal?.aborted || isAbortError(err)) {
-      return emptyResult({
-        enabled: true,
-        degraded: false,
-        reason: 'memory.aborted',
-        provider,
-        model,
-        latencyMs: Date.now() - start,
-      });
-    }
-    log.warn({ err }, 'Memory retrieval failed, returning degraded empty recall');
-    return emptyResult({
-      enabled: true,
-      degraded: true,
-      reason: `memory.retrieval_failure: ${err instanceof Error ? err.message : String(err)}`,
-      provider,
-      model,
-      latencyMs: Date.now() - start,
-    });
-  }
+  return { queryVector, provider, model, degraded, reason };
+}
 
-  const {
-    lexical: lexicalCandidates,
-    recency: recencyCandidates,
-    semantic: semanticCandidates,
-    entity: entityCandidates,
-    relationSeedEntityCount,
-    relationTraversedEdgeCount,
-    relationNeighborEntityCount,
-    relationExpandedItemCount,
-    earlyTerminated,
-    semanticSearchFailed,
-  } = collected;
+/** Result of the re-ranking stage. */
+interface RerankResult {
+  merged: Candidate[];
+  rerankApplied: boolean;
+}
 
-  // Mark as degraded when semantic search failed — the recall is based on
-  // lexical/recency only and should not be cached.
-  if (semanticSearchFailed) {
-    degraded = true;
-    reason = reason ?? 'memory.semantic_search_failure';
-  }
-  let merged = applySourceCaps(collected.merged, config);
-
-  // LLM re-ranking: send top candidates to Haiku for relevance scoring
-  const rerankingConfig = config.memory.retrieval.reranking;
+/**
+ * Apply source caps and optionally LLM re-rank the merged candidates.
+ * Returns `null` when the caller should return an early-exit `emptyResult`
+ * (abort during re-ranking).
+ */
+async function rerankMergedCandidates(
+  query: string,
+  candidates: Candidate[],
+  config: AssistantConfig,
+  signal: AbortSignal | undefined,
+  start: number,
+  provider: string | undefined,
+  model: string | undefined,
+): Promise<RerankResult | { earlyExit: MemoryRecallResult }> {
+  let merged = applySourceCaps(candidates, config);
   let rerankApplied = false;
+
+  const rerankingConfig = config.memory.retrieval.reranking;
   if (rerankingConfig.enabled && merged.length >= 5) {
     const rerankStart = Date.now();
     const topCandidates = merged.slice(0, rerankingConfig.topK);
     try {
       const reranked = await rerankWithLLM(query, topCandidates, rerankingConfig);
-      // Replace the top portion with re-ranked results, keep any overflow untouched
       merged = [...reranked, ...merged.slice(rerankingConfig.topK)];
       rerankApplied = true;
       log.debug({ rerankLatencyMs: Date.now() - rerankStart, rerankedCount: reranked.length }, 'LLM re-ranking completed');
     } catch (err) {
       if (signal?.aborted || isAbortError(err)) {
-        return emptyResult({
+        return { earlyExit: emptyResult({
           enabled: true,
           degraded: false,
           reason: 'memory.aborted',
           provider,
           model,
           latencyMs: Date.now() - start,
-        });
+        }) };
       }
       log.warn({ err, rerankLatencyMs: Date.now() - rerankStart }, 'LLM re-ranking failed, using RRF order');
     }
   }
 
+  return { merged, rerankApplied };
+}
+
+/**
+ * Trim candidates to the token budget, format for injection, and assemble
+ * the final `MemoryRecallResult`.
+ */
+function formatRecallResult(
+  query: string,
+  collected: CollectedCandidates,
+  merged: Candidate[],
+  rerankApplied: boolean,
+  config: AssistantConfig,
+  options: MemoryRecallOptions | undefined,
+  embedding: EmbeddingResult,
+  start: number,
+): MemoryRecallResult {
   const mergedCount = merged.length;
   const maxInjectTokens = Math.max(
     1,
@@ -502,15 +485,15 @@ export async function buildMemoryRecall(
   const latencyMs = Date.now() - start;
   log.debug({
     query: truncate(query, 120),
-    lexicalHits: lexicalCandidates.length,
-    semanticHits: semanticCandidates.length,
-    recencyHits: recencyCandidates.length,
-    entityHits: entityCandidates.length,
-    relationSeedEntityCount,
-    relationTraversedEdgeCount,
-    relationNeighborEntityCount,
-    relationExpandedItemCount,
-    earlyTerminated,
+    lexicalHits: collected.lexical.length,
+    semanticHits: collected.semantic.length,
+    recencyHits: collected.recency.length,
+    entityHits: collected.entity.length,
+    relationSeedEntityCount: collected.relationSeedEntityCount,
+    relationTraversedEdgeCount: collected.relationTraversedEdgeCount,
+    relationNeighborEntityCount: collected.relationNeighborEntityCount,
+    relationExpandedItemCount: collected.relationExpandedItemCount,
+    earlyTerminated: collected.earlyTerminated,
     mergedCount,
     selected: selected.length,
     maxInjectTokens,
@@ -519,21 +502,21 @@ export async function buildMemoryRecall(
     latencyMs,
   }, 'Memory recall completed');
 
-  const result: MemoryRecallResult = {
+  return {
     enabled: true,
-    degraded,
-    reason,
-    provider,
-    model,
-    lexicalHits: lexicalCandidates.length,
-    semanticHits: semanticCandidates.length,
-    recencyHits: recencyCandidates.length,
-    entityHits: entityCandidates.length,
-    relationSeedEntityCount,
-    relationTraversedEdgeCount,
-    relationNeighborEntityCount,
-    relationExpandedItemCount,
-    earlyTerminated,
+    degraded: embedding.degraded,
+    reason: embedding.reason,
+    provider: embedding.provider,
+    model: embedding.model,
+    lexicalHits: collected.lexical.length,
+    semanticHits: collected.semantic.length,
+    recencyHits: collected.recency.length,
+    entityHits: collected.entity.length,
+    relationSeedEntityCount: collected.relationSeedEntityCount,
+    relationTraversedEdgeCount: collected.relationTraversedEdgeCount,
+    relationNeighborEntityCount: collected.relationNeighborEntityCount,
+    relationExpandedItemCount: collected.relationExpandedItemCount,
+    earlyTerminated: collected.earlyTerminated,
     mergedCount,
     selectedCount: selected.length,
     rerankApplied,
@@ -542,6 +525,89 @@ export async function buildMemoryRecall(
     latencyMs,
     topCandidates,
   };
+}
+
+export async function buildMemoryRecall(
+  query: string,
+  conversationId: string,
+  config: AssistantConfig,
+  options?: MemoryRecallOptions,
+): Promise<MemoryRecallResult> {
+  const start = Date.now();
+  const versionSnapshot = getMemoryVersion();
+  const excludeMessageIds = options?.excludeMessageIds?.filter((id) => id.length > 0) ?? [];
+  const signal = options?.signal;
+  if (!config.memory.enabled) {
+    return emptyResult({ enabled: false, degraded: false, reason: 'memory.disabled', latencyMs: Date.now() - start });
+  }
+  if (signal?.aborted) {
+    return emptyResult({ enabled: true, degraded: false, reason: 'memory.aborted', latencyMs: Date.now() - start });
+  }
+
+  // Check recall cache
+  const configFingerprint = buildConfigFingerprint(config);
+  const cached = getCachedRecall(query, conversationId, options, configFingerprint);
+  if (cached) {
+    log.debug({ query: truncate(query, 120), latencyMs: Date.now() - start }, 'Memory recall served from cache');
+    return { ...cached, latencyMs: Date.now() - start };
+  }
+
+  // Stage 1: Embedding generation
+  const embeddingResult = await generateQueryEmbedding(query, config, signal, start);
+  if ('earlyExit' in embeddingResult) return embeddingResult.earlyExit;
+
+  // Stage 2: Candidate collection (lexical, recency, direct, semantic, entity)
+  let collected: CollectedCandidates;
+  try {
+    collected = await collectAndMergeCandidates(query, config, {
+      queryVector: embeddingResult.queryVector,
+      provider: embeddingResult.provider,
+      model: embeddingResult.model,
+      conversationId,
+      excludeMessageIds,
+      scopeId: options?.scopeId,
+      scopePolicyOverride: options?.scopePolicyOverride,
+    });
+  } catch (err) {
+    if (signal?.aborted || isAbortError(err)) {
+      return emptyResult({
+        enabled: true,
+        degraded: false,
+        reason: 'memory.aborted',
+        provider: embeddingResult.provider,
+        model: embeddingResult.model,
+        latencyMs: Date.now() - start,
+      });
+    }
+    log.warn({ err }, 'Memory retrieval failed, returning degraded empty recall');
+    return emptyResult({
+      enabled: true,
+      degraded: true,
+      reason: `memory.retrieval_failure: ${err instanceof Error ? err.message : String(err)}`,
+      provider: embeddingResult.provider,
+      model: embeddingResult.model,
+      latencyMs: Date.now() - start,
+    });
+  }
+
+  // Propagate semantic search failure into degradation state
+  if (collected.semanticSearchFailed) {
+    embeddingResult.degraded = true;
+    embeddingResult.reason = embeddingResult.reason ?? 'memory.semantic_search_failure';
+  }
+
+  // Stage 3: Source caps + LLM re-ranking
+  const rerankResult = await rerankMergedCandidates(
+    query, collected.merged, config, signal, start,
+    embeddingResult.provider, embeddingResult.model,
+  );
+  if ('earlyExit' in rerankResult) return rerankResult.earlyExit;
+
+  // Stage 4: Token budget trimming and result formatting
+  const result = formatRecallResult(
+    query, collected, rerankResult.merged, rerankResult.rerankApplied,
+    config, options, embeddingResult, start,
+  );
 
   // Only cache non-degraded results — degraded results (e.g. lexical-only
   // fallback when embeddings fail) would delay quality recovery once the
@@ -560,82 +626,53 @@ export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'
   const recallText = memoryRecallText ?? '';
   if (recallText.trim().length === 0) return messages;
 
-  // Try separate_context_message pattern first: look for the injected
-  // user+assistant pair (user message whose sole text block is the recall
-  // text, followed by an assistant ack message).
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index];
-    if (message.role !== 'user') continue;
-    if (message.content.length !== 1) continue;
-    const block = message.content[0];
-    if (block.type !== 'text' || block.text !== recallText) continue;
-    // Check if the next message is the assistant ack
-    const next = messages[index + 1];
-    if (
-      next &&
-      next.role === 'assistant' &&
-      next.content.length === 1 &&
-      next.content[0].type === 'text' &&
-      next.content[0].text === MEMORY_CONTEXT_ACK
-    ) {
-      // Remove both the user context message and the assistant ack
-      return [...messages.slice(0, index), ...messages.slice(index + 2)];
-    }
-  }
-
-  // Fall back to prepend_user_block pattern: the recall text is a block
-  // inside a user message that also has real user content.
+  // Single backward scan: find the last user message containing the recall
+  // text block, regardless of whether it's the sole block (separate_context_message)
+  // or one of many (prepend_user_block / repair-merged).
   let targetIndex = -1;
   let blockIndex = -1;
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index];
-    if (message.role !== 'user' || message.content.length === 0) continue;
-    let foundBlock = -1;
-    for (let bi = message.content.length - 1; bi >= 0; bi--) {
-      const block = message.content[bi];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user' || msg.content.length === 0) continue;
+    for (let bi = msg.content.length - 1; bi >= 0; bi--) {
+      const block = msg.content[bi];
       if (block.type === 'text' && block.text === recallText) {
-        foundBlock = bi;
+        targetIndex = i;
+        blockIndex = bi;
         break;
       }
     }
-    if (foundBlock !== -1) {
-      targetIndex = index;
-      blockIndex = foundBlock;
-      break;
-    }
+    if (targetIndex !== -1) break;
   }
   if (targetIndex === -1) return messages;
 
-  // Check if the message after targetIndex is the assistant ack from a
-  // merged separate-context injection (deepRepairHistory can merge the
-  // standalone recall user message into an adjacent user message, leaving
-  // the ack orphaned). Only check when the injection strategy is
-  // separate_context_message -- prepend_user_block never injects a
-  // synthetic ack, so stripping here would delete a real assistant reply.
+  // When separate_context_message was used (or strategy is unknown), check
+  // for an adjacent assistant ack to strip. prepend_user_block never injects
+  // a synthetic ack, so we skip this to avoid deleting a real assistant reply.
+  const shouldStripAck = injectionStrategy !== 'prepend_user_block';
+  const isAck = (msg: T) =>
+    msg.role === 'assistant' &&
+    msg.content.length === 1 &&
+    msg.content[0].type === 'text' &&
+    msg.content[0].text === MEMORY_CONTEXT_ACK;
   const ackIndex =
-    injectionStrategy !== 'prepend_user_block' &&
-    targetIndex + 1 < messages.length &&
-    messages[targetIndex + 1].role === 'assistant' &&
-    messages[targetIndex + 1].content.length === 1 &&
-    messages[targetIndex + 1].content[0].type === 'text' &&
-    messages[targetIndex + 1].content[0].text === MEMORY_CONTEXT_ACK
+    shouldStripAck && targetIndex + 1 < messages.length && isAck(messages[targetIndex + 1])
       ? targetIndex + 1
       : -1;
 
   const cleaned: T[] = [];
-  for (let index = 0; index < messages.length; index++) {
-    if (index === ackIndex) continue;
-    const message = messages[index];
-    if (index !== targetIndex) {
-      cleaned.push(message);
+  for (let i = 0; i < messages.length; i++) {
+    if (i === ackIndex) continue;
+    if (i !== targetIndex) {
+      cleaned.push(messages[i]);
       continue;
     }
     const filteredContent = [
-      ...message.content.slice(0, blockIndex),
-      ...message.content.slice(blockIndex + 1),
+      ...messages[i].content.slice(0, blockIndex),
+      ...messages[i].content.slice(blockIndex + 1),
     ];
     if (filteredContent.length === 0) continue;
-    cleaned.push({ ...message, content: filteredContent } as T);
+    cleaned.push({ ...messages[i], content: filteredContent } as T);
   }
   return cleaned;
 }

@@ -7,7 +7,6 @@ import { getDb } from './db.js';
 import { enqueueMemoryJob, enqueueResolvePendingConflictsForMessageJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
 import { segmentText } from './segmenter.js';
-import { bumpMemoryVersion } from './recall-cache.js';
 import { memorySegments } from './schema.js';
 
 const log = getLogger('memory-indexer');
@@ -119,7 +118,6 @@ export function indexMessageNow(
     log.info(`Skipping extraction/conflict jobs for untrusted actor (role=${input.provenanceActorRole})`);
   }
 
-  bumpMemoryVersion();
   enqueueSummaryRollupJobsIfDue();
 
   const extractionGated = !isTrustedActor;

@@ -125,14 +125,14 @@ export async function retire(): Promise<void> {
 
   if (!name) {
     console.error("Error: Instance name is required.");
-    console.error("Usage: vellum-cli retire <name> [--source <source>]");
+    console.error("Usage: vellum retire <name> [--source <source>]");
     process.exit(1);
   }
 
   const entry = findAssistantByName(name);
   if (!entry) {
     console.error(`No assistant found with name '${name}'.`);
-    console.error("Run 'vellum-cli hatch' first, or check the instance name.");
+    console.error("Run 'vellum hatch' first, or check the instance name.");
     process.exit(1);
   }
 

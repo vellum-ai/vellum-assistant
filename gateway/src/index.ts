@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync, watch, existsSync, mkdirSync, type FSWatcher } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { AuthRateLimiter } from "./auth-rate-limiter.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { loadConfig, type GatewayConfig } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
@@ -19,6 +20,7 @@ import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js"
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
+import { validateBearerToken } from "./http/auth/bearer.js";
 import { getLogger, initLogger } from "./logger.js";
 import { CircuitBreakerOpenError } from "./runtime/client.js";
 import { buildSchema } from "./schema.js";
@@ -32,6 +34,20 @@ function generateTraceId(): string {
 }
 
 let draining = false;
+
+// Shared rate limiter for auth failures and unauthenticated endpoints
+const authRateLimiter = new AuthRateLimiter();
+
+function getClientIp(req: Request, server: ReturnType<typeof Bun.serve>): string {
+  // Prefer X-Forwarded-For when behind a reverse proxy
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) {
+    const first = forwarded.split(",")[0].trim();
+    if (first) return first;
+  }
+  const addr = server.requestIP(req);
+  return addr?.address ?? "unknown";
+}
 
 /**
  * Watch `~/.vellum/http-token` and update the config when the daemon
@@ -130,7 +146,7 @@ function main() {
       log.error({ err }, "Unhandled gateway error");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     },
-    async fetch(req) {
+    async fetch(req, svr) {
       const url = new URL(req.url);
 
       if (url.pathname === "/healthz") {
@@ -146,6 +162,25 @@ function main() {
           return Response.json({ status: "draining" }, { status: 503 });
         }
         return Response.json({ status: "ok" });
+      }
+
+      // Rate-limit check for auth-protected and pairing endpoints.
+      // Checked early so blocked IPs are rejected before any work.
+      const isAuthRoute = url.pathname.startsWith("/v1/") ||
+        url.pathname === "/integrations/status" ||
+        url.pathname === "/deliver/telegram" ||
+        url.pathname === "/deliver/sms" ||
+        url.pathname === "/deliver/whatsapp" ||
+        url.pathname.startsWith("/pairing/");
+      if (isAuthRoute) {
+        const clientIp = getClientIp(req, svr);
+        if (authRateLimiter.isBlocked(clientIp)) {
+          log.warn({ ip: clientIp, path: url.pathname }, "Auth rate limit exceeded");
+          return Response.json(
+            { error: "Too many failed attempts. Try again later." },
+            { status: 429, headers: { "Retry-After": "60" } },
+          );
+        }
       }
 
       // Attach a trace ID to every non-healthcheck request for
@@ -176,7 +211,11 @@ function main() {
             { status: 503 },
           );
         }
-        return handleTelegramDeliver(tracedReq);
+        const res = await handleTelegramDeliver(tracedReq);
+        if (res.status === 401) {
+          authRateLimiter.recordFailure(getClientIp(req, svr));
+        }
+        return res;
       }
 
       if (
@@ -205,7 +244,11 @@ function main() {
       }
 
       if (url.pathname === "/deliver/sms") {
-        return handleSmsDeliver(tracedReq);
+        const res = await handleSmsDeliver(tracedReq);
+        if (res.status === 401) {
+          authRateLimiter.recordFailure(getClientIp(req, svr));
+        }
+        return res;
       }
 
       if (url.pathname === "/webhooks/whatsapp") {
@@ -225,7 +268,11 @@ function main() {
             { status: 503 },
           );
         }
-        return handleWhatsAppDeliver(tracedReq);
+        const res = await handleWhatsAppDeliver(tracedReq);
+        if (res.status === 401) {
+          authRateLimiter.recordFailure(getClientIp(req, svr));
+        }
+        return res;
       }
 
       if (url.pathname === "/webhooks/twilio/relay" || url.pathname === "/v1/calls/relay") {
@@ -240,6 +287,20 @@ function main() {
       }
 
       if (url.pathname === "/integrations/status" && req.method === "GET") {
+        if (!config.runtimeProxyBearerToken) {
+          return Response.json(
+            { error: "Service not configured: bearer token required" },
+            { status: 503 },
+          );
+        }
+        const authResult = validateBearerToken(
+          tracedReq.headers.get("authorization"),
+          config.runtimeProxyBearerToken,
+        );
+        if (!authResult.authorized) {
+          authRateLimiter.recordFailure(getClientIp(req, svr));
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
         return Response.json({
           email: {
             address: config.assistantEmail ?? null,
@@ -248,15 +309,28 @@ function main() {
       }
 
       // ── Pairing proxy (unauthenticated at gateway, secret-gated) ──
+      // Record auth failures when the daemon rejects the pairing secret
       if (url.pathname === "/pairing/request" && tracedReq.method === "POST") {
-        return pairingProxy.handlePairingRequest(tracedReq);
+        const res = await pairingProxy.handlePairingRequest(tracedReq);
+        if (res.status === 401 || res.status === 403) {
+          authRateLimiter.recordFailure(getClientIp(req, svr));
+        }
+        return res;
       }
       if (url.pathname === "/pairing/status" && tracedReq.method === "GET") {
-        return pairingProxy.handlePairingStatus(tracedReq);
+        const res = await pairingProxy.handlePairingStatus(tracedReq);
+        if (res.status === 401 || res.status === 403) {
+          authRateLimiter.recordFailure(getClientIp(req, svr));
+        }
+        return res;
       }
 
       if (handleRuntimeProxy) {
-        return handleRuntimeProxy(tracedReq);
+        const res = await handleRuntimeProxy(tracedReq);
+        if (res.status === 401) {
+          authRateLimiter.recordFailure(getClientIp(req, svr));
+        }
+        return res;
       }
 
       return Response.json({ error: "Not found", source: "gateway" }, { status: 404 });

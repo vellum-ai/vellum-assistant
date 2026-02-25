@@ -75,12 +75,16 @@ export const SwarmConfigSchema = z.object({
       reviewer: z.number().int().positive().optional(),
     })
     .default({}),
-  plannerModel: z
-    .string({ error: 'swarm.plannerModel must be a string' })
-    .default('claude-haiku-4-5-20251001'),
-  synthesizerModel: z
-    .string({ error: 'swarm.synthesizerModel must be a string' })
-    .default('claude-sonnet-4-6'),
+  plannerModelIntent: z
+    .enum(['latency-optimized', 'quality-optimized', 'vision-optimized'], {
+      error: 'swarm.plannerModelIntent must be a valid model intent',
+    })
+    .default('latency-optimized'),
+  synthesizerModelIntent: z
+    .enum(['latency-optimized', 'quality-optimized', 'vision-optimized'], {
+      error: 'swarm.synthesizerModelIntent must be a valid model intent',
+    })
+    .default('quality-optimized'),
 });
 
 export const WorkspaceGitConfigSchema = z.object({
@@ -159,19 +163,8 @@ export const WorkspaceGitConfigSchema = z.object({
         .int().positive().default(2000),
       backoffMaxMs: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.backoffMaxMs must be a number' })
         .int().positive().default(60000),
-    }).default({ openAfterFailures: 3, backoffBaseMs: 2000, backoffMaxMs: 60000 }),
-  }).default({
-    enabled: false,
-    useConfiguredProvider: true,
-    providerFastModelOverrides: {},
-    timeoutMs: 600,
-    maxTokens: 120,
-    temperature: 0.2,
-    maxFilesInPrompt: 30,
-    maxDiffBytes: 12000,
-    minRemainingTurnBudgetMs: 1000,
-    breaker: { openAfterFailures: 3, backoffBaseMs: 2000, backoffMaxMs: 60000 },
-  }),
+    }).default({}),
+  }).default({}),
 });
 
 export type AgentHeartbeatConfig = z.infer<typeof AgentHeartbeatConfigSchema>;

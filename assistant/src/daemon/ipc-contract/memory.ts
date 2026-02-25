@@ -46,3 +46,10 @@ export interface MemoryStatus {
   cleanupResolvedJobsCompleted24h: number;
   cleanupSupersededJobsCompleted24h: number;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+// Memory has no client messages.
+
+export type _MemoryServerMessages =
+  | MemoryRecalled
+  | MemoryStatus;

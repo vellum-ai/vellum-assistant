@@ -45,6 +45,7 @@ mock.module('../config/loader.js', () => ({
   invalidateConfigCache: () => {},
 }));
 import { indexMessageNow } from '../memory/indexer.js';
+import { vectorToBlob } from '../memory/job-utils.js';
 import { enqueueMemoryJob } from '../memory/jobs-store.js';
 import {
   resetCleanupScheduleThrottle,
@@ -214,7 +215,7 @@ describe('Memory regressions (experimental)', () => {
         provider: 'ollama',
         model: DEFAULT_CONFIG.memory.embeddings.ollamaModel,
         dimensions: 3,
-        vectorJson: JSON.stringify([1, 0, 0]),
+        vectorBlob: vectorToBlob([1, 0, 0]),
         createdAt: now,
         updatedAt: now,
       },
@@ -225,7 +226,7 @@ describe('Memory regressions (experimental)', () => {
         provider: 'ollama',
         model: DEFAULT_CONFIG.memory.embeddings.ollamaModel,
         dimensions: 3,
-        vectorJson: JSON.stringify([1, 0, 0]),
+        vectorBlob: vectorToBlob([1, 0, 0]),
         createdAt: now,
         updatedAt: now,
       },
@@ -306,7 +307,7 @@ describe('Memory regressions (experimental)', () => {
         provider: 'ollama',
         model: DEFAULT_CONFIG.memory.embeddings.ollamaModel,
         dimensions: 3,
-        vectorJson: JSON.stringify([1, 0, 0]),
+        vectorBlob: vectorToBlob([1, 0, 0]),
         createdAt: now,
         updatedAt: now,
       },
@@ -317,7 +318,7 @@ describe('Memory regressions (experimental)', () => {
         provider: 'ollama',
         model: DEFAULT_CONFIG.memory.embeddings.ollamaModel,
         dimensions: 3,
-        vectorJson: JSON.stringify([1, 0, 0]),
+        vectorBlob: vectorToBlob([1, 0, 0]),
         createdAt: now,
         updatedAt: now,
       },
@@ -390,7 +391,7 @@ describe('Memory regressions (experimental)', () => {
         provider: 'ollama',
         model: DEFAULT_CONFIG.memory.embeddings.ollamaModel,
         dimensions: 3,
-        vectorJson: JSON.stringify([1, 0, 0]),
+        vectorBlob: vectorToBlob([1, 0, 0]),
         createdAt: now,
         updatedAt: now,
       },
@@ -401,7 +402,7 @@ describe('Memory regressions (experimental)', () => {
         provider: 'ollama',
         model: DEFAULT_CONFIG.memory.embeddings.ollamaModel,
         dimensions: 3,
-        vectorJson: JSON.stringify([1, 0, 0]),
+        vectorBlob: vectorToBlob([1, 0, 0]),
         createdAt: now,
         updatedAt: now,
       },

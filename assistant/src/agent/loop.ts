@@ -13,6 +13,8 @@ export interface AgentLoopConfig {
   thinking?: { enabled: boolean; budgetTokens: number };
   toolChoice?: { type: 'auto' } | { type: 'any' } | { type: 'tool'; name: string };
   maxToolUseTurns?: number;
+  /** Minimum interval (ms) between consecutive LLM calls to prevent spin when tools return instantly */
+  minTurnIntervalMs?: number;
 }
 
 export interface CheckpointInfo {
@@ -37,6 +39,7 @@ export type AgentEvent =
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxTokens: 16000,
   maxToolUseTurns: 60,
+  minTurnIntervalMs: 150,
 };
 
 const PROGRESS_CHECK_INTERVAL = 5;
@@ -80,6 +83,7 @@ export class AgentLoop {
     const history = [...messages];
     let toolUseTurns = 0;
     let nudgedForEmptyResponse = false;
+    let lastLlmCallTime = 0;
     const debug = isDebug();
     const rlog = requestId ? log.child({ requestId }) : log;
 
@@ -136,7 +140,17 @@ export class AgentLoop {
           break;
         }
 
+        // Rate-limit consecutive LLM calls to prevent spin when tools return instantly
+        const minInterval = this.config.minTurnIntervalMs ?? 0;
+        if (minInterval > 0 && lastLlmCallTime > 0) {
+          const elapsed = Date.now() - lastLlmCallTime;
+          if (elapsed < minInterval) {
+            await Bun.sleep(minInterval - elapsed);
+          }
+        }
+
         const providerStart = Date.now();
+        lastLlmCallTime = providerStart;
 
         // Strip image contentBlocks from older tool results to prevent
         // screenshots from accumulating in the context window. The LLM

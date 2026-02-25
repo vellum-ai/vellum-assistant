@@ -1,45 +1,11 @@
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
+import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 import { validateBearerToken } from "../auth/bearer.js";
 import { GATEWAY_ORIGIN_HEADER } from "../../runtime/client.js";
 
 const log = getLogger("runtime-proxy");
-
-const HOP_BY_HOP_HEADERS = [
-  "connection",
-  "keep-alive",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-];
-
-function stripHopByHop(headers: Headers): Headers {
-  const cleaned = new Headers(headers);
-
-  // Also strip any headers listed in the Connection header value
-  const connectionValue = cleaned.get("connection");
-  if (connectionValue) {
-    for (const name of connectionValue.split(",")) {
-      const trimmed = name.trim().toLowerCase();
-      if (trimmed) {
-        try {
-          cleaned.delete(trimmed);
-        } catch {
-          // Ignore invalid header names (e.g., malformed Connection tokens like "@@@")
-        }
-      }
-    }
-  }
-
-  for (const h of HOP_BY_HOP_HEADERS) {
-    cleaned.delete(h);
-  }
-  return cleaned;
-}
 
 /**
  * Webhook paths are handled exclusively by the gateway's own route handlers

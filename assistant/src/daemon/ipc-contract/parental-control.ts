@@ -93,3 +93,17 @@ export interface ParentalControlUpdateResponse {
   content_restrictions: ParentalContentTopic[];
   blocked_tool_categories: ParentalToolCategory[];
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _ParentalControlClientMessages =
+  | ParentalControlGetRequest
+  | ParentalControlVerifyPinRequest
+  | ParentalControlSetPinRequest
+  | ParentalControlUpdateRequest;
+
+export type _ParentalControlServerMessages =
+  | ParentalControlGetResponse
+  | ParentalControlVerifyPinResponse
+  | ParentalControlSetPinResponse
+  | ParentalControlUpdateResponse;

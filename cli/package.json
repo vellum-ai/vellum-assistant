@@ -11,10 +11,11 @@
     "./src/commands/*": "./src/commands/*.ts"
   },
   "bin": {
-    "vellum-cli": "./src/index.ts"
+    "vellum": "./src/index.ts"
   },
   "scripts": {
     "lint": "eslint",
+    "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
   "author": "Vellum AI",

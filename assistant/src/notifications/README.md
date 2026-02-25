@@ -16,7 +16,7 @@ A producer calls `emitNotificationSignal()` with a free-form event name, attenti
 
 ### 2. Decision
 
-The decision engine (`decision-engine.ts`) sends the signal to an LLM (configured via `notifications.decisionModel`) along with available channels and the user's preference summary. The LLM responds with a structured decision: whether to notify, which channels, rendered copy per channel, and a deduplication key.
+The decision engine (`decision-engine.ts`) sends the signal to an LLM (configured via `notifications.decisionModelIntent`) along with available channels and the user's preference summary. The LLM responds with a structured decision: whether to notify, which channels, rendered copy per channel, and a deduplication key.
 
 When the LLM is unavailable or returns invalid output, a deterministic fallback fires: high-urgency + requires-action signals notify on all channels; everything else is suppressed.
 
@@ -127,6 +127,6 @@ All settings live under the `notifications` key in `config.json`:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `notifications.decisionModel` | string | `"claude-haiku-4-5-20251001"` | Model used for both the decision engine and preference extraction |
+| `notifications.decisionModelIntent` | string | `"latency-optimized"` | Model intent used for both the decision engine and preference extraction |
 
 The notification pipeline is always active — signals are processed and dispatched as soon as the daemon is running. The audit trail (events, decisions, deliveries) is written for every signal.

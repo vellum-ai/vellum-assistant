@@ -41,14 +41,7 @@ export const SandboxConfigSchema = z.object({
       error: `sandbox.backend must be one of: ${VALID_SANDBOX_BACKENDS.join(', ')}`,
     })
     .default('docker'),
-  docker: DockerConfigSchema.default({
-    image: 'vellum-sandbox:latest',
-    shell: 'bash',
-    cpus: 1,
-    memoryMb: 512,
-    pidsLimit: 256,
-    network: 'none',
-  }),
+  docker: DockerConfigSchema.default({}),
 });
 
 export type SandboxConfig = z.infer<typeof SandboxConfigSchema>;

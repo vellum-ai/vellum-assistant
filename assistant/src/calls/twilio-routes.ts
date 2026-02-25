@@ -29,6 +29,7 @@ import { fireCallCompletionNotifier } from './call-state.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { resolveVoiceQualityProfile, isVoiceProfileValid } from './voice-quality.js';
 import { createInboundVoiceSession } from './call-domain.js';
+import { readHttpToken } from '../util/platform.js';
 
 const log = getLogger('twilio-routes');
 
@@ -48,15 +49,17 @@ export function generateTwiML(
   relayUrl: string,
   welcomeGreeting: string | null,
   profile: { language: string; transcriptionProvider: string; ttsProvider: string; voice: string },
+  relayToken?: string,
 ): string {
   const greetingAttr = welcomeGreeting && welcomeGreeting.trim().length > 0
     ? `\n      welcomeGreeting="${escapeXml(welcomeGreeting.trim())}"`
     : '';
+  const tokenParam = relayToken ? `&amp;token=${escapeXml(encodeURIComponent(relayToken))}` : '';
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <ConversationRelay
-      url="${escapeXml(relayUrl)}?callSessionId=${escapeXml(callSessionId)}"
+      url="${escapeXml(relayUrl)}?callSessionId=${escapeXml(callSessionId)}${tokenParam}"
 ${greetingAttr}
       voice="${escapeXml(profile.voice)}"
       language="${escapeXml(profile.language)}"
@@ -237,7 +240,12 @@ function buildVoiceWebhookTwiml(
   }
   const welcomeGreeting = buildWelcomeGreeting(task, getCallWelcomeGreeting());
 
-  const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile);
+  // Include the gateway bearer token so the WebSocket relay endpoint can
+  // authenticate the connection. Without this, any client that guesses a
+  // callSessionId could inject frames into a live call.
+  const relayToken = readHttpToken() ?? undefined;
+
+  const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile, relayToken);
 
   log.info({ callSessionId }, 'Returning ConversationRelay TwiML');
 
