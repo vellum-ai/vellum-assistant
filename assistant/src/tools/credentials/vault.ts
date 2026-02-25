@@ -122,9 +122,12 @@ const SERVICE_ALIASES: Record<string, string> = {
   notion: 'integration:notion',
 };
 
-/** Resolve a service name through aliases. */
+/** Resolve a service name through aliases, then fall back to integration: prefix
+ *  for providers registered in WELL_KNOWN_OAUTH without a SERVICE_ALIASES entry. */
 function resolveService(service: string): string {
-  return SERVICE_ALIASES[service] ?? service;
+  if (SERVICE_ALIASES[service]) return SERVICE_ALIASES[service];
+  if (!service.includes(':') && WELL_KNOWN_OAUTH[`integration:${service}`]) return `integration:${service}`;
+  return service;
 }
 
 /**
@@ -787,17 +790,11 @@ class CredentialStoreTool implements Tool {
 
       case 'describe': {
         const rawService = (input.service as string | undefined) ?? '';
-        const service = SERVICE_ALIASES[rawService] ?? rawService;
-        if (!service) {
+        if (!rawService) {
           return { content: 'Error: service is required for describe action', isError: true };
         }
-        // Try direct lookup, then fall back to integration: prefix for
-        // newly added providers that may not have a SERVICE_ALIASES entry yet.
-        const wellKnown = WELL_KNOWN_OAUTH[service]
-          ?? (!service.includes(':') ? WELL_KNOWN_OAUTH[`integration:${service}`] : undefined);
-        const resolvedService = WELL_KNOWN_OAUTH[service] ? service
-          : (!service.includes(':') && WELL_KNOWN_OAUTH[`integration:${service}`]) ? `integration:${service}`
-            : service;
+        const resolvedService = resolveService(rawService);
+        const wellKnown = WELL_KNOWN_OAUTH[resolvedService];
         if (!wellKnown) {
           return { content: `No well-known OAuth config found for "${rawService}". Available services: ${Object.keys(SERVICE_ALIASES).join(', ')}`, isError: false };
         }
