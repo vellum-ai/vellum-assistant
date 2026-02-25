@@ -189,11 +189,12 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       size_bytes: number;
       kind: string;
       thumbnail_base64: string | null;
+      file_path: string | null;
       created_at: number;
     }
 
     const rows = rawAll<AttachmentRow>(
-      `SELECT a.id, a.original_filename, a.mime_type, a.size_bytes, a.kind, a.thumbnail_base64, a.created_at
+      `SELECT a.id, a.original_filename, a.mime_type, a.size_bytes, a.kind, a.thumbnail_base64, a.file_path, a.created_at
        FROM attachments a
        WHERE ${whereParts.join(' AND ')}
        ORDER BY a.created_at DESC
@@ -208,6 +209,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       sizeBytes: r.size_bytes,
       kind: r.kind,
       thumbnailBase64: r.thumbnail_base64,
+      filePath: r.file_path ?? null,
       createdAt: r.created_at,
     }));
   }
@@ -224,6 +226,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       sizeBytes: attachments.sizeBytes,
       kind: attachments.kind,
       thumbnailBase64: attachments.thumbnailBase64,
+      filePath: attachments.filePath,
       createdAt: attachments.createdAt,
     })
     .from(attachments)

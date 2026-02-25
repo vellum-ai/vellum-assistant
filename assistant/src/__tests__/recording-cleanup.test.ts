@@ -34,7 +34,7 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
+import { initializeDb, resetDb, rawRun, rawGet } from '../memory/db.js';
 import { uploadFileBackedAttachment } from '../memory/attachments-store.js';
 import { startRecordingCleanupWorker } from '../daemon/recording-cleanup.js';
 import type { RecordingConfig } from '../config/types.js';
@@ -47,9 +47,8 @@ afterAll(() => {
 });
 
 function resetTables() {
-  const db = getDb();
-  db.run('DELETE FROM message_attachments');
-  db.run('DELETE FROM attachments');
+  rawRun('DELETE FROM message_attachments');
+  rawRun('DELETE FROM attachments');
 }
 
 function makeConfig(overrides: Partial<RecordingConfig> = {}): RecordingConfig {
@@ -71,8 +70,7 @@ function insertExpiredAttachment(
 ): string {
   const att = uploadFileBackedAttachment(filename, 'video/mp4', filePath, 1024);
   // Directly update createdAt to simulate an old attachment
-  const db = getDb();
-  db.run('UPDATE attachments SET created_at = ? WHERE id = ?', createdAt, att.id);
+  rawRun('UPDATE attachments SET created_at = ? WHERE id = ?', createdAt, att.id);
   return att.id;
 }
 
@@ -90,11 +88,8 @@ describe('startRecordingCleanupWorker', () => {
     const worker = startRecordingCleanupWorker(makeConfig({ defaultRetentionDays: 30 }));
 
     // The initial sweep runs synchronously in the constructor
-    const db = getDb();
-    const row = db.run('SELECT id FROM attachments WHERE id = ?', attId);
-
     // Attachment record should be deleted
-    const remaining = db.query('SELECT id FROM attachments WHERE id = ?').get(attId);
+    const remaining = rawGet<{ id: string }>('SELECT id FROM attachments WHERE id = ?', attId);
     expect(remaining).toBeNull();
 
     // File should be deleted
@@ -113,8 +108,7 @@ describe('startRecordingCleanupWorker', () => {
 
     const worker = startRecordingCleanupWorker(makeConfig({ defaultRetentionDays: 30 }));
 
-    const db = getDb();
-    const remaining = db.query('SELECT id FROM attachments WHERE id = ?').get(attId);
+    const remaining = rawGet<{ id: string }>('SELECT id FROM attachments WHERE id = ?', attId);
     expect(remaining).not.toBeNull();
 
     expect(existsSync(filePath)).toBe(true);
@@ -124,9 +118,8 @@ describe('startRecordingCleanupWorker', () => {
 
   test('does not remove non-file-backed attachments', () => {
     // Upload a regular (non-file-backed) attachment
-    const db = getDb();
     const id = 'inline-attachment-id';
-    db.run(
+    rawRun(
       `INSERT INTO attachments (id, original_filename, mime_type, size_bytes, kind, data_base64, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       id, 'screenshot.png', 'image/png', 100, 'image', 'iVBORw0K',
@@ -136,7 +129,7 @@ describe('startRecordingCleanupWorker', () => {
     const worker = startRecordingCleanupWorker(makeConfig({ defaultRetentionDays: 30 }));
 
     // Non-file-backed attachment should still exist (filePath IS NULL)
-    const remaining = db.query('SELECT id FROM attachments WHERE id = ?').get(id);
+    const remaining = rawGet<{ id: string }>('SELECT id FROM attachments WHERE id = ?', id);
     expect(remaining).not.toBeNull();
 
     worker.stop();
@@ -151,8 +144,7 @@ describe('startRecordingCleanupWorker', () => {
 
     const worker = startRecordingCleanupWorker(makeConfig({ defaultRetentionDays: 0 }));
 
-    const db = getDb();
-    const remaining = db.query('SELECT id FROM attachments WHERE id = ?').get(attId);
+    const remaining = rawGet<{ id: string }>('SELECT id FROM attachments WHERE id = ?', attId);
     expect(remaining).not.toBeNull();
     expect(existsSync(filePath)).toBe(true);
 
@@ -170,8 +162,7 @@ describe('startRecordingCleanupWorker', () => {
     const worker = startRecordingCleanupWorker(makeConfig({ defaultRetentionDays: 30 }));
 
     // Attachment record should still be cleaned up from DB
-    const db = getDb();
-    const remaining = db.query('SELECT id FROM attachments WHERE id = ?').get(attId);
+    const remaining = rawGet<{ id: string }>('SELECT id FROM attachments WHERE id = ?', attId);
     expect(remaining).toBeNull();
 
     worker.stop();

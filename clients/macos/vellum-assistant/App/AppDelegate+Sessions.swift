@@ -28,6 +28,26 @@ extension AppDelegate {
         return false
     }
 
+    // MARK: - Screen Recording Permission
+
+    /// Poll for screen recording permission after prompting, giving the user time to grant it in System Settings.
+    /// Mirrors `waitForAccessibilityPermission()` — checks once, triggers the OS prompt if needed, then polls.
+    private func waitForScreenRecordingPermission() async -> Bool {
+        // Already granted — no need to prompt or poll
+        if PermissionManager.screenRecordingStatus() == .granted { return true }
+
+        // Trigger the OS prompt / open System Settings
+        PermissionManager.requestScreenRecordingAccess()
+
+        // Poll every 500ms for up to 30 seconds
+        for _ in 0..<60 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return false }
+            if PermissionManager.screenRecordingStatus() == .granted { return true }
+        }
+        return false
+    }
+
     // MARK: - Recording Source Picker
 
     /// Determines whether the recording source picker should be shown, and if so,
@@ -36,6 +56,17 @@ extension AppDelegate {
     ///
     /// Auto-applies saved preferences when valid, skipping the picker entirely.
     private func resolveRecordingOptions(for routed: TaskRoutedMessage) async -> IPCRecordingOptions? {
+        // Check screen recording permission before showing picker
+        let hasPermission = await waitForScreenRecordingPermission()
+        guard hasPermission else {
+            log.error("Screen recording permission denied — cannot show recording source picker")
+            self.mainWindow?.windowState.showToast(
+                message: "Screen recording requires permission. Grant it in System Settings \u{2192} Privacy & Security \u{2192} Screen Recording.",
+                style: .error
+            )
+            return nil
+        }
+
         let pickerVM = RecordingSourcePickerViewModel()
 
         let needsPicker = routed.recordingOptions?.promptForSource == true || pickerVM.hasMultipleDisplays
