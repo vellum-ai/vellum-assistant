@@ -54,6 +54,21 @@ export async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig
   if (!messageId) return;
 
   const db = getDb();
+
+  // Guard: skip entity extraction for failed conversations. Entity extraction
+  // jobs are enqueued by extractItemsJob after items are extracted; while new
+  // jobs won't be queued (extractItemsJob returns early for failed convos),
+  // any entity jobs enqueued before the failure marker was set must be caught.
+  const msgRow = db
+    .select({ conversationId: messages.conversationId })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  if (msgRow && isConversationFailed(msgRow.conversationId)) {
+    log.info({ messageId, conversationId: msgRow.conversationId }, 'Skipping entity extraction for failed conversation');
+    return;
+  }
+
   const message = db
     .select({
       id: messages.id,
