@@ -1,3 +1,4 @@
+import AppKit
 import ScreenCaptureKit
 import VellumAssistantShared
 import os
@@ -10,6 +11,15 @@ struct DisplaySource: Identifiable, Hashable {
     let name: String
     let width: Int
     let height: Int
+    let scaleFactor: CGFloat
+    /// Whether the picker window is currently on this display.
+    var isCurrentDisplay: Bool
+
+    /// Human-readable resolution and scale, e.g. "2560 × 1440 @ 2x".
+    var subtitle: String {
+        let scaleLabel = scaleFactor >= 2 ? "@ \(Int(scaleFactor))x" : "@ 1x"
+        return "\(width) × \(height) \(scaleLabel)"
+    }
 }
 
 /// Represents an available window for recording.
@@ -46,6 +56,9 @@ final class RecordingSourcePickerViewModel: ObservableObject {
     /// after a refresh. Cleared automatically after a short delay.
     @Published var sourceUnavailableNotice: String?
 
+    /// The picker window, used to determine which display it's on.
+    weak var pickerWindow: NSWindow?
+
     /// Computed recording options for the current selection.
     var selectedRecordingOptions: IPCRecordingOptions {
         IPCRecordingOptions(
@@ -77,14 +90,58 @@ final class RecordingSourcePickerViewModel: ObservableObject {
             let shareable = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
 
-            displays = shareable.displays.map { display in
-                DisplaySource(
+            // Build a lookup from CGDirectDisplayID -> NSScreen for metadata
+            let screens = NSScreen.screens
+            let screensByDisplayId: [UInt32: NSScreen] = {
+                var map: [UInt32: NSScreen] = [:]
+                for screen in screens {
+                    if let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 {
+                        map[screenNumber] = screen
+                    }
+                }
+                return map
+            }()
+
+            // Determine which display the picker window is on
+            let pickerDisplayId: UInt32? = {
+                guard let pickerScreen = pickerWindow?.screen ?? NSScreen.main else { return nil }
+                return pickerScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
+            }()
+
+            var displaySources = shareable.displays.enumerated().map { (index, display) -> DisplaySource in
+                let screen = screensByDisplayId[display.displayID]
+                let scale = screen?.backingScaleFactor ?? 1.0
+                let name: String = {
+                    if let screen = screen {
+                        return screen.localizedName
+                    }
+                    // Fall back to 1-based index if NSScreen lookup fails
+                    return "Display \(index + 1)"
+                }()
+
+                return DisplaySource(
                     id: display.displayID,
-                    name: "Display \(display.displayID)",
+                    name: name,
                     width: display.width,
-                    height: display.height
+                    height: display.height,
+                    scaleFactor: scale,
+                    isCurrentDisplay: display.displayID == pickerDisplayId
                 )
             }
+
+            // Sort: built-in display first, then by horizontal position (leftmost first)
+            displaySources.sort { a, b in
+                let screenA = screensByDisplayId[a.id]
+                let screenB = screensByDisplayId[b.id]
+                let isBuiltInA = CGDisplayIsBuiltin(a.id) != 0
+                let isBuiltInB = CGDisplayIsBuiltin(b.id) != 0
+                if isBuiltInA != isBuiltInB { return isBuiltInA }
+                let xA = screenA?.frame.origin.x ?? CGFloat.greatestFiniteMagnitude
+                let xB = screenB?.frame.origin.x ?? CGFloat.greatestFiniteMagnitude
+                return xA < xB
+            }
+
+            displays = displaySources
 
             windows = shareable.windows
                 .filter { window in

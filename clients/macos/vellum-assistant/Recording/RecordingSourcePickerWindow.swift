@@ -67,6 +67,8 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         self.window = newWindow
+        // Let the view model know which window it's in so it can detect the current display
+        vm.pickerWindow = newWindow
     }
 
     /// Dismiss the picker window.
