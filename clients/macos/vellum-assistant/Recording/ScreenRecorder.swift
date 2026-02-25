@@ -617,9 +617,6 @@ final class ScreenRecorder: NSObject {
             telemetryScaleFactor = Double(displayScale)
             telemetryDisplayID = targetDisplay.displayID
             log.info("Display capture: displayID=\(targetDisplay.displayID), scaleFactor=\(displayScale), sourceSize=\(targetDisplay.width)x\(targetDisplay.height), streamSize=\(captureWidth)x\(captureHeight)")
-
-            // Monitor this display for reconfiguration (unplug, resolution change)
-            registerDisplayReconfiguration(for: targetDisplay.displayID)
         }
 
         do {
@@ -642,6 +639,13 @@ final class ScreenRecorder: NSObject {
                 switch attemptResult {
                 case .success:
                     activeConfigLabel = encodeConfig.label
+                    // Register display reconfiguration monitoring now that
+                    // startup succeeded. Registering here (instead of before
+                    // the fallback loop) prevents handleStreamError from
+                    // unregistering it during an earlier failed attempt.
+                    if let displayID = telemetryDisplayID {
+                        registerDisplayReconfiguration(for: displayID)
+                    }
                     let usedFallback = index > 0
                     RecordingTelemetry.logStart(
                         displayID: telemetryDisplayID,
@@ -879,14 +883,22 @@ final class ScreenRecorder: NSObject {
         let maxChecks = Int(frameTimeoutSeconds / 0.1)
 
         for _ in 0..<maxChecks {
-            if ctx.hasReceivedVideoFrame {
+            // Check both frame receipt AND that the recorder hasn't been
+            // torn down by handleStreamError running during the sleep yield.
+            if ctx.hasReceivedVideoFrame && isRecordingActive {
                 return .success
+            }
+            // If handleStreamError fired and cleaned up, bail out early
+            // rather than waiting the full 3s timeout.
+            if !isRecordingActive {
+                break
             }
             try? await Task.sleep(nanoseconds: checkInterval)
         }
 
-        // Final check after the loop completes
-        if ctx.hasReceivedVideoFrame {
+        // Final check after the loop completes — verify both frame receipt
+        // and that the recorder wasn't torn down by a concurrent stream error.
+        if ctx.hasReceivedVideoFrame && isRecordingActive {
             return .success
         }
 
