@@ -256,10 +256,11 @@ if [[ "${COVERAGE}" == "true" ]]; then
         fnf = 0; fnh = 0
         for (i = 2; i <= n; i++) {
           key = sf SUBSEP fn_entries[i]
-          # fn_entries[i] is "line,name" — extract just the name for FNDA output
-          split(fn_entries[i], fnda_parts, ",")
-          fname_out = fnda_parts[2]
-          if (fname_out == "") fname_out = fn_entries[i]
+          # fn_entries[i] is "line,name" — strip leading "line," to get the name
+          # Uses sub() instead of split() so commas in function names are preserved
+          fname_out = fn_entries[i]
+          sub(/^[^,]*,/, "", fname_out)
+          if (fname_out == "" || fname_out == fn_entries[i]) fname_out = fn_entries[i]
           print "FNDA:" fnda[key] "," fname_out
           fnf++
           if (fnda[key] > 0) fnh++
