@@ -20,7 +20,7 @@ public enum SurfaceActionStyle: String, Codable, Sendable {
     case destructive
 }
 
-public enum SelectionMode: String, Sendable {
+public enum SelectionMode: String, Sendable, Equatable {
     case single
     case multiple
     case none
@@ -28,7 +28,7 @@ public enum SelectionMode: String, Sendable {
 
 // MARK: - Surface Data Models
 
-public struct CardSurfaceData: @unchecked Sendable {
+public struct CardSurfaceData: @unchecked Sendable, Equatable {
     public let title: String
     public let subtitle: String?
     public let body: String
@@ -46,9 +46,36 @@ public struct CardSurfaceData: @unchecked Sendable {
         self.template = template
         self.templateData = templateData
     }
+
+    public static func == (lhs: CardSurfaceData, rhs: CardSurfaceData) -> Bool {
+        guard lhs.title == rhs.title,
+              lhs.subtitle == rhs.subtitle,
+              lhs.body == rhs.body,
+              lhs.template == rhs.template else { return false }
+
+        // Compare metadata tuple arrays
+        switch (lhs.metadata, rhs.metadata) {
+        case (.none, .none):
+            break
+        case let (.some(l), .some(r)):
+            guard l.count == r.count && zip(l, r).allSatisfy({ $0.label == $1.label && $0.value == $1.value }) else { return false }
+        default:
+            return false
+        }
+
+        // Compare templateData via NSDictionary bridging (handles nested Any values)
+        switch (lhs.templateData, rhs.templateData) {
+        case (.none, .none):
+            return true
+        case let (.some(l), .some(r)):
+            return NSDictionary(dictionary: l as [String: Any]).isEqual(to: r as [String: Any])
+        default:
+            return false
+        }
+    }
 }
 
-public struct FormFieldOption: Sendable {
+public struct FormFieldOption: Sendable, Equatable {
     public let label: String
     public let value: String
 
@@ -58,7 +85,7 @@ public struct FormFieldOption: Sendable {
     }
 }
 
-public enum FormFieldType: String, Sendable {
+public enum FormFieldType: String, Sendable, Equatable {
     case text
     case textarea
     case select
@@ -100,7 +127,7 @@ public enum FormFieldDefault: Sendable, Equatable {
     }
 }
 
-public struct FormField: Identifiable, Sendable {
+public struct FormField: Identifiable, Sendable, Equatable {
     public let id: String
     public let type: FormFieldType
     public let label: String
@@ -120,7 +147,7 @@ public struct FormField: Identifiable, Sendable {
     }
 }
 
-public struct FormPage: Identifiable, Sendable {
+public struct FormPage: Identifiable, Sendable, Equatable {
     public let id: String
     public let title: String
     public let description: String?
@@ -134,7 +161,7 @@ public struct FormPage: Identifiable, Sendable {
     }
 }
 
-public struct FormPageLabels: Sendable {
+public struct FormPageLabels: Sendable, Equatable {
     public let next: String?
     public let back: String?
     public let submit: String?
@@ -146,7 +173,7 @@ public struct FormPageLabels: Sendable {
     }
 }
 
-public struct FormSurfaceData: Sendable {
+public struct FormSurfaceData: Sendable, Equatable {
     public let description: String?
     public let fields: [FormField]
     public let submitLabel: String?
@@ -162,7 +189,7 @@ public struct FormSurfaceData: Sendable {
     }
 }
 
-public struct ListItemData: Identifiable, Sendable {
+public struct ListItemData: Identifiable, Sendable, Equatable {
     public let id: String
     public let title: String
     public let subtitle: String?
@@ -178,7 +205,7 @@ public struct ListItemData: Identifiable, Sendable {
     }
 }
 
-public struct ListSurfaceData: Sendable {
+public struct ListSurfaceData: Sendable, Equatable {
     public let items: [ListItemData]
     public let selectionMode: SelectionMode
 
@@ -237,7 +264,7 @@ public struct DynamicPagePreview: Sendable, Equatable {
     }
 }
 
-public struct DynamicPageSurfaceData: Sendable {
+public struct DynamicPageSurfaceData: Sendable, Equatable {
     public let html: String
     public let width: Int?
     public let height: Int?
@@ -259,7 +286,7 @@ public struct DynamicPageSurfaceData: Sendable {
     }
 }
 
-public struct FileUploadSurfaceData: Sendable {
+public struct FileUploadSurfaceData: Sendable, Equatable {
     public let prompt: String
     public let acceptedTypes: [String]?
     public let maxFiles: Int
@@ -273,7 +300,7 @@ public struct FileUploadSurfaceData: Sendable {
     }
 }
 
-public struct BrowserHighlight: Sendable, Identifiable {
+public struct BrowserHighlight: Sendable, Identifiable, Equatable {
     public var id: String { "\(x),\(y),\(w),\(h):\(label)" }
     public let x: Double
     public let y: Double
@@ -290,7 +317,7 @@ public struct BrowserHighlight: Sendable, Identifiable {
     }
 }
 
-public struct BrowserPage: Sendable, Identifiable {
+public struct BrowserPage: Sendable, Identifiable, Equatable {
     public let id: String
     public let title: String
     public let url: String
@@ -304,7 +331,7 @@ public struct BrowserPage: Sendable, Identifiable {
     }
 }
 
-public struct DocumentPreviewSurfaceData: Sendable {
+public struct DocumentPreviewSurfaceData: Sendable, Equatable {
     public let title: String
     public let surfaceId: String
     public let subtitle: String?
@@ -316,7 +343,7 @@ public struct DocumentPreviewSurfaceData: Sendable {
     }
 }
 
-public struct BrowserViewSurfaceData: Sendable {
+public struct BrowserViewSurfaceData: Sendable, Equatable {
     public let sessionId: String
     public let currentUrl: String
     public let status: String // "navigating", "idle", "interacting"
@@ -336,7 +363,7 @@ public struct BrowserViewSurfaceData: Sendable {
     }
 }
 
-public struct TableColumn: Identifiable, Sendable {
+public struct TableColumn: Identifiable, Sendable, Equatable {
     public let id: String
     public let label: String
     public let width: Int?
@@ -348,7 +375,7 @@ public struct TableColumn: Identifiable, Sendable {
     }
 }
 
-public struct TableRow: Identifiable, Sendable {
+public struct TableRow: Identifiable, Sendable, Equatable {
     public let id: String
     public let cells: [String: String]
     public let selectable: Bool
@@ -362,7 +389,7 @@ public struct TableRow: Identifiable, Sendable {
     }
 }
 
-public struct TableSurfaceData: Sendable {
+public struct TableSurfaceData: Sendable, Equatable {
     public let columns: [TableColumn]
     public let rows: [TableRow]
     public let selectionMode: SelectionMode
@@ -376,7 +403,7 @@ public struct TableSurfaceData: Sendable {
     }
 }
 
-public enum SurfaceData: Sendable {
+public enum SurfaceData: Sendable, Equatable {
     case card(CardSurfaceData)
     case form(FormSurfaceData)
     case list(ListSurfaceData)
