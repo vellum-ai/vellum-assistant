@@ -6,6 +6,18 @@ import { sendWhatsAppAttachments, sendWhatsAppReply } from "../../whatsapp/send.
 
 const log = getLogger("whatsapp-deliver");
 
+export type ApprovalAction = {
+  id: string;
+  label: string;
+};
+
+export type ApprovalPayload = {
+  runId: string;
+  requestId: string;
+  actions: ApprovalAction[];
+  plainTextFallback: string;
+};
+
 export function createWhatsAppDeliverHandler(config: GatewayConfig) {
   return async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
@@ -33,6 +45,7 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       text?: string;
       assistantId?: string;
       attachments?: RuntimeAttachmentMeta[];
+      approval?: ApprovalPayload;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -47,7 +60,40 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "to is required" }, { status: 400 });
     }
 
-    const { text, assistantId, attachments } = body;
+    const { text, assistantId, attachments, approval } = body;
+
+    // Validate approval payload shape when present.
+    if (approval !== undefined) {
+      if (approval === null || typeof approval !== "object" || Array.isArray(approval)) {
+        return Response.json({ error: "approval must be an object" }, { status: 400 });
+      }
+      if (!text) {
+        return Response.json(
+          { error: "text is required when approval is present" },
+          { status: 400 },
+        );
+      }
+      if (!approval.runId || typeof approval.runId !== "string") {
+        return Response.json({ error: "approval.runId is required" }, { status: 400 });
+      }
+      if (!approval.requestId || typeof approval.requestId !== "string") {
+        return Response.json({ error: "approval.requestId is required" }, { status: 400 });
+      }
+      if (!Array.isArray(approval.actions) || approval.actions.length === 0) {
+        return Response.json({ error: "approval.actions must be a non-empty array" }, { status: 400 });
+      }
+      for (const action of approval.actions) {
+        if (action === null || typeof action !== "object" || Array.isArray(action)) {
+          return Response.json({ error: "each approval action must be an object" }, { status: 400 });
+        }
+        if (!action.id || typeof action.id !== "string") {
+          return Response.json({ error: "each approval action must have an id" }, { status: 400 });
+        }
+        if (!action.label || typeof action.label !== "string") {
+          return Response.json({ error: "each approval action must have a label" }, { status: 400 });
+        }
+      }
+    }
 
     if (!text && (!attachments || attachments.length === 0)) {
       return Response.json({ error: "text or attachments required" }, { status: 400 });
@@ -69,7 +115,7 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
 
     try {
       if (text) {
-        await sendWhatsAppReply(config, to, text);
+        await sendWhatsAppReply(config, to, text, approval);
       }
 
       if (attachments && attachments.length > 0) {
@@ -80,7 +126,7 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Delivery failed" }, { status: 502 });
     }
 
-    tlog.info({ to, hasText: !!text, attachmentCount: attachments?.length ?? 0 }, "WhatsApp reply sent");
+    tlog.info({ to, hasText: !!text, attachmentCount: attachments?.length ?? 0, hasApproval: !!approval }, "WhatsApp reply sent");
     return Response.json({ ok: true });
   };
 }

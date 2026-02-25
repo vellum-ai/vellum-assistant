@@ -76,13 +76,14 @@ const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
   'reject',
 ]);
 
-export function parseCallbackData(data: string): ApprovalDecisionResult | null {
+export function parseCallbackData(data: string, sourceChannel?: string): ApprovalDecisionResult | null {
   const parts = data.split(':');
   if (parts.length < 3 || parts[0] !== 'apr') return null;
   const runId = parts[1];
   const action = parts.slice(2).join(':');
   if (!runId || !VALID_ACTIONS.has(action)) return null;
-  return { action: action as ApprovalAction, source: 'telegram_button', runId };
+  const source = sourceChannel === 'whatsapp' ? 'whatsapp_button' as const : 'telegram_button' as const;
+  return { action: action as ApprovalAction, source, runId };
 }
 
 // ---------------------------------------------------------------------------

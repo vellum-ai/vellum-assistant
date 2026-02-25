@@ -106,6 +106,12 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       text?: string;
       assistantId?: string;
       attachments?: unknown[];
+      approval?: {
+        runId?: string;
+        requestId?: string;
+        actions?: Array<{ id?: string; label?: string }>;
+        plainTextFallback?: string;
+      };
     };
     try {
       body = (await req.json()) as typeof body;
@@ -113,7 +119,7 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    const { text } = body;
+    const { text, approval } = body;
     const assistantId = typeof body.assistantId === "string" ? body.assistantId : undefined;
     // Accept `chatId` as an alias for `to` so runtime channel callbacks
     // (which send `{ chatId, text }`) work without translation.
@@ -136,6 +142,12 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "text is required" }, { status: 400 });
     }
 
+    // When an approval payload is present with a plainTextFallback, append it
+    // to the SMS body so the recipient knows how to approve/reject via text.
+    const smsBody = approval?.plainTextFallback && typeof approval.plainTextFallback === "string"
+      ? `${effectiveText}\n\n${approval.plainTextFallback}`
+      : effectiveText;
+
     const from = resolveFromNumber(config, assistantId);
     if (!from) {
       tlog.error({ assistantId }, "Twilio SMS phone number not configured");
@@ -152,14 +164,14 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
         config.twilioAuthToken,
         from,
         to,
-        effectiveText,
+        smsBody,
       );
     } catch (err) {
       tlog.error({ err, to }, "Failed to send SMS via Twilio");
       return Response.json({ error: "SMS delivery failed" }, { status: 502 });
     }
 
-    tlog.info({ to, textLength: effectiveText.length, messageSid: result.sid, status: result.status }, "SMS accepted by Twilio");
+    tlog.info({ to, textLength: smsBody.length, messageSid: result.sid, status: result.status }, "SMS accepted by Twilio");
     return Response.json({
       ok: true,
       messageSid: result.sid,

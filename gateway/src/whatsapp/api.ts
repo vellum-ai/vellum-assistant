@@ -242,6 +242,55 @@ export async function sendWhatsAppMediaMessage(
 }
 
 /**
+ * Send an interactive button message via the WhatsApp Business Cloud API.
+ * Used for approval prompts where the user can tap a button to respond.
+ * WhatsApp supports up to 3 reply buttons per interactive message.
+ */
+export async function sendWhatsAppInteractiveMessage(
+  config: GatewayConfig,
+  to: string,
+  bodyText: string,
+  buttons: Array<{ id: string; title: string }>,
+): Promise<WhatsAppSendMessageResult> {
+  if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) {
+    throw new Error("WhatsApp credentials not configured");
+  }
+
+  return retryableWhatsAppFetch<WhatsAppSendMessageResult>(
+    config,
+    "sendInteractiveMessage",
+    () =>
+      fetchImpl(
+        `${WHATSAPP_API_BASE}/${config.whatsappPhoneNumberId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${config.whatsappAccessToken}`,
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to,
+            type: "interactive",
+            interactive: {
+              type: "button",
+              body: { text: bodyText },
+              action: {
+                buttons: buttons.map((b) => ({
+                  type: "reply",
+                  reply: { id: b.id, title: b.title },
+                })),
+              },
+            },
+          }),
+          signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+        },
+      ),
+  );
+}
+
+/**
  * Mark an incoming WhatsApp message as read.
  * Best-effort — callers should not propagate errors from this.
  */

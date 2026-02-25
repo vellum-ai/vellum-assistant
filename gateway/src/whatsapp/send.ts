@@ -1,8 +1,9 @@
 import type { GatewayConfig } from "../config.js";
+import type { ApprovalPayload } from "../http/routes/whatsapp-deliver.js";
 import { getLogger } from "../logger.js";
 import { downloadAttachment, downloadAttachmentById, type RuntimeAttachmentMeta } from "../runtime/client.js";
 import { splitText } from "../util/split-text.js";
-import { sendWhatsAppTextMessage, uploadWhatsAppMedia, sendWhatsAppMediaMessage, type WhatsAppMediaType } from "./api.js";
+import { sendWhatsAppInteractiveMessage, sendWhatsAppTextMessage, uploadWhatsAppMedia, sendWhatsAppMediaMessage, type WhatsAppMediaType } from "./api.js";
 
 const log = getLogger("whatsapp-send");
 
@@ -18,11 +19,55 @@ function resolveMediaType(mimeType: string): WhatsAppMediaType {
   return "document";
 }
 
+// WhatsApp interactive message body text limit is 1024 characters
+const WHATSAPP_INTERACTIVE_BODY_MAX_LEN = 1024;
+
+// WhatsApp reply button title limit is 20 characters
+const WHATSAPP_BUTTON_TITLE_MAX_LEN = 20;
+
+// WhatsApp supports a maximum of 3 reply buttons
+const WHATSAPP_MAX_BUTTONS = 3;
+
 export async function sendWhatsAppReply(
   config: GatewayConfig,
   to: string,
   text: string,
+  approval?: ApprovalPayload,
 ): Promise<void> {
+  if (approval) {
+    // WhatsApp interactive buttons: up to 3 buttons, 20-char titles, 1024-char body
+    const buttons = approval.actions.slice(0, WHATSAPP_MAX_BUTTONS).map((action) => ({
+      id: `apr:${approval.runId}:${action.id}`,
+      title: action.label.slice(0, WHATSAPP_BUTTON_TITLE_MAX_LEN),
+    }));
+
+    // If text fits in the interactive body limit, send as single interactive message
+    if (text.length <= WHATSAPP_INTERACTIVE_BODY_MAX_LEN) {
+      await sendWhatsAppInteractiveMessage(config, to, text, buttons);
+      log.debug({ to }, "WhatsApp interactive approval reply sent");
+      return;
+    }
+
+    // Text too long for interactive body: send text chunks first, then
+    // interactive message with truncated body and buttons at the end
+    const chunks = splitText(text, WHATSAPP_MAX_MESSAGE_LEN);
+    for (let i = 0; i < chunks.length - 1; i++) {
+      await sendWhatsAppTextMessage(config, to, chunks[i]);
+    }
+
+    const lastChunk = chunks[chunks.length - 1];
+    if (lastChunk.length <= WHATSAPP_INTERACTIVE_BODY_MAX_LEN) {
+      await sendWhatsAppInteractiveMessage(config, to, lastChunk, buttons);
+    } else {
+      // Last chunk still too long — send it as text, then a short interactive prompt
+      await sendWhatsAppTextMessage(config, to, lastChunk);
+      await sendWhatsAppInteractiveMessage(config, to, "Choose an action:", buttons);
+    }
+
+    log.debug({ to, chunks: chunks.length }, "WhatsApp approval reply sent");
+    return;
+  }
+
   const chunks = splitText(text, WHATSAPP_MAX_MESSAGE_LEN);
 
   for (const chunk of chunks) {

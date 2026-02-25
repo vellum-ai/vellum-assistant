@@ -99,7 +99,7 @@ export async function handleApprovalInterception(
     // Callback/button path: deterministic and takes priority.
     let callbackDecision: ApprovalDecisionResult | null = null;
     if (callbackData) {
-      callbackDecision = parseCallbackData(callbackData);
+      callbackDecision = parseCallbackData(callbackData, sourceChannel);
     }
 
     // When a callback button provides a run ID, use the scoped lookup so
@@ -764,7 +764,7 @@ export async function handleApprovalInterception(
   // Try to extract a decision from callback data (button press) first.
   // Callback/button path remains deterministic and takes priority.
   if (callbackData) {
-    const cbDecision = parseCallbackData(callbackData);
+    const cbDecision = parseCallbackData(callbackData, sourceChannel);
     if (cbDecision) {
       // When the decision came from a callback button, validate that the embedded
       // run ID matches the currently pending run. A stale button (from a previous
