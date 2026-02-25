@@ -7,12 +7,6 @@ extension Notification.Name {
     static let updateDynamicWorkspace = Notification.Name("MainWindow.updateDynamicWorkspace")
     static let dismissDynamicWorkspace = Notification.Name("MainWindow.dismissDynamicWorkspace")
     static let openDocumentEditor = Notification.Name("MainWindow.openDocumentEditor")
-
-    // Conversation zoom intents — posted by the View menu handlers,
-    // consumed by ConversationZoomManager (wired in M2).
-    static let conversationZoomIn = Notification.Name("MainWindow.conversationZoomIn")
-    static let conversationZoomOut = Notification.Name("MainWindow.conversationZoomOut")
-    static let conversationZoomReset = Notification.Name("MainWindow.conversationZoomReset")
 }
 
 /// Manages API keys in the macOS login keychain.
