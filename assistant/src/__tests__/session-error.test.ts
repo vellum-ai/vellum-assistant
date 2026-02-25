@@ -128,7 +128,7 @@ describe('classifySessionError', () => {
       it(`classifies "${msg}" as PROVIDER_API with timeout message`, () => {
         const result = classifySessionError(new Error(msg), baseCtx);
         expect(result.code).toBe('PROVIDER_API');
-        expect(result.userMessage).toContain('took too long');
+        expect(result.userMessage).toContain('timed out');
         expect(result.retryable).toBe(true);
       });
     }
@@ -141,7 +141,7 @@ describe('classifySessionError', () => {
     it('does not steal "Gateway timeout" from PROVIDER_API', () => {
       const result = classifySessionError(new Error('Gateway timeout'), baseCtx);
       expect(result.code).toBe('PROVIDER_API');
-      expect(result.userMessage).toContain('returned an error');
+      expect(result.userMessage).toContain('returned a server error');
     });
   });
 

@@ -695,8 +695,8 @@ export async function runAgentLoopImpl(
         status: 'error',
         attributes: { errorClass, message: truncate(message, 500, '') },
       });
-      onEvent({ type: 'error', message: `Failed to process message: ${message}` });
       const classified = classifySessionError(err, errorCtx);
+      onEvent({ type: 'error', message: classified.userMessage });
       onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
       void getHookManager().trigger('on-error', {
         error: err instanceof Error ? err.name : 'Error',
