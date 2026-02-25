@@ -7,8 +7,8 @@
 
 import { v4 as uuid } from 'uuid';
 import type { Message } from '../providers/types.js';
-import type { TurnChannelContext } from '../channels/types.js';
-import { parseChannelId } from '../channels/types.js';
+import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
+import { parseChannelId, parseInterfaceId } from '../channels/types.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -31,6 +31,7 @@ export interface MessagingSessionContext {
   readonly queue: MessageQueue;
   guardianContext?: GuardianRuntimeContext;
   getTurnChannelContext(): TurnChannelContext | null;
+  getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
 
 function extractTurnChannelContext(metadata?: Record<string, unknown>): TurnChannelContext | null {
@@ -39,6 +40,14 @@ function extractTurnChannelContext(metadata?: Record<string, unknown>): TurnChan
   const assistantMessageChannel = parseChannelId(metadata.assistantMessageChannel);
   if (!userMessageChannel || !assistantMessageChannel) return null;
   return { userMessageChannel, assistantMessageChannel };
+}
+
+function extractTurnInterfaceContext(metadata?: Record<string, unknown>): TurnInterfaceContext | null {
+  if (!metadata) return null;
+  const userMessageInterface = parseInterfaceId(metadata.userMessageInterface);
+  const assistantMessageInterface = parseInterfaceId(metadata.assistantMessageInterface);
+  if (!userMessageInterface || !assistantMessageInterface) return null;
+  return { userMessageInterface, assistantMessageInterface };
 }
 
 // ── enqueueMessage ───────────────────────────────────────────────────
@@ -58,6 +67,7 @@ export function enqueueMessage(
   }
 
   const turnChannelContext = extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext() ?? undefined;
+  const turnInterfaceContext = extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext() ?? undefined;
   const pushed = ctx.queue.push({
     content,
     attachments,
@@ -67,6 +77,7 @@ export function enqueueMessage(
     currentPage,
     metadata,
     turnChannelContext,
+    turnInterfaceContext,
     queuedAt: Date.now(),
   });
   if (!pushed) {
