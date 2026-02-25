@@ -1,5 +1,8 @@
 import Foundation
 import PDFKit
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "TaskAttachment")
 
 enum TaskAttachmentKind: String {
     case image
@@ -51,12 +54,17 @@ struct TaskAttachment: Identifiable {
         let kind: TaskAttachmentKind = extensionMimeType.hasPrefix("image/") ? .image : .document
         let maxBytes = kind == .image ? maxImageBytes : maxDocumentBytes
 
-        if let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey]),
-           let declaredSize = resourceValues.fileSize,
-           declaredSize > maxBytes {
-            throw NSError(domain: "TaskAttachment", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "\(fileName) exceeds size limit for \(kind.rawValue) attachments."
-            ])
+        do {
+            let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey])
+            if let declaredSize = resourceValues.fileSize, declaredSize > maxBytes {
+                throw NSError(domain: "TaskAttachment", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "\(fileName) exceeds size limit for \(kind.rawValue) attachments."
+                ])
+            }
+        } catch let error as NSError where error.domain == "TaskAttachment" {
+            throw error
+        } catch {
+            log.warning("Could not read file size for '\(fileName)': \(error)")
         }
 
         let data = try Data(contentsOf: url)

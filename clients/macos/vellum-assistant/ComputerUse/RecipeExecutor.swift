@@ -100,7 +100,11 @@ final class RecipeExecutor {
                         ))
                     }
                 }
-                try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+                do {
+                    try await Task.sleep(nanoseconds: 500_000_000) // 500ms
+                } catch {
+                    break
+                }
             }
         }
 
@@ -149,13 +153,23 @@ final class RecipeExecutor {
         #if SWIFT_PACKAGE
             // SPM builds: recipes are copied into the resource bundle via .copy("Resources/Recipes")
             if let url = ResourceBundle.bundle.url(forResource: name, withExtension: "md", subdirectory: "Recipes") {
-                return try? String(contentsOf: url, encoding: .utf8)
+                do {
+                    return try String(contentsOf: url, encoding: .utf8)
+                } catch {
+                    log.error("Failed to read recipe from SPM bundle '\(name)': \(error)")
+                    return nil
+                }
             }
         #endif
 
         // Xcode builds: individual files are copied flat into the bundle (no subdirectory)
         if let url = Bundle.main.url(forResource: name, withExtension: "md") {
-            return try? String(contentsOf: url, encoding: .utf8)
+            do {
+                return try String(contentsOf: url, encoding: .utf8)
+            } catch {
+                log.error("Failed to read recipe from Xcode bundle '\(name)': \(error)")
+                return nil
+            }
         }
 
         log.warning("Recipe '\(name)' not found in bundle resources")
@@ -339,8 +353,14 @@ final class RecipeExecutor {
     }
 
     private func firstCaptureGroup(in text: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern)
+        } catch {
+            log.error("Invalid regex pattern '\(pattern)': \(error)")
+            return nil
+        }
+        guard let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               match.numberOfRanges > 1,
               let range = Range(match.range(at: 1), in: text) else {
             return nil
