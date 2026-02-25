@@ -504,7 +504,7 @@ struct SettingsPanel: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
 
-                    Text("Used for Voice Mode (Whisper transcription). Get your key at platform.openai.com/api-keys")
+                    Text("Optional. Get your key at platform.openai.com/api-keys")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
 
