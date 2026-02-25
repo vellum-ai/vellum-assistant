@@ -36,8 +36,8 @@ enum RecorderError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noMatchingDisplay: return "No matching display found for recording"
-        case .noMatchingWindow: return "No matching window found for recording"
+        case .noMatchingDisplay: return "The selected display is no longer available. It may have been unplugged or reconfigured."
+        case .noMatchingWindow: return "The selected window is no longer available. It may have been closed or moved to a different space."
         case .streamStartFailed(let reason): return "Failed to start screen capture stream: \(reason)"
         case .writerSetupFailed(let reason): return "Failed to set up video writer: \(reason)"
         case .notRecording: return "No active recording to stop"
@@ -77,6 +77,10 @@ final class ScreenRecorder: NSObject {
     private var recordingStartDate: Date?
     private var isRecordingActive = false
     private var hasReceivedVideoFrame = false
+
+    /// The display being recorded (nil for window captures). Used by the
+    /// display reconfiguration callback to detect removal or resolution changes.
+    private var recordedDisplayID: CGDirectDisplayID?
 
     /// Label of the encode config that was successfully used, for telemetry (M9).
     private(set) var activeConfigLabel: String?
@@ -287,49 +291,59 @@ final class ScreenRecorder: NSObject {
             captureWidth = Int(CGFloat(targetDisplay.width) * displayScale)
             captureHeight = Int(CGFloat(targetDisplay.height) * displayScale)
             log.info("Display capture: displayID=\(targetDisplay.displayID), scaleFactor=\(displayScale), sourceSize=\(targetDisplay.width)x\(targetDisplay.height), streamSize=\(captureWidth)x\(captureHeight)")
+
+            // Monitor this display for reconfiguration (unplug, resolution change)
+            registerDisplayReconfiguration(for: targetDisplay.displayID)
         }
 
-        let fallbackConfigs = Self.buildFallbackConfigs(primaryWidth: captureWidth, primaryHeight: captureHeight)
-        log.info("Encoder fallback chain: \(fallbackConfigs.map { "\($0.label)(\($0.width)x\($0.height))" }.joined(separator: " → "), privacy: .public)")
+        do {
+            let fallbackConfigs = Self.buildFallbackConfigs(primaryWidth: captureWidth, primaryHeight: captureHeight)
+            log.info("Encoder fallback chain: \(fallbackConfigs.map { "\($0.label)(\($0.width)x\($0.height))" }.joined(separator: " → "), privacy: .public)")
 
-        try Self.ensureRecordingsDirectory()
+            try Self.ensureRecordingsDirectory()
 
-        for (index, encodeConfig) in fallbackConfigs.enumerated() {
-            let isLastConfig = index == fallbackConfigs.count - 1
-            log.info("Trying encoder config [\(index + 1)/\(fallbackConfigs.count)]: \(encodeConfig.label, privacy: .public) — codec=\(encodeConfig.codec.rawValue, privacy: .public), \(encodeConfig.width)x\(encodeConfig.height)")
+            for (index, encodeConfig) in fallbackConfigs.enumerated() {
+                let isLastConfig = index == fallbackConfigs.count - 1
+                log.info("Trying encoder config [\(index + 1)/\(fallbackConfigs.count)]: \(encodeConfig.label, privacy: .public) — codec=\(encodeConfig.codec.rawValue, privacy: .public), \(encodeConfig.width)x\(encodeConfig.height)")
 
-            let attemptResult = await attemptStartWithConfig(
-                encodeConfig: encodeConfig,
-                filter: filter,
-                includeAudio: includeAudio,
-                includeMicrophone: includeMicrophone
-            )
+                let attemptResult = await attemptStartWithConfig(
+                    encodeConfig: encodeConfig,
+                    filter: filter,
+                    includeAudio: includeAudio,
+                    includeMicrophone: includeMicrophone
+                )
 
-            switch attemptResult {
-            case .success:
-                activeConfigLabel = encodeConfig.label
-                log.info("Encoder config '\(encodeConfig.label, privacy: .public)' succeeded")
-                return
-            case .writerSetupFailed(let reason):
-                log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: writer setup error — \(reason, privacy: .public)")
-                if isLastConfig {
-                    throw RecorderError.allFallbacksExhausted
-                }
-            case .noFramesReceived:
-                log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: no frames received within timeout")
-                if isLastConfig {
-                    throw RecorderError.allFallbacksExhausted
-                }
-            case .streamStartFailed(let reason):
-                log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: stream start error — \(reason, privacy: .public)")
-                if isLastConfig {
-                    throw RecorderError.allFallbacksExhausted
+                switch attemptResult {
+                case .success:
+                    activeConfigLabel = encodeConfig.label
+                    log.info("Encoder config '\(encodeConfig.label, privacy: .public)' succeeded")
+                    return
+                case .writerSetupFailed(let reason):
+                    log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: writer setup error — \(reason, privacy: .public)")
+                    if isLastConfig {
+                        throw RecorderError.allFallbacksExhausted
+                    }
+                case .noFramesReceived:
+                    log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: no frames received within timeout")
+                    if isLastConfig {
+                        throw RecorderError.allFallbacksExhausted
+                    }
+                case .streamStartFailed(let reason):
+                    log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: stream start error — \(reason, privacy: .public)")
+                    if isLastConfig {
+                        throw RecorderError.allFallbacksExhausted
+                    }
                 }
             }
-        }
 
-        // Should not reach here — the loop either returns on success or throws on last failure
-        throw RecorderError.allFallbacksExhausted
+            // Should not reach here — the loop either returns on success or throws on last failure
+            throw RecorderError.allFallbacksExhausted
+        } catch {
+            // If start() fails after registering the display reconfiguration callback,
+            // unregister it to avoid a dangling callback referencing this instance.
+            unregisterDisplayReconfiguration()
+            throw error
+        }
     }
 
     // MARK: - Fallback Attempt
@@ -529,6 +543,10 @@ final class ScreenRecorder: NSObject {
             throw RecorderError.notRecording
         }
 
+        // Unregister display monitoring early to avoid the reconfiguration
+        // callback racing with teardown.
+        unregisterDisplayReconfiguration()
+
         // Stop the capture stream
         if let stream {
             try? await stream.stopCapture()
@@ -634,6 +652,9 @@ final class ScreenRecorder: NSObject {
     func cancelRecording() {
         guard isRecordingActive else { return }
 
+        // Unregister display monitoring since the recording session is ending.
+        unregisterDisplayReconfiguration()
+
         // Stop the stream synchronously (best-effort — stopCapture is async but
         // we nil it out so no more buffers arrive).
         stream = nil
@@ -652,7 +673,7 @@ final class ScreenRecorder: NSObject {
     // MARK: - Stream Error Handling
 
     /// Map an NSError from SCStream to a specific RecorderError case.
-    static func mapStreamError(_ nsError: NSError) -> RecorderError {
+    nonisolated static func mapStreamError(_ nsError: NSError) -> RecorderError {
         let domain = nsError.domain
         let code = nsError.code
 
@@ -686,7 +707,10 @@ final class ScreenRecorder: NSObject {
         Task { @MainActor in
             guard isRecordingActive else { return }
 
-            log.error("Stream error during active recording — cleaning up (error=\(recorderError.localizedDescription ?? "unknown", privacy: .public))")
+            log.error("Stream error during active recording — cleaning up (error=\(recorderError.localizedDescription, privacy: .public))")
+
+            // Unregister display monitoring since the recording session is ending.
+            unregisterDisplayReconfiguration()
 
             // Cancel the writer and remove the partial file
             assetWriter?.cancelWriting()
@@ -713,6 +737,83 @@ final class ScreenRecorder: NSObject {
         recordingStartDate = nil
         outputDelegate = nil
         activeConfigLabel = nil
+    }
+
+    // MARK: - Display Reconfiguration Monitoring
+
+    /// Register for CoreGraphics display reconfiguration notifications.
+    ///
+    /// Called when a display recording starts. Detects display removal and
+    /// resolution changes while recording is active.
+    private func registerDisplayReconfiguration(for displayID: CGDirectDisplayID) {
+        recordedDisplayID = displayID
+        // `Unmanaged.passUnretained(self).toOpaque()` passes `self` as the
+        // user-info pointer without retaining, since the callback lifetime
+        // is bounded by the recording session.
+        CGDisplayRegisterReconfigurationCallback(displayReconfigurationCallback, Unmanaged.passUnretained(self).toOpaque())
+        log.info("Registered display reconfiguration callback for displayID=\(displayID)")
+    }
+
+    /// Unregister the CoreGraphics display reconfiguration callback.
+    private func unregisterDisplayReconfiguration() {
+        guard recordedDisplayID != nil else { return }
+        CGDisplayRemoveReconfigurationCallback(displayReconfigurationCallback, Unmanaged.passUnretained(self).toOpaque())
+        log.info("Unregistered display reconfiguration callback for displayID=\(self.recordedDisplayID!)")
+        recordedDisplayID = nil
+    }
+
+    /// Handle a display reconfiguration event dispatched from the C callback.
+    ///
+    /// Called on the main actor. Checks whether the recorded display was
+    /// removed or changed resolution.
+    fileprivate func handleDisplayReconfiguration(displayID: CGDirectDisplayID, flags: CGDisplayChangeSummaryFlags) {
+        guard isRecordingActive, let recordedID = recordedDisplayID else { return }
+        guard displayID == recordedID else { return }
+
+        if flags.contains(.removeFlag) {
+            log.error("Recorded display \(displayID) was removed during active recording — stopping gracefully")
+            // Stop the stream and notify via the error callback
+            Task { @MainActor in
+                guard self.isRecordingActive else { return }
+                // Unregister display monitoring since the recording session is ending.
+                self.unregisterDisplayReconfiguration()
+                self.assetWriter?.cancelWriting()
+                if let outputURL = self.assetWriter?.outputURL {
+                    try? FileManager.default.removeItem(at: outputURL)
+                    log.info("Removed partial recording file: \(outputURL.path, privacy: .public)")
+                }
+                self.stream = nil
+                self.cleanUpWriter()
+                self.onStreamError?(.sourceUnavailable("The recorded display was disconnected or removed."))
+            }
+        } else if flags.contains(.movedFlag) || flags.contains(.setMainFlag) || flags.contains(.setModeFlag) {
+            // Resolution or arrangement changed — ScreenCaptureKit handles
+            // this internally, so just log for diagnostics.
+            log.info("Recorded display \(displayID) reconfigured (flags=\(flags.rawValue)) — continuing recording (ScreenCaptureKit handles resolution changes)")
+        }
+    }
+}
+
+// MARK: - Display Reconfiguration C Callback
+
+/// C-function callback for `CGDisplayRegisterReconfigurationCallback`.
+///
+/// CoreGraphics invokes this on an arbitrary thread whenever a display is
+/// added, removed, or reconfigured. The `userInfo` pointer carries the
+/// `ScreenRecorder` instance (passed without retain). We dispatch to the
+/// main actor to safely access recorder state.
+private func displayReconfigurationCallback(
+    displayID: CGDirectDisplayID,
+    flags: CGDisplayChangeSummaryFlags,
+    userInfo: UnsafeMutableRawPointer?
+) {
+    // Only process the "after reconfiguration" phase
+    guard !flags.contains(.beginConfigurationFlag) else { return }
+    guard let userInfo else { return }
+
+    let recorder = Unmanaged<ScreenRecorder>.fromOpaque(userInfo).takeUnretainedValue()
+    Task { @MainActor in
+        recorder.handleDisplayReconfiguration(displayID: displayID, flags: flags)
     }
 }
 
