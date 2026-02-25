@@ -67,9 +67,9 @@ export function createOAuthCallbackHandler(config: GatewayConfig) {
     }
 
     // Optimistically mark consumed so concurrent duplicate callbacks are
-    // blocked while the runtime processes this one. Only rolled back on
-    // transient failures (5xx / transport errors) — deterministic rejections
-    // (4xx) keep state consumed to prevent replay attacks.
+    // blocked while the runtime processes this one. Rolled back on transient
+    // failures (5xx, transport errors, 401/403 auth failures) — deterministic
+    // rejections (other 4xx) keep state consumed to prevent replay attacks.
     markStateConsumed(state);
 
     try {
@@ -87,10 +87,13 @@ export function createOAuthCallbackHandler(config: GatewayConfig) {
         });
       }
 
-      // Only roll back consumed state for transient failures (5xx) so the user
-      // can retry. Deterministic rejections (4xx) keep state consumed to prevent
-      // replay/spam — the runtime already rejected the callback definitively.
-      if (response.status >= 500) {
+      // Roll back consumed state for transient failures so the user can retry.
+      // 401/403 are transient auth failures (token/secret mismatch) where the
+      // runtime rejected the request before processing the callback state.
+      // 5xx are server errors. Both are safe to retry.
+      // Other 4xx (400/404/422) are deterministic rejections — keep state
+      // consumed to prevent replay/spam.
+      if (response.status >= 500 || response.status === 401 || response.status === 403) {
         rollBackConsumedState(state);
       }
       return new Response(
