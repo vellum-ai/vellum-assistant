@@ -30,7 +30,7 @@ Gmail, Slack, and Telegram setup all require a publicly reachable URL for OAuth 
 
 ### Slack
 1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "slack"`. The tool auto-fills Slack's OAuth endpoints and looks up any previously stored client credentials.
-2. **If it fails because no client_id is found:** The user needs to create a Slack App first. Install and load the **slack-oauth-setup** skill (which depends on **public-ingress** for the redirect URI):
+2. **If it fails because no client_id is found:** The user needs to create a Slack App first. Install and load the **slack-oauth-setup** skill:
    - Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "slack-oauth-setup"`.
    - Then call `skill_load` with `skill: "slack-oauth-setup"`.
    - Tell the user Slack isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
