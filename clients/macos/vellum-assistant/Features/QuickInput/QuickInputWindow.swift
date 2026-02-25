@@ -247,12 +247,14 @@ final class QuickInputWindow {
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            panel.close()
-            self?.panel = nil
-            self?.isDismissing = false
-            self?.attachedImageData = nil
-            self?.attachedImage = nil
-            appToRestore?.activate()
+            MainActor.assumeIsolated {
+                panel.close()
+                self?.panel = nil
+                self?.isDismissing = false
+                self?.attachedImageData = nil
+                self?.attachedImage = nil
+                appToRestore?.activate()
+            }
         })
     }
 
