@@ -238,6 +238,28 @@ describe('handleRecordingStop', () => {
     expect(result).toBeUndefined();
   });
 
+  test('resolves to globally active recording from a different conversation', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+    const convA = 'conv-owner';
+    const convB = 'conv-stopper';
+
+    // Bind socket to conv-A (the owning conversation)
+    ctx.socketToSession.set(fakeSocket, convA);
+
+    // Start a recording on conv-A
+    const recordingId = handleRecordingStart(convA, undefined, fakeSocket, ctx);
+    expect(recordingId).not.toBeNull();
+    sent.length = 0;
+
+    // Stop from conv-B — should resolve to the globally active recording on conv-A
+    const result = handleRecordingStop(convB, ctx);
+
+    expect(result).toBe(recordingId!);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].type).toBe('recording_stop');
+    expect(sent[0].recordingId).toBe(recordingId!);
+  });
+
   test('returns undefined when no socket bound to conversation', () => {
     const { ctx, fakeSocket } = createCtx();
     const conversationId = 'conv-no-socket';
