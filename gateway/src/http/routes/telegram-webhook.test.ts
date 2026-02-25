@@ -89,6 +89,7 @@ const baseConfig: GatewayConfig = {
   whatsappTimeoutMs: 15000,
   whatsappMaxRetries: 3,
   whatsappInitialBackoffMs: 1000,
+    trustProxy: false,
 };
 
 function makeCallbackQueryBody(data: string, updateId = 200) {
