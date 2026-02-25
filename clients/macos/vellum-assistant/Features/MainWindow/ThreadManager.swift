@@ -32,7 +32,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 // Notify the daemon so it rebinds the socket to this thread's session.
                 // Without this, socketToSession stays stale after thread switches,
                 // causing ownership checks (e.g. subagent abort) to fail.
-                if let sessionId = chatViewModels[activeThreadId]?.sessionId {
+                if let sessionId = getOrCreateViewModel(for: activeThreadId)?.sessionId {
                     do {
                         try daemonClient.send(IPCSessionSwitchRequest(sessionId: sessionId))
                     } catch {
@@ -86,8 +86,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     var activeViewModel: ChatViewModel? {
-        guard let activeThreadId else { return nil}
-        return chatViewModels[activeThreadId]
+        guard let activeThreadId else { return nil }
+        return getOrCreateViewModel(for: activeThreadId)
     }
 
     init(daemonClient: DaemonClient, activityNotificationService: ActivityNotificationService? = nil, isFirstLaunch: Bool = false) {
@@ -303,14 +303,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         threads[index].isArchived = false
 
-        // Re-create the ChatViewModel since it was removed on archive.
-        if chatViewModels[id] == nil {
-            let viewModel = makeViewModel()
-            viewModel.sessionId = threads[index].sessionId
-            chatViewModels[id] = viewModel
-            touchVMAccessOrder(id)
-            evictStaleCachedViewModels()
-        }
+        // Ensure a ChatViewModel exists (lazily created if it was evicted on archive).
+        getOrCreateViewModel(for: id)
 
         if let sessionId = threads[index].sessionId {
             var archived = archivedSessionIds
@@ -359,10 +353,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 kind: session.threadType == "private" ? .private : .standard,
                 source: session.source
             )
-            let viewModel = makeViewModel()
-            viewModel.sessionId = session.id
-            chatViewModels[thread.id] = viewModel
-            touchVMAccessOrder(thread.id)
+            // VM creation is lazy — getOrCreateViewModel() will instantiate
+            // when the thread is first accessed (e.g. selected by the user).
             threads.append(thread)
         }
 
@@ -405,9 +397,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         chatViewModels[id]?.messages.contains(where: { $0.role == .user }) ?? false
     }
 
-    /// Update confirmation state across ALL chat view models, not just the active one.
-    /// This ensures that when the floating panel responds, the originating thread's
-    /// inline confirmation is updated even if the user switched threads.
+    /// Update confirmation state across all *existing* chat view models, not just
+    /// the active one. Only iterates VMs that are already instantiated — does not
+    /// trigger lazy creation for threads that have never been accessed.
     func updateConfirmationStateAcrossThreads(requestId: String, decision: String) {
         for viewModel in chatViewModels.values {
             viewModel.updateConfirmationState(requestId: requestId, decision: decision)
@@ -507,11 +499,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     // MARK: - ThreadRestorerDelegate
 
     func chatViewModel(for threadId: UUID) -> ChatViewModel? {
-        if let vm = chatViewModels[threadId] {
-            touchVMAccessOrder(threadId)
-            return vm
-        }
-        return nil
+        return getOrCreateViewModel(for: threadId)
+    }
+
+    func existingChatViewModel(for threadId: UUID) -> ChatViewModel? {
+        guard let vm = chatViewModels[threadId] else { return nil }
+        touchVMAccessOrder(threadId)
+        return vm
     }
 
     func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID) {
@@ -643,6 +637,30 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             chatViewModels.removeValue(forKey: threadId)
             vmAccessOrder.removeAll { $0 == threadId }
         }
+    }
+
+    // MARK: - Lazy VM Creation
+
+    /// Returns an existing ChatViewModel or lazily creates one for the given thread.
+    /// This is the single entry point for VM access — `appendThreads` and session
+    /// restoration no longer eagerly create VMs for every loaded session.
+    @discardableResult
+    private func getOrCreateViewModel(for threadId: UUID) -> ChatViewModel? {
+        if let vm = chatViewModels[threadId] {
+            touchVMAccessOrder(threadId)
+            return vm
+        }
+        // Only create if the thread exists
+        guard let thread = threads.first(where: { $0.id == threadId }) else { return nil }
+        let viewModel = makeViewModel()
+        viewModel.sessionId = thread.sessionId
+        if thread.sessionId == nil {
+            viewModel.isHistoryLoaded = true
+        }
+        chatViewModels[threadId] = viewModel
+        touchVMAccessOrder(threadId)
+        evictStaleCachedViewModels()
+        return viewModel
     }
 
     // MARK: - VM LRU Cache Management

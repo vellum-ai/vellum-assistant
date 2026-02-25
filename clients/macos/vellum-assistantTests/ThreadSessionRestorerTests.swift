@@ -26,6 +26,10 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
         viewModels[threadId]
     }
 
+    func existingChatViewModel(for threadId: UUID) -> ChatViewModel? {
+        viewModels[threadId]
+    }
+
     func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID) {
         viewModels[threadId] = vm
     }
@@ -283,11 +287,9 @@ struct ThreadSessionRestorerTests {
         #expect(delegate.threads[1].sessionId == "s2")
         #expect(delegate.threads[0].title == "Chat 1")
 
-        // View models were created and assigned session IDs
-        let vm1 = delegate.viewModels[delegate.threads[0].id]
-        let vm2 = delegate.viewModels[delegate.threads[1].id]
-        #expect(vm1?.sessionId == "s1")
-        #expect(vm2?.sessionId == "s2")
+        // VMs are lazily created — not eagerly allocated during restore
+        #expect(delegate.viewModels[delegate.threads[0].id] == nil)
+        #expect(delegate.viewModels[delegate.threads[1].id] == nil)
 
         // Most recent thread should be activated
         #expect(delegate.activatedThreadId == delegate.threads[0].id)

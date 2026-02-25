@@ -14,7 +14,10 @@ protocol ThreadRestorerDelegate: AnyObject {
     var isLoadingMoreThreads: Bool { get set }
     var hasMoreThreads: Bool { get set }
     var serverOffset: Int { get set }
+    /// Returns or lazily creates a ChatViewModel for the given thread.
     func chatViewModel(for threadId: UUID) -> ChatViewModel?
+    /// Returns an existing ChatViewModel without creating one (avoids triggering lazy init).
+    func existingChatViewModel(for threadId: UUID) -> ChatViewModel?
     func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID)
     func removeChatViewModel(for threadId: UUID)
     func makeViewModel() -> ChatViewModel
@@ -164,9 +167,8 @@ final class ThreadSessionRestorer {
                 kind: kind,
                 source: session.source
             )
-            let viewModel = delegate.makeViewModel()
-            viewModel.sessionId = session.id
-            delegate.setChatViewModel(viewModel, for: thread.id)
+            // VM creation is lazy — only the active thread will get a VM via
+            // getOrCreateViewModel() when it's first accessed.
             restoredThreads.append(thread)
         }
 
@@ -210,9 +212,11 @@ final class ThreadSessionRestorer {
 
     func handleSubagentDetailResponse(_ response: IPCSubagentDetailResponse) {
         guard let delegate else { return }
-        // Find the ChatViewModel that owns this subagent
+        // Only check threads that already have a VM — subagent events are only
+        // relevant to active conversations, so we must not trigger lazy VM
+        // creation for every thread in the list.
         for thread in delegate.threads {
-            guard let viewModel = delegate.chatViewModel(for: thread.id) else { continue }
+            guard let viewModel = delegate.existingChatViewModel(for: thread.id) else { continue }
             if viewModel.activeSubagents.contains(where: { $0.id == response.subagentId }) {
                 viewModel.subagentDetailStore.populateFromDetailResponse(response)
                 return
