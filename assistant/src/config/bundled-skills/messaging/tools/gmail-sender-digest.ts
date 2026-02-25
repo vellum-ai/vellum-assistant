@@ -35,7 +35,7 @@ function parseFrom(from: string): { displayName: string; email: string } {
 }
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-  const query = (input.query as string) ?? 'has:unsubscribe newer_than:90d';
+  const query = (input.query as string) ?? 'category:promotions newer_than:90d';
   const maxMessages = Math.min((input.max_messages as number) ?? 500, MAX_MESSAGES_CAP);
   const maxSenders = (input.max_senders as number) ?? 30;
 
@@ -57,7 +57,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       }
 
       if (allMessageIds.length === 0) {
-        return ok(JSON.stringify({ senders: [], total_scanned: 0, message: 'No newsletter emails found matching the query.' }));
+        return ok(JSON.stringify({ senders: [], total_scanned: 0, message: 'No emails found matching the query. Try broadening the search (e.g. remove category filter or extend date range).' }));
       }
 
       // Batch-fetch metadata headers
