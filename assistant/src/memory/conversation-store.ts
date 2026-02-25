@@ -684,11 +684,25 @@ export function searchConversations(
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
         WHERE messages_fts MATCH ? AND c.thread_type != 'background'
+        LIMIT 1000
       `, ftsMatch);
       for (const row of ftsRows) ftsConvIds.add(row.conversation_id);
     } catch {
       // FTS parse failure — fall through, title matches may still produce results.
     }
+  } else if (query.trim()) {
+    // FTS tokens were all dropped (non-ASCII, single-char, etc.) — fall back to
+    // LIKE-based message content search so queries like "你", "é", or "C++" still
+    // match message text.
+    const likePattern = `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+    const likeRows = rawAll<FtsMessageRow>(`
+      SELECT m.id AS message_id, m.conversation_id
+      FROM messages m
+      JOIN conversations c ON c.id = m.conversation_id
+      WHERE m.content LIKE ? ESCAPE '\\' AND c.thread_type != 'background'
+      LIMIT 1000
+    `, likePattern);
+    for (const row of likeRows) ftsConvIds.add(row.conversation_id);
   }
 
   // Title-only matches (FTS doesn't index conversation titles).
@@ -738,6 +752,16 @@ export function searchConversations(
       } catch {
         // FTS parse failure — no matching messages for this conversation.
       }
+    } else if (query.trim()) {
+      // LIKE fallback for non-ASCII / short-token queries.
+      const msgLikePattern = `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+      matchingMsgs = rawAll<MsgRow>(`
+        SELECT id, role, content, created_at
+        FROM messages
+        WHERE conversation_id = ? AND content LIKE ? ESCAPE '\\'
+        ORDER BY created_at ASC
+        LIMIT ?
+      `, conv.id, msgLikePattern, maxMsgsPerConv);
     }
 
     results.push({
