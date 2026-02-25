@@ -8,6 +8,9 @@ struct AppsGridView: View {
     let daemonClient: DaemonClient
     let onOpenApp: (String) -> Void
     var onOpenHomeBase: (() -> Void)?
+    /// The daemon-assigned app ID for Home Base, used to exclude it from regular sections
+    /// (since it's shown as a dedicated synthetic first item).
+    var homeBaseAppId: String?
 
     @State private var searchText = ""
     @State private var hoveredAppId: String?
@@ -218,6 +221,10 @@ struct AppsGridView: View {
         }
         .contextMenu {
             Button("Open") {
+                appListManager.recordAppOpen(
+                    id: app.id, name: app.name, icon: app.icon,
+                    previewBase64: app.previewBase64, appType: app.appType
+                )
                 onOpenApp(app.id)
             }
             Button(app.isPinned ? "Unpin" : "Pin") {
@@ -292,8 +299,12 @@ struct AppsGridView: View {
 
     /// Exclude any app that is the Home Base from the regular sections
     /// (since Home Base is always shown as a dedicated synthetic first item).
+    /// Uses stable app ID when available, falls back to exact name match.
     private func isHomeBaseApp(_ app: AppListManager.AppItem) -> Bool {
-        app.name.caseInsensitiveCompare("Home Base") == .orderedSame
+        if let homeBaseId = homeBaseAppId {
+            return app.id == homeBaseId
+        }
+        return app.name.caseInsensitiveCompare("Home Base") == .orderedSame
     }
 
     private var filteredPinnedApps: [AppListManager.AppItem] {
