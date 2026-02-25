@@ -20,7 +20,7 @@ struct MessageListView: View {
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
-    var subagentDetailStore: SubagentDetailStore?
+    @ObservedObject var subagentDetailStore: SubagentDetailStore
 
     var threadId: UUID?
     @Binding var isNearBottom: Bool
@@ -160,7 +160,7 @@ struct MessageListView: View {
                         ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
                             SubagentThreadView(
                                 subagent: subagent,
-                                events: subagentDetailStore?.eventsBySubagent[subagent.id] ?? [],
+                                events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
                                 onAbort: { onAbortSubagent?(subagent.id) },
                                 onTap: { onSubagentTap?(subagent.id) }
                             )
@@ -174,7 +174,7 @@ struct MessageListView: View {
                     ForEach(activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
                         SubagentThreadView(
                             subagent: subagent,
-                            events: subagentDetailStore?.eventsBySubagent[subagent.id] ?? [],
+                            events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
                             onAbort: { onAbortSubagent?(subagent.id) },
                             onTap: { onSubagentTap?(subagent.id) }
                         )

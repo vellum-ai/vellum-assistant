@@ -53,7 +53,7 @@ struct ChatView: View {
     var activeSubagents: [SubagentInfo] = []
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
-    var subagentDetailStore: SubagentDetailStore?
+    @ObservedObject var subagentDetailStore: SubagentDetailStore
     var daemonHttpPort: Int?
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
