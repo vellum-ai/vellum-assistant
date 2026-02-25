@@ -180,6 +180,7 @@ export async function orchestrateOAuthConnect(options: OAuthConnectOptions): Pro
             tokens: result.tokens,
             grantedScopes: result.grantedScopes,
             rawTokenResponse: result.rawTokenResponse,
+            identityAccountInfo: accountInfo,
           });
           log.info(
             { service: resolvedService, accountInfo: stored.accountInfo ?? accountInfo },
@@ -240,6 +241,7 @@ export async function orchestrateOAuthConnect(options: OAuthConnectOptions): Pro
       tokens,
       grantedScopes,
       rawTokenResponse,
+      identityAccountInfo: verifiedIdentity,
     });
 
     return {
