@@ -46,6 +46,27 @@ mock.module('../messaging/providers/sms/client.js', () => ({
 mock.module('../config/env.js', () => ({
   getGatewayInternalBaseUrl: () => 'http://127.0.0.1:7830',
 }));
+
+// Telegram credential metadata mock — provides the bot username for deep-link construction
+let mockBotUsername: string | undefined = 'test_bot';
+mock.module('../tools/credentials/metadata-store.js', () => ({
+  getCredentialMetadata: (_service: string, _key: string) => mockBotUsername ? { accountInfo: mockBotUsername } : null,
+  upsertCredentialMetadata: () => {},
+  deleteCredentialMetadata: () => {},
+}));
+
+// Track Telegram deliveries via fetch mock
+const telegramDeliverCalls: Array<{ chatId: string; text: string; assistantId?: string }> = [];
+const originalFetch = globalThis.fetch;
+globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+  if (url.includes('/deliver/telegram') && init?.method === 'POST') {
+    const body = JSON.parse(init.body as string) as { chatId: string; text: string; assistantId?: string };
+    telegramDeliverCalls.push(body);
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }
+  return originalFetch(input, init as never);
+}) as typeof fetch;
 import {
   consumeChallenge,
   createApprovalRequest,
@@ -62,6 +83,7 @@ import {
   createVerificationSession,
   findActiveSession as storeFindActiveSession,
   findSessionByIdentity as storeFindSessionByIdentity,
+  findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash,
   updateSessionStatus as storeUpdateSessionStatus,
   updateSessionDelivery as storeUpdateSessionDelivery,
   bindSessionIdentity as storeBindSessionIdentity,
@@ -80,6 +102,7 @@ import {
   findSessionByIdentity as serviceFindSessionByIdentity,
   updateSessionStatus as serviceUpdateSessionStatus,
   bindSessionIdentity as serviceBindSessionIdentity,
+  resolveBootstrapToken,
   validateAndConsumeChallenge,
 } from '../runtime/channel-guardian-service.js';
 import { handleGuardianVerification, MAX_SENDS_PER_SESSION, RESEND_COOLDOWN_MS } from '../daemon/handlers/config-channels.js';
@@ -87,12 +110,14 @@ import type { GuardianVerificationRequest, GuardianVerificationResponse } from '
 import type { HandlerContext } from '../daemon/handlers/shared.js';
 import {
   composeVerificationSms,
+  composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from '../runtime/guardian-verification-templates.js';
 
 initializeDb();
 
 afterAll(() => {
+  globalThis.fetch = originalFetch;
   resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
@@ -104,6 +129,8 @@ function resetTables(): void {
   db.run('DELETE FROM channel_guardian_approval_requests');
   db.run('DELETE FROM channel_guardian_rate_limits');
   smsSendCalls.length = 0;
+  telegramDeliverCalls.length = 0;
+  mockBotUsername = 'test_bot';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2744,12 +2771,12 @@ describe('outbound SMS verification', () => {
     expect(alreadySms).toContain('already verified');
   });
 
-  test('start_outbound rejects non-SMS channels', () => {
+  test('start_outbound rejects unsupported channels', () => {
     const { ctx, lastResponse } = createMockCtx();
     handleGuardianVerification({
       type: 'guardian_verification',
       action: 'start_outbound',
-      channel: 'telegram',
+      channel: 'slack',
       assistantId: 'self',
       destination: '@some_user',
     }, mockSocket, ctx);
@@ -2814,5 +2841,486 @@ describe('outbound SMS verification', () => {
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe('no_active_session');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 19. Outbound Telegram Verification
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('outbound Telegram verification', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('start_outbound for telegram with handle returns deep link URL, no outbound message', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+      destination: '@someuser',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.verificationSessionId).toBeDefined();
+    expect(resp!.telegramBootstrapUrl).toBeDefined();
+    expect(resp!.telegramBootstrapUrl).toContain('https://t.me/test_bot?start=gv_');
+    expect(resp!.channel).toBe('telegram');
+    // No outbound message should be sent yet (pending bootstrap)
+    expect(telegramDeliverCalls.length).toBe(0);
+
+    // Verify the session is in pending_bootstrap state
+    const session = serviceFindActiveSession('self', 'telegram');
+    expect(session).not.toBeNull();
+    expect(session!.identityBindingStatus).toBe('pending_bootstrap');
+    expect(session!.destinationAddress).toBe('@someuser');
+    expect(session!.bootstrapTokenHash).toBeDefined();
+    expect(session!.bootstrapTokenHash).not.toBeNull();
+  });
+
+  test('start_outbound for telegram with handle (no @ prefix) returns deep link', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+      destination: 'someuser',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.telegramBootstrapUrl).toContain('https://t.me/test_bot?start=gv_');
+    expect(telegramDeliverCalls.length).toBe(0);
+  });
+
+  test('start_outbound for telegram with known chat ID sends message, no deep link', async () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+      destination: '123456789',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.verificationSessionId).toBeDefined();
+    expect(resp!.secret).toBeDefined();
+    expect(resp!.expiresAt).toBeGreaterThan(Date.now());
+    expect(resp!.nextResendAt).toBeGreaterThan(Date.now());
+    expect(resp!.sendCount).toBe(1);
+    expect(resp!.channel).toBe('telegram');
+    // No bootstrap URL since this is a direct chat ID
+    expect(resp!.telegramBootstrapUrl).toBeUndefined();
+
+    // Verify the session was created with expected identity
+    const session = serviceFindActiveSession('self', 'telegram');
+    expect(session).not.toBeNull();
+    expect(session!.expectedChatId).toBe('123456789');
+    expect(session!.identityBindingStatus).toBe('bound');
+    expect(session!.destinationAddress).toBe('123456789');
+
+    // Allow async telegram delivery to settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(telegramDeliverCalls.length).toBe(1);
+    expect(telegramDeliverCalls[0].chatId).toBe('123456789');
+    expect(telegramDeliverCalls[0].text).toContain('/guardian_verify');
+  });
+
+  test('start_outbound for telegram without bot username fails', () => {
+    mockBotUsername = undefined;
+
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+      destination: '@someuser',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('no_bot_username');
+  });
+
+  test('start_outbound for telegram rejects when active binding exists (rebind=false)', () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-42',
+      guardianDeliveryChatId: 'chat-42',
+    });
+
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+      destination: '@newuser',
+      rebind: false,
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('already_bound');
+  });
+
+  test('bootstrap: resolveBootstrapToken finds pending_bootstrap session by token', () => {
+    const { createHash } = require('node:crypto');
+    const token = 'test_bootstrap_token_hex';
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+
+    createVerificationSession({
+      id: 'session-bootstrap-1',
+      assistantId: 'self',
+      channel: 'telegram',
+      challengeHash: 'some-challenge-hash',
+      expiresAt: Date.now() + 600_000,
+      status: 'pending_bootstrap',
+      identityBindingStatus: 'pending_bootstrap',
+      destinationAddress: '@targetuser',
+      bootstrapTokenHash: tokenHash,
+    });
+
+    const found = resolveBootstrapToken('self', 'telegram', token);
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe('session-bootstrap-1');
+    expect(found!.status).toBe('pending_bootstrap');
+  });
+
+  test('bootstrap: resolveBootstrapToken returns null for wrong token', () => {
+    const { createHash } = require('node:crypto');
+    const token = 'test_bootstrap_token_hex';
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+
+    createVerificationSession({
+      id: 'session-bootstrap-2',
+      assistantId: 'self',
+      channel: 'telegram',
+      challengeHash: 'some-challenge-hash',
+      expiresAt: Date.now() + 600_000,
+      status: 'pending_bootstrap',
+      identityBindingStatus: 'pending_bootstrap',
+      destinationAddress: '@targetuser',
+      bootstrapTokenHash: tokenHash,
+    });
+
+    const found = resolveBootstrapToken('self', 'telegram', 'wrong_token');
+    expect(found).toBeNull();
+  });
+
+  test('bootstrap: resolveBootstrapToken returns null for expired session', () => {
+    const { createHash } = require('node:crypto');
+    const token = 'test_bootstrap_token_hex';
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+
+    createVerificationSession({
+      id: 'session-bootstrap-3',
+      assistantId: 'self',
+      channel: 'telegram',
+      challengeHash: 'some-challenge-hash',
+      expiresAt: Date.now() - 1000, // already expired
+      status: 'pending_bootstrap',
+      identityBindingStatus: 'pending_bootstrap',
+      destinationAddress: '@targetuser',
+      bootstrapTokenHash: tokenHash,
+    });
+
+    const found = resolveBootstrapToken('self', 'telegram', token);
+    expect(found).toBeNull();
+  });
+
+  test('identity-bound consume: right chat_id + right code succeeds', () => {
+    // Create an awaiting_response session with expected identity
+    const sessionResult = createOutboundSession({
+      assistantId: 'self',
+      channel: 'telegram',
+      expectedExternalUserId: 'user-42',
+      expectedChatId: 'chat-42',
+      identityBindingStatus: 'bound',
+      destinationAddress: 'chat-42',
+    });
+
+    const result = validateAndConsumeChallenge(
+      'self',
+      'telegram',
+      sessionResult.secret,
+      'user-42',
+      'chat-42',
+      'testuser',
+      'Test User',
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  test('identity mismatch: wrong chat_id + right code rejects', () => {
+    const sessionResult = createOutboundSession({
+      assistantId: 'self',
+      channel: 'telegram',
+      expectedExternalUserId: 'user-42',
+      expectedChatId: 'chat-42',
+      identityBindingStatus: 'bound',
+      destinationAddress: 'chat-42',
+    });
+
+    const result = validateAndConsumeChallenge(
+      'self',
+      'telegram',
+      sessionResult.secret,
+      'attacker-99',
+      'attacker-chat-99',
+      'attacker',
+      'Attacker',
+    );
+
+    expect(result.success).toBe(false);
+  });
+
+  test('revoked session rejects verification', () => {
+    const sessionResult = createOutboundSession({
+      assistantId: 'self',
+      channel: 'telegram',
+      expectedExternalUserId: 'user-42',
+      expectedChatId: 'chat-42',
+      identityBindingStatus: 'bound',
+      destinationAddress: 'chat-42',
+    });
+
+    // Revoke the session
+    serviceUpdateSessionStatus(sessionResult.sessionId, 'revoked');
+
+    const result = validateAndConsumeChallenge(
+      'self',
+      'telegram',
+      sessionResult.secret,
+      'user-42',
+      'chat-42',
+    );
+
+    expect(result.success).toBe(false);
+  });
+
+  test('backward compat: inbound-only /guardian_verify Telegram flow still works', () => {
+    // Create an inbound-only challenge (no outbound session, no expected identity)
+    const challengeResult = createVerificationChallenge('self', 'telegram');
+
+    const result = validateAndConsumeChallenge(
+      'self',
+      'telegram',
+      challengeResult.secret,
+      'user-42',
+      'chat-42',
+      'testuser',
+      'Test User',
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  test('resend_outbound for telegram works with known chat ID', async () => {
+    // Start an outbound session with a known chat ID
+    const { ctx: startCtx } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+      destination: '123456789',
+    }, mockSocket, startCtx);
+
+    // Fast-forward the cooldown
+    const session = serviceFindActiveSession('self', 'telegram');
+    expect(session).not.toBeNull();
+    storeUpdateSessionDelivery(session!.id, Date.now() - RESEND_COOLDOWN_MS - 1000, 1, Date.now() - 1000);
+
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'resend_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.sendCount).toBe(2);
+
+    // Allow async telegram delivery to settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Should have at least 2 delivery calls (initial + resend)
+    expect(telegramDeliverCalls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('resend_outbound for pending_bootstrap session is rejected', () => {
+    // Start an outbound session with a handle (pending_bootstrap)
+    const { ctx: startCtx } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+      destination: '@someuser',
+    }, mockSocket, startCtx);
+
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'resend_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('pending_bootstrap');
+  });
+
+  test('cancel_outbound for telegram revokes session', () => {
+    // Start an outbound session
+    const { ctx: startCtx } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+      destination: '123456789',
+    }, mockSocket, startCtx);
+
+    const session = serviceFindActiveSession('self', 'telegram');
+    expect(session).not.toBeNull();
+
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'cancel_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+
+    // Session should be revoked
+    const revoked = serviceFindActiveSession('self', 'telegram');
+    expect(revoked).toBeNull();
+  });
+
+  test('telegram template includes /guardian_verify command', () => {
+    const msg = composeVerificationTelegram(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
+      { code: 'abc123', expiresInMinutes: 10 },
+    );
+    expect(msg).toContain('/guardian_verify abc123');
+  });
+
+  test('telegram resend template includes (resent) suffix', () => {
+    const msg = composeVerificationTelegram(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND,
+      { code: 'xyz789', expiresInMinutes: 5 },
+    );
+    expect(msg).toContain('/guardian_verify xyz789');
+    expect(msg).toContain('(resent)');
+  });
+
+  test('telegram template includes assistantName when provided', () => {
+    const msg = composeVerificationTelegram(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
+      { code: '999999', expiresInMinutes: 10, assistantName: 'MyBot' },
+    );
+    expect(msg).toContain('[MyBot]');
+    expect(msg).toContain('999999');
+  });
+
+  test('start_outbound for telegram with missing destination fails', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('missing_destination');
+  });
+
+  test('rate limits apply to telegram outbound (per-session send cap)', () => {
+    // Start an outbound session with a known chat ID
+    const { ctx: startCtx } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+      destination: '123456789',
+    }, mockSocket, startCtx);
+
+    // Set the send count to MAX_SENDS_PER_SESSION and nextResendAt to the past
+    const session = serviceFindActiveSession('self', 'telegram');
+    expect(session).not.toBeNull();
+    storeUpdateSessionDelivery(
+      session!.id,
+      Date.now() - RESEND_COOLDOWN_MS - 1000,
+      MAX_SENDS_PER_SESSION,
+      Date.now() - 1000,
+    );
+
+    // Resend should be rejected due to max sends
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'resend_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('max_sends_exceeded');
+  });
+
+  test('rate limits apply to telegram outbound (cooldown)', () => {
+    // Start an outbound session with a known chat ID
+    const { ctx: startCtx } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+      destination: '123456789',
+    }, mockSocket, startCtx);
+
+    // Immediately try to resend (before cooldown)
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'resend_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('rate_limited');
   });
 });

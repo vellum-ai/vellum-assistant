@@ -1,3 +1,4 @@
+import { randomBytes, createHash } from 'node:crypto';
 import * as net from 'node:net';
 
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
@@ -16,10 +17,12 @@ import {
 import { createReadinessService, type ChannelReadinessService } from '../../runtime/channel-readiness-service.js';
 import {
   composeVerificationSms,
+  composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from '../../runtime/guardian-verification-templates.js';
 import { sendMessage as sendSms } from '../../messaging/providers/sms/client.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
+import { getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { normalizeAssistantId, readHttpToken } from '../../util/platform.js';
 import type { ChannelId } from '../../channels/types.js';
 import type {
@@ -69,6 +72,30 @@ export function getReadinessService(): ChannelReadinessService {
  */
 function isValidE164(phone: string): boolean {
   return /^\+\d{10,15}$/.test(phone);
+}
+
+// ---------------------------------------------------------------------------
+// Telegram destination classification
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether a destination looks like a numeric Telegram chat ID.
+ * Numeric chat IDs are plain integer strings (possibly negative for groups).
+ */
+function isTelegramChatId(destination: string): boolean {
+  return /^-?\d+$/.test(destination);
+}
+
+/**
+ * Get the Telegram bot username from credential metadata.
+ * Falls back to process.env.TELEGRAM_BOT_USERNAME.
+ */
+function getTelegramBotUsername(): string | undefined {
+  const meta = getCredentialMetadata('telegram', 'bot_token');
+  if (meta?.accountInfo && typeof meta.accountInfo === 'string' && meta.accountInfo.trim().length > 0) {
+    return meta.accountInfo.trim();
+  }
+  return process.env.TELEGRAM_BOT_USERNAME || undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -198,18 +225,28 @@ function handleStartOutbound(
   assistantId: string,
   channel: ChannelId,
 ): void {
-  // Only SMS is supported for this PR
-  if (channel !== 'sms') {
+  if (channel === 'sms') {
+    handleStartOutboundSms(msg, socket, ctx, assistantId, channel);
+  } else if (channel === 'telegram') {
+    handleStartOutboundTelegram(msg, socket, ctx, assistantId, channel);
+  } else {
     ctx.send(socket, {
       type: 'guardian_verification_response',
       success: false,
       error: 'unsupported_channel',
-      message: `Outbound verification is only supported for SMS. Got: ${channel}`,
+      message: `Outbound verification is only supported for SMS and Telegram. Got: ${channel}`,
       channel,
     });
-    return;
   }
+}
 
+function handleStartOutboundSms(
+  msg: GuardianVerificationRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+  assistantId: string,
+  channel: ChannelId,
+): void {
   // Validate destination
   const destination = msg.destination;
   if (!destination) {
@@ -301,6 +338,113 @@ function handleStartOutbound(
   });
 }
 
+function handleStartOutboundTelegram(
+  msg: GuardianVerificationRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+  assistantId: string,
+  channel: ChannelId,
+): void {
+  const destination = msg.destination;
+  if (!destination) {
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: false,
+      error: 'missing_destination',
+      message: 'A destination (Telegram handle or chat ID) is required for outbound Telegram verification.',
+      channel,
+    });
+    return;
+  }
+
+  // Check for existing active binding (unless rebind=true)
+  const existingBinding = getGuardianBinding(assistantId, channel);
+  if (existingBinding && !msg.rebind) {
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: false,
+      error: 'already_bound',
+      message: 'A guardian is already bound for this channel. Set rebind: true to replace.',
+      channel,
+    });
+    return;
+  }
+
+  if (isTelegramChatId(destination)) {
+    // Known numeric chat ID: create a bound session and send message immediately
+    const sessionResult = createOutboundSession({
+      assistantId,
+      channel,
+      expectedChatId: destination,
+      identityBindingStatus: 'bound',
+      destinationAddress: destination,
+    });
+
+    const telegramBody = composeVerificationTelegram(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
+      {
+        code: sessionResult.secret,
+        expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
+      },
+    );
+
+    const now = Date.now();
+    const nextResendAt = now + RESEND_COOLDOWN_MS;
+    const sendCount = 1;
+
+    updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
+
+    deliverVerificationTelegram(destination, telegramBody, assistantId);
+
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: true,
+      verificationSessionId: sessionResult.sessionId,
+      secret: sessionResult.secret,
+      expiresAt: sessionResult.expiresAt,
+      nextResendAt,
+      sendCount,
+      channel,
+    });
+  } else {
+    // Telegram handle/username: create a pending_bootstrap session with deep-link
+    const botUsername = getTelegramBotUsername();
+    if (!botUsername) {
+      ctx.send(socket, {
+        type: 'guardian_verification_response',
+        success: false,
+        error: 'no_bot_username',
+        message: 'Telegram bot username is not configured. Set up the Telegram integration first.',
+        channel,
+      });
+      return;
+    }
+
+    // Generate a 16-byte random bootstrap token
+    const bootstrapToken = randomBytes(16).toString('hex');
+    const bootstrapTokenHash = createHash('sha256').update(bootstrapToken).digest('hex');
+
+    const sessionResult = createOutboundSession({
+      assistantId,
+      channel,
+      identityBindingStatus: 'pending_bootstrap',
+      destinationAddress: destination,
+      bootstrapTokenHash,
+    });
+
+    const telegramBootstrapUrl = `https://t.me/${botUsername}?start=gv_${bootstrapToken}`;
+
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: true,
+      verificationSessionId: sessionResult.sessionId,
+      expiresAt: sessionResult.expiresAt,
+      telegramBootstrapUrl,
+      channel,
+    });
+  }
+}
+
 function handleResendOutbound(
   _msg: GuardianVerificationRequest,
   socket: net.Socket,
@@ -316,6 +460,18 @@ function handleResendOutbound(
       success: false,
       error: 'no_active_session',
       message: 'No active outbound verification session found.',
+      channel,
+    });
+    return;
+  }
+
+  // Pending bootstrap sessions cannot be resent — the user must click the deep link first
+  if (session.identityBindingStatus === 'pending_bootstrap') {
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: false,
+      error: 'pending_bootstrap',
+      message: 'Cannot resend: waiting for bootstrap deep-link activation. The user must click the link first.',
       channel,
     });
     return;
@@ -346,13 +502,10 @@ function handleResendOutbound(
     return;
   }
 
-  // We need the secret to compose the resend SMS, but the store only
-  // persists the challenge hash. The createOutboundSession generated a fresh
-  // secret when start_outbound was called and it was sent via SMS already.
-  // For resend we cannot recover the original plaintext secret from the hash.
-  // Instead, create a new outbound session to get a fresh code. This revokes
-  // the prior session automatically (via createOutboundSession internals).
-  const destination = session.destinationAddress ?? session.expectedPhoneE164;
+  // We need the secret to compose the resend message, but the store only
+  // persists the challenge hash. Create a new outbound session to get a fresh code.
+  // This revokes the prior session automatically (via createOutboundSession internals).
+  const destination = session.destinationAddress ?? session.expectedPhoneE164 ?? session.expectedChatId;
   if (!destination) {
     ctx.send(socket, {
       type: 'guardian_verification_response',
@@ -364,42 +517,73 @@ function handleResendOutbound(
     return;
   }
 
-  // Create a fresh session (auto-revokes prior one)
-  const newSession = createOutboundSession({
-    assistantId,
-    channel,
-    expectedPhoneE164: destination,
-    expectedExternalUserId: destination,
-    destinationAddress: destination,
-  });
+  if (channel === 'telegram') {
+    // Create fresh session for Telegram resend
+    const newSession = createOutboundSession({
+      assistantId,
+      channel,
+      expectedChatId: destination,
+      identityBindingStatus: 'bound',
+      destinationAddress: destination,
+    });
 
-  // Compose SMS using the resend template
-  const smsBody = composeVerificationSms(
-    GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND,
-    {
-      code: newSession.secret,
-      expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-    },
-  );
+    const telegramBody = composeVerificationTelegram(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND,
+      {
+        code: newSession.secret,
+        expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
+      },
+    );
 
-  const now = Date.now();
-  const newSendCount = currentSendCount + 1;
-  const nextResendAt = now + RESEND_COOLDOWN_MS;
+    const now = Date.now();
+    const newSendCount = currentSendCount + 1;
+    const nextResendAt = now + RESEND_COOLDOWN_MS;
 
-  // Update the new session's delivery tracking, carrying forward the cumulative send count
-  updateSessionDelivery(newSession.sessionId, now, newSendCount, nextResendAt);
+    updateSessionDelivery(newSession.sessionId, now, newSendCount, nextResendAt);
+    deliverVerificationTelegram(destination, telegramBody, assistantId);
 
-  // Send SMS
-  deliverVerificationSms(destination, smsBody, assistantId);
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: true,
+      verificationSessionId: newSession.sessionId,
+      nextResendAt,
+      sendCount: newSendCount,
+      channel,
+    });
+  } else {
+    // SMS resend (existing behavior)
+    const newSession = createOutboundSession({
+      assistantId,
+      channel,
+      expectedPhoneE164: destination,
+      expectedExternalUserId: destination,
+      destinationAddress: destination,
+    });
 
-  ctx.send(socket, {
-    type: 'guardian_verification_response',
-    success: true,
-    verificationSessionId: newSession.sessionId,
-    nextResendAt,
-    sendCount: newSendCount,
-    channel,
-  });
+    const smsBody = composeVerificationSms(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND,
+      {
+        code: newSession.secret,
+        expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
+      },
+    );
+
+    const now = Date.now();
+    const newSendCount = currentSendCount + 1;
+    const nextResendAt = now + RESEND_COOLDOWN_MS;
+
+    updateSessionDelivery(newSession.sessionId, now, newSendCount, nextResendAt);
+    deliverVerificationSms(destination, smsBody, assistantId);
+
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: true,
+      verificationSessionId: newSession.sessionId,
+      nextResendAt,
+      sendCount: newSendCount,
+      channel,
+    });
+  }
 }
 
 function handleCancelOutbound(
@@ -455,6 +639,48 @@ function deliverVerificationSms(
       log.info({ to, assistantId }, 'Verification SMS delivered');
     } catch (err) {
       log.error({ err, to, assistantId }, 'Failed to deliver verification SMS');
+    }
+  })();
+}
+
+// ---------------------------------------------------------------------------
+// Telegram delivery helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Deliver a verification Telegram message via the gateway's /deliver/telegram
+ * endpoint. Fire-and-forget with error logging.
+ */
+function deliverVerificationTelegram(
+  chatId: string,
+  text: string,
+  assistantId: string,
+): void {
+  (async () => {
+    try {
+      const gatewayUrl = getGatewayInternalBaseUrl();
+      const bearerToken = readHttpToken();
+      if (!bearerToken) {
+        log.error('Cannot deliver verification Telegram message: no runtime HTTP token available');
+        return;
+      }
+      const url = `${gatewayUrl}/deliver/telegram`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bearerToken}`,
+        },
+        body: JSON.stringify({ chatId, text, assistantId }),
+      });
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => '<unreadable>');
+        log.error({ chatId, assistantId, status: resp.status, body }, 'Gateway /deliver/telegram failed for verification');
+      } else {
+        log.info({ chatId, assistantId }, 'Verification Telegram message delivered');
+      }
+    } catch (err) {
+      log.error({ err, chatId, assistantId }, 'Failed to deliver verification Telegram message');
     }
   })();
 }

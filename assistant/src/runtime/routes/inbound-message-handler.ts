@@ -25,8 +25,10 @@ import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-m
 import { getPendingConfirmationsByConversation } from '../../memory/runs-store.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
+import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
+import { readHttpToken } from '../../util/platform.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import {
   buildApprovalUIMetadata,
@@ -35,11 +37,20 @@ import {
   handleChannelDecision,
 } from '../channel-approvals.js';
 import {
+  createOutboundSession,
   getGuardianBinding,
   getPendingChallenge,
   validateAndConsumeChallenge,
+  resolveBootstrapToken,
+  bindSessionIdentity,
+  updateSessionStatus,
+  updateSessionDelivery,
 } from '../channel-guardian-service.js';
 import { deliverChannelReply } from '../gateway-client.js';
+import {
+  composeVerificationTelegram,
+  GUARDIAN_VERIFY_TEMPLATE_KEYS,
+} from '../guardian-verification-templates.js';
 import { resolveGuardianContext } from '../guardian-context-resolver.js';
 import type {
   ApprovalConversationGenerator,
@@ -186,6 +197,16 @@ export async function handleChannelInbound(
   const guardianVerifyCode = parseGuardianVerifyCommand(trimmedContent);
   const isGuardianVerifyCommand = guardianVerifyCode !== undefined;
 
+  // /start gv_<token> bootstrap commands must also bypass ACL — the user
+  // hasn't been verified yet and needs to complete the bootstrap handshake.
+  const rawCommandIntentForAcl = sourceMetadata?.commandIntent;
+  const isBootstrapCommand = rawCommandIntentForAcl &&
+    typeof rawCommandIntentForAcl === 'object' &&
+    !Array.isArray(rawCommandIntentForAcl) &&
+    (rawCommandIntentForAcl as Record<string, unknown>).type === 'start' &&
+    typeof (rawCommandIntentForAcl as Record<string, unknown>).payload === 'string' &&
+    ((rawCommandIntentForAcl as Record<string, unknown>).payload as string).startsWith('gv_');
+
   if (body.senderExternalUserId) {
     resolvedMember = findMember({
       assistantId: canonicalAssistantId,
@@ -206,6 +227,21 @@ export async function handleChannelInbound(
           denyNonMember = false;
         } else {
           log.info({ sourceChannel, hasActiveBinding, hasPendingChallenge }, 'Ingress ACL: guardian_verify bypass denied');
+        }
+      }
+
+      // Bootstrap deep-link commands bypass ACL only when the token
+      // resolves to a real pending_bootstrap session. Without this check,
+      // any `/start gv_<garbage>` would bypass the not_a_member gate and
+      // fall through to normal /start processing.
+      if (isBootstrapCommand) {
+        const bootstrapPayload = (rawCommandIntentForAcl as Record<string, unknown>).payload as string;
+        const bootstrapTokenForAcl = bootstrapPayload.slice(3); // strip 'gv_' prefix
+        const bootstrapSessionForAcl = resolveBootstrapToken(canonicalAssistantId, sourceChannel, bootstrapTokenForAcl);
+        if (bootstrapSessionForAcl && bootstrapSessionForAcl.status === 'pending_bootstrap') {
+          denyNonMember = false;
+        } else {
+          log.info({ sourceChannel, hasValidBootstrapSession: false }, 'Ingress ACL: bootstrap command bypass denied — no valid pending_bootstrap session');
         }
       }
 
@@ -463,6 +499,66 @@ export async function handleChannelInbound(
     : undefined;
 
   const replyCallbackUrl = body.replyCallbackUrl;
+
+  // ── Telegram bootstrap deep-link handling ──
+  // Intercept /start gv_<token> commands BEFORE the guardian_verify intercept.
+  // When a user clicks the deep link, Telegram sends /start gv_<token> which
+  // the gateway forwards with commandIntent: { type: 'start', payload: 'gv_<token>' }.
+  // We resolve the bootstrap token, bind the session identity, create a new
+  // identity-bound session with a fresh verification code, send it, and return.
+  if (
+    !result.duplicate &&
+    commandIntent?.type === 'start' &&
+    typeof commandIntent.payload === 'string' &&
+    (commandIntent.payload as string).startsWith('gv_') &&
+    body.senderExternalUserId
+  ) {
+    const bootstrapToken = (commandIntent.payload as string).slice(3);
+    const bootstrapSession = resolveBootstrapToken(canonicalAssistantId, sourceChannel, bootstrapToken);
+
+    if (bootstrapSession && bootstrapSession.status === 'pending_bootstrap') {
+      // Bind the pending_bootstrap session to the sender's identity
+      bindSessionIdentity(bootstrapSession.id, body.senderExternalUserId, externalChatId);
+
+      // Transition bootstrap session to awaiting_response
+      updateSessionStatus(bootstrapSession.id, 'awaiting_response');
+
+      // Create a new identity-bound outbound session with a fresh secret.
+      // The old bootstrap session is auto-revoked by createOutboundSession.
+      const newSession = createOutboundSession({
+        assistantId: canonicalAssistantId,
+        channel: sourceChannel,
+        expectedExternalUserId: body.senderExternalUserId,
+        expectedChatId: externalChatId,
+        identityBindingStatus: 'bound',
+        destinationAddress: externalChatId,
+      });
+
+      // Compose and send the verification code via Telegram
+      const telegramBody = composeVerificationTelegram(
+        GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
+        {
+          code: newSession.secret,
+          expiresInMinutes: Math.floor((newSession.expiresAt - Date.now()) / 60_000),
+        },
+      );
+
+      // Deliver verification Telegram message via the gateway (fire-and-forget)
+      deliverBootstrapVerificationTelegram(externalChatId, telegramBody, canonicalAssistantId);
+
+      // Update delivery tracking
+      const now = Date.now();
+      updateSessionDelivery(newSession.sessionId, now, 1, now + 60_000);
+
+      return Response.json({
+        accepted: true,
+        duplicate: false,
+        eventId: result.eventId,
+        guardianVerification: 'bootstrap_bound',
+      });
+    }
+    // If not found or expired, fall through to normal /start handling
+  }
 
   // ── Guardian verification command intercept ──
   // Validate/consume the challenge synchronously so side effects (member
@@ -1213,6 +1309,48 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
     } catch (err) {
       log.error({ err, conversationId }, 'Approval-aware channel message processing failed');
       channelDeliveryStore.recordProcessingFailure(eventId, err);
+    }
+  })();
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap verification Telegram delivery helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Deliver a verification Telegram message during bootstrap.
+ * Fire-and-forget with error logging.
+ */
+function deliverBootstrapVerificationTelegram(
+  chatId: string,
+  text: string,
+  assistantId: string,
+): void {
+  (async () => {
+    try {
+      const gatewayUrl = getGatewayInternalBaseUrl();
+      const bearerToken = readHttpToken();
+      if (!bearerToken) {
+        log.error('Cannot deliver bootstrap verification Telegram message: no runtime HTTP token available');
+        return;
+      }
+      const url = `${gatewayUrl}/deliver/telegram`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bearerToken}`,
+        },
+        body: JSON.stringify({ chatId, text, assistantId }),
+      });
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => '<unreadable>');
+        log.error({ chatId, assistantId, status: resp.status, body }, 'Gateway /deliver/telegram failed for bootstrap verification');
+      } else {
+        log.info({ chatId, assistantId }, 'Bootstrap verification Telegram message delivered');
+      }
+    } catch (err) {
+      log.error({ err, chatId, assistantId }, 'Failed to deliver bootstrap verification Telegram message');
     }
   })();
 }
