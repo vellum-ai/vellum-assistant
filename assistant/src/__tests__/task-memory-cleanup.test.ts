@@ -212,6 +212,31 @@ describe('invalidateAssistantInferredItemsForConversation', () => {
     expect(otherItem?.invalidAt).toBeNull();
   });
 
+  test('does not invalidate items also sourced from another conversation', () => {
+    seedConversations();
+    seedMessages();
+    seedMemoryItems();
+
+    // Add a second source from the other conversation to the assistant-inferred item.
+    // This simulates deduplication: the same fact was extracted from both conversations.
+    const db = getDb();
+    db.insert(memoryItemSources).values({
+      memoryItemId: 'item-assistant-inferred',
+      messageId: 'msg-other',
+      evidence: 'corroborating source from other conversation',
+      createdAt: now + 40,
+    }).run();
+
+    const affected = invalidateAssistantInferredItemsForConversation(convId);
+
+    // The item has sources from both conversations, so it should NOT be invalidated.
+    expect(affected).toBe(0);
+
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-assistant-inferred')).get();
+    expect(item?.status).toBe('active');
+    expect(item?.invalidAt).toBeNull();
+  });
+
   test('does not affect already-superseded items', () => {
     seedConversations();
     seedMessages();
