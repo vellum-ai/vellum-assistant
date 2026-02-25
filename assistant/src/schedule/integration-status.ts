@@ -11,8 +11,8 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
   { name: 'Gmail', category: 'email', isConnected: () => !!getSecureKey('credential:integration:gmail:access_token') },
   { name: 'Twitter', category: 'social', isConnected: () => !!getSecureKey('credential:integration:twitter:access_token') },
   { name: 'Slack', category: 'messaging', isConnected: () => !!getSecureKey('credential:integration:slack:access_token') },
-  { name: 'SMS', category: 'messaging', isConnected: () => !!getSecureKey('credential:twilio:account_sid') },
-  { name: 'Telegram', category: 'messaging', isConnected: () => !!getSecureKey('credential:telegram:bot_token') },
+  { name: 'SMS', category: 'messaging', isConnected: () => !!getSecureKey('credential:twilio:account_sid') && !!getSecureKey('credential:twilio:auth_token') },
+  { name: 'Telegram', category: 'messaging', isConnected: () => !!getSecureKey('credential:telegram:bot_token') && !!getSecureKey('credential:telegram:webhook_secret') },
 ];
 
 export function getIntegrationSummary(): Array<{ name: string; category: string; connected: boolean }> {

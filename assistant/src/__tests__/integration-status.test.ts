@@ -32,7 +32,9 @@ describe('integration-status', () => {
       secureKeyValues.set('credential:integration:twitter:access_token', 'tok');
       secureKeyValues.set('credential:integration:slack:access_token', 'tok');
       secureKeyValues.set('credential:twilio:account_sid', 'sid');
+      secureKeyValues.set('credential:twilio:auth_token', 'auth');
       secureKeyValues.set('credential:telegram:bot_token', 'tok');
+      secureKeyValues.set('credential:telegram:webhook_secret', 'secret');
 
       const summary = getIntegrationSummary();
       expect(summary.every((s: { connected: boolean }) => s.connected)).toBe(true);
@@ -40,7 +42,9 @@ describe('integration-status', () => {
 
     test('returns mixed status', () => {
       secureKeyValues.set('credential:twilio:account_sid', 'sid');
+      secureKeyValues.set('credential:twilio:auth_token', 'auth');
       secureKeyValues.set('credential:telegram:bot_token', 'tok');
+      secureKeyValues.set('credential:telegram:webhook_secret', 'secret');
 
       const summary = getIntegrationSummary();
       const connected = summary.filter((s: { connected: boolean }) => s.connected);
@@ -49,12 +53,30 @@ describe('integration-status', () => {
       expect(connected.map((s: { name: string }) => s.name)).toEqual(['SMS', 'Telegram']);
       expect(disconnected.map((s: { name: string }) => s.name)).toEqual(['Gmail', 'Twitter', 'Slack']);
     });
+
+    test('SMS disconnected when only account_sid is set (missing auth_token)', () => {
+      secureKeyValues.set('credential:twilio:account_sid', 'sid');
+
+      const summary = getIntegrationSummary();
+      const sms = summary.find((s: { name: string }) => s.name === 'SMS');
+      expect(sms?.connected).toBe(false);
+    });
+
+    test('Telegram disconnected when only bot_token is set (missing webhook_secret)', () => {
+      secureKeyValues.set('credential:telegram:bot_token', 'tok');
+
+      const summary = getIntegrationSummary();
+      const telegram = summary.find((s: { name: string }) => s.name === 'Telegram');
+      expect(telegram?.connected).toBe(false);
+    });
   });
 
   describe('formatIntegrationSummary', () => {
     test('shows checkmarks and crosses', () => {
       secureKeyValues.set('credential:twilio:account_sid', 'sid');
+      secureKeyValues.set('credential:twilio:auth_token', 'auth');
       secureKeyValues.set('credential:telegram:bot_token', 'tok');
+      secureKeyValues.set('credential:telegram:webhook_secret', 'secret');
 
       const result = formatIntegrationSummary();
       expect(result).toBe('Gmail \u2717 | Twitter \u2717 | Slack \u2717 | SMS \u2713 | Telegram \u2713');
@@ -70,7 +92,9 @@ describe('integration-status', () => {
       secureKeyValues.set('credential:integration:twitter:access_token', 'tok');
       secureKeyValues.set('credential:integration:slack:access_token', 'tok');
       secureKeyValues.set('credential:twilio:account_sid', 'sid');
+      secureKeyValues.set('credential:twilio:auth_token', 'auth');
       secureKeyValues.set('credential:telegram:bot_token', 'tok');
+      secureKeyValues.set('credential:telegram:webhook_secret', 'secret');
 
       const result = formatIntegrationSummary();
       expect(result).toBe('Gmail \u2713 | Twitter \u2713 | Slack \u2713 | SMS \u2713 | Telegram \u2713');
@@ -86,7 +110,14 @@ describe('integration-status', () => {
 
     test('returns true when any integration in category is connected', () => {
       secureKeyValues.set('credential:telegram:bot_token', 'tok');
+      secureKeyValues.set('credential:telegram:webhook_secret', 'secret');
       expect(hasCapability('messaging')).toBe(true);
+    });
+
+    test('returns false when only partial credentials exist for category integrations', () => {
+      secureKeyValues.set('credential:telegram:bot_token', 'tok');
+      // Missing webhook_secret — Telegram should not count as connected
+      expect(hasCapability('messaging')).toBe(false);
     });
 
     test('returns false for unknown categories', () => {
