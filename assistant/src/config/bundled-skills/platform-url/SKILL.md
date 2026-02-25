@@ -31,7 +31,7 @@ vellum config set <key> <value>
 
 Examples:
 ```bash
-vellum config set platform.baseUrl "https://dev-platform.vellum.ai"
+vellum config set platform.baseUrl "https://platform.vellum.ai"
 vellum config set provider "openai"
 vellum config set memory.enabled false
 vellum config set maxTokens 8000
