@@ -373,8 +373,11 @@ export interface CreateOutboundSessionResult {
  * Create an outbound verification session with expected identity pre-set.
  * Returns session info including the secret for outbound delivery.
  *
- * All outbound channels (SMS, Telegram, voice) use 6-digit numeric codes
- * for consistency and ease of entry.
+ * Channels where identity is pre-bound (SMS, voice, Telegram with known
+ * chat ID) use 6-digit numeric codes for ease of entry. Unbound bootstrap
+ * sessions (e.g. Telegram handle where identity is not yet known) use
+ * high-entropy 32-byte hex secrets to prevent brute-force guessing during
+ * the TTL window.
  */
 export function createOutboundSession(params: {
   assistantId: string;
@@ -389,7 +392,12 @@ export function createOutboundSession(params: {
   sessionId?: string;
   bootstrapTokenHash?: string;
 }): CreateOutboundSessionResult {
-  const secret = generateVoiceSecret(params.codeDigits ?? 6);
+  // Use high-entropy hex for unbound bootstrap sessions to prevent brute-force;
+  // 6-digit numeric codes are only safe when identity is already bound.
+  const isUnbound = params.identityBindingStatus === 'pending_bootstrap';
+  const secret = isUnbound
+    ? randomBytes(32).toString('hex')
+    : generateVoiceSecret(params.codeDigits ?? 6);
   const challengeHash = hashSecret(secret);
   const sessionId = params.sessionId ?? uuid();
   const expiresAt = Date.now() + CHALLENGE_TTL_MS;

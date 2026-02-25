@@ -522,11 +522,13 @@ function handleStartOutboundTelegram(
 
     const telegramBootstrapUrl = `https://t.me/${botUsername}?start=gv_${bootstrapToken}`;
 
+    // Do not expose the secret in the pending_bootstrap response — the
+    // verification code must not be revealed until identity is bound
+    // through the deep-link bootstrap flow.
     ctx.send(socket, {
       type: 'guardian_verification_response',
       success: true,
       verificationSessionId: sessionResult.sessionId,
-      secret: sessionResult.secret,
       expiresAt: sessionResult.expiresAt,
       telegramBootstrapUrl,
       channel,
