@@ -38,7 +38,7 @@ describe('notification deep-link metadata', () => {
       );
 
       expect(messages).toHaveLength(1);
-      const msg = messages[0] as Record<string, unknown>;
+      const msg = messages[0] as unknown as Record<string, unknown>;
       expect(msg.type).toBe('notification_intent');
       expect(msg.title).toBe('Alert');
       expect(msg.body).toBe('Something happened');
@@ -61,7 +61,7 @@ describe('notification deep-link metadata', () => {
       );
 
       expect(messages).toHaveLength(1);
-      const msg = messages[0] as Record<string, unknown>;
+      const msg = messages[0] as unknown as Record<string, unknown>;
       expect(msg.type).toBe('notification_intent');
       expect(msg.deepLinkMetadata).toBeUndefined();
     });
@@ -80,7 +80,7 @@ describe('notification deep-link metadata', () => {
         { channel: 'vellum' },
       );
 
-      const msg = messages[0] as Record<string, unknown>;
+      const msg = messages[0] as unknown as Record<string, unknown>;
       const metadata = msg.deepLinkMetadata as Record<string, unknown>;
       expect(metadata.conversationId).toBe(conversationId);
     });
@@ -128,7 +128,7 @@ describe('notification deep-link metadata', () => {
         { channel: 'vellum' },
       );
 
-      const msg = messages[0] as Record<string, unknown>;
+      const msg = messages[0] as unknown as Record<string, unknown>;
       expect(msg.sourceEventName).toBe('guardian.question');
     });
 
@@ -149,7 +149,7 @@ describe('notification deep-link metadata', () => {
         { channel: 'vellum' },
       );
 
-      const msg = messages[0] as Record<string, unknown>;
+      const msg = messages[0] as unknown as Record<string, unknown>;
       const metadata = msg.deepLinkMetadata as Record<string, unknown>;
       expect(metadata.conversationId).toBe('conv-task-run-42');
       expect(metadata.workItemId).toBe('work-item-7');

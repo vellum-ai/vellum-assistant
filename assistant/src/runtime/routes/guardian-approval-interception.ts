@@ -24,9 +24,6 @@ import {
 } from '../channel-approvals.js';
 import { deliverChannelReply } from '../gateway-client.js';
 import type {
-  ApprovalDecisionResult,
-} from '../channel-approval-types.js';
-import type {
   ApprovalConversationContext,
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,

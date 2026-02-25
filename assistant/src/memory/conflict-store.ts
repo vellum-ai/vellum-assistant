@@ -188,7 +188,7 @@ export function listPendingConflictDetails(
   const cursorClause = cursor
     ? `AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?))`
     : '';
-  const params: unknown[] = cursor
+  const params: (string | number)[] = cursor
     ? [scopeId, cursor.createdAt, cursor.createdAt, cursor.id, limit]
     : [scopeId, limit];
   const rows = rawAll<ConflictDetailRow>(`
