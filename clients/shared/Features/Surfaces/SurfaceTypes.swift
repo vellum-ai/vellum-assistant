@@ -188,7 +188,7 @@ public struct ListSurfaceData: Sendable {
     }
 }
 
-public struct ConfirmationSurfaceData: Sendable {
+public struct ConfirmationSurfaceData: Sendable, Equatable {
     public let message: String
     public let detail: String?
     public let confirmLabel: String?
