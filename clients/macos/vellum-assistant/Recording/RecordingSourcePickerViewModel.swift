@@ -373,9 +373,16 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                         }
                     }
                     for await (displayId, image, status) in group {
-                        // Discard stale results from a previous generation
-                        guard self.previewGeneration == generation else { return }
-                        guard !Task.isCancelled else { return }
+                        // Discard stale results from a previous generation;
+                        // cancel remaining children so they release semaphore slots promptly
+                        guard self.previewGeneration == generation else {
+                            group.cancelAll()
+                            return
+                        }
+                        guard !Task.isCancelled else {
+                            group.cancelAll()
+                            return
+                        }
                         if let idx = self.displays.firstIndex(where: { $0.id == displayId }) {
                             self.displays[idx].thumbnail = image
                             self.displays[idx].previewStatus = status
@@ -398,8 +405,14 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                         }
                     }
                     for await (windowId, image, status) in group {
-                        guard self.previewGeneration == generation else { return }
-                        guard !Task.isCancelled else { return }
+                        guard self.previewGeneration == generation else {
+                            group.cancelAll()
+                            return
+                        }
+                        guard !Task.isCancelled else {
+                            group.cancelAll()
+                            return
+                        }
                         if let idx = self.windows.firstIndex(where: { $0.id == windowId }) {
                             self.windows[idx].thumbnail = image
                             self.windows[idx].previewStatus = status
