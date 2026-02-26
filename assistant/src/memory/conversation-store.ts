@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 
@@ -385,10 +385,13 @@ export function getMessagesPaginated(
   const conditions = [eq(messages.conversationId, conversationId)];
   if (beforeTimestamp !== undefined) {
     if (beforeMessageId) {
-      // Use lte + ne as a compound cursor: include messages at the same
-      // millisecond but exclude the specific boundary message already seen.
-      conditions.push(lte(messages.createdAt, beforeTimestamp));
-      conditions.push(ne(messages.id, beforeMessageId));
+      // Proper compound cursor: fetch messages that are strictly older, OR
+      // share the same timestamp but have a smaller ID. This avoids both
+      // duplicates and skipped messages when multiple rows share a timestamp.
+      conditions.push(or(
+        lt(messages.createdAt, beforeTimestamp),
+        and(eq(messages.createdAt, beforeTimestamp), lt(messages.id, beforeMessageId)),
+      ));
     } else {
       // Legacy callers without a message ID tie-breaker: use strict lt.
       // This may skip same-millisecond messages at boundaries, but avoids
@@ -404,7 +407,7 @@ export function getMessagesPaginated(
       .select()
       .from(messages)
       .where(and(...conditions))
-      .orderBy(asc(messages.createdAt))
+      .orderBy(asc(messages.createdAt), asc(messages.id))
       .all()
       .map(parseMessage);
     return { messages: rows, hasMore: false };
@@ -415,7 +418,7 @@ export function getMessagesPaginated(
     .select()
     .from(messages)
     .where(and(...conditions))
-    .orderBy(desc(messages.createdAt))
+    .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(limit + 1)
     .all()
     .map(parseMessage);
