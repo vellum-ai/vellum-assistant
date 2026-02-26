@@ -353,3 +353,12 @@ When in doubt, ask: "Am I encoding a judgement that the assistant could make bet
 When touching existing tool-based flows, migrate behavior toward skill-driven CLI usage instead of adding new registered tools.
 
 Reasoning: every registered tool increases model context overhead, while the model can usually learn CLI usage from skills on demand and install missing CLI dependencies when needed.
+
+## Release Update Hygiene
+
+When shipping a release that includes user-facing or assistant-facing changes:
+
+1. **Update the template**: Edit `assistant/src/config/templates/UPDATES.md` with freeform markdown describing what changed and how it affects behavior or capabilities.
+2. **Leave empty for no-op releases**: If the release has no relevant changes, keep the template empty or comment-only (lines starting with `_` are stripped).
+3. **Don't modify workspace files directly**: The workspace `UPDATES.md` is managed by the daemon's startup sync — never edit `~/.vellum/workspace/UPDATES.md` manually.
+4. **Checkpoint keys**: `updates:active_releases` and `updates:completed_releases` in the `memory_checkpoints` table track bulletin lifecycle. Don't manipulate these directly.

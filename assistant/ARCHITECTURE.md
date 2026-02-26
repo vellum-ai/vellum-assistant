@@ -276,6 +276,33 @@ External users who are not the guardian can gain access to the assistant through
 | `src/memory/channel-guardian-store.ts` | Approval request and verification challenge persistence |
 | `src/config/vellum-skills/trusted-contacts/SKILL.md` | Skill teaching the assistant to manage contacts via HTTP API |
 
+### Update Bulletin System
+
+Release-driven update notification system that surfaces release notes to the assistant via the system prompt.
+
+**Data flow:**
+1. **Bundled template** (`src/config/templates/UPDATES.md`) — source of release notes, maintained per-release in the repo.
+2. **Startup sync** (`syncUpdateBulletinOnStartup()` in `src/config/update-bulletin.ts`) — materializes the bundled template into the workspace `UPDATES.md` on daemon boot. Uses atomic write (temp + rename) for crash safety.
+3. **System prompt injection** — `buildSystemPrompt()` reads workspace `UPDATES.md` and injects it as a `## Recent Updates` section with judgment-based handling instructions.
+4. **Completion by deletion** — the assistant deletes `UPDATES.md` when it has actioned all updates. Next startup detects the deletion and marks those releases as completed in checkpoint state.
+5. **Cross-release merge** — if pending updates from a prior release exist when a new release lands, both release blocks coexist in the same file.
+
+**Checkpoint keys** (in `memory_checkpoints` table):
+- `updates:active_releases` — JSON array of version strings currently active.
+- `updates:completed_releases` — JSON array of version strings already completed.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/config/templates/UPDATES.md` | Bundled release-note template |
+| `src/config/update-bulletin.ts` | Startup sync logic (materialize, delete-complete, merge) |
+| `src/config/update-bulletin-format.ts` | Release block formatter/parser helpers |
+| `src/config/update-bulletin-state.ts` | Checkpoint state helpers for active/completed releases |
+| `src/config/system-prompt.ts` | Prompt injection of updates section |
+| `src/daemon/config-watcher.ts` | File watcher — evicts sessions on UPDATES.md changes |
+| `src/permissions/defaults.ts` | Auto-allow rules for file_read/write/edit + rm UPDATES.md |
+
 ---
 
 
