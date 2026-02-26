@@ -547,6 +547,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
   const conversationIds = conversations.map((c) => c.id);
   const bindings = externalConversationStore.getBindingsForConversations(conversationIds);
   const attentionStates = getAttentionStateByConversationIds(conversationIds);
+  const displayMetas = conversationStore.getDisplayMetaForConversations(conversationIds);
   ctx.send(socket, {
     type: 'session_list_response',
     sessions: conversations.map((c) => {
@@ -554,6 +555,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
       const originChannel = parseChannelId(c.originChannel);
       const originInterface = parseInterfaceId(c.originInterface);
       const attn = attentionStates.get(c.id);
+      const displayMeta = displayMetas.get(c.id);
       const assistantAttention = attn ? {
         hasUnseenLatestAssistantMessage: attn.latestAssistantMessageAt != null &&
           (attn.lastSeenAssistantMessageAt == null || attn.lastSeenAssistantMessageAt < attn.latestAssistantMessageAt),
@@ -581,6 +583,8 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
         ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
         ...(originInterface ? { conversationOriginInterface: originInterface } : {}),
         ...(assistantAttention ? { assistantAttention } : {}),
+        ...(displayMeta?.displayOrder != null ? { displayOrder: displayMeta.displayOrder } : {}),
+        ...(displayMeta?.isPinned ? { isPinned: displayMeta.isPinned } : {}),
       };
     }),
     hasMore: offset + conversations.length < totalCount,

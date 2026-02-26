@@ -16,7 +16,7 @@ export function listConversations(limit?: number, includeBackground = false, off
     .select()
     .from(conversations)
     .where(where)
-    .orderBy(desc(conversations.updatedAt))
+    .orderBy(sql`display_order ASC NULLS LAST`, desc(conversations.updatedAt))
     .limit(limit ?? 100)
     .offset(offset);
   return query.all().map(parseConversation);
