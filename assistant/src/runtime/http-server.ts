@@ -48,6 +48,11 @@ import {
 } from './middleware/auth.js';
 import { withErrorHandling } from './middleware/error-handler.js';
 import {
+  apiRateLimiter,
+  rateLimitHeaders,
+  rateLimitResponse,
+} from './middleware/rate-limiter.js';
+import {
   cloneRequestWithBody,
   GATEWAY_ONLY_BLOCKED_SUBPATHS,
   GATEWAY_SUBPATH_MAP,
@@ -368,6 +373,33 @@ export class RuntimeHttpServer {
       }
     }
 
+    // Per-bearer-token rate limiting for /v1/* endpoints
+    if (path.startsWith('/v1/')) {
+      const token = extractBearerToken(req) ?? '__anonymous__';
+      const result = apiRateLimiter.check(token);
+      if (!result.allowed) {
+        return rateLimitResponse(result);
+      }
+      // Attach rate limit headers to the eventual response
+      const originalResponse = await this.handleAuthenticatedRequest(req, url, path);
+      const headers = new Headers(originalResponse.headers);
+      for (const [k, v] of Object.entries(rateLimitHeaders(result))) {
+        headers.set(k, v);
+      }
+      return new Response(originalResponse.body, {
+        status: originalResponse.status,
+        statusText: originalResponse.statusText,
+        headers,
+      });
+    }
+
+    return this.handleAuthenticatedRequest(req, url, path);
+  }
+
+  /**
+   * Handle requests that have already passed auth and rate limiting.
+   */
+  private async handleAuthenticatedRequest(req: Request, url: URL, path: string): Promise<Response> {
     // Pairing registration (bearer-authenticated)
     if (path === '/v1/pairing/register' && req.method === 'POST') {
       return await handlePairingRegister(req, this.pairingContext);
