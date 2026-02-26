@@ -97,6 +97,10 @@ declare -a SAFE_LINE_PATTERNS=(
     # Swift: named argument passing a variable (e.g. `clientSecret: trimmedSecret`)
     # where the line ends with the identifier or has a trailing closing paren.
     "[Cc]lient[Ss]ecret:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*$"
+    # Swift/Kotlin: constant declaration whose value is a camelCase identifier
+    # (e.g. `let archivedSessionsKey = "archivedSessionIds"`).
+    # These are AppStorage / UserDefaults keys, not secrets.
+    "(let|var|val)[[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*[Kk]ey[[:space:]]*=[[:space:]]*['\"][a-zA-Z][a-zA-Z]*['\"]"
     # AWS well-known example key used in documentation
     "AKIAIOSFODNN7EXAMPLE"
 )
