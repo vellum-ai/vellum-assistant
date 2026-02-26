@@ -287,6 +287,12 @@ describe('buildSystemPrompt', () => {
     expect(result).not.toContain('### Update Handling');
   });
 
+  test('config section lists UPDATES.md', () => {
+    const result = buildSystemPrompt();
+    expect(result).toContain('`UPDATES.md`');
+    expect(result).toContain('Release update notes');
+  });
+
   test('strips comment lines starting with _ from prompt files', () => {
     writeFileSync(
       join(TEST_DIR, 'IDENTITY.md'),
