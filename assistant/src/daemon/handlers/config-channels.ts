@@ -24,6 +24,7 @@ import { startGuardianVerificationCall } from '../../calls/call-domain.js';
 import { sendMessage as sendSms } from '../../messaging/providers/sms/client.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { normalizePhoneNumber } from '../../util/phone.js';
 import { normalizeAssistantId, readHttpToken } from '../../util/platform.js';
 import type { ChannelId } from '../../channels/types.js';
 import type {
@@ -67,17 +68,6 @@ export function getReadinessService(): ChannelReadinessService {
     _readinessService = createReadinessService();
   }
   return _readinessService;
-}
-
-// ---------------------------------------------------------------------------
-// E.164 validation
-// ---------------------------------------------------------------------------
-
-/**
- * Basic E.164 phone number validation: starts with +, followed by 10-15 digits.
- */
-function isValidE164(phone: string): boolean {
-  return /^\+\d{10,15}$/.test(phone);
 }
 
 // ---------------------------------------------------------------------------
@@ -305,8 +295,8 @@ function handleStartOutboundSms(
   channel: ChannelId,
 ): void {
   // Validate destination
-  const destination = msg.destination;
-  if (!destination) {
+  const rawDestination = msg.destination;
+  if (!rawDestination) {
     ctx.send(socket, {
       type: 'guardian_verification_response',
       success: false,
@@ -317,12 +307,14 @@ function handleStartOutboundSms(
     return;
   }
 
-  if (!isValidE164(destination)) {
+  // Normalize loose phone formats (e.g. "(555) 123-4567") to E.164
+  const destination = normalizePhoneNumber(rawDestination);
+  if (!destination) {
     ctx.send(socket, {
       type: 'guardian_verification_response',
       success: false,
       error: 'invalid_destination',
-      message: 'Destination must be a valid E.164 phone number (e.g. +15551234567).',
+      message: 'Could not parse phone number. Please enter a valid number (e.g. +15551234567, (555) 123-4567, or 555-123-4567).',
       channel,
     });
     return;
@@ -543,8 +535,8 @@ function handleStartOutboundVoice(
   assistantId: string,
   channel: ChannelId,
 ): void {
-  const destination = msg.destination;
-  if (!destination) {
+  const rawDestination = msg.destination;
+  if (!rawDestination) {
     ctx.send(socket, {
       type: 'guardian_verification_response',
       success: false,
@@ -555,12 +547,14 @@ function handleStartOutboundVoice(
     return;
   }
 
-  if (!isValidE164(destination)) {
+  // Normalize loose phone formats (e.g. "555-123-4567") to E.164
+  const destination = normalizePhoneNumber(rawDestination);
+  if (!destination) {
     ctx.send(socket, {
       type: 'guardian_verification_response',
       success: false,
       error: 'invalid_destination',
-      message: 'Destination must be a valid E.164 phone number (e.g. +15551234567).',
+      message: 'Could not parse phone number. Please enter a valid number (e.g. +15551234567, (555) 123-4567, or 555-123-4567).',
       channel,
     });
     return;
