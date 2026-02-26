@@ -6,17 +6,25 @@ const DEFAULT_MAX_REQUESTS = 60;
 const DEFAULT_WINDOW_MS = 60_000; // 60 seconds
 const MAX_TRACKED_TOKENS = 10_000;
 
+// Lower limit for unauthenticated (IP-based) requests to reduce abuse surface.
+const DEFAULT_IP_MAX_REQUESTS = 20;
+const DEFAULT_IP_WINDOW_MS = 60_000;
+const MAX_TRACKED_IPS = 50_000;
+
 export class TokenRateLimiter {
   private requests = new Map<string, number[]>();
   private readonly maxRequests: number;
   private readonly windowMs: number;
+  private readonly maxTrackedKeys: number;
 
   constructor(
     maxRequests = DEFAULT_MAX_REQUESTS,
     windowMs = DEFAULT_WINDOW_MS,
+    maxTrackedKeys = MAX_TRACKED_TOKENS,
   ) {
     this.maxRequests = maxRequests;
     this.windowMs = windowMs;
+    this.maxTrackedKeys = maxTrackedKeys;
   }
 
   /**
@@ -28,9 +36,9 @@ export class TokenRateLimiter {
     let timestamps = this.requests.get(token);
 
     if (!timestamps) {
-      if (this.requests.size >= MAX_TRACKED_TOKENS) {
+      if (this.requests.size >= this.maxTrackedKeys) {
         this.evictStale(now);
-        if (this.requests.size >= MAX_TRACKED_TOKENS) {
+        if (this.requests.size >= this.maxTrackedKeys) {
           const oldest = this.requests.keys().next().value;
           if (oldest !== undefined) this.requests.delete(oldest);
         }
@@ -115,5 +123,30 @@ export function rateLimitResponse(result: RateLimitResult): Response {
   );
 }
 
-/** Singleton rate limiter for the runtime HTTP API. */
+/** Singleton rate limiter for the runtime HTTP API (per-bearer-token). */
 export const apiRateLimiter = new TokenRateLimiter();
+
+/** Singleton rate limiter for unauthenticated requests (per-IP, lower limits). */
+export const ipRateLimiter = new TokenRateLimiter(DEFAULT_IP_MAX_REQUESTS, DEFAULT_IP_WINDOW_MS, MAX_TRACKED_IPS);
+
+/**
+ * Extract the client IP from a request, checking proxy headers first.
+ * Falls back to the Bun server's requestIP() for the actual peer address.
+ */
+export function extractClientIp(
+  req: Request,
+  server: { requestIP(req: Request): { address: string } | null },
+): string {
+  // X-Forwarded-For can contain a comma-separated list; the leftmost is the original client.
+  const forwarded = req.headers.get('x-forwarded-for');
+  if (forwarded) {
+    const first = forwarded.split(',')[0].trim();
+    if (first) return first;
+  }
+
+  const realIp = req.headers.get('x-real-ip');
+  if (realIp) return realIp.trim();
+
+  const peerIp = server.requestIP(req);
+  return peerIp?.address ?? '0.0.0.0';
+}
