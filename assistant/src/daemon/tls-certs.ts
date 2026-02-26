@@ -151,13 +151,13 @@ export async function ensureTlsCert(): Promise<{ cert: string; key: string; fing
     throw new Error(`Failed to generate TLS key: ${stderr}`);
   }
 
-  // Generate self-signed cert (10-year validity)
+  // Generate self-signed cert (1-year validity)
   const certProc = Bun.spawn(
     [
       'openssl', 'req', '-new', '-x509',
       '-key', keyPath,
       '-out', certPath,
-      '-days', '3650',
+      '-days', '365',
       '-subj', '/CN=Vellum Daemon',
     ],
     { stdout: 'pipe', stderr: 'pipe' },
