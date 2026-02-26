@@ -10,41 +10,23 @@ The user may pass `$ARGUMENTS` as the bump type: `patch`, `minor`, or `major`. I
 git checkout main && git pull
 ```
 
-### 2. Determine the bump + next version
+### 2. Determine the bump type
 
 If the user provided `$ARGUMENTS`, treat it as the bump type (`patch`, `minor`, or `major`). Otherwise default to `patch`.
 
-Compute the next version from the latest tag:
+Validate + show what you're about to do and ask for confirmation before proceeding:
 
 ```bash
 BUMP_TYPE="${ARGUMENTS:-patch}"
-LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-LATEST_VERSION=${LATEST_TAG#v}
-IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
-
 case "$BUMP_TYPE" in
-  major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-  minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-  patch) PATCH=$((PATCH + 1)) ;;
+  patch|minor|major) ;;
   *) echo "Invalid bump type: $BUMP_TYPE (expected patch|minor|major)"; exit 1 ;;
 esac
 
-NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-
-echo "About to release v$NEXT_VERSION (bump: $BUMP_TYPE, previous: $LATEST_TAG)"
+echo "About to trigger a $BUMP_TYPE release bump"
 ```
 
-Ask for confirmation before proceeding.
-
-### 3. Check for existing tag
-
-```bash
-git tag -l "v<version>"
-```
-
-If the tag already exists, stop and tell the user.
-
-### 4. Trigger the Release workflow
+### 3. Trigger the Release workflow
 
 ```bash
 gh workflow run release.yml \
@@ -62,7 +44,7 @@ This triggers the unified Release workflow which automatically handles:
 - Creating GitHub Releases on both `vellum-ai/vellum-assistant` and `vellum-ai/velly`
 - Updating the `vellum-assistant-platform` dependency
 
-### 5. Verify the workflow started
+### 4. Verify the workflow started
 
 ```bash
 gh run list --repo vellum-ai/vellum-assistant --workflow="Release" --limit 1
@@ -70,9 +52,9 @@ gh run list --repo vellum-ai/vellum-assistant --workflow="Release" --limit 1
 
 Confirm the workflow was triggered.
 
-### 6. Report
+### 5. Report
 
 Output:
-- The version number
+- The version number (from the workflow output)
 - A link to the running workflow
 - Remind the user that the full release pipeline takes ~15-20 minutes and will auto-publish everything when done
