@@ -720,7 +720,7 @@ final class ScreenRecorder: NSObject {
                                 sourceWidth: telemetrySourceWidth,
                                 sourceHeight: telemetrySourceHeight,
                                 configLabel: encodeConfig.label,
-                                message: typedError.localizedDescription ?? reason
+                                message: typedError.localizedDescription
                             )
                             throw typedError
                         default:
@@ -945,7 +945,7 @@ final class ScreenRecorder: NSObject {
         // Propagate the typed error (e.g. permission denied, source unavailable)
         // instead of collapsing it to the generic .noFramesReceived path.
         if let streamError = pendingStreamError {
-            log.warning("Startup attempt failed with stream error for config '\(encodeConfig.label, privacy: .public)': \(streamError.localizedDescription ?? "unknown", privacy: .public)")
+            log.warning("Startup attempt failed with stream error for config '\(encodeConfig.label, privacy: .public)': \(streamError.localizedDescription, privacy: .public)")
             // handleStreamError already cleaned up writer/stream/file — just
             // clean up the output file if it wasn't already removed.
             try? FileManager.default.removeItem(at: outputURL)
