@@ -116,9 +116,19 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
     );
   }
   if (updates) {
-    parts.push(
-      '## Recent Updates\n\n' + updates,
-    );
+    parts.push([
+      '## Recent Updates',
+      '',
+      updates,
+      '',
+      '### Update Handling',
+      '',
+      'Use your judgment to decide when and how to surface updates to the user:',
+      '- Inform the user about updates that are relevant to what they are doing or asking about.',
+      '- Apply assistant-relevant changes (e.g., new tools, behavior adjustments) without forced announcement.',
+      '- Do not interrupt the user with updates unprompted — weave them naturally into conversation when relevant.',
+      '- When you are satisfied all updates have been actioned or communicated, delete `UPDATES.md` to signal completion.',
+    ].join('\n'));
   }
   parts.push(buildConfigSection());
   parts.push(buildPostToolResponseSection());
