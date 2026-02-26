@@ -851,26 +851,29 @@ struct MainWindowView: View {
             }
         }) {
             HStack(spacing: VSpacing.xs) {
-                // Leading icon: spinner (busy) > pin indicator (pinned) > unseen dot > spacer
+                // Leading icon: spinner (busy) > amber unread dot > pin icon > spacer
                 // The interactive pin button is in .overlay(alignment: .leading) below
                 // to avoid nesting a Button inside this outer Button's label.
+                // When hovered, the amber dot swaps to the pin icon (and back on hover-out).
                 if isBusy {
                     ProgressView()
                         .controlSize(.small)
                         .frame(width: 20, height: 20)
-                } else if thread.isPinned && !isHovered {
-                    Image(systemName: "pin.fill")
+                } else if thread.hasUnseenLatestAssistantMessage && !isHovered {
+                    Circle()
+                        .fill(Amber._500)
+                        .frame(width: 8, height: 8)
+                        .frame(width: 20, height: 20)
+                        .transition(.opacity)
+                } else if isHovered || thread.isPinned {
+                    Image(systemName: thread.isPinned ? "pin.fill" : "pin")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(VColor.textMuted)
                         .rotationEffect(.degrees(-45))
                         .frame(width: 20, height: 20)
                         .background(VColor.backgroundSubtle)
                         .clipShape(Circle())
-                } else if thread.hasUnseenLatestAssistantMessage {
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: 8, height: 8)
-                        .frame(width: 20, height: 20)
+                        .transition(.opacity)
                 } else {
                     Color.clear
                         .frame(width: 20, height: 20)
@@ -904,6 +907,7 @@ struct MainWindowView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
+            .animation(VAnimation.fast, value: isHovered)
         }
         .buttonStyle(.plain)
         .overlay(alignment: .leading) {
