@@ -27,6 +27,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     sessionId: 'sess-001',
     content: 'Hello, assistant!',
     interface: 'cli',
+    commandIntent: { domain: 'screen_recording', action: 'start' },
   },
   confirmation_response: {
     type: 'confirmation_response',
@@ -153,6 +154,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     task: 'Open Safari and search for weather',
     screenWidth: 1920,
     screenHeight: 1080,
+    commandIntent: { domain: 'screen_recording', action: 'start' },
   },
   ui_surface_action: {
     type: 'ui_surface_action',
