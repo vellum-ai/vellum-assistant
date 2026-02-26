@@ -148,9 +148,16 @@ private isValidToken(provided: string): boolean {
   return false;
 }
 
-// Routine rotation: set grace period, emit event
+// Persist token to disk before updating in-memory auth state.
+// If disk write fails, in-memory state is unchanged — clients
+// keep using the old token and are never locked out.
 private rotateToken(revoke: boolean): string {
   const newToken = generateToken();
+
+  // Step 1: persist to disk first — if this throws, auth state is untouched
+  writeTokenToDisk(newToken);
+
+  // Step 2: update in-memory auth state (only after disk success)
   if (revoke) {
     // Revocation: immediate invalidation, no SSE push
     this.currentToken = newToken;
@@ -164,7 +171,6 @@ private rotateToken(revoke: boolean): string {
     this.graceDeadline = Date.now() + GRACE_PERIOD_MS;
     this.emitTokenRotatedEvent(newToken, this.graceDeadline);
   }
-  writeTokenToDisk(newToken);
   return newToken;
 }
 ```
