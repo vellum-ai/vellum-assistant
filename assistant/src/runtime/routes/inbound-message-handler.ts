@@ -1212,7 +1212,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           },
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
-          isInteractive: true,
+          isInteractive: guardianCtx.actorRole === 'guardian',
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,

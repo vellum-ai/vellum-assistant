@@ -2555,7 +2555,15 @@ describe('non-decision status reply for different channels', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('background channel processing approval prompts', () => {
-  test('marks channel turns interactive and delivers approval prompt when confirmation is pending', async () => {
+  test('marks guardian channel turns interactive and delivers approval prompt when confirmation is pending', async () => {
+    // Set up a guardian binding so the sender is recognized as a guardian
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
+
     const deliverPromptSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
     const processCalls: Array<{ options?: Record<string, unknown> }> = [];
 
@@ -2597,5 +2605,44 @@ describe('background channel processing approval prompts', () => {
     expect(approvalMeta?.requestId).toBe('req-bg-1');
 
     deliverPromptSpy.mockRestore();
+  });
+
+  test('non-guardian channel turns are not interactive to prevent self-approval', async () => {
+    // Set up a guardian binding for a DIFFERENT user so the sender is non-guardian
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-other',
+      guardianDeliveryChatId: 'guardian-chat-other',
+    });
+
+    const processCalls: Array<{ options?: Record<string, unknown> }> = [];
+
+    const processMessage = mock(async (
+      _conversationId: string,
+      _content: string,
+      _attachmentIds?: string[],
+      options?: Record<string, unknown>,
+    ) => {
+      processCalls.push({ options });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { messageId: 'msg-ng-1' };
+    });
+
+    const req = makeInboundRequest({
+      content: 'run something',
+      sourceChannel: 'telegram',
+      replyCallbackUrl: 'https://gateway.test/deliver/telegram',
+      externalMessageId: 'msg-ng-1',
+    });
+
+    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage, 'token');
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(processCalls.length).toBeGreaterThan(0);
+    expect(processCalls[0].options?.isInteractive).toBe(false);
   });
 });
