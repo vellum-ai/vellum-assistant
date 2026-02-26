@@ -325,7 +325,7 @@ public final class ChatViewModel: ObservableObject {
     /// `@Published messages` array.  Coalescing multiple token deltas
     /// into a single array mutation dramatically reduces SwiftUI
     /// view-graph invalidation frequency during streaming.
-    static let streamingFlushInterval: TimeInterval = 0.05 // 50 ms
+    static let streamingFlushInterval: TimeInterval = 0.1 // 100 ms
 
     /// Buffered text that has not yet been flushed to `messages`.
     var streamingDeltaBuffer: String = ""
