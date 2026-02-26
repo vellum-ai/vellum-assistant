@@ -570,7 +570,7 @@ struct SettingsParentalTab: View {
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
                 VButton(label: "Clear Log", style: .danger) {
-                    settingsStore.clearActivityLogEntries()
+                    settingsStore.clearActivityLogEntries(pin: unlockedPIN)
                 }
                 .accessibilityLabel("Clear activity log")
                 .disabled(settingsStore.activityLog.isEmpty)

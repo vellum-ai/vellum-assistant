@@ -3045,8 +3045,8 @@ public typealias ParentalActivityLogListResponseMessage = IPCParentalActivityLog
 public typealias ParentalActivityLogClearRequestMessage = IPCParentalActivityLogClearRequest
 
 extension IPCParentalActivityLogClearRequest {
-    public init() {
-        self.init(type: "parental_activity_log_clear")
+    public init(pin: String? = nil) {
+        self.init(type: "parental_activity_log_clear", pin: pin)
     }
 }
 

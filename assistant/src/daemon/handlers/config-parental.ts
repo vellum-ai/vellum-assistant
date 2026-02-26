@@ -439,10 +439,25 @@ export function handleParentalActivityLogList(
 }
 
 export function handleParentalActivityLogClear(
-  _msg: ParentalActivityLogClearRequest,
+  msg: ParentalActivityLogClearRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
+  const settings = getParentalControlSettings();
+  const pinExists = hasPIN();
+
+  // Require PIN verification when parental controls are enabled and a PIN is set,
+  // consistent with other mutating parental-control handlers.
+  if (settings.enabled && pinExists) {
+    if (!msg.pin || !verifyPIN(msg.pin)) {
+      ctx.send(socket, {
+        type: 'parental_activity_log_clear_response',
+        success: false,
+      });
+      return;
+    }
+  }
+
   try {
     clearActivityLog();
     ctx.send(socket, {

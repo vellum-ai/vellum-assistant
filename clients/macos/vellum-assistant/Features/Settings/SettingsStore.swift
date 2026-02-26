@@ -1818,11 +1818,12 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Clear all activity log entries on both daemon and local state.
-    func clearActivityLogEntries() {
+    /// `pin` must be provided when parental controls are enabled and a PIN is set.
+    func clearActivityLogEntries(pin: String? = nil) {
         guard let daemonClient else { return }
         Task {
             do {
-                try daemonClient.sendParentalActivityLogClear()
+                try daemonClient.sendParentalActivityLogClear(pin: pin)
             } catch {
                 log.error("Failed to send parental_activity_log_clear: \(error)")
             }

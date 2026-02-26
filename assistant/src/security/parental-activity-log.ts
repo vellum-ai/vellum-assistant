@@ -74,7 +74,10 @@ export function appendActivityLogEntry(
 
   const entries = readLog();
   entries.push(full);
-  writeLog(entries);
+  // Cap the log to prevent unbounded disk/memory growth.
+  const MAX_ENTRIES = 10_000;
+  const trimmed = entries.length > MAX_ENTRIES ? entries.slice(entries.length - MAX_ENTRIES) : entries;
+  writeLog(trimmed);
   log.debug({ id: full.id, actionType: full.actionType }, 'Activity log entry appended');
   return full;
 }

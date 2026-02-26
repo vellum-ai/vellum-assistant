@@ -232,6 +232,8 @@ export interface ParentalActivityLogListResponse {
 /** mac → daemon: clear all activity log entries. */
 export interface ParentalActivityLogClearRequest {
   type: 'parental_activity_log_clear';
+  /** PIN required when parental controls are enabled and a PIN is set. */
+  pin?: string;
 }
 
 /** daemon → mac: confirmation that the log was cleared. */

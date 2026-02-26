@@ -1024,6 +1024,8 @@ extension ChatViewModel {
             // Flush buffered text so it lands before the tool call in content order.
             flushStreamingBuffer()
             lastToolUseReceivedAt = Date()
+            // Record the tool use in the parental activity log when in child profile.
+            onChildActivity?("tool_call", "Tool used: \(msg.toolName)")
             // Suppress ToolCallChip for ui_show — the inline surface widget replaces it.
             if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" || msg.toolName == "request_file" {
                 break

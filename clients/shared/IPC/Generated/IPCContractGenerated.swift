@@ -3138,9 +3138,12 @@ public struct IPCParentalActivityLogAppendRequest: Codable, Sendable {
 /// mac → daemon: clear all activity log entries.
 public struct IPCParentalActivityLogClearRequest: Codable, Sendable {
     public let type: String
+    /// PIN required when parental controls are enabled and a PIN is set.
+    public let pin: String?
 
-    public init(type: String) {
+    public init(type: String, pin: String? = nil) {
         self.type = type
+        self.pin = pin
     }
 }
 

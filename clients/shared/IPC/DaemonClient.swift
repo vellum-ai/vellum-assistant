@@ -1504,9 +1504,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ParentalActivityLogListRequestMessage())
     }
 
-    /// Clear all activity log entries.
-    public func sendParentalActivityLogClear() throws {
-        try send(ParentalActivityLogClearRequestMessage())
+    /// Clear all activity log entries. PIN is required when parental controls are enabled and a PIN is set.
+    public func sendParentalActivityLogClear(pin: String? = nil) throws {
+        try send(ParentalActivityLogClearRequestMessage(pin: pin))
     }
 
     // MARK: - Heartbeat
