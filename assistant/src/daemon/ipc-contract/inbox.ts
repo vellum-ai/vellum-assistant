@@ -1,4 +1,4 @@
-// Ingress access control: invite management and member management.
+// Ingress access control: invite management, member management, and escalation decisions.
 
 // === Client → Server ===
 
@@ -47,6 +47,21 @@ export interface IngressMemberRequest {
   /** Member ID (revoke and block only). */
   memberId?: string;
   /** Reason for revoke or block (revoke and block only). */
+  reason?: string;
+}
+
+export interface AssistantInboxEscalationRequest {
+  type: 'assistant_inbox_escalation';
+  action: 'list' | 'decide';
+  /** Filter by assistant ID (list only). */
+  assistantId?: string;
+  /** Filter by status (list only). */
+  status?: string;
+  /** Approval request ID (required for decide). */
+  approvalRequestId?: string;
+  /** Decision (required for decide). */
+  decision?: 'approve' | 'deny';
+  /** Reason for the decision (decide only). */
   reason?: string;
 }
 
@@ -115,12 +130,38 @@ export interface IngressMemberResponse {
   }>;
 }
 
+export interface AssistantInboxEscalationResponse {
+  type: 'assistant_inbox_escalation_response';
+  success: boolean;
+  error?: string;
+  /** List of escalations (returned on list). */
+  escalations?: Array<{
+    id: string;
+    runId: string;
+    conversationId: string;
+    channel: string;
+    requesterExternalUserId: string;
+    requesterChatId: string;
+    status: string;
+    requestSummary?: string;
+    createdAt: number;
+  }>;
+  /** Decision result (returned on decide). */
+  decision?: {
+    id: string;
+    status: string;
+    decidedAt: number;
+  };
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _InboxClientMessages =
   | IngressInviteRequest
-  | IngressMemberRequest;
+  | IngressMemberRequest
+  | AssistantInboxEscalationRequest;
 
 export type _InboxServerMessages =
   | IngressInviteResponse
-  | IngressMemberResponse;
+  | IngressMemberResponse
+  | AssistantInboxEscalationResponse;
