@@ -24,8 +24,9 @@ import {
   startFollowupFromExpiredRequest,
 } from '../memory/guardian-action-store.js';
 import { processGuardianFollowUpTurn } from '../runtime/guardian-action-conversation-turn.js';
+import { executeFollowupAction } from '../runtime/guardian-action-followup-executor.js';
 import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
-import type { GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
+import type { GuardianActionCopyGenerator, GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
 import { extractPreferences } from '../notifications/preference-extractor.js';
 import { createPreference } from '../notifications/preferences-store.js';
 import type { Message } from '../providers/types.js';
@@ -48,10 +49,16 @@ const log = getLogger('session-process');
 // mac/IPC channel path can classify follow-up replies without threading the
 // generator through Session / DaemonServer constructors.
 let _guardianFollowUpGenerator: GuardianFollowUpConversationGenerator | undefined;
+let _guardianActionCopyGenerator: GuardianActionCopyGenerator | undefined;
 
 /** Inject the guardian follow-up conversation generator (called from lifecycle.ts). */
 export function setGuardianFollowUpConversationGenerator(gen: GuardianFollowUpConversationGenerator): void {
   _guardianFollowUpGenerator = gen;
+}
+
+/** Inject the guardian action copy generator (called from lifecycle.ts). */
+export function setGuardianActionCopyGenerator(gen: GuardianActionCopyGenerator): void {
+  _guardianActionCopyGenerator = gen;
 }
 
 /** Build a model_info event with fresh config data. */
@@ -522,6 +529,34 @@ export async function processMessage(
       session.messages.push(replyMsg);
       onEvent({ type: 'assistant_text_delta', text: turnResult.replyText });
       onEvent({ type: 'message_complete', sessionId: session.conversationId });
+
+      // Execute the action and send a completion/failure message (fire-and-forget).
+      // The initial reply above acknowledges the guardian's choice; the executor
+      // carries out the actual call_back or message_back and posts a second message.
+      if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
+        void (async () => {
+          try {
+            const execResult = await executeFollowupAction(
+              followupRequest.id,
+              turnResult.disposition as 'call_back' | 'message_back',
+              _guardianActionCopyGenerator,
+            );
+            const completionMsg = createAssistantMessage(execResult.guardianReplyText);
+            conversationStore.addMessage(
+              session.conversationId,
+              'assistant',
+              JSON.stringify(completionMsg.content),
+              guardianChannelMeta,
+            );
+            session.messages.push(completionMsg);
+            onEvent({ type: 'assistant_text_delta', text: execResult.guardianReplyText });
+            onEvent({ type: 'message_complete', sessionId: session.conversationId });
+          } catch (execErr) {
+            log.error({ err: execErr, requestId: followupRequest.id }, 'Follow-up action execution or completion message failed');
+          }
+        })();
+      }
+
       return persisted.id;
     }
   }

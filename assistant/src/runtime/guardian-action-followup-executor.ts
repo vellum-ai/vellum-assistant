@@ -1,0 +1,301 @@
+/**
+ * Guardian action follow-up executor.
+ *
+ * After the conversation engine (M5) classifies the guardian's reply as
+ * `call_back` or `message_back` and transitions the follow-up state to
+ * `dispatching`, this module executes the actual action:
+ *
+ *   - **message_back**: Generates outbound SMS text and sends it to the
+ *     counterparty phone number via the gateway's /deliver/sms endpoint.
+ *   - **call_back**: Starts an outbound call to the counterparty with
+ *     context about the guardian's answer.
+ *
+ * The executor resolves the counterparty from the original call session,
+ * dispatches the appropriate action, and returns a result with generated
+ * reply text for the guardian's confirmation message.
+ *
+ * This module is channel-agnostic: both inbound-message-handler (Telegram,
+ * SMS channels) and session-process (mac/IPC channel) use it.
+ */
+
+import { startCall } from '../calls/call-domain.js';
+import { getCallSession } from '../calls/call-store.js';
+import { getGatewayInternalBaseUrl } from '../config/env.js';
+import { getOrCreateConversation } from '../memory/conversation-key-store.js';
+import {
+  finalizeFollowup,
+  getGuardianActionRequest,
+  type FollowupAction,
+  type GuardianActionRequest,
+} from '../memory/guardian-action-store.js';
+import { getLogger } from '../util/logger.js';
+import { readHttpToken } from '../util/platform.js';
+import { deliverChannelReply } from './gateway-client.js';
+import { composeGuardianActionMessageGenerative } from './guardian-action-message-composer.js';
+import type { GuardianActionCopyGenerator } from './http-types.js';
+
+const log = getLogger('guardian-action-followup-executor');
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface CounterpartyInfo {
+  phoneNumber: string;
+  /** Human-readable identifier (phone number or name if available). */
+  displayIdentifier: string;
+}
+
+export type FollowupExecutionResult =
+  | { ok: true; action: FollowupAction; guardianReplyText: string }
+  | { ok: false; action: FollowupAction; guardianReplyText: string; error: string };
+
+// ---------------------------------------------------------------------------
+// Counterparty resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the counterparty (the external person who called in) from the
+ * original call session. For inbound calls, the counterparty is fromNumber.
+ * For outbound calls initiated by the assistant, the counterparty is toNumber.
+ *
+ * Heuristic: if the call session's assistant owns the toNumber (typical for
+ * inbound calls where toNumber = Twilio number), the counterparty is
+ * fromNumber. Otherwise (outbound calls), the counterparty is toNumber.
+ * Since guardian action requests always originate from inbound voice calls
+ * (callers asking questions that need guardian approval), the counterparty
+ * is reliably the fromNumber.
+ */
+export function resolveCounterparty(callSessionId: string): CounterpartyInfo | null {
+  const session = getCallSession(callSessionId);
+  if (!session) {
+    log.warn({ callSessionId }, 'Cannot resolve counterparty: call session not found');
+    return null;
+  }
+
+  // Guardian action requests come from inbound calls where fromNumber is the
+  // external caller. This is the person we want to call back or message.
+  const phoneNumber = session.fromNumber;
+  if (!phoneNumber) {
+    log.warn({ callSessionId }, 'Cannot resolve counterparty: no fromNumber on call session');
+    return null;
+  }
+
+  return {
+    phoneNumber,
+    displayIdentifier: phoneNumber,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Action dispatchers
+// ---------------------------------------------------------------------------
+
+/**
+ * Send an SMS to the counterparty with the guardian's answer context.
+ * Uses the gateway's /deliver/sms endpoint (same path as the SMS notification adapter).
+ */
+async function executeMessageBack(
+  request: GuardianActionRequest,
+  counterparty: CounterpartyInfo,
+  generator?: GuardianActionCopyGenerator,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    // Generate the outbound SMS text using the composer
+    const messageText = await composeGuardianActionMessageGenerative(
+      {
+        scenario: 'outbound_message_copy',
+        questionText: request.questionText,
+        lateAnswerText: request.lateAnswerText ?? undefined,
+        callerIdentifier: counterparty.displayIdentifier,
+      },
+      {},
+      generator,
+    );
+
+    const gatewayBase = getGatewayInternalBaseUrl();
+    const deliverUrl = `${gatewayBase}/deliver/sms`;
+    const bearerToken = readHttpToken() ?? undefined;
+
+    await deliverChannelReply(
+      deliverUrl,
+      {
+        chatId: counterparty.phoneNumber,
+        text: messageText,
+        assistantId: request.assistantId,
+      },
+      bearerToken,
+    );
+
+    log.info(
+      { requestId: request.id, counterpartyPhone: counterparty.phoneNumber },
+      'Follow-up message_back SMS sent successfully',
+    );
+
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(
+      { err, requestId: request.id, counterpartyPhone: counterparty.phoneNumber },
+      'Failed to send follow-up message_back SMS',
+    );
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * Start an outbound call to the counterparty with context about the
+ * guardian's answer. Uses the existing call start domain flow.
+ */
+async function executeCallBack(
+  request: GuardianActionRequest,
+  counterparty: CounterpartyInfo,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const task = request.lateAnswerText
+      ? `Call back regarding a question that was asked earlier: "${request.questionText}". The guardian has provided an answer: "${request.lateAnswerText}". Relay this answer to the person.`
+      : `Call back regarding a question that was asked earlier: "${request.questionText}". The guardian wants to follow up with them.`;
+
+    const callbackContext = [
+      `This is a follow-up callback. The person called earlier and asked: "${request.questionText}".`,
+      request.lateAnswerText ? `The guardian's answer is: "${request.lateAnswerText}".` : null,
+      'Relay this information naturally and ask if they need anything else.',
+    ].filter(Boolean).join(' ');
+
+    // Create a conversation for the callback call
+    const convKey = `followup-callback:${request.id}`;
+    const { conversationId } = getOrCreateConversation(convKey);
+
+    const result = await startCall({
+      phoneNumber: counterparty.phoneNumber,
+      task,
+      context: callbackContext,
+      conversationId,
+      assistantId: request.assistantId,
+    });
+
+    if (!result.ok) {
+      log.warn(
+        { requestId: request.id, error: result.error },
+        'Failed to start follow-up callback call',
+      );
+      return { ok: false, error: result.error };
+    }
+
+    log.info(
+      { requestId: request.id, callSessionId: result.session.id, counterpartyPhone: counterparty.phoneNumber },
+      'Follow-up call_back initiated successfully',
+    );
+
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(
+      { err, requestId: request.id, counterpartyPhone: counterparty.phoneNumber },
+      'Failed to start follow-up callback call',
+    );
+    return { ok: false, error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Execute a follow-up action after the conversation engine has classified
+ * the guardian's intent as call_back or message_back and the follow-up
+ * state has been transitioned to `dispatching`.
+ *
+ * On success: finalizes the follow-up to `completed` and returns
+ * generated confirmation text for the guardian.
+ *
+ * On failure: finalizes the follow-up to `failed` and returns
+ * generated error text for the guardian.
+ */
+export async function executeFollowupAction(
+  requestId: string,
+  action: FollowupAction,
+  generator?: GuardianActionCopyGenerator,
+): Promise<FollowupExecutionResult> {
+  const request = getGuardianActionRequest(requestId);
+  if (!request) {
+    const errorText = await composeGuardianActionMessageGenerative(
+      { scenario: 'followup_action_failed', failureReason: 'The follow-up request could not be found.' },
+      {},
+      generator,
+    );
+    return { ok: false, action, guardianReplyText: errorText, error: 'Request not found' };
+  }
+
+  if (request.followupState !== 'dispatching') {
+    const errorText = await composeGuardianActionMessageGenerative(
+      { scenario: 'followup_action_failed', failureReason: 'This follow-up is no longer in a valid state for execution.' },
+      {},
+      generator,
+    );
+    return { ok: false, action, guardianReplyText: errorText, error: `Invalid followup state: ${request.followupState}` };
+  }
+
+  // Resolve the counterparty from the original call session
+  const counterparty = resolveCounterparty(request.callSessionId);
+  if (!counterparty) {
+    finalizeFollowup(requestId, 'failed');
+    const errorText = await composeGuardianActionMessageGenerative(
+      { scenario: 'followup_action_failed', failureReason: "I couldn't find the caller's contact information." },
+      {},
+      generator,
+    );
+    return { ok: false, action, guardianReplyText: errorText, error: 'Counterparty not found' };
+  }
+
+  // Execute the action
+  let actionResult: { ok: true } | { ok: false; error: string };
+
+  if (action === 'message_back') {
+    actionResult = await executeMessageBack(request, counterparty, generator);
+  } else if (action === 'call_back') {
+    actionResult = await executeCallBack(request, counterparty);
+  } else {
+    // decline is already handled in M5 — should not reach the executor
+    finalizeFollowup(requestId, 'failed');
+    const errorText = await composeGuardianActionMessageGenerative(
+      { scenario: 'followup_action_failed', failureReason: 'An unexpected action was requested.' },
+      {},
+      generator,
+    );
+    return { ok: false, action, guardianReplyText: errorText, error: `Unsupported action: ${action}` };
+  }
+
+  if (actionResult.ok) {
+    finalizeFollowup(requestId, 'completed');
+
+    const scenario = action === 'message_back' ? 'followup_message_sent' as const : 'followup_call_started' as const;
+    const confirmText = await composeGuardianActionMessageGenerative(
+      {
+        scenario,
+        counterpartyPhone: counterparty.phoneNumber,
+        questionText: request.questionText,
+        lateAnswerText: request.lateAnswerText ?? undefined,
+      },
+      {},
+      generator,
+    );
+
+    return { ok: true, action, guardianReplyText: confirmText };
+  }
+
+  // Action failed
+  finalizeFollowup(requestId, 'failed');
+  const errorText = await composeGuardianActionMessageGenerative(
+    {
+      scenario: 'followup_action_failed',
+      failureReason: actionResult.error,
+      counterpartyPhone: counterparty.phoneNumber,
+    },
+    {},
+    generator,
+  );
+
+  return { ok: false, action, guardianReplyText: errorText, error: actionResult.error };
+}
