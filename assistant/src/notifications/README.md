@@ -348,11 +348,23 @@ Each interaction carries a `source` string identifying where it originated:
 - `telegram_callback_query` -- user clicked an inline button on a Telegram notification
 - `vellum_thread_opened` -- user opened the notification thread in the vellum interface
 
+### Telegram Inferred Seen Signals
+
+When non-duplicate Telegram inbound activity arrives (user message or callback query), the system infers that the user has "seen" the most recent unseen notification delivered to that chat. The inbound message handler (`runtime/routes/inbound-message-handler.ts`) resolves the latest eligible unseen telegram delivery for the (assistantId, externalChatId) pair and records an inferred interaction:
+
+- **Inbound message** -- interaction type `replied`, confidence `inferred`, source `telegram_inbound_message`
+- **Callback query** -- interaction type `callback_clicked`, confidence `inferred`, source `telegram_callback_query`
+
+The interaction record automatically sets `seen_at` on the delivery summary (first-write-wins). `viewed_at` is NOT set for Telegram inferred signals -- that column is reserved for explicit vellum view sources.
+
+Evidence text is a truncated snippet of the message content or callback data. UUID-only payloads are excluded from evidence to keep it human-readable.
+
 ### Store API (`interactions-store.ts`)
 
 - `recordNotificationDeliveryInteraction(params)` -- insert interaction + update summaries transactionally
 - `markDeliverySeen(params)` -- helper to record a 'viewed' interaction (first-write-wins for `seen_at`)
 - `markDeliveryViewed(params)` -- helper for explicit vellum view (sets `viewed_at`)
+- `findLatestUnseenTelegramDelivery(assistantId, destination)` -- find the most recent sent telegram delivery that has not been marked as seen
 - `getNotificationDeliverySummaries(filters)` -- query delivery summaries with filters
 
 Query examples:
