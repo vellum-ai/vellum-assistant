@@ -282,7 +282,7 @@ struct RecordingSourcePickerView: View {
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                VToggle(isOn: $viewModel.includeAudio)
+                VToggle(isOn: $viewModel.includeAudio, label: "System audio")
             }
             .padding(.horizontal, VSpacing.xl)
 
@@ -294,7 +294,7 @@ struct RecordingSourcePickerView: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
                     Spacer()
-                    VToggle(isOn: $viewModel.includeMicrophone)
+                    VToggle(isOn: $viewModel.includeMicrophone, label: "Microphone")
                 }
                 .padding(.horizontal, VSpacing.xl)
             }
@@ -313,7 +313,7 @@ struct RecordingSourcePickerView: View {
             .background {
                 // Hidden buttons for keyboard shortcuts
                 Button("") { onCancel() }.keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0)
-                Button("") { onStart(viewModel.selectedRecordingOptions) }.keyboardShortcut(.defaultAction).opacity(0).frame(width: 0, height: 0)
+                Button("") { guard viewModel.canStart else { return }; onStart(viewModel.selectedRecordingOptions) }.keyboardShortcut(.defaultAction).disabled(!viewModel.canStart).opacity(0).frame(width: 0, height: 0)
             }
         }
         .padding(.vertical, VSpacing.lg)
