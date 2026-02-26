@@ -67,9 +67,9 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
 }));
 
 // Voice call mock
-const voiceCallInitCalls: Array<{ phoneNumber: string; guardianVerificationSessionId: string; assistantId?: string }> = [];
+const voiceCallInitCalls: Array<{ phoneNumber: string; guardianVerificationSessionId: string; assistantId?: string; originConversationId?: string }> = [];
 mock.module('../calls/call-domain.js', () => ({
-  startGuardianVerificationCall: async (input: { phoneNumber: string; guardianVerificationSessionId: string; assistantId?: string }) => {
+  startGuardianVerificationCall: async (input: { phoneNumber: string; guardianVerificationSessionId: string; assistantId?: string; originConversationId?: string }) => {
     voiceCallInitCalls.push(input);
     return { ok: true, callSessionId: 'mock-call-session', callSid: 'CA-mock' };
   },
@@ -370,5 +370,81 @@ describe('HTTP route: handleCancelOutbound', () => {
     expect(cancelResp.status).toBe(200);
     const body = await cancelResp.json() as Record<string, unknown>;
     expect(body.success).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Origin conversation linkage
+// ===========================================================================
+
+describe('origin conversation linkage', () => {
+  test('startOutbound SMS echoes originConversationId in result', () => {
+    const result = startOutbound({
+      channel: 'sms',
+      destination: '+15551119999',
+      originConversationId: 'conv-origin-sms-test',
+    });
+    expect(result.success).toBe(true);
+    expect(result.originConversationId).toBe('conv-origin-sms-test');
+  });
+
+  test('startOutbound voice echoes originConversationId in result', () => {
+    const result = startOutbound({
+      channel: 'voice',
+      destination: '+15552229999',
+      originConversationId: 'conv-origin-voice-test',
+    });
+    expect(result.success).toBe(true);
+    expect(result.originConversationId).toBe('conv-origin-voice-test');
+  });
+
+  test('startOutbound Telegram (chat ID) echoes originConversationId in result', () => {
+    const result = startOutbound({
+      channel: 'telegram',
+      destination: '999888777',
+      originConversationId: 'conv-origin-tg-test',
+    });
+    expect(result.success).toBe(true);
+    expect(result.originConversationId).toBe('conv-origin-tg-test');
+  });
+
+  test('startOutbound without originConversationId returns undefined for field', () => {
+    const result = startOutbound({
+      channel: 'sms',
+      destination: '+15553338888',
+    });
+    expect(result.success).toBe(true);
+    expect(result.originConversationId).toBeUndefined();
+  });
+
+  test('HTTP handleStartOutbound passes originConversationId through', async () => {
+    const req = jsonRequest({
+      channel: 'sms',
+      destination: '+15557776666',
+      originConversationId: 'conv-origin-http-test',
+    });
+    const resp = await handleStartOutbound(req);
+    expect(resp.status).toBe(200);
+    const body = await resp.json() as Record<string, unknown>;
+    expect(body.success).toBe(true);
+    expect(body.originConversationId).toBe('conv-origin-http-test');
+  });
+
+  test('voice call initiation receives originConversationId', async () => {
+    const result = startOutbound({
+      channel: 'voice',
+      destination: '+15554443333',
+      originConversationId: 'conv-origin-voice-init',
+    });
+    expect(result.success).toBe(true);
+
+    // Allow the fire-and-forget async call to flush
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The voice call mock should have been called with originConversationId
+    expect(voiceCallInitCalls.length).toBeGreaterThan(0);
+    const lastCall = voiceCallInitCalls[voiceCallInitCalls.length - 1];
+    expect(lastCall.phoneNumber).toBe('+15554443333');
+    expect(lastCall.originConversationId).toBe('conv-origin-voice-init');
   });
 });

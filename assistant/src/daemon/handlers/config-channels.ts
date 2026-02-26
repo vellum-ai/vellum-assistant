@@ -182,7 +182,7 @@ export function handleGuardianVerification(
         channel,
       });
     } else if (msg.action === 'start_outbound') {
-      const result = startOutbound({ channel, assistantId, destination: msg.destination, rebind: msg.rebind });
+      const result = startOutbound({ channel, assistantId, destination: msg.destination, rebind: msg.rebind, originConversationId: msg.originConversationId });
       ctx.send(socket, { type: 'guardian_verification_response', ...result });
     } else if (msg.action === 'resend_outbound') {
       const result = resendOutbound({ channel, assistantId });

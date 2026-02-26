@@ -1519,4 +1519,118 @@ describe('relay-server', () => {
 
     relay.destroy();
   });
+
+  // ── Outbound guardian verification pointer messages ────────────────
+
+  test('outbound guardian verification success emits pointer message to origin conversation', async () => {
+    ensureConversation('conv-gv-origin-success');
+    ensureConversation('conv-gv-voice-success');
+    const session = createCallSession({
+      conversationId: 'conv-gv-voice-success',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15550001111',
+      assistantId: 'test-assistant',
+      callMode: 'guardian_verification',
+      guardianVerificationSessionId: 'gv-session-success',
+      initiatedFromConversationId: 'conv-gv-origin-success',
+    });
+
+    const challenge = createVerificationChallenge('test-assistant', 'voice');
+    const secret = challenge.secret;
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_gv_ptr_success',
+      from: '+15551111111',
+      to: '+15550001111',
+    }));
+
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+
+    // Enter the correct code via DTMF
+    for (const digit of secret) {
+      await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit }));
+    }
+
+    // Verify a pointer message was emitted to the origin conversation
+    const originMessages = getMessages('conv-gv-origin-success').filter((m) => m.role === 'assistant');
+    expect(originMessages.length).toBeGreaterThan(0);
+    const pointerText = originMessages.map((m) => {
+      try {
+        const parsed = JSON.parse(m.content);
+        if (Array.isArray(parsed)) return parsed.map((b: { text?: string }) => b.text ?? '').join('');
+      } catch { /* ignore */ }
+      return m.content;
+    }).join('');
+    expect(pointerText).toContain('Guardian verification');
+    expect(pointerText).toContain('succeeded');
+    expect(pointerText).toContain('+15550001111');
+
+    // Let delayed endSession flush
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+
+    relay.destroy();
+  });
+
+  test('outbound guardian verification failure emits pointer message to origin conversation', async () => {
+    ensureConversation('conv-gv-origin-fail');
+    ensureConversation('conv-gv-voice-fail');
+    const session = createCallSession({
+      conversationId: 'conv-gv-voice-fail',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15550001111',
+      assistantId: 'test-assistant',
+      callMode: 'guardian_verification',
+      guardianVerificationSessionId: 'gv-session-fail',
+      initiatedFromConversationId: 'conv-gv-origin-fail',
+    });
+
+    createVerificationChallenge('test-assistant', 'voice');
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_gv_ptr_fail',
+      from: '+15551111111',
+      to: '+15550001111',
+    }));
+
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+
+    // Enter wrong codes 3 times (max attempts = 3)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      for (const digit of '000000') {
+        await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit }));
+      }
+    }
+
+    // Call should be marked as failed
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('failed');
+
+    // Verify a pointer message was emitted to the origin conversation
+    const originMessages = getMessages('conv-gv-origin-fail').filter((m) => m.role === 'assistant');
+    expect(originMessages.length).toBeGreaterThan(0);
+    const pointerText = originMessages.map((m) => {
+      try {
+        const parsed = JSON.parse(m.content);
+        if (Array.isArray(parsed)) return parsed.map((b: { text?: string }) => b.text ?? '').join('');
+      } catch { /* ignore */ }
+      return m.content;
+    }).join('');
+    expect(pointerText).toContain('Guardian verification');
+    expect(pointerText).toContain('failed');
+    expect(pointerText).toContain('+15550001111');
+
+    // Let delayed endSession flush
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+
+    relay.destroy();
+  });
 });

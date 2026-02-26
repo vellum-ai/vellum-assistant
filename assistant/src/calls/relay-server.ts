@@ -692,6 +692,18 @@ export class RelayConnection {
           endedAt: Date.now(),
         });
 
+        // Emit a pointer message to the origin conversation so the user
+        // sees the verification result even if skill-level polling is bypassed.
+        const successSession = getCallSession(this.callSessionId);
+        if (successSession?.initiatedFromConversationId) {
+          addPointerMessage(
+            successSession.initiatedFromConversationId,
+            'guardian_verification_succeeded',
+            successSession.toNumber,
+            { channel: 'voice' },
+          );
+        }
+
         setTimeout(() => {
           this.endSession('Guardian verification succeeded');
         }, 3000);
@@ -743,11 +755,22 @@ export class RelayConnection {
           lastError: 'Guardian voice verification failed — max attempts exceeded',
         });
 
-        const session = getCallSession(this.callSessionId);
-        if (session) {
+        const failSession = getCallSession(this.callSessionId);
+        if (failSession) {
           expirePendingQuestions(this.callSessionId);
-          persistCallCompletionMessage(session.conversationId, this.callSessionId);
-          fireCallCompletionNotifier(session.conversationId, this.callSessionId);
+          persistCallCompletionMessage(failSession.conversationId, this.callSessionId);
+          fireCallCompletionNotifier(failSession.conversationId, this.callSessionId);
+
+          // Emit a pointer message to the origin conversation so the user
+          // sees the verification failure even if skill-level polling is bypassed.
+          if (failSession.initiatedFromConversationId) {
+            addPointerMessage(
+              failSession.initiatedFromConversationId,
+              'guardian_verification_failed',
+              failSession.toNumber,
+              { channel: 'voice', reason: 'Max verification attempts exceeded' },
+            );
+          }
         }
 
         setTimeout(() => {
