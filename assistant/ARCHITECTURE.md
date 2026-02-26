@@ -22,6 +22,41 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
+### Outbound Guardian Verification (HTTP Endpoints)
+
+Guardian verification can be initiated through the runtime HTTP API as an alternative to the legacy IPC-only flow. This enables chat-first verification where the assistant guides the user through guardian setup via normal conversation.
+
+**HTTP Endpoints:**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/integrations/guardian/outbound/start` | POST | Start a new outbound verification session. Body: `{ channel, destination?, assistantId?, rebind? }` |
+| `/v1/integrations/guardian/outbound/resend` | POST | Resend the verification code for an active session. Body: `{ channel, assistantId? }` |
+| `/v1/integrations/guardian/outbound/cancel` | POST | Cancel an active outbound verification session. Body: `{ channel, assistantId? }` |
+
+All endpoints are bearer-authenticated via the runtime HTTP token (`~/.vellum/http-token`).
+
+**Shared Business Logic:**
+
+The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`config-channels.ts`) both delegate to the same action functions in `guardian-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across SMS, Telegram, and voice channels. It returns `OutboundActionResult` objects that the transport layer (HTTP or IPC) maps to its respective response format.
+
+**Chat-First Orchestration Flow:**
+
+1. The user asks the assistant (via desktop chat) to set up guardian verification for a channel.
+2. The conversational routing layer detects the guardian-setup intent and loads the `guardian-verify-setup` skill via `skill_load`.
+3. The skill guides the assistant through collecting the channel and destination, then calls the outbound HTTP endpoints using `curl`.
+4. The assistant relays verification status (code sent, resend available, expiry) back to the user conversationally.
+5. On the channel side, the verification code arrives (SMS text, Telegram message, or voice call) and the recipient enters it to complete the binding.
+
+**Key Source Files:**
+
+| File | Purpose |
+|------|---------|
+| `src/runtime/guardian-outbound-actions.ts` | Shared business logic for start/resend/cancel outbound verification |
+| `src/runtime/routes/integration-routes.ts` | HTTP route handlers for `/v1/integrations/guardian/outbound/*` |
+| `src/daemon/handlers/config-channels.ts` | IPC handler that delegates to the same shared actions |
+| `src/config/vellum-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate guardian verification via chat |
+
 ### SMS Channel (Twilio)
 
 The SMS channel provides text-only messaging via Twilio, sharing the same telephony provider as voice calls. It follows the same ingress/egress pattern as Telegram but uses Twilio's HMAC-SHA1 signature validation instead of a secret header.
