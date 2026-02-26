@@ -7,7 +7,7 @@
  * answer resolves the request and all other deliveries are marked answered.
  */
 
-import { and, eq, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getLogger } from '../util/logger.js';
@@ -207,6 +207,7 @@ export function getPendingRequestByCallSessionId(callSessionId: string): Guardia
         eq(guardianActionRequests.status, 'pending'),
       ),
     )
+    .orderBy(desc(guardianActionRequests.createdAt))
     .get();
   return row ? rowToRequest(row) : null;
 }
