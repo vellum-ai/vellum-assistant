@@ -100,6 +100,10 @@ extension AppDelegate {
                 switch session.state {
                 case .completed(let s, _), .responded(let s, _):
                     summary = s
+                case .failed:
+                    summary = "Something went wrong while controlling the screen."
+                case .cancelled:
+                    summary = "Screen control was cancelled."
                 default:
                     summary = "All done with the screen."
                 }
