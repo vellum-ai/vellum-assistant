@@ -37,18 +37,31 @@ const recordingOwnerByConversation = new Map<string, string>();
 /** Pending stop-acknowledgement timeouts keyed by recordingId. */
 const pendingStopTimeouts = new Map<string, NodeJS.Timeout>();
 
+/** Current restart operation token. When non-null, the recording system is
+ *  mid-restart and any async completions (started/failed) from a previous
+ *  cycle with a mismatched token are rejected. */
+let activeRestartToken: string | null = null;
+
+/** Tracks which conversationId has a pending restart so "no active recording"
+ *  is only returned when the state is truly idle (not mid-restart). */
+const pendingRestartByConversation = new Map<string, string>();
+
 // ─── Start ───────────────────────────────────────────────────────────────────
 
 /**
  * Initiate a standalone recording for a conversation.
  * Generates a unique recording ID, stores deterministic mappings, and sends
  * a `recording_start` message to the client.
+ *
+ * When `operationToken` is provided (restart flow), it is threaded through
+ * to the client so that status callbacks can be validated against the token.
  */
 export function handleRecordingStart(
   conversationId: string,
   options: RecordingOptions | undefined,
   socket: net.Socket,
   ctx: HandlerContext,
+  operationToken?: string,
 ): string | null {
   const existingRecordingId = recordingOwnerByConversation.get(conversationId);
   if (existingRecordingId) {
@@ -73,9 +86,10 @@ export function handleRecordingStart(
     recordingId,
     attachToConversationId: conversationId,
     options,
+    ...(operationToken ? { operationToken } : {}),
   });
 
-  log.info({ recordingId, conversationId }, 'Standalone recording started');
+  log.info({ recordingId, conversationId, operationToken }, 'Standalone recording started');
   return recordingId;
 }
 
@@ -143,6 +157,202 @@ export function handleRecordingStop(
   return recordingId;
 }
 
+// ─── Restart ─────────────────────────────────────────────────────────────────
+
+export interface RecordingRestartResult {
+  /** Whether the restart was initiated. false if no recording was active to stop. */
+  initiated: boolean;
+  /** The operation token threaded through the stop+start cycle. */
+  operationToken?: string;
+  /** Response text for the user. */
+  responseText: string;
+}
+
+/**
+ * Restart the active recording: stop the current one, then start a new one
+ * with `promptForSource: true` (client reopens source picker).
+ *
+ * Uses an operation token to guard against stale async completions from
+ * a previous restart cycle. The token is:
+ * 1. Generated here and stored as `activeRestartToken`
+ * 2. Threaded through to the new `recording_start` message
+ * 3. Validated when `recording_status` callbacks arrive
+ *
+ * If the picker is closed/canceled during restart, the client sends a
+ * `restart_cancelled` status and the daemon emits a deterministic response
+ * (never "new recording started").
+ */
+export function handleRecordingRestart(
+  conversationId: string,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): RecordingRestartResult {
+  // Generate a restart operation token for race hardening
+  const operationToken = uuid();
+
+  // Stop current recording (if any)
+  const stoppedRecordingId = handleRecordingStop(conversationId, ctx);
+
+  if (!stoppedRecordingId) {
+    // No active recording — check if mid-restart (state is not truly idle)
+    if (pendingRestartByConversation.has(conversationId)) {
+      log.info({ conversationId }, 'Restart requested while another restart is pending');
+      return {
+        initiated: false,
+        responseText: 'A restart is already in progress.',
+      };
+    }
+
+    log.info({ conversationId }, 'Restart requested but no active recording to stop');
+    return {
+      initiated: false,
+      responseText: 'No active recording to restart.',
+    };
+  }
+
+  // Atomically set the restart token and pending state so that:
+  // 1. Stale completions from a previous cycle are rejected
+  // 2. "no active recording" checks know we're mid-restart
+  activeRestartToken = operationToken;
+  pendingRestartByConversation.set(conversationId, operationToken);
+
+  // Immediately clean up the old recording maps so the start call
+  // doesn't hit the "already active" guard. The stop command has already
+  // been sent; we clean maps here to ensure atomic stop/start handoff.
+  cleanupMaps(stoppedRecordingId, conversationId);
+  cancelStopTimeout(stoppedRecordingId);
+
+  // Start a new recording with the operation token
+  const newRecordingId = handleRecordingStart(
+    conversationId,
+    { promptForSource: true },
+    socket,
+    ctx,
+    operationToken,
+  );
+
+  if (!newRecordingId) {
+    // Start failed (shouldn't happen after cleanup, but defensive)
+    activeRestartToken = null;
+    pendingRestartByConversation.delete(conversationId);
+    return {
+      initiated: false,
+      responseText: 'Failed to restart recording.',
+    };
+  }
+
+  log.info({ conversationId, operationToken, oldRecordingId: stoppedRecordingId, newRecordingId }, 'Recording restart initiated');
+
+  return {
+    initiated: true,
+    operationToken,
+    responseText: 'Restarting screen recording.',
+  };
+}
+
+// ─── Pause ───────────────────────────────────────────────────────────────────
+
+/**
+ * Pause the active recording for a conversation.
+ * Sends a `recording_pause` IPC message to the client.
+ *
+ * Returns the recording ID if pause was sent, or `undefined` if no active
+ * recording exists.
+ */
+export function handleRecordingPause(
+  conversationId: string,
+  ctx: HandlerContext,
+): string | undefined {
+  let recordingId = recordingOwnerByConversation.get(conversationId);
+  let ownerConversationId = conversationId;
+
+  // Global fallback
+  if (!recordingId && recordingOwnerByConversation.size > 0) {
+    const [activeConv, activeRec] = [...recordingOwnerByConversation.entries()][0];
+    recordingId = activeRec;
+    ownerConversationId = activeConv;
+  }
+
+  if (!recordingId) {
+    log.debug({ conversationId }, 'No active recording to pause');
+    return undefined;
+  }
+
+  const socket = findSocketForSession(ownerConversationId, ctx)
+    ?? findSocketForSession(conversationId, ctx);
+  if (!socket) {
+    log.warn({ conversationId, recordingId }, 'Cannot send recording_pause: no socket bound');
+    return undefined;
+  }
+
+  ctx.send(socket, {
+    type: 'recording_pause',
+    recordingId,
+  });
+
+  log.info({ recordingId, conversationId }, 'Recording pause sent');
+  return recordingId;
+}
+
+// ─── Resume ──────────────────────────────────────────────────────────────────
+
+/**
+ * Resume a paused recording for a conversation.
+ * Sends a `recording_resume` IPC message to the client.
+ *
+ * Returns the recording ID if resume was sent, or `undefined` if no active
+ * recording exists.
+ */
+export function handleRecordingResume(
+  conversationId: string,
+  ctx: HandlerContext,
+): string | undefined {
+  let recordingId = recordingOwnerByConversation.get(conversationId);
+  let ownerConversationId = conversationId;
+
+  // Global fallback
+  if (!recordingId && recordingOwnerByConversation.size > 0) {
+    const [activeConv, activeRec] = [...recordingOwnerByConversation.entries()][0];
+    recordingId = activeRec;
+    ownerConversationId = activeConv;
+  }
+
+  if (!recordingId) {
+    log.debug({ conversationId }, 'No active recording to resume');
+    return undefined;
+  }
+
+  const socket = findSocketForSession(ownerConversationId, ctx)
+    ?? findSocketForSession(conversationId, ctx);
+  if (!socket) {
+    log.warn({ conversationId, recordingId }, 'Cannot send recording_resume: no socket bound');
+    return undefined;
+  }
+
+  ctx.send(socket, {
+    type: 'recording_resume',
+    recordingId,
+  });
+
+  log.info({ recordingId, conversationId }, 'Recording resume sent');
+  return recordingId;
+}
+
+// ─── State queries ───────────────────────────────────────────────────────────
+
+/** Returns true if recording state is truly idle — no active recording and
+ *  no pending restart. Callers should use this instead of checking maps
+ *  directly to avoid returning "no active recording" during the stop/start
+ *  window of a restart cycle. */
+export function isRecordingIdle(): boolean {
+  return recordingOwnerByConversation.size === 0 && pendingRestartByConversation.size === 0;
+}
+
+/** Returns the current active restart operation token, or null if no restart is in progress. */
+export function getActiveRestartToken(): string | null {
+  return activeRestartToken;
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 /** Cancel a pending stop-acknowledgement timeout for a recording, if any. */
@@ -189,6 +399,17 @@ async function handleRecordingStatus(
     return;
   }
 
+  // ── Operation token validation for restart race hardening ──
+  // If a restart is in progress and the status callback carries a token,
+  // reject it if the token doesn't match the active restart token.
+  if (msg.operationToken && activeRestartToken && msg.operationToken !== activeRestartToken) {
+    log.warn(
+      { recordingId, expectedToken: activeRestartToken, receivedToken: msg.operationToken },
+      'Rejecting stale recording_status — operation token mismatch (previous restart cycle)',
+    );
+    return;
+  }
+
   // The client acknowledged this recording — cancel any pending stop timeout.
   cancelStopTimeout(recordingId);
 
@@ -197,8 +418,48 @@ async function handleRecordingStatus(
   const notifySocket = reportingSocket ?? findSocketForSession(conversationId, ctx);
 
   switch (msg.status) {
-    case 'started':
+    case 'started': {
       log.info({ recordingId, conversationId }, 'Standalone recording confirmed started by client');
+
+      // If this was part of a restart cycle, clear the pending restart state
+      // now that the new recording has successfully started.
+      if (activeRestartToken && pendingRestartByConversation.get(conversationId) === activeRestartToken) {
+        pendingRestartByConversation.delete(conversationId);
+        activeRestartToken = null;
+        log.info({ recordingId, conversationId }, 'Restart cycle complete — new recording started');
+      }
+      break;
+    }
+
+    case 'restart_cancelled': {
+      // The user closed/canceled the source picker during a restart.
+      // Emit a deterministic response — never "new recording started".
+      log.info({ recordingId, conversationId }, 'Restart cancelled — source picker closed');
+
+      // Clean up restart state
+      cleanupMaps(recordingId, conversationId);
+      pendingRestartByConversation.delete(conversationId);
+      if (activeRestartToken && pendingRestartByConversation.size === 0) {
+        activeRestartToken = null;
+      }
+
+      if (notifySocket) {
+        ctx.send(notifySocket, {
+          type: 'assistant_text_delta',
+          text: 'Recording restart cancelled.',
+          sessionId: conversationId,
+        });
+        ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+      }
+      break;
+    }
+
+    case 'paused':
+      log.info({ recordingId, conversationId }, 'Recording paused by client');
+      break;
+
+    case 'resumed':
+      log.info({ recordingId, conversationId }, 'Recording resumed by client');
       break;
 
     case 'stopped': {
@@ -365,6 +626,15 @@ async function handleRecordingStatus(
       }
 
       cleanupMaps(recordingId, conversationId);
+
+      // If this failure was part of a restart cycle, clear restart state
+      if (pendingRestartByConversation.has(conversationId)) {
+        pendingRestartByConversation.delete(conversationId);
+        if (pendingRestartByConversation.size === 0) {
+          activeRestartToken = null;
+        }
+      }
+
       break;
     }
   }
@@ -392,7 +662,12 @@ export function cleanupRecordingsOnDisconnect(
       cancelStopTimeout(recId);
       standaloneRecordingConversationId.delete(recId);
       recordingOwnerByConversation.delete(convId);
+      pendingRestartByConversation.delete(convId);
     }
+  }
+  // Clear restart token if all pending restarts were cleaned up
+  if (pendingRestartByConversation.size === 0) {
+    activeRestartToken = null;
   }
 }
 
@@ -406,6 +681,8 @@ export function __resetRecordingState(): void {
   pendingStopTimeouts.clear();
   standaloneRecordingConversationId.clear();
   recordingOwnerByConversation.clear();
+  pendingRestartByConversation.clear();
+  activeRestartToken = null;
 }
 
 // ─── Export handler group ────────────────────────────────────────────────────

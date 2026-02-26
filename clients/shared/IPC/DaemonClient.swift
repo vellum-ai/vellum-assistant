@@ -453,6 +453,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `subagent_detail_response` with lazy-loaded events.
     public var onSubagentDetailResponse: ((IPCSubagentDetailResponse) -> Void)?
 
+    /// Called when the daemon sends a `recording_pause` message.
+    public var onRecordingPause: ((IPCRecordingPause) -> Void)?
+
+    /// Called when the daemon sends a `recording_resume` message.
+    public var onRecordingResume: ((IPCRecordingResume) -> Void)?
+
     /// Called when the daemon sends a `recording_start` message.
     public var onRecordingStart: ((IPCRecordingStart) -> Void)?
 

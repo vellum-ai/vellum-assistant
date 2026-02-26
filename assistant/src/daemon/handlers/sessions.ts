@@ -38,7 +38,7 @@ import { executeRecordingIntent } from '../recording-executor.js';
 import { resolveRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { generateVideoThumbnail } from '../video-thumbnail.js';
-import { handleRecordingStart, handleRecordingStop } from './recording.js';
+import { handleRecordingPause, handleRecordingRestart, handleRecordingResume, handleRecordingStart, handleRecordingStop } from './recording.js';
 import {
   defineHandlers,
   type HandlerContext,
@@ -250,25 +250,28 @@ export async function handleUserMessage(
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
         return;
       } else if (action === 'restart') {
+        const restartResult = handleRecordingRestart(msg.sessionId, socket, ctx);
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: 'Restarting screen recording.',
+          text: restartResult.responseText,
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
         return;
       } else if (action === 'pause') {
+        const paused = handleRecordingPause(msg.sessionId, ctx) !== undefined;
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: 'Pausing the recording.',
+          text: paused ? 'Pausing the recording.' : 'No active recording to pause.',
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
         return;
       } else if (action === 'resume') {
+        const resumed = handleRecordingResume(msg.sessionId, ctx) !== undefined;
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: 'Resuming the recording.',
+          text: resumed ? 'Resuming the recording.' : 'No active recording to resume.',
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
@@ -326,7 +329,9 @@ export async function handleUserMessage(
         if (intentResult.kind === 'start_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder') {
           handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
         }
-        // TODO(M2): restart_with_remainder — restart handler doesn't exist yet, will be wired in M2
+        if (intentResult.kind === 'restart_with_remainder') {
+          handleRecordingRestart(msg.sessionId, socket, ctx);
+        }
 
         rlog.info({ remaining: msg.content, kind: intentResult.kind }, 'Recording intent with remainder — continuing with remaining text');
       }

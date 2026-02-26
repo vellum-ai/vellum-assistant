@@ -2295,6 +2295,8 @@ public enum ServerMessage: Decodable, Sendable {
     case pairingApprovalRequest(PairingApprovalRequestMessage)
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
     case approvedDeviceRemoveResponse(ApprovedDeviceRemoveResponseMessage)
+    case recordingPause(IPCRecordingPause)
+    case recordingResume(IPCRecordingResume)
     case recordingStart(IPCRecordingStart)
     case recordingStop(IPCRecordingStop)
     case heartbeatConfigResponse(IPCHeartbeatConfigResponse)
@@ -2705,6 +2707,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "approved_device_remove_response":
             let message = try ApprovedDeviceRemoveResponseMessage(from: decoder)
             self = .approvedDeviceRemoveResponse(message)
+        case "recording_pause":
+            let message = try IPCRecordingPause(from: decoder)
+            self = .recordingPause(message)
+        case "recording_resume":
+            let message = try IPCRecordingResume(from: decoder)
+            self = .recordingResume(message)
         case "recording_start":
             let message = try IPCRecordingStart(from: decoder)
             self = .recordingStart(message)

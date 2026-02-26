@@ -3013,6 +3013,20 @@ exports[`IPC message snapshots ServerMessage types approved_device_remove_respon
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types recording_pause serializes to expected JSON 1`] = `
+{
+  "recordingId": "rec-001",
+  "type": "recording_pause",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types recording_resume serializes to expected JSON 1`] = `
+{
+  "recordingId": "rec-001",
+  "type": "recording_resume",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types recording_start serializes to expected JSON 1`] = `
 {
   "recordingId": "rec-001",

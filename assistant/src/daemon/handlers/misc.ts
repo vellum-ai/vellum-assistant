@@ -25,7 +25,7 @@ import { executeRecordingIntent } from '../recording-executor.js';
 import { resolveRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { handleCuSessionCreate } from './computer-use.js';
-import { handleRecordingStart, handleRecordingStop } from './recording.js';
+import { handleRecordingPause, handleRecordingRestart, handleRecordingResume, handleRecordingStart, handleRecordingStop } from './recording.js';
 import { defineHandlers, type HandlerContext,log, renderHistoryContent, wireEscalationHandler } from './shared.js';
 
 // ─── Task submit handler ────────────────────────────────────────────────────
@@ -112,10 +112,11 @@ export async function handleTaskSubmit(
           activeSessionId = conversation.id;
           ctx.socketToSession.set(socket, activeSessionId);
         }
+        const restartResult = handleRecordingRestart(activeSessionId, socket, ctx);
         ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: 'Restarting screen recording.',
+          text: restartResult.responseText,
           sessionId: activeSessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
@@ -127,10 +128,11 @@ export async function handleTaskSubmit(
           activeSessionId = conversation.id;
           ctx.socketToSession.set(socket, activeSessionId);
         }
+        const paused = handleRecordingPause(activeSessionId, ctx) !== undefined;
         ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: 'Pausing the recording.',
+          text: paused ? 'Pausing the recording.' : 'No active recording to pause.',
           sessionId: activeSessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
@@ -142,10 +144,11 @@ export async function handleTaskSubmit(
           activeSessionId = conversation.id;
           ctx.socketToSession.set(socket, activeSessionId);
         }
+        const resumed = handleRecordingResume(activeSessionId, ctx) !== undefined;
         ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: 'Resuming the recording.',
+          text: resumed ? 'Resuming the recording.' : 'No active recording to resume.',
           sessionId: activeSessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
@@ -160,6 +163,7 @@ export async function handleTaskSubmit(
     // ── Standalone recording intent interception ──────────────────────────
     let pendingRecordingStart = false;
     let pendingRecordingStop = false;
+    let pendingRecordingRestart = false;
     if (config.daemon.standaloneRecording) {
       const name = getAssistantName();
       const dynamicNames = [name].filter(Boolean) as string[];
@@ -258,7 +262,7 @@ export async function handleTaskSubmit(
         // Defer recording action until after classifier creates the final conversation
         pendingRecordingStart = intentResult.kind === 'start_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder';
         pendingRecordingStop = intentResult.kind === 'stop_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder';
-        // TODO(M2): restart_with_remainder — restart handler doesn't exist yet, will be wired in M2
+        pendingRecordingRestart = intentResult.kind === 'restart_with_remainder';
         (msg as { task: string }).task = intentResult.remainder;
         rlog.info({ remaining: intentResult.remainder }, 'Recording intent deferred, continuing with remaining text');
       }
@@ -289,10 +293,11 @@ export async function handleTaskSubmit(
 
       // Start deferred recording from mixed intent (create a DB conversation
       // for the recording attachment since CU sessions don't have one).
-      if (pendingRecordingStart || pendingRecordingStop) {
+      if (pendingRecordingStart || pendingRecordingStop || pendingRecordingRestart) {
         const recConversation = conversationStore.createConversation('Screen Recording');
         if (pendingRecordingStop) handleRecordingStop(recConversation.id, ctx);
         if (pendingRecordingStart) handleRecordingStart(recConversation.id, { promptForSource: true }, socket, ctx);
+        if (pendingRecordingRestart) handleRecordingRestart(recConversation.id, socket, ctx);
       }
 
       ctx.send(socket, {
@@ -317,6 +322,7 @@ export async function handleTaskSubmit(
       // Start deferred recording from mixed intent, now using the real conversation
       if (pendingRecordingStop) handleRecordingStop(conversation.id, ctx);
       if (pendingRecordingStart) handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
+      if (pendingRecordingRestart) handleRecordingRestart(conversation.id, socket, ctx);
 
       ctx.send(socket, {
         type: 'task_routed',
