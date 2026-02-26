@@ -1,0 +1,230 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+
+const testDir = mkdtempSync(join(tmpdir(), 'slack-channel-cfg-test-'));
+
+mock.module('../config/loader.js', () => ({
+  getConfig: () => ({}),
+  loadConfig: () => ({}),
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  saveConfig: () => {},
+  invalidateConfigCache: () => {},
+}));
+
+mock.module('../util/platform.js', () => ({
+  getRootDir: () => testDir,
+  getDataDir: () => testDir,
+  getIpcBlobDir: () => join(testDir, 'ipc-blobs'),
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getSocketPath: () => join(testDir, 'test.sock'),
+  getPidPath: () => join(testDir, 'test.pid'),
+  getDbPath: () => join(testDir, 'test.db'),
+  getLogPath: () => join(testDir, 'test.log'),
+  ensureDataDir: () => {},
+  readHttpToken: () => undefined,
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+    fatal: () => {},
+    isDebug: () => false,
+    child: () => ({
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+      debug: () => {},
+      isDebug: () => false,
+    }),
+  }),
+}));
+
+// Mock secure key storage
+let secureKeyStore: Record<string, string> = {};
+
+mock.module('../security/secure-keys.js', () => ({
+  getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
+  setSecureKey: (account: string, value: string) => {
+    secureKeyStore[account] = value;
+    return true;
+  },
+  deleteSecureKey: (account: string) => {
+    if (account in secureKeyStore) {
+      delete secureKeyStore[account];
+      return true;
+    }
+    return false;
+  },
+  listSecureKeys: () => Object.keys(secureKeyStore),
+  getBackendType: () => 'encrypted',
+  isDowngradedFromKeychain: () => false,
+  _resetBackend: () => {},
+  _setBackend: () => {},
+}));
+
+// Mock credential metadata store
+let credentialMetadataStore: Array<{ service: string; field: string; accountInfo?: string }> = [];
+
+mock.module('../tools/credentials/metadata-store.js', () => ({
+  getCredentialMetadata: (service: string, field: string) =>
+    credentialMetadataStore.find((m) => m.service === service && m.field === field) ?? undefined,
+  upsertCredentialMetadata: (service: string, field: string, policy?: Record<string, unknown>) => {
+    const existing = credentialMetadataStore.find((m) => m.service === service && m.field === field);
+    if (existing) {
+      if (policy?.accountInfo !== undefined) existing.accountInfo = policy.accountInfo as string;
+      return existing;
+    }
+    const record = { service, field, accountInfo: policy?.accountInfo as string | undefined };
+    credentialMetadataStore.push(record);
+    return record;
+  },
+  deleteCredentialMetadata: (service: string, field: string) => {
+    const idx = credentialMetadataStore.findIndex((m) => m.service === service && m.field === field);
+    if (idx !== -1) {
+      credentialMetadataStore.splice(idx, 1);
+      return true;
+    }
+    return false;
+  },
+  listCredentialMetadata: () => credentialMetadataStore,
+  assertMetadataWritable: () => {},
+  _setMetadataPath: () => {},
+}));
+
+// Mock fetch for Slack API validation
+const originalFetch = globalThis.fetch;
+
+import {
+  getSlackChannelConfig,
+  setSlackChannelConfig,
+  clearSlackChannelConfig,
+} from '../daemon/handlers/config-slack-channel.js';
+
+afterAll(() => {
+  globalThis.fetch = originalFetch;
+  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+});
+
+describe('Slack channel config handler', () => {
+  beforeEach(() => {
+    secureKeyStore = {};
+    credentialMetadataStore = [];
+    globalThis.fetch = originalFetch;
+  });
+
+  test('GET returns correct shape when not configured', () => {
+    const result = getSlackChannelConfig();
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(false);
+    expect(result.hasAppToken).toBe(false);
+    expect(result.connected).toBe(false);
+  });
+
+  test('GET returns connected: true when both tokens are set', () => {
+    secureKeyStore['credential:slack_channel:bot_token'] = 'xoxb-test';
+    secureKeyStore['credential:slack_channel:app_token'] = 'xapp-test';
+
+    const result = getSlackChannelConfig();
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.hasAppToken).toBe(true);
+    expect(result.connected).toBe(true);
+  });
+
+  test('GET returns metadata when available', () => {
+    secureKeyStore['credential:slack_channel:bot_token'] = 'xoxb-test';
+    credentialMetadataStore.push({
+      service: 'slack_channel',
+      field: 'bot_token',
+      accountInfo: JSON.stringify({
+        teamId: 'T123',
+        teamName: 'TestTeam',
+        botUserId: 'U_BOT',
+        botUsername: 'testbot',
+      }),
+    });
+
+    const result = getSlackChannelConfig();
+    expect(result.teamId).toBe('T123');
+    expect(result.teamName).toBe('TestTeam');
+    expect(result.botUserId).toBe('U_BOT');
+    expect(result.botUsername).toBe('testbot');
+  });
+
+  test('POST validates app token shape (xapp- prefix required)', async () => {
+    const result = await setSlackChannelConfig(undefined, 'invalid-token');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('xapp-');
+  });
+
+  test('POST accepts valid app token with xapp- prefix', async () => {
+    const result = await setSlackChannelConfig(undefined, 'xapp-valid-token-123');
+    expect(result.success).toBe(true);
+    expect(result.hasAppToken).toBe(true);
+    expect(secureKeyStore['credential:slack_channel:app_token']).toBe('xapp-valid-token-123');
+  });
+
+  test('POST validates bot token via Slack auth.test API', async () => {
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({
+        ok: true,
+        team_id: 'T_TEAM',
+        team: 'MyTeam',
+        user_id: 'U_BOT',
+        user: 'mybot',
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof globalThis.fetch;
+
+    const result = await setSlackChannelConfig('xoxb-valid-bot-token');
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.teamId).toBe('T_TEAM');
+    expect(result.teamName).toBe('MyTeam');
+  });
+
+  test('POST returns error when Slack auth.test rejects bot token', async () => {
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({
+        ok: false,
+        error: 'invalid_auth',
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof globalThis.fetch;
+
+    const result = await setSlackChannelConfig('xoxb-bad-token');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('invalid_auth');
+  });
+
+  test('DELETE clears credentials', () => {
+    secureKeyStore['credential:slack_channel:bot_token'] = 'xoxb-test';
+    secureKeyStore['credential:slack_channel:app_token'] = 'xapp-test';
+    credentialMetadataStore.push({ service: 'slack_channel', field: 'bot_token' });
+    credentialMetadataStore.push({ service: 'slack_channel', field: 'app_token' });
+
+    const result = clearSlackChannelConfig();
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(false);
+    expect(result.hasAppToken).toBe(false);
+    expect(result.connected).toBe(false);
+
+    expect(secureKeyStore['credential:slack_channel:bot_token']).toBeUndefined();
+    expect(secureKeyStore['credential:slack_channel:app_token']).toBeUndefined();
+    expect(credentialMetadataStore).toHaveLength(0);
+  });
+});

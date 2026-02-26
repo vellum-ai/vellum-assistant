@@ -4,7 +4,7 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { AuthRateLimiter } from "./auth-rate-limiter.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
-import { loadConfig, type GatewayConfig } from "./config.js";
+import { loadConfig, isSlackChannelConfigured, type GatewayConfig } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
@@ -18,12 +18,15 @@ import { createTwilioSmsWebhookHandler } from "./http/routes/twilio-sms-webhook.
 import { createSmsDeliverHandler } from "./http/routes/sms-deliver.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
+import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
 import { validateBearerToken } from "./http/auth/bearer.js";
 import { getLogger, initLogger } from "./logger.js";
 import { CircuitBreakerOpenError } from "./runtime/client.js";
 import { buildSchema } from "./schema.js";
+import { createSlackSocketModeClient, type SlackSocketModeClient } from "./slack/socket-mode.js";
+import { handleInbound } from "./handlers/handle-inbound.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 
@@ -127,6 +130,7 @@ function main() {
   const handleSmsDeliver = createSmsDeliverHandler(config);
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } = createWhatsAppWebhookHandler(config);
   const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config);
+  const handleSlackDeliver = createSlackDeliverHandler(config);
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
 
@@ -172,6 +176,7 @@ function main() {
         url.pathname === "/deliver/telegram" ||
         url.pathname === "/deliver/sms" ||
         url.pathname === "/deliver/whatsapp" ||
+        url.pathname === "/deliver/slack" ||
         url.pathname.startsWith("/pairing/") ||
         url.pathname === "/webhooks/oauth/callback" ||
         (url.pathname.startsWith("/v1/") &&
@@ -282,6 +287,20 @@ function main() {
         return res;
       }
 
+      if (url.pathname === "/deliver/slack") {
+        if (!config.slackChannelBotToken) {
+          return Response.json(
+            { error: "Slack integration not configured" },
+            { status: 503 },
+          );
+        }
+        const res = await handleSlackDeliver(tracedReq);
+        if (res.status === 401) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+        }
+        return res;
+      }
+
       if (url.pathname === "/webhooks/twilio/relay" || url.pathname === "/v1/calls/relay") {
         const upgradeResult = handleTwilioRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
@@ -373,7 +392,48 @@ function main() {
     });
   }
 
+  // ── Slack Socket Mode lifecycle ──
+  let slackSocketClient: SlackSocketModeClient | null = null;
+
+  function startSlackSocket(): void {
+    if (slackSocketClient) {
+      slackSocketClient.stop();
+      slackSocketClient = null;
+    }
+    if (!isSlackChannelConfigured(config)) return;
+
+    slackSocketClient = createSlackSocketModeClient(
+      {
+        appToken: config.slackChannelAppToken!,
+        botToken: config.slackChannelBotToken!,
+        gatewayConfig: config,
+      },
+      (normalized) => {
+        const { threadTs, channel } = normalized;
+        const replyCallbackUrl =
+          `${config.gatewayInternalBaseUrl}/deliver/slack?threadTs=${encodeURIComponent(threadTs)}&channel=${encodeURIComponent(channel)}`;
+
+        handleInbound(config, normalized.event, {
+          replyCallbackUrl,
+          routingOverride: normalized.routing,
+        }).catch((err) => {
+          log.error({ err, channel, threadTs }, "Failed to forward Slack event to runtime");
+        });
+      },
+    );
+
+    slackSocketClient.start().catch((err) => {
+      log.error({ err }, "Failed to start Slack Socket Mode client");
+    });
+    log.info("Slack Socket Mode client started");
+  }
+
+  if (isSlackChannelConfigured(config)) {
+    startSlackSocket();
+  }
+
   const telegramFromEnv = isTelegramConfigured();
+  const slackFromEnv = !!(process.env.SLACK_CHANNEL_BOT_TOKEN && process.env.SLACK_CHANNEL_APP_TOKEN);
 
   const credentialWatcher = new CredentialWatcher((event) => {
     if (event.telegramChanged && !telegramFromEnv) {
@@ -419,6 +479,19 @@ function main() {
         log.info("WhatsApp credentials cleared");
       }
     }
+
+    if (event.slackChannelChanged && !slackFromEnv) {
+      if (event.slackChannelCredentials) {
+        config.slackChannelBotToken = event.slackChannelCredentials.botToken;
+        config.slackChannelAppToken = event.slackChannelCredentials.appToken;
+        log.info("Slack channel credentials loaded from credential vault");
+      } else {
+        config.slackChannelBotToken = undefined;
+        config.slackChannelAppToken = undefined;
+        log.info("Slack channel credentials cleared");
+      }
+      startSlackSocket();
+    }
   });
 
   credentialWatcher.start();
@@ -461,6 +534,10 @@ function main() {
     telegramDedupCache.stopCleanup();
     smsDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
+    if (slackSocketClient) {
+      slackSocketClient.stop();
+      slackSocketClient = null;
+    }
     setTimeout(() => {
       log.info("Drain window elapsed, stopping server");
       server.stop(true);

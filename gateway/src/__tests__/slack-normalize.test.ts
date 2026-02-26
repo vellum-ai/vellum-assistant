@@ -1,0 +1,216 @@
+import { describe, test, expect } from "bun:test";
+import {
+  stripBotMention,
+  normalizeSlackAppMention,
+  type SlackAppMentionEvent,
+} from "../slack/normalize.js";
+import type { GatewayConfig } from "../config.js";
+
+function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
+  return {
+    assistantRuntimeBaseUrl: "http://localhost:7821",
+    defaultAssistantId: "default-assistant",
+    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
+    logFile: { dir: undefined, retentionDays: 30 },
+    maxAttachmentBytes: 20971520,
+    maxAttachmentConcurrency: 3,
+    maxWebhookPayloadBytes: 1048576,
+    port: 7830,
+    routingEntries: [],
+    runtimeBearerToken: undefined,
+    runtimeGatewayOriginSecret: undefined,
+    runtimeInitialBackoffMs: 500,
+    runtimeMaxRetries: 2,
+    runtimeProxyBearerToken: undefined,
+    runtimeProxyEnabled: false,
+    runtimeProxyRequireAuth: false,
+    runtimeTimeoutMs: 30000,
+    shutdownDrainMs: 5000,
+    telegramApiBaseUrl: "https://api.telegram.org",
+    telegramBotToken: undefined,
+    telegramDeliverAuthBypass: false,
+    telegramInitialBackoffMs: 1000,
+    telegramMaxRetries: 3,
+    telegramTimeoutMs: 15000,
+    telegramWebhookSecret: undefined,
+    twilioAuthToken: undefined,
+    twilioAccountSid: undefined,
+    twilioPhoneNumber: undefined,
+    smsDeliverAuthBypass: false,
+    ingressPublicBaseUrl: undefined,
+    unmappedPolicy: "default",
+    whatsappPhoneNumberId: undefined,
+    whatsappAccessToken: undefined,
+    whatsappAppSecret: undefined,
+    whatsappWebhookVerifyToken: undefined,
+    whatsappDeliverAuthBypass: false,
+    whatsappTimeoutMs: 15000,
+    whatsappMaxRetries: 3,
+    whatsappInitialBackoffMs: 1000,
+    slackChannelBotToken: undefined,
+    slackChannelAppToken: undefined,
+    slackDeliverAuthBypass: false,
+    trustProxy: false,
+    ...overrides,
+  } as GatewayConfig;
+}
+
+function makeEvent(overrides: Partial<SlackAppMentionEvent> = {}): SlackAppMentionEvent {
+  return {
+    type: "app_mention",
+    user: "U_USER123",
+    text: "<@U123BOT> hello world",
+    ts: "1700000000.000100",
+    channel: "C_CHANNEL1",
+    ...overrides,
+  };
+}
+
+describe("stripBotMention", () => {
+  test("strips a single leading bot mention", () => {
+    expect(stripBotMention("<@U123BOT> hello world")).toBe("hello world");
+  });
+
+  test("strips multiple leading bot mentions", () => {
+    expect(stripBotMention("<@U123BOT> <@U456OTHER> hello")).toBe("hello");
+  });
+
+  test("falls back to original text when stripping produces empty string", () => {
+    expect(stripBotMention("<@U123BOT>")).toBe("<@U123BOT>");
+  });
+
+  test("falls back to original trimmed text when stripping produces whitespace only", () => {
+    expect(stripBotMention("<@U123BOT>   ")).toBe("<@U123BOT>");
+  });
+
+  test("returns text unchanged when no leading mention", () => {
+    expect(stripBotMention("hello world")).toBe("hello world");
+  });
+
+  test("does not strip mid-text mentions", () => {
+    expect(stripBotMention("hello <@U123BOT> world")).toBe("hello <@U123BOT> world");
+  });
+});
+
+describe("normalizeSlackAppMention", () => {
+  test("normalizes app_mention event with sourceChannel 'slack'", () => {
+    const config = makeConfig();
+    const event = makeEvent();
+    const result = normalizeSlackAppMention(event, "evt-001", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.sourceChannel).toBe("slack");
+    expect(result!.event.version).toBe("v1");
+  });
+
+  test("sets externalChatId to event.channel", () => {
+    const config = makeConfig();
+    const event = makeEvent({ channel: "C_MY_CHANNEL" });
+    const result = normalizeSlackAppMention(event, "evt-002", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.externalChatId).toBe("C_MY_CHANNEL");
+  });
+
+  test("externalMessageId uses client_msg_id when present", () => {
+    const config = makeConfig();
+    const event = makeEvent({ client_msg_id: "cmid-abc" });
+    const result = normalizeSlackAppMention(event, "evt-003", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.externalMessageId).toBe("cmid-abc");
+  });
+
+  test("externalMessageId falls back to ts when client_msg_id is absent", () => {
+    const config = makeConfig();
+    const event = makeEvent({ client_msg_id: undefined, ts: "1700000000.000100" });
+    const result = normalizeSlackAppMention(event, "evt-004", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.externalMessageId).toBe("1700000000.000100");
+  });
+
+  test("mention stripping: '<@U123BOT> hello world' becomes 'hello world'", () => {
+    const config = makeConfig();
+    const event = makeEvent({ text: "<@U123BOT> hello world" });
+    const result = normalizeSlackAppMention(event, "evt-005", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("hello world");
+  });
+
+  test("mention stripping with empty result falls back to original text", () => {
+    const config = makeConfig();
+    const event = makeEvent({ text: "<@U123BOT>" });
+    const result = normalizeSlackAppMention(event, "evt-006", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("<@U123BOT>");
+  });
+
+  test("thread_ts is preserved in return value", () => {
+    const config = makeConfig();
+    const event = makeEvent({ thread_ts: "1700000000.000050" });
+    const result = normalizeSlackAppMention(event, "evt-007", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBe("1700000000.000050");
+  });
+
+  test("threadTs falls back to ts when thread_ts is not present", () => {
+    const config = makeConfig();
+    const event = makeEvent({ thread_ts: undefined, ts: "1700000000.000100" });
+    const result = normalizeSlackAppMention(event, "evt-008", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBe("1700000000.000100");
+  });
+
+  test("sender.externalUserId is set to event.user", () => {
+    const config = makeConfig();
+    const event = makeEvent({ user: "U_SENDER_42" });
+    const result = normalizeSlackAppMention(event, "evt-009", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.sender.externalUserId).toBe("U_SENDER_42");
+  });
+
+  test("channel field is set in return value", () => {
+    const config = makeConfig();
+    const event = makeEvent({ channel: "C_RETURN_CHAN" });
+    const result = normalizeSlackAppMention(event, "evt-010", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.channel).toBe("C_RETURN_CHAN");
+  });
+
+  test("source.updateId is set to eventId", () => {
+    const config = makeConfig();
+    const event = makeEvent();
+    const result = normalizeSlackAppMention(event, "my-event-id", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.source.updateId).toBe("my-event-id");
+  });
+
+  test("returns null when routing rejects the event", () => {
+    const config = makeConfig({
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+      routingEntries: [],
+    });
+    const event = makeEvent();
+    const result = normalizeSlackAppMention(event, "evt-011", config);
+
+    expect(result).toBeNull();
+  });
+
+  test("raw event is included in the result", () => {
+    const config = makeConfig();
+    const event = makeEvent();
+    const result = normalizeSlackAppMention(event, "evt-012", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.raw).toEqual(event as unknown as Record<string, unknown>);
+  });
+});
