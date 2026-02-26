@@ -190,7 +190,7 @@ Reminder fires (scheduler)
 The `enforceRoutingIntent()` function in `decision-engine.ts` runs after the LLM produces its channel selection but before deterministic checks. It overrides the decision's `selectedChannels` based on the routing intent:
 
 - **`all_channels`**: Replaces `selectedChannels` with all connected channels (from `getConnectedChannels()`).
-- **`multi_channel`**: If the LLM selected fewer than 2 channels but 2+ are connected, expands `selectedChannels` to all connected channels.
+- **`multi_channel`**: If the LLM selected fewer than 2 channels but 2+ are connected, expands `selectedChannels` to at least two connected channels.
 - **`single_channel`**: No override -- the LLM's selection stands.
 
 When enforcement changes the decision, the updated channel selection is re-persisted to the `notification_decisions` table so the stored decision matches what was actually dispatched. The `reasoningSummary` is annotated with the enforcement action (e.g. `[routing_intent=all_channels enforced: vellum, telegram, sms]`).
