@@ -381,14 +381,14 @@ describe('getAttachmentsForMessage', () => {
     db.run('DELETE FROM conversations');
   });
 
-  function createMessage(role: string, content: string): string {
+  async function createMessage(role: string, content: string): Promise<string> {
     const conv = createConversation('test');
-    const msg = addMessage(conv.id, role, content);
+    const msg = await addMessage(conv.id, role, content);
     return msg.id;
   }
 
-  test('returns attachments linked to a message', () => {
-    const msgId = createMessage('assistant', 'Here is a chart');
+  test('returns attachments linked to a message', async () => {
+    const msgId = await createMessage('assistant', 'Here is a chart');
     const stored = uploadAttachment('chart.png', 'image/png', 'iVBOR');
     linkAttachmentToMessage(msgId, stored.id, 0);
 
@@ -404,8 +404,8 @@ describe('getAttachmentsForMessage', () => {
     expect(getAttachmentsForMessage('msg-nonexistent')).toEqual([]);
   });
 
-  test('returns multiple attachments in position order', () => {
-    const msgId = createMessage('assistant', 'Two files');
+  test('returns multiple attachments in position order', async () => {
+    const msgId = await createMessage('assistant', 'Two files');
     const a1 = uploadAttachment('first.txt', 'text/plain', 'AAAA');
     const a2 = uploadAttachment('second.txt', 'text/plain', 'BBBB');
 
@@ -418,8 +418,8 @@ describe('getAttachmentsForMessage', () => {
     expect(result[1].originalFilename).toBe('second.txt');
   });
 
-  test('returns all attachments linked to a message', () => {
-    const msgId = createMessage('assistant', 'Mixed');
+  test('returns all attachments linked to a message', async () => {
+    const msgId = await createMessage('assistant', 'Mixed');
     const a1 = uploadAttachment('a.png', 'image/png', 'AAAA');
     const a2 = uploadAttachment('b.png', 'image/png', 'BBBB');
 
