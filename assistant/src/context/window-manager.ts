@@ -15,6 +15,7 @@ const COMPACTION_COOLDOWN_MS = 2 * 60 * 1000;
 const MIN_GAIN_TOKENS_DURING_COOLDOWN = 1200;
 const SEVERE_PRESSURE_RATIO = 0.95;
 const MIN_COMPACTABLE_PERSISTED_MESSAGES = 2;
+const MAX_PRESERVED_IMAGE_BLOCKS = 5;
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
 const SUMMARY_SYSTEM_PROMPT = [
@@ -291,6 +292,12 @@ export class ContextWindowManager {
       }
     }
 
+    // Cap preserved images to avoid unbounded accumulation across cycles.
+    // Older images (carried forward) are at the front; keep the most recent.
+    if (preservedImageBlocks.length > MAX_PRESERVED_IMAGE_BLOCKS) {
+      preservedImageBlocks.splice(0, preservedImageBlocks.length - MAX_PRESERVED_IMAGE_BLOCKS);
+    }
+
     const summaryMessage = createContextSummaryMessage(summary);
     if (preservedImageBlocks.length > 0) {
       summaryMessage.content.push(
@@ -448,7 +455,7 @@ export function getSummaryFromContextMessage(message: Message | undefined): stri
 
 function stripContextSummaryTags(text: string): string {
   let inner = text.slice(CONTEXT_SUMMARY_MARKER.length);
-  const closeIdx = inner.indexOf('</context_summary>');
+  const closeIdx = inner.lastIndexOf('</context_summary>');
   if (closeIdx !== -1) {
     inner = inner.slice(0, closeIdx);
   }
