@@ -38,10 +38,6 @@ struct SettingsParentalTab: View {
     // forward the PIN to the daemon (required when parental mode is enabled).
     @State private var unlockedPIN: String?
 
-    // -- Profile switcher --
-    @State private var showingProfileSwitchSheet: Bool = false
-    @State private var profileSwitchError: String? = nil
-
     // -- Child: request permission sheet --
     @State private var showingRequestPermissionSheet: Bool = false
     @State private var requestToolName: String = ""
@@ -67,10 +63,6 @@ struct SettingsParentalTab: View {
                     pendingApprovalsSection
                 }
 
-                // Profile switcher — always visible when parental controls are enabled,
-                // regardless of lock state (switching to child doesn't need unlock).
-                profileSwitcherSection
-
                 if isUnlocked || !hasPIN {
                     pinSection
                     contentRestrictionsSection
@@ -90,31 +82,6 @@ struct SettingsParentalTab: View {
         .onAppear {
             loadSettings()
             settingsStore.loadActivityLog()
-        }
-        .sheet(isPresented: $showingProfileSwitchSheet) {
-            ProfileSwitchSheet(
-                onComplete: { result in
-                    switch result {
-                    case .success(let pin):
-                        Task {
-                            await settingsStore.switchProfile(to: "parental", pin: pin)
-                            if settingsStore.profileSwitchError == nil {
-                                showingProfileSwitchSheet = false
-                                // Cache the PIN so the parental profile can immediately
-                                // respond to pending approval requests without a separate
-                                // unlock step.
-                                isUnlocked = true
-                                unlockedPIN = pin
-                            } else {
-                                profileSwitchError = settingsStore.profileSwitchError
-                            }
-                        }
-                    case .failure:
-                        profileSwitchError = "Incorrect PIN."
-                    }
-                },
-                daemonClient: daemonClient
-            )
         }
         .sheet(isPresented: $showingPINSheet) {
             PINSheet(
@@ -233,84 +200,6 @@ struct SettingsParentalTab: View {
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
-    }
-
-    // MARK: - Profile Switcher
-
-    private var profileSwitcherSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Active Profile")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            Text("Switch between Parental (admin) and Child profiles. Switching back to Parental requires your PIN.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-
-            // Current profile display with avatar
-            HStack(spacing: VSpacing.sm) {
-                profileAvatar(for: settingsStore.activeProfile)
-                VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                    Text("Active Profile")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                    Text(settingsStore.activeProfile == "parental" ? "Parental (Admin)" : "Child")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
-                }
-                Spacer()
-                HStack(spacing: VSpacing.xs) {
-                    VButton(
-                        label: "Parental (Admin)",
-                        style: settingsStore.activeProfile == "parental" ? .primary : .secondary
-                    ) {
-                        switchProfile(to: "parental")
-                    }
-                    VButton(
-                        label: "Child",
-                        style: settingsStore.activeProfile == "child" ? .primary : .secondary
-                    ) {
-                        switchProfile(to: "child")
-                    }
-                }
-            }
-
-            if let err = profileSwitchError {
-                Text(err)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-                    .textSelection(.enabled)
-            }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    /// Renders an SF Symbol avatar appropriate for the given profile identifier.
-    /// Parental profile uses `person.crop.circle.fill` in accent (violet);
-    /// child profile uses `figure.child.circle.fill` in success (emerald).
-    @ViewBuilder
-    private func profileAvatar(for profile: String) -> some View {
-        let isParental = profile == "parental"
-        Image(systemName: isParental ? "person.crop.circle.fill" : "figure.child.circle.fill")
-            .font(.system(size: 32))
-            .foregroundColor(isParental ? VColor.accent : VColor.success)
-            .accessibilityLabel(isParental ? "Parental profile" : "Child profile")
-    }
-
-    private func switchProfile(to target: String) {
-        profileSwitchError = nil
-        if target == "child" {
-            // No PIN required to enter child mode
-            Task {
-                await settingsStore.switchProfile(to: "child", pin: nil)
-            }
-        } else {
-            // Switching back to parental requires PIN verification
-            showingProfileSwitchSheet = true
-        }
     }
 
     private var pinSection: some View {
@@ -1417,11 +1306,15 @@ private struct UnlockSheet: View {
 
 // MARK: - Profile Switch Sheet
 
-/// PIN prompt shown when a child-mode user attempts to switch back to the
-/// parental (admin) profile. Reuses the same daemon verify-pin IPC call as UnlockSheet.
+/// PIN prompt shown when attempting to switch to the parental (admin) profile.
+/// Exposed as `internal` so that MainWindowView can present it from the sidebar
+/// without going through the Settings tab. The `onComplete` closure receives the
+/// verified PIN on success so the caller can forward it to `settingsStore.switchProfile`.
 @MainActor
-private struct ProfileSwitchSheet: View {
-    let onComplete: (UnlockResult) -> Void
+struct ProfileSwitchSheet: View {
+    let targetProfile: String
+    let currentProfile: String
+    let onComplete: (Result<String, Error>) -> Void
     var daemonClient: DaemonClient?
 
     @State private var pin: String = ""
@@ -1526,9 +1419,10 @@ private struct ProfileSwitchSheet: View {
                 isLoading = false
                 if let r = response {
                     if r.verified {
-                        onComplete(.success(pin: pin))
+                        onComplete(.success(pin))
                     } else {
-                        onComplete(.failure)
+                        struct PINError: Error {}
+                        onComplete(.failure(PINError()))
                         errorMessage = "Incorrect PIN."
                     }
                 } else {
