@@ -48,10 +48,9 @@ export interface ChannelApprovalPrompt {
 /**
  * Metadata attached to gateway callback payloads so the channel adapter
  * can render approval UI and route the user's decision back to the
- * correct pending run.
+ * correct pending interaction.
  */
 export interface ApprovalUIMetadata {
-  runId: string;
   requestId: string;
   actions: ApprovalActionOption[];
   plainTextFallback: string;
@@ -68,6 +67,6 @@ export type ApprovalDecisionSource = 'telegram_button' | 'whatsapp_button' | 'pl
 export interface ApprovalDecisionResult {
   action: ApprovalAction;
   source: ApprovalDecisionSource;
-  /** Run ID extracted from callback data (button presses only). */
-  runId?: string;
+  /** Request ID extracted from callback data (button presses only). */
+  requestId?: string;
 }

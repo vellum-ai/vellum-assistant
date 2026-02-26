@@ -2,7 +2,7 @@ import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
 import type { RuntimeAttachmentMeta } from "../../runtime/client.js";
-import { sendTelegramAttachments, sendTelegramReply } from "../../telegram/send.js";
+import { sendTelegramAttachments, sendTelegramReply, sendTypingIndicator } from "../../telegram/send.js";
 
 const log = getLogger("telegram-deliver");
 
@@ -12,7 +12,6 @@ export type ApprovalAction = {
 };
 
 export type ApprovalPayload = {
-  runId: string;
   requestId: string;
   actions: ApprovalAction[];
   plainTextFallback: string;
@@ -36,6 +35,7 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       assistantId?: string;
       attachments?: RuntimeAttachmentMeta[];
       approval?: ApprovalPayload;
+      chatAction?: "typing";
     };
     try {
       body = (await req.json()) as typeof body;
@@ -43,14 +43,18 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    const { chatId, text, assistantId, attachments, approval } = body;
+    const { chatId, text, assistantId, attachments, approval, chatAction } = body;
 
     if (!chatId || typeof chatId !== "string") {
       return Response.json({ error: "chatId is required" }, { status: 400 });
     }
 
-    if (!text && (!attachments || attachments.length === 0)) {
-      return Response.json({ error: "text or attachments required" }, { status: 400 });
+    if (chatAction !== undefined && chatAction !== "typing") {
+      return Response.json({ error: "chatAction must be \"typing\"" }, { status: 400 });
+    }
+
+    if (!text && (!attachments || attachments.length === 0) && !chatAction) {
+      return Response.json({ error: "text, attachments, or chatAction required" }, { status: 400 });
     }
 
     // Validate attachment array shape and element types before accessing properties.
@@ -81,9 +85,6 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
           { status: 400 },
         );
       }
-      if (!approval.runId || typeof approval.runId !== "string") {
-        return Response.json({ error: "approval.runId is required" }, { status: 400 });
-      }
       if (!approval.requestId || typeof approval.requestId !== "string") {
         return Response.json({ error: "approval.requestId is required" }, { status: 400 });
       }
@@ -103,7 +104,7 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
         // Telegram enforces a 1-64 byte limit on callback_data. Validate
         // the would-be value up front so callers get a clear 400 instead of
         // a downstream Telegram API failure surfaced as a 502.
-        const callbackData = `apr:${approval.runId}:${action.id}`;
+        const callbackData = `apr:${approval.requestId}:${action.id}`;
         if (Buffer.byteLength(callbackData) > 64) {
           return Response.json(
             { error: `callback_data for action "${action.id}" exceeds Telegram's 64-byte limit` },
@@ -114,6 +115,10 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
     }
 
     try {
+      if (chatAction === "typing") {
+        await sendTypingIndicator(config, chatId);
+      }
+
       if (text) {
         await sendTelegramReply(config, chatId, text, approval);
       }
@@ -126,7 +131,10 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Delivery failed" }, { status: 502 });
     }
 
-    tlog.info({ chatId, hasText: !!text, attachmentCount: attachments?.length ?? 0 }, "Reply sent");
+    tlog.info(
+      { chatId, hasText: !!text, attachmentCount: attachments?.length ?? 0, chatAction },
+      "Reply sent",
+    );
     return Response.json({ ok: true });
   };
 }

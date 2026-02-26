@@ -103,7 +103,18 @@ describe('addPointerMessage', () => {
     addPointerMessage(convId, 'started', '+15551234567');
     const text = getLatestAssistantText(convId);
     expect(text).toContain('Call to +15551234567 started');
-    expect(text).toContain('See voice thread');
+    expect(text).not.toContain('See voice thread');
+  });
+
+  test('started pointer message does not set userMessageChannel metadata', () => {
+    const convId = 'conv-ptr-no-channel';
+    ensureConversation(convId);
+    addPointerMessage(convId, 'started', '+15551234567');
+    const rows = getMessages(convId).filter((m) => m.role === 'assistant');
+    expect(rows.length).toBe(1);
+    const metadata = rows[0].metadata ? JSON.parse(rows[0].metadata) : null;
+    // metadata should be null/undefined — no userMessageChannel set
+    expect(metadata?.userMessageChannel).toBeUndefined();
   });
 
   test('adds a started pointer message with verification code', () => {

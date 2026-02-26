@@ -1,18 +1,25 @@
 /**
- * Bridge between voice relay and the daemon session/run pipeline.
+ * Bridge between voice relay and the daemon session pipeline.
  *
- * Provides a `startVoiceTurn()` function that wraps RunOrchestrator.startRun()
- * with voice-specific defaults, translating agent-loop events into simple
- * callbacks suitable for real-time TTS streaming.
+ * Provides a `startVoiceTurn()` function that manages a voice turn
+ * directly through the session, translating agent-loop events into
+ * simple callbacks suitable for real-time TTS streaming.
  *
  * Dependency injection follows the same module-level setter pattern used by
- * setRelayBroadcast in relay-server.ts: the daemon lifecycle injects the
- * RunOrchestrator instance at startup via `setVoiceBridgeOrchestrator()`.
+ * setRelayBroadcast in relay-server.ts: the daemon lifecycle injects
+ * dependencies at startup via `setVoiceBridgeDeps()`.
  */
 
+import type { ChannelId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
+import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { Session } from '../daemon/session.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
-import type { RunOrchestrator, VoiceRunEventSink } from '../runtime/run-orchestrator.js';
+import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
+import { buildAssistantEvent } from '../runtime/assistant-event.js';
+import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { checkIngressForSecrets } from '../security/secret-ingress.js';
+import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 
 /**
@@ -30,19 +37,46 @@ const log = getLogger('voice-session-bridge');
 // Module-level dependency injection
 // ---------------------------------------------------------------------------
 
-let orchestrator: RunOrchestrator | undefined;
+export interface VoiceBridgeDeps {
+  getOrCreateSession: (conversationId: string, transport?: {
+    channelId: ChannelId;
+    hints?: string[];
+    uxBrief?: string;
+  }) => Promise<Session>;
+  resolveAttachments: (attachmentIds: string[]) => Array<{
+    id: string;
+    filename: string;
+    mimeType: string;
+    data: string;
+  }>;
+  deriveDefaultStrictSideEffects: (conversationId: string) => boolean;
+}
+
+let deps: VoiceBridgeDeps | undefined;
 
 /**
- * Inject the RunOrchestrator instance from daemon lifecycle.
+ * Inject dependencies from daemon lifecycle.
  * Must be called during daemon startup before any voice turns are executed.
  */
-export function setVoiceBridgeOrchestrator(orch: RunOrchestrator): void {
-  orchestrator = orch;
+export function setVoiceBridgeDeps(d: VoiceBridgeDeps): void {
+  deps = d;
 }
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/**
+ * Real-time event sink for voice TTS streaming. Agent-loop events are
+ * forwarded here for real-time text-to-speech without modifying the
+ * standard channel path.
+ */
+export interface VoiceRunEventSink {
+  onTextDelta(text: string): void;
+  onMessageComplete(): void;
+  onError(message: string): void;
+  onToolUse(toolName: string, input: Record<string, unknown>): void;
+}
 
 export interface VoiceTurnOptions {
   /** The conversation ID for this voice call's session. */
@@ -68,8 +102,8 @@ export interface VoiceTurnOptions {
 }
 
 export interface VoiceTurnHandle {
-  /** The run ID for this turn. */
-  runId: string;
+  /** Unique identifier for this turn. */
+  turnId: string;
   /** Abort the in-flight turn (e.g. for barge-in). */
   abort: () => void;
 }
@@ -172,17 +206,23 @@ function buildVoiceCallControlPrompt(opts: {
 /**
  * Execute a single voice turn through the daemon session pipeline.
  *
- * Wraps RunOrchestrator.startRun() with voice-specific defaults:
+ * Manages the session directly with voice-specific defaults:
  *   - sourceChannel: 'voice'
- *   - eventSink wired to the provided callbacks
+ *   - event sink wired to the provided callbacks
  *   - abort propagated from the returned handle
  *
  * The caller (CallController via relay-server) can use the returned handle
  * to cancel the turn on barge-in.
  */
 export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnHandle> {
-  if (!orchestrator) {
-    throw new Error('Voice bridge not initialized — setVoiceBridgeOrchestrator() was not called');
+  if (!deps) {
+    throw new Error('Voice bridge not initialized — setVoiceBridgeDeps() was not called');
+  }
+
+  // Block inbound content that contains secrets
+  const ingressCheck = checkIngressForSecrets(opts.content);
+  if (ingressCheck.blocked) {
+    throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
   }
 
   const eventSink: VoiceRunEventSink = {
@@ -221,40 +261,195 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     isCallerGuardian,
   });
 
-  const { run, abort } = await orchestrator.startRun(
-    opts.conversationId,
-    persistedContent,
-    undefined, // no attachments for voice
-    {
-      sourceChannel: 'voice',
-      assistantId: opts.assistantId,
-      guardianContext: opts.guardianContext,
-      ...(forceStrictSideEffects ? { forceStrictSideEffects } : {}),
-      voiceAutoDenyConfirmations: !isGuardian,
-      voiceAutoAllowConfirmations: isGuardian,
-      voiceAutoResolveSecrets: true,
-      turnChannelContext: {
-        userMessageChannel: 'voice',
-        assistantMessageChannel: 'voice',
-      },
-      eventSink,
-      voiceCallControlPrompt,
-    },
-    opts.signal,
-  );
+  // Get or create the session
+  const transport = {
+    channelId: 'voice' as ChannelId,
+  };
+  const session = await deps.getOrCreateSession(opts.conversationId, transport);
+
+  if (session.isProcessing()) {
+    // Voice barge-in can race with turn teardown. Wait briefly for the
+    // previous turn to finish aborting before giving up.
+    const maxWaitMs = 3000;
+    const pollIntervalMs = 50;
+    let waited = 0;
+    while (session.isProcessing() && waited < maxWaitMs) {
+      if (opts.signal?.aborted) {
+        throw new Error('Turn aborted while waiting for session');
+      }
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+      waited += pollIntervalMs;
+    }
+    if (opts.signal?.aborted) {
+      throw new Error('Turn aborted while waiting for session');
+    }
+    if (session.isProcessing()) {
+      throw new Error('Session is already processing a message');
+    }
+  }
+
+  // Configure session for this voice turn
+  const strictSideEffects = forceStrictSideEffects
+    ?? deps.deriveDefaultStrictSideEffects(opts.conversationId);
+  session.memoryPolicy = {
+    ...session.memoryPolicy,
+    strictSideEffects,
+  };
+  session.setAssistantId(opts.assistantId ?? 'self');
+  session.setGuardianContext(opts.guardianContext ?? null);
+  session.setCommandIntent(null);
+  session.setTurnChannelContext({
+    userMessageChannel: 'voice',
+    assistantMessageChannel: 'voice',
+  });
+  session.setChannelCapabilities(resolveChannelCapabilities('voice', undefined));
+  session.setVoiceCallControlPrompt(voiceCallControlPrompt);
+
+  const requestId = crypto.randomUUID();
+  const turnId = crypto.randomUUID();
+  const messageId = session.persistUserMessage(persistedContent, [], requestId);
+
+  // Serialized publish chain so hub subscribers observe events in order.
+  let hubChain: Promise<void> = Promise.resolve();
+  const publishToHub = (msg: ServerMessage): void => {
+    const msgRecord = msg as unknown as Record<string, unknown>;
+    const msgSessionId =
+      'sessionId' in msg && typeof msgRecord.sessionId === 'string'
+        ? (msgRecord.sessionId as string)
+        : undefined;
+    const resolvedSessionId = msgSessionId ?? opts.conversationId;
+    const event = buildAssistantEvent('self', msg, resolvedSessionId);
+    hubChain = (async () => {
+      await hubChain;
+      try {
+        await assistantEventHub.publish(event);
+      } catch (err) {
+        log.warn({ err }, 'assistant-events hub subscriber threw during voice turn');
+      }
+    })();
+  };
+
+  // Hook into session to intercept confirmation_request and secret_request events.
+  // Voice auto-denies/auto-allows/auto-resolves these since there's no interactive UI.
+  const autoDeny = !isGuardian;
+  const autoAllow = isGuardian;
+  let lastError: string | null = null;
+  session.updateClient((msg: ServerMessage) => {
+    if (msg.type === 'confirmation_request') {
+      if (autoDeny) {
+        log.info(
+          { turnId, toolName: msg.toolName },
+          'Auto-denying confirmation request for voice turn (forceStrictSideEffects)',
+        );
+        session.handleConfirmationResponse(
+          msg.requestId,
+          'deny',
+          undefined,
+          undefined,
+          `Permission denied for "${msg.toolName}": this voice call does not have interactive approval capabilities. Side-effect tools are not available for non-guardian voice callers. In your next assistant reply, explain briefly that this action requires guardian-level access and cannot be performed during this call.`,
+        );
+        publishToHub(msg);
+        return;
+      }
+      if (autoAllow) {
+        log.info(
+          { turnId, toolName: msg.toolName },
+          'Auto-approving confirmation request for guardian voice turn',
+        );
+        session.handleConfirmationResponse(
+          msg.requestId,
+          'allow',
+          undefined,
+          undefined,
+          `Permission approved for "${msg.toolName}": this is a verified guardian voice call.`,
+        );
+        publishToHub(msg);
+        return;
+      }
+    } else if (msg.type === 'secret_request') {
+      // Voice has no secret-entry UI, so resolve immediately
+      log.info(
+        { turnId, service: msg.service, field: msg.field },
+        'Auto-resolving secret request for voice turn (no secret-entry UI)',
+      );
+      session.handleSecretResponse(msg.requestId, undefined, 'store');
+      publishToHub(msg);
+      return;
+    }
+    publishToHub(msg);
+  });
+
+  // Fire-and-forget the agent loop
+  const cleanup = () => {
+    // Reset channel capabilities so a subsequent IPC/desktop session on the
+    // same conversation is not incorrectly treated as a voice client.
+    session.setChannelCapabilities(null);
+    session.setGuardianContext(null);
+    session.setCommandIntent(null);
+    session.setAssistantId('self');
+    session.setVoiceCallControlPrompt(null);
+    // Reset the session's client callback to a no-op so the stale
+    // closure doesn't intercept events from future turns on the same session.
+    session.updateClient(() => {}, true);
+  };
+
+  void (async () => {
+    try {
+      await session.runAgentLoop(persistedContent, messageId, (msg: ServerMessage) => {
+        if (msg.type === 'error') {
+          lastError = msg.message;
+        } else if (msg.type === 'session_error') {
+          lastError = msg.userMessage;
+        }
+        publishToHub(msg);
+
+        // Forward voice-relevant events to the real-time event sink
+        if (msg.type === 'assistant_text_delta') {
+          eventSink.onTextDelta(msg.text);
+        } else if (msg.type === 'message_complete') {
+          eventSink.onMessageComplete();
+        } else if (msg.type === 'generation_cancelled') {
+          // Treat cancellation as a completed turn so the voice
+          // turnComplete promise settles instead of hanging forever.
+          eventSink.onMessageComplete();
+        } else if (msg.type === 'error') {
+          eventSink.onError(msg.message);
+        } else if (msg.type === 'session_error') {
+          eventSink.onError(msg.userMessage);
+        } else if (msg.type === 'tool_use_start') {
+          eventSink.onToolUse(msg.toolName, msg.input);
+        }
+      });
+      if (lastError) {
+        log.error({ turnId, error: lastError }, 'Voice turn failed (error event from agent loop)');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error({ err, turnId }, 'Voice turn failed');
+      eventSink.onError(message);
+    } finally {
+      cleanup();
+    }
+  })();
+
+  const abortFn = () => {
+    if (session.currentRequestId === requestId) {
+      session.abort();
+    }
+  };
 
   // If the caller provided an external AbortSignal (e.g. from a
-  // RelayConnection's AbortController), wire it to the run's abort.
+  // RelayConnection's AbortController), wire it to the turn's abort.
   if (opts.signal) {
     if (opts.signal.aborted) {
-      abort();
+      abortFn();
     } else {
-      opts.signal.addEventListener('abort', () => abort(), { once: true });
+      opts.signal.addEventListener('abort', () => abortFn(), { once: true });
     }
   }
 
   return {
-    runId: run.id,
-    abort,
+    turnId,
+    abort: abortFn,
   };
 }

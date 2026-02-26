@@ -12,6 +12,7 @@
 import { v4 as uuid } from 'uuid';
 
 import { getLogger } from '../util/logger.js';
+import { pairDeliveryWithConversation } from './conversation-pairing.js';
 import { composeFallbackCopy } from './copy-composer.js';
 import { createDelivery, updateDeliveryStatus } from './deliveries-store.js';
 import { resolveDestinations } from './destination-resolver.js';
@@ -27,14 +28,31 @@ import type {
 
 const log = getLogger('notif-broadcaster');
 
+/** Callback invoked immediately when a vellum notification thread is created. */
+export interface ThreadCreatedInfo {
+  conversationId: string;
+  title: string;
+  sourceEventName: string;
+}
+export type OnThreadCreatedFn = (info: ThreadCreatedInfo) => void;
+export interface BroadcastDecisionOptions {
+  onThreadCreated?: OnThreadCreatedFn;
+}
+
 export class NotificationBroadcaster {
   private adapters: Map<NotificationChannel, ChannelAdapter>;
+  private onThreadCreated: OnThreadCreatedFn | null = null;
 
   constructor(adapters: ChannelAdapter[]) {
     this.adapters = new Map();
     for (const adapter of adapters) {
       this.adapters.set(adapter.channel, adapter);
     }
+  }
+
+  /** Register a callback that fires immediately when a vellum conversation is paired. */
+  setOnThreadCreated(fn: OnThreadCreatedFn): void {
+    this.onThreadCreated = fn;
   }
 
   /**
@@ -49,15 +67,25 @@ export class NotificationBroadcaster {
   async broadcastDecision(
     signal: NotificationSignal,
     decision: NotificationDecision,
+    options?: BroadcastDecisionOptions,
   ): Promise<NotificationDeliveryResult[]> {
     const destinations = resolveDestinations(signal.assistantId, decision.selectedChannels);
+
+    // Ensure vellum is processed first so the notification_thread_created IPC
+    // push fires immediately, before slower channel sends (e.g. Telegram 30s
+    // timeout) can delay it past the macOS deep-link retry window.
+    const orderedChannels = [...decision.selectedChannels].sort((a, b) => {
+      if (a === 'vellum') return -1;
+      if (b === 'vellum') return 1;
+      return 0;
+    });
 
     // Pre-compute fallback copy in case any channel is missing rendered copy
     let fallbackCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> | null = null;
 
     const results: NotificationDeliveryResult[] = [];
 
-    for (const channel of decision.selectedChannels) {
+    for (const channel of orderedChannels) {
       const adapter = this.adapters.get(channel);
       if (!adapter) {
         log.warn({ channel, signalId: signal.signalId }, 'No adapter registered for channel -- skipping');
@@ -82,23 +110,73 @@ export class NotificationBroadcaster {
         continue;
       }
 
-      // Pull rendered copy from the decision; fall back to copy-composer if missing
+      // Pull rendered copy from the decision; fall back to copy-composer if
+      // missing or effectively blank. The decision engine's LLM occasionally
+      // returns empty title/body strings that pass type-only validation, so
+      // treat copy with no usable content the same as missing copy.
       let copy = decision.renderedCopy[channel];
-      if (!copy) {
+      if (!copy || (!copy.title?.trim() && !copy.body?.trim())) {
+        if (copy) {
+          log.warn({ channel, signalId: signal.signalId }, 'Decision copy has empty title and body — using fallback');
+        }
         if (!fallbackCopy) {
           fallbackCopy = composeFallbackCopy(signal, decision.selectedChannels);
         }
         copy = fallbackCopy[channel] ?? { title: 'Notification', body: signal.sourceEventName };
       }
 
-      const payload: ChannelDeliveryPayload = {
-        sourceEventName: signal.sourceEventName,
-        copy,
-        deepLinkTarget: decision.deepLinkTarget,
-      };
+      // Pair the delivery with a conversation before sending
+      const pairing = pairDeliveryWithConversation(signal, channel, copy);
+
+      // For the vellum channel, merge the conversationId into deep-link metadata
+      // so the macOS/iOS client can navigate directly to the notification thread.
+      let deepLinkTarget = decision.deepLinkTarget;
+      if (channel === 'vellum' && pairing.conversationId) {
+        deepLinkTarget = { ...deepLinkTarget, conversationId: pairing.conversationId };
+
+        // Emit notification_thread_created immediately when the vellum
+        // conversation is paired, BEFORE waiting for adapter send or other
+        // channel deliveries. This avoids a race where slow Telegram delivery
+        // delays the IPC push past the macOS deep-link retry window.
+        if (pairing.strategy === 'start_new_conversation') {
+          const threadTitle =
+            copy.threadTitle ??
+            copy.title ??
+            signal.sourceEventName;
+          const info: ThreadCreatedInfo = {
+            conversationId: pairing.conversationId,
+            title: threadTitle,
+            sourceEventName: signal.sourceEventName,
+          };
+          if (this.onThreadCreated) {
+            try {
+              this.onThreadCreated(info);
+            } catch (err) {
+              log.error({ err, signalId: signal.signalId }, 'onThreadCreated callback failed — continuing broadcast');
+            }
+          }
+          if (options?.onThreadCreated) {
+            try {
+              options.onThreadCreated(info);
+            } catch (err) {
+              log.error(
+                { err, signalId: signal.signalId },
+                'per-dispatch onThreadCreated callback failed — continuing broadcast',
+              );
+            }
+          }
+        }
+      }
 
       const deliveryId = uuid();
       const destinationLabel = destination.endpoint ?? channel;
+
+      const payload: ChannelDeliveryPayload = {
+        deliveryId,
+        sourceEventName: signal.sourceEventName,
+        copy,
+        deepLinkTarget,
+      };
 
       // Only create a delivery audit record when we have a persisted decision ID
       // for the FK. If decision persistence failed (persistedDecisionId is
@@ -119,6 +197,9 @@ export class NotificationBroadcaster {
             attempt: 1,
             renderedTitle: copy.title,
             renderedBody: copy.body,
+            conversationId: pairing.conversationId ?? undefined,
+            messageId: pairing.messageId ?? undefined,
+            conversationStrategy: pairing.strategy,
           });
         } else {
           log.warn(
@@ -138,6 +219,9 @@ export class NotificationBroadcaster {
             destination: destinationLabel,
             status: 'sent',
             sentAt: Date.now(),
+            conversationId: pairing.conversationId ?? undefined,
+            messageId: pairing.messageId ?? undefined,
+            conversationStrategy: pairing.strategy,
           });
         } else {
           if (hasPersistedDecision) {
@@ -148,6 +232,9 @@ export class NotificationBroadcaster {
             destination: destinationLabel,
             status: 'failed',
             errorMessage: adapterResult.error,
+            conversationId: pairing.conversationId ?? undefined,
+            messageId: pairing.messageId ?? undefined,
+            conversationStrategy: pairing.strategy,
           });
         }
       } catch (err) {
@@ -167,6 +254,9 @@ export class NotificationBroadcaster {
           destination: destinationLabel,
           status: 'failed',
           errorMessage,
+          conversationId: pairing.conversationId ?? undefined,
+          messageId: pairing.messageId ?? undefined,
+          conversationStrategy: pairing.strategy,
         });
       }
     }

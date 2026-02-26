@@ -6,6 +6,7 @@ enum SettingsTab: String, CaseIterable {
     case integrations = "Integrations"
     case trust = "Trust"
     case reminders = "Schedules"
+    case heartbeat = "Heartbeat"
     case wakeWord = "Wake Word"
     case appearance = "Appearance"
     case advanced = "Advanced"
@@ -182,6 +183,8 @@ struct SettingsPanel: View {
             trustContent
         case .reminders:
             remindersContent
+        case .heartbeat:
+            HeartbeatSettingsTab(daemonClient: daemonClient)
         case .wakeWord:
             WakeWordSettingsView()
         case .appearance:
@@ -227,9 +230,7 @@ struct SettingsPanel: View {
                         Text("Enter API Key")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 12))
-                            .foregroundColor(VColor.textMuted)
+                        VInfoTooltip("Get your API key at console.anthropic.com")
                     }
 
                     SecureField("This is your private generated key", text: $apiKeyText)
@@ -331,9 +332,7 @@ struct SettingsPanel: View {
                         Text("Enter Perplexity API Key")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 12))
-                            .foregroundColor(VColor.textMuted)
+                        VInfoTooltip("Get your API key at perplexity.ai/settings/api")
                     }
 
                     SecureField("Your Perplexity API key", text: $perplexityKeyText)
@@ -379,9 +378,7 @@ struct SettingsPanel: View {
                         Text("Enter Brave Search API Key")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 12))
-                            .foregroundColor(VColor.textMuted)
+                        VInfoTooltip("Get your API key at brave.com/search/api")
                     }
 
                     SecureField("Your Brave Search API key", text: $braveKeyText)
@@ -445,9 +442,7 @@ struct SettingsPanel: View {
                         Text("Enter Gemini API Key")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 12))
-                            .foregroundColor(VColor.textMuted)
+                        VInfoTooltip("Get your API key at aistudio.google.com/apikey")
                     }
 
                     SecureField("Your Gemini API key", text: $imageGenKeyText)
@@ -493,9 +488,7 @@ struct SettingsPanel: View {
                         Text("Enter ElevenLabs API Key")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 12))
-                            .foregroundColor(VColor.textMuted)
+                        VInfoTooltip("Get your key at elevenlabs.io/app/settings/api-keys")
                     }
 
                     SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)

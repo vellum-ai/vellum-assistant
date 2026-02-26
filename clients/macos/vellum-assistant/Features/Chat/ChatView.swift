@@ -53,7 +53,9 @@ struct ChatView: View {
     var activeSubagents: [SubagentInfo] = []
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
-    var subagentDetailStore: SubagentDetailStore?
+    /// Called to rehydrate truncated message content on demand.
+    var onRehydrateMessage: ((UUID) -> Void)?
+    @ObservedObject var subagentDetailStore: SubagentDetailStore
     var daemonHttpPort: Int?
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
@@ -62,6 +64,17 @@ struct ChatView: View {
     var memoryDegradedReason: String? = nil
     var connectionDiagnosticHint: String? = nil
     var threadId: UUID?
+
+    // MARK: - Pagination
+
+    var displayedMessageCount: Int = .max
+    var hasMoreMessages: Bool = false
+    var isLoadingMoreMessages: Bool = false
+    var loadPreviousMessagePage: (() async -> Bool)?
+
+    /// When true, suppresses `ChatEmptyStateView` during first-launch bootstrap
+    /// and shows a loading panel instead.
+    var isBootstrapping: Bool = false
 
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
@@ -107,6 +120,11 @@ struct ChatView: View {
                         Spacer()
                     }
                     Spacer()
+                } else if isEmptyState && isBootstrapping {
+                    // During first-launch bootstrap, suppress the empty state
+                    // and show a simple loading panel until the first assistant
+                    // reply arrives and populates the chat.
+                    ChatBootstrapLoadingView()
                 } else if isEmptyState {
                     if isTemporaryChat {
                         ChatTemporaryChatEmptyStateView(
@@ -172,7 +190,12 @@ struct ChatView: View {
                             onModelPickerSelect: onModelPickerSelect,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
+                            onRehydrateMessage: onRehydrateMessage,
                             subagentDetailStore: subagentDetailStore,
+                            displayedMessageCount: displayedMessageCount,
+                            hasMoreMessages: hasMoreMessages,
+                            isLoadingMoreMessages: isLoadingMoreMessages,
+                            loadPreviousMessagePage: loadPreviousMessagePage,
                             threadId: threadId,
                             isNearBottom: $isNearBottom
                         )
@@ -342,6 +365,33 @@ struct ChatView: View {
             if !urls.isEmpty { onDropFiles(urls) }
         }
         return true
+    }
+}
+
+// MARK: - Bootstrap Loading View
+
+/// Minimal loading panel shown during first-launch bootstrap while the
+/// assistant's first reply is pending. Replaces `ChatEmptyStateView` so
+/// the user sees a calm loading state instead of the usual empty chat.
+private struct ChatBootstrapLoadingView: View {
+    @State private var visible = false
+
+    var body: some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+            VLoadingIndicator(size: 24, color: VColor.accent)
+            Text("Getting ready...")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .opacity(visible ? 1 : 0)
+        .onAppear {
+            withAnimation(VAnimation.standard) {
+                visible = true
+            }
+        }
     }
 }
 
@@ -561,7 +611,8 @@ private struct ChatViewPreviewWrapper: View {
                 onDismissSessionError: {},
                 onCopyDebugInfo: {},
                 watchSession: nil,
-                onStopWatch: {}
+                onStopWatch: {},
+                subagentDetailStore: SubagentDetailStore()
             )
         }
     }

@@ -6,13 +6,14 @@
 import { answerCall } from '../../calls/call-domain.js';
 import type { ChannelId, InterfaceId } from '../../channels/types.js';
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId, parseInterfaceId } from '../../channels/types.js';
+import { getGatewayInternalBaseUrl } from '../../config/env.js';
+import { RESEND_COOLDOWN_MS } from '../../daemon/handlers/config-channels.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import {
   createApprovalRequest,
-  getPendingApprovalForRun,
-  updateApprovalDecision,
 } from '../../memory/channel-guardian-store.js';
+import { recordConversationSeenSignal } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import {
@@ -20,42 +21,45 @@ import {
   getPendingDeliveriesByDestination,
   resolveGuardianActionRequest,
 } from '../../memory/guardian-action-store.js';
-import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
 import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-member-store.js';
-import { getPendingConfirmationsByConversation } from '../../memory/runs-store.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
-import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
+import { readHttpToken } from '../../util/platform.js';
 import {
   buildApprovalUIMetadata,
-  buildGuardianApprovalPrompt,
+  getApprovalInfoByConversation,
   getChannelApprovalPrompt,
-  handleChannelDecision,
 } from '../channel-approvals.js';
 import {
+  bindSessionIdentity,
+  createOutboundSession,
+  findActiveSession,
   getGuardianBinding,
   getPendingChallenge,
+  resolveBootstrapToken,
+  updateSessionDelivery,
+  updateSessionStatus,
   validateAndConsumeChallenge,
 } from '../channel-guardian-service.js';
 import { deliverChannelReply } from '../gateway-client.js';
 import { resolveGuardianContext } from '../guardian-context-resolver.js';
+import {
+  composeChannelVerifyReply,
+  composeVerificationTelegram,
+  GUARDIAN_VERIFY_TEMPLATE_KEYS,
+} from '../guardian-verification-templates.js';
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
   MessageProcessor,
 } from '../http-types.js';
-import type { RunOrchestrator } from '../run-orchestrator.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import {
-  buildGuardianDenyContext,
-  buildPromptDeliveryFailureContext,
   canonicalChannelAssistantId,
-  getEffectivePollMaxWait,
   GUARDIAN_APPROVAL_TTL_MS,
   type GuardianContext,
-  RUN_POLL_INTERVAL_MS,
   stripVerificationFailurePrefix,
   toGuardianRuntimeContext,
   verifyGatewayOrigin,
@@ -66,21 +70,35 @@ import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
 const log = getLogger('runtime-http');
 
 /**
- * Parse a `/guardian_verify` command from message content.
- * Supports `/guardian_verify <code>`, `/guardian_verify@BotName <code>`,
- * and normalized whitespace.
- * Returns the verification code if the message is a verify command, or undefined otherwise.
+ * Parse a guardian verification code from message content.
+ * Accepts three formats:
+ *   1. `/guardian_verify <code>` (legacy command format)
+ *   2. `/guardian_verify@BotName <code>` (Telegram group format)
+ *   3. A bare code as the entire message: 6-digit numeric OR 64-char hex
+ *      (hex is retained for backward compatibility with in-flight inbound
+ *      challenges that still use high-entropy secrets)
+ * Returns `{ code, isExplicitCommand }` if recognized, or undefined otherwise.
+ * `isExplicitCommand` is true for legacy /guardian_verify commands (explicit
+ * intent) and false for bare codes (which need additional gating to avoid
+ * intercepting normal 6-digit messages like zip codes or PINs).
  */
-function parseGuardianVerifyCommand(content: string): string | undefined {
-  const match = content.match(/^\/guardian_verify(?:@\S+)?\s+(\S+)/);
-  return match?.[1];
+function parseGuardianVerifyCommand(content: string): { code: string; isExplicitCommand: boolean } | undefined {
+  // Legacy /guardian_verify command format
+  const commandMatch = content.match(/^\/guardian_verify(?:@\S+)?\s+(\S+)/);
+  if (commandMatch) return { code: commandMatch[1], isExplicitCommand: true };
+
+  // Bare code: 6-digit numeric (identity-bound outbound sessions) or
+  // 64-char hex (unbound inbound challenges)
+  const bareMatch = content.match(/^([0-9a-fA-F]{64}|\d{6})$/);
+  if (bareMatch) return { code: bareMatch[1], isExplicitCommand: false };
+
+  return undefined;
 }
 
 export async function handleChannelInbound(
   req: Request,
   processMessage?: MessageProcessor,
   bearerToken?: string,
-  runOrchestrator?: RunOrchestrator,
   assistantId: string = 'self',
   gatewayOriginSecret?: string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
@@ -183,8 +201,18 @@ export async function handleChannelInbound(
 
   // /guardian_verify must bypass the ACL membership check — users without a
   // member record need to verify before they can be recognized as members.
-  const guardianVerifyCode = parseGuardianVerifyCommand(trimmedContent);
-  const isGuardianVerifyCommand = guardianVerifyCode !== undefined;
+  const guardianVerifyParsed = parseGuardianVerifyCommand(trimmedContent);
+  const isGuardianVerifyCommand = guardianVerifyParsed !== undefined;
+
+  // /start gv_<token> bootstrap commands must also bypass ACL — the user
+  // hasn't been verified yet and needs to complete the bootstrap handshake.
+  const rawCommandIntentForAcl = sourceMetadata?.commandIntent;
+  const isBootstrapCommand = rawCommandIntentForAcl &&
+    typeof rawCommandIntentForAcl === 'object' &&
+    !Array.isArray(rawCommandIntentForAcl) &&
+    (rawCommandIntentForAcl as Record<string, unknown>).type === 'start' &&
+    typeof (rawCommandIntentForAcl as Record<string, unknown>).payload === 'string' &&
+    ((rawCommandIntentForAcl as Record<string, unknown>).payload as string).startsWith('gv_');
 
   if (body.senderExternalUserId) {
     resolvedMember = findMember({
@@ -200,12 +228,32 @@ export async function handleChannelInbound(
       // active guardian binding for this (assistantId, channel).
       let denyNonMember = true;
       if (isGuardianVerifyCommand) {
-        const hasActiveBinding = !!getGuardianBinding(canonicalAssistantId, sourceChannel);
+        // Allow bypass when there is any consumable challenge or active
+        // outbound session.  The !hasActiveBinding guard is intentionally
+        // omitted: rebind sessions create a consumable challenge while a
+        // binding already exists, and the identity check inside
+        // validateAndConsumeChallenge prevents unauthorized takeovers.
         const hasPendingChallenge = !!getPendingChallenge(canonicalAssistantId, sourceChannel);
-        if (!hasActiveBinding && hasPendingChallenge) {
+        const hasActiveOutboundSession = !!findActiveSession(canonicalAssistantId, sourceChannel);
+        if (hasPendingChallenge || hasActiveOutboundSession) {
           denyNonMember = false;
         } else {
-          log.info({ sourceChannel, hasActiveBinding, hasPendingChallenge }, 'Ingress ACL: guardian_verify bypass denied');
+          log.info({ sourceChannel, hasPendingChallenge, hasActiveOutboundSession }, 'Ingress ACL: guardian_verify bypass denied');
+        }
+      }
+
+      // Bootstrap deep-link commands bypass ACL only when the token
+      // resolves to a real pending_bootstrap session. Without this check,
+      // any `/start gv_<garbage>` would bypass the not_a_member gate and
+      // fall through to normal /start processing.
+      if (isBootstrapCommand) {
+        const bootstrapPayload = (rawCommandIntentForAcl as Record<string, unknown>).payload as string;
+        const bootstrapTokenForAcl = bootstrapPayload.slice(3); // strip 'gv_' prefix
+        const bootstrapSessionForAcl = resolveBootstrapToken(canonicalAssistantId, sourceChannel, bootstrapTokenForAcl);
+        if (bootstrapSessionForAcl && bootstrapSessionForAcl.status === 'pending_bootstrap') {
+          denyNonMember = false;
+        } else {
+          log.info({ sourceChannel, hasValidBootstrapSession: false }, 'Ingress ACL: bootstrap command bypass denied — no valid pending_bootstrap session');
         }
       }
 
@@ -353,6 +401,34 @@ export async function handleChannelInbound(
     { sourceMessageId, assistantId: canonicalAssistantId },
   );
 
+  const replyCallbackUrl = body.replyCallbackUrl;
+
+  // ── Retry pending verification reply on duplicate ──
+  // If a previous verification delivery failed and stored a pending reply,
+  // gateway retries (duplicates) re-attempt delivery here. On success the
+  // pending marker is cleared so further duplicates short-circuit normally.
+  if (result.duplicate && replyCallbackUrl) {
+    const pendingReply = channelDeliveryStore.getPendingVerificationReply(result.eventId);
+    if (pendingReply) {
+      try {
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: pendingReply.chatId,
+          text: pendingReply.text,
+          assistantId: pendingReply.assistantId,
+        }, bearerToken);
+        channelDeliveryStore.clearPendingVerificationReply(result.eventId);
+        log.info({ eventId: result.eventId }, 'Retried pending verification reply: delivered');
+      } catch (retryErr) {
+        log.error({ err: retryErr, eventId: result.eventId }, 'Retry of pending verification reply failed; will retry on next duplicate');
+      }
+      return Response.json({
+        accepted: true,
+        duplicate: true,
+        eventId: result.eventId,
+      });
+    }
+  }
+
   // external_conversation_bindings is assistant-agnostic. Restrict writes to
   // self so assistant-scoped legacy routes do not overwrite each other's
   // channel binding metadata for the same chat.
@@ -406,9 +482,6 @@ export async function handleChannelInbound(
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
 
-    // Update inbox thread escalation state so the desktop UI badge is accurate
-    refreshThreadEscalation(result.conversationId, canonicalAssistantId);
-
     // Emit notification signal through the unified pipeline (fire-and-forget).
     // This lets the decision engine route escalation alerts to all configured
     // channels, supplementing the direct guardian notification below.
@@ -453,7 +526,7 @@ export async function handleChannelInbound(
 
   // Extract channel command intent (e.g. /start from Telegram)
   const rawCommandIntent = sourceMetadata?.commandIntent;
-  let commandIntent = rawCommandIntent && typeof rawCommandIntent === 'object' && !Array.isArray(rawCommandIntent)
+  const commandIntent = rawCommandIntent && typeof rawCommandIntent === 'object' && !Array.isArray(rawCommandIntent)
     ? rawCommandIntent as Record<string, unknown>
     : undefined;
 
@@ -462,35 +535,101 @@ export async function handleChannelInbound(
     ? sourceMetadata.languageCode.trim()
     : undefined;
 
-  const replyCallbackUrl = body.replyCallbackUrl;
-
-  // ── Guardian verification command intercept ──
-  // Validate/consume the challenge synchronously so side effects (member
-  // upsert, binding creation) happen before the message enters the agent
-  // loop. Instead of composing a canned reply and short-circuiting, inject
-  // the verification result as a commandIntent so the full assistant
-  // generates a dynamic, context-aware response.
-  //
-  // The raw content is replaced with just the command text to prevent an
-  // unapproved sender from smuggling arbitrary prompt text after the
-  // verification code (the ACL bypass window would otherwise let it reach
-  // the assistant pipeline).
-  let guardianVerifyOutcome: 'verified' | 'failed' | undefined;
-  let effectiveContent: string | undefined = content;
+  // ── Telegram bootstrap deep-link handling ──
+  // Intercept /start gv_<token> commands BEFORE the guardian_verify intercept.
+  // When a user clicks the deep link, Telegram sends /start gv_<token> which
+  // the gateway forwards with commandIntent: { type: 'start', payload: 'gv_<token>' }.
+  // We resolve the bootstrap token, bind the session identity, create a new
+  // identity-bound session with a fresh verification code, send it, and return.
   if (
     !result.duplicate &&
-    guardianVerifyCode !== undefined &&
+    commandIntent?.type === 'start' &&
+    typeof commandIntent.payload === 'string' &&
+    (commandIntent.payload as string).startsWith('gv_') &&
+    body.senderExternalUserId
+  ) {
+    const bootstrapToken = (commandIntent.payload as string).slice(3);
+    const bootstrapSession = resolveBootstrapToken(canonicalAssistantId, sourceChannel, bootstrapToken);
+
+    if (bootstrapSession && bootstrapSession.status === 'pending_bootstrap') {
+      // Bind the pending_bootstrap session to the sender's identity
+      bindSessionIdentity(bootstrapSession.id, body.senderExternalUserId, externalChatId);
+
+      // Transition bootstrap session to awaiting_response
+      updateSessionStatus(bootstrapSession.id, 'awaiting_response');
+
+      // Create a new identity-bound outbound session with a fresh secret.
+      // The old bootstrap session is auto-revoked by createOutboundSession.
+      const newSession = createOutboundSession({
+        assistantId: canonicalAssistantId,
+        channel: sourceChannel,
+        expectedExternalUserId: body.senderExternalUserId,
+        expectedChatId: externalChatId,
+        identityBindingStatus: 'bound',
+        destinationAddress: externalChatId,
+      });
+
+      // Compose and send the verification code via Telegram
+      const telegramBody = composeVerificationTelegram(
+        GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
+        {
+          code: newSession.secret,
+          expiresInMinutes: Math.floor((newSession.expiresAt - Date.now()) / 60_000),
+        },
+      );
+
+      // Deliver verification Telegram message via the gateway (fire-and-forget)
+      deliverBootstrapVerificationTelegram(externalChatId, telegramBody, canonicalAssistantId);
+
+      // Update delivery tracking
+      const now = Date.now();
+      updateSessionDelivery(newSession.sessionId, now, 1, now + RESEND_COOLDOWN_MS);
+
+      return Response.json({
+        accepted: true,
+        duplicate: false,
+        eventId: result.eventId,
+        guardianVerification: 'bootstrap_bound',
+      });
+    }
+    // If not found or expired, fall through to normal /start handling
+  }
+
+  // ── Guardian verification command intercept (deterministic) ──
+  // Validate/consume the challenge synchronously so side effects (member
+  // upsert, binding creation) complete before any reply. The reply is
+  // delivered via template-driven deterministic messages and the command
+  // is short-circuited — it NEVER enters the agent pipeline. This
+  // prevents verification commands from producing agent-generated copy.
+  //
+  // Bare 6-digit codes are only intercepted when there is actually a
+  // pending challenge or active outbound session for this channel.
+  // Without this guard, normal 6-digit messages (zip codes, PINs, etc.)
+  // would be swallowed by the verification handler and never reach the
+  // agent pipeline.  Legacy /guardian_verify commands are always
+  // intercepted because the explicit command prefix signals clear intent.
+  const shouldInterceptVerification = guardianVerifyParsed !== undefined &&
+    (guardianVerifyParsed.isExplicitCommand ||
+     !!getPendingChallenge(canonicalAssistantId, sourceChannel) ||
+     !!findActiveSession(canonicalAssistantId, sourceChannel));
+
+  if (
+    !result.duplicate &&
+    shouldInterceptVerification &&
+    guardianVerifyParsed !== undefined &&
     body.senderExternalUserId
   ) {
     const verifyResult = validateAndConsumeChallenge(
       canonicalAssistantId,
       sourceChannel,
-      guardianVerifyCode,
+      guardianVerifyParsed.code,
       body.senderExternalUserId,
       externalChatId,
       body.senderUsername,
       body.senderName,
     );
+
+    const guardianVerifyOutcome: 'verified' | 'failed' = verifyResult.success ? 'verified' : 'failed';
 
     if (verifyResult.success) {
       upsertMember({
@@ -504,23 +643,68 @@ export async function handleChannelInbound(
         username: body.senderUsername,
       });
       log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Guardian verified: auto-upserted ingress member');
-      guardianVerifyOutcome = 'verified';
-    } else {
-      guardianVerifyOutcome = 'failed';
     }
 
-    // Override commandIntent so the assistant sees the verification result
-    // and can generate a natural, personalized response.
-    commandIntent = {
-      type: 'guardian_verify',
-      payload: verifyResult.success
-        ? 'success: The user has been verified and is now set as the guardian for this channel.'
-        : `failed: ${stripVerificationFailurePrefix(verifyResult.reason)}`,
-    };
+    // Deliver a deterministic template-driven reply and short-circuit.
+    // Verification commands must never produce agent-generated copy.
+    if (replyCallbackUrl) {
+      const replyText = verifyResult.success
+        ? composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS)
+        : composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED, {
+            failureReason: stripVerificationFailurePrefix(verifyResult.reason),
+          });
+      try {
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: externalChatId,
+          text: replyText,
+          assistantId,
+        }, bearerToken);
+      } catch (err) {
+        // The challenge is already consumed and side effects applied, so
+        // we cannot simply re-throw and let the gateway retry the full
+        // flow. Instead, persist the reply so that gateway retries
+        // (which arrive as duplicates) can re-attempt delivery.
+        log.error({ err, externalChatId }, 'Failed to deliver deterministic verification reply; persisting for retry');
+        channelDeliveryStore.storePendingVerificationReply(result.eventId, {
+          chatId: externalChatId,
+          text: replyText,
+          assistantId,
+        });
 
-    // Sanitize content to only the command itself — strip any arbitrary
-    // text the sender may have appended after the verification code.
-    effectiveContent = `/guardian_verify ${guardianVerifyCode}`;
+        // Self-retry after a short delay. The gateway deduplicates
+        // inbound webhooks after a successful forward, so duplicate
+        // retries may never arrive. This fire-and-forget retry ensures
+        // delivery is re-attempted even without a gateway duplicate.
+        setTimeout(async () => {
+          try {
+            await deliverChannelReply(replyCallbackUrl, {
+              chatId: externalChatId,
+              text: replyText,
+              assistantId,
+            }, bearerToken);
+            log.info({ eventId: result.eventId }, 'Verification reply delivered on self-retry');
+            channelDeliveryStore.clearPendingVerificationReply(result.eventId);
+          } catch (retryErr) {
+            log.error({ err: retryErr, eventId: result.eventId }, 'Verification reply self-retry also failed; pending reply remains as fallback');
+          }
+        }, 3000);
+
+        return Response.json({
+          accepted: true,
+          duplicate: false,
+          eventId: result.eventId,
+          guardianVerification: guardianVerifyOutcome,
+          deliveryPending: true,
+        });
+      }
+    }
+
+    return Response.json({
+      accepted: true,
+      duplicate: false,
+      eventId: result.eventId,
+      guardianVerification: guardianVerifyOutcome,
+    });
   }
 
   // ── Guardian action answer interception ──
@@ -660,9 +844,8 @@ export async function handleChannelInbound(
   });
 
   // ── Approval interception ──
-  // Keep this active whenever orchestrator + callback context are available.
+  // Keep this active whenever callback context is available.
   if (
-    runOrchestrator &&
     replyCallbackUrl &&
     !result.duplicate
   ) {
@@ -675,7 +858,6 @@ export async function handleChannelInbound(
       senderExternalUserId: body.senderExternalUserId,
       replyCallbackUrl,
       bearerToken,
-      orchestrator: runOrchestrator,
       guardianCtx,
       assistantId: canonicalAssistantId,
       approvalCopyGenerator,
@@ -683,6 +865,41 @@ export async function handleChannelInbound(
     });
 
     if (approvalResult.handled) {
+      // Record inferred seen signal for all handled Telegram approval interactions
+      if (sourceChannel === 'telegram') {
+        try {
+          if (hasCallbackData) {
+            const cbPreview = body.callbackData!.length > 80
+              ? body.callbackData!.slice(0, 80) + '...'
+              : body.callbackData!;
+            recordConversationSeenSignal({
+              conversationId: result.conversationId,
+              assistantId: canonicalAssistantId,
+              signalType: 'telegram_callback',
+              confidence: 'inferred',
+              sourceChannel: 'telegram',
+              source: 'inbound-message-handler',
+              evidenceText: `User tapped callback: '${cbPreview}'`,
+            });
+          } else {
+            const msgPreview = trimmedContent.length > 80
+              ? trimmedContent.slice(0, 80) + '...'
+              : trimmedContent;
+            recordConversationSeenSignal({
+              conversationId: result.conversationId,
+              assistantId: canonicalAssistantId,
+              signalType: 'telegram_inbound_message',
+              confidence: 'inferred',
+              sourceChannel: 'telegram',
+              source: 'inbound-message-handler',
+              evidenceText: `User sent plain-text approval reply: '${msgPreview}'`,
+            });
+          }
+        } catch (err) {
+          log.warn({ err, conversationId: result.conversationId }, 'Failed to record seen signal for Telegram approval interaction');
+        }
+      }
+
       return Response.json({
         accepted: true,
         duplicate: false,
@@ -697,6 +914,26 @@ export async function handleChannelInbound(
     // have non-empty content (normalize.ts sets message.content to cbq.data),
     // so checking for empty content alone would miss stale callbacks.
     if (hasCallbackData) {
+      // Record seen signal even for stale callbacks — the user still interacted
+      if (sourceChannel === 'telegram') {
+        try {
+          const cbPreview = body.callbackData!.length > 80
+            ? body.callbackData!.slice(0, 80) + '...'
+            : body.callbackData!;
+          recordConversationSeenSignal({
+            conversationId: result.conversationId,
+            assistantId: canonicalAssistantId,
+            signalType: 'telegram_callback',
+            confidence: 'inferred',
+            sourceChannel: 'telegram',
+            source: 'inbound-message-handler',
+            evidenceText: `User tapped stale callback: '${cbPreview}'`,
+          });
+        } catch (err) {
+          log.warn({ err, conversationId: result.conversationId }, 'Failed to record seen signal for stale Telegram callback');
+        }
+      }
+
       return Response.json({
         accepted: true,
         duplicate: false,
@@ -713,7 +950,7 @@ export async function handleChannelInbound(
     // replayed. If the ingress check later detects secrets we clear it
     // before throwing, so secret-bearing content is never left on disk.
     channelDeliveryStore.storePayload(result.eventId, {
-      sourceChannel, externalChatId, externalMessageId, content: effectiveContent,
+      sourceChannel, externalChatId, externalMessageId, content,
       attachmentIds, sourceMetadata: body.sourceMetadata,
       senderName: body.senderName,
       senderExternalUserId: body.senderExternalUserId,
@@ -723,7 +960,7 @@ export async function handleChannelInbound(
       assistantId: canonicalAssistantId,
     });
 
-    const contentToCheck = effectiveContent ?? '';
+    const contentToCheck = content ?? '';
     let ingressCheck: ReturnType<typeof checkIngressForSecrets>;
     try {
       ingressCheck = checkIngressForSecrets(contentToCheck);
@@ -736,63 +973,58 @@ export async function handleChannelInbound(
       throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
     }
 
-    // Use the approval-aware orchestrator path whenever orchestration and a
-    // callback delivery target are available. This keeps approval handling
-    // consistent across all channels and avoids silent prompt timeouts.
-    const useApprovalPath = Boolean(
-      runOrchestrator &&
-      replyCallbackUrl,
-    );
-
-    if (useApprovalPath && runOrchestrator && replyCallbackUrl) {
-      processChannelMessageWithApprovals({
-        orchestrator: runOrchestrator,
-        conversationId: result.conversationId,
-        eventId: result.eventId,
-        content: effectiveContent ?? '',
-        attachmentIds: hasAttachments ? attachmentIds : undefined,
-        externalChatId,
-        sourceChannel,
-        sourceInterface,
-        replyCallbackUrl,
-        bearerToken,
-        guardianCtx,
-        assistantId: canonicalAssistantId,
-        metadataHints,
-        metadataUxBrief,
-        commandIntent,
-        sourceLanguageCode,
-        approvalCopyGenerator,
-      });
-    } else {
-      // Fire-and-forget: process the message and deliver the reply in the background.
-      // The HTTP response returns immediately so the gateway webhook is not blocked.
-      processChannelMessageInBackground({
-        processMessage,
-        conversationId: result.conversationId,
-        eventId: result.eventId,
-        content: effectiveContent ?? '',
-        attachmentIds: hasAttachments ? attachmentIds : undefined,
-        sourceChannel,
-        sourceInterface,
-        externalChatId,
-        guardianCtx,
-        metadataHints,
-        metadataUxBrief,
-        commandIntent,
-        sourceLanguageCode,
-        replyCallbackUrl,
-        bearerToken,
-        assistantId: canonicalAssistantId,
-      });
+    // Record inferred seen signal for non-duplicate Telegram inbound messages
+    if (sourceChannel === 'telegram') {
+      try {
+        const msgPreview = trimmedContent.length > 80
+          ? trimmedContent.slice(0, 80) + '...'
+          : trimmedContent;
+        const evidence = trimmedContent.length > 0
+          ? `User sent message: '${msgPreview}'`
+          : 'User sent media attachment';
+        recordConversationSeenSignal({
+          conversationId: result.conversationId,
+          assistantId: canonicalAssistantId,
+          signalType: 'telegram_inbound_message',
+          confidence: 'inferred',
+          sourceChannel: 'telegram',
+          source: 'inbound-message-handler',
+          evidenceText: evidence,
+        });
+      } catch (err) {
+        log.warn({ err, conversationId: result.conversationId }, 'Failed to record seen signal for Telegram inbound message');
+      }
     }
+
+    // Fire-and-forget: process the message and deliver the reply in the background.
+    // The HTTP response returns immediately so the gateway webhook is not blocked.
+    // The onEvent callback in processMessage registers pending interactions, and
+    // approval interception (above) handles decisions via the pending-interactions tracker.
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId: result.conversationId,
+      eventId: result.eventId,
+      content: content ?? '',
+      attachmentIds: hasAttachments ? attachmentIds : undefined,
+      sourceChannel,
+      sourceInterface,
+      externalChatId,
+      guardianCtx,
+      metadataHints,
+      metadataUxBrief,
+      commandIntent,
+      sourceLanguageCode,
+      replyCallbackUrl,
+      bearerToken,
+      assistantId: canonicalAssistantId,
+      approvalCopyGenerator,
+    });
   }
 
   return Response.json({
     accepted: result.accepted,
     duplicate: result.duplicate,
     eventId: result.eventId,
-    ...(guardianVerifyOutcome ? { guardianVerification: guardianVerifyOutcome } : {}),
   });
 }
 
@@ -815,8 +1047,126 @@ interface BackgroundProcessingParams {
   replyCallbackUrl?: string;
   bearerToken?: string;
   assistantId?: string;
+  approvalCopyGenerator?: ApprovalCopyGenerator;
   commandIntent?: Record<string, unknown>;
   sourceLanguageCode?: string;
+}
+
+const TELEGRAM_TYPING_INTERVAL_MS = 4_000;
+const PENDING_APPROVAL_POLL_INTERVAL_MS = 300;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldEmitTelegramTyping(
+  sourceChannel: ChannelId,
+  replyCallbackUrl?: string,
+): boolean {
+  if (sourceChannel !== 'telegram' || !replyCallbackUrl) return false;
+  try {
+    return new URL(replyCallbackUrl).pathname.endsWith('/deliver/telegram');
+  } catch {
+    return replyCallbackUrl.endsWith('/deliver/telegram');
+  }
+}
+
+function startTelegramTypingHeartbeat(
+  callbackUrl: string,
+  chatId: string,
+  bearerToken?: string,
+  assistantId?: string,
+): () => void {
+  let active = true;
+  let inFlight = false;
+
+  const emitTyping = (): void => {
+    if (!active || inFlight) return;
+    inFlight = true;
+    void deliverChannelReply(
+      callbackUrl,
+      { chatId, chatAction: 'typing', assistantId },
+      bearerToken,
+    ).catch((err) => {
+      log.debug({ err, chatId }, 'Failed to deliver Telegram typing indicator');
+    }).finally(() => {
+      inFlight = false;
+    });
+  };
+
+  emitTyping();
+
+  const interval = setInterval(emitTyping, TELEGRAM_TYPING_INTERVAL_MS);
+  (interval as { unref?: () => void }).unref?.();
+
+  return () => {
+    active = false;
+    clearInterval(interval);
+  };
+}
+
+function startPendingApprovalPromptWatcher(params: {
+  conversationId: string;
+  sourceChannel: ChannelId;
+  externalChatId: string;
+  replyCallbackUrl: string;
+  bearerToken?: string;
+  assistantId?: string;
+  approvalCopyGenerator?: ApprovalCopyGenerator;
+}): () => void {
+  const {
+    conversationId,
+    sourceChannel,
+    externalChatId,
+    replyCallbackUrl,
+    bearerToken,
+    assistantId,
+    approvalCopyGenerator,
+  } = params;
+
+  let active = true;
+  const deliveredRequestIds = new Set<string>();
+
+  const poll = async (): Promise<void> => {
+    while (active) {
+      try {
+        const prompt = getChannelApprovalPrompt(conversationId);
+        const pending = getApprovalInfoByConversation(conversationId);
+        const info = pending[0];
+        if (prompt && info && !deliveredRequestIds.has(info.requestId)) {
+          deliveredRequestIds.add(info.requestId);
+          const delivered = await deliverGeneratedApprovalPrompt({
+            replyCallbackUrl,
+            chatId: externalChatId,
+            sourceChannel,
+            assistantId: assistantId ?? 'self',
+            bearerToken,
+            prompt,
+            uiMetadata: buildApprovalUIMetadata(prompt, info),
+            messageContext: {
+              scenario: 'standard_prompt',
+              toolName: info.toolName,
+              channel: sourceChannel,
+            },
+            approvalCopyGenerator,
+          });
+          if (!delivered) {
+            // Delivery can fail transiently (network or gateway outage).
+            // Keep polling and retry prompt delivery for the same request.
+            deliveredRequestIds.delete(info.requestId);
+          }
+        }
+      } catch (err) {
+        log.warn({ err, conversationId }, 'Pending approval prompt watcher failed');
+      }
+      await delay(PENDING_APPROVAL_POLL_INTERVAL_MS);
+    }
+  };
+
+  void poll();
+  return () => {
+    active = false;
+  };
 }
 
 function processChannelMessageInBackground(params: BackgroundProcessingParams): void {
@@ -835,11 +1185,30 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     replyCallbackUrl,
     bearerToken,
     assistantId,
+    approvalCopyGenerator,
     commandIntent,
     sourceLanguageCode,
   } = params;
 
   (async () => {
+    const typingCallbackUrl = shouldEmitTelegramTyping(sourceChannel, replyCallbackUrl)
+      ? replyCallbackUrl
+      : undefined;
+    const stopTypingHeartbeat = typingCallbackUrl
+      ? startTelegramTypingHeartbeat(typingCallbackUrl, externalChatId, bearerToken, assistantId)
+      : undefined;
+    const stopApprovalWatcher = replyCallbackUrl
+      ? startPendingApprovalPromptWatcher({
+        conversationId,
+        sourceChannel,
+        externalChatId,
+        replyCallbackUrl,
+        bearerToken,
+        assistantId,
+        approvalCopyGenerator,
+      })
+      : undefined;
+
     try {
       const cmdIntent = commandIntent && typeof commandIntent.type === 'string'
         ? { type: commandIntent.type as string, ...(typeof commandIntent.payload === 'string' ? { payload: commandIntent.payload } : {}), ...(sourceLanguageCode ? { languageCode: sourceLanguageCode } : {}) }
@@ -856,6 +1225,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           },
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
+          isInteractive: true,
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,
@@ -871,348 +1241,85 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           replyCallbackUrl,
           bearerToken,
           assistantId,
+          {
+            onSegmentDelivered: (count) =>
+              channelDeliveryStore.updateDeliveredSegmentCount(eventId, count),
+          },
         );
       }
     } catch (err) {
       log.error({ err, conversationId }, 'Background channel message processing failed');
       channelDeliveryStore.recordProcessingFailure(eventId, err);
+    } finally {
+      stopTypingHeartbeat?.();
+      stopApprovalWatcher?.();
     }
   })();
 }
 
 // ---------------------------------------------------------------------------
-// Orchestrator-backed channel processing with approval prompt delivery
+// Bootstrap verification Telegram delivery helper
 // ---------------------------------------------------------------------------
 
-interface ApprovalProcessingParams {
-  orchestrator: RunOrchestrator;
-  conversationId: string;
-  eventId: string;
-  content: string;
-  attachmentIds?: string[];
-  externalChatId: string;
-  sourceChannel: ChannelId;
-  sourceInterface: InterfaceId;
-  replyCallbackUrl: string;
-  bearerToken?: string;
-  guardianCtx: GuardianContext;
-  assistantId: string;
-  metadataHints: string[];
-  metadataUxBrief?: string;
-  commandIntent?: Record<string, unknown>;
-  sourceLanguageCode?: string;
-  approvalCopyGenerator?: ApprovalCopyGenerator;
-}
-
 /**
- * Process a channel message using the run orchestrator so that
- * `confirmation_request` events are intercepted and written to the
- * runs store. Polls the run until it reaches a terminal state,
- * sending approval prompts when `needs_confirmation` is detected.
- *
- * When the actor is a non-guardian:
- * - `forceStrictSideEffects` is set on the run so all side-effect tools
- *   trigger the confirmation flow
- * - Approval prompts are routed to the guardian's chat
- * - A `channelGuardianApprovalRequest` record is created
+ * Deliver a verification Telegram message during bootstrap.
+ * Fire-and-forget with error logging and a single self-retry on failure.
  */
-function processChannelMessageWithApprovals(params: ApprovalProcessingParams): void {
-  const {
-    orchestrator,
-    conversationId,
-    eventId,
-    content,
-    attachmentIds,
-    externalChatId,
-    sourceChannel,
-    sourceInterface,
-    replyCallbackUrl,
-    bearerToken,
-    guardianCtx,
-    assistantId,
-    metadataHints,
-    metadataUxBrief,
-    commandIntent,
-    sourceLanguageCode,
-    approvalCopyGenerator,
-  } = params;
-
-  const isNonGuardian = guardianCtx.actorRole === 'non-guardian';
-  const isUnverifiedChannel = guardianCtx.actorRole === 'unverified_channel';
-
-  const cmdIntent = commandIntent && typeof commandIntent.type === 'string'
-    ? { type: commandIntent.type as string, ...(typeof commandIntent.payload === 'string' ? { payload: commandIntent.payload } : {}), ...(sourceLanguageCode ? { languageCode: sourceLanguageCode } : {}) }
-    : undefined;
+function deliverBootstrapVerificationTelegram(
+  chatId: string,
+  text: string,
+  assistantId: string,
+): void {
+  const attemptDelivery = async (): Promise<boolean> => {
+    const gatewayUrl = getGatewayInternalBaseUrl();
+    const bearerToken = readHttpToken();
+    if (!bearerToken) {
+      log.error('Cannot deliver bootstrap verification Telegram message: no runtime HTTP token available');
+      return false;
+    }
+    const url = `${gatewayUrl}/deliver/telegram`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bearerToken}`,
+      },
+      body: JSON.stringify({ chatId, text, assistantId }),
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '<unreadable>');
+      log.error({ chatId, assistantId, status: resp.status, body }, 'Gateway /deliver/telegram failed for bootstrap verification');
+      return false;
+    }
+    return true;
+  };
 
   (async () => {
     try {
-      const turnChannelContext: import('../../channels/types.js').TurnChannelContext = {
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-      };
-
-      const { run } = await orchestrator.startRun(
-        conversationId,
-        content,
-        attachmentIds,
-        {
-          ...((isNonGuardian || isUnverifiedChannel) ? { forceStrictSideEffects: true } : {}),
-          sourceChannel,
-          sourceInterface,
-          hints: metadataHints.length > 0 ? metadataHints : undefined,
-          uxBrief: metadataUxBrief,
-          assistantId,
-          guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
-          ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
-          turnChannelContext,
-        },
-      );
-
-      // Poll the run until it reaches a terminal state, delivering approval
-      // prompts when it transitions to needs_confirmation.
-      const startTime = Date.now();
-      const pollMaxWait = getEffectivePollMaxWait();
-      let lastStatus = run.status;
-      // Track whether a post-decision delivery path is guaranteed for this
-      // run. Set to true only when the approval prompt is successfully
-      // delivered (guardian or standard path), meaning
-      // handleApprovalInterception will schedule schedulePostDecisionDelivery
-      // when a decision arrives. Auto-deny paths (unverified channel, prompt
-      // delivery failures) do NOT set this flag because no post-decision
-      // delivery is scheduled in those cases.
-      let hasPostDecisionDelivery = false;
-
-      while (Date.now() - startTime < pollMaxWait) {
-        await new Promise((resolve) => setTimeout(resolve, RUN_POLL_INTERVAL_MS));
-
-        const current = orchestrator.getRun(run.id);
-        if (!current) break;
-
-        if (current.status === 'needs_confirmation' && lastStatus !== 'needs_confirmation') {
-          const pending = getPendingConfirmationsByConversation(conversationId);
-
-          if (isUnverifiedChannel && pending.length > 0) {
-            // Unverified channel — auto-deny the sensitive action (fail-closed).
-            handleChannelDecision(
-              conversationId,
-              { action: 'reject', source: 'plain_text' },
-              orchestrator,
-              buildGuardianDenyContext(
-                pending[0].toolName,
-                guardianCtx.denialReason ?? 'no_binding',
-                sourceChannel,
-              ),
-            );
-          } else if (isNonGuardian && guardianCtx.guardianChatId && pending.length > 0) {
-            // Non-guardian actor: route the approval prompt to the guardian's chat
-            const guardianPrompt = buildGuardianApprovalPrompt(
-              pending[0],
-              guardianCtx.requesterIdentifier ?? 'Unknown user',
-            );
-            const uiMetadata = buildApprovalUIMetadata(guardianPrompt, pending[0]);
-
-            // Persist the guardian approval request so we can look it up when
-            // the guardian responds from their chat.
-            const approvalReqRecord = createApprovalRequest({
-              runId: run.id,
-              conversationId,
-              assistantId,
-              channel: sourceChannel,
-              requesterExternalUserId: guardianCtx.requesterExternalUserId ?? '',
-              requesterChatId: guardianCtx.requesterChatId ?? externalChatId,
-              guardianExternalUserId: guardianCtx.guardianExternalUserId ?? '',
-              guardianChatId: guardianCtx.guardianChatId,
-              toolName: pending[0].toolName,
-              riskLevel: pending[0].riskLevel,
-              expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
-            });
-
-            const guardianNotified = await deliverGeneratedApprovalPrompt({
-              replyCallbackUrl,
-              chatId: guardianCtx.guardianChatId,
-              sourceChannel,
-              assistantId,
-              bearerToken,
-              prompt: guardianPrompt,
-              uiMetadata,
-              messageContext: {
-                scenario: 'guardian_prompt',
-                toolName: pending[0].toolName,
-                requesterIdentifier: guardianCtx.requesterIdentifier ?? 'Unknown user',
-              },
-              approvalCopyGenerator,
-            });
-
-            if (guardianNotified) {
-              hasPostDecisionDelivery = true;
-            } else {
-              // Deny the approval and the underlying run — fail-closed. If
-              // the prompt could not be delivered, the guardian will never see
-              // it, so the safest action is to deny rather than cancel (which
-              // would allow requester fallback).
-              updateApprovalDecision(approvalReqRecord.id, { status: 'denied' });
-              handleChannelDecision(
-                conversationId,
-                { action: 'reject', source: 'plain_text' },
-                orchestrator,
-                buildPromptDeliveryFailureContext(pending[0].toolName),
-              );
-            }
-
-            // Only notify the requester if the guardian prompt was actually delivered
-            if (guardianNotified) {
-              try {
-                const forwardedText = await composeApprovalMessageGenerative({
-                  scenario: 'guardian_request_forwarded',
-                  toolName: pending[0].toolName,
-                  channel: sourceChannel,
-                }, {}, approvalCopyGenerator);
-                await deliverChannelReply(replyCallbackUrl, {
-                  chatId: guardianCtx.requesterChatId ?? externalChatId,
-                  text: forwardedText,
-                  assistantId,
-                }, bearerToken);
-              } catch (err) {
-                log.error({ err, runId: run.id }, 'Failed to notify requester of pending guardian approval');
-              }
-            }
-          } else {
-            // Guardian actor or no guardian binding: standard approval prompt
-            // sent to the requester's own chat.
-            const prompt = getChannelApprovalPrompt(conversationId);
-            if (prompt && pending.length > 0) {
-              const uiMetadata = buildApprovalUIMetadata(prompt, pending[0]);
-              const delivered = await deliverGeneratedApprovalPrompt({
-                replyCallbackUrl,
-                chatId: externalChatId,
-                sourceChannel,
-                assistantId,
-                bearerToken,
-                prompt,
-                uiMetadata,
-                messageContext: {
-                  scenario: 'standard_prompt',
-                  toolName: pending[0].toolName,
-                },
-                approvalCopyGenerator,
-              });
-              if (delivered) {
-                hasPostDecisionDelivery = true;
-              } else {
-                // Fail-closed: if we cannot deliver the approval prompt, the
-                // user will never see it and the run would hang indefinitely
-                // in needs_confirmation. Auto-deny to avoid silent wait states.
-                log.error(
-                  { runId: run.id, conversationId },
-                  'Failed to deliver standard approval prompt; auto-denying (fail-closed)',
-                );
-                handleChannelDecision(
-                  conversationId,
-                  { action: 'reject', source: 'plain_text' },
-                  orchestrator,
-                  buildPromptDeliveryFailureContext(pending[0].toolName),
-                );
-              }
-            }
-          }
-        }
-
-        lastStatus = current.status;
-
-        if (current.status === 'completed' || current.status === 'failed') {
-          break;
-        }
-      }
-
-      // Only mark processed and deliver the final reply when the run has
-      // actually reached a terminal state.
-      const finalRun = orchestrator.getRun(run.id);
-      const isTerminal = finalRun?.status === 'completed' || finalRun?.status === 'failed';
-
-      if (isTerminal) {
-        // Link the inbound event to the user message created by the run so
-        // that edit lookups and dead letter replay work correctly.
-        if (run.messageId) {
-          channelDeliveryStore.linkMessage(eventId, run.messageId);
-        }
-
-        channelDeliveryStore.markProcessed(eventId);
-
-        // Deliver the final assistant reply exactly once. The post-decision
-        // poll in schedulePostDecisionDelivery races with this path; the
-        // claimRunDelivery guard ensures only the winner sends the reply.
-        // If delivery fails, release the claim so the other poller can retry
-        // rather than permanently losing the reply.
-        if (channelDeliveryStore.claimRunDelivery(run.id)) {
-          try {
-            await deliverReplyViaCallback(
-              conversationId,
-              externalChatId,
-              replyCallbackUrl,
-              bearerToken,
-              assistantId,
-            );
-          } catch (deliveryErr) {
-            channelDeliveryStore.resetRunDeliveryClaim(run.id);
-            throw deliveryErr;
-          }
-        }
-
-        // If this was a non-guardian run that went through guardian approval,
-        // also notify the guardian's chat about the outcome.
-        if (isNonGuardian && guardianCtx.guardianChatId) {
-          const approvalReq = getPendingApprovalForRun(run.id);
-          if (approvalReq) {
-            // The approval was resolved (run completed or failed) — mark it
-            const outcomeStatus = finalRun?.status === 'completed' ? 'approved' as const : 'denied' as const;
-            updateApprovalDecision(approvalReq.id, { status: outcomeStatus });
-          }
-        }
-      } else if (
-        finalRun?.status === 'needs_confirmation' ||
-        (hasPostDecisionDelivery && finalRun?.status === 'running')
-      ) {
-        // The run is either still waiting for an approval decision or was
-        // recently approved and has resumed execution. In both cases, mark
-        // the event as processed rather than failed:
-        //
-        // - needs_confirmation: the run will resume when the user clicks
-        //   approve/reject, and `handleApprovalInterception` will deliver
-        //   the reply via `schedulePostDecisionDelivery`.
-        //
-        // - running (after successful prompt delivery): an approval was
-        //   applied near the poll deadline and the run resumed but hasn't
-        //   reached terminal state yet. `handleApprovalInterception` has
-        //   already scheduled post-decision delivery, so the final reply
-        //   will be delivered. This condition is only true when the approval
-        //   prompt was actually delivered (not in auto-deny paths), ensuring
-        //   we don't suppress retry/dead-letter for cases where no
-        //   post-decision delivery path exists.
-        //
-        // Marking either state as failed would cause the generic retry sweep
-        // to replay through `processMessage`, which throws "Session is
-        // already processing a message" and dead-letters a valid conversation.
-        log.warn(
-          { runId: run.id, status: finalRun.status, conversationId, hasPostDecisionDelivery },
-          'Approval-path poll loop timed out while run is in approval-related state; marking event as processed',
-        );
-        channelDeliveryStore.markProcessed(eventId);
-      } else {
-        // The run is in a non-terminal, non-approval state (e.g. running
-        // without prior approval, needs_secret, or disappeared). Record a
-        // processing failure so the retry/dead-letter machinery can handle it.
-        const timeoutErr = new Error(
-          `Approval poll timeout: run did not reach terminal state within ${pollMaxWait}ms (status: ${finalRun?.status ?? 'null'})`,
-        );
-        log.warn(
-          { runId: run.id, status: finalRun?.status, conversationId },
-          'Approval-path poll loop timed out before run reached terminal state',
-        );
-        channelDeliveryStore.recordProcessingFailure(eventId, timeoutErr);
+      const delivered = await attemptDelivery();
+      if (delivered) {
+        log.info({ chatId, assistantId }, 'Bootstrap verification Telegram message delivered');
+        return;
       }
     } catch (err) {
-      log.error({ err, conversationId }, 'Approval-aware channel message processing failed');
-      channelDeliveryStore.recordProcessingFailure(eventId, err);
+      log.error({ err, chatId, assistantId }, 'Failed to deliver bootstrap verification Telegram message');
     }
+
+    // Self-retry after a short delay. The gateway deduplicates inbound
+    // webhooks after a successful forward, so duplicate retries from the
+    // user re-clicking the deep link may never arrive. This ensures
+    // delivery is re-attempted even without a gateway duplicate.
+    setTimeout(async () => {
+      try {
+        const delivered = await attemptDelivery();
+        if (delivered) {
+          log.info({ chatId, assistantId }, 'Bootstrap verification Telegram message delivered on self-retry');
+        } else {
+          log.error({ chatId, assistantId }, 'Bootstrap verification Telegram self-retry also failed');
+        }
+      } catch (retryErr) {
+        log.error({ err: retryErr, chatId, assistantId }, 'Bootstrap verification Telegram self-retry threw; giving up');
+      }
+    }, 3000);
   })();
 }

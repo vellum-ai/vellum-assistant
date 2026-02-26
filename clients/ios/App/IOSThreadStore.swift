@@ -137,6 +137,9 @@ class IOSThreadStore: ObservableObject {
         daemon.onSubagentDetailResponse = { [weak self] response in
             self?.handleSubagentDetailResponse(response)
         }
+        daemon.onMessageContentResponse = { [weak self] response in
+            self?.handleMessageContentResponse(response)
+        }
 
         // Fetch session list once connected. Try immediately if already connected,
         // otherwise wait for the daemonDidReconnect notification.
@@ -213,6 +216,7 @@ class IOSThreadStore: ObservableObject {
             oldDaemon.onSessionListResponse = nil
             oldDaemon.onHistoryResponse = nil
             oldDaemon.onSubagentDetailResponse = nil
+            oldDaemon.onMessageContentResponse = nil
         }
 
         daemonClient = newClient
@@ -422,13 +426,37 @@ class IOSThreadStore: ObservableObject {
     private func handleHistoryResponse(_ response: HistoryResponseMessage) {
         guard let threadId = pendingHistoryBySessionId.removeValue(forKey: response.sessionId) else { return }
         guard let vm = viewModels[threadId] else { return }
-        vm.populateFromHistory(response.messages)
+
+        let isPaginationLoad = vm.isHistoryLoaded && vm.isLoadingMoreMessages
+
+        vm.populateFromHistory(
+            response.messages,
+            hasMore: response.hasMore,
+            oldestTimestamp: response.oldestTimestamp,
+            isPaginationLoad: isPaginationLoad
+        )
+
+        // Wire up the onLoadMoreHistory callback if not already set.
+        if vm.onLoadMoreHistory == nil {
+            vm.onLoadMoreHistory = { [weak self] sessionId, beforeTimestamp in
+                self?.requestPaginatedHistory(sessionId: sessionId, beforeTimestamp: beforeTimestamp)
+            }
+        }
     }
 
     private func handleSubagentDetailResponse(_ response: IPCSubagentDetailResponse) {
         for (_, vm) in viewModels {
             if vm.activeSubagents.contains(where: { $0.id == response.subagentId }) {
                 vm.subagentDetailStore.populateFromDetailResponse(response)
+                return
+            }
+        }
+    }
+
+    private func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
+        for (_, vm) in viewModels {
+            if vm.messages.contains(where: { $0.daemonMessageId == response.messageId }) {
+                vm.handleMessageContentResponse(response)
                 return
             }
         }
@@ -443,7 +471,36 @@ class IOSThreadStore: ObservableObject {
               !vm.isHistoryLoaded else { return }
 
         pendingHistoryBySessionId[sessionId] = threadId
-        try? daemon.sendHistoryRequest(sessionId: sessionId)
+
+        // Wire up the "load more" callback for pagination.
+        vm.onLoadMoreHistory = { [weak self] sessionId, beforeTimestamp in
+            self?.requestPaginatedHistory(sessionId: sessionId, beforeTimestamp: beforeTimestamp)
+        }
+
+        try? daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
+    }
+
+    /// Request an older page of history for pagination.
+    private func requestPaginatedHistory(sessionId: String, beforeTimestamp: Double) {
+        guard let daemon = daemonClient as? DaemonClient,
+              let thread = threads.first(where: { $0.sessionId == sessionId }) else {
+            // Clear loading state so the user isn't stuck with a permanent spinner.
+            // The daemon cast may fail (e.g. HTTP transport) while the thread is still findable.
+            if let thread = threads.first(where: { $0.sessionId == sessionId }),
+               let vm = viewModels[thread.id] {
+                vm.isLoadingMoreMessages = false
+            }
+            return
+        }
+        pendingHistoryBySessionId[sessionId] = thread.id
+        do {
+            try daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
+        } catch {
+            pendingHistoryBySessionId.removeValue(forKey: sessionId)
+            if let vm = viewModels[thread.id] {
+                vm.isLoadingMoreMessages = false
+            }
+        }
     }
 
     /// Return the ChatViewModel for the given thread, creating it if necessary.
@@ -480,7 +537,7 @@ class IOSThreadStore: ObservableObject {
         vm.onReconnectHistoryNeeded = { [weak self, weak vm] sessionId in
             guard let self, let _ = vm, let daemon = self.daemonClient as? DaemonClient else { return }
             self.pendingHistoryBySessionId[sessionId] = threadId
-            try? daemon.sendHistoryRequest(sessionId: sessionId)
+            try? daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
         }
     }
 

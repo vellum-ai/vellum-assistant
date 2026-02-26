@@ -5,13 +5,16 @@ import { v4 as uuid } from 'uuid';
 import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getAttachmentsForMessage, setAttachmentThumbnail } from '../../memory/attachments-store.js';
+import { getAttentionStateByConversationIds } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
+import { redactSecrets } from '../../security/secret-scanner.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { truncate } from '../../util/truncate.js';
+import { getAssistantName } from '../identity-helpers.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
 import type {
   CancelRequest,
@@ -19,6 +22,7 @@ import type {
   ConversationSearchRequest,
   DeleteQueuedMessage,
   HistoryRequest,
+  MessageContentRequest,
   RegenerateRequest,
   SandboxSetRequest,
   SecretResponse,
@@ -31,8 +35,10 @@ import type {
   UserMessage,
 } from '../ipc-protocol.js';
 import { normalizeThreadType } from '../ipc-protocol.js';
+import { classifyRecordingIntent, detectRecordingIntent, detectStopRecordingIntent, hasSubstantiveContent, isInterrogative, stripRecordingIntent, stripStopRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { generateVideoThumbnail } from '../video-thumbnail.js';
+import { handleRecordingStart, handleRecordingStop } from './recording.js';
 import {
   defineHandlers,
   type HandlerContext,
@@ -64,29 +70,6 @@ export async function handleUserMessage(
     }
 
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
-
-    // Block inbound messages that contain secrets and redirect to secure prompt
-    if (!msg.bypassSecretCheck) {
-      const ingressCheck = checkIngressForSecrets(msg.content ?? '');
-      if (ingressCheck.blocked) {
-        rlog.warn({ detectedTypes: ingressCheck.detectedTypes }, 'Blocked user message containing secrets');
-        ctx.send(socket, {
-          type: 'error',
-          message: ingressCheck.userNotice!,
-          category: 'secret_blocked',
-        });
-        // Redirect: trigger a secure prompt so the user can enter the secret safely
-        session.redirectToSecurePrompt(ingressCheck.detectedTypes);
-        return;
-      }
-    }
-
-    session.traceEmitter.emit('request_received', 'User message received', {
-      requestId,
-      status: 'info',
-      attributes: { source: 'user_message' },
-    });
-
     const ipcChannel = parseChannelId(msg.channel) ?? 'vellum';
     const ipcInterface = parseInterfaceId(msg.interface);
     if (!ipcInterface) {
@@ -102,71 +85,238 @@ export async function handleUserMessage(
       userMessageInterface: ipcInterface,
       assistantMessageInterface: ipcInterface,
     };
-    const result = session.enqueueMessage(
-      msg.content ?? '',
-      msg.attachments ?? [],
-      sendEvent,
-      requestId,
-      msg.activeSurfaceId,
-      msg.currentPage,
-      queuedChannelMetadata,
-    );
-    if (result.rejected) {
-      rlog.warn('Message rejected — queue is full');
-      session.traceEmitter.emit('request_error', 'Message rejected — queue is full', {
-        requestId,
-        status: 'error',
-        attributes: { reason: 'queue_full', queueDepth: session.getQueueDepth() },
-      });
-      ctx.send(socket, buildSessionErrorMessage(msg.sessionId, {
-        code: 'QUEUE_FULL',
-        userMessage: 'Message queue is full (max depth: 10). Please wait for current messages to be processed.',
-        retryable: true,
-        debugDetails: 'Message rejected — session queue is full',
-      }));
-      return;
-    }
-    if (result.queued) {
-      const position = session.getQueueDepth();
-      rlog.info({ position }, 'Message queued (session busy)');
-      session.traceEmitter.emit('request_queued', `Message queued at position ${position}`, {
-        requestId,
+
+    const dispatchUserMessage = (
+      content: string,
+      attachments: UserMessageAttachment[],
+      dispatchRequestId: string,
+      source: 'user_message' | 'secure_redirect_resume',
+      activeSurfaceId?: string,
+      currentPage?: string,
+    ): void => {
+      const receivedDescription = source === 'user_message'
+        ? 'User message received'
+        : 'Resuming message after secure credential save';
+      const queuedDescription = source === 'user_message'
+        ? 'Message queued (session busy)'
+        : 'Resumed message queued (session busy)';
+
+      session.traceEmitter.emit('request_received', receivedDescription, {
+        requestId: dispatchRequestId,
         status: 'info',
-        attributes: { position },
+        attributes: { source },
       });
-      ctx.send(socket, {
-        type: 'message_queued',
-        sessionId: msg.sessionId,
-        requestId,
-        position,
+
+      const result = session.enqueueMessage(
+        content,
+        attachments,
+        sendEvent,
+        dispatchRequestId,
+        activeSurfaceId,
+        currentPage,
+        queuedChannelMetadata,
+      );
+      if (result.rejected) {
+        rlog.warn({ source }, 'Message rejected — queue is full');
+        session.traceEmitter.emit('request_error', 'Message rejected — queue is full', {
+          requestId: dispatchRequestId,
+          status: 'error',
+          attributes: { reason: 'queue_full', queueDepth: session.getQueueDepth(), source },
+        });
+        ctx.send(socket, buildSessionErrorMessage(msg.sessionId, {
+          code: 'QUEUE_FULL',
+          userMessage: 'Message queue is full (max depth: 10). Please wait for current messages to be processed.',
+          retryable: true,
+          debugDetails: 'Message rejected — session queue is full',
+        }));
+        return;
+      }
+      if (result.queued) {
+        const position = session.getQueueDepth();
+        rlog.info({ source, position }, queuedDescription);
+        session.traceEmitter.emit('request_queued', `Message queued at position ${position}`, {
+          requestId: dispatchRequestId,
+          status: 'info',
+          attributes: { position, source },
+        });
+        ctx.send(socket, {
+          type: 'message_queued',
+          sessionId: msg.sessionId,
+          requestId: dispatchRequestId,
+          position,
+        });
+        return;
+      }
+
+      rlog.info({ source }, 'Processing user message');
+      session.setTurnChannelContext({
+        userMessageChannel: ipcChannel,
+        assistantMessageChannel: ipcChannel,
       });
-      return; // Don't await — message will be processed when current one finishes
+      session.setTurnInterfaceContext({
+        userMessageInterface: ipcInterface,
+        assistantMessageInterface: ipcInterface,
+      });
+      session.setAssistantId('self');
+      // IPC/desktop user IS the guardian — default to guardian role so messages
+      // are not tagged 'unverified_channel' (which blocks memory extraction).
+      session.setGuardianContext({ actorRole: 'guardian', sourceChannel: ipcChannel });
+      session.setCommandIntent(null);
+      // Fire-and-forget: don't block the IPC handler so the connection can
+      // continue receiving messages (e.g. cancel, confirmations, or
+      // additional user_message that will be queued by the session).
+      session.processMessage(content, attachments, sendEvent, dispatchRequestId, activeSurfaceId, currentPage).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        rlog.error({ err, source }, 'Error processing user message (session or provider failure)');
+        ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+        const classified = classifySessionError(err, { phase: 'agent_loop' });
+        ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
+      });
+    };
+
+    const config = getConfig();
+    const messageText = msg.content ?? '';
+
+    // Block inbound messages that contain secrets and redirect to secure prompt
+    if (!msg.bypassSecretCheck) {
+      const ingressCheck = checkIngressForSecrets(messageText);
+      if (ingressCheck.blocked) {
+        rlog.warn({ detectedTypes: ingressCheck.detectedTypes }, 'Blocked user message containing secrets');
+        ctx.send(socket, {
+          type: 'error',
+          message: ingressCheck.userNotice!,
+          category: 'secret_blocked',
+        });
+
+        const redactedMessageText = redactSecrets(messageText, {
+          enabled: true,
+          base64Threshold: config.secretDetection.entropyThreshold,
+        }).trim();
+
+        // Redirect: trigger a secure prompt so the user can enter the secret safely.
+        // After save, continue the same request with redacted text so the model keeps
+        // user intent without ever receiving the raw secret value.
+        session.redirectToSecurePrompt(ingressCheck.detectedTypes, {
+          onStored: (record) => {
+            ctx.send(socket, {
+              type: 'assistant_text_delta',
+              sessionId: msg.sessionId,
+              text: 'Saved your secret securely. Continuing with your request.',
+            });
+            ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+
+            const continuationParts: string[] = [];
+            if (redactedMessageText.length > 0) continuationParts.push(redactedMessageText);
+            continuationParts.push(
+              `I entered the redacted secret via the Secure Credential UI and saved it as credential ${record.service}/${record.field}. ` +
+              'Continue with my request using that stored credential and do not ask me to paste the secret again.',
+            );
+            const continuationMessage = continuationParts.join('\n\n');
+            const continuationRequestId = uuid();
+            dispatchUserMessage(
+              continuationMessage,
+              msg.attachments ?? [],
+              continuationRequestId,
+              'secure_redirect_resume',
+              msg.activeSurfaceId,
+              msg.currentPage,
+            );
+          },
+        });
+        return;
+      }
     }
 
-    rlog.info('Processing user message');
-    session.setTurnChannelContext({
-      userMessageChannel: ipcChannel,
-      assistantMessageChannel: ipcChannel,
-    });
-    session.setTurnInterfaceContext({
-      userMessageInterface: ipcInterface,
-      assistantMessageInterface: ipcInterface,
-    });
-    session.setAssistantId('self');
-    // IPC/desktop user IS the guardian — default to guardian role so messages
-    // are not tagged 'unverified_channel' (which blocks memory extraction).
-    session.setGuardianContext({ actorRole: 'guardian', sourceChannel: ipcChannel });
-    session.setCommandIntent(null);
-    // Fire-and-forget: don't block the IPC handler so the connection can
-    // continue receiving messages (e.g. cancel, confirmations, or
-    // additional user_message that will be queued by the session).
-    session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId, msg.currentPage).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      rlog.error({ err }, 'Error processing user message (session or provider failure)');
-      ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
-      const classified = classifySessionError(err, { phase: 'agent_loop' });
-      ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
-    });
+    // ── Standalone recording intent interception ──────────────────────────
+    if (config.daemon.standaloneRecording && messageText) {
+      const name = getAssistantName();
+      const dynamicNames = [name].filter(Boolean) as string[];
+      const intentClass = classifyRecordingIntent(messageText, dynamicNames);
+
+      switch (intentClass) {
+        case 'stop_only': {
+          const stopped = handleRecordingStop(msg.sessionId, ctx) !== undefined;
+          rlog.info('Recording stop intent intercepted in user_message');
+          ctx.send(socket, {
+            type: 'assistant_text_delta',
+            text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+            sessionId: msg.sessionId,
+          });
+          ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+          return;
+        }
+        case 'start_only': {
+          const recordingId = handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
+          rlog.info('Recording-only intent intercepted in user_message');
+
+          if (recordingId) {
+            ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: msg.sessionId });
+          } else {
+            ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: msg.sessionId });
+          }
+          ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+          return;
+        }
+        case 'mixed': {
+          // Skip recording side effects for questions about recording
+          // (e.g., "how do I stop recording?") — let the model answer instead.
+          if (isInterrogative(messageText, dynamicNames)) {
+            rlog.info('Mixed recording intent is interrogative — skipping side effects');
+            break;
+          }
+
+          // Mixed = recording intent embedded in broader text.
+          // Handle the recording action, then check if remaining text is substantive.
+          const hasStart = detectRecordingIntent(messageText);
+          const hasStop = detectStopRecordingIntent(messageText);
+
+          if (hasStop) {
+            handleRecordingStop(msg.sessionId, ctx);
+            rlog.info('Mixed intent — stopping recording');
+          }
+          const startResult = hasStart ? handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx) : null;
+          if (hasStart) {
+            rlog.info({ started: !!startResult }, 'Mixed intent — starting recording');
+          }
+
+          // Strip recording clauses from the message
+          let remaining = messageText;
+          if (hasStart) remaining = stripRecordingIntent(remaining);
+          if (hasStop) remaining = stripStopRecordingIntent(remaining);
+
+          // If nothing substantive remains (just fillers, names, punctuation), complete now
+          if (!hasSubstantiveContent(remaining, dynamicNames)) {
+            let text: string;
+            if (hasStart && startResult) {
+              text = hasStop ? 'Stopping current recording and starting a new one.' : 'Starting screen recording.';
+            } else if (hasStart) {
+              text = 'A recording is already active.';
+            } else {
+              text = 'Stopping the recording.';
+            }
+            ctx.send(socket, { type: 'assistant_text_delta', text, sessionId: msg.sessionId });
+            ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+            return;
+          }
+
+          // Continue with stripped text for downstream processing
+          msg.content = remaining;
+          rlog.info({ remaining }, 'Mixed recording intent — recording handled, continuing with remaining text');
+          break;
+        }
+        case 'none':
+          break;
+      }
+    }
+
+    dispatchUserMessage(
+      messageText,
+      msg.attachments ?? [],
+      requestId,
+      'user_message',
+      msg.activeSurfaceId,
+      msg.currentPage,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     rlog.error({ err }, 'Error setting up user message processing');
@@ -244,15 +394,24 @@ export function handleSecretResponse(
 export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offset = 0, limit = 50): void {
   const conversations = conversationStore.listConversations(limit, false, offset);
   const totalCount = conversationStore.countConversations();
-  const bindings = externalConversationStore.getBindingsForConversations(
-    conversations.map((c) => c.id),
-  );
+  const conversationIds = conversations.map((c) => c.id);
+  const bindings = externalConversationStore.getBindingsForConversations(conversationIds);
+  const attentionStates = getAttentionStateByConversationIds(conversationIds);
   ctx.send(socket, {
     type: 'session_list_response',
     sessions: conversations.map((c) => {
       const binding = bindings.get(c.id);
       const originChannel = parseChannelId(c.originChannel);
       const originInterface = parseInterfaceId(c.originInterface);
+      const attn = attentionStates.get(c.id);
+      const assistantAttention = attn ? {
+        hasUnseenLatestAssistantMessage: attn.latestAssistantMessageAt !== null &&
+          (attn.lastSeenAssistantMessageAt === null || attn.lastSeenAssistantMessageAt < attn.latestAssistantMessageAt),
+        ...(attn.latestAssistantMessageAt !== null ? { latestAssistantMessageAt: attn.latestAssistantMessageAt } : {}),
+        ...(attn.lastSeenAssistantMessageAt !== null ? { lastSeenAssistantMessageAt: attn.lastSeenAssistantMessageAt } : {}),
+        ...(attn.lastSeenConfidence !== null ? { lastSeenConfidence: attn.lastSeenConfidence } : {}),
+        ...(attn.lastSeenSignalType !== null ? { lastSeenSignalType: attn.lastSeenSignalType } : {}),
+      } : undefined;
       return {
         id: c.id,
         title: c.title ?? 'Untitled',
@@ -270,6 +429,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
         } : {}),
         ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
         ...(originInterface ? { conversationOriginInterface: originInterface } : {}),
+        ...(assistantAttention ? { assistantAttention } : {}),
       };
     }),
     hasMore: offset + conversations.length < totalCount,
@@ -456,7 +616,24 @@ export function handleHistoryRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const dbMessages = conversationStore.getMessages(msg.sessionId);
+  // Default to unlimited when callers don't specify a limit, preserving
+  // backward-compatible behavior of returning full conversation history.
+  const limit = msg.limit;
+
+  // Resolve include flags: explicit flags override mode, mode provides defaults.
+  // Default mode is 'light' when no mode and no include flags are specified.
+  const isFullMode = msg.mode === 'full';
+  const includeAttachments = msg.includeAttachments ?? isFullMode;
+  const includeToolImages = msg.includeToolImages ?? isFullMode;
+  const includeSurfaceData = msg.includeSurfaceData ?? isFullMode;
+
+  const { messages: dbMessages, hasMore } = conversationStore.getMessagesPaginated(
+    msg.sessionId,
+    limit,
+    msg.beforeTimestamp,
+    msg.beforeMessageId,
+  );
+
   const parsed: ParsedHistoryMessage[] = dbMessages.map((m) => {
     let text = '';
     let toolCalls: HistoryToolCall[] = [];
@@ -504,50 +681,123 @@ export function handleHistoryRequest(
     if (m.role === 'assistant' && m.id) {
       const linked = getAttachmentsForMessage(m.id);
       if (linked.length > 0) {
-        // Skip embedding base64 data for large video attachments to keep the
-        // history_response payload small. Only videos have a lazy-fetch path on
-        // the client, so non-video attachments always keep their inline data.
-        const MAX_INLINE_B64_SIZE = 512 * 1024;
-        attachments = linked.map((a) => {
-          const omit = a.mimeType.startsWith('video/') && a.dataBase64.length > MAX_INLINE_B64_SIZE;
+        if (includeAttachments) {
+          // Full attachment data: same behavior as before
+          const MAX_INLINE_B64_SIZE = 512 * 1024;
+          attachments = linked.map((a) => {
+            const isFileBacked = !a.dataBase64;
+            const omit = isFileBacked || (a.mimeType.startsWith('video/') && a.dataBase64.length > MAX_INLINE_B64_SIZE);
 
-          // Lazily generate thumbnails for existing video attachments on first history load.
-          if (a.mimeType.startsWith('video/') && !a.thumbnailBase64) {
-            const attachmentId = a.id;
-            const base64 = a.dataBase64;
-            silentlyWithLog(
-              generateVideoThumbnail(base64).then((thumb) => {
-                if (thumb) setAttachmentThumbnail(attachmentId, thumb);
-              }),
-              'video thumbnail generation',
-            );
-          }
+            if (a.mimeType.startsWith('video/') && !a.thumbnailBase64 && a.dataBase64) {
+              const attachmentId = a.id;
+              const base64 = a.dataBase64;
+              silentlyWithLog(
+                generateVideoThumbnail(base64).then((thumb) => {
+                  if (thumb) setAttachmentThumbnail(attachmentId, thumb);
+                }),
+                'video thumbnail generation',
+              );
+            }
 
-          return {
+            return {
+              id: a.id,
+              filename: a.originalFilename,
+              mimeType: a.mimeType,
+              data: omit ? '' : a.dataBase64,
+              ...(omit ? { sizeBytes: a.sizeBytes } : {}),
+              ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
+            };
+          });
+        } else {
+          // Light mode: metadata only, strip base64 data
+          attachments = linked.map((a) => ({
             id: a.id,
             filename: a.originalFilename,
             mimeType: a.mimeType,
-            data: omit ? '' : a.dataBase64,
-            ...(omit ? { sizeBytes: a.sizeBytes } : {}),
+            data: '',
+            sizeBytes: a.sizeBytes,
             ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
-          };
-        });
+          }));
+        }
       }
     }
+
+    // In light mode, strip imageData from tool calls
+    const filteredToolCalls = m.toolCalls.length > 0
+      ? (includeToolImages
+        ? m.toolCalls
+        : m.toolCalls.map((tc) => {
+          if (tc.imageData) {
+            const { imageData: _, ...rest } = tc;
+            return rest;
+          }
+          return tc;
+        }))
+      : m.toolCalls;
+
+    // In light mode, strip full data from surfaces (keep metadata)
+    const filteredSurfaces = m.surfaces.length > 0
+      ? (includeSurfaceData
+        ? m.surfaces
+        : m.surfaces.map((s) => ({
+          surfaceId: s.surfaceId,
+          surfaceType: s.surfaceType,
+          title: s.title,
+          data: {} as Record<string, unknown>,
+          ...(s.actions ? { actions: s.actions } : {}),
+          ...(s.display ? { display: s.display } : {}),
+        })))
+      : m.surfaces;
+
+    // Apply text truncation when maxTextChars is set
+    let wasTruncated = false;
+    let textWasTruncated = false;
+    let text = m.text;
+    if (msg.maxTextChars !== undefined && text.length > msg.maxTextChars) {
+      text = text.slice(0, msg.maxTextChars) + ' \u2026 [truncated]';
+      wasTruncated = true;
+      textWasTruncated = true;
+    }
+
+    // Apply tool result truncation when maxToolResultChars is set
+    const truncatedToolCalls = msg.maxToolResultChars !== undefined && filteredToolCalls.length > 0
+      ? filteredToolCalls.map((tc) => {
+        if (tc.result !== undefined && tc.result.length > msg.maxToolResultChars!) {
+          wasTruncated = true;
+          return { ...tc, result: tc.result.slice(0, msg.maxToolResultChars!) + ' \u2026 [truncated]' };
+        }
+        return tc;
+      })
+      : filteredToolCalls;
+
     return {
       ...(m.id ? { id: m.id } : {}),
       role: m.role,
-      text: m.text,
+      text,
       timestamp: m.timestamp,
-      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls, toolCallsBeforeText: m.toolCallsBeforeText } : {}),
+      ...(truncatedToolCalls.length > 0 ? { toolCalls: truncatedToolCalls, toolCallsBeforeText: m.toolCallsBeforeText } : {}),
       ...(attachments ? { attachments } : {}),
-      ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
-      ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
-      ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
+      ...(!textWasTruncated && m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
+      ...(!textWasTruncated && m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
+      ...(filteredSurfaces.length > 0 ? { surfaces: filteredSurfaces } : {}),
       ...(m.subagentNotification ? { subagentNotification: m.subagentNotification } : {}),
+      ...(wasTruncated ? { wasTruncated: true } : {}),
     };
   });
-  ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });
+
+  const oldestTimestamp = historyMessages.length > 0 ? historyMessages[0].timestamp : undefined;
+  // Provide the oldest message ID as a tie-breaker cursor so clients can
+  // paginate without skipping same-millisecond messages at page boundaries.
+  const oldestMessageId = historyMessages.length > 0 ? historyMessages[0].id : undefined;
+
+  ctx.send(socket, {
+    type: 'history_response',
+    sessionId: msg.sessionId,
+    messages: historyMessages,
+    hasMore,
+    ...(oldestTimestamp !== undefined ? { oldestTimestamp } : {}),
+    ...(oldestMessageId ? { oldestMessageId } : {}),
+  });
 
   // Surfaces are now included directly in the history_response message (in the surfaces array),
   // so we no longer emit separate ui_surface_show messages during history loading.
@@ -672,6 +922,72 @@ export function handleConversationSearch(
   });
 }
 
+export function handleMessageContentRequest(
+  msg: MessageContentRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const dbMessage = conversationStore.getMessageById(msg.messageId, msg.sessionId);
+  if (!dbMessage) {
+    ctx.send(socket, { type: 'error', message: `Message ${msg.messageId} not found in session ${msg.sessionId}` });
+    return;
+  }
+
+  let text: string | undefined;
+  let toolCalls: Array<{ name: string; result?: string; input?: Record<string, unknown> }> | undefined;
+
+  try {
+    const content = JSON.parse(dbMessage.content);
+    const rendered = renderHistoryContent(content);
+    text = rendered.text || undefined;
+    const mergedToolCalls = rendered.toolCalls;
+
+    // Handle legacy conversations where tool_result blocks are stored in the
+    // following user message rather than inline with the assistant message.
+    // This mirrors the mergeToolResults logic used by handleHistoryRequest.
+    if (dbMessage.role === 'assistant' && mergedToolCalls.some((tc) => tc.result === undefined)) {
+      const nextMsg = conversationStore.getNextMessage(msg.sessionId, dbMessage.createdAt, dbMessage.id);
+      if (nextMsg && nextMsg.role === 'user') {
+        try {
+          const nextContent = JSON.parse(nextMsg.content);
+          const nextRendered = renderHistoryContent(nextContent);
+          if (nextRendered.text.trim() === '' && nextRendered.toolCalls.length > 0) {
+            for (const resultEntry of nextRendered.toolCalls) {
+              const unresolved = mergedToolCalls.find((tc) => tc.result === undefined);
+              if (unresolved) {
+                unresolved.result = resultEntry.result;
+                unresolved.isError = resultEntry.isError;
+                if (resultEntry.imageData) unresolved.imageData = resultEntry.imageData;
+              }
+            }
+          }
+        } catch {
+          // Next message isn't valid JSON — skip merging
+        }
+      }
+    }
+
+    if (mergedToolCalls.length > 0) {
+      toolCalls = mergedToolCalls.map((tc) => ({
+        name: tc.name,
+        input: tc.input,
+        ...(tc.result !== undefined ? { result: tc.result } : {}),
+      }));
+    }
+  } catch {
+    // Raw text content (not JSON)
+    text = dbMessage.content || undefined;
+  }
+
+  ctx.send(socket, {
+    type: 'message_content_response',
+    sessionId: msg.sessionId,
+    messageId: msg.messageId,
+    ...(text !== undefined ? { text } : {}),
+    ...(toolCalls ? { toolCalls } : {}),
+  });
+}
+
 export const sessionHandlers = defineHandlers({
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
@@ -684,6 +1000,7 @@ export const sessionHandlers = defineHandlers({
   cancel: handleCancel,
   delete_queued_message: handleDeleteQueuedMessage,
   history_request: handleHistoryRequest,
+  message_content_request: handleMessageContentRequest,
   undo: handleUndo,
   regenerate: handleRegenerate,
   usage_request: handleUsageRequest,

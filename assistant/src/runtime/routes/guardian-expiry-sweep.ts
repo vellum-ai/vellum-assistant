@@ -1,6 +1,6 @@
 /**
  * Proactive guardian approval expiry sweep: periodically checks for expired
- * guardian approvals, auto-denies the underlying runs, and notifies both
+ * guardian approvals, auto-denies the underlying requests, and notifies both
  * the requester and guardian.
  */
 import {
@@ -13,7 +13,6 @@ import type { ApprovalDecisionResult } from '../channel-approval-types.js';
 import { handleChannelDecision } from '../channel-approvals.js';
 import { deliverChannelReply } from '../gateway-client.js';
 import type { ApprovalCopyGenerator } from '../http-types.js';
-import type { RunOrchestrator } from '../run-orchestrator.js';
 
 const log = getLogger('runtime-http');
 
@@ -24,7 +23,7 @@ const GUARDIAN_EXPIRY_SWEEP_INTERVAL_MS = 60_000;
 let expirySweepTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
- * Sweep expired guardian approval requests, auto-deny the underlying runs,
+ * Sweep expired guardian approval requests, auto-deny the underlying requests,
  * and notify both the requester and guardian. This runs proactively on a
  * timer so expired approvals are closed without waiting for follow-up
  * traffic from either party.
@@ -34,7 +33,6 @@ let expirySweepTimer: ReturnType<typeof setInterval> | null = null;
  * endpoint (e.g. `/deliver/telegram`, `/deliver/sms`).
  */
 export function sweepExpiredGuardianApprovals(
-  orchestrator: RunOrchestrator,
   gatewayBaseUrl: string,
   bearerToken?: string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
@@ -44,12 +42,12 @@ export function sweepExpiredGuardianApprovals(
     // Mark the approval as expired
     updateApprovalDecision(approval.id, { status: 'expired' });
 
-    // Auto-deny the underlying run
+    // Auto-deny the underlying request via the pending-interactions tracker
     const expiredDecision: ApprovalDecisionResult = {
       action: 'reject',
       source: 'plain_text',
     };
-    handleChannelDecision(approval.conversationId, expiredDecision, orchestrator);
+    handleChannelDecision(approval.conversationId, expiredDecision);
 
     // Construct the per-channel delivery URL from the approval's channel
     const deliverUrl = `${gatewayBaseUrl}/deliver/${approval.channel}`;
@@ -67,7 +65,7 @@ export function sweepExpiredGuardianApprovals(
         assistantId: approval.assistantId,
       }, bearerToken);
     })().catch((err) => {
-      log.error({ err, runId: approval.runId }, 'Failed to notify requester of guardian approval expiry');
+      log.error({ err, approvalId: approval.id }, 'Failed to notify requester of guardian approval expiry');
     });
 
     // Notify the guardian that the approval expired
@@ -84,11 +82,11 @@ export function sweepExpiredGuardianApprovals(
         assistantId: approval.assistantId,
       }, bearerToken);
     })().catch((err) => {
-      log.error({ err, runId: approval.runId }, 'Failed to notify guardian of approval expiry');
+      log.error({ err, approvalId: approval.id }, 'Failed to notify guardian of approval expiry');
     });
 
     log.info(
-      { runId: approval.runId, approvalId: approval.id },
+      { requestId: approval.requestId, approvalId: approval.id },
       'Auto-denied expired guardian approval request',
     );
   }
@@ -99,7 +97,6 @@ export function sweepExpiredGuardianApprovals(
  * re-uses the same timer.
  */
 export function startGuardianExpirySweep(
-  orchestrator: RunOrchestrator,
   gatewayBaseUrl: string,
   bearerToken?: string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
@@ -107,7 +104,7 @@ export function startGuardianExpirySweep(
   if (expirySweepTimer) return;
   expirySweepTimer = setInterval(() => {
     try {
-      sweepExpiredGuardianApprovals(orchestrator, gatewayBaseUrl, bearerToken, approvalCopyGenerator);
+      sweepExpiredGuardianApprovals(gatewayBaseUrl, bearerToken, approvalCopyGenerator);
     } catch (err) {
       log.error({ err }, 'Guardian expiry sweep failed');
     }

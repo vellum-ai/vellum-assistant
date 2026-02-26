@@ -54,8 +54,7 @@ try {
 /**
  * Execute a skill tool script in a sandboxed subprocess.
  *
- * Follows the same subprocess isolation pattern used by the
- * evaluate_typescript_code tool: writes a runner script to a temp dir,
+ * Follows a subprocess isolation pattern: writes a runner script to a temp dir,
  * spawns it via the sandbox backend, passes input through env vars,
  * and reads a structured JSON result from stdout.
  */
@@ -226,7 +225,7 @@ function spawnRunner(
 
 /**
  * Scan stdout for the last occurrence of our structured result marker.
- * Uses the same backward-scanning approach as evaluate-typescript.
+ * Uses a backward-scanning approach to find the last valid result line.
  */
 function parseSkillResult(stdout: string, executorPath: string): ToolExecutionResult | null {
   let searchFrom = stdout.length;

@@ -247,8 +247,12 @@ export function handleError(
     state.contextTooLargeDetected = true;
   } else {
     const classified = classifySessionError(event.error, { phase: 'agent_loop' });
-    deps.onEvent(buildSessionErrorMessage(deps.ctx.conversationId, classified));
-    state.providerErrorUserMessage = classified.userMessage;
+    if (classified.code === 'CONTEXT_TOO_LARGE') {
+      state.contextTooLargeDetected = true;
+    } else {
+      deps.onEvent(buildSessionErrorMessage(deps.ctx.conversationId, classified));
+      state.providerErrorUserMessage = classified.userMessage;
+    }
   }
 }
 

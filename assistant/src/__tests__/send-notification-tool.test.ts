@@ -6,7 +6,10 @@ mock.module('../notifications/emit-signal.js', () => ({
   emitNotificationSignal: (params: unknown) => emitNotificationSignalMock(params),
 }));
 
-import { run } from '../config/bundled-skills/messaging/tools/send-notification.js';
+// Import from the new canonical location (notifications skill)
+// Backward-compat: the messaging re-export should resolve to the same function
+import { run as messagingRun } from '../config/bundled-skills/messaging/tools/send-notification.js';
+import { run } from '../config/bundled-skills/notifications/tools/send-notification.js';
 
 describe('send-notification tool', () => {
   beforeEach(() => {
@@ -79,5 +82,9 @@ describe('send-notification tool', () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('database unavailable');
     expect(emitNotificationSignalMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('messaging re-export resolves to the same run function', () => {
+    expect(messagingRun).toBe(run);
   });
 });

@@ -101,6 +101,10 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.refinementFailureDismissTask }
         set { messageManager.refinementFailureDismissTask = newValue }
     }
+    var refinementFlushTask: Task<Void, Never>? {
+        get { messageManager.refinementFlushTask }
+        set { messageManager.refinementFlushTask = newValue }
+    }
     /// Number of undo steps available for the active workspace surface.
     public var surfaceUndoCount: Int {
         get { messageManager.surfaceUndoCount }
@@ -199,6 +203,15 @@ public final class ChatViewModel: ObservableObject {
         }
     }
     private var reconnectObserver: NSObjectProtocol?
+    /// Debounces rapid-fire daemon reconnect notifications so only one history
+    /// reload is triggered per reconnect burst (500ms settle window).
+    private var reconnectDebounceTask: Task<Void, Never>?
+    /// Guards against overlapping reconnect history loads. Set true before
+    /// requesting history, cleared when `populateFromHistory` completes.
+    private var isReconnectHistoryLoading = false
+    /// Safety task that resets `isReconnectHistoryLoading` if the history
+    /// response never arrives (e.g. the request throws or is dropped).
+    private var reconnectLatchTimeoutTask: Task<Void, Never>?
     /// Set to true when daemonDidReconnect fires before sessionId is populated.
     /// Cleared and actioned in the sessionId didSet observer.
     private var needsOfflineFlush: Bool = false
@@ -206,17 +219,40 @@ public final class ChatViewModel: ObservableObject {
     /// Causes `populateFromHistory` to do a full message replace instead of
     /// prepending, so the missed assistant response is displayed.
     private var needsReconnectCatchUp: Bool = false
+    /// Snapshot of `pendingMessageIds` captured before clearing on reconnect.
+    /// Used by the reconnect catch-up path in `populateFromHistory` to dedup
+    /// local messages that were pending when the connection dropped (the live
+    /// `pendingMessageIds` is cleared immediately, but the debounced history
+    /// reload fires 500ms later).
+    private var reconnectPendingSnapshot: [UUID] = []
     /// Called when the SSE stream reconnects while a run was in progress.
     /// The store/restorer registers the sessionId in pendingHistoryBySessionId
     /// and sends a history request so the response is routed back properly.
     public var onReconnectHistoryNeeded: ((_ sessionId: String) -> Void)?
     var pendingUserMessage: String?
+    /// The display text (rawText) corresponding to pendingUserMessage.
+    /// In voice mode, pendingUserMessage contains the voice-prefixed text while
+    /// this stores the original user text used for message-bubble matching.
+    var pendingUserMessageDisplayText: String?
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     /// Whether the current assistant response was triggered by a voice message.
     public var pendingVoiceMessage: Bool = false
     /// Called when a voice-triggered assistant response completes, with the response text.
     public var onVoiceResponseComplete: ((String) -> Void)?
+    /// Called when any assistant response completes, with a summary of the response text.
+    public var onResponseComplete: ((String) -> Void)?
+    /// Called once when the first complete assistant message arrives during bootstrap.
+    /// Passes the reply text so callers can inspect content (e.g. naming intent).
+    /// Cleared after firing to ensure it only triggers once.
+    public var onFirstAssistantReply: ((String) -> Void)?
+    /// Called when the first assistant reply lacks naming intent (no mention of
+    /// name, identity, or naming questions). Fires at most once; used to trigger
+    /// a single corrective follow-up nudge during bootstrap.
+    public var onFirstReplyLacksNamingIntent: (() -> Void)?
+    /// Guards against looping: once a corrective naming nudge has been sent,
+    /// no further nudges are dispatched regardless of subsequent replies.
+    var didSendNamingNudge = false
     /// Called with each streaming text delta during a voice-triggered response, for real-time TTS.
     public var onVoiceTextDelta: ((String) -> Void)?
     /// When true, messages are prefixed with a concise-response instruction for voice conversations.
@@ -224,6 +260,7 @@ public final class ChatViewModel: ObservableObject {
     var pendingUserAttachments: [IPCAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
     private(set) var lastFailedMessageText: String?
+    private(set) var lastFailedMessageDisplayText: String?
     private(set) var lastFailedMessageAttachments: [IPCAttachment]?
     /// Set only when a send operation (bootstrapSession or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
@@ -364,37 +401,198 @@ public final class ChatViewModel: ObservableObject {
     /// True while a previous-page load is in progress (brief async delay for UX).
     @Published public var isLoadingMoreMessages: Bool = false
 
+    /// Timeout task that logs a warning if the daemon takes too long to respond
+    /// to a pagination request. The flag is intentionally NOT cleared here —
+    /// see the comment in `loadPreviousMessagePage()` for rationale.
+    private var loadMoreTimeoutTask: Task<Void, Never>?
+
     /// The subset of messages that are actually displayed (excludes subagent notifications
     /// and other UI-only messages that the view filters before rendering).
     public var displayedMessages: [ChatMessage] { messages.filter { !$0.isSubagentNotification } }
 
+    // MARK: - Daemon History Pagination
+
+    /// Timestamp of the oldest loaded message (ms since epoch). Used as the
+    /// `beforeTimestamp` cursor when fetching the next older page from the daemon.
+    public var historyCursor: Double?
+
+    /// Whether the daemon has indicated that older messages exist beyond the
+    /// currently loaded page. Falls back to `false` for older daemons that don't
+    /// send `hasMore` in the history response.
+    @Published public var hasMoreHistory: Bool = false
+
     /// Whether there are more messages above the current display window.
-    /// Compares against the filtered (displayed) count so the "load more" sentinel
-    /// appears only when there are genuinely more visible messages to reveal.
-    /// When `displayedMessageCount == Int.max` (show-all mode), this is always false.
-    public var hasMoreMessages: Bool { displayedMessageCount < displayedMessages.count }
+    /// True when either:
+    ///   1. There are locally loaded messages outside the current display suffix, OR
+    ///   2. The daemon has older pages available to fetch.
+    /// When `displayedMessageCount == Int.max` (show-all mode), only daemon pages apply.
+    public var hasMoreMessages: Bool {
+        (displayedMessageCount < displayedMessages.count) || hasMoreHistory
+    }
+
+    /// Called when `loadPreviousMessagePage` needs to fetch an older page from the
+    /// daemon. The session restorer sets this so the daemon client request is
+    /// routed through the same pending-history tracking used for initial loads.
+    public var onLoadMoreHistory: ((_ sessionId: String, _ beforeTimestamp: Double) -> Void)?
 
     /// Load the previous page of messages by expanding the display window.
-    /// Returns `true` if there were additional messages to reveal.
+    /// When all locally loaded messages are already visible and the daemon has
+    /// more history available, requests the next older page from the daemon.
+    /// Returns `true` if there were additional messages to reveal or a fetch was started.
     @discardableResult
     public func loadPreviousMessagePage() async -> Bool {
         guard hasMoreMessages, !isLoadingMoreMessages else { return false }
+
+        // If the local display window can still grow, expand it first.
+        let locallyHasMore = displayedMessageCount < displayedMessages.count
+        if locallyHasMore {
+            isLoadingMoreMessages = true
+            // Brief delay so the loading indicator is visible before the list shifts.
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            let next = displayedMessageCount + Self.messagePageSize
+            let total = displayedMessages.count
+            // When all messages fit within the expanded window, switch to show-all mode
+            // (Int.max) so future incoming messages don't shrink the visible history back
+            // to a suffix window — the regression described in the parent PR.
+            displayedMessageCount = next >= total ? Int.max : next
+            isLoadingMoreMessages = false
+            return true
+        }
+
+        // All local messages are visible — fetch the next page from the daemon.
+        guard hasMoreHistory, let cursor = historyCursor, let sessionId else { return false }
         isLoadingMoreMessages = true
-        // Brief delay so the loading indicator is visible before the list shifts.
-        try? await Task.sleep(nanoseconds: 150_000_000)
-        let next = displayedMessageCount + Self.messagePageSize
-        let total = displayedMessages.count
-        // When all messages fit within the expanded window, switch to show-all mode
-        // (Int.max) so future incoming messages don't shrink the visible history back
-        // to a suffix window — the regression described in the parent PR.
-        displayedMessageCount = next >= total ? Int.max : next
-        isLoadingMoreMessages = false
+        // Safety timeout: log a warning if the daemon is slow, but do NOT
+        // clear isLoadingMoreMessages here. Callers (ThreadSessionRestorer,
+        // IOSThreadStore) use `vm.isLoadingMoreMessages` to decide whether
+        // a history response is a pagination load. If the timeout clears the
+        // flag before the response arrives, the late-but-valid response is
+        // misclassified as an initial load and replaces all messages instead
+        // of prepending. The flag is properly cleared by populateFromHistory
+        // when the response arrives, or by reconnect/thread-switch logic if
+        // the daemon disconnects.
+        loadMoreTimeoutTask?.cancel()
+        loadMoreTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
+            guard let self, !Task.isCancelled, self.isLoadingMoreMessages else { return }
+            log.warning("Pagination request still pending after 30s — daemon may be unresponsive")
+        }
+        onLoadMoreHistory?(sessionId, cursor)
+        // The loading indicator is cleared by populateFromHistory when the response arrives.
         return true
     }
 
     /// Reset pagination when the thread switches or history is reloaded.
     public func resetMessagePagination() {
         displayedMessageCount = Self.messagePageSize
+        historyCursor = nil
+        hasMoreHistory = false
+        loadMoreTimeoutTask?.cancel()
+        loadMoreTimeoutTask = nil
+        isLoadingMoreMessages = false
+    }
+
+    // MARK: - On-Demand Content Rehydration
+
+    /// Fetch full (untruncated) content for a message that was loaded with truncated
+    /// text/tool results. No-ops if the message is not found or wasn't truncated.
+    public func rehydrateMessage(id: UUID) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }),
+              messages[idx].wasTruncated,
+              let sessionId = sessionId,
+              let daemonMessageId = messages[idx].daemonMessageId else { return }
+        do {
+            try daemonClient.send(IPCMessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: daemonMessageId))
+        } catch {
+            log.error("Failed to send message_content_request: \(error)")
+        }
+    }
+
+    /// Handle a `message_content_response` from the daemon, updating the matching
+    /// message with full (untruncated) text and tool call results.
+    public func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
+        guard let idx = messages.firstIndex(where: { $0.daemonMessageId == response.messageId }) else { return }
+
+        // Update text with full content. When collapsing multiple text segments
+        // into one, also update contentOrder so stale .text(N>0) references are
+        // removed — otherwise interleaved content orders become invalid.
+        if let fullText = response.text {
+            messages[idx].textSegments = fullText.isEmpty ? [] : [fullText]
+            if !messages[idx].contentOrder.isEmpty {
+                var seenText = false
+                messages[idx].contentOrder = messages[idx].contentOrder.compactMap { entry in
+                    if case .text = entry {
+                        if seenText { return nil }
+                        seenText = true
+                        return .text(0)
+                    }
+                    return entry
+                }
+            }
+        }
+
+        // Update tool call results with full content.
+        // Use positional matching first — when a message has multiple tool calls
+        // with the same name (e.g. two `bash` calls), name-based lookup always
+        // overwrites the first match. Fall back to name-based only when the
+        // positional index is out of bounds or the name doesn't match.
+        if let fullToolCalls = response.toolCalls {
+            for (i, fullTC) in fullToolCalls.enumerated() {
+                let tcIdx: Int
+                if i < messages[idx].toolCalls.count && messages[idx].toolCalls[i].toolName == fullTC.name {
+                    tcIdx = i
+                } else if let fallback = messages[idx].toolCalls.firstIndex(where: { $0.toolName == fullTC.name }) {
+                    tcIdx = fallback
+                } else {
+                    continue
+                }
+                if let result = fullTC.result {
+                    messages[idx].toolCalls[tcIdx].result = result
+                }
+                if let input = fullTC.input {
+                    messages[idx].toolCalls[tcIdx].inputFull = ToolCallData.formatAllToolInput(input)
+                    messages[idx].toolCalls[tcIdx].inputRawDict = input
+                }
+            }
+        }
+
+        messages[idx].wasTruncated = false
+        messages[idx].isContentStripped = false
+    }
+
+    // MARK: - Message Trimming
+
+    /// Threshold above which old messages have their heavy content stripped.
+    private static let trimThreshold = 150
+    /// Number of recent messages to keep untrimmed (images, attachments, surfaces intact).
+    private static let trimKeepRecent = 75
+
+    /// Strip heavyweight binary data (images, attachments, completed surface payloads)
+    /// from old messages when the total count exceeds `trimThreshold`. The most recent
+    /// `trimKeepRecent` messages are left intact so scrolling back a reasonable amount
+    /// still shows full content. Called after message mutations that increase count.
+    public func trimOldMessagesIfNeeded() {
+        let count = messages.count
+        guard count > Self.trimThreshold else { return }
+        let trimEnd = count - Self.trimKeepRecent
+        for i in 0..<trimEnd {
+            messages[i].stripHeavyContent()
+        }
+    }
+
+    /// Aggressively trim this view model for background retention. Keeps only
+    /// the latest page of messages with heavy content stripped, and resets
+    /// pagination so re-activation fetches fresh history from the daemon.
+    public func trimForBackground() {
+        let pageSize = Self.messagePageSize
+        if messages.count > pageSize {
+            messages = Array(messages.suffix(pageSize))
+        }
+        for i in messages.indices {
+            messages[i].stripHeavyContent()
+        }
+        displayedMessageCount = Self.messagePageSize
+        isHistoryLoaded = false
     }
 
     /// Surface the user is currently viewing in workspace mode.
@@ -446,6 +644,15 @@ public final class ChatViewModel: ObservableObject {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
+                // Snapshot pendingMessageIds before clearing so the debounced
+                // reconnect catch-up (which fires 500ms later) can still dedup
+                // local messages that were pending when the connection dropped.
+                // Only take a new snapshot if no debounce task is in flight —
+                // a rapid second reconnect must not overwrite the snapshot to
+                // empty while the first debounce is still pending.
+                if self?.reconnectDebounceTask == nil {
+                    self?.reconnectPendingSnapshot = self?.pendingMessageIds ?? []
+                }
                 self?.pendingQueuedCount = 0
                 self?.pendingMessageIds.removeAll()
                 self?.requestIdToMessageId.removeAll()
@@ -460,14 +667,36 @@ public final class ChatViewModel: ObservableObject {
                 // client may have missed the messageComplete (or the full
                 // assistant response). Reset the spinner and re-fetch history
                 // so the UI catches up on anything that happened during the gap.
+                // Debounce: cancel any pending reconnect task and wait 500ms
+                // to coalesce rapid-fire reconnect notifications into one load.
                 if self?.isThinking == true || self?.isSending == true {
                     self?.isThinking = false
                     self?.isSending = false
                     self?.currentAssistantMessageId = nil
                     self?.discardStreamingBuffer()
-                    if let sessionId = self?.sessionId {
-                        self?.needsReconnectCatchUp = true
-                        self?.onReconnectHistoryNeeded?(sessionId)
+                    self?.reconnectDebounceTask?.cancel()
+                    self?.reconnectDebounceTask = Task { @MainActor [weak self] in
+                        defer { if !Task.isCancelled { self?.reconnectDebounceTask = nil } }
+                        try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+                        guard !Task.isCancelled else { return }
+                        guard let self, !self.isReconnectHistoryLoading else { return }
+                        if let sessionId = self.sessionId {
+                            self.isReconnectHistoryLoading = true
+                            self.needsReconnectCatchUp = true
+                            // Safety timeout: if the history response never arrives
+                            // (e.g. request throws or is dropped), reset the latch
+                            // so future reconnects aren't blocked forever.
+                            self.reconnectLatchTimeoutTask?.cancel()
+                            self.reconnectLatchTimeoutTask = Task { @MainActor [weak self] in
+                                try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s
+                                guard !Task.isCancelled, let self, self.isReconnectHistoryLoading else { return }
+                                log.warning("Reconnect history latch timed out after 10s — resetting")
+                                self.isReconnectHistoryLoading = false
+                                self.needsReconnectCatchUp = false
+                                self.reconnectPendingSnapshot = []
+                            }
+                            self.onReconnectHistoryNeeded?(sessionId)
+                        }
                     }
                 }
                 // If we already have a session ID, flush immediately. Otherwise
@@ -535,6 +764,7 @@ public final class ChatViewModel: ObservableObject {
                 let attachments = pendingAttachments
                 pendingAttachments = []
                 pendingUserMessage = text
+                pendingUserMessageDisplayText = rawText
                 pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
                     IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                 }
@@ -547,6 +777,7 @@ public final class ChatViewModel: ObservableObject {
                 errorText = nil
                 sessionError = nil
                 lastFailedMessageText = nil
+                lastFailedMessageDisplayText = nil
                 lastFailedMessageAttachments = nil
                 lastFailedSendError = nil
                 connectionDiagnosticHint = nil
@@ -594,6 +825,7 @@ public final class ChatViewModel: ObservableObject {
         errorText = nil
         sessionError = nil
         lastFailedMessageText = nil
+        lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
         connectionDiagnosticHint = nil
@@ -615,10 +847,11 @@ public final class ChatViewModel: ObservableObject {
 
         if sessionId == nil {
             // First message: need to bootstrap session
+            pendingUserMessageDisplayText = rawText
             bootstrapSession(userMessage: text, attachments: ipcAttachments)
         } else {
             // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text, attachments: ipcAttachments, queuedMessageId: queuedMessageId)
+            sendUserMessage(text, displayText: rawText, attachments: ipcAttachments, queuedMessageId: queuedMessageId)
         }
     }
 
@@ -649,10 +882,12 @@ public final class ChatViewModel: ObservableObject {
                     self.isSending = false
                     self.bootstrapCorrelationId = nil
                     self.lastFailedMessageText = self.pendingUserMessage
+                    self.lastFailedMessageDisplayText = self.pendingUserMessageDisplayText
                     self.lastFailedMessageAttachments = self.pendingUserAttachments
                     self.lastFailedSendError = "Failed to connect to the assistant."
                     self.connectionDiagnosticHint = Self.connectionDiagnosticHint(for: error)
                     self.pendingUserMessage = nil
+                    self.pendingUserMessageDisplayText = nil
                     self.pendingUserAttachments = nil
                     self.errorText = self.lastFailedSendError
                     return
@@ -674,16 +909,18 @@ public final class ChatViewModel: ObservableObject {
                 self.isSending = false
                 self.bootstrapCorrelationId = nil
                 self.lastFailedMessageText = self.pendingUserMessage
+                self.lastFailedMessageDisplayText = self.pendingUserMessageDisplayText
                 self.lastFailedMessageAttachments = self.pendingUserAttachments
                 self.lastFailedSendError = "Failed to create session."
                 self.pendingUserMessage = nil
+                self.pendingUserMessageDisplayText = nil
                 self.pendingUserAttachments = nil
                 self.errorText = self.lastFailedSendError
             }
         }
     }
 
-    private func sendUserMessage(_ text: String, attachments: [IPCAttachment]? = nil, queuedMessageId: UUID? = nil) {
+    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [IPCAttachment]? = nil, queuedMessageId: UUID? = nil) {
         guard let sessionId else { return }
 
         // Check connectivity before entering sending state so the UI
@@ -697,11 +934,12 @@ public final class ChatViewModel: ObservableObject {
             // "pending" indicator and is flushed automatically on reconnect.
             if queuedMessageId == nil {
                 log.info("Buffering message in offline queue (session: \(sessionId))")
-                OfflineMessageQueue.shared.enqueue(sessionId: sessionId, text: text, attachments: attachments)
+                OfflineMessageQueue.shared.enqueue(sessionId: sessionId, text: text, displayText: displayText, attachments: attachments)
                 // Mark the corresponding chat message as offline-pending so the UI
                 // can show a visual indicator. Find the last user message with this
                 // text — it is the one just appended by sendMessage().
-                if let idx = messages.indices.reversed().first(where: { messages[$0].role == .user && messages[$0].text == text }) {
+                let matchText = displayText ?? text
+                if let idx = messages.indices.reversed().first(where: { messages[$0].role == .user && messages[$0].text == matchText }) {
                     messages[idx].status = .pendingOffline
                 }
                 // Don't show the error banner — the pending indicator on the bubble
@@ -711,6 +949,7 @@ public final class ChatViewModel: ObservableObject {
 
             // Always track the failed message for retry support.
             lastFailedMessageText = text
+            lastFailedMessageDisplayText = displayText
             lastFailedMessageAttachments = attachments
             // Only update UI error state for the primary send (not a queued
             // retry). A queued retry failing must not clobber the active turn's
@@ -754,6 +993,7 @@ public final class ChatViewModel: ObservableObject {
             log.error("Failed to send user_message: \(error.localizedDescription)")
             // Always track the failed message for retry support.
             lastFailedMessageText = text
+            lastFailedMessageDisplayText = displayText
             lastFailedMessageAttachments = attachments
             // Only update UI error state for the primary send (not a queued
             // retry). A queued retry failing must not clobber the active turn's
@@ -805,9 +1045,10 @@ public final class ChatViewModel: ObservableObject {
 
         // Update message bubbles: clear pendingOffline status so they show as sent.
         for queued in mine {
+            let matchText = queued.displayText ?? queued.text
             if let idx = messages.indices.reversed().first(where: {
                 messages[$0].role == .user
-                    && messages[$0].text == queued.text
+                    && messages[$0].text == matchText
                     && messages[$0].status == .pendingOffline
             }) {
                 messages[idx].status = .sent
@@ -819,7 +1060,7 @@ public final class ChatViewModel: ObservableObject {
         // via the normal error retry path, rather than duplicating on the next flush.
         for queued in mine {
             queue.remove(id: queued.id)
-            sendUserMessage(queued.text, attachments: queued.ipcAttachments)
+            sendUserMessage(queued.text, displayText: queued.displayText, attachments: queued.ipcAttachments)
         }
     }
 
@@ -861,6 +1102,13 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Start the daemon message stream if this chat has a bound session and
+    /// no active loop yet.
+    public func ensureMessageLoopStarted() {
+        guard sessionId != nil, messageLoopTask == nil else { return }
+        startMessageLoop()
+    }
+
     /// Send a message to the daemon without showing a user bubble in the chat.
     /// Used for automated actions like inline model picker selections.
     /// Returns `true` if the message was sent (or a session bootstrap was started),
@@ -890,6 +1138,37 @@ public final class ChatViewModel: ObservableObject {
             self.threadType = threadType
         }
         bootstrapSession(userMessage: nil, attachments: nil)
+    }
+
+    // MARK: - Naming Intent Detection
+
+    /// Lightweight heuristic that checks whether a reply includes naming intent.
+    /// Returns true when the text contains common naming-related keywords or
+    /// phrases (e.g. "call me", "my name", "who are you", name questions).
+    /// This is a safety net, not full NLP -- simple keyword matching suffices.
+    static func replyContainsNamingIntent(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let namingPatterns: [String] = [
+            "call me",
+            "call myself",
+            "my name",
+            "name is",
+            "name me",
+            "who am i",
+            "who are you",
+            "what should i call",
+            "what should we call",
+            "what would you like to call",
+            "what do you want to be called",
+            "what's my name",
+            "pick a name",
+            "choose a name",
+            "give me a name",
+            "no name",
+            "don't have a name",
+            "no idea who i am",
+        ]
+        return namingPatterns.contains { lower.contains($0) }
     }
 
     // MARK: - Model
@@ -931,6 +1210,7 @@ public final class ChatViewModel: ObservableObject {
     /// but preserve the correlation ID so the VM only claims its own session.
     public func cancelPendingMessage() {
         pendingUserMessage = nil
+        pendingUserMessageDisplayText = nil
         pendingUserAttachments = nil
         isWorkspaceRefinementInFlight = false
         refinementMessagePreview = nil
@@ -950,6 +1230,7 @@ public final class ChatViewModel: ObservableObject {
         // cancel on the daemon side.
         if sessionId == nil {
             pendingUserMessage = nil
+            pendingUserMessageDisplayText = nil
             pendingUserAttachments = nil
             bootstrapCorrelationId = nil
             isWorkspaceRefinementInFlight = false
@@ -1257,6 +1538,7 @@ public final class ChatViewModel: ObservableObject {
         sessionError = nil
         errorText = nil
         lastFailedMessageText = nil
+        lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
         connectionDiagnosticHint = nil
@@ -1383,16 +1665,19 @@ public final class ChatViewModel: ObservableObject {
     /// Retry sending the last user message that failed (e.g. due to daemon disconnection).
     public func retryLastMessage() {
         guard let text = lastFailedMessageText else { return }
+        let displayText = lastFailedMessageDisplayText
         let attachments = lastFailedMessageAttachments
 
         // Clear failed message state and error
         lastFailedMessageText = nil
+        lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
         errorText = nil
         connectionDiagnosticHint = nil
 
         if sessionId == nil {
+            pendingUserMessageDisplayText = displayText
             bootstrapSession(userMessage: text, attachments: attachments)
         } else {
             // When retrying while another turn is in progress, the retried
@@ -1405,13 +1690,14 @@ public final class ChatViewModel: ObservableObject {
                 // (it was already appended to messages[] during the original
                 // sendMessage() call). Use the last user message with matching
                 // text as the queue entry.
-                if let idx = messages.lastIndex(where: { $0.role == .user && $0.text == text }) {
+                let matchText = displayText ?? text
+                if let idx = messages.lastIndex(where: { $0.role == .user && $0.text == matchText }) {
                     pendingMessageIds.append(messages[idx].id)
                     queuedMessageId = messages[idx].id
                     messages[idx].status = .queued(position: 0)
                 }
             }
-            sendUserMessage(text, attachments: attachments, queuedMessageId: queuedMessageId)
+            sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId)
         }
     }
 
@@ -1570,7 +1856,22 @@ public final class ChatViewModel: ObservableObject {
     /// If the user hasn't sent any messages yet, replaces messages entirely.
     /// If the user already sent messages (late history_response), prepends
     /// history before the existing messages so the user sees full context.
-    public func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
+    ///
+    /// - Parameters:
+    ///   - historyMessages: The message items from the daemon's history response.
+    ///   - hasMore: Whether the daemon has older pages available. Defaults to `false`
+    ///     for backward compatibility with older daemons that don't send this field.
+    ///   - oldestTimestamp: The timestamp of the oldest message in the response (ms since epoch).
+    ///     Used as the cursor for the next pagination request.
+    ///   - isPaginationLoad: When `true`, messages are prepended to the existing list
+    ///     (older page fetched on demand). When `false`, the standard initial-load
+    ///     or reconnect-catch-up logic applies.
+    public func populateFromHistory(
+        _ historyMessages: [HistoryResponseMessage.HistoryMessageItem],
+        hasMore: Bool = false,
+        oldestTimestamp: Double? = nil,
+        isPaginationLoad: Bool = false
+    ) {
         var chatMessages: [ChatMessage] = []
         var reconstructedSubagents: [SubagentInfo] = []
         var spawnParentMap: [String: UUID] = [:]  // subagentId → spawning assistant message UUID
@@ -1580,10 +1881,10 @@ public final class ChatViewModel: ObservableObject {
             let toolsBeforeText = item.toolCallsBeforeText ?? true
             if let historyToolCalls = item.toolCalls {
                 toolCalls = historyToolCalls.map { tc in
-                    ToolCallData(
+                    var toolCall = ToolCallData(
                         toolName: tc.name,
                         inputSummary: summarizeToolInput(tc.input),
-                        inputFull: formatAllToolInput(tc.input),
+                        inputFull: "",
                         inputRawValue: extractToolInput(tc.input),
                         result: tc.result,
                         isError: tc.isError ?? false,
@@ -1591,6 +1892,25 @@ public final class ChatViewModel: ObservableObject {
                         arrivedBeforeText: toolsBeforeText,
                         imageData: tc.imageData
                     )
+                    // Defer expensive formatting — store the raw dict for lazy computation
+                    // when the user expands the tool call chip. Cap the raw dict size
+                    // to prevent unbounded memory from large tool inputs (mirrors the
+                    // 10k-char cap applied in formatAllToolInput).
+                    let input = tc.input
+                    let estimatedSize: Int
+                    if let data = try? JSONSerialization.data(withJSONObject: input.mapValues { $0.value ?? NSNull() }) {
+                        estimatedSize = data.count
+                    } else {
+                        estimatedSize = 0
+                    }
+                    if estimatedSize > 10_000 {
+                        // Too large — format eagerly (with truncation) rather than
+                        // retaining the full raw dictionary in memory.
+                        toolCall.inputFull = ToolCallData.formatAllToolInput(input)
+                    } else {
+                        toolCall.inputRawDict = input
+                    }
+                    return toolCall
                 }
             }
             let attachments: [ChatAttachment] = mapIPCAttachments(item.attachments ?? [])
@@ -1602,20 +1922,24 @@ public final class ChatViewModel: ObservableObject {
                     // Use sessionId from the view model (assumes history is for current session)
                     if let sessionId = self.sessionId,
                        let surface = Surface.from(surf, sessionId: sessionId) {
-                        // Reconstruct a UiSurfaceShowMessage so the card remains
+                        // Build a lightweight SurfaceRef so the card remains
                         // clickable after the app restarts (history restore).
-                        let reconstructedActions: [SurfaceActionData]? = surf.actions?.map { action in
-                            SurfaceActionData(id: action.id, label: action.label, style: action.style)
-                        }
-                        let reconstructedMessage = UiSurfaceShowMessage(
-                            sessionId: sessionId,
+                        // The full UiSurfaceShowMessage is not retained to avoid
+                        // keeping entire HTML payloads in memory.
+                        // Extract appId from DynamicPageSurfaceData so the
+                        // ref can re-open the real app via app_open_request.
+                        let appId: String? = {
+                            if case .dynamicPage(let dpData) = surface.data {
+                                return dpData.appId
+                            }
+                            return nil
+                        }()
+                        let ref = SurfaceRef(
                             surfaceId: surf.surfaceId,
+                            sessionId: sessionId,
                             surfaceType: surf.surfaceType,
                             title: surf.title,
-                            data: AnyCodable(surf.data.mapValues { $0.value }),
-                            actions: reconstructedActions,
-                            display: surf.display,
-                            messageId: item.id
+                            appId: appId
                         )
                         let inlineSurface = InlineSurfaceData(
                             id: surface.id,
@@ -1623,7 +1947,7 @@ public final class ChatViewModel: ObservableObject {
                             title: surface.title,
                             data: surface.data,
                             actions: surface.actions,
-                            surfaceMessage: reconstructedMessage
+                            surfaceRef: ref
                         )
                         inlineSurfaces.append(inlineSurface)
                     }
@@ -1669,6 +1993,15 @@ public final class ChatViewModel: ObservableObject {
             // anchor to it. This is the database ID from the daemon, not the
             // client-side UUID.
             chatMsg.daemonMessageId = item.id
+
+            // Preserve truncation flag so the UI can offer on-demand rehydration.
+            chatMsg.wasTruncated = item.wasTruncated ?? false
+
+            // Drop base64 data from history attachments — the daemon already
+            // persisted them, so we only need thumbnails for display.
+            for i in chatMsg.attachments.indices {
+                chatMsg.attachments[i].data = ""
+            }
 
             // Populate inlineSurfaces from history
             chatMsg.inlineSurfaces = inlineSurfaces
@@ -1758,14 +2091,64 @@ public final class ChatViewModel: ObservableObject {
             }
         }
 
+        // Update daemon pagination cursor from the response metadata.
+        self.hasMoreHistory = hasMore
+        self.historyCursor = oldestTimestamp
+
+        if isPaginationLoad {
+            // Older page fetched on demand — prepend before existing messages
+            // and expand the display window so the newly loaded messages are
+            // visible. The loading indicator is cleared here.
+            self.messages = chatMessages + self.messages
+            // Expand the display window by the number of messages prepended so
+            // the user sees them immediately. Use Int.max if no more pages exist.
+            if hasMore {
+                displayedMessageCount = displayedMessageCount == Int.max
+                    ? Int.max
+                    : displayedMessageCount + chatMessages.count
+            } else {
+                displayedMessageCount = Int.max
+            }
+            self.loadMoreTimeoutTask?.cancel()
+            self.loadMoreTimeoutTask = nil
+            self.isLoadingMoreMessages = false
+            trimOldMessagesIfNeeded()
+            return
+        }
+
         self.isLoadingHistory = true
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was
             // in progress, so the client may have missed the assistant's
-            // response. Do a full replace with the server's authoritative
-            // message list instead of the normal prepend-only dedup.
+            // response. Use the server's authoritative message list, but
+            // preserve any genuinely unsent local messages. History items
+            // use daemon DB IDs while local messages use Swift UUIDs, so
+            // simple ID-based dedup won't work — use fuzzy matching instead
+            // (role + text prefix + timestamp ±2s).
             needsReconnectCatchUp = false
-            self.messages = chatMessages
+            // Use the snapshot captured at reconnect time, unioned with the
+            // current pendingMessageIds. The snapshot has IDs that were pending
+            // when the connection dropped (before clearing), while current
+            // pendingMessageIds captures any messages the user sent AFTER the
+            // reconnect but BEFORE this debounced handler ran.
+            let snapshotIds = self.reconnectPendingSnapshot
+            let allPendingIds = Set(snapshotIds).union(self.pendingMessageIds)
+            self.reconnectPendingSnapshot = []
+            let localCandidates = self.messages.filter {
+                allPendingIds.contains($0.id) || $0.status == .pendingOffline
+            }
+            var localOnly: [ChatMessage] = []
+            for local in localCandidates {
+                let isDuplicate = chatMessages.contains { server in
+                    server.role == local.role
+                    && server.text.hasPrefix(String(local.text.prefix(100)))
+                    && abs(server.timestamp.timeIntervalSince(local.timestamp)) < 2
+                }
+                if !isDuplicate { localOnly.append(local) }
+            }
+            self.messages = chatMessages + localOnly
+            self.reconnectLatchTimeoutTask?.cancel()
+            self.isReconnectHistoryLoading = false
         } else if messages.contains(where: { $0.role == .user }) {
             // History arrived after the user already sent messages.
             // The history payload includes ALL persisted messages — including
@@ -1789,10 +2172,21 @@ public final class ChatViewModel: ObservableObject {
         // Reset pagination so the view shows the most-recent page after history loads.
         self.displayedMessageCount = Self.messagePageSize
         // Surfaces are now included directly in the history response and populated above
+        // Strip heavy data from old messages after a (potentially large) history load.
+        trimOldMessagesIfNeeded()
     }
 
     deinit {
         messageLoopTask?.cancel()
+        streamingFlushTask?.cancel()
+        cancelTimeoutTask?.cancel()
+        loadMoreTimeoutTask?.cancel()
+        // refinementFailureDismissTask and refinementFlushTask are accessed via
+        // @MainActor computed properties (forwarded from ChatMessageManager), which
+        // cannot be referenced from nonisolated deinit. Both tasks use [weak self],
+        // so they will exit naturally when self is deallocated.
+        reconnectLatchTimeoutTask?.cancel()
+        reconnectDebounceTask?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
         }

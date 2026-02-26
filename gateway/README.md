@@ -12,6 +12,8 @@ Client → gateway/ (Bearer auth) → Assistant Runtime (any path)
 
 The web app is **not** in the Telegram request path. When proxy mode is enabled, non-Telegram requests are forwarded to the assistant runtime with optional bearer token authentication.
 
+For ingress and channel architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`docs/sms-twilio-parity-checklist.md`](docs/sms-twilio-parity-checklist.md).
+
 ## Setup
 
 ```bash
@@ -190,6 +192,14 @@ The `/deliver/telegram` endpoint accepts an optional `approval` field in the req
 **Inline keyboard format:** Each action is rendered as a single-button row. The callback data uses the compact format `apr:<runId>:<action>` (e.g., `apr:run-uuid:approve_once`) so the runtime can parse it back when the button is clicked.
 
 **Fallback behavior:** For non-Telegram channels that do not support inline keyboards, the runtime substitutes the `plainTextFallback` string for the structured `promptText` before calling the delivery endpoint. The fallback includes plain-text instructions (e.g., "Reply yes/no/always") so the user can respond via text. The `channelSupportsRichApprovalUI()` function in the runtime determines which format to use; currently only `telegram` is classified as a rich channel.
+
+## Telegram Typing Indicator
+
+The `/deliver/telegram` endpoint also accepts an optional `chatAction` field for ephemeral Telegram chat actions. Current supported value:
+
+- `typing` — triggers Telegram `sendChatAction` with `action: "typing"` for the target `chatId`.
+
+This can be sent as an action-only payload (without `text` or `attachments`) when the runtime wants to show a typing indicator while an assistant response is still in progress.
 
 ## Public Ingress Routes
 

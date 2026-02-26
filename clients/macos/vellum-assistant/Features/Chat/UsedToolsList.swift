@@ -58,11 +58,13 @@ struct UsedToolsList: View {
 
 struct StepsSection: View {
     let toolCalls: [ToolCallData]
+    /// Optional callback invoked when a tool row with truncated content is expanded.
+    var onRehydrate: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
-                UsedToolsRow(toolCall: toolCall)
+                UsedToolsRow(toolCall: toolCall, onRehydrate: onRehydrate)
 
                 if index < toolCalls.count - 1 {
                     Divider()
@@ -78,14 +80,32 @@ struct StepsSection: View {
 
 private struct UsedToolsRow: View {
     let toolCall: ToolCallData
+    /// Optional callback invoked when expanding a row with truncated content.
+    var onRehydrate: (() -> Void)?
 
     @State private var isExpanded = false
     @State private var isHovered = false
     @State private var isImageHovered = false
+    /// Cached formatted input — computed once on first expand to avoid re-running
+    /// `formatAllToolInput` on every SwiftUI render pass.
+    @State private var cachedInputFull: String?
     @Environment(\.displayScale) private var displayScale
 
+    /// Lazily resolved full input text, using the cached value when available.
+    private var resolvedInputFull: String {
+        if let cached = cachedInputFull { return cached }
+        if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+        return ""
+    }
+
+    /// Whether the tool result or input appears to contain truncated content.
+    private var isTruncated: Bool {
+        (toolCall.result?.hasSuffix("[truncated]") ?? false)
+            || toolCall.inputFull.hasSuffix("[truncated]")
+    }
+
     private var hasDetails: Bool {
-        !toolCall.inputFull.isEmpty ||
+        !toolCall.inputFull.isEmpty || toolCall.inputRawDict != nil ||
         (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true)) ||
         toolCall.cachedImage != nil ||
         !toolCall.claudeCodeSteps.isEmpty
@@ -149,17 +169,29 @@ private struct UsedToolsRow: View {
 
                     // Technical details
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Technical details")
-                            .font(VFont.small)
-                            .foregroundColor(VColor.textMuted)
-                            .textCase(.uppercase)
+                        HStack {
+                            Text("Technical details")
+                                .font(VFont.small)
+                                .foregroundColor(VColor.textMuted)
+                                .textCase(.uppercase)
+                            if isTruncated {
+                                Text("truncated")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.warning)
+                                    .padding(.horizontal, VSpacing.xs)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: VRadius.xs)
+                                            .fill(VColor.warning.opacity(0.12))
+                                    )
+                            }
+                        }
 
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text(toolCall.friendlyName)
                                 .font(VFont.captionMedium)
                                 .foregroundColor(VColor.textSecondary)
-                            if !toolCall.inputFull.isEmpty {
-                                Text(toolCall.inputFull)
+                            if !resolvedInputFull.isEmpty {
+                                Text(resolvedInputFull)
                                     .font(VFont.monoSmall)
                                     .foregroundColor(VColor.textSecondary)
                                     .textSelection(.enabled)
@@ -267,9 +299,42 @@ private struct UsedToolsRow: View {
                 }
                 .padding(.bottom, VSpacing.sm)
                 .transition(.opacity.combined(with: .move(edge: .top)))
+                .onAppear {
+                    // Compute formatted input once when the user first expands,
+                    // rather than re-running formatAllToolInput on every render.
+                    if cachedInputFull == nil {
+                        if !toolCall.inputFull.isEmpty {
+                            cachedInputFull = toolCall.inputFull
+                        } else if let dict = toolCall.inputRawDict {
+                            cachedInputFull = ToolCallData.formatAllToolInput(dict)
+                        }
+                    }
+                    // Trigger on-demand rehydration when expanding truncated content.
+                    if isTruncated {
+                        onRehydrate?()
+                    }
+                }
             }
         }
         .animation(VAnimation.fast, value: isExpanded)
+        .onChange(of: isExpanded) { newValue in
+            // Populate the cache *before* the expanded body evaluates so that
+            // `resolvedInputFull` returns the formatted input on the very first
+            // render of the expanded section — avoiding a visible flash/pop-in
+            // for lazy-loaded history tool calls where `.onAppear` fires too late.
+            if newValue, cachedInputFull == nil {
+                if let dict = toolCall.inputRawDict {
+                    cachedInputFull = ToolCallData.formatAllToolInput(dict)
+                } else if !toolCall.inputFull.isEmpty {
+                    cachedInputFull = toolCall.inputFull
+                }
+            }
+        }
+        .onChange(of: toolCall.inputFull) { _ in
+            // Invalidate the cached formatted input so the next render picks up
+            // the fresh (rehydrated) value instead of the stale truncated one.
+            cachedInputFull = nil
+        }
     }
 
     /// Open the image in Preview.app. Tries the original file path first; falls

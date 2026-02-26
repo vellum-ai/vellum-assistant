@@ -29,6 +29,7 @@ import {
 } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import { PairingStore } from '../daemon/pairing-store.js';
+import { type Confidence, type SignalType, getAttentionStateByConversationIds, recordConversationSeenSignal } from '../memory/conversation-attention-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as externalConversationStore from '../memory/external-conversation-store.js';
 import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
@@ -69,6 +70,7 @@ import {
 import {
   handleDeleteAttachment,
   handleGetAttachment,
+  handleGetAttachmentContent,
   handleUploadAttachment,
 } from './routes/attachment-routes.js';
 import {
@@ -93,6 +95,7 @@ import {
   handleListContacts,
   handleMergeContacts,
 } from './routes/contact-routes.js';
+import { handleListConversationAttention } from './routes/conversation-attention-routes.js';
 // Route handlers — grouped by domain
 import {
   handleGetSuggestion,
@@ -102,6 +105,18 @@ import {
 } from './routes/conversation-routes.js';
 import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
 import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
+import {
+  handleCancelOutbound,
+  handleClearTelegramConfig,
+  handleCreateGuardianChallenge,
+  handleGetGuardianStatus,
+  handleGetTelegramConfig,
+  handleResendOutbound,
+  handleSetTelegramCommands,
+  handleSetTelegramConfig,
+  handleSetupTelegram,
+  handleStartOutbound,
+} from './routes/integration-routes.js';
 import type { PairingHandlerContext } from './routes/pairing-routes.js';
 // Extracted route handlers
 import {
@@ -109,15 +124,7 @@ import {
   handlePairingRequest,
   handlePairingStatus,
 } from './routes/pairing-routes.js';
-import {
-  handleAddTrustRule,
-  handleCreateRun,
-  handleGetRun,
-  handleRunDecision,
-  handleRunSecret,
-} from './routes/run-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
-import type { RunOrchestrator } from './run-orchestrator.js';
 
 // Re-export for consumers
 export { isPrivateAddress } from './middleware/auth.js';
@@ -158,7 +165,6 @@ export class RuntimeHttpServer {
   private bearerToken: string | undefined;
   private processMessage?: MessageProcessor;
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
-  private runOrchestrator?: RunOrchestrator;
   private approvalCopyGenerator?: ApprovalCopyGenerator;
   private approvalConversationGenerator?: ApprovalConversationGenerator;
   private interfacesDir: string | null;
@@ -176,7 +182,6 @@ export class RuntimeHttpServer {
     this.bearerToken = options.bearerToken;
     this.processMessage = options.processMessage;
     this.persistAndProcessMessage = options.persistAndProcessMessage;
-    this.runOrchestrator = options.runOrchestrator;
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
@@ -281,10 +286,8 @@ export class RuntimeHttpServer {
       }, 30_000);
     }
 
-    if (this.runOrchestrator) {
-      startGuardianExpirySweep(this.runOrchestrator, getGatewayInternalBaseUrl(), this.bearerToken, this.approvalCopyGenerator);
-      log.info('Guardian approval expiry sweep started');
-    }
+    startGuardianExpirySweep(getGatewayInternalBaseUrl(), this.bearerToken, this.approvalCopyGenerator);
+    log.info('Guardian approval expiry sweep started');
 
     startGuardianActionSweep(getGatewayInternalBaseUrl(), this.bearerToken);
     log.info('Guardian action expiry sweep started');
@@ -537,18 +540,28 @@ export class RuntimeHttpServer {
         const offset = Number(url.searchParams.get('offset') ?? 0);
         const conversations = conversationStore.listConversations(limit, false, offset);
         const totalCount = conversationStore.countConversations();
-        const bindings = externalConversationStore.getBindingsForConversations(
-          conversations.map((c) => c.id),
-        );
+        const conversationIds = conversations.map((c) => c.id);
+        const bindings = externalConversationStore.getBindingsForConversations(conversationIds);
+        const attentionStates = getAttentionStateByConversationIds(conversationIds);
         return Response.json({
           sessions: conversations.map((c) => {
             const binding = bindings.get(c.id);
             const originChannel = parseChannelId(c.originChannel);
+            const attn = attentionStates.get(c.id);
+            const assistantAttention = attn ? {
+              hasUnseenLatestAssistantMessage: attn.latestAssistantMessageAt !== null &&
+                (attn.lastSeenAssistantMessageAt === null || attn.lastSeenAssistantMessageAt < attn.latestAssistantMessageAt),
+              ...(attn.latestAssistantMessageAt !== null ? { latestAssistantMessageAt: attn.latestAssistantMessageAt } : {}),
+              ...(attn.lastSeenAssistantMessageAt !== null ? { lastSeenAssistantMessageAt: attn.lastSeenAssistantMessageAt } : {}),
+              ...(attn.lastSeenConfidence !== null ? { lastSeenConfidence: attn.lastSeenConfidence } : {}),
+              ...(attn.lastSeenSignalType !== null ? { lastSeenSignalType: attn.lastSeenSignalType } : {}),
+            } : undefined;
             return {
               id: c.id,
               title: c.title ?? 'Untitled',
               updatedAt: c.updatedAt,
               threadType: c.threadType === 'private' ? 'private' : 'standard',
+              source: c.source ?? 'user',
               ...(binding ? {
                 channelBinding: {
                   sourceChannel: binding.sourceChannel,
@@ -559,10 +572,36 @@ export class RuntimeHttpServer {
                 },
               } : {}),
               ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
+              ...(assistantAttention ? { assistantAttention } : {}),
             };
           }),
           hasMore: offset + conversations.length < totalCount,
         });
+      }
+
+      if (endpoint === 'conversations/attention' && req.method === 'GET') return handleListConversationAttention(url);
+
+      if (endpoint === 'conversations/seen' && req.method === 'POST') {
+        const body = await req.json() as Record<string, unknown>;
+        const conversationId = body.conversationId as string | undefined;
+        if (!conversationId) return Response.json({ error: 'Missing conversationId' }, { status: 400 });
+        try {
+          recordConversationSeenSignal({
+            conversationId,
+            assistantId: 'self',
+            sourceChannel: (body.sourceChannel as string) ?? 'vellum',
+            signalType: (body.signalType as string ?? 'macos_conversation_opened') as SignalType,
+            confidence: (body.confidence as string ?? 'explicit') as Confidence,
+            source: (body.source as string) ?? 'http-api',
+            evidenceText: body.evidenceText as string | undefined,
+            metadata: body.metadata as Record<string, unknown> | undefined,
+            observedAt: body.observedAt as number | undefined,
+          });
+          return Response.json({ ok: true });
+        } catch (err) {
+          log.error({ err, conversationId }, 'POST /v1/conversations/seen: failed');
+          return Response.json({ error: 'Failed to record seen signal' }, { status: 500 });
+        }
       }
 
       if (endpoint === 'messages' && req.method === 'GET') return handleListMessages(url, this.interfacesDir);
@@ -588,8 +627,25 @@ export class RuntimeHttpServer {
       const contactMatch = endpoint.match(/^contacts\/([^/]+)$/);
       if (contactMatch && req.method === 'GET') return handleGetContact(contactMatch[1]);
 
+      // Integrations — Telegram config
+      if (endpoint === 'integrations/telegram/config' && req.method === 'GET') return handleGetTelegramConfig();
+      if (endpoint === 'integrations/telegram/config' && req.method === 'POST') return await handleSetTelegramConfig(req);
+      if (endpoint === 'integrations/telegram/config' && req.method === 'DELETE') return await handleClearTelegramConfig();
+      if (endpoint === 'integrations/telegram/commands' && req.method === 'POST') return await handleSetTelegramCommands(req);
+      if (endpoint === 'integrations/telegram/setup' && req.method === 'POST') return await handleSetupTelegram(req);
+
+      // Integrations — Guardian verification
+      if (endpoint === 'integrations/guardian/challenge' && req.method === 'POST') return await handleCreateGuardianChallenge(req);
+      if (endpoint === 'integrations/guardian/status' && req.method === 'GET') return handleGetGuardianStatus(url);
+      if (endpoint === 'integrations/guardian/outbound/start' && req.method === 'POST') return await handleStartOutbound(req);
+      if (endpoint === 'integrations/guardian/outbound/resend' && req.method === 'POST') return await handleResendOutbound(req);
+      if (endpoint === 'integrations/guardian/outbound/cancel' && req.method === 'POST') return await handleCancelOutbound(req);
+
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);
+
+      const attachmentContentMatch = endpoint.match(/^attachments\/([^/]+)\/content$/);
+      if (attachmentContentMatch && req.method === 'GET') return handleGetAttachmentContent(attachmentContentMatch[1], req);
 
       const attachmentMatch = endpoint.match(/^attachments\/([^/]+)$/);
       if (attachmentMatch && req.method === 'GET') return handleGetAttachment(attachmentMatch[1]);
@@ -601,25 +657,6 @@ export class RuntimeHttpServer {
         });
       }
 
-      if (endpoint === 'runs' && req.method === 'POST') {
-        if (!this.runOrchestrator) return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
-        return await handleCreateRun(req, this.runOrchestrator);
-      }
-
-      const runsMatch = endpoint.match(/^runs\/([^/]+)(\/decision|\/trust-rule|\/secret)?$/);
-      if (runsMatch) {
-        if (!this.runOrchestrator) return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
-        const runId = runsMatch[1];
-        if (runsMatch[2] === '/decision' && req.method === 'POST') return await handleRunDecision(runId, req, this.runOrchestrator);
-        if (runsMatch[2] === '/secret' && req.method === 'POST') return await handleRunSecret(runId, req, this.runOrchestrator);
-        if (runsMatch[2] === '/trust-rule' && req.method === 'POST') {
-          const run = this.runOrchestrator.getRun(runId);
-          if (!run) return Response.json({ error: 'Run not found' }, { status: 404 });
-          return await handleAddTrustRule(runId, req);
-        }
-        if (req.method === 'GET') return handleGetRun(runId, this.runOrchestrator);
-      }
-
       const interfacesMatch = endpoint.match(/^interfaces\/(.+)$/);
       if (interfacesMatch && req.method === 'GET') return this.handleGetInterface(interfacesMatch[1]);
 
@@ -627,7 +664,7 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
         const gatewayOriginSecret = getRuntimeGatewayOriginSecret();
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') return await handleChannelDeliveryAck(req);

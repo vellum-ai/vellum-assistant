@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
 
@@ -29,13 +29,14 @@ export type { PollResult, WatchHatchingResult } from "../lib/gcp";
 
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 
-async function resolveInstallScriptPath(): Promise<string | null> {
-  const sourcePath = join(import.meta.dir, "..", "adapters", "install.sh");
-  if (existsSync(sourcePath)) {
-    return sourcePath;
-  }
-  console.warn("⚠️  Install script not found at", sourcePath, "(expected in compiled binary)");
-  return null;
+// Embedded install script — bun --compile doesn't bundle non-JS assets,
+// so we inline it to ensure it's available in the compiled binary.
+import INSTALL_SCRIPT_CONTENT from "../adapters/install.sh" with { type: "text" };
+
+function resolveInstallScriptPath(): string {
+  const tmpPath = join(tmpdir(), `vellum-install-${process.pid}.sh`);
+  writeFileSync(tmpPath, INSTALL_SCRIPT_CONTENT, { mode: 0o755 });
+  return tmpPath;
 }
 const HATCH_TIMEOUT_MS: Record<Species, number> = {
   vellum: 2 * 60 * 1000,
@@ -51,8 +52,8 @@ function desktopLog(msg: string): void {
   process.stdout.write(msg + "\n");
 }
 
-function buildTimestampRedirect(): string {
-  return `exec > >(while IFS= read -r line; do printf '[%s] %s\\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$line"; done > /var/log/startup-script.log) 2>&1`;
+function buildTimestampRedirect(logPath: string): string {
+  return `exec > >(while IFS= read -r line; do printf '[%s] %s\\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$line"; done > ${logPath}) 2>&1`;
 }
 
 function buildUserSetup(sshUser: string): string {
@@ -82,7 +83,9 @@ export async function buildStartupScript(
   cloud: RemoteHost,
 ): Promise<string> {
   const platformUrl = process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
-  const timestampRedirect = buildTimestampRedirect();
+  const logPath = cloud === "custom" ? "/tmp/vellum-startup.log" : "/var/log/startup-script.log";
+  const errorPath = cloud === "custom" ? "/tmp/vellum-startup-error" : "/var/log/startup-error";
+  const timestampRedirect = buildTimestampRedirect(logPath);
   const userSetup = buildUserSetup(sshUser);
   const ownershipFixup = buildOwnershipFixup();
 
@@ -102,7 +105,7 @@ set -e
 
 ${timestampRedirect}
 
-trap 'EXIT_CODE=\$?; if [ \$EXIT_CODE -ne 0 ]; then echo "Startup script failed with exit code \$EXIT_CODE at line \$LINENO" > /var/log/startup-error; echo "Last 20 log lines:" >> /var/log/startup-error; tail -20 /var/log/startup-script.log >> /var/log/startup-error 2>/dev/null || true; fi' EXIT
+trap 'EXIT_CODE=\$?; if [ \$EXIT_CODE -ne 0 ]; then echo "Startup script failed with exit code \$EXIT_CODE at line \$LINENO" > ${errorPath}; echo "Last 20 log lines:" >> ${errorPath}; tail -20 ${logPath} >> ${errorPath} 2>/dev/null || true; fi' EXIT
 ${userSetup}
 ANTHROPIC_API_KEY=${anthropicApiKey}
 GATEWAY_RUNTIME_PROXY_ENABLED=true
@@ -401,13 +404,31 @@ function watchHatchingDesktop(
 }
 
 function buildSshArgs(host: string): string[] {
-  return [
-    host,
+  const args: string[] = [host];
+  const keyPath = process.env.VELLUM_SSH_KEY_PATH;
+  if (keyPath) {
+    args.push("-i", keyPath);
+  }
+  args.push(
     "-o", "StrictHostKeyChecking=no",
     "-o", "UserKnownHostsFile=/dev/null",
     "-o", "ConnectTimeout=10",
     "-o", "LogLevel=ERROR",
-  ];
+  );
+  return args;
+}
+
+function buildScpArgs(keyPath?: string): string[] {
+  const args: string[] = [];
+  if (keyPath) {
+    args.push("-i", keyPath);
+  }
+  args.push(
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=/dev/null",
+    "-o", "LogLevel=ERROR",
+  );
+  return args;
 }
 
 function extractHostname(host: string): string {
@@ -454,27 +475,22 @@ async function hatchCustom(
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 
+    const sshKeyPath = process.env.VELLUM_SSH_KEY_PATH;
+
+    const installScriptPath = resolveInstallScriptPath();
+
     try {
-      const installScriptPath = await resolveInstallScriptPath();
-      if (installScriptPath) {
-        console.log("📋 Uploading install script to instance...");
-        await exec("scp", [
-          "-o", "StrictHostKeyChecking=no",
-          "-o", "UserKnownHostsFile=/dev/null",
-          "-o", "LogLevel=ERROR",
-          installScriptPath,
-          `${host}:${INSTALL_SCRIPT_REMOTE_PATH}`,
-        ]);
-      } else {
-        console.warn("⚠️  Skipping install script upload (not available in compiled binary)");
-      }
+      console.log("📋 Uploading install script to instance...");
+      await exec("scp", [
+        ...buildScpArgs(sshKeyPath),
+        installScriptPath,
+        `${host}:${INSTALL_SCRIPT_REMOTE_PATH}`,
+      ]);
 
       console.log("📋 Uploading startup script to instance...");
       const remoteStartupPath = `/tmp/${instanceName}-startup.sh`;
       await exec("scp", [
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "LogLevel=ERROR",
+        ...buildScpArgs(sshKeyPath),
         startupScriptPath,
         `${host}:${remoteStartupPath}`,
       ]);
@@ -485,9 +501,8 @@ async function hatchCustom(
         `chmod +x ${remoteStartupPath} ${INSTALL_SCRIPT_REMOTE_PATH} && bash ${remoteStartupPath}`,
       ]);
     } finally {
-      try {
-        unlinkSync(startupScriptPath);
-      } catch {}
+      try { unlinkSync(startupScriptPath); } catch {}
+      try { unlinkSync(installScriptPath); } catch {}
     }
 
     const runtimeUrl = `http://${hostname}:${GATEWAY_PORT}`;
@@ -520,6 +535,43 @@ async function hatchCustom(
   }
 }
 
+function installCLISymlink(): void {
+  const cliBinary = process.execPath;
+  if (!cliBinary || !existsSync(cliBinary)) return;
+
+  const symlinkPath = "/usr/local/bin/vellum";
+
+  try {
+    // Use lstatSync (not existsSync) to detect dangling symlinks —
+    // existsSync follows symlinks and returns false for broken links.
+    try {
+      const stats = lstatSync(symlinkPath);
+      if (!stats.isSymbolicLink()) {
+        // Real file — don't overwrite (developer's local install)
+        return;
+      }
+      // Already a symlink — skip if it already points to our binary
+      const dest = readlinkSync(symlinkPath);
+      if (dest === cliBinary) return;
+      // Stale or dangling symlink — remove before creating new one
+      unlinkSync(symlinkPath);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") throw e;
+      // Path doesn't exist — proceed to create symlink
+    }
+
+    const dir = "/usr/local/bin";
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    symlinkSync(cliBinary, symlinkPath);
+    console.log(`   Symlinked ${symlinkPath} → ${cliBinary}`);
+  } catch {
+    // Permission denied or other error — not critical
+    console.log(`   ⚠ Could not create symlink at ${symlinkPath} (run with sudo or create manually)`);
+  }
+}
+
 async function hatchLocal(species: Species, name: string | null, daemonOnly: boolean = false): Promise<void> {
   const instanceName =
     name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
@@ -538,6 +590,8 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
     }
   }
 
+  const baseDataDir = join(process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir), ".vellum");
+
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
   console.log("");
@@ -546,7 +600,7 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
 
   let runtimeUrl: string;
   try {
-    runtimeUrl = await startGateway();
+    runtimeUrl = await startGateway(instanceName);
   } catch (error) {
     // Gateway failed — stop the daemon we just started so we don't leave
     // orphaned processes with no lock file entry.
@@ -554,8 +608,6 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
     await stopLocalProcesses();
     throw error;
   }
-
-  const baseDataDir = join(process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir), ".vellum");
 
   // Read the bearer token written by the daemon so the client can authenticate
   // with the gateway (which requires auth by default).
@@ -578,6 +630,10 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
   };
   if (!daemonOnly) {
     saveAssistantEntry(localEntry);
+
+    if (process.env.VELLUM_DESKTOP_APP) {
+      installCLISymlink();
+    }
 
     console.log("");
     console.log(`✅ Local assistant hatched!`);

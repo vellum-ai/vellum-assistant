@@ -1,11 +1,15 @@
 import * as net from 'node:net';
 
-import { getConfiguredProvider } from '../../providers/provider-send-message.js';
+import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../../providers/provider-send-message.js';
+import { resolveProfile } from '../dictation-profile-store.js';
+import { applyDictionary, expandSnippets } from '../dictation-text-processing.js';
 import type { DictationRequest } from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext,log } from './shared.js';
+import { defineHandlers, type HandlerContext, log } from './shared.js';
 
-// Action verbs that signal the user wants a full agent session rather than inline text
-const ACTION_VERBS = ['slack', 'email', 'send', 'create', 'open', 'search', 'find'];
+// Action verbs for fast heuristic fallback (used when LLM classifier is unavailable)
+const ACTION_VERBS = ['slack', 'email', 'send', 'create', 'open', 'search', 'find', 'message', 'text', 'schedule', 'remind', 'launch', 'navigate'];
+
+const DICTATION_CLASSIFICATION_TIMEOUT_MS = 5000;
 
 const MAX_WINDOW_TITLE_LENGTH = 100;
 
@@ -30,7 +34,8 @@ function buildAppMetadataBlock(msg: DictationRequest): string {
 
 type DictationMode = 'dictation' | 'command' | 'action';
 
-export function detectDictationMode(msg: DictationRequest): DictationMode {
+/** Fast heuristic fallback — used when LLM classifier is unavailable or fails. */
+export function detectDictationModeHeuristic(msg: DictationRequest): DictationMode {
   // Command mode: selected text present — treat transcription as a transformation instruction
   if (msg.context.selectedText && msg.context.selectedText.trim().length > 0) {
     return 'command';
@@ -47,25 +52,130 @@ export function detectDictationMode(msg: DictationRequest): DictationMode {
     return 'dictation';
   }
 
-  // AX focus-role detection in browser editors (for example Gmail compose)
-  // is occasionally incomplete. If we default to action here, normal dictation
-  // gets misrouted into a new chat task. Treat ambiguous context as dictation.
   return 'dictation';
 }
 
-function buildDictationPrompt(msg: DictationRequest): string {
-  return [
+/** Classify dictation mode using Haiku, falling back to heuristic. */
+export async function detectDictationMode(msg: DictationRequest): Promise<DictationMode> {
+  // Command mode is deterministic — no need for LLM
+  if (msg.context.selectedText && msg.context.selectedText.trim().length > 0) {
+    return 'command';
+  }
+
+  const provider = getConfiguredProvider();
+  if (!provider) {
+    log.warn('No provider for dictation classification, using heuristic');
+    return detectDictationModeHeuristic(msg);
+  }
+
+  try {
+    const { signal, cleanup } = createTimeout(DICTATION_CLASSIFICATION_TIMEOUT_MS);
+    try {
+      const contextInfo = [
+        `App: ${msg.context.appName} (${msg.context.bundleIdentifier})`,
+        msg.context.windowTitle ? `Window: ${msg.context.windowTitle}` : '',
+        `Cursor in text field: ${msg.context.cursorInTextField ? 'yes' : 'no'}`,
+      ].filter(Boolean).join('\n');
+
+      const response = await provider.sendMessage(
+        [userMessage(`Transcription: "${msg.transcription}"\n\nContext:\n${contextInfo}`)],
+        [{
+          name: 'classify_dictation',
+          description: 'Classify whether voice input is dictation or an action command',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              mode: {
+                type: 'string',
+                enum: ['dictation', 'action'],
+                description: 'dictation = user wants text inserted/cleaned up for typing. action = user wants the assistant to perform a task (send a message, open an app, search, navigate, control something).',
+              },
+              reasoning: {
+                type: 'string',
+                description: 'Brief reasoning for the classification',
+              },
+            },
+            required: ['mode', 'reasoning'],
+          },
+        }],
+        [
+          'You classify voice transcriptions as either "dictation" (text to insert) or "action" (task for an assistant to execute).',
+          '',
+          'DICTATION examples: "Hey how are you doing", "I think we should move forward with the proposal", "Dear team comma please review the attached document"',
+          'ACTION examples: "Message Aaron on Slack saying hey what\'s up", "Send an email to the team about the meeting", "Open Spotify and play my playlist", "Search for flights to Denver", "Create a new document in Google Docs"',
+          '',
+          'Key signals for ACTION: the user is addressing an assistant and asking it to DO something (send, message, open, search, create, schedule, etc.)',
+          'Key signals for DICTATION: the user is composing text content that should be typed out as-is',
+          '',
+          'Context is provided — if the cursor is in a text field, lean toward dictation unless the intent to command is clear.',
+        ].join('\n'),
+        {
+          config: {
+            modelIntent: 'latency-optimized',
+            max_tokens: 128,
+            tool_choice: { type: 'tool' as const, name: 'classify_dictation' },
+          },
+          signal,
+        },
+      );
+      cleanup();
+
+      const toolBlock = extractToolUse(response);
+      if (toolBlock) {
+        const input = toolBlock.input as { mode?: string; reasoning?: string };
+        const mode = input.mode === 'action' ? 'action' : 'dictation';
+        log.info({ mode, reasoning: input.reasoning }, 'LLM dictation classification');
+        return mode;
+      }
+
+      log.warn('No tool_use block in dictation classification, using heuristic');
+      return detectDictationModeHeuristic(msg);
+    } finally {
+      cleanup();
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err: message }, 'LLM dictation classification failed, using heuristic');
+    return detectDictationModeHeuristic(msg);
+  }
+}
+
+function buildDictationPrompt(msg: DictationRequest, stylePrompt?: string): string {
+  const sections = [
     'You are a dictation assistant. Clean up the following speech transcription for direct insertion into a text field.',
     '',
     '## Rules',
     '- Fix grammar, punctuation, and capitalization',
     '- Remove filler words (um, uh, like, you know)',
+    '- Rewrite vague or hedging language ("so yeah probably", "I guess maybe") into clear, confident statements',
     "- Maintain the speaker's intent and meaning",
     '- Do NOT add explanations or commentary',
     '- Return ONLY the cleaned text, nothing else',
+  ];
+
+  if (stylePrompt) {
+    sections.push(
+      '',
+      '## User Style (HIGHEST PRIORITY)',
+      'The user has configured these style preferences. They OVERRIDE the default tone adaptation below.',
+      'Follow these instructions precisely — they reflect the user\'s personal writing voice and preferences.',
+      '',
+      stylePrompt,
+    );
+  }
+
+  sections.push(
     '',
     '## Tone Adaptation',
-    'Adapt your output tone based on the active application:',
+  );
+
+  if (stylePrompt) {
+    sections.push('Use these as fallback guidance only when the User Style above does not cover a specific aspect:');
+  } else {
+    sections.push('Adapt your output tone based on the active application:');
+  }
+
+  sections.push(
     '- Email apps (Gmail, Mail): Professional but warm. Use proper greetings and sign-offs if appropriate.',
     '- Slack: Casual and conversational. Match typical chat style.',
     '- Code editors (VS Code, Xcode): Technical and concise. Code comments style.',
@@ -81,20 +191,44 @@ function buildDictationPrompt(msg: DictationRequest): string {
     '- The user\'s writing patterns and preferences may be available from memory context — follow those when present',
     '',
     buildAppMetadataBlock(msg),
-  ].join('\n');
+  );
+
+  return sections.join('\n');
 }
 
-function buildCommandPrompt(msg: DictationRequest): string {
-  return [
+function buildCommandPrompt(msg: DictationRequest, stylePrompt?: string): string {
+  const sections = [
     'You are a text transformation assistant. The user has selected text and given a voice command to transform it.',
     '',
     '## Rules',
     '- Apply the instruction to the selected text',
     '- Return ONLY the transformed text, nothing else',
     '- Do NOT add explanations or commentary',
+  ];
+
+  if (stylePrompt) {
+    sections.push(
+      '',
+      '## User Style (HIGHEST PRIORITY)',
+      'The user has configured these style preferences. They OVERRIDE the default tone adaptation below.',
+      'Follow these instructions precisely — they reflect the user\'s personal writing voice and preferences.',
+      '',
+      stylePrompt,
+    );
+  }
+
+  sections.push(
     '',
     '## Tone Adaptation',
-    'Match the tone to the active application context:',
+  );
+
+  if (stylePrompt) {
+    sections.push('Use these as fallback guidance only when the User Style above does not cover a specific aspect:');
+  } else {
+    sections.push('Match the tone to the active application context:');
+  }
+
+  sections.push(
     '- Email apps (Gmail, Mail): Professional but warm.',
     '- Slack: Casual and conversational.',
     '- Code editors (VS Code, Xcode): Technical and concise.',
@@ -115,7 +249,9 @@ function buildCommandPrompt(msg: DictationRequest): string {
     msg.context.selectedText ?? '',
     '',
     `Instruction: ${msg.transcription}`,
-  ].join('\n');
+  );
+
+  return sections.join('\n');
 }
 
 export async function handleDictationRequest(
@@ -123,8 +259,22 @@ export async function handleDictationRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  const mode = detectDictationMode(msg);
+  const mode = await detectDictationMode(msg);
   log.info({ mode, transcriptionLength: msg.transcription.length }, 'Dictation request received');
+
+  // Resolve profile for all modes (metadata is included in response)
+  const resolution = resolveProfile(
+    msg.context.bundleIdentifier,
+    msg.context.appName,
+    msg.profileId,
+  );
+  const { profile, source: profileSource } = resolution;
+  log.info({ profileId: profile.id, profileSource }, 'Resolved dictation profile');
+
+  const profileMeta = {
+    resolvedProfileId: profile.id,
+    profileSource,
+  };
 
   // Action mode: return immediately — the client will route to a full agent session
   if (mode === 'action') {
@@ -133,25 +283,31 @@ export async function handleDictationRequest(
       text: msg.transcription,
       mode: 'action',
       actionPlan: `User wants to: ${msg.transcription}`,
+      ...profileMeta,
     });
     return;
   }
 
-  // Dictation / command mode: make a single-turn LLM call for text cleanup or transformation
-  const systemPrompt = mode === 'dictation'
-    ? buildDictationPrompt(msg)
-    : buildCommandPrompt(msg);
+  // Pre-LLM snippet expansion (dictation mode only)
+  const transcription = mode === 'dictation'
+    ? expandSnippets(msg.transcription, profile.snippets)
+    : msg.transcription;
 
-  const userText = mode === 'dictation'
-    ? msg.transcription
-    : msg.transcription; // command prompt already embeds the selected text and instruction
+  // Dictation / command mode: make a single-turn LLM call for text cleanup or transformation
+  const stylePrompt = profile.stylePrompt || undefined;
+  const systemPrompt = mode === 'dictation'
+    ? buildDictationPrompt(msg, stylePrompt)
+    : buildCommandPrompt(msg, stylePrompt);
+
+  const userText = transcription;
 
   try {
     const provider = getConfiguredProvider();
     if (!provider) {
       log.warn('Dictation: no provider available, returning raw transcription');
-      const fallbackText = mode === 'command' ? (msg.context.selectedText ?? msg.transcription) : msg.transcription;
-      ctx.send(socket, { type: 'dictation_response', text: fallbackText, mode });
+      const fallbackText = mode === 'command' ? (msg.context.selectedText ?? transcription) : transcription;
+      const normalizedText = applyDictionary(fallbackText, profile.dictionary);
+      ctx.send(socket, { type: 'dictation_response', text: normalizedText, mode, ...profileMeta });
       return;
     }
 
@@ -163,15 +319,19 @@ export async function handleDictationRequest(
     );
 
     const textBlock = response.content.find((b) => b.type === 'text');
-    const inlineFallback = mode === 'command' ? (msg.context.selectedText ?? msg.transcription) : msg.transcription;
+    const inlineFallback = mode === 'command' ? (msg.context.selectedText ?? transcription) : transcription;
     const cleanedText = textBlock && 'text' in textBlock ? textBlock.text.trim() : inlineFallback;
 
-    ctx.send(socket, { type: 'dictation_response', text: cleanedText, mode });
+    // Post-LLM dictionary normalization
+    const normalizedText = applyDictionary(cleanedText, profile.dictionary);
+
+    ctx.send(socket, { type: 'dictation_response', text: normalizedText, mode, ...profileMeta });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Dictation LLM call failed, returning raw transcription');
-    const fallbackText = mode === 'command' ? (msg.context.selectedText ?? msg.transcription) : msg.transcription;
-    ctx.send(socket, { type: 'dictation_response', text: fallbackText, mode });
+    const fallbackText = mode === 'command' ? (msg.context.selectedText ?? transcription) : transcription;
+    const normalizedText = applyDictionary(fallbackText, profile.dictionary);
+    ctx.send(socket, { type: 'dictation_response', text: normalizedText, mode, ...profileMeta });
     ctx.send(socket, { type: 'error', message: `Dictation cleanup failed: ${message}` });
   }
 }

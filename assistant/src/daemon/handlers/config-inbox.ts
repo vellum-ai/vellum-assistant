@@ -12,8 +12,6 @@ import {
 } from '../../memory/channel-guardian-store.js';
 import { addMessage, getMessages } from '../../memory/conversation-store.js';
 import { getBindingByConversation } from '../../memory/external-conversation-store.js';
-import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
-import { updateThreadActivity } from '../../memory/inbox-thread-store.js';
 import {
   createInvite,
   type InviteStatus,
@@ -29,8 +27,8 @@ import {
   upsertMember,
 } from '../../memory/ingress-member-store.js';
 import { deliverChannelReply } from '../../runtime/gateway-client.js';
-import type { AssistantInboxEscalationRequest, AssistantInboxReplyRequest,IngressInviteRequest, IngressMemberRequest } from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext,log } from './shared.js';
+import type { AssistantInboxEscalationRequest, IngressInviteRequest, IngressMemberRequest } from '../ipc-protocol.js';
+import { defineHandlers, type HandlerContext, log } from './shared.js';
 import { renderHistoryContent } from './shared.js';
 
 export function handleIngressInvite(
@@ -324,9 +322,6 @@ export function handleInboxEscalation(
           return;
         }
 
-        // Update thread escalation state so inbox badges stay accurate
-        refreshThreadEscalation(resolved.conversationId, resolved.assistantId);
-
         // Respond immediately — decision execution happens in the background
         ctx.send(socket, {
           type: 'assistant_inbox_escalation_response',
@@ -412,15 +407,15 @@ async function executeApprove(
     }
   }
   session.setAssistantId(assistantId);
-  // Daemon inbox handler — the guardian approved this escalation, so tag as
-  // guardian to avoid 'unverified_channel' blocking memory extraction.
+  // The guardian approved this escalation, so tag as guardian to avoid
+  // 'unverified_channel' blocking memory extraction.
   session.setGuardianContext({ actorRole: 'guardian', sourceChannel: sourceChannel ?? 'vellum' });
   session.setCommandIntent(null);
 
   // Process the message through the agent loop (no IPC event callback
   // since this is a background execution without a connected client)
   const noop = () => {};
-  await session.processMessage(messageContent, [], noop);
+  await session.processMessage(messageContent, [], noop, undefined, undefined, undefined, { isInteractive: false });
 
   // Deliver the assistant's reply to the external user via the gateway
   const replyCallbackUrl = typeof payload?.replyCallbackUrl === 'string'
@@ -449,9 +444,6 @@ async function executeApprove(
       }
     }
   }
-
-  // Update thread activity to reflect the outbound reply
-  updateThreadActivity(conversationId, 'outbound');
 
   log.info({ conversationId, approvalId: approval.id }, 'Approved escalation processed successfully');
 }
@@ -496,67 +488,12 @@ async function executeDeny(
     assistantMessageChannel: sourceChannel,
     ...(denialInterface ? { userMessageInterface: denialInterface, assistantMessageInterface: denialInterface } : {}),
   });
-  updateThreadActivity(conversationId, 'outbound');
 
   log.info({ conversationId, approvalId: approval.id }, 'Denied escalation refusal sent');
-}
-
-export function handleAssistantInboxReply(
-  msg: AssistantInboxReplyRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  try {
-    const { conversationId, content } = msg;
-
-    if (!conversationId || !content) {
-      ctx.send(socket, { type: 'assistant_inbox_reply_response', success: false, error: 'conversationId and content are required' });
-      return;
-    }
-
-    // Verify the conversation has an external binding
-    const binding = getBindingByConversation(conversationId);
-    if (!binding) {
-      ctx.send(socket, { type: 'assistant_inbox_reply_response', success: false, error: 'No external binding found for conversation' });
-      return;
-    }
-
-    // Store the reply as an assistant message
-    const bindingChannel = isChannelId(binding.sourceChannel) ? binding.sourceChannel : null;
-    const bindingInterface = isInterfaceId(binding.sourceChannel) ? binding.sourceChannel : null;
-    const message = addMessage(
-      conversationId,
-      'assistant',
-      content,
-      {
-        provenanceActorRole: 'guardian' as const,
-        ...(bindingChannel
-          ? { userMessageChannel: bindingChannel, assistantMessageChannel: bindingChannel }
-          : {}),
-        ...(bindingInterface
-          ? { userMessageInterface: bindingInterface, assistantMessageInterface: bindingInterface }
-          : {}),
-      },
-    );
-
-    // Update thread activity timestamps (resets unread count, updates last_outbound_at)
-    updateThreadActivity(conversationId, 'outbound');
-
-    ctx.send(socket, {
-      type: 'assistant_inbox_reply_response',
-      success: true,
-      messageId: message.id,
-    });
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'assistant_inbox_reply handler error');
-    ctx.send(socket, { type: 'assistant_inbox_reply_response', success: false, error: errorMessage });
-  }
 }
 
 export const inboxInviteHandlers = defineHandlers({
   ingress_invite: handleIngressInvite,
   ingress_member: handleIngressMember,
   assistant_inbox_escalation: handleInboxEscalation,
-  assistant_inbox_reply: handleAssistantInboxReply,
 });

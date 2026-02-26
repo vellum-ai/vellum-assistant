@@ -1,7 +1,4 @@
-import { getLogger } from '../../util/logger.js';
 import type { DrizzleDb } from '../db-connection.js';
-
-const log = getLogger('memory-db');
 
 /**
  * ALTER TABLE ADD COLUMN migrations for core tables.
@@ -9,11 +6,11 @@ const log = getLogger('memory-db');
  */
 export function addCoreColumns(database: DrizzleDb): void {
   // message_runs
-  try { database.run(/*sql*/ `ALTER TABLE message_runs ADD COLUMN pending_secret TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE message_runs ADD COLUMN pending_secret (likely already exists)'); }
+  try { database.run(/*sql*/ `ALTER TABLE message_runs ADD COLUMN pending_secret TEXT`); } catch { /* already exists */ }
 
   // published_pages
-  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN app_id TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE published_pages ADD COLUMN app_id (likely already exists)'); }
-  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN project_slug TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE published_pages ADD COLUMN project_slug (likely already exists)'); }
+  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN app_id TEXT`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN project_slug TEXT`); } catch { /* already exists */ }
 
   // conversations
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN total_input_tokens INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }

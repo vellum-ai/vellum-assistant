@@ -5,6 +5,9 @@ import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+Notifications")
+private let fallbackDedupWindowMs: Double = 30_000
+private let fallbackDelayNs: UInt64 = 750_000_000
+private let notificationPermissionToastCooldownMs: Double = 30_000
 
 extension AppDelegate {
 
@@ -15,11 +18,7 @@ extension AppDelegate {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
 
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error {
-                log.error("Notification authorization error: \(error.localizedDescription)")
-            }
-        }
+        requestNotificationAuthorization(trigger: "app_launch", showDeniedToast: false)
 
         let viewAction = UNNotificationAction(
             identifier: "VIEW_ACTIVITY",
@@ -73,18 +72,6 @@ extension AppDelegate {
             options: []
         )
 
-        let viewGuardianAction = UNNotificationAction(
-            identifier: "VIEW_GUARDIAN",
-            title: "View",
-            options: [.foreground]
-        )
-        let guardianRequestCategory = UNNotificationCategory(
-            identifier: "GUARDIAN_REQUEST",
-            actions: [viewGuardianAction],
-            intentIdentifiers: [],
-            options: []
-        )
-
         let viewNotificationIntentAction = UNNotificationAction(
             identifier: "VIEW_NOTIFICATION_INTENT",
             title: "View",
@@ -102,9 +89,75 @@ extension AppDelegate {
             toolConfirmationCategory,
             rideShotgunCategory,
             voiceResponseCategory,
-            guardianRequestCategory,
             notificationIntentCategory,
         ])
+    }
+
+    /// Handles notification permission when a notification thread arrives while
+    /// the app is active. This provides user-visible context for the OS prompt
+    /// and gives an immediate recovery path when the app is already denied.
+    func maybePromptNotificationAuthorizationForThreadCreated() {
+        Task { @MainActor in
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                return
+            case .notDetermined:
+                guard !hasRequestedNotificationAuthorizationFromThreadSignal else { return }
+                hasRequestedNotificationAuthorizationFromThreadSignal = true
+                log.info("Requesting notification authorization from notification_thread_created signal")
+                requestNotificationAuthorization(trigger: "notification_thread_created", showDeniedToast: true)
+            case .denied:
+                showNotificationPermissionSettingsToastIfNeeded()
+            @unknown default:
+                return
+            }
+        }
+    }
+
+    private func requestNotificationAuthorization(trigger: String, showDeniedToast: Bool) {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if granted {
+                log.info("Notification authorization granted (\(trigger))")
+                return
+            }
+
+            log.warning("Notification authorization denied (\(trigger), error: \(error?.localizedDescription ?? "none"))")
+            guard showDeniedToast else { return }
+
+            Task { @MainActor in
+                self.showNotificationPermissionSettingsToastIfNeeded()
+            }
+        }
+    }
+
+    private func showNotificationPermissionSettingsToastIfNeeded() {
+        let nowMs = Date().timeIntervalSince1970 * 1000
+        guard nowMs - lastNotificationPermissionToastAtMs > notificationPermissionToastCooldownMs else { return }
+        lastNotificationPermissionToastAtMs = nowMs
+
+        mainWindow?.windowState.showToast(
+            message: "Notifications are off for Vellum. Turn them on in System Settings to receive banners.",
+            style: .warning,
+            primaryAction: VToastAction(label: "Open Settings") { [weak self] in
+                self?.openNotificationSettings()
+            }
+        )
+    }
+
+    private func openNotificationSettings() {
+        let candidates = [
+            "x-apple.systempreferences:com.apple.preference.notifications?id=\(Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant")",
+            "x-apple.systempreferences:com.apple.preference.notifications",
+        ]
+        for candidate in candidates {
+            guard let url = URL(string: candidate) else { continue }
+            if NSWorkspace.shared.open(url) {
+                return
+            }
+        }
+        log.warning("Failed to open macOS Notification settings URL")
     }
 
     private func normalizeNotificationUserInfoValue(_ value: Any?) -> Any? {
@@ -145,19 +198,63 @@ extension AppDelegate {
         }
     }
 
-    func deliverNotificationIntent(_ msg: NotificationIntentMessage) {
+    private func conversationId(from deepLinkMetadata: [String: AnyCodable]?) -> String? {
+        if let direct = deepLinkMetadata?["conversationId"]?.value as? String {
+            return direct
+        }
+        if let snake = deepLinkMetadata?["conversation_id"]?.value as? String {
+            return snake
+        }
+        return nil
+    }
+
+    private func pruneFallbackMarkers(nowMs: Double) {
+        fallbackDeliveredAtMs = fallbackDeliveredAtMs.filter { _, deliveredAt in
+            nowMs - deliveredAt <= fallbackDedupWindowMs
+        }
+    }
+
+    /// Check notification authorization before posting. Returns true if
+    /// notifications are authorized and can be delivered.
+    private func checkNotificationAuthorization() async -> Bool {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .denied:
+            log.warning("Notification authorization status is denied — skipping notification post")
+            if NSApp.isActive {
+                showNotificationPermissionSettingsToastIfNeeded()
+            }
+            return false
+        case .notDetermined:
+            log.info("Notification authorization status is notDetermined — attempting post anyway")
+            return true
+        @unknown default:
+            log.warning("Notification authorization status is unknown (\(settings.authorizationStatus.rawValue)) — skipping notification post")
+            return false
+        }
+    }
+
+    private func postNotificationIntent(
+        sourceEventName: String,
+        title: String,
+        body: String,
+        deepLinkMetadata: [String: AnyCodable]?,
+        deliveryId: String? = nil
+    ) {
         let content = UNMutableNotificationContent()
-        content.title = msg.title
-        content.body = msg.body
+        content.title = title
+        content.body = body
         content.sound = .default
         content.categoryIdentifier = "NOTIFICATION_INTENT"
 
         var userInfo: [String: Any] = [
-            "sourceEventName": msg.sourceEventName,
+            "sourceEventName": sourceEventName,
         ]
-        if let metadata = msg.deepLinkMetadata {
+        if let metadata = deepLinkMetadata {
             for (key, wrapped) in metadata {
-                // Keep sourceEventName authoritative from the daemon envelope.
+                // Keep sourceEventName authoritative from the envelope.
                 if key == "sourceEventName" {
                     continue
                 }
@@ -168,15 +265,154 @@ extension AppDelegate {
         }
         content.userInfo = userInfo
 
+        let notificationId = "notification-intent-\(UUID().uuidString)"
         let request = UNNotificationRequest(
-            identifier: "notification-intent-\(UUID().uuidString)",
+            identifier: notificationId,
             content: content,
             trigger: nil
         )
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error {
-                log.error("Failed to post notification intent: \(error.localizedDescription)")
+
+        Task {
+            let authorized = await checkNotificationAuthorization()
+            guard authorized else {
+                self.sendNotificationIntentResult(
+                    deliveryId: deliveryId,
+                    success: false,
+                    errorMessage: "Notification authorization denied",
+                    errorCode: "authorization_denied"
+                )
+                return
             }
+
+            do {
+                try await UNUserNotificationCenter.current().add(request)
+                self.sendNotificationIntentResult(
+                    deliveryId: deliveryId,
+                    success: true,
+                    errorMessage: nil,
+                    errorCode: nil
+                )
+            } catch {
+                log.error("Failed to post notification intent (id: \(notificationId), source: \(sourceEventName)): \(error.localizedDescription)")
+                self.sendNotificationIntentResult(
+                    deliveryId: deliveryId,
+                    success: false,
+                    errorMessage: error.localizedDescription,
+                    errorCode: nil
+                )
+            }
+        }
+    }
+
+    /// Send a `notification_intent_result` ack back to the daemon.
+    private func sendNotificationIntentResult(
+        deliveryId: String?,
+        success: Bool,
+        errorMessage: String?,
+        errorCode: String?
+    ) {
+        guard let deliveryId else { return }
+        let result = IPCNotificationIntentResult(
+            type: "notification_intent_result",
+            deliveryId: deliveryId,
+            success: success,
+            errorMessage: errorMessage,
+            errorCode: errorCode
+        )
+        do {
+            try daemonClient.send(result)
+        } catch {
+            log.warning("Failed to send notification_intent_result for deliveryId \(deliveryId): \(error.localizedDescription)")
+        }
+    }
+
+    func deliverNotificationIntent(_ msg: NotificationIntentMessage) {
+        let nowMs = Date().timeIntervalSince1970 * 1000
+        pruneFallbackMarkers(nowMs: nowMs)
+
+        if let conversationId = conversationId(from: msg.deepLinkMetadata) {
+            // If we already posted the fallback alert for this conversation,
+            // suppress the later notification_intent duplicate.
+            if let deliveredAt = fallbackDeliveredAtMs.removeValue(forKey: conversationId),
+               nowMs - deliveredAt <= fallbackDedupWindowMs {
+                log.info("Suppressing duplicate notification_intent for conversation \(conversationId) (fallback already delivered)")
+                // Ack the suppressed intent so the delivery audit trail is complete
+                if let deliveryId = msg.deliveryId {
+                    sendNotificationIntentResult(deliveryId: deliveryId, success: true, errorMessage: nil, errorCode: nil)
+                }
+                return
+            }
+
+            // notification_intent arrived in time; invalidate pending fallback.
+            pendingFallbackNotifications.removeValue(forKey: conversationId)
+        }
+
+        postNotificationIntent(
+            sourceEventName: msg.sourceEventName,
+            title: msg.title,
+            body: msg.body,
+            deepLinkMetadata: msg.deepLinkMetadata,
+            deliveryId: msg.deliveryId
+        )
+    }
+
+    /// Schedules a fallback local notification for any notification_thread_created
+    /// event. If the corresponding notification_intent IPC arrives within the
+    /// delay window, the fallback is cancelled (preventing duplicates). Guardian
+    /// questions use a specific body; all other event types use a generic body.
+    func scheduleNotificationFallback(
+        conversationId: String,
+        title: String,
+        sourceEventName: String
+    ) {
+        let token = UUID()
+        pendingFallbackNotifications[conversationId] = token
+
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: fallbackDelayNs)
+            guard let self else { return }
+            guard self.pendingFallbackNotifications[conversationId] == token else { return }
+
+            self.pendingFallbackNotifications.removeValue(forKey: conversationId)
+            let nowMs = Date().timeIntervalSince1970 * 1000
+            self.fallbackDeliveredAtMs[conversationId] = nowMs
+            self.pruneFallbackMarkers(nowMs: nowMs)
+
+            let body: String
+            if sourceEventName == "guardian.question" {
+                body = "A guardian question needs your attention."
+            } else {
+                body = "A notification needs your attention."
+            }
+
+            self.postNotificationIntent(
+                sourceEventName: sourceEventName,
+                title: title,
+                body: body,
+                deepLinkMetadata: ["conversationId": AnyCodable(conversationId)]
+            )
+        }
+    }
+
+    /// Send a `conversation_seen_signal` IPC message to the daemon.
+    func sendConversationSeenSignal(
+        conversationId: String,
+        signalType: String,
+        source: String,
+        evidenceText: String? = nil
+    ) {
+        let signal = IPCConversationSeenSignal(
+            conversationId: conversationId,
+            sourceChannel: "vellum",
+            signalType: signalType,
+            confidence: "explicit",
+            source: source,
+            evidenceText: evidenceText
+        )
+        do {
+            try daemonClient.send(signal)
+        } catch {
+            log.warning("Failed to send conversation_seen_signal for \(conversationId): \(error.localizedDescription)")
         }
     }
 
@@ -213,7 +449,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         // Handle activity completion notifications
         if categoryId == "ACTIVITY_COMPLETE" {
             await MainActor.run {
-                guard !self.isAwaitingFirstLaunchReady else { return }
+                guard !self.isBootstrapping else { return }
                 self.showMainWindow()
             }
             return
@@ -234,7 +470,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 // Default action (clicked banner) — deny and bring app forward
                 decision = "deny"
                 await MainActor.run {
-                    guard !self.isAwaitingFirstLaunchReady else { return }
+                    guard !self.isBootstrapping else { return }
                     self.showMainWindow()
                 }
             }
@@ -247,18 +483,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         // Handle voice response complete notifications
         if categoryId == "VOICE_RESPONSE_COMPLETE" {
             await MainActor.run {
-                guard !self.isAwaitingFirstLaunchReady else { return }
+                guard !self.isBootstrapping else { return }
                 self.showMainWindow()
-            }
-            return
-        }
-
-        // Handle guardian request notifications — open the guardian thread in the main window
-        if categoryId == "GUARDIAN_REQUEST" {
-            let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
-            await MainActor.run {
-                guard !self.isAwaitingFirstLaunchReady else { return }
-                self.openConversationThread(conversationId: conversationId)
             }
             return
         }
@@ -268,9 +494,19 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 response.notification.request.content.userInfo["conversationId"] as? String ??
                 response.notification.request.content.userInfo["conversation_id"] as? String
             await MainActor.run {
-                guard !self.isAwaitingFirstLaunchReady else { return }
+                guard !self.isBootstrapping else { return }
                 if let conversationId {
                     self.openConversationThread(conversationId: conversationId)
+                    self.sendConversationSeenSignal(
+                        conversationId: conversationId,
+                        signalType: "macos_notification_view",
+                        source: "notification-action",
+                        evidenceText: "User clicked View on notification"
+                    )
+                    // Clear local unseen state so sidebar dot disappears immediately
+                    if let threadIdx = self.mainWindow?.threadManager.threads.firstIndex(where: { $0.sessionId == conversationId }) {
+                        self.mainWindow?.threadManager.threads[threadIdx].hasUnseenLatestAssistantMessage = false
+                    }
                 } else {
                     self.showMainWindow()
                 }

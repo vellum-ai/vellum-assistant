@@ -29,15 +29,10 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import type { PendingConfirmation, PendingRunInfo } from '../memory/runs-store.js';
-import {
-  createRun,
-  setRunConfirmation,
-} from '../memory/runs-store.js';
-import { conversations } from '../memory/schema.js';
+import type { Session } from '../daemon/session.js';
 import * as trustStore from '../permissions/trust-store.js';
 import type { ApprovalDecisionResult, ChannelApprovalPrompt } from '../runtime/channel-approval-types.js';
+import type { PendingApprovalInfo } from '../runtime/channel-approvals.js';
 import {
   buildApprovalUIMetadata,
   buildGuardianApprovalPrompt,
@@ -45,12 +40,9 @@ import {
   getChannelApprovalPrompt,
   handleChannelDecision,
 } from '../runtime/channel-approvals.js';
-import type { RunOrchestrator } from '../runtime/run-orchestrator.js';
-
-initializeDb();
+import * as pendingInteractions from '../runtime/pending-interactions.js';
 
 afterAll(() => {
-  resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 
@@ -58,40 +50,41 @@ afterAll(() => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function ensureConversation(conversationId: string): void {
-  const db = getDb();
-  try {
-    db.insert(conversations).values({
-      id: conversationId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }).run();
-  } catch {
-    // already exists
-  }
-}
+function registerPendingConfirmation(
+  requestId: string,
+  conversationId: string,
+  toolName: string,
+  opts?: {
+    input?: Record<string, unknown>;
+    riskLevel?: string;
+    persistentDecisionsAllowed?: boolean;
+    allowlistOptions?: Array<{ label: string; description: string; pattern: string }>;
+    scopeOptions?: Array<{ label: string; scope: string }>;
+    executionTarget?: 'sandbox' | 'host';
+  },
+): void {
+  const mockSession = {
+    handleConfirmationResponse: mock(() => {}),
+  } as unknown as Session;
 
-function resetTables(): void {
-  const db = getDb();
-  db.run('DELETE FROM message_runs');
-  db.run('DELETE FROM conversations');
-}
-
-const sampleConfirmation: PendingConfirmation = {
-  toolName: 'shell',
-  toolUseId: 'req-abc-123',
-  input: { command: 'rm -rf /tmp/test' },
-  riskLevel: 'high',
-  allowlistOptions: [{ label: 'rm -rf /tmp/test', pattern: 'rm -rf /tmp/test' }],
-  scopeOptions: [{ label: 'everywhere', scope: 'everywhere' }],
-};
-
-function makeMockOrchestrator(
-  submitResult: 'applied' | 'run_not_found' | 'no_pending_decision' = 'applied',
-): RunOrchestrator {
-  return {
-    submitDecision: mock(() => submitResult),
-  } as unknown as RunOrchestrator;
+  pendingInteractions.register(requestId, {
+    session: mockSession,
+    conversationId,
+    kind: 'confirmation',
+    confirmationDetails: {
+      toolName,
+      input: opts?.input ?? { command: 'rm -rf /tmp/test' },
+      riskLevel: opts?.riskLevel ?? 'high',
+      allowlistOptions: opts?.allowlistOptions ?? [
+        { label: 'rm -rf /tmp/test', description: 'rm -rf /tmp/test', pattern: 'rm -rf /tmp/test' },
+      ],
+      scopeOptions: opts?.scopeOptions ?? [
+        { label: 'everywhere', scope: 'everywhere' },
+      ],
+      persistentDecisionsAllowed: opts?.persistentDecisionsAllowed,
+      executionTarget: opts?.executionTarget,
+    },
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -100,26 +93,16 @@ function makeMockOrchestrator(
 
 describe('getChannelApprovalPrompt', () => {
   beforeEach(() => {
-    resetTables();
+    pendingInteractions.clear();
   });
 
-  test('returns null when no pending runs exist', () => {
-    ensureConversation('conv-1');
+  test('returns null when no pending interactions exist', () => {
     const result = getChannelApprovalPrompt('conv-1');
     expect(result).toBeNull();
   });
 
-  test('returns null when runs exist but none need confirmation', () => {
-    ensureConversation('conv-1');
-    createRun('conv-1');
-    const result = getChannelApprovalPrompt('conv-1');
-    expect(result).toBeNull();
-  });
-
-  test('returns a prompt when a run needs confirmation', () => {
-    ensureConversation('conv-1');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, sampleConfirmation);
+  test('returns a prompt when a pending confirmation exists', () => {
+    registerPendingConfirmation('req-1', 'conv-1', 'shell');
 
     const result = getChannelApprovalPrompt('conv-1');
     expect(result).not.toBeNull();
@@ -135,28 +118,18 @@ describe('getChannelApprovalPrompt', () => {
     expect(result!.plainTextFallback).toContain('no');
   });
 
-  test('uses the first pending run when multiple exist', () => {
-    ensureConversation('conv-1');
-    const run1 = createRun('conv-1');
-    const run2 = createRun('conv-1');
-    setRunConfirmation(run1.id, sampleConfirmation);
-    setRunConfirmation(run2.id, {
-      ...sampleConfirmation,
-      toolName: 'file_edit',
-      toolUseId: 'req-def-456',
-    });
+  test('uses the first pending interaction when multiple exist', () => {
+    registerPendingConfirmation('req-1', 'conv-1', 'shell');
+    registerPendingConfirmation('req-2', 'conv-1', 'file_edit');
 
     const result = getChannelApprovalPrompt('conv-1');
     expect(result).not.toBeNull();
-    // Should contain one of the tool names (the first pending run)
+    // Should contain one of the tool names (the first pending interaction)
     expect(result!.promptText).toMatch(/shell|file_edit/);
   });
 
   test('excludes approve_always action when persistentDecisionsAllowed is false', () => {
-    ensureConversation('conv-1');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, {
-      ...sampleConfirmation,
+    registerPendingConfirmation('req-1', 'conv-1', 'shell', {
       persistentDecisionsAllowed: false,
     });
 
@@ -167,12 +140,7 @@ describe('getChannelApprovalPrompt', () => {
   });
 
   test('includes approve_always when persistentDecisionsAllowed is undefined', () => {
-    ensureConversation('conv-1');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, {
-      ...sampleConfirmation,
-      // persistentDecisionsAllowed not set — defaults to allowed
-    });
+    registerPendingConfirmation('req-1', 'conv-1', 'shell');
 
     const result = getChannelApprovalPrompt('conv-1');
     expect(result).not.toBeNull();
@@ -185,10 +153,7 @@ describe('getChannelApprovalPrompt', () => {
   });
 
   test('includes approve_always when persistentDecisionsAllowed is true', () => {
-    ensureConversation('conv-1');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, {
-      ...sampleConfirmation,
+    registerPendingConfirmation('req-1', 'conv-1', 'shell', {
       persistentDecisionsAllowed: true,
     });
 
@@ -202,10 +167,7 @@ describe('getChannelApprovalPrompt', () => {
   });
 
   test('does not return prompts for other conversations', () => {
-    ensureConversation('conv-1');
-    ensureConversation('conv-2');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, sampleConfirmation);
+    registerPendingConfirmation('req-1', 'conv-1', 'shell');
 
     const result = getChannelApprovalPrompt('conv-2');
     expect(result).toBeNull();
@@ -217,7 +179,7 @@ describe('getChannelApprovalPrompt', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('buildApprovalUIMetadata', () => {
-  test('maps prompt and run info to UI metadata', () => {
+  test('maps prompt and approval info to UI metadata', () => {
     const prompt: ChannelApprovalPrompt = {
       promptText: 'Allow shell?',
       actions: [
@@ -227,16 +189,14 @@ describe('buildApprovalUIMetadata', () => {
       plainTextFallback: 'Reply yes or no.',
     };
 
-    const runInfo: PendingRunInfo = {
-      runId: 'run-123',
+    const approvalInfo: PendingApprovalInfo = {
       requestId: 'req-abc',
       toolName: 'shell',
       input: { command: 'ls' },
       riskLevel: 'low',
     };
 
-    const metadata = buildApprovalUIMetadata(prompt, runInfo);
-    expect(metadata.runId).toBe('run-123');
+    const metadata = buildApprovalUIMetadata(prompt, approvalInfo);
     expect(metadata.requestId).toBe('req-abc');
     expect(metadata.actions).toEqual(prompt.actions);
     expect(metadata.plainTextFallback).toBe('Reply yes or no.');
@@ -249,123 +209,96 @@ describe('buildApprovalUIMetadata', () => {
 
 describe('handleChannelDecision', () => {
   beforeEach(() => {
-    resetTables();
+    pendingInteractions.clear();
   });
 
-  test('returns applied: false when no pending runs exist', () => {
-    ensureConversation('conv-1');
-    const orchestrator = makeMockOrchestrator();
+  test('returns applied: false when no pending interactions exist', () => {
     const decision: ApprovalDecisionResult = {
       action: 'approve_once',
       source: 'plain_text',
     };
 
-    const result = handleChannelDecision('conv-1', decision, orchestrator);
+    const result = handleChannelDecision('conv-1', decision);
     expect(result.applied).toBe(false);
-    expect(result.runId).toBeUndefined();
+    expect(result.requestId).toBeUndefined();
   });
 
-  test('approves once via orchestrator.submitDecision with "allow"', () => {
-    ensureConversation('conv-1');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, sampleConfirmation);
-
-    const orchestrator = makeMockOrchestrator();
+  test('approves once via session.handleConfirmationResponse with "allow"', () => {
+    registerPendingConfirmation('req-1', 'conv-1', 'shell');
+    const interaction = pendingInteractions.get('req-1');
     const decision: ApprovalDecisionResult = {
       action: 'approve_once',
       source: 'plain_text',
     };
 
-    const result = handleChannelDecision('conv-1', decision, orchestrator);
+    const result = handleChannelDecision('conv-1', decision);
     expect(result.applied).toBe(true);
-    expect(result.runId).toBe(run.id);
-    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+    expect(result.requestId).toBe('req-1');
+    expect(interaction!.session.handleConfirmationResponse).toHaveBeenCalledWith('req-1', 'allow');
   });
 
-  test('rejects via orchestrator.submitDecision with "deny"', () => {
-    ensureConversation('conv-1');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, sampleConfirmation);
-
-    const orchestrator = makeMockOrchestrator();
+  test('rejects via session.handleConfirmationResponse with "deny"', () => {
+    registerPendingConfirmation('req-1', 'conv-1', 'shell');
+    const interaction = pendingInteractions.get('req-1');
     const decision: ApprovalDecisionResult = {
       action: 'reject',
       source: 'telegram_button',
     };
 
-    const result = handleChannelDecision('conv-1', decision, orchestrator);
+    const result = handleChannelDecision('conv-1', decision);
     expect(result.applied).toBe(true);
-    expect(result.runId).toBe(run.id);
-    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'deny');
+    expect(result.requestId).toBe('req-1');
+    expect(interaction!.session.handleConfirmationResponse).toHaveBeenCalledWith('req-1', 'deny');
   });
 
-  test('uses decision.runId to target the matching pending run', () => {
-    ensureConversation('conv-1');
-    const olderRun = createRun('conv-1');
-    setRunConfirmation(olderRun.id, {
-      ...sampleConfirmation,
-      toolName: 'shell',
-      toolUseId: 'req-older',
-    });
-    const newerRun = createRun('conv-1');
-    setRunConfirmation(newerRun.id, {
-      ...sampleConfirmation,
-      toolName: 'browser',
-      toolUseId: 'req-newer',
-    });
-
-    const orchestrator = makeMockOrchestrator();
+  test('uses decision.requestId to target the matching pending interaction', () => {
+    registerPendingConfirmation('req-older', 'conv-1', 'shell');
+    registerPendingConfirmation('req-newer', 'conv-1', 'browser');
+    const newerInteraction = pendingInteractions.get('req-newer');
+    const olderInteraction = pendingInteractions.get('req-older');
     const decision: ApprovalDecisionResult = {
       action: 'approve_once',
       source: 'telegram_button',
-      runId: newerRun.id,
+      requestId: 'req-newer',
     };
 
-    const result = handleChannelDecision('conv-1', decision, orchestrator);
+    const result = handleChannelDecision('conv-1', decision);
     expect(result.applied).toBe(true);
-    expect(result.runId).toBe(newerRun.id);
-    expect(orchestrator.submitDecision).toHaveBeenCalledWith(newerRun.id, 'allow');
-    expect(orchestrator.submitDecision).not.toHaveBeenCalledWith(olderRun.id, 'allow');
+    expect(result.requestId).toBe('req-newer');
+    expect(newerInteraction!.session.handleConfirmationResponse).toHaveBeenCalledWith('req-newer', 'allow');
+    expect(olderInteraction!.session.handleConfirmationResponse).not.toHaveBeenCalled();
   });
 
-  test('returns applied: false when decision.runId does not match a pending run', () => {
-    ensureConversation('conv-1');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, sampleConfirmation);
-
-    const orchestrator = makeMockOrchestrator();
+  test('returns applied: false when decision.requestId does not match a pending interaction', () => {
+    registerPendingConfirmation('req-1', 'conv-1', 'shell');
     const decision: ApprovalDecisionResult = {
       action: 'approve_once',
       source: 'telegram_button',
-      runId: 'run-missing',
+      requestId: 'req-missing',
     };
 
-    const result = handleChannelDecision('conv-1', decision, orchestrator);
+    const result = handleChannelDecision('conv-1', decision);
     expect(result.applied).toBe(false);
-    expect(result.runId).toBeUndefined();
-    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+    expect(result.requestId).toBeUndefined();
   });
 
-  test('approve_always adds a trust rule and submits "allow"', () => {
-    ensureConversation('conv-1');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, {
-      ...sampleConfirmation,
+  test('approve_always adds a trust rule and calls handleConfirmationResponse with "allow"', () => {
+    registerPendingConfirmation('req-1', 'conv-1', 'shell', {
       executionTarget: 'sandbox',
-      allowlistOptions: [{ label: 'rm pattern', pattern: 'rm -rf *' }],
+      allowlistOptions: [{ label: 'rm pattern', description: 'rm pattern', pattern: 'rm -rf *' }],
       scopeOptions: [{ label: 'project dir', scope: '/tmp/project' }],
     });
 
     const addRuleSpy = spyOn(trustStore, 'addRule');
-    const orchestrator = makeMockOrchestrator();
+    const interaction = pendingInteractions.get('req-1');
     const decision: ApprovalDecisionResult = {
       action: 'approve_always',
       source: 'plain_text',
     };
 
-    const result = handleChannelDecision('conv-1', decision, orchestrator);
+    const result = handleChannelDecision('conv-1', decision);
     expect(result.applied).toBe(true);
-    expect(result.runId).toBe(run.id);
+    expect(result.requestId).toBe('req-1');
 
     // Trust rule added with first allowlist and scope option.
     // executionTarget is undefined for core tools like 'shell' — only
@@ -379,111 +312,59 @@ describe('handleChannelDecision', () => {
       { executionTarget: undefined },
     );
 
-    // The run is still approved with a simple "allow"
-    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+    // The session is approved with "allow"
+    expect(interaction!.session.handleConfirmationResponse).toHaveBeenCalledWith('req-1', 'allow');
 
     addRuleSpy.mockRestore();
   });
 
   test('approve_always does not persist rule when no allowlist/scope options are available', () => {
-    ensureConversation('conv-1');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, {
-      toolName: 'bash',
-      toolUseId: 'req-no-opts',
-      input: { command: 'echo hi' },
-      riskLevel: 'low',
-      // No allowlistOptions or scopeOptions — should not create blanket rule
+    registerPendingConfirmation('req-1', 'conv-1', 'bash', {
+      allowlistOptions: [],
+      scopeOptions: [],
     });
 
     const addRuleSpy = spyOn(trustStore, 'addRule');
-    const orchestrator = makeMockOrchestrator();
+    const interaction = pendingInteractions.get('req-1');
     const decision: ApprovalDecisionResult = {
       action: 'approve_always',
       source: 'telegram_button',
     };
 
-    const result = handleChannelDecision('conv-1', decision, orchestrator);
+    const result = handleChannelDecision('conv-1', decision);
 
     // Rule should NOT be persisted — no blanket "**"/"everywhere" fallback
     expect(addRuleSpy).not.toHaveBeenCalled();
 
     // The decision should still be applied as a one-time approval
     expect(result.applied).toBe(true);
-    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
-
-    addRuleSpy.mockRestore();
-  });
-
-  test('approve_always does not persist rule when allowlist/scope are empty arrays', () => {
-    ensureConversation('conv-1');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, {
-      toolName: 'bash',
-      toolUseId: 'req-empty-opts',
-      input: { command: 'echo hi' },
-      riskLevel: 'low',
-      allowlistOptions: [],
-      scopeOptions: [],
-    });
-
-    const addRuleSpy = spyOn(trustStore, 'addRule');
-    const orchestrator = makeMockOrchestrator();
-    const decision: ApprovalDecisionResult = {
-      action: 'approve_always',
-      source: 'telegram_button',
-    };
-
-    handleChannelDecision('conv-1', decision, orchestrator);
-
-    // Empty arrays should not trigger rule persistence
-    expect(addRuleSpy).not.toHaveBeenCalled();
-    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+    expect(interaction!.session.handleConfirmationResponse).toHaveBeenCalledWith('req-1', 'allow');
 
     addRuleSpy.mockRestore();
   });
 
   test('approve_always does not persist rule when persistentDecisionsAllowed is false', () => {
-    ensureConversation('conv-1');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, {
-      ...sampleConfirmation,
+    registerPendingConfirmation('req-1', 'conv-1', 'shell', {
       persistentDecisionsAllowed: false,
     });
 
     const addRuleSpy = spyOn(trustStore, 'addRule');
-    const orchestrator = makeMockOrchestrator();
+    const interaction = pendingInteractions.get('req-1');
     const decision: ApprovalDecisionResult = {
       action: 'approve_always',
       source: 'telegram_button',
     };
 
-    const result = handleChannelDecision('conv-1', decision, orchestrator);
+    const result = handleChannelDecision('conv-1', decision);
 
     // Persistence blocked — rule must not be created
     expect(addRuleSpy).not.toHaveBeenCalled();
 
     // The current invocation should still be approved (one-time allow)
     expect(result.applied).toBe(true);
-    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+    expect(interaction!.session.handleConfirmationResponse).toHaveBeenCalledWith('req-1', 'allow');
 
     addRuleSpy.mockRestore();
-  });
-
-  test('returns applied: false when orchestrator cannot apply decision', () => {
-    ensureConversation('conv-1');
-    const run = createRun('conv-1');
-    setRunConfirmation(run.id, sampleConfirmation);
-
-    const orchestrator = makeMockOrchestrator('no_pending_decision');
-    const decision: ApprovalDecisionResult = {
-      action: 'approve_once',
-      source: 'plain_text',
-    };
-
-    const result = handleChannelDecision('conv-1', decision, orchestrator);
-    expect(result.applied).toBe(false);
-    expect(result.runId).toBe(run.id);
   });
 });
 
@@ -493,41 +374,38 @@ describe('handleChannelDecision', () => {
 
 describe('buildGuardianApprovalPrompt', () => {
   test('prompt includes requester identifier and tool name', () => {
-    const runInfo: PendingRunInfo = {
-      runId: 'run-g1',
+    const approvalInfo: PendingApprovalInfo = {
       requestId: 'req-g1',
       toolName: 'deploy',
       input: {},
       riskLevel: 'high',
     };
-    const prompt = buildGuardianApprovalPrompt(runInfo, 'alice');
+    const prompt = buildGuardianApprovalPrompt(approvalInfo, 'alice');
     expect(prompt.promptText).toContain('alice');
     expect(prompt.promptText).toContain('deploy');
   });
 
   test('excludes approve_always action', () => {
-    const runInfo: PendingRunInfo = {
-      runId: 'run-g2',
+    const approvalInfo: PendingApprovalInfo = {
       requestId: 'req-g2',
       toolName: 'shell',
       input: {},
       riskLevel: 'medium',
     };
-    const prompt = buildGuardianApprovalPrompt(runInfo, 'bob');
+    const prompt = buildGuardianApprovalPrompt(approvalInfo, 'bob');
     expect(prompt.actions.map((a) => a.id)).not.toContain('approve_always');
     expect(prompt.actions.map((a) => a.id)).toContain('approve_once');
     expect(prompt.actions.map((a) => a.id)).toContain('reject');
   });
 
   test('plainTextFallback contains parser-compatible keywords', () => {
-    const runInfo: PendingRunInfo = {
-      runId: 'run-g3',
+    const approvalInfo: PendingApprovalInfo = {
       requestId: 'req-g3',
       toolName: 'write_file',
       input: {},
       riskLevel: 'high',
     };
-    const prompt = buildGuardianApprovalPrompt(runInfo, 'charlie');
+    const prompt = buildGuardianApprovalPrompt(approvalInfo, 'charlie');
     expect(prompt.plainTextFallback).toContain('yes');
     expect(prompt.plainTextFallback).toContain('no');
   });

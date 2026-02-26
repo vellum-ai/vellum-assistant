@@ -59,7 +59,16 @@ SMS messaging uses Twilio as the telephony provider. Twilio credentials and phon
 
 The sms-setup skill handles: Twilio credential storage (Account SID + Auth Token), phone number provisioning or assignment, public ingress setup, SMS compliance verification, and end-to-end test sending. Once SMS is set up, messaging is available automatically — no additional feature flag is needed.
 
-The sms-setup skill also includes optional **guardian verification** for SMS (inherited from twilio-setup), which links your phone number as the trusted guardian.
+The sms-setup skill also includes optional **guardian verification** for SMS, which links your phone number as the trusted guardian.
+
+### Guardian Verification (SMS, Voice, or Telegram)
+
+If the user asks to verify their guardian identity for any channel (SMS, voice, or Telegram), install and load the **guardian-verify-setup** skill:
+
+- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
+- Then call `skill_load` with `skill: "guardian-verify-setup"`.
+
+The guardian-verify-setup skill handles the full outbound verification flow for all supported channels. It collects the user's destination (phone number or Telegram chat ID/handle), initiates an outbound verification session, and guides the user through entering or replying with the verification code. This is the single source of truth for guardian verification setup -- do not duplicate the verification flow inline.
 
 ## Platform Selection
 
@@ -76,7 +85,6 @@ The sms-setup skill also includes optional **guardian verification** for SMS (in
 - **Read Messages**: Read message history from a conversation
 - **Search**: Search messages with platform-appropriate query syntax
 - **Send**: Send a message (high risk — requires user approval)
-- **Send Notification**: Trigger a user notification through the unified notification router (medium risk)
 - **Reply**: Reply in a thread (medium risk)
 - **Mark Read**: Mark conversation as read
 
@@ -184,7 +192,7 @@ When searching Gmail, the query uses Gmail's search operators:
 
 ## Notifications vs Messages
 
-- Use `send_notification` when the user asks for an alert/notification (for example "send this as a desktop notification").
+- `send_notification` is provided by the **notifications** skill (always active) -- use it when the user asks for an alert/notification (for example "send this as a desktop notification").
 - Use `messaging_send` when the user asks to send a message into a specific chat/email/SMS destination.
 - `send_notification` channel routing is LLM-driven; `preferred_channels` are hints, not hard channel forcing.
 

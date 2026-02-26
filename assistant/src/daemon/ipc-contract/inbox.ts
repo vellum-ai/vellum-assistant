@@ -1,4 +1,4 @@
-// Assistant inbox: invite management, member management, inbox threads, escalations, and replies.
+// Ingress access control: invite management, member management, and escalation decisions.
 
 // === Client → Server ===
 
@@ -50,21 +50,6 @@ export interface IngressMemberRequest {
   reason?: string;
 }
 
-export interface AssistantInboxRequest {
-  type: 'assistant_inbox';
-  action: 'list_threads' | 'get_thread_messages';
-  /** Filter by assistant ID (list_threads only). */
-  assistantId?: string;
-  /** Maximum number of results to return (list_threads and get_thread_messages). */
-  limit?: number;
-  /** Offset for pagination (list_threads only). */
-  offset?: number;
-  /** Conversation ID (required for get_thread_messages). */
-  conversationId?: string;
-  /** Cursor for message pagination — return messages before this ID (get_thread_messages only). */
-  beforeMessageId?: string;
-}
-
 export interface AssistantInboxEscalationRequest {
   type: 'assistant_inbox_escalation';
   action: 'list' | 'decide';
@@ -78,12 +63,6 @@ export interface AssistantInboxEscalationRequest {
   decision?: 'approve' | 'deny';
   /** Reason for the decision (decide only). */
   reason?: string;
-}
-
-export interface AssistantInboxReplyRequest {
-  type: 'assistant_inbox_reply';
-  conversationId: string;
-  content: string;
 }
 
 // === Server → Client ===
@@ -151,34 +130,6 @@ export interface IngressMemberResponse {
   }>;
 }
 
-export interface AssistantInboxResponse {
-  type: 'assistant_inbox_response';
-  success: boolean;
-  error?: string;
-  /** List of inbox threads (returned on list_threads). */
-  threads?: Array<{
-    conversationId: string;
-    sourceChannel: string;
-    externalChatId: string;
-    externalUserId?: string;
-    displayName?: string;
-    username?: string;
-    lastMessageAt?: number;
-    unreadCount: number;
-    hasPendingEscalation: boolean;
-    lastInboundAt?: number;
-    lastOutboundAt?: number;
-  }>;
-  /** List of messages (returned on get_thread_messages). */
-  messages?: Array<{
-    id: string;
-    role: string;
-    content: string;
-    createdAt: number;
-    metadata?: Record<string, unknown>;
-  }>;
-}
-
 export interface AssistantInboxEscalationResponse {
   type: 'assistant_inbox_escalation_response';
   success: boolean;
@@ -203,25 +154,14 @@ export interface AssistantInboxEscalationResponse {
   };
 }
 
-export interface AssistantInboxReplyResponse {
-  type: 'assistant_inbox_reply_response';
-  success: boolean;
-  error?: string;
-  messageId?: string;
-}
-
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _InboxClientMessages =
   | IngressInviteRequest
   | IngressMemberRequest
-  | AssistantInboxRequest
-  | AssistantInboxEscalationRequest
-  | AssistantInboxReplyRequest;
+  | AssistantInboxEscalationRequest;
 
 export type _InboxServerMessages =
   | IngressInviteResponse
   | IngressMemberResponse
-  | AssistantInboxResponse
-  | AssistantInboxEscalationResponse
-  | AssistantInboxReplyResponse;
+  | AssistantInboxEscalationResponse;

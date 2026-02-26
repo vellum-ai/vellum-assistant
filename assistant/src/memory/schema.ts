@@ -1,4 +1,4 @@
-import { blob, index,integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { blob, index,integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const conversations = sqliteTable('conversations', {
   id: text('id').primaryKey(),
@@ -138,6 +138,7 @@ export const memorySummaries = sqliteTable('memory_summaries', {
   updatedAt: integer('updated_at').notNull(),
 }, (table) => [
   index('idx_memory_summaries_scope_id').on(table.scopeId),
+  uniqueIndex('idx_memory_summaries_scope_scope_key').on(table.scope, table.scopeKey),
 ]);
 
 export const memoryEmbeddings = sqliteTable('memory_embeddings', {
@@ -152,7 +153,9 @@ export const memoryEmbeddings = sqliteTable('memory_embeddings', {
   contentHash: text('content_hash'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  uniqueIndex('idx_memory_embeddings_target_provider_model').on(table.targetType, table.targetId, table.provider, table.model),
+]);
 
 export const memoryJobs = sqliteTable('memory_jobs', {
   id: text('id').primaryKey(),
@@ -217,26 +220,7 @@ export const channelInboundEvents = sqliteTable('channel_inbound_events', {
   lastProcessingError: text('last_processing_error'),
   retryAfter: integer('retry_after'),
   rawPayload: text('raw_payload'),
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
-});
-
-// ── Message Runs (approval flow) ─────────────────────────────────────
-
-export const messageRuns = sqliteTable('message_runs', {
-  id: text('id').primaryKey(),
-  conversationId: text('conversation_id')
-    .notNull()
-    .references(() => conversations.id, { onDelete: 'cascade' }),
-  messageId: text('message_id')
-    .references(() => messages.id, { onDelete: 'cascade' }),
-  status: text('status').notNull().default('running'),          // running | needs_confirmation | needs_secret | completed | failed
-  pendingConfirmation: text('pending_confirmation'),            // JSON when status=needs_confirmation
-  pendingSecret: text('pending_secret'),                        // JSON when status=needs_secret
-  inputTokens: integer('input_tokens').notNull().default(0),
-  outputTokens: integer('output_tokens').notNull().default(0),
-  estimatedCost: real('estimated_cost').notNull().default(0),
-  error: text('error'),
+  deliveredSegmentCount: integer('delivered_segment_count').notNull().default(0),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
@@ -258,6 +242,8 @@ export const reminders = sqliteTable('reminders', {
   status: text('status').notNull(),               // 'pending' | 'firing' | 'fired' | 'cancelled'
   firedAt: integer('fired_at'),
   conversationId: text('conversation_id'),
+  routingIntent: text('routing_intent').notNull().default('single_channel'),   // 'single_channel' | 'multi_channel' | 'all_channels'
+  routingHintsJson: text('routing_hints_json').notNull().default('{}'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
@@ -569,6 +555,8 @@ export const callSessions = sqliteTable('call_sessions', {
   toNumber: text('to_number').notNull(),
   task: text('task'),
   status: text('status').notNull().default('initiated'),
+  callMode: text('call_mode'),
+  guardianVerificationSessionId: text('guardian_verification_session_id'),
   callerIdentityMode: text('caller_identity_mode'),
   callerIdentitySource: text('caller_identity_source'),
   assistantId: text('assistant_id'),
@@ -659,6 +647,21 @@ export const channelGuardianVerificationChallenges = sqliteTable('channel_guardi
   createdBySessionId: text('created_by_session_id'),
   consumedByExternalUserId: text('consumed_by_external_user_id'),
   consumedByChatId: text('consumed_by_chat_id'),
+  // Outbound session: expected-identity binding
+  expectedExternalUserId: text('expected_external_user_id'),
+  expectedChatId: text('expected_chat_id'),
+  expectedPhoneE164: text('expected_phone_e164'),
+  identityBindingStatus: text('identity_binding_status').default('bound'),
+  // Outbound session: delivery tracking
+  destinationAddress: text('destination_address'),
+  lastSentAt: integer('last_sent_at'),
+  sendCount: integer('send_count').default(0),
+  nextResendAt: integer('next_resend_at'),
+  // Session configuration
+  codeDigits: integer('code_digits').default(6),
+  maxAttempts: integer('max_attempts').default(3),
+  // Telegram bootstrap deep-link token hash
+  bootstrapTokenHash: text('bootstrap_token_hash'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
@@ -668,6 +671,7 @@ export const channelGuardianVerificationChallenges = sqliteTable('channel_guardi
 export const channelGuardianApprovalRequests = sqliteTable('channel_guardian_approval_requests', {
   id: text('id').primaryKey(),
   runId: text('run_id').notNull(),
+  requestId: text('request_id'),
   conversationId: text('conversation_id').notNull(),
   assistantId: text('assistant_id').notNull().default('self'),
   channel: text('channel').notNull(),
@@ -995,6 +999,56 @@ export const notificationDeliveries = sqliteTable('notification_deliveries', {
   errorCode: text('error_code'),
   errorMessage: text('error_message'),
   sentAt: integer('sent_at'),
+  conversationId: text('conversation_id'),
+  messageId: text('message_id'),
+  conversationStrategy: text('conversation_strategy'),
+  clientDeliveryStatus: text('client_delivery_status'),
+  clientDeliveryError: text('client_delivery_error'),
+  clientDeliveryAt: integer('client_delivery_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+// ── Conversation Attention ───────────────────────────────────────────
+
+export const conversationAttentionEvents = sqliteTable('conversation_attention_events', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  assistantId: text('assistant_id').notNull(),
+  sourceChannel: text('source_channel').notNull(),
+  signalType: text('signal_type').notNull(),
+  confidence: text('confidence').notNull(),
+  source: text('source').notNull(),
+  evidenceText: text('evidence_text'),
+  metadataJson: text('metadata_json').notNull().default('{}'),
+  observedAt: integer('observed_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+}, (table) => [
+  index('idx_conv_attn_events_conv_observed').on(table.conversationId, table.observedAt),
+  index('idx_conv_attn_events_assistant_observed').on(table.assistantId, table.observedAt),
+  index('idx_conv_attn_events_channel_observed').on(table.sourceChannel, table.observedAt),
+]);
+
+export const conversationAssistantAttentionState = sqliteTable('conversation_assistant_attention_state', {
+  conversationId: text('conversation_id')
+    .primaryKey()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  assistantId: text('assistant_id').notNull(),
+  latestAssistantMessageId: text('latest_assistant_message_id'),
+  latestAssistantMessageAt: integer('latest_assistant_message_at'),
+  lastSeenAssistantMessageId: text('last_seen_assistant_message_id'),
+  lastSeenAssistantMessageAt: integer('last_seen_assistant_message_at'),
+  lastSeenEventAt: integer('last_seen_event_at'),
+  lastSeenConfidence: text('last_seen_confidence'),
+  lastSeenSignalType: text('last_seen_signal_type'),
+  lastSeenSourceChannel: text('last_seen_source_channel'),
+  lastSeenSource: text('last_seen_source'),
+  lastSeenEvidenceText: text('last_seen_evidence_text'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+}, (table) => [
+  index('idx_conv_attn_state_assistant_latest_msg').on(table.assistantId, table.latestAssistantMessageAt),
+  index('idx_conv_attn_state_assistant_last_seen').on(table.assistantId, table.lastSeenAssistantMessageAt),
+]);

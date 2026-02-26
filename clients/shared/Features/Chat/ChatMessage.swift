@@ -585,14 +585,18 @@ public struct ToolCallData: Identifiable, Equatable {
     public let toolName: String
     public let inputSummary: String
     /// Full (untruncated) input text for display in expanded views.
-    public let inputFull: String
+    public var inputFull: String
     /// Untruncated raw value of the primary input key (e.g. file path).
     /// Unlike inputSummary (truncated to 80 chars) this preserves the full value
     /// for use in file existence checks and opening files.
-    public let inputRawValue: String
+    public var inputRawValue: String
     public var result: String?
     public var isError: Bool
     public var isComplete: Bool
+    /// Raw decoded tool input dictionary, stored for lazy formatting of `inputFull`.
+    /// When non-nil and `inputFull` is empty, the formatted string has not yet been
+    /// computed — call `ToolCallData.formatAllToolInput(_:)` on demand.
+    public var inputRawDict: [String: AnyCodable]?
     /// Whether this tool call arrived before any text content in the message.
     /// Used to render pre-text tool calls above and post-text tool calls below the bubble.
     public var arrivedBeforeText: Bool
@@ -632,14 +636,20 @@ public struct ToolCallData: Identifiable, Equatable {
         self.id = id
         self.toolName = toolName
         self.inputSummary = inputSummary
-        self.inputFull = inputFull ?? inputSummary
-        self.inputRawValue = inputRawValue ?? inputSummary
+        var fullInput = inputFull ?? inputSummary
+        if fullInput.count > 10_000 { fullInput = String(fullInput.prefix(10_000)) + "... [truncated]" }
+        self.inputFull = fullInput
+        var rawValue = inputRawValue ?? inputSummary
+        if rawValue.count > 10_000 { rawValue = String(rawValue.prefix(10_000)) + "... [truncated]" }
+        self.inputRawValue = rawValue
         self.result = result
         self.isError = isError
         self.isComplete = isComplete
         self.arrivedBeforeText = arrivedBeforeText
-        self.imageData = imageData
-        self.cachedImage = Self.decodeImage(from: imageData)
+        let decoded = Self.decodeImage(from: imageData)
+        // Keep cachedImage for display, nil out raw base64 to save ~2.7MB per screenshot
+        self.cachedImage = decoded
+        self.imageData = decoded == nil ? imageData : nil
         self.startedAt = startedAt
         self.completedAt = completedAt
     }
@@ -962,6 +972,159 @@ public struct ToolCallData: Identifiable, Equatable {
     private func truncated(_ s: String, to length: Int) -> String {
         s.count > length ? String(s.prefix(length - 1)) + "…" : s
     }
+
+    // MARK: - Lazy tool input formatting
+
+    /// Priority list of input keys whose values are most useful as a tool call summary.
+    private static let toolInputPriorityKeys = [
+        "command", "file_path", "path", "query", "url", "pattern", "glob"
+    ]
+
+    /// Argument keys whose values may contain credentials and must be redacted.
+    private static let sensitiveKeys: Set<String> = [
+        "value", "secret", "password", "token", "client_secret", "api_key",
+        "authorization", "access_token", "refresh_token", "api_secret",
+        "accesstoken", "refreshtoken", "apikey", "apisecret", "clientsecret",
+        "x-api-key"
+    ]
+
+    private static func isSensitiveKey(_ key: String) -> Bool {
+        sensitiveKeys.contains(key.lowercased())
+    }
+
+    /// Format all tool input arguments for display in expanded details.
+    /// This is a self-contained static method so views can call it without
+    /// needing a ChatViewModel reference (used for lazy formatting on expand).
+    public static func formatAllToolInput(_ input: [String: AnyCodable]) -> String {
+        guard !input.isEmpty else { return "" }
+
+        let primaryKey = toolInputPriorityKeys.first(where: { input[$0] != nil })
+            ?? input.keys.sorted().first
+
+        let orderedKeys: [String]
+        if let pk = primaryKey {
+            orderedKeys = [pk] + input.keys.filter { $0 != pk }.sorted()
+        } else {
+            orderedKeys = input.keys.sorted()
+        }
+
+        var lines: [String] = []
+        for key in orderedKeys {
+            guard let value = input[key] else { continue }
+            if isSensitiveKey(key) {
+                lines.append("\(key): [redacted]")
+            } else {
+                lines.append("\(key): \(redactingStringifyValue(value))")
+            }
+        }
+
+        var result = lines.joined(separator: "\n")
+        if result.count > 10_000 { result = String(result.prefix(10_000)) + "... [truncated]" }
+        return result
+    }
+
+    private static func stringifyValue(_ value: AnyCodable) -> String {
+        if let s = value.value as? String { return s }
+        if let b = value.value as? Bool { return b ? "true" : "false" }
+        if let n = value.value as? Int { return String(n) }
+        if let n = value.value as? Double { return String(n) }
+        if let encoder = try? JSONEncoder().encode(value),
+           let json = String(data: encoder, encoding: .utf8) {
+            return json
+        }
+        return String(describing: value.value ?? "")
+    }
+
+    private static func redactingStringifyValue(_ value: AnyCodable) -> String {
+        if let dict = value.value as? [String: Any] {
+            return redactDictionary(dict)
+        }
+        if let array = value.value as? [Any] {
+            return redactArray(array)
+        }
+        return stringifyValue(value)
+    }
+
+    private static func redactDictionary(_ dict: [String: Any]) -> String {
+        let redacted = redactDictionaryAsObject(dict)
+        if let data = try? JSONSerialization.data(withJSONObject: redacted, options: [.sortedKeys]),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return String(describing: redacted)
+    }
+
+    private static func redactArray(_ array: [Any]) -> String {
+        let redacted = redactArrayAsObject(array)
+        if let data = try? JSONSerialization.data(withJSONObject: redacted, options: [.sortedKeys]),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return String(describing: redacted)
+    }
+
+    private static func redactDictionaryAsObject(_ dict: [String: Any]) -> [String: Any] {
+        var redacted: [String: Any] = [:]
+        for (key, val) in dict {
+            if isSensitiveKey(key) {
+                redacted[key] = "[redacted]"
+            } else if let nested = val as? [String: Any] {
+                redacted[key] = redactDictionaryAsObject(nested)
+            } else if let nested = val as? [Any] {
+                redacted[key] = redactArrayAsObject(nested)
+            } else {
+                redacted[key] = val
+            }
+        }
+        return redacted
+    }
+
+    private static func redactArrayAsObject(_ array: [Any]) -> [Any] {
+        return array.map { element -> Any in
+            if let dict = element as? [String: Any] {
+                return redactDictionaryAsObject(dict)
+            } else if let nested = element as? [Any] {
+                return redactArrayAsObject(nested)
+            }
+            return element
+        }
+    }
+}
+
+/// Lightweight reference to a surface, retaining only the fields needed to
+/// re-open a workspace. Avoids keeping the full UiSurfaceShowMessage (which
+/// retains the entire HTML payload) in memory.
+public struct SurfaceRef: Equatable {
+    public let surfaceId: String
+    public let sessionId: String
+    public let surfaceType: String
+    public let title: String?
+    /// The real app ID from DynamicPageSurfaceData. Used for app_open_request
+    /// because surfaceId is a daemon-generated identifier (e.g. "app-open-<uuid>")
+    /// that doesn't match any real app.
+    public let appId: String?
+
+    public init(surfaceId: String, sessionId: String, surfaceType: String, title: String?, appId: String? = nil) {
+        self.surfaceId = surfaceId
+        self.sessionId = sessionId
+        self.surfaceType = surfaceType
+        self.title = title
+        self.appId = appId
+    }
+
+    /// Build from a UiSurfaceShowMessage + parsed Surface, discarding the heavy data payload.
+    /// Extracts appId from DynamicPageSurfaceData when available.
+    public init(from msg: UiSurfaceShowMessage, surface: Surface? = nil) {
+        self.surfaceId = msg.surfaceId
+        self.sessionId = msg.sessionId
+        self.surfaceType = msg.surfaceType
+        self.title = msg.title
+        if let surface, case .dynamicPage(let dpData) = surface.data {
+            self.appId = dpData.appId
+        } else {
+            self.appId = nil
+        }
+    }
 }
 
 /// Data for an inline UI surface rendered within a chat message.
@@ -971,8 +1134,10 @@ public struct InlineSurfaceData: Identifiable, Equatable {
     public let title: String?
     public let data: SurfaceData
     public let actions: [SurfaceActionButton]
-    /// Original IPC message for dynamic pages, used to re-open the workspace.
-    public let surfaceMessage: UiSurfaceShowMessage?
+    /// Lightweight reference for dynamic pages, used to re-open the workspace.
+    /// Replaces the former full UiSurfaceShowMessage to avoid retaining
+    /// entire HTML payloads in memory.
+    public let surfaceRef: SurfaceRef?
 
     public static func == (lhs: InlineSurfaceData, rhs: InlineSurfaceData) -> Bool {
         lhs.id == rhs.id
@@ -986,13 +1151,13 @@ public struct InlineSurfaceData: Identifiable, Equatable {
     /// When non-nil, the surface has been completed and should render in collapsed/chip state.
     public var completionState: SurfaceCompletionState?
 
-    public init(id: String, surfaceType: SurfaceType, title: String?, data: SurfaceData, actions: [SurfaceActionButton], surfaceMessage: UiSurfaceShowMessage? = nil, completionState: SurfaceCompletionState? = nil) {
+    public init(id: String, surfaceType: SurfaceType, title: String?, data: SurfaceData, actions: [SurfaceActionButton], surfaceRef: SurfaceRef? = nil, completionState: SurfaceCompletionState? = nil) {
         self.id = id
         self.surfaceType = surfaceType
         self.title = title
         self.data = data
         self.actions = actions
-        self.surfaceMessage = surfaceMessage
+        self.surfaceRef = surfaceRef
         self.completionState = completionState
     }
 }
@@ -1015,13 +1180,16 @@ public struct ChatAttachment: Identifiable {
     public let mimeType: String
     /// Base64-encoded file data. Empty when the attachment was too large to embed
     /// in the history_response — use ``fetchData(port:)`` to load it lazily.
-    public let data: String
+    /// Mutable so it can be nil'd out after the daemon has persisted the data,
+    /// keeping only the thumbnail for display.
+    public var data: String
     /// Pre-rendered thumbnail for image attachments (resized to 120px max dimension).
     public let thumbnailData: Data?
     /// Pre-computed length of `data` to avoid O(n) String.count during rendering.
     /// Swift's String.count iterates the entire string to count grapheme clusters,
     /// which is expensive for multi-MB base64 strings on every SwiftUI render pass.
-    public let dataLength: Int
+    /// Mutable so it can be zeroed when `data` is cleared for lazy-loadable attachments.
+    public var dataLength: Int
     /// Original file size in bytes. Non-nil when `data` is empty because the
     /// attachment was too large to inline in the history response.
     public let sizeBytes: Int?
@@ -1140,7 +1308,25 @@ public enum ContentBlockRef: Equatable {
     case surface(Int)
 }
 
-public struct ChatMessage: Identifiable {
+public struct ChatMessage: Identifiable, Equatable {
+    // Explicit Equatable: compare only fields that affect rendering.
+    // Avoids expensive byte-by-byte comparison of attachment data,
+    // image payloads, and surface HTML that don't change the UI.
+    public static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
+        lhs.id == rhs.id
+        && lhs.role == rhs.role
+        && lhs.textSegments == rhs.textSegments
+        && lhs.isStreaming == rhs.isStreaming
+        && lhs.status == rhs.status
+        && lhs.isError == rhs.isError
+        && lhs.toolCalls.count == rhs.toolCalls.count
+        && lhs.attachments.count == rhs.attachments.count
+        && lhs.inlineSurfaces.count == rhs.inlineSurfaces.count
+        && lhs.confirmation?.state == rhs.confirmation?.state
+        && lhs.isSubagentNotification == rhs.isSubagentNotification
+        && lhs.isContentStripped == rhs.isContentStripped
+        && lhs.streamingCodePreview == rhs.streamingCodePreview
+    }
     public let id: UUID
     public let role: ChatRole
     public var textSegments: [String]
@@ -1172,6 +1358,14 @@ public struct ChatMessage: Identifiable {
     /// reconstructed from history. It should be hidden from the chat UI since the
     /// corresponding subagent chip conveys the same information.
     public var isSubagentNotification: Bool = false
+    /// When true, heavyweight content (tool results, large text, inputFull/inputRawDict)
+    /// has been stripped from this message to reduce memory. The UI can use this flag
+    /// to show a "load full content" affordance in a future milestone.
+    public var isContentStripped: Bool = false
+    /// When true, the message text and/or tool results were truncated by the daemon
+    /// during history loading (via maxTextChars/maxToolResultChars). Full content
+    /// can be fetched on demand via message_content_request.
+    public var wasTruncated: Bool = false
 
     /// Concatenated text from all segments. Backward-compatible computed property.
     public var text: String {
@@ -1192,6 +1386,47 @@ public struct ChatMessage: Identifiable {
         self.toolCalls = toolCalls
         self.inlineSurfaces = inlineSurfaces
         self.isError = isError
+    }
+
+    /// Release heavyweight data (images, attachment binary data, completed surface
+    /// payloads, tool results) to reduce memory pressure on old messages
+    /// that are no longer visible.
+    /// Text segments are preserved in full — they are lightweight compared to binary
+    /// data and are needed for transcript export. Full content can be rehydrated from
+    /// the daemon via message_content_request if needed.
+    /// Metadata (tool names, inputSummary, inputRawValue, surface refs) is preserved for display.
+    public mutating func stripHeavyContent() {
+        guard !isContentStripped else { return }
+
+        // Tool calls: clear images, results, full input, and raw dict.
+        // Keep toolName, inputSummary, and inputRawValue (short one-liner) intact for display.
+        for i in toolCalls.indices {
+            toolCalls[i].cachedImage = nil
+            toolCalls[i].imageData = nil
+            toolCalls[i].result = nil
+            toolCalls[i].inputFull = ""
+            toolCalls[i].inputRawDict = nil
+        }
+        for i in attachments.indices {
+            attachments[i].data = ""
+            attachments[i].dataLength = 0
+        }
+        for i in inlineSurfaces.indices {
+            if inlineSurfaces[i].completionState != nil {
+                // Surface is completed — keep the SurfaceRef but clear the data payload.
+                // The surface can be re-fetched from the daemon if the user scrolls back.
+                inlineSurfaces[i] = InlineSurfaceData(
+                    id: inlineSurfaces[i].id,
+                    surfaceType: inlineSurfaces[i].surfaceType,
+                    title: inlineSurfaces[i].title,
+                    data: inlineSurfaces[i].data,
+                    actions: [],
+                    surfaceRef: inlineSurfaces[i].surfaceRef,
+                    completionState: inlineSurfaces[i].completionState
+                )
+            }
+        }
+        isContentStripped = true
     }
 
     /// Build a default content order from the legacy `arrivedBeforeText` flag.

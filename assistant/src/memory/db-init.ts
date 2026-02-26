@@ -5,6 +5,7 @@ import {
   createCallSessionsTables,
   createChannelGuardianTables,
   createContactsAndTriageTables,
+  createConversationAttentionTables,
   createCoreIndexes,
   createCoreTables,
   createExternalConversationBindingsTables,
@@ -15,7 +16,12 @@ import {
   createSequenceTables,
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
+  migrateCallSessionMode,
+  migrateChannelInboundDeliveredSegments,
+  migrateGuardianBootstrapToken,
+  migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
+  migrateReminderRoutingIntent,
   runComplexMigrations,
   runLateMigrations,
   validateMigrationState,
@@ -45,6 +51,9 @@ export function initializeDb(): void {
   // 7. Call sessions (outgoing AI phone calls)
   createCallSessionsTables(database);
 
+  // 7b. Call session mode/metadata for deterministic flow selection
+  migrateCallSessionMode(database);
+
   // 8. Follow-ups
   createFollowupsTables(database);
 
@@ -57,6 +66,12 @@ export function initializeDb(): void {
   // 11. Channel guardian
   createChannelGuardianTables(database);
 
+  // 11b. Guardian verification session columns (outbound identity binding)
+  migrateGuardianVerificationSessions(database);
+
+  // 11c. Guardian bootstrap token hash column (Telegram deep-link flow)
+  migrateGuardianBootstrapToken(database);
+
   // 12. Media assets
   createMediaAssetsTables(database);
 
@@ -65,6 +80,9 @@ export function initializeDb(): void {
 
   // 14. Late-stage migrations (guardian actions, FTS backfill, index migrations)
   runLateMigrations(database);
+
+  // 14b. Track per-segment delivery progress for split channel replies
+  migrateChannelInboundDeliveredSegments(database);
 
   // 15. Notification system
   createNotificationTables(database);
@@ -75,6 +93,12 @@ export function initializeDb(): void {
   // 17. Messages FTS (full-text search over message content)
   createMessagesFts(database);
   migrateMessagesFtsBackfill(database);
+
+  // 18. Conversation attention (seen-state tracking)
+  createConversationAttentionTables(database);
+
+  // 19. Reminder routing metadata (routing_intent + routing_hints_json columns)
+  migrateReminderRoutingIntent(database);
 
   validateMigrationState(database);
 }

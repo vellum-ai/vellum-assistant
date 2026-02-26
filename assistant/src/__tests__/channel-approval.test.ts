@@ -1,100 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { describe, expect, test } from 'bun:test';
 
-import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
-
-// ---------------------------------------------------------------------------
-// Test isolation: in-memory SQLite via temp directory
-// ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), 'channel-approval-test-'));
-
-mock.module('../util/platform.js', () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
-  ensureDataDir: () => {},
-}));
-
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
-}));
-
-import { initializeDb, resetDb } from '../memory/db.js';
-import type { PendingConfirmation } from '../memory/runs-store.js';
-import {
-  createRun,
-  getPendingConfirmationsByConversation,
-  setRunConfirmation,
-} from '../memory/runs-store.js';
 import { parseApprovalDecision } from '../runtime/channel-approval-parser.js';
 
-initializeDb();
-
-afterAll(() => {
-  resetDb();
-  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
-});
-
-// ---------------------------------------------------------------------------
-// Helper: insert a conversation so FK constraints pass
-// ---------------------------------------------------------------------------
-
-function ensureConversation(conversationId: string): void {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getDb } = require('../memory/db.js');
-  const db = getDb();
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { conversations } = require('../memory/schema.js');
-  try {
-    db.insert(conversations).values({
-      id: conversationId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }).run();
-  } catch {
-    // already exists
-  }
-}
-
-function ensureMessage(messageId: string, conversationId: string): void {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getDb } = require('../memory/db.js');
-  const db = getDb();
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { messages } = require('../memory/schema.js');
-  try {
-    db.insert(messages).values({
-      id: messageId,
-      conversationId,
-      role: 'user',
-      content: 'test',
-      createdAt: Date.now(),
-    }).run();
-  } catch {
-    // already exists
-  }
-}
-
-function resetTables(): void {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getDb } = require('../memory/db.js');
-  const db = getDb();
-  db.run('DELETE FROM message_runs');
-  db.run('DELETE FROM messages');
-  db.run('DELETE FROM conversations');
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
-// 1. Plain-text approval decision parser
+// Plain-text approval decision parser
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('parseApprovalDecision', () => {
@@ -197,143 +106,40 @@ describe('parseApprovalDecision', () => {
     expect(parseApprovalDecision(input)).toBeNull();
   });
 
-  // ── Run-reference tag extraction ────────────────────────────────
+  // ── Request-reference tag extraction ────────────────────────────────
 
-  test('extracts runId from [ref:...] tag with approve decision', () => {
-    const result = parseApprovalDecision('yes [ref:run-abc-123]');
+  test('extracts requestId from [ref:...] tag with approve decision', () => {
+    const result = parseApprovalDecision('yes [ref:req-abc-123]');
     expect(result).not.toBeNull();
     expect(result!.action).toBe('approve_once');
     expect(result!.source).toBe('plain_text');
-    expect(result!.runId).toBe('run-abc-123');
+    expect(result!.requestId).toBe('req-abc-123');
   });
 
-  test('extracts runId from [ref:...] tag with reject decision', () => {
-    const result = parseApprovalDecision('no [ref:run-xyz-456]');
+  test('extracts requestId from [ref:...] tag with reject decision', () => {
+    const result = parseApprovalDecision('no [ref:req-xyz-456]');
     expect(result).not.toBeNull();
     expect(result!.action).toBe('reject');
-    expect(result!.runId).toBe('run-xyz-456');
+    expect(result!.requestId).toBe('req-xyz-456');
   });
 
-  test('extracts runId from [ref:...] tag with always decision', () => {
-    const result = parseApprovalDecision('always [ref:run-789]');
+  test('extracts requestId from [ref:...] tag with always decision', () => {
+    const result = parseApprovalDecision('always [ref:req-789]');
     expect(result).not.toBeNull();
     expect(result!.action).toBe('approve_always');
-    expect(result!.runId).toBe('run-789');
+    expect(result!.requestId).toBe('req-789');
   });
 
   test('handles ref tag on separate line', () => {
-    const result = parseApprovalDecision('yes\n[ref:run-abc-123]');
+    const result = parseApprovalDecision('yes\n[ref:req-abc-123]');
     expect(result).not.toBeNull();
     expect(result!.action).toBe('approve_once');
-    expect(result!.runId).toBe('run-abc-123');
+    expect(result!.requestId).toBe('req-abc-123');
   });
 
-  test('decision without ref tag has no runId', () => {
+  test('decision without ref tag has no requestId', () => {
     const result = parseApprovalDecision('yes');
     expect(result).not.toBeNull();
-    expect(result!.runId).toBeUndefined();
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 2. Pending-run lookup helpers
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('getPendingConfirmationsByConversation', () => {
-  beforeEach(() => {
-    resetTables();
-  });
-
-  const sampleConfirmation: PendingConfirmation = {
-    toolName: 'shell',
-    toolUseId: 'req-abc-123',
-    input: { command: 'rm -rf /tmp/test' },
-    riskLevel: 'high',
-  };
-
-  test('returns empty array when no runs exist', () => {
-    ensureConversation('conv-1');
-    const result = getPendingConfirmationsByConversation('conv-1');
-    expect(result).toEqual([]);
-  });
-
-  test('returns empty array when no runs need confirmation', () => {
-    ensureConversation('conv-1');
-    ensureMessage('msg-1', 'conv-1');
-    createRun('conv-1', 'msg-1');
-    const result = getPendingConfirmationsByConversation('conv-1');
-    expect(result).toEqual([]);
-  });
-
-  test('returns pending confirmation for a run needing confirmation', () => {
-    ensureConversation('conv-1');
-    ensureMessage('msg-1', 'conv-1');
-    const run = createRun('conv-1', 'msg-1');
-    setRunConfirmation(run.id, sampleConfirmation);
-
-    const result = getPendingConfirmationsByConversation('conv-1');
-    expect(result).toHaveLength(1);
-    expect(result[0].runId).toBe(run.id);
-    expect(result[0].requestId).toBe('req-abc-123');
-    expect(result[0].toolName).toBe('shell');
-    expect(result[0].input).toEqual({ command: 'rm -rf /tmp/test' });
-    expect(result[0].riskLevel).toBe('high');
-  });
-
-  test('only returns runs for the specified conversation', () => {
-    ensureConversation('conv-1');
-    ensureConversation('conv-2');
-    ensureMessage('msg-1', 'conv-1');
-    ensureMessage('msg-2', 'conv-2');
-
-    const run1 = createRun('conv-1', 'msg-1');
-    const run2 = createRun('conv-2', 'msg-2');
-    setRunConfirmation(run1.id, sampleConfirmation);
-    setRunConfirmation(run2.id, { ...sampleConfirmation, toolUseId: 'req-def-456' });
-
-    const result1 = getPendingConfirmationsByConversation('conv-1');
-    expect(result1).toHaveLength(1);
-    expect(result1[0].runId).toBe(run1.id);
-
-    const result2 = getPendingConfirmationsByConversation('conv-2');
-    expect(result2).toHaveLength(1);
-    expect(result2[0].runId).toBe(run2.id);
-  });
-
-  test('returns multiple pending runs for the same conversation', () => {
-    ensureConversation('conv-1');
-    ensureMessage('msg-1', 'conv-1');
-    ensureMessage('msg-2', 'conv-1');
-
-    const run1 = createRun('conv-1', 'msg-1');
-    const run2 = createRun('conv-1', 'msg-2');
-    setRunConfirmation(run1.id, sampleConfirmation);
-    setRunConfirmation(run2.id, { ...sampleConfirmation, toolUseId: 'req-ghi-789', toolName: 'file_edit' });
-
-    const result = getPendingConfirmationsByConversation('conv-1');
-    expect(result).toHaveLength(2);
-
-    const runIds = result.map((r) => r.runId).sort();
-    expect(runIds).toContain(run1.id);
-    expect(runIds).toContain(run2.id);
-  });
-
-  test('excludes completed and failed runs', () => {
-    ensureConversation('conv-1');
-    ensureMessage('msg-1', 'conv-1');
-    ensureMessage('msg-2', 'conv-1');
-    ensureMessage('msg-3', 'conv-1');
-
-    const run1 = createRun('conv-1', 'msg-1');
-    const _run2 = createRun('conv-1', 'msg-2');
-    const _run3 = createRun('conv-1', 'msg-3');
-
-    setRunConfirmation(run1.id, sampleConfirmation);
-    // run2 stays in 'running' state
-    // run3 gets confirmation then completes — simulated by not setting confirmation
-
-    const result = getPendingConfirmationsByConversation('conv-1');
-    expect(result).toHaveLength(1);
-    expect(result[0].runId).toBe(run1.id);
+    expect(result!.requestId).toBeUndefined();
   });
 });

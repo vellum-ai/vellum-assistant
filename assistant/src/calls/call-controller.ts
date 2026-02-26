@@ -531,7 +531,6 @@ export class CallController {
               conversationId: session.conversationId,
               assistantId: this.assistantId,
               pendingQuestion,
-              broadcast: this.broadcast,
             });
           }
 

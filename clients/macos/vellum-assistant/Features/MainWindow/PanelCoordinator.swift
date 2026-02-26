@@ -83,8 +83,6 @@ extension MainWindowView {
                     windowState.selection = nil
                 }
             )
-        case .assistantInbox:
-            AssistantInboxPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
         case .apps:
             AppsGridView(
                 appListManager: appListManager,
@@ -481,6 +479,15 @@ extension MainWindowView {
                 isTemporaryChat: activeThread?.kind == .private,
                 threadId: threadManager.activeThreadId
             )
+            .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
+            .overlay(alignment: .top) {
+                if conversationZoomManager.showZoomIndicator {
+                    ZoomIndicatorView(percentage: conversationZoomManager.zoomPercentage, label: "Text")
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.top, VSpacing.xl)
+                }
+            }
+            .animation(VAnimation.fast, value: conversationZoomManager.showZoomIndicator)
             .overlay(alignment: .bottomTrailing) {
                 DemoOverlayView()
             }
@@ -513,10 +520,6 @@ extension MainWindowView {
             // Document editor is handled inline in chatContentView
             EmptyView()
                 .onAppear { windowState.dismissOverlay() }
-        case .assistantInbox:
-            AssistantInboxPanel(onClose: { windowState.dismissOverlay() }, daemonClient: daemonClient)
-                .overlay(alignment: .topTrailing) { panelDismissButton }
-                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         case .apps:
             AppsGridView(
                 appListManager: appListManager,
@@ -664,6 +667,11 @@ struct ActiveChatViewWrapper: View {
     var isTemporaryChat: Bool = false
     var threadId: UUID?
 
+    /// Reads the persisted bootstrap state so the chat view can suppress
+    /// the empty state during first-launch bootstrap.
+    @AppStorage("bootstrapState") private var bootstrapStateRaw: String = "complete"
+    private var isBootstrapping: Bool { bootstrapStateRaw != "complete" }
+
     var body: some View {
         ChatView(
             messages: viewModel.messages,
@@ -757,6 +765,9 @@ struct ActiveChatViewWrapper: View {
             onSubagentTap: { subagentId in
                 windowState.selectedSubagentId = subagentId
             },
+            onRehydrateMessage: { messageId in
+                viewModel.rehydrateMessage(id: messageId)
+            },
             subagentDetailStore: viewModel.subagentDetailStore,
             daemonHttpPort: daemonClient.httpPort,
             isHistoryLoaded: viewModel.isHistoryLoaded,
@@ -765,7 +776,12 @@ struct ActiveChatViewWrapper: View {
             isMemoryDegraded: viewModel.isMemoryDegraded,
             memoryDegradedReason: viewModel.memoryDegradedReason,
             connectionDiagnosticHint: viewModel.connectionDiagnosticHint,
-            threadId: threadId
+            threadId: threadId,
+            displayedMessageCount: viewModel.displayedMessageCount,
+            hasMoreMessages: viewModel.hasMoreMessages,
+            isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
+            loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
+            isBootstrapping: isBootstrapping
         )
     }
 }
@@ -982,7 +998,7 @@ struct DynamicWorkspaceWrapper: View {
 struct MainWindowView_Previews: PreviewProvider {
     static var previews: some View {
         let dc = DaemonClient()
-        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager())
+        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager())
             .frame(width: 900, height: 600)
             .padding(.top, 36)
     }

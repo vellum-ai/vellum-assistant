@@ -70,7 +70,7 @@ extension ChatBubble {
                 }
 
                 if stepsExpanded && hasCompletedTools {
-                    StepsSection(toolCalls: message.toolCalls)
+                    StepsSection(toolCalls: message.toolCalls, onRehydrate: message.wasTruncated ? onRehydrate : nil)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }

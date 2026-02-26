@@ -28,13 +28,21 @@ struct SettingsConnectTab: View {
     @State private var telegramBotTokenText = ""
     @State private var telegramSetupExpanded = false
 
-    // Twilio credential entry
+    // Twilio credential entry (SMS card)
     @State private var twilioAccountSidText = ""
     @State private var twilioAuthTokenText = ""
     @State private var twilioSetupExpanded = false
 
-    // Twilio number picker
+    // Twilio number picker (SMS card)
     @State private var twilioNumberPickerExpanded = false
+
+    // Twilio credential entry (Voice card)
+    @State private var voiceAccountSidText = ""
+    @State private var voiceAuthTokenText = ""
+    @State private var voiceSetupExpanded = false
+
+    // Twilio number picker (Voice card)
+    @State private var voiceNumberPickerExpanded = false
 
     // Email copy state
     @State private var emailCopied: Bool = false
@@ -42,18 +50,32 @@ struct SettingsConnectTab: View {
     // Guardian copy state (tracks which channel's command was just copied)
     @State private var guardianCommandCopiedChannel: String?
 
+    // Outbound guardian verification destination input (keyed by channel)
+    @State private var guardianDestinationText: [String: String] = [:]
+
+    // Outbound verification code copy state (tracks which channel's code was just copied)
+    @State private var outboundCodeCopiedChannel: String?
+
+    // Countdown timer for outbound verification expiry (ref-counted so
+    // closing one channel row doesn't stop the timer for remaining rows)
+    @State private var countdownNow: Date = Date()
+    @State private var countdownTimer: Timer?
+    @State private var countdownTimerRefCount: Int = 0
+
+    // Refresh button minimum-spin state (keyed by row label)
+    @State private var refreshSpinning: Set<String> = []
+
+    // Shared label column width for channelStatusRow and guardianLabel alignment
+    private let labelColumnWidth: CGFloat = 140
+
     // Token regeneration state
     @State private var isRegeneratingToken: Bool = false
 
-    // Override fields for power users / debugging
-    @AppStorage(PairingConfiguration.gatewayOverrideKey) private var iosPairingGatewayOverride: String = ""
-    @AppStorage(PairingConfiguration.tokenOverrideKey) private var iosPairingTokenOverride: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             vellumSection
             gatewaySection
-            advancedSection
             connectionsSection
         }
         .onAppear {
@@ -95,7 +117,14 @@ struct SettingsConnectTab: View {
             if !hasCredentials {
                 twilioSetupExpanded = false
                 twilioNumberPickerExpanded = false
+                voiceSetupExpanded = false
+                voiceNumberPickerExpanded = false
             }
+        }
+        .onChange(of: store.ingressConfigLoaded) { _, loaded in
+            guard loaded else { return }
+            Task { await store.testGatewayOnly() }
+            Task { await store.testTunnelOnly() }
         }
         .alert("Regenerate Bearer Token", isPresented: $showingRegenerateConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -103,7 +132,7 @@ struct SettingsConnectTab: View {
                 regenerateHttpToken()
             }
         } message: {
-            Text("This will replace the current bearer token and restart the daemon. Any paired devices will need to reconnect.")
+            Text("This will generate a new security token and restart your assistant. Any paired devices will need to reconnect.")
         }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
@@ -124,7 +153,7 @@ struct SettingsConnectTab: View {
             if authManager.isLoading {
                 channelStatusRow(
                     label: "Account",
-                    icon: "arrow.trianglehead.2.counterclockwise",
+                    icon: "arrow.triangle.2.circlepath",
                     iconColor: VColor.textMuted,
                     value: "Checking..."
                 )
@@ -318,10 +347,10 @@ struct SettingsConnectTab: View {
     // MARK: - Bearer Token Content
 
     private var bearerTokenContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Bearer Token")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+                .font(VFont.bodyMedium)
+                .foregroundColor(VColor.textSecondary)
 
             if bearerToken.isEmpty {
                 HStack(spacing: VSpacing.sm) {
@@ -399,10 +428,6 @@ struct SettingsConnectTab: View {
 
     private var connectionsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Connections")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
             mobileCard
             telegramCard
             twilioCard
@@ -464,48 +489,7 @@ struct SettingsConnectTab: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    // MARK: - Advanced Section
-
-    private var advancedSection: some View {
-        VDisclosureSection(
-            title: "Advanced",
-            icon: "gearshape",
-            subtitle: "Bearer token, overrides",
-            isExpanded: $advancedExpanded
-        ) {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                bearerTokenContent
-
-                Divider().background(VColor.surfaceBorder)
-
-                // Developer local pairing content removed in v4 — LAN pairing is automatic via localLanUrl in QR payload.
-
-                // Simple override fields for power users / debugging
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("URL Override (optional)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    TextField("Custom gateway URL", text: $iosPairingGatewayOverride)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                }
-
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Token Override (optional)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    SecureField("Custom bearer token", text: $iosPairingTokenOverride)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                }
-            }
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }
@@ -696,63 +680,86 @@ struct SettingsConnectTab: View {
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    // MARK: - Voice (Phone Calls) Card
+    // MARK: - Phone Calling Card
 
     private var voiceCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "phone.fill")
-                        .foregroundColor(VColor.textPrimary)
-                        .font(.system(size: 12))
-                    Text("Voice (Phone Calls)")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                }
+                Text("Phone Calling")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
                 Text("Receive and make phone calls via Twilio")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
             }
 
-            if store.twilioHasCredentials && store.twilioPhoneNumber != nil {
-                channelStatusRow(
-                    label: "Status",
-                    icon: "checkmark.circle.fill",
-                    iconColor: VColor.success,
-                    value: "Voice calls ready"
-                )
-                channelStatusRow(
-                    label: "Number",
-                    icon: "phone.fill",
-                    iconColor: VColor.success,
-                    value: store.twilioPhoneNumber ?? "",
-                    valueFont: VFont.mono
-                )
-
-                Divider().background(VColor.surfaceBorder)
-                guardianStatusRow(channel: "voice")
-            } else if store.twilioHasCredentials {
+            // Credentials row
+            if store.twilioHasCredentials {
                 channelStatusRow(
                     label: "Credentials",
                     icon: "checkmark.circle.fill",
                     iconColor: VColor.success,
-                    value: "Configured"
+                    value: "Configured",
+                    action: .init(label: "Clear", style: .danger, disabled: store.twilioSaveInProgress) {
+                        store.clearTwilioCredentials()
+                    }
                 )
-                channelStatusRow(
-                    label: "Number",
-                    icon: "exclamationmark.triangle",
-                    iconColor: VColor.warning,
-                    value: "Assign a phone number in SMS settings above",
-                    valueColor: VColor.textMuted
-                )
+            } else if voiceSetupExpanded {
+                voiceCredentialEntry
             } else {
                 channelStatusRow(
-                    label: "Status",
+                    label: "Credentials",
                     icon: "exclamationmark.triangle",
                     iconColor: VColor.warning,
-                    value: "Configure Twilio credentials in SMS settings above",
-                    valueColor: VColor.textMuted
+                    value: "Not configured",
+                    valueColor: VColor.textMuted,
+                    action: .init(label: "Set Up", style: .secondary) {
+                        voiceSetupExpanded = true
+                    }
                 )
+            }
+
+            // Phone number row (only when credentials exist)
+            if store.twilioHasCredentials {
+                Divider().background(VColor.surfaceBorder)
+
+                if voiceNumberPickerExpanded {
+                    voiceNumberPicker
+                } else {
+                    channelStatusRow(
+                        label: "Phone Number",
+                        icon: store.twilioPhoneNumber != nil ? "phone.fill" : "phone",
+                        iconColor: store.twilioPhoneNumber != nil ? VColor.success : VColor.textMuted,
+                        value: store.twilioPhoneNumber ?? "Not assigned",
+                        valueFont: VFont.mono,
+                        valueColor: store.twilioPhoneNumber != nil ? VColor.textPrimary : VColor.textMuted,
+                        action: .init(label: "Change", style: .secondary) {
+                            voiceNumberPickerExpanded = true
+                            if !store.twilioListInProgress {
+                                store.refreshTwilioNumbers()
+                            }
+                        }
+                    )
+                }
+            }
+
+            if let warning = store.twilioWarning {
+                Text(warning)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.warning)
+            }
+
+            if let error = store.twilioError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+
+            // Guardian row (only when credentials and a phone number are assigned —
+            // voice verification initiates an outbound call which requires a valid caller number)
+            if store.twilioHasCredentials && store.twilioPhoneNumber != nil {
+                Divider().background(VColor.surfaceBorder)
+                guardianStatusRow(channel: "voice")
             }
         }
         .padding(VSpacing.lg)
@@ -872,6 +879,119 @@ struct SettingsConnectTab: View {
         }
     }
 
+    // MARK: - Voice Credential Entry
+
+    private var voiceCredentialEntry: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack {
+                Text("Account SID and Auth Token")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                Spacer()
+                VButton(label: "Cancel", style: .tertiary) {
+                    voiceSetupExpanded = false
+                    voiceAccountSidText = ""
+                    voiceAuthTokenText = ""
+                }
+            }
+
+            TextField("Account SID", text: $voiceAccountSidText)
+                .vInputStyle()
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+
+            SecureField("Auth Token", text: $voiceAuthTokenText)
+                .vInputStyle()
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+
+            if store.twilioSaveInProgress {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Saving...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            } else {
+                VButton(label: "Save Credentials", style: .primary) {
+                    store.saveTwilioCredentials(
+                        accountSid: voiceAccountSidText,
+                        authToken: voiceAuthTokenText
+                    )
+                    voiceAccountSidText = ""
+                    voiceAuthTokenText = ""
+                    voiceSetupExpanded = false
+                }
+                .disabled(
+                    voiceAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    voiceAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
+            }
+        }
+    }
+
+    // MARK: - Voice Number Picker
+
+    private var voiceNumberPicker: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack {
+                Text("Phone Number")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                Spacer()
+                VButton(label: "Cancel", style: .tertiary) {
+                    voiceNumberPickerExpanded = false
+                }
+            }
+
+            if store.twilioListInProgress {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading numbers...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            } else if store.twilioNumbers.isEmpty {
+                Text("No phone numbers found on this Twilio account.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            } else {
+                ForEach(store.twilioNumbers, id: \.phoneNumber) { number in
+                    let isCurrent = number.phoneNumber == store.twilioPhoneNumber
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(number.phoneNumber)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textPrimary)
+                            Text(number.friendlyName)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        if isCurrent {
+                            HStack(spacing: VSpacing.xs) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(VColor.success)
+                                    .font(.system(size: 12))
+                                Text("Current")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textSecondary)
+                            }
+                        } else {
+                            VButton(label: "Use", style: .secondary) {
+                                store.assignTwilioNumber(phoneNumber: number.phoneNumber)
+                                voiceNumberPickerExpanded = false
+                            }
+                            .disabled(store.twilioSaveInProgress)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Channel Status Row
 
     private struct RowAction {
@@ -896,7 +1016,7 @@ struct SettingsConnectTab: View {
             Text(label)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
-                .frame(width: 90, alignment: .leading)
+                .frame(width: labelColumnWidth, alignment: .leading)
 
             Image(systemName: icon)
                 .foregroundColor(iconColor)
@@ -929,15 +1049,12 @@ struct SettingsConnectTab: View {
 
     private var guardianLabel: some View {
         HStack(spacing: VSpacing.xs) {
-            Text("Verification")
-            Image(systemName: "info.circle")
-                .font(.system(size: 10))
-                .foregroundColor(VColor.textMuted)
-                .help("Guardian verification links your account identity for this channel.")
+            Text("Guardian Verification")
+            VInfoTooltip("Guardian verification links your account identity for this channel.")
         }
         .font(VFont.caption)
         .foregroundColor(VColor.textSecondary)
-        .frame(width: 90, alignment: .leading)
+        .frame(width: labelColumnWidth, alignment: .leading)
     }
 
     private func guardianPrimaryIdentity(channel: String, identity: String?) -> String? {
@@ -1027,6 +1144,47 @@ struct SettingsConnectTab: View {
             default: return false
             }
         }()
+        let outboundSessionId: String? = {
+            switch channel {
+            case "telegram": return store.telegramOutboundSessionId
+            case "sms": return store.smsOutboundSessionId
+            case "voice": return store.voiceOutboundSessionId
+            default: return nil
+            }
+        }()
+        let outboundExpiresAt: Date? = {
+            switch channel {
+            case "telegram": return store.telegramOutboundExpiresAt
+            case "sms": return store.smsOutboundExpiresAt
+            case "voice": return store.voiceOutboundExpiresAt
+            default: return nil
+            }
+        }()
+        let outboundNextResendAt: Date? = {
+            switch channel {
+            case "telegram": return store.telegramOutboundNextResendAt
+            case "sms": return store.smsOutboundNextResendAt
+            case "voice": return store.voiceOutboundNextResendAt
+            default: return nil
+            }
+        }()
+        let outboundSendCount: Int = {
+            switch channel {
+            case "telegram": return store.telegramOutboundSendCount
+            case "sms": return store.smsOutboundSendCount
+            case "voice": return store.voiceOutboundSendCount
+            default: return 0
+            }
+        }()
+        let bootstrapUrl: String? = channel == "telegram" ? store.telegramBootstrapUrl : nil
+        let outboundCode: String? = {
+            switch channel {
+            case "telegram": return store.telegramOutboundCode
+            case "sms": return store.smsOutboundCode
+            case "voice": return store.voiceOutboundCode
+            default: return nil
+            }
+        }()
         let primaryIdentity = guardianPrimaryIdentity(channel: channel, identity: identity)
         let secondaryIdentity = guardianSecondaryIdentity(primary: primaryIdentity, identity: identity)
         let telegramProfileURL: URL? = channel == "telegram"
@@ -1037,9 +1195,6 @@ struct SettingsConnectTab: View {
             if verified {
                 HStack(spacing: VSpacing.sm) {
                     guardianLabel
-                    Image(systemName: "checkmark.shield.fill")
-                        .foregroundColor(VColor.success)
-                        .font(.system(size: 12))
                     VStack(alignment: .leading, spacing: 2) {
                         if let telegramProfileURL {
                             Link(primaryIdentity ?? "Verified", destination: telegramProfileURL)
@@ -1075,32 +1230,28 @@ struct SettingsConnectTab: View {
                         store.revokeChannelGuardian(channel: channel)
                     }
                 }
-            } else if inProgress {
+            } else if inProgress && outboundSessionId == nil {
                 HStack(spacing: VSpacing.sm) {
                     guardianLabel
                     ProgressView()
                         .controlSize(.small)
-                    Text("Generating verification code...")
+                    Text("Sending verification...")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                 }
+            } else if outboundSessionId != nil {
+                guardianOutboundPendingView(
+                    channel: channel,
+                    expiresAt: outboundExpiresAt,
+                    nextResendAt: outboundNextResendAt,
+                    sendCount: outboundSendCount,
+                    bootstrapUrl: bootstrapUrl,
+                    outboundCode: outboundCode
+                )
             } else if let instruction {
                 guardianInstructionView(channel: channel, instruction: instruction)
             } else {
-                HStack(spacing: VSpacing.sm) {
-                    guardianLabel
-                    Image(systemName: "shield.slash")
-                        .foregroundColor(VColor.textMuted)
-                        .font(.system(size: 12))
-                    Text("Not verified")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textMuted)
-                        .lineLimit(1)
-                    Spacer()
-                    VButton(label: "Verify", style: .secondary) {
-                        store.startChannelGuardianVerification(channel: channel)
-                    }
-                }
+                guardianDestinationInputView(channel: channel)
             }
 
             if let error {
@@ -1114,62 +1265,301 @@ struct SettingsConnectTab: View {
                         }
                     }
                 }
-                .padding(.leading, 90 + VSpacing.sm)
+                .padding(.leading, labelColumnWidth + VSpacing.sm)
             }
         }
+    }
+
+    // MARK: - Outbound Guardian Destination Input
+
+    @ViewBuilder
+    private func guardianDestinationInputView(channel: String) -> some View {
+        let destinationBinding = Binding<String>(
+            get: { guardianDestinationText[channel] ?? "" },
+            set: { guardianDestinationText[channel] = $0 }
+        )
+        let destination = destinationBinding.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let placeholder: String = {
+            switch channel {
+            case "telegram": return "@username or chat ID"
+            case "sms", "voice": return "+1234567890"
+            default: return "Destination"
+            }
+        }()
+
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            HStack(spacing: VSpacing.sm) {
+                guardianLabel
+
+                TextField(placeholder, text: destinationBinding)
+                    .font(VFont.body)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 200)
+
+                VButton(label: "Send verification", style: .secondary) {
+                    store.startOutboundGuardianVerification(channel: channel, destination: destination)
+                }
+                .disabled(destination.isEmpty)
+
+                Spacer()
+            }
+
+            if channel == "telegram" {
+                HStack(spacing: 0) {
+                    Text("Enter a @username or chat ID. ")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    Button {
+                        if let url = URL(string: "https://web.telegram.org/k/#@userinfobot") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } label: {
+                        Text("Find yours →")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Outbound Guardian Pending View
+
+    @ViewBuilder
+    private func guardianOutboundPendingView(
+        channel: String,
+        expiresAt: Date?,
+        nextResendAt: Date?,
+        sendCount: Int,
+        bootstrapUrl: String?,
+        outboundCode: String?
+    ) -> some View {
+        let isCodeCopied = outboundCodeCopiedChannel == channel
+
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                guardianLabel
+                Text("Verification sent")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.warning)
+                Spacer()
+                VButton(label: "Cancel", style: .tertiary) {
+                    store.cancelOutboundGuardian(channel: channel)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                // Verification code display
+                if let outboundCode {
+                    Text("Your verification code:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    HStack(spacing: VSpacing.sm) {
+                        Text(outboundCode)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textPrimary)
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(outboundCode, forType: .string)
+                            outboundCodeCopiedChannel = channel
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                if outboundCodeCopiedChannel == channel {
+                                    outboundCodeCopiedChannel = nil
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: VSpacing.xs) {
+                                Image(systemName: isCodeCopied ? "checkmark" : "doc.on.doc")
+                                    .font(.system(size: 12, weight: .medium))
+                                Text(isCodeCopied ? "Copied" : "Copy")
+                                    .font(VFont.caption)
+                            }
+                            .foregroundColor(isCodeCopied ? VColor.success : VColor.textSecondary)
+                            .frame(height: 28)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Copy verification code")
+                        .help("Copy code")
+                    }
+                    .padding(VSpacing.md)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+                }
+
+                // Countdown to expiry
+                if let expiresAt {
+                    let remaining = expiresAt.timeIntervalSince(countdownNow)
+                    if remaining > 0 {
+                        let minutes = Int(remaining) / 60
+                        let seconds = Int(remaining) % 60
+                        Text("Expires in \(minutes):\(String(format: "%02d", seconds))")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    } else {
+                        Text("Verification expired")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.error)
+                    }
+                }
+
+                if sendCount > 0 {
+                    Text("Sent \(sendCount) time\(sendCount == 1 ? "" : "s")")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+
+                // Resend button with cooldown
+                // Disable resend during bootstrap: when bootstrapUrl is set the session is
+                // in pending_bootstrap state and the daemon rejects resend attempts.
+                HStack(spacing: VSpacing.sm) {
+                    let canResend: Bool = {
+                        // Bootstrap sessions (Telegram handle-based) don't support resend
+                        if bootstrapUrl != nil { return false }
+                        guard let nextResendAt else { return true }
+                        return countdownNow >= nextResendAt
+                    }()
+                    let resendCooldownText: String? = {
+                        guard let nextResendAt, countdownNow < nextResendAt else { return nil }
+                        let remaining = Int(nextResendAt.timeIntervalSince(countdownNow))
+                        return "Resend in \(remaining)s"
+                    }()
+
+                    VButton(label: resendCooldownText ?? "Resend", style: .secondary) {
+                        store.resendOutboundGuardian(channel: channel)
+                    }
+                    .disabled(!canResend)
+                }
+
+                // Telegram bootstrap URL deep link
+                if let bootstrapUrl, let url = URL(string: bootstrapUrl) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Ask your guardian to open this link:")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+
+                        Button {
+                            NSWorkspace.shared.open(url)
+                        } label: {
+                            HStack(spacing: VSpacing.xs) {
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.system(size: 12))
+                                Text("Open in Telegram")
+                                    .font(VFont.caption)
+                            }
+                            .foregroundColor(VColor.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        }
+                    }
+                }
+            }
+            .padding(.leading, labelColumnWidth + VSpacing.sm)
+        }
+        .onAppear { startCountdownTimer() }
+        .onDisappear { stopCountdownTimer() }
+    }
+
+    // MARK: - Countdown Timer
+
+    private func startCountdownTimer() {
+        countdownTimerRefCount += 1
+        guard countdownTimer == nil else { return }
+        countdownNow = Date()
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Task { @MainActor in
+                countdownNow = Date()
+            }
+        }
+    }
+
+    private func stopCountdownTimer() {
+        countdownTimerRefCount = max(countdownTimerRefCount - 1, 0)
+        guard countdownTimerRefCount == 0 else { return }
+        countdownTimer?.invalidate()
+        countdownTimer = nil
     }
 
     private func guardianInstructionSubtext(channel: String) -> String {
         if channel == "telegram" {
             let handle = store.telegramBotUsername.map { "@\($0)" } ?? "your bot"
-            return "Message \(handle) with the below command within the next 10 minutes"
+            return "Message \(handle) with the below code within the next 10 minutes"
         } else if channel == "voice" {
             let number = store.twilioPhoneNumber ?? "your assistant"
             return "Call \(number) and say the six-digit code below within the next 10 minutes"
         } else {
             let number = store.twilioPhoneNumber ?? "your assistant"
-            return "Text \(number) with the below command within the next 10 minutes"
+            return "Text \(number) with the below code within the next 10 minutes"
         }
     }
 
-    /// Extracts the `/guardian_verify <hex>` command from a raw instruction string.
+    /// Extracts a guardian verification code from a raw instruction string.
+    /// Supports three formats:
+    ///   1. Legacy `/guardian_verify <hex>` command
+    ///   2. "N-digit code: <digits>" (numeric codes, e.g. "6-digit code: 123456")
+    ///   3. "the code: <hex>" (high-entropy hex codes for inbound challenges)
     private func extractGuardianCommand(from instruction: String) -> String? {
-        guard let range = instruction.range(of: #"`?/guardian_verify\s+[0-9a-fA-F]+`?"#, options: .regularExpression) else {
-            return nil
+        // Try legacy /guardian_verify command format first
+        if let range = instruction.range(of: #"`?/guardian_verify\s+[0-9a-fA-F]+`?"#, options: .regularExpression) {
+            return String(instruction[range]).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
         }
-        return String(instruction[range]).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
+        // Try N-digit code format (e.g., "6-digit code: 123456")
+        if let code = extractNumericCode(from: instruction) {
+            return code
+        }
+        // Try generic "the code: <hex>" format for high-entropy codes
+        if let range = instruction.range(of: #"the code:\s*([0-9a-fA-F]+)"#, options: .regularExpression) {
+            let match = String(instruction[range])
+            if let hexRange = match.range(of: #"[0-9a-fA-F]{6,}"#, options: .regularExpression) {
+                return String(match[hexRange])
+            }
+        }
+        return nil
     }
 
-    /// Extracts a six-digit verification code from voice-style instruction text.
-    /// Voice instructions use a format like "...six-digit code: 123456..." instead of the
-    /// `/guardian_verify <hex>` command used by Telegram and SMS channels.
-    private func extractVoiceGuardianCode(from instruction: String) -> String? {
-        guard let range = instruction.range(of: #"six-digit code:\s*(\d{6})"#, options: .regularExpression) else {
+    /// Extracts a numeric verification code from instruction text.
+    /// Matches the format "N-digit code: <digits>" used for identity-bound codes.
+    private func extractNumericCode(from instruction: String) -> String? {
+        guard let range = instruction.range(of: #"\d+-digit code:\s*(\d+)"#, options: .regularExpression) else {
             return nil
         }
         let match = String(instruction[range])
-        // Extract just the digits from "six-digit code: 123456"
-        guard let digitRange = match.range(of: #"\d{6}"#, options: .regularExpression) else {
+        // Extract just the digits after "N-digit code: "
+        guard let colonRange = match.range(of: #":\s*"#, options: .regularExpression) else {
             return nil
         }
-        return String(match[digitRange])
+        return String(match[colonRange.upperBound...])
     }
 
     @ViewBuilder
     private func guardianInstructionView(channel: String, instruction: String) -> some View {
-        // Voice uses a different instruction format ("six-digit code: 123456") vs
-        // Telegram/SMS which use "/guardian_verify <hex>".
-        let command: String? = channel == "voice"
-            ? extractVoiceGuardianCode(from: instruction)
-            : extractGuardianCommand(from: instruction)
+        // All channels now use 6-digit numeric codes. extractGuardianCommand
+        // handles both the legacy /guardian_verify format and the new
+        // "six-digit code: 123456" format.
+        let command: String? = extractGuardianCommand(from: instruction)
         let isCopied = guardianCommandCopiedChannel == channel
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 guardianLabel
-                Image(systemName: "shield.lefthalf.filled")
-                    .foregroundColor(VColor.warning)
-                    .font(.system(size: 12))
                 Text("Verification pending")
                     .font(VFont.body)
                     .foregroundColor(VColor.warning)
@@ -1183,7 +1573,7 @@ struct SettingsConnectTab: View {
                 Text(guardianInstructionSubtext(channel: channel))
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
-                    .padding(.leading, 90 + VSpacing.sm)
+                    .padding(.leading, labelColumnWidth + VSpacing.sm)
 
                 HStack(spacing: VSpacing.sm) {
                     Text(command)
@@ -1227,7 +1617,7 @@ struct SettingsConnectTab: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                 )
-                .padding(.leading, 90 + VSpacing.sm)
+                .padding(.leading, labelColumnWidth + VSpacing.sm)
             } else {
                 // Fallback: show raw instruction if command can't be parsed
                 Text(instruction)
@@ -1242,12 +1632,22 @@ struct SettingsConnectTab: View {
                             .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                     )
                     .textSelection(.enabled)
-                    .padding(.leading, 90 + VSpacing.sm)
+                    .padding(.leading, labelColumnWidth + VSpacing.sm)
             }
         }
     }
 
     // MARK: - Mobile Card (Pairing + Approved Devices)
+
+    private var mobilePairingLabel: some View {
+        HStack(spacing: VSpacing.xs) {
+            Text("Device Pairing")
+            VInfoTooltip("Scan a QR code with the iOS app to pair your phone with this Mac.")
+        }
+        .font(VFont.caption)
+        .foregroundColor(VColor.textSecondary)
+        .frame(width: labelColumnWidth, alignment: .leading)
+    }
 
     private var mobileCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -1260,94 +1660,26 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.textMuted)
             }
 
-            VButton(label: "Show QR Code", leftIcon: "qrcode", style: .primary) {
-                showingPairingQR = true
-            }
-            .disabled(isRegeneratingToken)
-
-            // Status line — use resolvedIosGatewayUrl for gateway (no I/O) and
-            // cached bearerToken + override for token (avoids synchronous disk read).
-            // LAN pairing works without a cloud gateway URL.
-            let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
-            let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
-            let hasToken = !bearerToken.isEmpty || !trimmedOverrideToken.isEmpty
-            let tokenFromDaemon = !bearerToken.isEmpty && trimmedOverrideToken.isEmpty
-
-            if isRegeneratingToken {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Restarting daemon with new token\u{2026}")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else if hasGateway && hasToken {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                        .font(.system(size: 14))
-                    Text("Ready to pair")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.success)
-                    if tokenFromDaemon {
-                        Spacer()
-                        Button("Regenerate Token") {
-                            showingRegenerateConfirmation = true
-                        }
-                        .buttonStyle(.plain)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .help("Replace the current token. Paired devices will need to reconnect.")
-                    }
-                }
-            } else if !hasGateway {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 14))
-                    Text("Configure a gateway URL to enable pairing")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.warning)
-                }
+            // Connected devices — shown as status rows (mirrors Telegram bot / Twilio phone rows)
+            if store.approvedDevices.isEmpty {
+                channelStatusRow(
+                    label: "Device",
+                    icon: "iphone",
+                    iconColor: VColor.textMuted,
+                    value: "No devices paired",
+                    valueColor: VColor.textMuted
+                )
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 14))
-                        Text("Bearer token required")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.warning)
-                    }
-                    VButton(label: "Generate Token", leftIcon: "key", style: .secondary) {
-                        regenerateHttpToken()
-                    }
-                }
-            }
-
-            // Connected devices
-            if !store.approvedDevices.isEmpty {
-                Divider().background(VColor.surfaceBorder)
-
                 ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(device.deviceName)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                            Text("Last paired: \(formattedDeviceDate(device.lastPairedAt))")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        Button("Remove") {
+                    channelStatusRow(
+                        label: "Device",
+                        icon: "iphone",
+                        iconColor: VColor.success,
+                        value: device.deviceName,
+                        action: .init(label: "Remove", style: .danger) {
                             store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
                         }
-                        .font(VFont.caption)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                    .padding(.vertical, VSpacing.xs)
+                    )
                 }
 
                 Button("Clear All") {
@@ -1357,19 +1689,135 @@ struct SettingsConnectTab: View {
                 .foregroundColor(VColor.error)
                 .buttonStyle(.borderless)
             }
+
+            Divider().background(VColor.surfaceBorder)
+
+            // Device pairing row — mirrors Guardian Verification row layout
+            mobilePairingRow
+
+            // Compact advanced disclosure for power users
+            Divider().background(VColor.surfaceBorder)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        advancedExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Advanced")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(VColor.textMuted)
+                            .rotationEffect(.degrees(advancedExpanded ? 90 : 0))
+                            .animation(VAnimation.fast, value: advancedExpanded)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if advancedExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        bearerTokenContent
+                    }
+                    .padding(.top, VSpacing.sm)
+                }
+            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    private func formattedDeviceDate(_ timestamp: Int) -> String {
-        let date = Date(timeIntervalSince1970: Double(timestamp) / 1000.0)
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+    @ViewBuilder
+    private var mobilePairingRow: some View {
+        let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
+        let hasToken = !bearerToken.isEmpty
+
+        if isRegeneratingToken {
+            HStack(spacing: VSpacing.sm) {
+                mobilePairingLabel
+                ProgressView()
+                    .controlSize(.small)
+                Text("Restarting daemon\u{2026}")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        } else if !hasGateway {
+            HStack(spacing: VSpacing.sm) {
+                mobilePairingLabel
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(VColor.warning)
+                    .font(.system(size: 12))
+                Text("Configure a gateway URL to enable pairing")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.warning)
+            }
+        } else if !hasToken {
+            HStack(spacing: VSpacing.sm) {
+                mobilePairingLabel
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(VColor.warning)
+                    .font(.system(size: 12))
+                Text("Bearer token required")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.warning)
+                Spacer()
+                VButton(label: "Generate Token", style: .secondary) {
+                    regenerateHttpToken()
+                }
+            }
+        } else {
+            HStack(spacing: VSpacing.sm) {
+                mobilePairingLabel
+                Spacer()
+                VButton(label: "Pair Device", leftIcon: "qrcode", style: .primary) {
+                    showingPairingQR = true
+                }
+            }
+        }
     }
 
+
+    // MARK: - Spinning Refresh Icon
+
+    /// Standalone view for a continuously-rotating refresh icon.
+    ///
+    /// Uses `.task(id:)` to drive the rotation loop so that stopping
+    /// the animation is reliable (the task is cancelled when `isSpinning`
+    /// changes, which cleanly exits the animation loop).  The previous
+    /// `.animation(.repeatForever, value:)` + `nil` pattern has a known
+    /// SwiftUI bug where the repeating animation can persist after the
+    /// driving value becomes false.
+    private struct SpinningRefreshIcon: View {
+        let isSpinning: Bool
+
+        @State private var angle: Double = 0
+
+        var body: some View {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isSpinning ? VColor.accent : VColor.textMuted)
+                .rotationEffect(.degrees(angle))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+                .task(id: isSpinning) {
+                    if isSpinning {
+                        angle = 0
+                        while !Task.isCancelled {
+                            withAnimation(.linear(duration: 1)) {
+                                angle += 360
+                            }
+                            try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        }
+                    } else {
+                        angle = 0
+                    }
+                }
+        }
+    }
 
     // MARK: - Connection Status Helpers
 
@@ -1442,7 +1890,9 @@ struct SettingsConnectTab: View {
         lastChecked: Date? = nil,
         onRefresh: (() -> Void)? = nil
     ) -> some View {
-        HStack(spacing: VSpacing.sm) {
+        let spinning = isRefreshing || refreshSpinning.contains(label)
+
+        return HStack(spacing: VSpacing.sm) {
             Text(label)
                 .font(VFont.bodyMedium)
                 .foregroundColor(VColor.textSecondary)
@@ -1456,30 +1906,30 @@ struct SettingsConnectTab: View {
                 .font(VFont.body)
                 .foregroundColor(status.color)
 
-            Spacer()
-
             if let onRefresh {
                 let tooltipText: String = {
-                    if isRefreshing { return "Checking..." }
+                    if spinning { return "Checking..." }
                     if let lastChecked { return "Last verified: \(relativeTimeString(from: lastChecked))" }
                     return "Test connection"
                 }()
 
                 Button {
-                    if !isRefreshing { onRefresh() }
+                    guard !spinning else { return }
+                    refreshSpinning.insert(label)
+                    onRefresh()
+                    Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        refreshSpinning.remove(label)
+                    }
                 } label: {
-                    Image(systemName: "arrow.trianglehead.2.counterclockwise")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(isRefreshing ? VColor.accent : VColor.textMuted)
-                        .rotationEffect(.degrees(isRefreshing ? 360 : 0))
-                        .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
+                    SpinningRefreshIcon(isSpinning: spinning)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Refresh \(label) status")
                 .help(tooltipText)
             }
+
+            Spacer()
         }
     }
 

@@ -129,13 +129,13 @@ private class NonDraggableContainerView: NSView {
 }
 
 @MainActor
-final class MainWindow {
+public final class MainWindow {
     private let services: AppServices
     private var window: NSWindow?
     let threadManager: ThreadManager
     let appListManager = AppListManager()
     let traceStore = TraceStore()
-    let windowState = MainWindowState()
+    public let windowState = MainWindowState()
     let documentManager = DocumentManager()
     let avatarEvolutionState: AvatarEvolutionState?
     var onMicrophoneToggle: (() -> Void)?
@@ -144,6 +144,12 @@ final class MainWindow {
     /// Wake-up greeting to auto-send after the "coming alive" transition completes.
     /// Set by AppDelegate on first launch; consumed by MainWindowView.
     var pendingWakeUpMessage: String?
+
+    /// Callback fired after the wake-up message is actually dispatched (not just
+    /// queued). AppDelegate uses this to defer the bootstrap state transition to
+    /// `.pendingFirstReply` until the message has truly been sent, avoiding a gap
+    /// between window creation and actual send that could leave bootstrap stuck.
+    var onWakeUpSent: (() -> Void)?
 
     // Forwarding accessors — keeps existing references working while
     // ownership lives in the `services` container.
@@ -278,9 +284,19 @@ final class MainWindow {
             viewModel.inputText = message
             viewModel.sendMessage()
             self.pendingWakeUpMessage = nil
+            // Only signal wake-up sent if the daemon is still connected.
+            // If disconnected, sendMessage queued the message locally but
+            // it may not reach the daemon — leave bootstrap at
+            // pendingWakeupSend so the retry coordinator can intervene.
+            if self.daemonClient.isConnected {
+                self.onWakeUpSent?()
+                self.onWakeUpSent = nil
+            } else {
+                self.onWakeUpSent = nil
+            }
         } : nil
 
-        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, avatarEvolutionState: avatarEvolutionState, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
+        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, avatarEvolutionState: avatarEvolutionState, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

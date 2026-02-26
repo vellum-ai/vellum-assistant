@@ -340,6 +340,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     limit: 20,
     maxMessagesPerConversation: 3,
   },
+  message_content_request: {
+    type: 'message_content_request',
+    sessionId: 'sess-001',
+    messageId: 'msg-001',
+  },
   ipc_blob_probe: {
     type: 'ipc_blob_probe',
     probeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
@@ -475,6 +480,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   integration_disconnect: {
     type: 'integration_disconnect',
     integrationId: 'gmail',
+  },
+  oauth_connect_start: {
+    type: 'oauth_connect_start',
+    service: 'gmail',
+    requestedScopes: ['https://www.googleapis.com/auth/gmail.readonly'],
   },
   browser_cdp_response: {
     type: 'browser_cdp_response',
@@ -656,23 +666,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     policy: 'allow',
     status: 'active',
   },
-  assistant_inbox: {
-    type: 'assistant_inbox',
-    action: 'list_threads',
-    assistantId: 'asst-001',
-    limit: 20,
-    offset: 0,
-  },
   assistant_inbox_escalation: {
     type: 'assistant_inbox_escalation',
     action: 'list',
     assistantId: 'asst-001',
     status: 'pending',
-  },
-  assistant_inbox_reply: {
-    type: 'assistant_inbox_reply',
-    conversationId: 'conv-001',
-    content: 'Hello from the assistant',
   },
   pairing_approval_response: {
     type: 'pairing_approval_response',
@@ -688,6 +686,44 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   approved_devices_clear: {
     type: 'approved_devices_clear',
+  },
+  notification_intent_result: {
+    type: 'notification_intent_result',
+    deliveryId: 'delivery-001',
+    success: true,
+  },
+  conversation_seen_signal: {
+    type: 'conversation_seen_signal',
+    conversationId: 'conv-001',
+    sourceChannel: 'vellum',
+    signalType: 'macos_notification_view',
+    confidence: 'explicit',
+    source: 'notification-action',
+    evidenceText: 'User clicked View on notification',
+    observedAt: 1700000000000,
+    metadata: { notificationCategory: 'NOTIFICATION_INTENT' },
+  },
+  recording_status: {
+    type: 'recording_status',
+    sessionId: 'rec-001',
+    status: 'started',
+  },
+  heartbeat_config: {
+    type: 'heartbeat_config',
+    action: 'get',
+  },
+  heartbeat_runs_list: {
+    type: 'heartbeat_runs_list',
+  },
+  heartbeat_run_now: {
+    type: 'heartbeat_run_now',
+  },
+  heartbeat_checklist_read: {
+    type: 'heartbeat_checklist_read',
+  },
+  heartbeat_checklist_write: {
+    type: 'heartbeat_checklist_write',
+    content: '- [ ] Check email\n- [ ] Review PRs',
   },
 };
 
@@ -802,7 +838,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'session_list_response',
     sessions: [
       { id: 'sess-001', title: 'First session', updatedAt: 1700000000, threadType: 'standard' },
-      { id: 'sess-002', title: 'Second session', updatedAt: 1700001000, threadType: 'standard' },
+      { id: 'sess-002', title: 'Second session', updatedAt: 1700001000, threadType: 'standard', assistantAttention: { hasUnseenLatestAssistantMessage: true, latestAssistantMessageAt: 1700001000, lastSeenConfidence: 'explicit', lastSeenSignalType: 'macos_notification_view' } },
     ],
   },
   sessions_clear_response: {
@@ -827,6 +863,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         ],
       },
     ],
+  },
+  message_content_response: {
+    type: 'message_content_response',
+    sessionId: 'sess-001',
+    messageId: 'msg-001',
+    text: 'Full message content here',
+    toolCalls: [{ name: 'bash', result: 'output', input: { command: 'ls' } }],
   },
   error: {
     type: 'error',
@@ -859,6 +902,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   history_response: {
     type: 'history_response',
     sessionId: 'sess-history-001',
+    hasMore: false,
     messages: [
       { role: 'user', text: 'Hello', timestamp: 1700000000 },
       {
@@ -1097,12 +1141,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: 'sess-001',
     requestId: 'req-queue-001',
   },
-  reminder_fired: {
-    type: 'reminder_fired',
-    reminderId: 'rem-001',
-    label: 'Call Sidd',
-    message: 'Remember to call Sidd about the project',
-  },
   notification_intent: {
     type: 'notification_intent',
     sourceEventName: 'guardian.question',
@@ -1112,24 +1150,15 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       conversationId: 'conv-guardian-001',
     },
   },
-  schedule_complete: {
-    type: 'schedule_complete',
-    scheduleId: 'sched-001',
-    name: 'Daily backup',
+  notification_thread_created: {
+    type: 'notification_thread_created',
+    conversationId: 'conv-notif-001',
+    title: 'Weather alert for your area',
+    sourceEventName: 'watcher.escalation',
   },
-  watcher_notification: {
-    type: 'watcher_notification',
-    title: 'Watcher disabled: My Gmail',
-    body: 'Disabled after 5 consecutive errors.',
-  },
-  watcher_escalation: {
-    type: 'watcher_escalation',
-    title: 'Urgent email from Alice',
-    body: 'Meeting rescheduled to 3pm today.',
-  },
-  agent_heartbeat_alert: {
-    type: 'agent_heartbeat_alert',
-    title: 'Agent heartbeat stalled',
+  heartbeat_alert: {
+    type: 'heartbeat_alert',
+    title: 'Heartbeat stalled',
     body: 'No activity detected in the last 60 minutes.',
   },
   watch_started: {
@@ -1560,6 +1589,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     integrationId: 'gmail',
     success: true,
   },
+  oauth_connect_result: {
+    type: 'oauth_connect_result',
+    success: true,
+    grantedScopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+    accountInfo: 'user@example.com',
+  },
   browser_cdp_request: {
     type: 'browser_cdp_request',
     sessionId: 'test-session',
@@ -1747,14 +1782,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     workItemId: 'wi-001',
     title: 'Process report',
   },
-  guardian_request_thread_created: {
-    type: 'guardian_request_thread_created',
-    conversationId: 'conv-guardian-001',
-    requestId: 'req-guardian-001',
-    callSessionId: 'call-001',
-    title: 'Guardian action request',
-    questionText: 'What is the gate code?',
-  },
   subagent_spawned: {
     type: 'subagent_spawned',
     subagentId: 'sub-001',
@@ -1892,46 +1919,20 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       createdAt: 1700000000,
     },
   },
-  assistant_inbox_response: {
-    type: 'assistant_inbox_response',
-    success: true,
-    threads: [
-      {
-        conversationId: 'conv-001',
-        sourceChannel: 'telegram',
-        externalChatId: 'chat-456',
-        externalUserId: 'user-123',
-        displayName: 'Test User',
-        username: 'testuser',
-        lastMessageAt: 1700000000,
-        unreadCount: 3,
-        hasPendingEscalation: false,
-        lastInboundAt: 1700000000,
-        lastOutboundAt: 1699999000,
-      },
-    ],
-  },
   assistant_inbox_escalation_response: {
     type: 'assistant_inbox_escalation_response',
     success: true,
-    escalations: [
-      {
-        id: 'esc-001',
-        runId: 'run-001',
-        conversationId: 'conv-001',
-        channel: 'telegram',
-        requesterExternalUserId: 'user-123',
-        requesterChatId: 'chat-456',
-        status: 'pending',
-        requestSummary: 'User wants to delete their account',
-        createdAt: 1700000000,
-      },
-    ],
-  },
-  assistant_inbox_reply_response: {
-    type: 'assistant_inbox_reply_response',
-    success: true,
-    messageId: 'msg-reply-001',
+    escalations: [{
+      id: 'esc-001',
+      runId: 'run-001',
+      conversationId: 'conv-001',
+      channel: 'telegram',
+      requesterExternalUserId: 'user-123',
+      requesterChatId: 'chat-456',
+      status: 'pending',
+      requestSummary: 'Access request from new user',
+      createdAt: 1700000000,
+    }],
   },
   pairing_approval_request: {
     type: 'pairing_approval_request',
@@ -1949,6 +1950,45 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   approved_device_remove_response: {
     type: 'approved_device_remove_response',
+    success: true,
+  },
+  recording_start: {
+    type: 'recording_start',
+    recordingId: 'rec-001',
+  },
+  recording_stop: {
+    type: 'recording_stop',
+    recordingId: 'rec-001',
+  },
+  heartbeat_config_response: {
+    type: 'heartbeat_config_response',
+    enabled: true,
+    intervalMs: 3600000,
+    activeHoursStart: 9,
+    activeHoursEnd: 17,
+    nextRunAt: 1700003600000,
+    success: true,
+  },
+  heartbeat_runs_list_response: {
+    type: 'heartbeat_runs_list_response',
+    runs: [{
+      id: 'hb-run-001',
+      title: 'Morning heartbeat',
+      createdAt: 1700000000000,
+      result: 'All systems nominal',
+    }],
+  },
+  heartbeat_run_now_response: {
+    type: 'heartbeat_run_now_response',
+    success: true,
+  },
+  heartbeat_checklist_response: {
+    type: 'heartbeat_checklist_response',
+    content: '- [ ] Check email\n- [ ] Review PRs',
+    isDefault: false,
+  },
+  heartbeat_checklist_write_response: {
+    type: 'heartbeat_checklist_write_response',
     success: true,
   },
 };

@@ -4,11 +4,10 @@ import { join } from 'node:path';
 
 import { config as dotenvConfig } from 'dotenv';
 
-import { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
 import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { setRelayBroadcast } from '../calls/relay-server.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
-import { setVoiceBridgeOrchestrator } from '../calls/voice-session-bridge.js';
+import { setVoiceBridgeDeps } from '../calls/voice-session-bridge.js';
 import {
   getQdrantUrlEnv,
   getRuntimeHttpHost,
@@ -18,11 +17,13 @@ import {
 } from '../config/env.js';
 import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
+import { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
 import { initSentry } from '../instrument.js';
 import { initLogfire } from '../logfire.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
+import * as conversationStore from '../memory/conversation-store.js';
 import { initializeDb } from '../memory/db.js';
 import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
 import { initQdrantClient } from '../memory/qdrant-client.js';
@@ -43,7 +44,7 @@ import {
   getSocketPath,
 } from '../util/platform.js';
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
-import { HeartbeatService } from '../workspace/heartbeat-service.js';
+import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
 import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
 import { cleanupPidFile,writePid } from './daemon-control.js';
 import { initPairingHandlers } from './handlers/pairing.js';
@@ -52,6 +53,7 @@ import type { ServerMessage } from './ipc-protocol.js';
 import { initializeProvidersAndTools, registerMessagingProviders,registerWatcherProviders } from './providers-setup.js';
 import { seedInterfaceFiles } from './seed-files.js';
 import { DaemonServer } from './server.js';
+import { initSlashPairingContext } from './session-slash.js';
 import { installShutdownHandlers } from './shutdown-handlers.js';
 
 // Re-export public API so existing consumers don't need to change imports
@@ -168,14 +170,6 @@ export async function runDaemon(): Promise<void> {
       await server.processMessage(conversationId, message);
     },
     (reminder) => {
-      // Legacy IPC broadcast for backward compatibility with desktop client UI
-      server.broadcast({
-        type: 'reminder_fired',
-        reminderId: reminder.id,
-        label: reminder.label,
-        message: reminder.message,
-      });
-      // Signal pipeline: fire-and-forget
       void emitNotificationSignal({
         sourceEventName: 'reminder.fired',
         sourceChannel: 'scheduler',
@@ -195,13 +189,6 @@ export async function runDaemon(): Promise<void> {
       });
     },
     (schedule) => {
-      // Legacy IPC broadcast for backward compatibility with desktop client UI
-      server.broadcast({
-        type: 'schedule_complete',
-        scheduleId: schedule.id,
-        name: schedule.name,
-      });
-      // Signal pipeline: fire-and-forget
       void emitNotificationSignal({
         sourceEventName: 'schedule.complete',
         sourceChannel: 'scheduler',
@@ -219,13 +206,6 @@ export async function runDaemon(): Promise<void> {
       });
     },
     (notification) => {
-      // Legacy IPC broadcast for backward compatibility with desktop client UI
-      server.broadcast({
-        type: 'watcher_notification',
-        title: notification.title,
-        body: notification.body,
-      });
-      // Signal pipeline: fire-and-forget
       void emitNotificationSignal({
         sourceEventName: 'watcher.notification',
         sourceChannel: 'watcher',
@@ -243,13 +223,6 @@ export async function runDaemon(): Promise<void> {
       });
     },
     (params) => {
-      // Legacy IPC broadcast for backward compatibility with desktop client UI
-      server.broadcast({
-        type: 'watcher_escalation',
-        title: params.title,
-        body: params.body,
-      });
-      // Signal pipeline: fire-and-forget
       void emitNotificationSignal({
         sourceEventName: 'watcher.escalation',
         sourceChannel: 'watcher',
@@ -296,8 +269,6 @@ export async function runDaemon(): Promise<void> {
 
   const hostname = getRuntimeHttpHost();
 
-  const runOrchestrator = server.createRunOrchestrator();
-
   runtimeHttp = new RuntimeHttpServer({
     port: httpPort,
     hostname,
@@ -306,7 +277,6 @@ export async function runDaemon(): Promise<void> {
       server.processMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
     persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel, sourceInterface) =>
       server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
-    runOrchestrator,
     interfacesDir: getInterfacesDir(),
     approvalCopyGenerator: createApprovalCopyGenerator(),
     approvalConversationGenerator: createApprovalConversationGenerator(),
@@ -324,15 +294,29 @@ export async function runDaemon(): Promise<void> {
     },
   });
 
-  // Inject the voice bridge orchestrator BEFORE attempting to start the HTTP
-  // server. The bridge only needs the RunOrchestrator instance (already created
-  // above) and must be available even when the HTTP server fails to bind.
-  setVoiceBridgeOrchestrator(runOrchestrator);
+  // Inject voice bridge deps BEFORE attempting to start the HTTP server.
+  // The bridge must be available even when the HTTP server fails to bind.
+  setVoiceBridgeDeps({
+    getOrCreateSession: (conversationId, _transport) =>
+      server.getSessionForMessages(conversationId),
+    resolveAttachments: (attachmentIds) =>
+      attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
+        id: a.id,
+        filename: a.originalFilename,
+        mimeType: a.mimeType,
+        data: a.dataBase64,
+      })),
+    deriveDefaultStrictSideEffects: (conversationId) => {
+      const threadType = conversationStore.getConversationThreadType(conversationId);
+      return threadType === 'private';
+    },
+  });
   try {
     await runtimeHttp.start();
     setRelayBroadcast((msg) => server.broadcast(msg));
     runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg as ServerMessage));
     initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
+    initSlashPairingContext(runtimeHttp.getPairingStore());
     server.setHttpPort(httpPort);
     log.info({ port: httpPort, hostname }, 'Daemon startup: runtime HTTP server listening');
   } catch (err) {
@@ -359,20 +343,23 @@ export async function runDaemon(): Promise<void> {
     }
   }
 
-  const heartbeat = new HeartbeatService();
-  heartbeat.start();
+  const workspaceHeartbeat = new WorkspaceHeartbeatService();
+  workspaceHeartbeat.start();
 
-  const agentHeartbeat = new AgentHeartbeatService({
+  const heartbeatConfig = config.heartbeat;
+  const heartbeat = new HeartbeatService({
     processMessage: (conversationId, content) =>
       server.processMessage(conversationId, content),
     alerter: (alert) => server.broadcast(alert),
   });
-  agentHeartbeat.start();
+  heartbeat.start();
+  server.setHeartbeatService(heartbeat);
+  log.info({ enabled: heartbeatConfig.enabled, intervalMs: heartbeatConfig.intervalMs }, 'Heartbeat service configured');
 
   installShutdownHandlers({
     server,
+    workspaceHeartbeat,
     heartbeat,
-    agentHeartbeat,
     hookManager,
     runtimeHttp,
     scheduler,

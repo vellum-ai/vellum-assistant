@@ -27,6 +27,7 @@ struct ConversationsListResponse: Decodable {
         let channelBinding: IPCChannelBinding?
         let conversationOriginChannel: String?
         let conversationOriginInterface: String?
+        let assistantAttention: IPCAssistantAttention?
     }
     let sessions: [Session]
     let hasMore: Bool?
@@ -299,6 +300,8 @@ final class HTTPTransport {
             Task { await self.fetchSessionList(offset: Int(msg.offset ?? 0), limit: Int(msg.limit ?? 50)) }
         } else if let msg = message as? HistoryRequestMessage {
             Task { await self.fetchHistory(sessionId: msg.sessionId) }
+        } else if let msg = message as? IPCConversationSeenSignal {
+            Task { await self.sendConversationSeen(msg) }
         } else if message is PingMessage {
             // No-op for HTTP transport — SSE keepalive is handled by the connection
         } else {
@@ -405,6 +408,43 @@ final class HTTPTransport {
         }
     }
 
+    private func sendConversationSeen(_ signal: IPCConversationSeenSignal) async {
+        guard let url = URL(string: "\(baseURL)/v1/conversations/seen") else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [
+            "conversationId": signal.conversationId,
+            "sourceChannel": signal.sourceChannel,
+            "signalType": signal.signalType,
+            "confidence": signal.confidence,
+            "source": signal.source
+        ]
+        if let evidenceText = signal.evidenceText {
+            body["evidenceText"] = evidenceText
+        }
+        if let observedAt = signal.observedAt {
+            body["observedAt"] = observedAt
+        }
+        if let metadata = signal.metadata {
+            body["metadata"] = metadata
+        }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                log.error("Conversation seen signal failed (\(http.statusCode))")
+            }
+        } catch {
+            log.error("Conversation seen signal error: \(error.localizedDescription)")
+        }
+    }
+
     private func fetchSessionList(offset: Int = 0, limit: Int = 50) async {
         guard let url = URL(string: "\(baseURL)/v1/conversations?limit=\(limit)&offset=\(offset)") else { return }
 
@@ -423,7 +463,7 @@ final class HTTPTransport {
             do {
                 let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
                 let sessions = decoded.sessions.map {
-                    IPCSessionListResponseSession(id: $0.id, title: $0.title, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface)
+                    IPCSessionListResponseSession(id: $0.id, title: $0.title, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention)
                 }
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
             } catch {
@@ -488,7 +528,8 @@ final class HTTPTransport {
                     let historyPayload: [String: Any] = [
                         "type": "history_response",
                         "sessionId": sessionId,
-                        "messages": transformed
+                        "messages": transformed,
+                        "hasMore": false
                     ]
 
                     let historyData = try JSONSerialization.data(withJSONObject: historyPayload)

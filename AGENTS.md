@@ -6,7 +6,7 @@ Bun + TypeScript monorepo with multiple packages:
 
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `gateway/` — Telegram webhook gateway (Bun + TypeScript)
-- `clients/macos/` — Native macOS desktop app (Swift/SwiftUI, see `clients/macos/CLAUDE.md`)
+- `clients/` — Client apps (macOS/iOS/etc). See `clients/AGENTS.md` and platform docs like `clients/macos/CLAUDE.md`.
 - `scripts/` — Utility scripts
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`)
 
@@ -43,7 +43,7 @@ Comments should explain **why** something is done and provide non-obvious contex
 
 ## Keep the Architecture Diagram up to date
 
-Whenever you introduce, remove, or significantly modify a service, module, or data flow, you MUST update `ARCHITECTURE.md` to reflect the change. The Mermaid diagrams should always accurately represent the current system architecture, including new services, IPC message types, storage locations, and data flows.
+Whenever you introduce, remove, or significantly modify a service, module, or data flow, you MUST update the relevant architecture docs to reflect the change. Keep the root `ARCHITECTURE.md` index aligned, and update impacted domain docs (for example `assistant/ARCHITECTURE.md`, `gateway/ARCHITECTURE.md`, `clients/ARCHITECTURE.md`, or `assistant/docs/architecture/*`). Mermaid diagrams should always accurately represent the current system architecture, including new services, IPC message types, storage locations, and data flows.
 
 ## Keep AGENTS.md up to date
 
@@ -73,6 +73,19 @@ These are the most commonly used slash commands defined in `.claude/commands/`:
 
 | `/update` | Pull latest from main, restart the backend daemon, verify gateway health (fail fast on startup failure), rebuild/launch the macOS app, and print a startup summary. |
 
+
+## Linear Ticket Hygiene
+
+When working on a task sourced from a Linear ticket (via the Linear MCP), keep the ticket status in sync with your progress:
+
+- **Branch naming**: Include the Linear issue ID in the branch name (e.g., `feat/ABC-123-add-widget`). Linear automatically links branches, commits, and PRs that reference the issue ID.
+- **Commit messages**: Reference the issue ID in commits (e.g., `feat: add widget [ABC-123]`) so Linear links them automatically.
+- **Start of work**: Move the ticket to "In Progress" (or the equivalent active status).
+- **PR created**: Move the ticket to "In Review" if applicable. If you used the issue ID in the branch name, Linear will link the PR automatically — otherwise add the PR link manually.
+- **Work completed / PR merged**: Move the ticket to "Done".
+- **Blocked or abandoned**: Update the ticket status accordingly and leave a comment explaining why.
+
+Treat the Linear ticket as the source of truth for task status. Don't leave tickets in a stale state — if you touched it, update it.
 
 ## Track merged PRs
 
@@ -177,6 +190,52 @@ There may be narrow cases where a direct provider call is acceptable (e.g., a lo
 - **Race conditions:** Always check whether a decision has already been resolved before delivering the engine's optimistic reply. If `handleChannelDecision` returns `applied: false`, deliver an "already resolved" notice and return `stale_ignored`.
 - **Requester self-cancel:** A requester with a pending guardian approval must be able to cancel their own request (but not self-approve).
 
+## HTTP API Patterns
+
+### Sending messages
+
+The single HTTP send endpoint is `POST /v1/messages`. Key behaviors:
+- **Queue if busy**: When the session is processing, messages are queued and processed when the current agent turn completes. No 409 rejections.
+- **Fire-and-forget**: Returns `202 { accepted: true }` immediately. The client observes progress via SSE (`GET /v1/events`).
+- **Hub publishing**: All agent events are published to `assistantEventHub`, making them observable via SSE.
+
+Do NOT add new send endpoints. All message ingress should go through `POST /v1/messages` (HTTP) or `session.processMessage()` (IPC).
+
+### Approvals (confirmations, secrets, trust rules)
+
+Approvals are **orthogonal to message sending**. The assistant asks for approval whenever it needs one — this is a separate concern from how a message enters the system.
+
+- **Discovery**: Clients discover pending approvals via SSE events (`confirmation_request`, `secret_request`) which include a `requestId`.
+- **Resolution**: Clients respond via standalone endpoints keyed by `requestId`:
+  - `POST /v1/confirm` — `{ requestId, decision: "allow" | "deny" }`
+  - `POST /v1/secret` — `{ requestId, value, delivery }`
+  - `POST /v1/trust-rules` — `{ requestId, pattern, scope }`
+- **Tracking**: The `pending-interactions` tracker (`assistant/src/runtime/pending-interactions.ts`) maps `requestId → session`. Use `register()` to track, `resolve()` to consume, `getByConversation()` to query.
+
+Do NOT couple approval handling to message sending. Do NOT add run/status tracking to the send path.
+
+### Channel approvals (Telegram, SMS)
+
+Channel approval flows use `requestId` (not `runId`) as the primary identifier:
+- Telegram callback buttons encode `apr:<requestId>:<action>` in `callback_data`.
+- Guardian approval records in `channelGuardianApprovalRequests` link via `requestId`.
+- The conversational approval engine classifies user intent and resolves via `session.handleConfirmationResponse(requestId, decision)`.
+
+### What NOT to do
+
+- Do NOT use `RunOrchestrator` or `runs-store` — they have been removed.
+- Do NOT add `/v1/runs` endpoints — use `/v1/messages` and standalone approval endpoints.
+- Do NOT create run status tracking (queued/running/completed/failed) — clients observe progress via SSE events.
+- Do NOT use `runId` as an identifier for approval flows — use `requestId`.
+
+## HTTP-First for New Endpoints
+
+New configuration and control endpoints MUST be exposed over HTTP on the runtime server (`assistant/src/runtime/http-server.ts`), not as IPC-only message types. The runtime HTTP server is the canonical API surface — IPC is a legacy transport being phased out.
+
+Existing IPC-only handlers should be migrated to HTTP when touched. The pattern: extract business logic into a shared function, add an HTTP route handler in `assistant/src/runtime/routes/`, keep the IPC handler as a thin wrapper that calls the same logic.
+
+When writing skills that need to call daemon configuration endpoints, use `curl` with the runtime HTTP API (bearer-authenticated via `~/.vellum/http-token`) rather than describing IPC socket protocol details. The assistant already knows how to use `curl`.
+
 ## Error Handling Conventions
 
 Use the right error signaling mechanism for the situation. The codebase has three patterns — pick the one that matches the failure mode:
@@ -239,6 +298,16 @@ Returning `undefined` is acceptable only for **lookup functions** where "not fou
 | Memory retriever (`memory/retriever.ts`) | Result object (`MemoryRecallResult`) with degraded/reason fields | Graceful degradation — embedding failures, search failures degrade quality without crashing |
 | Filesystem tools (`path-policy.ts`, `edit-engine.ts`) | Discriminated union (`{ ok, reason }`) | Validation outcomes that the caller must handle (out of bounds, not found, ambiguous) |
 | Subagent manager (`subagent/manager.ts`) | Throws for precondition violations, string literal unions for expected outcomes | Depth limit exceeded is a bug; `sendMessage` returns `'not_found' | 'terminal' | 'queue_full'` as expected states |
+
+## Notification Pipeline
+
+All notification producers **MUST** go through `emitNotificationSignal()` in `notifications/emit-signal.ts`. Do not bypass the pipeline by broadcasting IPC events directly -- the pipeline handles event persistence, deduplication, decision routing, and delivery audit.
+
+When a notification flow creates a server-side conversation (e.g. guardian question threads, task run threads), the conversation and initial message **MUST** be persisted before the IPC thread-created event is emitted. This ensures the macOS/iOS client can immediately fetch the conversation contents when it receives the event.
+
+## Guardian Verification Invariant
+
+Guardian verification consumption must be identity-bound to the expected recipient identity. Every outbound verification session stores the expected identity (phone E.164, Telegram user/chat ID), and the consume path rejects attempts where the responding actor's identity does not match.
 
 ## Memory Provenance Invariant
 

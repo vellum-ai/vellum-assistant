@@ -74,7 +74,7 @@ export function requiredDecisionKeywords(actions: ApprovalUIMetadata['actions'])
 }
 
 // ---------------------------------------------------------------------------
-// Callback data parser — format: "apr:<runId>:<action>"
+// Callback data parser — format: "apr:<requestId>:<action>"
 // ---------------------------------------------------------------------------
 
 const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
@@ -86,11 +86,11 @@ const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
 export function parseCallbackData(data: string, sourceChannel?: string): ApprovalDecisionResult | null {
   const parts = data.split(':');
   if (parts.length < 3 || parts[0] !== 'apr') return null;
-  const runId = parts[1];
+  const requestId = parts[1];
   const action = parts.slice(2).join(':');
-  if (!runId || !VALID_ACTIONS.has(action)) return null;
+  if (!requestId || !VALID_ACTIONS.has(action)) return null;
   const source = sourceChannel === 'whatsapp' ? 'whatsapp_button' as const : 'telegram_button' as const;
-  return { action: action as ApprovalAction, source, runId };
+  return { action: action as ApprovalAction, source, requestId };
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ export function buildGuardianDenyContext(
     return `Permission denied for "${toolName}": guardian approval was required, but requester identity could not be verified for this channel. In your next assistant reply, explain this clearly, avoid retrying yet, and ask the user to message from a verifiable direct account/chat before retrying.`;
   }
 
-  return `Permission denied for "${toolName}": guardian approval was required, but no guardian is configured for this channel. In your next assistant reply, explain this and offer guardian setup. Mention that setup provides a verification token to send as /guardian_verify <token>.`;
+  return `Permission denied for "${toolName}": guardian approval was required, but no guardian is configured for this channel. In your next assistant reply, explain this and offer guardian setup. Mention that setup provides a verification code that the user replies with in the channel.`;
 }
 
 export function buildPromptDeliveryFailureContext(toolName: string): string {

@@ -40,9 +40,9 @@ export interface TwitterIntegrationConfigRequest {
 
 export interface TelegramConfigRequest {
   type: 'telegram_config';
-  action: 'get' | 'set' | 'clear' | 'set_commands';
-  botToken?: string;  // Only for action: 'set'
-  commands?: Array<{ command: string; description: string }>;  // Only for action: 'set_commands'
+  action: 'get' | 'set' | 'clear' | 'set_commands' | 'setup';
+  botToken?: string;  // Only for action: 'set' or 'setup'
+  commands?: Array<{ command: string; description: string }>;  // Only for action: 'set_commands' or 'setup'
 }
 
 export interface TwilioConfigRequest {
@@ -84,11 +84,13 @@ export interface ChannelReadinessRequest {
 
 export interface GuardianVerificationRequest {
   type: 'guardian_verification';
-  action: 'create_challenge' | 'status' | 'revoke';
+  action: 'create_challenge' | 'status' | 'revoke' | 'start_outbound' | 'resend_outbound' | 'cancel_outbound';
   channel?: ChannelId;  // Defaults to 'telegram'
   sessionId?: string;
   assistantId?: string;  // Defaults to 'self'
   rebind?: boolean;  // When true, allows creating a challenge even if a binding already exists
+  /** E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions. */
+  destination?: string;
 }
 
 export interface TwitterAuthStartRequest {
@@ -111,6 +113,12 @@ export interface IntegrationConnectRequest {
 export interface IntegrationDisconnectRequest {
   type: 'integration_disconnect';
   integrationId: string;
+}
+
+export interface OAuthConnectStartRequest {
+  type: 'oauth_connect_start';
+  service: string;
+  requestedScopes?: string[];
 }
 
 export interface LinkOpenRequest {
@@ -175,6 +183,10 @@ export interface TelegramConfigResponse {
   hasWebhookSecret: boolean;
   lastError?: string;
   error?: string;
+  /** Names of bot commands that were registered (present after set_commands or setup). */
+  commandsRegistered?: string[];
+  /** Non-fatal warning (e.g. commands registration failed during setup but token was configured). */
+  warning?: string;
 }
 
 export interface TwilioConfigResponse {
@@ -188,6 +200,7 @@ export interface TwilioConfigResponse {
   warning?: string;
   compliance?: {
     numberType?: string;
+    tollfreePhoneNumberSid?: string;
     verificationSid?: string;
     verificationStatus?: string;
     rejectionReason?: string;
@@ -253,6 +266,18 @@ export interface GuardianVerificationResponse {
   error?: string;
   /** Human-readable error detail (e.g. for already_bound failures). */
   message?: string;
+  /** Session ID for outbound verification flows. */
+  verificationSessionId?: string;
+  /** Epoch ms when the verification session expires. */
+  expiresAt?: number;
+  /** Epoch ms after which a resend is allowed. */
+  nextResendAt?: number;
+  /** Number of SMS sends for this session. */
+  sendCount?: number;
+  /** Telegram deep-link URL for bootstrap (M3 placeholder). */
+  telegramBootstrapUrl?: string;
+  /** True when the outbound session is still in pending_bootstrap state (Telegram handle flow). Prevents the client from clearing the bootstrap URL during status polling. */
+  pendingBootstrap?: boolean;
 }
 
 export interface TwitterAuthResult {
@@ -293,6 +318,14 @@ export interface IntegrationConnectResult {
   setupHint?: string;
 }
 
+export interface OAuthConnectResultResponse {
+  type: 'oauth_connect_result';
+  success: boolean;
+  grantedScopes?: string[];
+  accountInfo?: string;
+  error?: string;
+}
+
 export interface OpenUrl {
   type: 'open_url';
   url: string;
@@ -316,6 +349,7 @@ export type _IntegrationsClientMessages =
   | IntegrationListRequest
   | IntegrationConnectRequest
   | IntegrationDisconnectRequest
+  | OAuthConnectStartRequest
   | LinkOpenRequest;
 
 export type _IntegrationsServerMessages =
@@ -332,4 +366,5 @@ export type _IntegrationsServerMessages =
   | TwitterAuthStatusResponse
   | IntegrationListResponse
   | IntegrationConnectResult
+  | OAuthConnectResultResponse
   | OpenUrl;

@@ -6,8 +6,6 @@ import type { Session } from '../daemon/session.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import type { ApprovalMessageContext, ComposeApprovalMessageGenerativeOptions } from './approval-message-composer.js';
 import type { AssistantEventHub } from './assistant-event-hub.js';
-import type { RunOrchestrator } from './run-orchestrator.js';
-
 /**
  * Daemon-injected function that generates approval copy using a provider.
  * Returns generated text or `null` on failure (caller falls back to deterministic text).
@@ -33,7 +31,7 @@ export interface ApprovalConversationResult {
   disposition: ApprovalConversationDisposition;
   replyText: string;
   /** Required when there are multiple pending approvals and the disposition is decision-bearing. */
-  targetRunId?: string;
+  targetRequestId?: string;
 }
 
 /** Input context for the approval conversation engine. */
@@ -41,7 +39,7 @@ export interface ApprovalConversationContext {
   toolName: string;
   allowedActions: string[];
   role: 'requester' | 'guardian';
-  pendingApprovals: Array<{ runId: string; toolName: string }>;
+  pendingApprovals: Array<{ requestId: string; toolName: string }>;
   userMessage: string;
 }
 
@@ -61,6 +59,12 @@ export interface RuntimeMessageSessionOptions {
   };
   assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
+  /**
+   * Whether this turn should permit interactive approval prompts.
+   * Channel ingress sets this true so confirmations can be resolved
+   * through channel approval flows.
+   */
+  isInteractive?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
 }
@@ -115,8 +119,6 @@ export interface RuntimeHttpServerOptions {
   processMessage?: MessageProcessor;
   /** Non-blocking processor for POST /messages (persists + fires agent loop). */
   persistAndProcessMessage?: NonBlockingMessageProcessor;
-  /** Run orchestrator for the approval-flow run endpoints. */
-  runOrchestrator?: RunOrchestrator;
   /** Root directory for interface files on disk. */
   interfacesDir?: string;
   /** Daemon-injected generator for approval copy (provider-backed). */

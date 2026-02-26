@@ -4,7 +4,7 @@ import VellumAssistantShared
 // MARK: - Domain Types
 
 public enum NativePanelId: String, Equatable, Sendable {
-    case chat, threadList, settings, debug, directory, generated, avatarCustomization, voiceMode, assistantInbox, apps, intelligence
+    case chat, threadList, settings, debug, directory, generated, avatarCustomization, voiceMode, apps, intelligence
 }
 
 extension NativePanelId: Codable {
@@ -43,19 +43,22 @@ extension SlotContent: Codable {
         let type = try container.decode(String.self, forKey: .type)
         switch type {
         case "native":
-            let panel = try container.decode(NativePanelId.self, forKey: .panel)
-            self = .native(panel)
+            // Decode the raw string and try to match it to a known panel ID.
+            // If the value is stale (e.g. a removed panel like "assistantInbox"),
+            // degrade to .empty instead of failing the entire layout decode.
+            let rawPanel = try container.decode(String.self, forKey: .panel)
+            if let panel = NativePanelId(rawValue: rawPanel) {
+                self = .native(panel)
+            } else {
+                self = .empty
+            }
         case "surface":
             let surfaceId = try container.decode(String.self, forKey: .surfaceId)
             self = .surface(surfaceId: surfaceId)
         case "empty":
             self = .empty
         default:
-            throw DecodingError.dataCorruptedError(
-                forKey: .type,
-                in: container,
-                debugDescription: "Unknown SlotContent type: \(type)"
-            )
+            self = .empty
         }
     }
 

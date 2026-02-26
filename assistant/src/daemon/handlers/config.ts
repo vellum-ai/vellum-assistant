@@ -19,6 +19,7 @@
 
 // Re-export individual handlers for direct import by tests and other modules
 export { getReadinessService,handleChannelReadiness, handleGuardianVerification } from './config-channels.js';
+export { handleHeartbeatChecklistRead, handleHeartbeatChecklistWrite,handleHeartbeatConfig, handleHeartbeatRunNow, handleHeartbeatRunsList } from './config-heartbeat.js';
 export { computeGatewayTarget, handleIngressConfig, syncTwilioWebhooks,triggerGatewayReconcile } from './config-ingress.js';
 export { handleTwitterIntegrationConfig,handleVercelApiConfig } from './config-integrations.js';
 export { handleImageGenModelSet,handleModelGet, handleModelSet } from './config-model.js';
@@ -33,6 +34,7 @@ export { handleTwilioConfig } from './config-twilio.js';
 
 // Assemble the combined dispatch map from domain-specific handler groups
 import { channelHandlers } from './config-channels.js';
+import { heartbeatHandlers } from './config-heartbeat.js';
 import { ingressHandlers } from './config-ingress.js';
 import { integrationHandlers } from './config-integrations.js';
 import { modelHandlers } from './config-model.js';
@@ -58,4 +60,5 @@ export const configHandlers = {
   ...channelHandlers,
   ...toolHandlers,
   ...parentalControlHandlers,
+  ...heartbeatHandlers,
 };

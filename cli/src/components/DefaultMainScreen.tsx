@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { basename } from "path";
+import qrcode from "qrcode-terminal";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Box, render as inkRender, Text, useInput, useStdout } from "ink";
 
@@ -23,7 +24,7 @@ export const ANSI = {
   gray: "\x1b[90m",
 } as const;
 
-export const SLASH_COMMANDS = ["/clear", "/doctor", "/exit", "/help", "/q", "/quit", "/retire"];
+export const SLASH_COMMANDS = ["/clear", "/doctor", "/exit", "/help", "/pair", "/q", "/quit", "/retire"];
 
 const POLL_INTERVAL_MS = 3000;
 const SEND_TIMEOUT_MS = 5000;
@@ -528,6 +529,10 @@ function HelpDisplay(): ReactElement {
       <Text>
         {"  /clear            "}
         <Text dimColor>Clear the screen</Text>
+      </Text>
+      <Text>
+        {"  /pair             "}
+        <Text dimColor>Generate a QR code for mobile device pairing</Text>
       </Text>
       <Text>
         {"  /help, ?          "}
@@ -1277,6 +1282,65 @@ function ChatApp({
 
       if (trimmed === "/help" || trimmed === "?") {
         h.showHelp();
+        return;
+      }
+
+      if (trimmed === "/pair") {
+        h.showSpinner("Generating pairing credentials...");
+
+        const isConnected = await ensureConnected();
+        if (!isConnected) {
+          h.hideSpinner();
+          h.showError("Cannot pair — not connected to the assistant runtime.");
+          return;
+        }
+
+        try {
+          const pairingRequestId = randomUUID();
+          const pairingSecret = randomBytes(32).toString("hex");
+          const gatewayUrl = runtimeUrl;
+
+          // Call /v1/pairing/register directly (not under /v1/assistants/:id/)
+          const registerUrl = `${runtimeUrl}/v1/pairing/register`;
+          const registerRes = await fetch(registerUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+            },
+            body: JSON.stringify({ pairingRequestId, pairingSecret, gatewayUrl }),
+          });
+
+          if (!registerRes.ok) {
+            const body = await registerRes.text().catch(() => "");
+            throw new Error(`HTTP ${registerRes.status}: ${body || registerRes.statusText}`);
+          }
+
+          const payload = JSON.stringify({
+            type: "vellum-daemon",
+            v: 4,
+            g: gatewayUrl,
+            pairingRequestId,
+            pairingSecret,
+          });
+
+          const qrString = await new Promise<string>((resolve) => {
+            qrcode.generate(payload, { small: true }, (code: string) => {
+              resolve(code);
+            });
+          });
+
+          h.hideSpinner();
+          h.addStatus(
+            `Pairing Ready\n\n` +
+              `Scan this QR code with the Vellum iOS app:\n\n` +
+              `${qrString}\n` +
+              `This pairing request expires in 5 minutes. Run /pair again to generate a new one.`,
+          );
+        } catch (err) {
+          h.hideSpinner();
+          h.showError(`Pairing failed: ${err instanceof Error ? err.message : err}`);
+        }
         return;
       }
 

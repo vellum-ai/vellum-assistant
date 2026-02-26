@@ -1,7 +1,4 @@
-import { getLogger } from '../../util/logger.js';
 import type { DrizzleDb } from '../db-connection.js';
-
-const log = getLogger('memory-db');
 
 /**
  * Tasks, task runs, task candidates, and work items tables with indexes.
@@ -69,11 +66,11 @@ export function createTasksAndWorkItemsTables(database: DrizzleDb): void {
   `);
 
   // Work item run contract snapshot
-  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN required_tools TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN required_tools (likely already exists)'); }
+  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN required_tools TEXT`); } catch { /* already exists */ }
 
   // Work item permission preflight columns
-  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approved_tools TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN approved_tools (likely already exists)'); }
-  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approval_status TEXT DEFAULT 'none'`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN approval_status (likely already exists)'); }
+  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approved_tools TEXT`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approval_status TEXT DEFAULT 'none'`); } catch { /* already exists */ }
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_task_id ON work_items(task_id)`);

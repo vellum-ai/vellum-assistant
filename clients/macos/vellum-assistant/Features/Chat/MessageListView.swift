@@ -20,18 +20,42 @@ struct MessageListView: View {
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
-    var subagentDetailStore: SubagentDetailStore?
+    /// Called to rehydrate truncated message content on demand.
+    var onRehydrateMessage: ((UUID) -> Void)?
+    @ObservedObject var subagentDetailStore: SubagentDetailStore
+
+    // MARK: - Pagination
+
+    /// Number of messages the view currently displays (suffix window size).
+    var displayedMessageCount: Int = .max
+    /// Whether older messages exist beyond the current display window.
+    var hasMoreMessages: Bool = false
+    /// True while a previous-page load is in progress.
+    var isLoadingMoreMessages: Bool = false
+    /// Callback to load the next older page of messages.
+    var loadPreviousMessagePage: (() async -> Bool)?
 
     var threadId: UUID?
     @Binding var isNearBottom: Bool
+    @Environment(\.conversationZoomScale) private var conversationZoomScale
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
     /// Read once at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared ObservableObject.
+    @State private var scrollDebounceTask: Task<Void, Never>?
     @ObservedObject private var taskProgressOverlay = TaskProgressOverlayManager.shared
     private var activeSurfaceId: String? { taskProgressOverlay.activeSurfaceId }
+
+    /// The subset of messages actually shown, honoring the pagination window.
+    private var visibleMessages: [ChatMessage] {
+        let all = messages.filter { !$0.isSubagentNotification }
+        // When displayedMessageCount covers all messages (or is Int.max / show-all mode),
+        // return everything so new incoming messages don't collapse visible history.
+        guard displayedMessageCount < all.count else { return all }
+        return Array(all.suffix(displayedMessageCount))
+    }
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Uses total text length (monotonically increasing) so the trigger never produces the same
@@ -43,15 +67,21 @@ struct MessageListView: View {
         return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
-    private func shouldShowTimestamp(at index: Int, in list: [ChatMessage]) -> Bool {
-        if index == 0 { return true }
-        let current = list[index].timestamp
-        let previous = list[index - 1].timestamp
+    /// Pre-compute which message indices should show a timestamp divider.
+    /// Avoids creating a Calendar instance per-message inside the ForEach body.
+    private func timestampIndices(for list: [ChatMessage]) -> Set<Int> {
+        guard !list.isEmpty else { return [] }
+        var result: Set<Int> = [0]
         var calendar = Calendar.current
         calendar.timeZone = ChatTimestampTimeZone.resolve()
-        if !calendar.isDate(current, inSameDayAs: previous) { return true }
-        let gap = current.timeIntervalSince(previous)
-        return gap > 300
+        for i in 1..<list.count {
+            let current = list[i].timestamp
+            let previous = list[i - 1].timestamp
+            if !calendar.isDate(current, inSameDayAs: previous) || current.timeIntervalSince(previous) > 300 {
+                result.insert(i)
+            }
+        }
+        return result
     }
 
     private func modelPickerView(for message: ChatMessage) -> some View {
@@ -74,13 +104,43 @@ struct MessageListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-                    let displayMessages = messages.filter { msg in
-                        if msg.isSubagentNotification { return false }
-                        return true
+                    // MARK: - Pagination sentinel
+
+                    if isLoadingMoreMessages {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                        .padding(.vertical, VSpacing.sm)
+                        .id("page-loading-indicator")
+                    } else if hasMoreMessages {
+                        // Invisible sentinel: fires when the user scrolls to the top,
+                        // triggering the next-older page of messages to be revealed.
+                        Color.clear
+                            .frame(height: 1)
+                            .id("page-load-trigger")
+                            .onAppear {
+                                let anchorId = visibleMessages.first?.id
+                                Task {
+                                    let hadMore = await loadPreviousMessagePage?() ?? false
+                                    if hadMore, let id = anchorId {
+                                        proxy.scrollTo(id, anchor: .top)
+                                    }
+                                }
+                            }
                     }
+
+                    let displayMessages = visibleMessages
                     let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
-                    ForEach(Array(displayMessages.enumerated()), id: \.element.id) { index, message in
-                        if shouldShowTimestamp(at: index, in: displayMessages) {
+                    let latestAssistantId = displayMessages.last(where: { $0.role == .assistant })?.id
+                    // Pre-compute subagent lookup to avoid O(n*m) filtering inside ForEach
+                    let subagentsByParent: [UUID: [SubagentInfo]] = Dictionary(grouping: activeSubagents.filter { $0.parentMessageId != nil }, by: { $0.parentMessageId! })
+                    let orphanSubagents = activeSubagents.filter { $0.parentMessageId == nil }
+                    let showTimestamp = timestampIndices(for: displayMessages)
+                    ForEach(Array(zip(displayMessages.indices, displayMessages)), id: \.1.id) { index, message in
+                        if showTimestamp.contains(index) {
                             TimestampDivider(date: message.timestamp)
                         }
 
@@ -94,7 +154,7 @@ struct MessageListView: View {
                                     onAlwaysAllow: onAlwaysAllow
                                 )
                                 .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .transition(.opacity)
                             } else {
                                 let hasPrecedingAssistant: Bool = {
                                     guard index > 0 else { return false }
@@ -109,21 +169,21 @@ struct MessageListView: View {
                                         onAlwaysAllow: onAlwaysAllow
                                     )
                                     .id(message.id)
-                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                    .transition(.opacity)
                                 }
                             }
                         } else if message.modelPicker != nil {
                             modelPickerView(for: message)
                                 .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .transition(.opacity)
                         } else if message.modelList != nil {
                             modelListView(for: message)
                                 .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .transition(.opacity)
                         } else if message.commandList != nil {
                             CommandListBubble()
                                 .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .transition(.opacity)
                         } else {
                             let nextIsPendingConfirmation = index + 1 < displayMessages.count
                                 && displayMessages[index + 1].confirmation?.state == .pending
@@ -147,34 +207,35 @@ struct MessageListView: View {
                                 },
                                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                                 onReportMessage: onReportMessage,
+                                onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
                                 mediaEmbedSettings: mediaEmbedSettings,
                                 daemonHttpPort: daemonHttpPort,
                                 showAvatar: !previousIsAssistant,
-                                isLatestAssistantMessage: message.role == .assistant && displayMessages.last(where: { $0.role == .assistant })?.id == message.id,
+                                isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                                 activeSurfaceId: activeSurfaceId
                             )
                                 .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .transition(.opacity)
                         }
 
-                        ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
+                        ForEach(subagentsByParent[message.id] ?? []) { subagent in
                             SubagentThreadView(
                                 subagent: subagent,
-                                events: subagentDetailStore?.eventsBySubagent[subagent.id] ?? [],
+                                events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
                                 onAbort: { onAbortSubagent?(subagent.id) },
                                 onTap: { onSubagentTap?(subagent.id) }
                             )
                                 .frame(maxWidth: 520, alignment: .leading)
                                 .padding(.leading, 36)
                                 .id("subagent-\(subagent.id)")
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .transition(.opacity)
                         }
                     }
 
-                    ForEach(activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
+                    ForEach(orphanSubagents) { subagent in
                         SubagentThreadView(
                             subagent: subagent,
-                            events: subagentDetailStore?.eventsBySubagent[subagent.id] ?? [],
+                            events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
                             onAbort: { onAbortSubagent?(subagent.id) },
                             onTap: { onSubagentTap?(subagent.id) }
                         )
@@ -298,8 +359,28 @@ struct MessageListView: View {
             }
             .onChange(of: streamingScrollTrigger) {
                 if isNearBottom {
-                    withAnimation(VAnimation.fast) {
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    // Throttle pattern: fire immediately then suppress for 200ms.
+                    // Unlike debounce (cancel+recreate), this guarantees scrolls
+                    // execute during active streaming, not only after the last token.
+                    if scrollDebounceTask == nil {
+                        scrollDebounceTask = Task {
+                            // Re-check after the sleep — user may have scrolled away.
+                            guard isNearBottom else {
+                                scrollDebounceTask = nil
+                                return
+                            }
+                            withAnimation(VAnimation.fast) {
+                                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                            }
+                            try? await Task.sleep(nanoseconds: 200_000_000)
+                            scrollDebounceTask = nil
+                            // Trailing edge: content may have changed during cooldown.
+                            if isNearBottom {
+                                withAnimation(VAnimation.fast) {
+                                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -309,6 +390,12 @@ struct MessageListView: View {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
                 }
+            }
+            .onChange(of: conversationZoomScale) {
+                if isNearBottom {
+                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                }
+                // When mid-scroll, do nothing — let SwiftUI handle the text reflow naturally.
             }
         }
         .id(threadId)

@@ -342,6 +342,7 @@ export async function runAgentLoopImpl(
       conversationOriginInterface: getConversationOriginInterface(ctx.conversationId),
     };
 
+    const isInteractiveResolved = options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
     runMessages = applyRuntimeInjections(runMessages, {
       softConflictInstruction,
       activeSurface,
@@ -353,6 +354,7 @@ export async function runAgentLoopImpl(
       guardianContext: ctx.guardianContext ?? null,
       temporalContext,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+      isNonInteractive: !isInteractiveResolved,
     });
 
     // Pre-run repair
@@ -471,6 +473,7 @@ export async function runAgentLoopImpl(
           guardianContext: ctx.guardianContext ?? null,
           temporalContext,
           voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+          isNonInteractive: !isInteractiveResolved,
         });
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
@@ -508,6 +511,7 @@ export async function runAgentLoopImpl(
             guardianContext: ctx.guardianContext ?? null,
             temporalContext,
             voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+            isNonInteractive: !isInteractiveResolved,
           });
           preRepairMessages = runMessages;
           preRunHistoryLength = runMessages.length;
@@ -530,6 +534,16 @@ export async function runAgentLoopImpl(
         );
         onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
       }
+    } else if (state.contextTooLargeDetected) {
+      // Progress was made (updatedHistory grew), so the retry path above was
+      // skipped. Surface the error so clients are not left with a silent failure.
+      rlog.warn({ phase: 'post_run' }, 'Context too large after progress — surfacing error without retry');
+      const classified = classifySessionError(
+        new Error('context_length_exceeded'),
+        { phase: 'agent_loop' },
+      );
+      onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
+      state.providerErrorUserMessage = classified.userMessage;
     }
 
     if (state.deferredOrderingError) {

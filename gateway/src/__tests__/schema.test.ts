@@ -124,4 +124,22 @@ describe("buildSchema()", () => {
     // THEN the round-tripped object equals the original
     expect(parsed).toEqual(schema);
   });
+
+  test("TelegramDeliverRequest supports typing chatAction payloads", () => {
+    const schema = buildSchema();
+    const components = schema.components as {
+      schemas: Record<string, {
+        properties?: Record<string, unknown>;
+        anyOf?: Array<Record<string, unknown>>;
+      }>;
+    };
+    const telegramDeliver = components.schemas.TelegramDeliverRequest;
+
+    expect(telegramDeliver.properties?.chatAction).toEqual({
+      type: "string",
+      enum: ["typing"],
+      description: "Optional Telegram chat action to emit (currently only `typing`)",
+    });
+    expect(telegramDeliver.anyOf).toContainEqual({ required: ["chatAction"] });
+  });
 });

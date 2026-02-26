@@ -66,7 +66,7 @@ const SSH_OPTS = [
 const REMOTE_PS_CMD = [
   // List vellum-related processes: daemon, gateway, qdrant, and any bun children
   "ps ax -o pid=,ppid=,args=",
-  "| grep -E 'vellum|gateway|qdrant|openclaw'",
+  "| grep -E 'vellum|vellum-gateway|qdrant|openclaw'",
   "| grep -v grep",
 ].join(" ");
 
@@ -78,7 +78,7 @@ interface RemoteProcess {
 
 function classifyProcess(command: string): string {
   if (/qdrant/.test(command)) return "qdrant";
-  if (/gateway/.test(command)) return "gateway";
+  if (/vellum-gateway/.test(command)) return "gateway";
   if (/openclaw/.test(command)) return "openclaw-adapter";
   if (/vellum-daemon/.test(command)) return "daemon";
   if (/daemon\s+(start|restart)/.test(command)) return "daemon";
@@ -281,7 +281,7 @@ async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
   try {
     const output = await execOutput("sh", [
       "-c",
-      "ps ax -o pid=,ppid=,args= | grep -E 'vellum|gateway|qdrant|openclaw' | grep -v grep",
+      "ps ax -o pid=,ppid=,args= | grep -E 'vellum|vellum-gateway|qdrant|openclaw' | grep -v grep",
     ]);
     const procs = parseRemotePs(output);
     const ownPid = String(process.pid);

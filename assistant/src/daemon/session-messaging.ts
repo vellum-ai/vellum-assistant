@@ -21,6 +21,67 @@ import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
 
 const log = getLogger('session-messaging');
 
+interface IngressSecretTarget {
+  service: string;
+  field: string;
+  label: string;
+}
+
+const INGRESS_SECRET_TARGETS: Record<string, IngressSecretTarget> = {
+  'Anthropic API Key': { service: 'anthropic', field: 'api_key', label: 'Anthropic API Key' },
+  'GitHub Fine-Grained PAT': { service: 'github', field: 'token', label: 'GitHub Token' },
+  'GitHub Token': { service: 'github', field: 'token', label: 'GitHub Token' },
+  'GitLab Token': { service: 'gitlab', field: 'token', label: 'GitLab Token' },
+  'Google API Key': { service: 'google', field: 'api_key', label: 'Google API Key' },
+  'Google OAuth Client Secret': { service: 'google', field: 'client_secret', label: 'Google OAuth Client Secret' },
+  'Mailgun API Key': { service: 'mailgun', field: 'api_key', label: 'Mailgun API Key' },
+  'OpenAI API Key': { service: 'openai', field: 'api_key', label: 'OpenAI API Key' },
+  'OpenAI Project Key': { service: 'openai', field: 'api_key', label: 'OpenAI API Key' },
+  'PyPI API Token': { service: 'pypi', field: 'api_token', label: 'PyPI API Token' },
+  'SendGrid API Key': { service: 'sendgrid', field: 'api_key', label: 'SendGrid API Key' },
+  'Slack Bot Token': { service: 'slack', field: 'bot_token', label: 'Slack Bot Token' },
+  'Slack User Token': { service: 'slack', field: 'user_token', label: 'Slack User Token' },
+  'Slack Webhook': { service: 'slack', field: 'webhook_url', label: 'Slack Webhook URL' },
+  'Stripe Restricted Key': { service: 'stripe', field: 'restricted_key', label: 'Stripe Restricted Key' },
+  'Stripe Secret Key': { service: 'stripe', field: 'secret_key', label: 'Stripe Secret Key' },
+  'Telegram Bot Token': { service: 'telegram', field: 'bot_token', label: 'Telegram Bot Token' },
+  'Twilio API Key': { service: 'twilio', field: 'api_key', label: 'Twilio API Key' },
+  'npm Token': { service: 'npm', field: 'token', label: 'npm Token' },
+};
+
+export interface RedirectedSecretRecord {
+  service: string;
+  field: string;
+  label: string;
+  delivery: 'store' | 'transient_send';
+}
+
+export interface RedirectToSecurePromptOptions {
+  onStored?: (record: RedirectedSecretRecord) => void | Promise<void>;
+  onComplete?: () => void;
+}
+
+function normalizeIngressSecretTypeLabel(detectedType: string): string {
+  return detectedType.replace(/\s+\([^)]+\)$/u, '');
+}
+
+function resolveIngressSecretTarget(detectedTypes: string[]): IngressSecretTarget {
+  const mappedTargets = new Map<string, IngressSecretTarget>();
+  for (const detectedType of detectedTypes) {
+    const normalizedType = normalizeIngressSecretTypeLabel(detectedType);
+    const mapped = INGRESS_SECRET_TARGETS[normalizedType];
+    if (!mapped) continue;
+    mappedTargets.set(`${mapped.service}:${mapped.field}`, mapped);
+  }
+  if (mappedTargets.size === 1) return mappedTargets.values().next().value!;
+
+  return {
+    service: 'detected',
+    field: detectedTypes.join(','),
+    label: 'Secure Credential Entry',
+  };
+}
+
 // ── Context Interface ────────────────────────────────────────────────
 
 export interface MessagingSessionContext {
@@ -62,6 +123,7 @@ export function enqueueMessage(
   activeSurfaceId?: string,
   currentPage?: string,
   metadata?: Record<string, unknown>,
+  options?: { isInteractive?: boolean },
 ): { queued: boolean; rejected?: boolean; requestId: string } {
   if (!ctx.processing) {
     return { queued: false, requestId };
@@ -79,6 +141,7 @@ export function enqueueMessage(
     metadata,
     turnChannelContext,
     turnInterfaceContext,
+    isInteractive: options?.isInteractive,
     queuedAt: Date.now(),
   });
   if (!pushed) {
@@ -173,37 +236,57 @@ export function redirectToSecurePrompt(
   conversationId: string,
   secretPrompter: SecretPrompter,
   detectedTypes: string[],
-  onComplete?: () => void,
+  options?: RedirectToSecurePromptOptions,
 ): void {
-  const service = 'detected';
-  const field = detectedTypes.join(',');
+  const target = resolveIngressSecretTarget(detectedTypes);
+
   secretPrompter.prompt(
-    service, field,
-    'Secure Credential Entry',
+    target.service, target.field,
+    target.label,
     'Your message contained a secret. Please enter it here instead — it will be stored securely and never sent to the AI.',
     undefined, conversationId,
-  ).then(async (result) => {
+  ).then(async (result): Promise<void> => {
     if (!result.value) return;
 
     const { setSecureKey } = await import('../security/secure-keys.js');
     const { upsertCredentialMetadata } = await import('../tools/credentials/metadata-store.js');
 
+    let wasStored = false;
     if (result.delivery === 'transient_send') {
       const { credentialBroker } = await import('../tools/credentials/broker.js');
-      credentialBroker.injectTransient(service, field, result.value);
-      try { upsertCredentialMetadata(service, field, {}); } catch (e) { log.debug({ err: e, service, field }, 'Non-critical credential metadata upsert failed'); }
-      log.info({ service, field, delivery: 'transient_send' }, 'Ingress redirect: transient credential injected');
+      credentialBroker.injectTransient(target.service, target.field, result.value);
+      try {
+        upsertCredentialMetadata(target.service, target.field, {});
+      } catch (e) {
+        log.debug({ err: e, service: target.service, field: target.field }, 'Non-critical credential metadata upsert failed');
+      }
+      wasStored = true;
+      log.info({ service: target.service, field: target.field, delivery: 'transient_send' }, 'Ingress redirect: transient credential injected');
     } else {
-      const key = `credential:${service}:${field}`;
+      const key = `credential:${target.service}:${target.field}`;
       const stored = setSecureKey(key, result.value);
       if (stored) {
-        try { upsertCredentialMetadata(service, field, {}); } catch (e) { log.debug({ err: e, service, field }, 'Non-critical credential metadata upsert failed'); }
-        log.info({ service, field }, 'Ingress redirect: credential stored');
+        try {
+          upsertCredentialMetadata(target.service, target.field, {});
+        } catch (e) {
+          log.debug({ err: e, service: target.service, field: target.field }, 'Non-critical credential metadata upsert failed');
+        }
+        wasStored = true;
+        log.info({ service: target.service, field: target.field }, 'Ingress redirect: credential stored');
       } else {
-        log.warn({ service, field }, 'Ingress redirect: secure storage write failed');
+        log.warn({ service: target.service, field: target.field }, 'Ingress redirect: secure storage write failed');
       }
     }
+
+    if (wasStored) {
+      await options?.onStored?.({
+        service: target.service,
+        field: target.field,
+        label: target.label,
+        delivery: result.delivery,
+      });
+    }
   }).catch(() => { /* prompt timeout or cancel is fine */ }).finally(() => {
-    onComplete?.();
+    options?.onComplete?.();
   });
 }

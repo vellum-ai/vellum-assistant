@@ -10,6 +10,7 @@ exports[`IPC message snapshots ClientMessage types auth serializes to expected J
 exports[`IPC message snapshots ClientMessage types user_message serializes to expected JSON 1`] = `
 {
   "content": "Hello, assistant!",
+  "interface": "cli",
   "sessionId": "sess-001",
   "type": "user_message",
 }
@@ -41,6 +42,7 @@ exports[`IPC message snapshots ClientMessage types session_create serializes to 
     "hints": [
       "dashboard-capable",
     ],
+    "interfaceId": "macos",
     "uxBrief": "Prefer dashboard-first onboarding.",
   },
   "type": "session_create",
@@ -51,6 +53,14 @@ exports[`IPC message snapshots ClientMessage types session_switch serializes to 
 {
   "sessionId": "sess-002",
   "type": "session_switch",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types session_rename serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-002",
+  "title": "Renamed session",
+  "type": "session_rename",
 }
 `;
 
@@ -308,6 +318,31 @@ exports[`IPC message snapshots ClientMessage types skills_inspect serializes to 
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types skills_draft serializes to expected JSON 1`] = `
+{
+  "sourceText": "Create a weather skill",
+  "type": "skills_draft",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types skills_create serializes to expected JSON 1`] = `
+{
+  "bodyMarkdown": 
+"# Weather
+
+Fetches weather data."
+,
+  "description": "Fetches current weather",
+  "disableModelInvocation": false,
+  "emoji": "🌤️",
+  "name": "Weather Skill",
+  "overwrite": false,
+  "skillId": "weather-skill",
+  "type": "skills_create",
+  "userInvocable": true,
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types suggestion_request serializes to expected JSON 1`] = `
 {
   "requestId": "req-suggest-001",
@@ -491,6 +526,14 @@ exports[`IPC message snapshots ClientMessage types conversation_search serialize
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types message_content_request serializes to expected JSON 1`] = `
+{
+  "messageId": "msg-001",
+  "sessionId": "sess-001",
+  "type": "message_content_request",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types ipc_blob_probe serializes to expected JSON 1`] = `
 {
   "nonceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -586,6 +629,13 @@ exports[`IPC message snapshots ClientMessage types ingress_config serializes to 
 {
   "action": "get",
   "type": "ingress_config",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types platform_config serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "type": "platform_config",
 }
 `;
 
@@ -713,6 +763,16 @@ exports[`IPC message snapshots ClientMessage types integration_disconnect serial
 {
   "integrationId": "gmail",
   "type": "integration_disconnect",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types oauth_connect_start serializes to expected JSON 1`] = `
+{
+  "requestedScopes": [
+    "https://www.googleapis.com/auth/gmail.readonly",
+  ],
+  "service": "gmail",
+  "type": "oauth_connect_start",
 }
 `;
 
@@ -1009,16 +1069,6 @@ exports[`IPC message snapshots ClientMessage types ingress_member serializes to 
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types assistant_inbox serializes to expected JSON 1`] = `
-{
-  "action": "list_threads",
-  "assistantId": "asst-001",
-  "limit": 20,
-  "offset": 0,
-  "type": "assistant_inbox",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types assistant_inbox_escalation serializes to expected JSON 1`] = `
 {
   "action": "list",
@@ -1028,11 +1078,97 @@ exports[`IPC message snapshots ClientMessage types assistant_inbox_escalation se
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types assistant_inbox_reply serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ClientMessage types pairing_approval_response serializes to expected JSON 1`] = `
 {
-  "content": "Hello from the assistant",
+  "decision": "approve_once",
+  "pairingRequestId": "pair-001",
+  "type": "pairing_approval_response",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types approved_devices_list serializes to expected JSON 1`] = `
+{
+  "type": "approved_devices_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types approved_device_remove serializes to expected JSON 1`] = `
+{
+  "hashedDeviceId": "hashed-device-001",
+  "type": "approved_device_remove",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types approved_devices_clear serializes to expected JSON 1`] = `
+{
+  "type": "approved_devices_clear",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types notification_intent_result serializes to expected JSON 1`] = `
+{
+  "deliveryId": "delivery-001",
+  "success": true,
+  "type": "notification_intent_result",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types conversation_seen_signal serializes to expected JSON 1`] = `
+{
+  "confidence": "explicit",
   "conversationId": "conv-001",
-  "type": "assistant_inbox_reply",
+  "evidenceText": "User clicked View on notification",
+  "metadata": {
+    "notificationCategory": "NOTIFICATION_INTENT",
+  },
+  "observedAt": 1700000000000,
+  "signalType": "macos_notification_view",
+  "source": "notification-action",
+  "sourceChannel": "vellum",
+  "type": "conversation_seen_signal",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types recording_status serializes to expected JSON 1`] = `
+{
+  "sessionId": "rec-001",
+  "status": "started",
+  "type": "recording_status",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_config serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "type": "heartbeat_config",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_runs_list serializes to expected JSON 1`] = `
+{
+  "type": "heartbeat_runs_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_run_now serializes to expected JSON 1`] = `
+{
+  "type": "heartbeat_run_now",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_checklist_read serializes to expected JSON 1`] = `
+{
+  "type": "heartbeat_checklist_read",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_checklist_write serializes to expected JSON 1`] = `
+{
+  "content": 
+"- [ ] Check email
+- [ ] Review PRs"
+,
+  "type": "heartbeat_checklist_write",
 }
 `;
 
@@ -1209,6 +1345,12 @@ exports[`IPC message snapshots ServerMessage types session_list_response seriali
       "updatedAt": 1700000000,
     },
     {
+      "assistantAttention": {
+        "hasUnseenLatestAssistantMessage": true,
+        "lastSeenConfidence": "explicit",
+        "lastSeenSignalType": "macos_notification_view",
+        "latestAssistantMessageAt": 1700001000,
+      },
       "id": "sess-002",
       "threadType": "standard",
       "title": "Second session",
@@ -1245,6 +1387,24 @@ exports[`IPC message snapshots ServerMessage types conversation_search_response 
     },
   ],
   "type": "conversation_search_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types message_content_response serializes to expected JSON 1`] = `
+{
+  "messageId": "msg-001",
+  "sessionId": "sess-001",
+  "text": "Full message content here",
+  "toolCalls": [
+    {
+      "input": {
+        "command": "ls",
+      },
+      "name": "bash",
+      "result": "output",
+    },
+  ],
+  "type": "message_content_response",
 }
 `;
 
@@ -1300,6 +1460,7 @@ exports[`IPC message snapshots ServerMessage types model_info serializes to expe
 
 exports[`IPC message snapshots ServerMessage types history_response serializes to expected JSON 1`] = `
 {
+  "hasMore": false,
   "messages": [
     {
       "role": "user",
@@ -1656,6 +1817,25 @@ Does things."
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types skills_draft_response serializes to expected JSON 1`] = `
+{
+  "draft": {
+    "bodyMarkdown": 
+"# Weather
+
+Fetches weather data."
+,
+    "description": "Fetches current weather",
+    "emoji": "🌤️",
+    "name": "Weather Skill",
+    "skillId": "weather-skill",
+  },
+  "success": true,
+  "type": "skills_draft_response",
+  "warnings": [],
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types suggestion_response serializes to expected JSON 1`] = `
 {
   "requestId": "req-suggest-001",
@@ -1690,44 +1870,32 @@ exports[`IPC message snapshots ServerMessage types message_queued_deleted serial
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types reminder_fired serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types notification_intent serializes to expected JSON 1`] = `
 {
-  "label": "Call Sidd",
-  "message": "Remember to call Sidd about the project",
-  "reminderId": "rem-001",
-  "type": "reminder_fired",
+  "body": "Your assistant needs your input.",
+  "deepLinkMetadata": {
+    "conversationId": "conv-guardian-001",
+  },
+  "sourceEventName": "guardian.question",
+  "title": "⚠️ Attention needed",
+  "type": "notification_intent",
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types schedule_complete serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types notification_thread_created serializes to expected JSON 1`] = `
 {
-  "name": "Daily backup",
-  "scheduleId": "sched-001",
-  "type": "schedule_complete",
+  "conversationId": "conv-notif-001",
+  "sourceEventName": "watcher.escalation",
+  "title": "Weather alert for your area",
+  "type": "notification_thread_created",
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types watcher_notification serializes to expected JSON 1`] = `
-{
-  "body": "Disabled after 5 consecutive errors.",
-  "title": "Watcher disabled: My Gmail",
-  "type": "watcher_notification",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types watcher_escalation serializes to expected JSON 1`] = `
-{
-  "body": "Meeting rescheduled to 3pm today.",
-  "title": "Urgent email from Alice",
-  "type": "watcher_escalation",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types agent_heartbeat_alert serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types heartbeat_alert serializes to expected JSON 1`] = `
 {
   "body": "No activity detected in the last 60 minutes.",
-  "title": "Agent heartbeat stalled",
-  "type": "agent_heartbeat_alert",
+  "title": "Heartbeat stalled",
+  "type": "heartbeat_alert",
 }
 `;
 
@@ -2063,6 +2231,14 @@ exports[`IPC message snapshots ServerMessage types ingress_config_response seria
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types platform_config_response serializes to expected JSON 1`] = `
+{
+  "baseUrl": "https://platform.vellum.ai",
+  "success": true,
+  "type": "platform_config_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types vercel_api_config_response serializes to expected JSON 1`] = `
 {
   "hasToken": true,
@@ -2352,6 +2528,17 @@ exports[`IPC message snapshots ServerMessage types integration_connect_result se
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types oauth_connect_result serializes to expected JSON 1`] = `
+{
+  "accountInfo": "user@example.com",
+  "grantedScopes": [
+    "https://www.googleapis.com/auth/gmail.readonly",
+  ],
+  "success": true,
+  "type": "oauth_connect_result",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types browser_cdp_request serializes to expected JSON 1`] = `
 {
   "sessionId": "test-session",
@@ -2610,17 +2797,6 @@ exports[`IPC message snapshots ServerMessage types task_run_thread_created seria
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types guardian_request_thread_created serializes to expected JSON 1`] = `
-{
-  "callSessionId": "call-001",
-  "conversationId": "conv-guardian-001",
-  "questionText": "What is the gate code?",
-  "requestId": "req-guardian-001",
-  "title": "Guardian action request",
-  "type": "guardian_request_thread_created",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types subagent_spawned serializes to expected JSON 1`] = `
 {
   "label": "Research Agent",
@@ -2831,28 +3007,6 @@ exports[`IPC message snapshots ServerMessage types ingress_member_response seria
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types assistant_inbox_response serializes to expected JSON 1`] = `
-{
-  "success": true,
-  "threads": [
-    {
-      "conversationId": "conv-001",
-      "displayName": "Test User",
-      "externalChatId": "chat-456",
-      "externalUserId": "user-123",
-      "hasPendingEscalation": false,
-      "lastInboundAt": 1700000000,
-      "lastMessageAt": 1700000000,
-      "lastOutboundAt": 1699999000,
-      "sourceChannel": "telegram",
-      "unreadCount": 3,
-      "username": "testuser",
-    },
-  ],
-  "type": "assistant_inbox_response",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types assistant_inbox_escalation_response serializes to expected JSON 1`] = `
 {
   "escalations": [
@@ -2861,7 +3015,7 @@ exports[`IPC message snapshots ServerMessage types assistant_inbox_escalation_re
       "conversationId": "conv-001",
       "createdAt": 1700000000,
       "id": "esc-001",
-      "requestSummary": "User wants to delete their account",
+      "requestSummary": "Access request from new user",
       "requesterChatId": "chat-456",
       "requesterExternalUserId": "user-123",
       "runId": "run-001",
@@ -2870,41 +3024,6 @@ exports[`IPC message snapshots ServerMessage types assistant_inbox_escalation_re
   ],
   "success": true,
   "type": "assistant_inbox_escalation_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types assistant_inbox_reply_response serializes to expected JSON 1`] = `
-{
-  "messageId": "msg-reply-001",
-  "success": true,
-  "type": "assistant_inbox_reply_response",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types pairing_approval_response serializes to expected JSON 1`] = `
-{
-  "decision": "approve_once",
-  "pairingRequestId": "pair-001",
-  "type": "pairing_approval_response",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types approved_devices_list serializes to expected JSON 1`] = `
-{
-  "type": "approved_devices_list",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types approved_device_remove serializes to expected JSON 1`] = `
-{
-  "hashedDeviceId": "hashed-device-001",
-  "type": "approved_device_remove",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types approved_devices_clear serializes to expected JSON 1`] = `
-{
-  "type": "approved_devices_clear",
 }
 `;
 
@@ -2937,81 +3056,67 @@ exports[`IPC message snapshots ServerMessage types approved_device_remove_respon
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types session_rename serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types recording_start serializes to expected JSON 1`] = `
 {
-  "sessionId": "sess-002",
-  "title": "Renamed session",
-  "type": "session_rename",
+  "recordingId": "rec-001",
+  "type": "recording_start",
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types notification_intent serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types recording_stop serializes to expected JSON 1`] = `
 {
-  "body": "Your assistant needs your input.",
-  "deepLinkMetadata": {
-    "conversationId": "conv-guardian-001",
-  },
-  "sourceEventName": "guardian.question",
-  "title": "⚠️ Attention needed",
-  "type": "notification_intent",
+  "recordingId": "rec-001",
+  "type": "recording_stop",
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types skills_draft serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types heartbeat_config_response serializes to expected JSON 1`] = `
 {
-  "sourceText": "Create a weather skill",
-  "type": "skills_draft",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types skills_create serializes to expected JSON 1`] = `
-{
-  "bodyMarkdown": 
-"# Weather
-
-Fetches weather data."
-,
-  "description": "Fetches current weather",
-  "disableModelInvocation": false,
-  "emoji": "🌤️",
-  "name": "Weather Skill",
-  "overwrite": false,
-  "skillId": "weather-skill",
-  "type": "skills_create",
-  "userInvocable": true,
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types platform_config serializes to expected JSON 1`] = `
-{
-  "action": "get",
-  "type": "platform_config",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types skills_draft_response serializes to expected JSON 1`] = `
-{
-  "draft": {
-    "bodyMarkdown": 
-"# Weather
-
-Fetches weather data."
-,
-    "description": "Fetches current weather",
-    "emoji": "🌤️",
-    "name": "Weather Skill",
-    "skillId": "weather-skill",
-  },
+  "activeHoursEnd": 17,
+  "activeHoursStart": 9,
+  "enabled": true,
+  "intervalMs": 3600000,
+  "nextRunAt": 1700003600000,
   "success": true,
-  "type": "skills_draft_response",
-  "warnings": [],
+  "type": "heartbeat_config_response",
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types platform_config_response serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types heartbeat_runs_list_response serializes to expected JSON 1`] = `
 {
-  "baseUrl": "https://platform.vellum.ai",
+  "runs": [
+    {
+      "createdAt": 1700000000000,
+      "id": "hb-run-001",
+      "result": "All systems nominal",
+      "title": "Morning heartbeat",
+    },
+  ],
+  "type": "heartbeat_runs_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_run_now_response serializes to expected JSON 1`] = `
+{
   "success": true,
-  "type": "platform_config_response",
+  "type": "heartbeat_run_now_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_checklist_response serializes to expected JSON 1`] = `
+{
+  "content": 
+"- [ ] Check email
+- [ ] Review PRs"
+,
+  "isDefault": false,
+  "type": "heartbeat_checklist_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_checklist_write_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "heartbeat_checklist_write_response",
 }
 `;

@@ -40,10 +40,9 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { setVoiceBridgeOrchestrator, startVoiceTurn } from '../calls/voice-session-bridge.js';
+import { setVoiceBridgeDeps, startVoiceTurn } from '../calls/voice-session-bridge.js';
 import { createConversation } from '../memory/conversation-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 
 initializeDb();
 
@@ -73,15 +72,25 @@ function makeStreamingSession(events: ServerMessage[]): Session {
   } as unknown as Session;
 }
 
+/**
+ * Helper to inject voice bridge deps with a given session factory.
+ */
+function injectDeps(sessionFactory: () => Session): void {
+  setVoiceBridgeDeps({
+    getOrCreateSession: async () => sessionFactory(),
+    resolveAttachments: () => [],
+    deriveDefaultStrictSideEffects: () => false,
+  });
+}
+
 describe('voice-session-bridge', () => {
   beforeEach(() => {
     const db = getDb();
-    db.run('DELETE FROM message_runs');
     db.run('DELETE FROM messages');
     db.run('DELETE FROM conversations');
   });
 
-  test('throws when orchestrator not injected', async () => {
+  test('throws when deps not injected', async () => {
     // Reset the module-level orchestrator by re-calling with undefined
     // (we can't easily reset module state, so we test the fresh import path)
     // Instead, test that startVoiceTurn works after injection
@@ -96,13 +105,7 @@ describe('voice-session-bridge', () => {
       { type: 'message_complete', sessionId: conversation.id },
     ];
     const session = makeStreamingSession(events);
-
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     const receivedDeltas: string[] = [];
     let completed = false;
@@ -121,7 +124,7 @@ describe('voice-session-bridge', () => {
 
     expect(receivedDeltas).toEqual(['Hello ', 'world']);
     expect(completed).toBe(true);
-    expect(handle.runId).toBeDefined();
+    expect(handle.turnId).toBeDefined();
     expect(typeof handle.abort).toBe('function');
   });
 
@@ -131,13 +134,7 @@ describe('voice-session-bridge', () => {
       { type: 'error', message: 'Provider unavailable' },
     ];
     const session = makeStreamingSession(events);
-
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     const receivedErrors: string[] = [];
     await startVoiceTurn({
@@ -154,7 +151,7 @@ describe('voice-session-bridge', () => {
     expect(receivedErrors).toEqual(['Provider unavailable']);
   });
 
-  test('abort handle cancels the in-flight run', async () => {
+  test('abort handle cancels the in-flight turn', async () => {
     const conversation = createConversation('voice bridge abort test');
     let abortCalled = false;
 
@@ -180,12 +177,7 @@ describe('voice-session-bridge', () => {
       abort: () => { abortCalled = true; },
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     const handle = await startVoiceTurn({
       conversationId: conversation.id,
@@ -200,7 +192,7 @@ describe('voice-session-bridge', () => {
     expect(abortCalled).toBe(true);
   });
 
-  test('external AbortSignal triggers run abort', async () => {
+  test('external AbortSignal triggers turn abort', async () => {
     const conversation = createConversation('voice bridge signal test');
     let abortCalled = false;
 
@@ -226,12 +218,7 @@ describe('voice-session-bridge', () => {
       abort: () => { abortCalled = true; },
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     const ac = new AbortController();
     await startVoiceTurn({
@@ -264,12 +251,7 @@ describe('voice-session-bridge', () => {
       setTurnChannelContext: (ctx: unknown) => { capturedTurnChannelContext = ctx; },
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     await startVoiceTurn({
       conversationId: conversation.id,
@@ -301,12 +283,7 @@ describe('voice-session-bridge', () => {
       set memoryPolicy(val: Record<string, unknown>) { capturedStrictSideEffects = val.strictSideEffects as boolean; },
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     await startVoiceTurn({
       conversationId: conversation.id,
@@ -342,12 +319,7 @@ describe('voice-session-bridge', () => {
       set memoryPolicy(val: Record<string, unknown>) { capturedStrictSideEffects = val.strictSideEffects as boolean; },
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     await startVoiceTurn({
       conversationId: conversation.id,
@@ -381,12 +353,7 @@ describe('voice-session-bridge', () => {
       set memoryPolicy(val: Record<string, unknown>) { capturedStrictSideEffects = val.strictSideEffects as boolean; },
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     await startVoiceTurn({
       conversationId: conversation.id,
@@ -423,12 +390,7 @@ describe('voice-session-bridge', () => {
       },
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     const guardianCtx = {
       sourceChannel: 'voice' as const,
@@ -504,12 +466,7 @@ describe('voice-session-bridge', () => {
       abort: () => {},
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     await startVoiceTurn({
       conversationId: conversation.id,
@@ -579,12 +536,7 @@ describe('voice-session-bridge', () => {
       abort: () => {},
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     await startVoiceTurn({
       conversationId: conversation.id,
@@ -646,12 +598,7 @@ describe('voice-session-bridge', () => {
       abort: () => {},
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     await startVoiceTurn({
       conversationId: conversation.id,
@@ -713,12 +660,7 @@ describe('voice-session-bridge', () => {
       abort: () => {},
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     await startVoiceTurn({
       conversationId: conversation.id,
@@ -785,12 +727,7 @@ describe('voice-session-bridge', () => {
       abort: () => {},
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     await startVoiceTurn({
       conversationId: conversation.id,
@@ -841,12 +778,7 @@ describe('voice-session-bridge', () => {
       abort: () => { abortCalled = true; },
     } as unknown as Session;
 
-    const orchestrator = new RunOrchestrator({
-      getOrCreateSession: async () => session,
-      resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
-    });
-    setVoiceBridgeOrchestrator(orchestrator);
+    injectDeps(() => session);
 
     const ac = new AbortController();
     ac.abort(); // Pre-abort before calling startVoiceTurn

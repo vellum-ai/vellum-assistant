@@ -203,7 +203,7 @@ export async function contacts(): Promise<void> {
         } else {
           console.log(formatContact(data.contact));
         }
-      } catch (err) {
+      } catch {
         if (json) {
           console.log(
             JSON.stringify({

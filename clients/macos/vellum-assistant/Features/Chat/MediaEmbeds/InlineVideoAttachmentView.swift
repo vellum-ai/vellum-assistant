@@ -170,13 +170,17 @@ struct InlineVideoAttachmentView: View {
         // Server thumbnail and aspect ratio are set eagerly in init.
         if thumbnailImage != nil { return }
 
-        // Fallback: extract thumbnail from inline video data.
-        guard !attachment.data.isEmpty, let data = Data(base64Encoded: attachment.data) else { return }
-
-        let fileURL = safeTempURL()
-        do {
-            try data.write(to: fileURL)
-        } catch {
+        let fileURL: URL
+        if !attachment.data.isEmpty, let data = Data(base64Encoded: attachment.data) {
+            // Inline attachment: decode base64 to temp file.
+            let url = safeTempURL()
+            do { try data.write(to: url) } catch { return }
+            fileURL = url
+        } else {
+            // For lazy (file-backed) attachments, don't download the full video
+            // just for a thumbnail — large recordings (100MB+) cause unnecessary
+            // network traffic and memory pressure. The view already shows a
+            // play-button placeholder when thumbnailImage is nil.
             return
         }
 
@@ -269,9 +273,11 @@ struct InlineVideoAttachmentView: View {
         isLoading = true
         Task {
             do {
-                let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
+                let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
+                let fileURL = safeTempURL()
+                try data.write(to: fileURL)
                 await MainActor.run { isLoading = false }
-                await playFromBase64(base64)
+                await playFromFile(fileURL)
             } catch {
                 log.error("Failed to fetch attachment \(attachmentId): \(error.localizedDescription)")
                 await MainActor.run {
@@ -315,11 +321,7 @@ struct InlineVideoAttachmentView: View {
             }
             Task {
                 do {
-                    let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
-                    guard let data = Data(base64Encoded: base64) else {
-                        await MainActor.run { isSaving = false }
-                        return
-                    }
+                    let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
                     try data.write(to: destURL)
                     await MainActor.run { isSaving = false }
                 } catch {
@@ -347,14 +349,7 @@ struct InlineVideoAttachmentView: View {
             isLoading = true
             Task {
                 do {
-                    let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
-                    guard let data = Data(base64Encoded: base64) else {
-                        await MainActor.run {
-                            isLoading = false
-                            failed = true
-                        }
-                        return
-                    }
+                    let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
                     let fileURL = safeTempURL()
                     try data.write(to: fileURL)
                     await MainActor.run {
@@ -374,8 +369,8 @@ struct InlineVideoAttachmentView: View {
     }
 }
 
-/// Fetch attachment base64 data from the daemon HTTP endpoint.
-private func fetchAttachmentData(port: Int, attachmentId: String) async throws -> String {
+/// Fetch raw attachment bytes from the daemon HTTP content endpoint.
+private func fetchAttachmentContent(port: Int, attachmentId: String) async throws -> Data {
     let tokenBase: String
     if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
        !baseDir.isEmpty {
@@ -389,7 +384,7 @@ private func fetchAttachmentData(port: Int, attachmentId: String) async throws -
           !token.isEmpty else {
         throw URLError(.userAuthenticationRequired)
     }
-    let url = URL(string: "http://localhost:\(port)/v1/attachments/\(attachmentId)")!
+    let url = URL(string: "http://localhost:\(port)/v1/attachments/\(attachmentId)/content")!
     var request = URLRequest(url: url)
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
@@ -398,11 +393,7 @@ private func fetchAttachmentData(port: Int, attachmentId: String) async throws -
         throw URLError(.badServerResponse)
     }
 
-    struct AttachmentResponse: Decodable {
-        let data: String
-    }
-    let decoded = try JSONDecoder().decode(AttachmentResponse.self, from: data)
-    return decoded.data
+    return data
 }
 
 /// NSViewRepresentable wrapper for AVPlayerView.

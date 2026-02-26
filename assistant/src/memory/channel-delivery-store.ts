@@ -204,6 +204,103 @@ export function acknowledgeDelivery(
   return true;
 }
 
+// ── Pending verification reply helpers ───────────────────────────────
+//
+// When a guardian verification succeeds but the confirmation reply fails
+// to deliver, we persist the reply details on the inbound event so that
+// gateway retries (which arrive as duplicates) can re-attempt delivery.
+
+export interface PendingVerificationReply {
+  __pendingVerificationReply: true;
+  chatId: string;
+  text: string;
+  assistantId: string;
+}
+
+/**
+ * Store a pending verification reply on an inbound event. Called when
+ * `deliverChannelReply` fails after challenge consumption so the reply
+ * can be retried on subsequent duplicate deliveries.
+ */
+export function storePendingVerificationReply(
+  eventId: string,
+  reply: Omit<PendingVerificationReply, '__pendingVerificationReply'>,
+): void {
+  const db = getDb();
+  const payload: PendingVerificationReply = { __pendingVerificationReply: true, ...reply };
+  db.update(channelInboundEvents)
+    .set({ rawPayload: JSON.stringify(payload), updatedAt: Date.now() })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+/**
+ * Retrieve a pending verification reply for a given event, if one exists.
+ */
+export function getPendingVerificationReply(
+  eventId: string,
+): PendingVerificationReply | null {
+  const db = getDb();
+  const row = db
+    .select({ rawPayload: channelInboundEvents.rawPayload })
+    .from(channelInboundEvents)
+    .where(eq(channelInboundEvents.id, eventId))
+    .get();
+
+  if (!row?.rawPayload) return null;
+  try {
+    const parsed = JSON.parse(row.rawPayload);
+    if (parsed && parsed.__pendingVerificationReply === true) {
+      return parsed as PendingVerificationReply;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clear a pending verification reply after successful delivery.
+ */
+export function clearPendingVerificationReply(eventId: string): void {
+  const db = getDb();
+  db.update(channelInboundEvents)
+    .set({ rawPayload: null, updatedAt: Date.now() })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+// ── Per-segment delivery progress ──────────────────────────────────
+//
+// When a split reply (multiple text segments from tool boundaries) fails
+// partway through delivery, we persist how many segments were sent so
+// the retry can resume from where it left off.
+
+/**
+ * Read the number of reply segments already delivered for an event.
+ */
+export function getDeliveredSegmentCount(eventId: string): number {
+  const db = getDb();
+  const row = db
+    .select({ count: channelInboundEvents.deliveredSegmentCount })
+    .from(channelInboundEvents)
+    .where(eq(channelInboundEvents.id, eventId))
+    .get();
+  return row?.count ?? 0;
+}
+
+/**
+ * Update the delivered segment count after successful delivery of one
+ * or more segments. Called incrementally as segments are sent.
+ */
+export function updateDeliveredSegmentCount(eventId: string, count: number): void {
+  const db = getDb();
+  db.update(channelInboundEvents)
+    .set({ deliveredSegmentCount: count, updatedAt: Date.now() })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
 // ── Dead-letter queue helpers ───────────────────────────────────────
 
 /**

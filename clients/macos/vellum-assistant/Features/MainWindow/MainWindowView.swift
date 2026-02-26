@@ -52,7 +52,11 @@ struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
     @ObservedObject var appListManager: AppListManager
     var zoomManager: ZoomManager
-    @ObservedObject var traceStore: TraceStore
+    var conversationZoomManager: ConversationZoomManager
+    /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
+    /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
+    /// itself uses `@ObservedObject` and is only instantiated when shown.
+    let traceStore: TraceStore
     @ObservedObject var windowState: MainWindowState
     @State private var selectedThreadId: UUID?
     @State var sharing = SharingState()
@@ -93,10 +97,11 @@ struct MainWindowView: View {
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
+        self.conversationZoomManager = conversationZoomManager
         self.traceStore = traceStore
         self.daemonClient = daemonClient
         self.surfaceManager = surfaceManager
@@ -499,7 +504,7 @@ struct MainWindowView: View {
                     threadManager.activeViewModel?.activeSurfaceId = surfaceId
                 }
             }
-            .onChange(of: threadManager.activeViewModel?.messages.map(\.id)) { _, _ in
+            .onChange(of: threadManager.activeViewModel?.messages.count) { _, _ in
                 // Bootstrap avatar: apply milestones based on assistant turn count
                 if let evoState = avatarEvolutionState, evoState.stage != .stabilized,
                    let viewModel = threadManager.activeViewModel {
@@ -742,6 +747,7 @@ struct MainWindowView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
+                // Full message from daemon live IPC (AppDelegate path)
                 windowState.activeDynamicSurface = msg
                 windowState.activeDynamicParsedSurface = Surface.from(msg)
                 // Determine the app ID from the surface if available
@@ -760,6 +766,15 @@ struct MainWindowView: View {
                 } else {
                     windowState.selection = .app(msg.surfaceId)
                 }
+            } else if let ref = notification.userInfo?["surfaceRef"] as? SurfaceRef {
+                // Lightweight ref from inline surface click — the daemon will
+                // send a fresh ui_surface_show via live IPC with the full payload.
+                // Use the real appId for the app_open_request when available,
+                // because surfaceId is a daemon-generated identifier
+                // (e.g. "app-open-<uuid>") that doesn't match any real app.
+                let reopenId = ref.appId ?? ref.surfaceId
+                windowState.selection = .app(reopenId)
+                try? daemonClient.sendAppOpen(appId: reopenId)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
@@ -820,6 +835,10 @@ struct MainWindowView: View {
             return false
         }()
         let isHovered = sidebar.isHoveredThread == thread.id
+        let isBusy = threadManager.isThreadBusy(thread.id)
+        // Reserve trailing space when hovered for archive button overlay.
+        let hasTrailingIcon = isHovered || sidebar.threadPendingDeletion == thread.id
+        // Always reserve 20pt leading slot so text never shifts.
         Button(action: {
             if case .appEditing(let appId, _) = windowState.selection {
                 // Stay in editing mode, just switch the thread
@@ -832,6 +851,30 @@ struct MainWindowView: View {
             }
         }) {
             HStack(spacing: VSpacing.xs) {
+                // Leading icon: spinner (busy) > pin indicator (pinned) > unseen dot > spacer
+                // The interactive pin button is in .overlay(alignment: .leading) below
+                // to avoid nesting a Button inside this outer Button's label.
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 20, height: 20)
+                } else if thread.isPinned && !isHovered {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .rotationEffect(.degrees(-45))
+                        .frame(width: 20, height: 20)
+                        .background(VColor.backgroundSubtle)
+                        .clipShape(Circle())
+                } else if thread.hasUnseenLatestAssistantMessage {
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 8, height: 8)
+                        .frame(width: 20, height: 20)
+                } else {
+                    Color.clear
+                        .frame(width: 20, height: 20)
+                }
                 if thread.kind == .private {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10, weight: .medium))
@@ -845,8 +888,8 @@ struct MainWindowView: View {
                     .help(thread.title)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, VSpacing.md)
-            .padding(.trailing, isHovered ? (VSpacing.xs + 20 + VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
+            .padding(.leading, VSpacing.xs)
+            .padding(.trailing, hasTrailingIcon ? (VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .background {
                 if isSelected {
@@ -863,6 +906,31 @@ struct MainWindowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .leading) {
+            if isHovered {
+                Button {
+                    withAnimation(VAnimation.standard) {
+                        if thread.isPinned {
+                            threadManager.unpinThread(id: thread.id)
+                        } else {
+                            threadManager.pinThread(id: thread.id)
+                        }
+                    }
+                } label: {
+                    Image(systemName: thread.isPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
+                        .rotationEffect(.degrees(-45))
+                        .frame(width: 20, height: 20)
+                        .background(VColor.backgroundSubtle)
+                        .clipShape(Circle())
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, VSpacing.xs)
+                .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
+            }
+        }
         .overlay(alignment: .trailing) {
             if sidebar.threadPendingDeletion == thread.id {
                 Button {
@@ -880,62 +948,32 @@ struct MainWindowView: View {
                 .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
-            } else if isHovered {
-                HStack(spacing: VSpacing.xs) {
-                    Button {
-                        if thread.isPinned {
-                            threadManager.unpinThread(id: thread.id)
-                        } else {
-                            threadManager.pinThread(id: thread.id)
-                        }
-                    } label: {
-                        Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
-                            .rotationEffect(.degrees(-45))
-                            .frame(width: 20, height: 20)
-                            .background(VColor.backgroundSubtle)
-                            .clipShape(Circle())
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
-
-                    if threadManager.visibleThreads.count > 1 {
-                        Button {
-                            sidebar.threadPendingDeletion = thread.id
-                        } label: {
-                            Image(systemName: "archivebox")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(VColor.textSecondary)
-                                .frame(width: 20, height: 20)
-                                .background(VColor.backgroundSubtle)
-                                .clipShape(Circle())
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Archive \(thread.title)")
-                    }
+            } else if isHovered && threadManager.visibleThreads.count > 1 {
+                Button {
+                    sidebar.threadPendingDeletion = thread.id
+                } label: {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(width: 20, height: 20)
+                        .background(VColor.backgroundSubtle)
+                        .clipShape(Circle())
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
-            } else if thread.isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(VColor.textMuted)
-                    .rotationEffect(.degrees(-45))
-                    .frame(width: 20, height: 20)
-                    .background(VColor.backgroundSubtle)
-                    .clipShape(Circle())
-                    .padding(.trailing, VSpacing.xs + 20 + VSpacing.xs)
+                .accessibilityLabel("Archive \(thread.title)")
             }
         }
         .padding(.horizontal, VSpacing.sm)
         .contextMenu {
             Button {
-                if thread.isPinned {
-                    threadManager.unpinThread(id: thread.id)
-                } else {
-                    threadManager.pinThread(id: thread.id)
+                withAnimation(VAnimation.standard) {
+                    if thread.isPinned {
+                        threadManager.unpinThread(id: thread.id)
+                    } else {
+                        threadManager.pinThread(id: thread.id)
+                    }
                 }
             } label: {
                 Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
@@ -1069,10 +1107,6 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence) {
                 windowState.togglePanel(.intelligence)
             }
-
-            SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox) {
-                windowState.togglePanel(.assistantInbox)
-            }
             SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps) {
                 windowState.togglePanel(.apps)
             }
@@ -1110,8 +1144,9 @@ struct MainWindowView: View {
                                 .font(VFont.caption)
                                 .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, 20)
-                                .padding(.vertical, VSpacing.xs)
+                                .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
+                                .padding(.top, VSpacing.sm)
+                                .padding(.bottom, VSpacing.xs)
                         }
                         .buttonStyle(.plain)
                     }
@@ -1148,8 +1183,9 @@ struct MainWindowView: View {
                                     .font(VFont.caption)
                                     .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.leading, 20)
-                                    .padding(.vertical, VSpacing.xs)
+                                    .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
+                                    .padding(.top, VSpacing.sm)
+                                    .padding(.bottom, VSpacing.xs)
                             }
                             .buttonStyle(.plain)
                         }
@@ -1181,10 +1217,6 @@ struct MainWindowView: View {
             }
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
                 windowState.togglePanel(.intelligence)
-            }
-
-            SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox, isExpanded: false) {
-                windowState.togglePanel(.assistantInbox)
             }
             SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps, isExpanded: false) {
                 windowState.togglePanel(.apps)
@@ -1316,21 +1348,31 @@ struct MainWindowView: View {
 
 }
 
-private struct ZoomIndicatorView: View {
+struct ZoomIndicatorView: View {
     let percentage: Int
+    /// Optional prefix shown before the percentage (e.g. "Text" → "Text 125%").
+    var label: String? = nil
 
     var body: some View {
-        Text("\(percentage)%")
-            .font(VFont.bodyMedium)
-            .foregroundStyle(VColor.textPrimary)
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
-            .background(VColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
-            )
+        HStack(spacing: VSpacing.xs) {
+            if let label {
+                Text(label)
+                    .font(VFont.caption)
+                    .foregroundStyle(VColor.textSecondary)
+            }
+            Text("\(percentage)%")
+                .font(VFont.bodyMedium)
+                .foregroundStyle(VColor.textPrimary)
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .background(VColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .accessibilityLabel("Zoom \(percentage) percent")
     }
 }
 

@@ -130,6 +130,31 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceGuardianError: String?
     @Published var voiceGuardianAlreadyBound: Bool = false
 
+    // MARK: - Outbound Guardian Session State (Telegram)
+
+    @Published var telegramOutboundSessionId: String?
+    @Published var telegramOutboundExpiresAt: Date?
+    @Published var telegramOutboundNextResendAt: Date?
+    @Published var telegramOutboundSendCount: Int = 0
+    @Published var telegramBootstrapUrl: String?
+    @Published var telegramOutboundCode: String?
+
+    // MARK: - Outbound Guardian Session State (SMS)
+
+    @Published var smsOutboundSessionId: String?
+    @Published var smsOutboundExpiresAt: Date?
+    @Published var smsOutboundNextResendAt: Date?
+    @Published var smsOutboundSendCount: Int = 0
+    @Published var smsOutboundCode: String?
+
+    // MARK: - Outbound Guardian Session State (Voice)
+
+    @Published var voiceOutboundSessionId: String?
+    @Published var voiceOutboundExpiresAt: Date?
+    @Published var voiceOutboundNextResendAt: Date?
+    @Published var voiceOutboundSendCount: Int = 0
+    @Published var voiceOutboundCode: String?
+
     // MARK: - Email Integration State
 
     @Published var assistantEmail: String?
@@ -145,6 +170,10 @@ public final class SettingsStore: ObservableObject {
     @Published var ingressPublicBaseUrl: String = ""
     /// Read-only gateway target derived from daemon config (GATEWAY_PORT env var, default 7830).
     @Published var localGatewayTarget: String = "http://127.0.0.1:7830"
+
+    /// Set to `true` once the first ingress config IPC response arrives, so the
+    /// view layer can defer diagnostics until the real config values are available.
+    @Published var ingressConfigLoaded: Bool = false
 
     // MARK: - Connection Health Check State
 
@@ -375,6 +404,7 @@ public final class SettingsStore: ObservableObject {
                     // with the optimistic value — it's a stale get response.
                     // Skip updating enabled to prevent the toggle from bouncing.
                     self.ingressPublicBaseUrl = response.publicBaseUrl
+                    self.ingressConfigLoaded = true
                     return
                 }
                 self.pendingIngressEnabled = nil
@@ -389,6 +419,7 @@ public final class SettingsStore: ObservableObject {
                 self.pendingIngressUrl = nil
                 self.pendingIngressEnabled = nil
             }
+            self.ingressConfigLoaded = true
         }
 
         // Wire up platform config IPC response
@@ -550,13 +581,25 @@ public final class SettingsStore: ObservableObject {
                 break
             }
 
+            // Handle outbound verification session state
             if response.success {
-                if response.secret != nil || response.instruction != nil {
+                if response.verificationSessionId != nil {
+                    self.applyOutboundResponseState(channel: channel, response: response)
+                    self.startGuardianStatusPolling(for: channel)
+                } else if response.secret != nil || response.instruction != nil {
                     self.startGuardianStatusPolling(for: channel)
                 } else if response.bound == true {
+                    self.clearOutboundState(for: channel)
                     self.stopGuardianStatusPolling(for: channel)
                 }
             } else {
+                // Errors that indicate the outbound session is no longer valid
+                // should clear the outbound UI state so the user isn't stuck
+                // in the pending verification view.
+                let terminalErrors: Set<String> = ["no_active_session", "already_bound"]
+                if let error = response.error, terminalErrors.contains(error) {
+                    self.clearOutboundState(for: channel)
+                }
                 self.stopGuardianStatusPolling(for: channel)
             }
         }
@@ -1086,6 +1129,195 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    // MARK: - Outbound Guardian Actions
+
+    func startOutboundGuardianVerification(channel: String, destination: String) {
+        clearOutboundState(for: channel)
+        stopGuardianStatusPolling(for: channel)
+        switch channel {
+        case "telegram":
+            telegramGuardianVerificationInProgress = true
+            telegramGuardianError = nil
+            telegramGuardianAlreadyBound = false
+        case "sms":
+            smsGuardianVerificationInProgress = true
+            smsGuardianError = nil
+            smsGuardianAlreadyBound = false
+        case "voice":
+            voiceGuardianVerificationInProgress = true
+            voiceGuardianError = nil
+            voiceGuardianAlreadyBound = false
+        default:
+            return
+        }
+        do {
+            guard let daemonClient else {
+                switch channel {
+                case "telegram":
+                    telegramGuardianVerificationInProgress = false
+                    telegramGuardianError = "Daemon is not connected. Reconnect and try again."
+                case "sms":
+                    smsGuardianVerificationInProgress = false
+                    smsGuardianError = "Daemon is not connected. Reconnect and try again."
+                case "voice":
+                    voiceGuardianVerificationInProgress = false
+                    voiceGuardianError = "Daemon is not connected. Reconnect and try again."
+                default:
+                    break
+                }
+                return
+            }
+            try daemonClient.sendGuardianVerification(
+                action: "start_outbound",
+                channel: channel,
+                assistantId: guardianAssistantScope,
+                destination: destination
+            )
+        } catch {
+            log.error("Failed to start outbound \(channel) guardian verification: \(error)")
+            switch channel {
+            case "telegram":
+                telegramGuardianVerificationInProgress = false
+                telegramGuardianError = "Failed to start verification. Try again."
+            case "sms":
+                smsGuardianVerificationInProgress = false
+                smsGuardianError = "Failed to start verification. Try again."
+            case "voice":
+                voiceGuardianVerificationInProgress = false
+                voiceGuardianError = "Failed to start verification. Try again."
+            default:
+                break
+            }
+        }
+    }
+
+    func resendOutboundGuardian(channel: String) {
+        do {
+            try daemonClient?.sendGuardianVerification(
+                action: "resend_outbound",
+                channel: channel,
+                assistantId: guardianAssistantScope
+            )
+        } catch {
+            log.error("Failed to resend outbound \(channel) guardian verification: \(error)")
+        }
+    }
+
+    func cancelOutboundGuardian(channel: String) {
+        stopGuardianStatusPolling(for: channel)
+        clearOutboundState(for: channel)
+        switch channel {
+        case "telegram":
+            telegramGuardianVerificationInProgress = false
+        case "sms":
+            smsGuardianVerificationInProgress = false
+        case "voice":
+            voiceGuardianVerificationInProgress = false
+        default:
+            break
+        }
+        do {
+            try daemonClient?.sendGuardianVerification(
+                action: "cancel_outbound",
+                channel: channel,
+                assistantId: guardianAssistantScope
+            )
+        } catch {
+            log.error("Failed to cancel outbound \(channel) guardian verification: \(error)")
+        }
+    }
+
+    private func clearOutboundState(for channel: String) {
+        switch channel {
+        case "telegram":
+            telegramOutboundSessionId = nil
+            telegramOutboundExpiresAt = nil
+            telegramOutboundNextResendAt = nil
+            telegramOutboundSendCount = 0
+            telegramBootstrapUrl = nil
+            telegramOutboundCode = nil
+        case "sms":
+            smsOutboundSessionId = nil
+            smsOutboundExpiresAt = nil
+            smsOutboundNextResendAt = nil
+            smsOutboundSendCount = 0
+            smsOutboundCode = nil
+        case "voice":
+            voiceOutboundSessionId = nil
+            voiceOutboundExpiresAt = nil
+            voiceOutboundNextResendAt = nil
+            voiceOutboundSendCount = 0
+            voiceOutboundCode = nil
+        default:
+            break
+        }
+    }
+
+    private func applyOutboundResponseState(channel: String, response: GuardianVerificationResponseMessage) {
+        let sessionId = response.verificationSessionId
+        // Only update fields when the response includes them; partial payloads (e.g. resend
+        // success) omit fields like expiresAt, sendCount, and nextResendAt. Overwriting with
+        // nil/zero would lose countdown tracking and UI state.
+        let expiresAt = response.expiresAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
+        let nextResendAt = response.nextResendAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
+        let sendCount = response.sendCount
+        let bootstrapUrl = response.telegramBootstrapUrl
+        // The secret is returned on start/resend but not on status polls.
+        // Persist it so the UI can display the verification code.
+        let secret = response.secret
+
+        switch channel {
+        case "telegram":
+            // When the session changes, reset resend metadata so stale cooldown/counter
+            // values from the old session don't persist through the if-let guards below.
+            if sessionId != telegramOutboundSessionId {
+                telegramOutboundNextResendAt = nil
+                telegramOutboundSendCount = 0
+                telegramOutboundCode = nil
+            }
+            telegramOutboundSessionId = sessionId
+            if let expiresAt { telegramOutboundExpiresAt = expiresAt }
+            if let nextResendAt { telegramOutboundNextResendAt = nextResendAt }
+            if let sendCount { telegramOutboundSendCount = sendCount }
+            if let secret { telegramOutboundCode = secret }
+            if let bootstrapUrl {
+                telegramBootstrapUrl = bootstrapUrl
+            } else if response.pendingBootstrap == true {
+                // Session is still in pending_bootstrap state — preserve the
+                // existing bootstrap URL so the deep link stays visible. The
+                // status handler cannot reconstruct the URL (only the hash is
+                // stored), so we must not overwrite what we received earlier.
+            } else if sessionId != nil {
+                // Bootstrap complete — clear the URL so resend becomes available
+                telegramBootstrapUrl = nil
+            }
+        case "sms":
+            if sessionId != smsOutboundSessionId {
+                smsOutboundNextResendAt = nil
+                smsOutboundSendCount = 0
+                smsOutboundCode = nil
+            }
+            smsOutboundSessionId = sessionId
+            if let expiresAt { smsOutboundExpiresAt = expiresAt }
+            if let nextResendAt { smsOutboundNextResendAt = nextResendAt }
+            if let sendCount { smsOutboundSendCount = sendCount }
+            if let secret { smsOutboundCode = secret }
+        case "voice":
+            if sessionId != voiceOutboundSessionId {
+                voiceOutboundNextResendAt = nil
+                voiceOutboundSendCount = 0
+                voiceOutboundCode = nil
+            }
+            voiceOutboundSessionId = sessionId
+            if let expiresAt { voiceOutboundExpiresAt = expiresAt }
+            if let nextResendAt { voiceOutboundNextResendAt = nextResendAt }
+            if let sendCount { voiceOutboundSendCount = sendCount }
+            if let secret { voiceOutboundCode = secret }
+        default:
+            break
+        }
+    }
+
     private func resolveGuardianResponseChannel(_ channel: String?) -> String? {
         if let channel {
             return channel
@@ -1354,7 +1586,7 @@ public final class SettingsStore: ObservableObject {
             }
         } catch {
             vellumPlatformReachable = false
-            vellumPlatformError = error.localizedDescription
+            vellumPlatformError = "Could not connect"
         }
     }
 
@@ -1392,16 +1624,16 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    // MARK: - Override Resolution
+    // MARK: - iOS Pairing
 
-    /// Resolved gateway URL for iOS pairing — uses per-integration override if enabled, else global.
+    /// Gateway URL for iOS pairing.
     var resolvedIosGatewayUrl: String {
-        PairingConfiguration.resolvedGatewayURL(fallback: ingressPublicBaseUrl)
+        ingressPublicBaseUrl
     }
 
-    /// Resolved bearer token for iOS pairing — uses per-integration override if enabled, else global.
+    /// Bearer token for iOS pairing.
     var resolvedIosBearerToken: String {
-        PairingConfiguration.resolvedBearerToken(fallback: readHttpToken() ?? "")
+        readHttpToken() ?? ""
     }
 
     /// LAN pairing URL for the gateway (port 7830), or nil if no LAN IP available.

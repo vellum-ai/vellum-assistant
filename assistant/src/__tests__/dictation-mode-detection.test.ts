@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { detectDictationMode } from '../daemon/handlers/dictation.js';
+import { detectDictationModeHeuristic as detectDictationMode } from '../daemon/handlers/dictation.js';
 import type { DictationRequest } from '../daemon/ipc-protocol.js';
 
 type DictationRequestOverrides = Omit<Partial<DictationRequest>, 'context'> & {
@@ -60,5 +60,28 @@ describe('detectDictationMode', () => {
       context: { selectedText: undefined, cursorInTextField: false },
     }));
     expect(mode).toBe('dictation');
+  });
+
+  test('profileId does not affect mode detection', () => {
+    const dictation = detectDictationMode(makeRequest({
+      profileId: 'work',
+      transcription: 'hello there',
+      context: { cursorInTextField: true },
+    }));
+    expect(dictation).toBe('dictation');
+
+    const command = detectDictationMode(makeRequest({
+      profileId: 'casual',
+      transcription: 'make this shorter',
+      context: { selectedText: 'some long text here', cursorInTextField: true },
+    }));
+    expect(command).toBe('command');
+
+    const action = detectDictationMode(makeRequest({
+      profileId: 'work',
+      transcription: 'send Alex a follow up',
+      context: { selectedText: undefined, cursorInTextField: false },
+    }));
+    expect(action).toBe('action');
   });
 });

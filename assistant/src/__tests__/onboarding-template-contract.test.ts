@@ -37,6 +37,21 @@ describe('onboarding template contracts', () => {
       expect(lower).toContain('avatar will start to reflect');
       expect(lower).toContain('happens automatically');
     });
+
+    test('contains naming intent markers so the first reply includes naming cues', () => {
+      const lower = bootstrap.toLowerCase();
+      // The template must prompt the assistant to ask about names.
+      // These keywords align with the client-side naming intent heuristic
+      // (ChatViewModel.replyContainsNamingIntent) so that the first reply
+      // naturally passes the quality check without triggering a corrective nudge.
+      expect(lower).toContain('name');
+      expect(lower).toContain('call');
+      // The example first message should include a naming question
+      expect(lower).toContain('what should i call myself');
+      // The conversation sequence must include identity/naming as the first step
+      expect(lower).toContain('who am i');
+      expect(lower).toContain('who are you');
+    });
   });
 
   describe('IDENTITY.md', () => {

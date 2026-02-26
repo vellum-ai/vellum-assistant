@@ -77,12 +77,10 @@ extension DaemonClient {
             onTaskRouted?(msg)
         case .dictationResponse(let msg):
             onDictationResponse?(msg)
-        case .reminderFired(let msg):
-            onReminderFired?(msg)
         case .notificationIntent(let msg):
             onNotificationIntent?(msg)
-        case .scheduleComplete(let msg):
-            onScheduleComplete?(msg)
+        case .notificationThreadCreated(let msg):
+            onNotificationThreadCreated?(msg)
         case .trustRulesListResponse(let msg):
             onTrustRulesListResponse?(msg.rules)
         case .toolPermissionSimulateResponse(let msg):
@@ -133,6 +131,8 @@ extension DaemonClient {
             onSessionTitleUpdated?(msg)
         case .historyResponse(let msg):
             onHistoryResponse?(msg)
+        case .messageContentResponse(let msg):
+            onMessageContentResponse?(msg)
         case .shareToSlackResponse(let msg):
             onShareToSlackResponse?(msg)
         case .slackWebhookConfigResponse(let msg):
@@ -236,8 +236,6 @@ extension DaemonClient {
             onWorkItemCancelResponse?(msg)
         case .taskRunThreadCreated(let msg):
             onTaskRunThreadCreated?(msg)
-        case .guardianRequestThreadCreated(let msg):
-            onGuardianRequestThreadCreated?(msg)
         case .openTasksWindow:
             onOpenTasksWindow?()
         case .subagentSpawned(let msg):
@@ -246,6 +244,16 @@ extension DaemonClient {
             onSubagentStatusChanged?(msg)
         case .subagentDetailResponse(let msg):
             onSubagentDetailResponse?(msg)
+        case .heartbeatConfigResponse(let msg):
+            onHeartbeatConfigResponse?(msg)
+        case .heartbeatRunsListResponse(let msg):
+            onHeartbeatRunsListResponse?(msg)
+        case .heartbeatRunNowResponse(let msg):
+            onHeartbeatRunNowResponse?(msg)
+        case .heartbeatChecklistResponse(let msg):
+            onHeartbeatChecklistResponse?(msg)
+        case .heartbeatChecklistWriteResponse(let msg):
+            onHeartbeatChecklistWriteResponse?(msg)
         case .parentalControlGetResponse(let msg):
             onParentalControlGetResponse?(msg)
         case .parentalControlVerifyPinResponse(let msg):
@@ -254,18 +262,16 @@ extension DaemonClient {
             onParentalControlSetPinResponse?(msg)
         case .parentalControlUpdateResponse(let msg):
             onParentalControlUpdateResponse?(msg)
-        case .assistantInboxResponse(let msg):
-            onAssistantInboxResponse?(msg)
-        case .assistantInboxReplyResponse(let msg):
-            onAssistantInboxReplyResponse?(msg)
-        case .assistantInboxEscalationResponse(let msg):
-            onAssistantInboxEscalationResponse?(msg)
         case .pairingApprovalRequest(let msg):
             onPairingApprovalRequest?(msg)
         case .approvedDevicesListResponse(let msg):
             onApprovedDevicesListResponse?(msg)
         case .approvedDeviceRemoveResponse(let msg):
             onApprovedDeviceRemoveResponse?(msg)
+        case .recordingStart(let msg):
+            onRecordingStart?(msg)
+        case .recordingStop(let msg):
+            onRecordingStop?(msg)
         default:
             break
         }

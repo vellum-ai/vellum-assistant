@@ -261,13 +261,15 @@ struct MarkdownTableView: View {
     let rows: [[String]]
     var maxWidth: CGFloat = 520
 
+    @Environment(\.conversationZoomScale) private var zoomScale
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header row
             HStack(spacing: 0) {
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
                     Text(header)
-                        .font(VFont.captionMedium)
+                        .font(.custom("Inter-Medium", size: 11 * zoomScale))
                         .foregroundColor(VColor.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)
@@ -309,7 +311,7 @@ struct MarkdownTableView: View {
         let attributed = (try? AttributedString(markdown: text, options: options))
             ?? AttributedString(text)
         return Text(attributed)
-            .font(VFont.body)
+            .font(.custom("Inter", size: 13 * zoomScale))
             .foregroundColor(VColor.textPrimary)
             .textSelection(.enabled)
     }

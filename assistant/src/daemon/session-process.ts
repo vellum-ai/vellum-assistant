@@ -80,7 +80,7 @@ export interface ProcessSessionContext {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean },
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
   ): Promise<void>;
   getTurnChannelContext(): TurnChannelContext | null;
   setTurnChannelContext(ctx: TurnChannelContext): void;
@@ -301,7 +301,9 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // Fire-and-forget: persistUserMessage set session.processing = true
   // so subsequent messages will still be enqueued.
   // runAgentLoop's finally block will call drainQueue when this run completes.
-  session.runAgentLoop(resolvedContent, userMessageId, next.onEvent).catch((err) => {
+  session.runAgentLoop(resolvedContent, userMessageId, next.onEvent,
+    next.isInteractive !== undefined ? { isInteractive: next.isInteractive } : undefined,
+  ).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId: session.conversationId, requestId: next.requestId }, 'Error processing queued message');
     next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
@@ -322,6 +324,7 @@ export async function processMessage(
   requestId?: string,
   activeSurfaceId?: string,
   currentPage?: string,
+  options?: { isInteractive?: boolean },
 ): Promise<string> {
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
@@ -482,6 +485,8 @@ export async function processMessage(
       });
   }
 
-  await session.runAgentLoop(resolvedContent, userMessageId, onEvent);
+  await session.runAgentLoop(resolvedContent, userMessageId, onEvent,
+    options?.isInteractive !== undefined ? { isInteractive: options.isInteractive } : undefined,
+  );
   return userMessageId;
 }

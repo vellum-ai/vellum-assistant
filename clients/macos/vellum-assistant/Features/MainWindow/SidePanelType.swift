@@ -6,7 +6,6 @@ enum SidePanelType: Hashable, CaseIterable {
     case documentEditor
     case avatarCustomization
     case voiceMode
-    case assistantInbox
     case apps
     case intelligence
 
@@ -19,7 +18,6 @@ enum SidePanelType: Hashable, CaseIterable {
         case "documentEditor": self = .documentEditor
         case "avatarCustomization": self = .avatarCustomization
         case "voiceMode": self = .voiceMode
-        case "assistantInbox": self = .assistantInbox
         case "apps": self = .apps
         case "intelligence": self = .intelligence
         // Legacy values from older builds — map to the unified Intelligence panel

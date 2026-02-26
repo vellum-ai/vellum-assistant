@@ -11,6 +11,7 @@ public final class AppServices {
     let browserPiPManager = BrowserPiPManager()
     let secretPromptManager = SecretPromptManager()
     let zoomManager = ZoomManager()
+    let conversationZoomManager = ConversationZoomManager()
 
     /// Shared settings state consumed by SettingsPanel and its tab views.
     /// Lazy because it needs `ambientAgent` and `daemonClient` which are set above.

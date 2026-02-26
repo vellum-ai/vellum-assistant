@@ -15,8 +15,6 @@ public struct SubagentThreadView: View {
     var onTap: (() -> Void)?
 
     @State private var isHovered: Bool = false
-    @State private var phase: Int = 0
-    @State private var timer: Timer?
 
     private var isRunning: Bool { !subagent.isTerminal }
 
@@ -74,29 +72,24 @@ public struct SubagentThreadView: View {
     }
 
     public var body: some View {
-        HStack(alignment: .center, spacing: 0) {
-            // L-shaped connector: vertical line from parent → curves right into the thread bar
-            LConnector()
-                .stroke(statusColor.opacity(0.4), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .frame(width: 14, height: 28)
-                .padding(.trailing, VSpacing.xs)
+        TimelineView(.periodic(from: .now, by: 0.4)) { context in
+            let phase = isRunning ? Int(context.date.timeIntervalSince1970 / 0.4) % 3 : 0
+            HStack(alignment: .center, spacing: 0) {
+                // L-shaped connector: vertical line from parent → curves right into the thread bar
+                LConnector()
+                    .stroke(statusColor.opacity(0.4), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .frame(width: 14, height: 28)
+                    .padding(.trailing, VSpacing.xs)
 
-            // Thread indicator content
-            threadBar
-        }
-        .onAppear { startDotAnimation() }
-        .onDisappear { timer?.invalidate() }
-        .onChange(of: subagent.status) {
-            if subagent.status.isTerminal {
-                timer?.invalidate()
-                timer = nil
+                // Thread indicator content
+                threadBar(phase: phase)
             }
         }
     }
 
     // MARK: - Thread Bar
 
-    private var threadBar: some View {
+    private func threadBar(phase: Int) -> some View {
         HStack(spacing: VSpacing.sm) {
             // Label (clickable, turns blue on hover like Slack)
             Text(subagent.label)
@@ -110,7 +103,7 @@ public struct SubagentThreadView: View {
 
             // Animated dots while running
             if isRunning {
-                animatedDots
+                animatedDots(phase: phase)
             }
 
             Spacer(minLength: VSpacing.xs)
@@ -169,22 +162,13 @@ public struct SubagentThreadView: View {
 
     // MARK: - Animated Dots
 
-    private var animatedDots: some View {
+    private func animatedDots(phase: Int) -> some View {
         HStack(spacing: 2) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
                     .fill(VColor.textSecondary)
                     .frame(width: 4, height: 4)
                     .opacity(phase % 3 == index ? 1.0 : 0.3)
-            }
-        }
-    }
-
-    private func startDotAnimation() {
-        guard isRunning else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
-            withAnimation(VAnimation.standard) {
-                phase += 1
             }
         }
     }

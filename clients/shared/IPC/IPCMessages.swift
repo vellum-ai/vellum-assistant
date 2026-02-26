@@ -553,8 +553,16 @@ extension IPCRegenerateRequest {
 public typealias HistoryRequestMessage = IPCHistoryRequest
 
 extension IPCHistoryRequest {
-    public init(sessionId: String) {
-        self.init(type: "history_request", sessionId: sessionId)
+    public init(sessionId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) {
+        self.init(
+            type: "history_request",
+            sessionId: sessionId,
+            limit: limit.map { Double($0) },
+            beforeTimestamp: beforeTimestamp,
+            mode: mode,
+            maxTextChars: maxTextChars.map { Double($0) },
+            maxToolResultChars: maxToolResultChars.map { Double($0) }
+        )
     }
 }
 
@@ -870,8 +878,8 @@ extension IPCDictationContext {
 }
 
 extension IPCDictationRequest {
-    public init(transcription: String, context: IPCDictationContext) {
-        self.init(type: "dictation_request", transcription: transcription, context: context)
+    public init(transcription: String, context: IPCDictationContext, profileId: String? = nil) {
+        self.init(type: "dictation_request", transcription: transcription, context: context, profileId: profileId)
     }
 }
 
@@ -1226,6 +1234,10 @@ extension IPCSkillsInspectResponseData {
 /// Backed by generated `IPCSkillsInspectResponse`.
 public typealias SkillsInspectResponseMessage = IPCSkillsInspectResponse
 
+/// Attention state metadata for a conversation's latest assistant message.
+/// Backed by generated `IPCAssistantAttention`.
+public typealias AssistantAttention = IPCAssistantAttention
+
 /// Response containing the list of past sessions.
 /// Backed by generated `IPCSessionListResponse`.
 public typealias SessionListResponseMessage = IPCSessionListResponse
@@ -1442,14 +1454,6 @@ public struct SessionErrorMessage: Decodable, Sendable {
         self.debugDetails = debugDetails
     }
 }
-
-/// Reminder fired notification from daemon.
-/// Backed by generated `IPCReminderFired`.
-public typealias ReminderFiredMessage = IPCReminderFired
-
-/// Schedule complete notification from daemon.
-/// Backed by generated `IPCScheduleComplete`.
-public typealias ScheduleCompleteMessage = IPCScheduleComplete
 
 /// Generic notification intent from daemon.
 /// Backed by generated `IPCNotificationIntent`.
@@ -2008,7 +2012,8 @@ extension IPCGuardianVerificationRequest {
         channel: String? = nil,
         sessionId: String? = nil,
         assistantId: String? = nil,
-        rebind: Bool? = nil
+        rebind: Bool? = nil,
+        destination: String? = nil
     ) {
         self.init(
             type: "guardian_verification",
@@ -2016,7 +2021,8 @@ extension IPCGuardianVerificationRequest {
             channel: channel,
             sessionId: sessionId,
             assistantId: assistantId,
-            rebind: rebind
+            rebind: rebind,
+            destination: destination
         )
     }
 }
@@ -2130,6 +2136,31 @@ extension IPCSessionSwitchRequest {
     }
 }
 
+extension IPCConversationSeenSignal {
+    public init(
+        conversationId: String,
+        sourceChannel: String,
+        signalType: String,
+        confidence: String,
+        source: String,
+        evidenceText: String? = nil,
+        observedAt: Int? = nil,
+        metadata: [String: AnyCodable]? = nil
+    ) {
+        self.init(
+            type: "conversation_seen_signal",
+            conversationId: conversationId,
+            sourceChannel: sourceChannel,
+            signalType: signalType,
+            confidence: confidence,
+            source: source,
+            evidenceText: evidenceText,
+            observedAt: observedAt,
+            metadata: metadata
+        )
+    }
+}
+
 /// Sent by the client to request subagent detail (events) for a completed subagent.
 public struct SubagentDetailRequestMessage: Encodable, Sendable {
     public let type: String = "subagent_detail_request"
@@ -2207,9 +2238,8 @@ public enum ServerMessage: Decodable, Sendable {
     case toolInputDelta(ToolInputDeltaMessage)
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
-    case reminderFired(ReminderFiredMessage)
     case notificationIntent(NotificationIntentMessage)
-    case scheduleComplete(ScheduleCompleteMessage)
+    case notificationThreadCreated(IPCNotificationThreadCreated)
     case watchStarted(WatchStartedMessage)
     case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
@@ -2258,6 +2288,7 @@ public enum ServerMessage: Decodable, Sendable {
     case openUrl(OpenUrlMessage)
     case integrationListResponse(IPCIntegrationListResponse)
     case integrationConnectResult(IPCIntegrationConnectResult)
+    case oauthConnectResult(IPCOAuthConnectResultResponse)
     case appFilesChanged(AppFilesChangedMessage)
     case getSigningIdentity(IPCGetSigningIdentityRequest)
     case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
@@ -2276,7 +2307,6 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemApprovePermissionsResponse(IPCWorkItemApprovePermissionsResponse)
     case workItemCancelResponse(IPCWorkItemCancelResponse)
     case taskRunThreadCreated(IPCTaskRunThreadCreated)
-    case guardianRequestThreadCreated(IPCGuardianRequestThreadCreated)
     case openTasksWindow(OpenTasksWindowMessage)
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
@@ -2291,12 +2321,17 @@ public enum ServerMessage: Decodable, Sendable {
     case parentalControlSetPinResponse(ParentalControlSetPinResponseMessage)
     case parentalControlUpdateResponse(ParentalControlUpdateResponseMessage)
     case conversationSearchResponse(ConversationSearchResponseMessage)
-    case assistantInboxResponse(IPCAssistantInboxResponse)
-    case assistantInboxReplyResponse(IPCAssistantInboxReplyResponse)
-    case assistantInboxEscalationResponse(IPCAssistantInboxEscalationResponse)
     case pairingApprovalRequest(PairingApprovalRequestMessage)
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
     case approvedDeviceRemoveResponse(ApprovedDeviceRemoveResponseMessage)
+    case recordingStart(IPCRecordingStart)
+    case recordingStop(IPCRecordingStop)
+    case heartbeatConfigResponse(IPCHeartbeatConfigResponse)
+    case heartbeatRunsListResponse(IPCHeartbeatRunsListResponse)
+    case heartbeatRunNowResponse(IPCHeartbeatRunNowResponse)
+    case heartbeatChecklistResponse(IPCHeartbeatChecklistResponse)
+    case heartbeatChecklistWriteResponse(IPCHeartbeatChecklistWriteResponse)
+    case messageContentResponse(IPCMessageContentResponse)
     case pong
     case unknown(String)
 
@@ -2456,15 +2491,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "tool_result":
             let message = try ToolResultMessage(from: decoder)
             self = .toolResult(message)
-        case "reminder_fired":
-            let message = try ReminderFiredMessage(from: decoder)
-            self = .reminderFired(message)
         case "notification_intent":
             let message = try NotificationIntentMessage(from: decoder)
             self = .notificationIntent(message)
-        case "schedule_complete":
-            let message = try ScheduleCompleteMessage(from: decoder)
-            self = .scheduleComplete(message)
+        case "notification_thread_created":
+            let message = try IPCNotificationThreadCreated(from: decoder)
+            self = .notificationThreadCreated(message)
         case "watch_started":
             let message = try WatchStartedMessage(from: decoder)
             self = .watchStarted(message)
@@ -2597,6 +2629,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "integration_connect_result":
             let message = try IPCIntegrationConnectResult(from: decoder)
             self = .integrationConnectResult(message)
+        case "oauth_connect_result":
+            let message = try IPCOAuthConnectResultResponse(from: decoder)
+            self = .oauthConnectResult(message)
         case "app_files_changed":
             let message = try AppFilesChangedMessage(from: decoder)
             self = .appFilesChanged(message)
@@ -2648,9 +2683,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "task_run_thread_created":
             let message = try IPCTaskRunThreadCreated(from: decoder)
             self = .taskRunThreadCreated(message)
-        case "guardian_request_thread_created":
-            let message = try IPCGuardianRequestThreadCreated(from: decoder)
-            self = .guardianRequestThreadCreated(message)
         case "open_tasks_window":
             let message = try OpenTasksWindowMessage(from: decoder)
             self = .openTasksWindow(message)
@@ -2693,15 +2725,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_search_response":
             let message = try ConversationSearchResponseMessage(from: decoder)
             self = .conversationSearchResponse(message)
-        case "assistant_inbox_response":
-            let message = try IPCAssistantInboxResponse(from: decoder)
-            self = .assistantInboxResponse(message)
-        case "assistant_inbox_reply_response":
-            let message = try IPCAssistantInboxReplyResponse(from: decoder)
-            self = .assistantInboxReplyResponse(message)
-        case "assistant_inbox_escalation_response":
-            let message = try IPCAssistantInboxEscalationResponse(from: decoder)
-            self = .assistantInboxEscalationResponse(message)
         case "pairing_approval_request":
             let message = try PairingApprovalRequestMessage(from: decoder)
             self = .pairingApprovalRequest(message)
@@ -2711,6 +2734,30 @@ public enum ServerMessage: Decodable, Sendable {
         case "approved_device_remove_response":
             let message = try ApprovedDeviceRemoveResponseMessage(from: decoder)
             self = .approvedDeviceRemoveResponse(message)
+        case "recording_start":
+            let message = try IPCRecordingStart(from: decoder)
+            self = .recordingStart(message)
+        case "recording_stop":
+            let message = try IPCRecordingStop(from: decoder)
+            self = .recordingStop(message)
+        case "heartbeat_config_response":
+            let message = try IPCHeartbeatConfigResponse(from: decoder)
+            self = .heartbeatConfigResponse(message)
+        case "heartbeat_runs_list_response":
+            let message = try IPCHeartbeatRunsListResponse(from: decoder)
+            self = .heartbeatRunsListResponse(message)
+        case "heartbeat_run_now_response":
+            let message = try IPCHeartbeatRunNowResponse(from: decoder)
+            self = .heartbeatRunNowResponse(message)
+        case "heartbeat_checklist_response":
+            let message = try IPCHeartbeatChecklistResponse(from: decoder)
+            self = .heartbeatChecklistResponse(message)
+        case "heartbeat_checklist_write_response":
+            let message = try IPCHeartbeatChecklistWriteResponse(from: decoder)
+            self = .heartbeatChecklistWriteResponse(message)
+        case "message_content_response":
+            let message = try IPCMessageContentResponse(from: decoder)
+            self = .messageContentResponse(message)
         case "pong":
             self = .pong
         default:

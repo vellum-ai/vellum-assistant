@@ -95,7 +95,7 @@ function pushStepsUpdate(ctx: ToolSetupContext, updatedSteps: DoordashStep[]): v
 export function isDoordashCommand(name: string, input: Record<string, unknown>): boolean {
   if (name !== 'bash' && name !== 'host_bash') return false;
   const cmd = input.command as string | undefined;
-  return !!cmd && doordashCommandToStep(cmd) !== null;
+  return !!cmd && doordashCommandToStep(cmd) !== undefined;
 }
 
 /**

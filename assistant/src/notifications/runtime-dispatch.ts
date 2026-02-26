@@ -7,7 +7,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
-import type { NotificationBroadcaster } from './broadcaster.js';
+import type { BroadcastDecisionOptions, NotificationBroadcaster } from './broadcaster.js';
 import type { NotificationSignal } from './signal.js';
 import type { NotificationDecision, NotificationDeliveryResult } from './types.js';
 
@@ -30,6 +30,7 @@ export async function dispatchDecision(
   signal: NotificationSignal,
   decision: NotificationDecision,
   broadcaster: NotificationBroadcaster,
+  options?: BroadcastDecisionOptions,
 ): Promise<DispatchResult> {
   // No-op when the decision engine says not to notify
   if (!decision.shouldNotify) {
@@ -58,7 +59,7 @@ export async function dispatchDecision(
   }
 
   // Dispatch through the broadcaster
-  const deliveryResults = await broadcaster.broadcastDecision(signal, decision);
+  const deliveryResults = await broadcaster.broadcastDecision(signal, decision, options);
 
   const sentCount = deliveryResults.filter((r) => r.status === 'sent').length;
   log.info(

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { AgentEvent } from '../agent/loop.js';
 import type { UserMessageAttachment } from '../daemon/ipc-protocol.js';
 import type { Message, ProviderResponse } from '../providers/types.js';
+import { ProviderError } from '../util/errors.js';
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
@@ -81,6 +82,9 @@ mock.module('../memory/conversation-store.js', () => ({
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
   updateConversationContextWindow: () => {},
+  getConversationOriginChannel: () => null,
+  getConversationOriginInterface: () => null,
+  provenanceFromGuardianContext: () => ({}),
 }));
 
 mock.module('../memory/retriever.js', () => ({
@@ -132,7 +136,7 @@ mock.module('../context/window-manager.js', () => ({
 
 // Track how many times agentLoop.run was called
 let agentLoopRunCount = 0;
-let firstRunErrorMode: 'none' | 'ordering' | 'context_too_large' = 'ordering';
+let firstRunErrorMode: 'none' | 'ordering' | 'context_too_large' | 'context_too_large_phrase' | 'context_too_large_413' | 'context_too_large_413_with_progress' = 'ordering';
 
 mock.module('../agent/loop.js', () => ({
   AgentLoop: class {
@@ -140,12 +144,46 @@ mock.module('../agent/loop.js', () => ({
     async run(messages: Message[], onEvent: (event: AgentEvent) => void, _signal?: AbortSignal): Promise<Message[]> {
       agentLoopRunCount++;
 
+      if (agentLoopRunCount === 1 && firstRunErrorMode === 'context_too_large_413_with_progress') {
+        // Simulate a run that made progress (tool-use + tool-result) before
+        // hitting a 413 context-too-large error on the second LLM call.
+        onEvent({ type: 'usage', inputTokens: 10, outputTokens: 20, model: 'mock', providerDurationMs: 50 });
+        const assistantMsg: Message = {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'tu-1', name: 'bash', input: { command: 'echo hi' } }],
+        };
+        onEvent({ type: 'message_complete', message: assistantMsg });
+        onEvent({
+          type: 'tool_result',
+          toolUseId: 'tu-1',
+          content: 'hi',
+          isError: false,
+        });
+        // Now the second LLM call fails with 413
+        onEvent({ type: 'error', error: new ProviderError('request entity too large', 'mock-provider', 413) });
+        const history = [...messages];
+        history.push(assistantMsg);
+        history.push({
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'tu-1', content: 'hi' }],
+        } as Message);
+        return history; // Progress was made — history grew
+      }
+
       if (agentLoopRunCount === 1 && firstRunErrorMode !== 'none') {
         onEvent({ type: 'usage', inputTokens: 0, outputTokens: 0, model: 'mock', providerDurationMs: 0 });
-        const error =
-          firstRunErrorMode === 'ordering'
-            ? new Error('tool_result blocks that are not immediately after a tool_use block')
-            : new Error('context_length_exceeded: request has too many input tokens');
+        const error = (() => {
+          if (firstRunErrorMode === 'ordering') {
+            return new Error('tool_result blocks that are not immediately after a tool_use block');
+          }
+          if (firstRunErrorMode === 'context_too_large_phrase') {
+            return new Error('The conversation is too long for the model to process.');
+          }
+          if (firstRunErrorMode === 'context_too_large_413') {
+            return new ProviderError('request entity too large', 'mock-provider', 413);
+          }
+          return new Error('context_length_exceeded: request has too many input tokens');
+        })();
         onEvent({ type: 'error', error });
         return [...messages]; // Return unchanged — no progress
       }
@@ -308,6 +346,78 @@ describe('provider ordering error retry', () => {
       { force: true },
     ]);
     const sessionError = events.find((e) => e.type === 'session_error') as { code?: string } | undefined;
+    expect(sessionError?.code).toBe('CONTEXT_TOO_LARGE');
+  });
+
+  test('context-too-large phrase also triggers one forced-compaction retry', async () => {
+    firstRunErrorMode = 'context_too_large_phrase';
+    forceCompactionEnabled = true;
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: Array<Record<string, unknown>> = [];
+    await session.processMessage(
+      'Please compare these images.',
+      makeImageAttachments(4),
+      (msg) => events.push(msg as unknown as Record<string, unknown>),
+    );
+
+    expect(agentLoopRunCount).toBe(2);
+    expect(maybeCompactCalls).toEqual([
+      { force: false },
+      { force: true },
+    ]);
+    expect(events.some((e) => e.type === 'message_complete')).toBe(true);
+    expect(events.some((e) => e.type === 'session_error')).toBe(false);
+  });
+
+  test('ProviderError with statusCode 413 triggers forced-compaction retry via classifySessionError', async () => {
+    firstRunErrorMode = 'context_too_large_413';
+    forceCompactionEnabled = true;
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: Array<Record<string, unknown>> = [];
+    await session.processMessage(
+      'Please compare these images.',
+      makeImageAttachments(8),
+      (msg) => events.push(msg as unknown as Record<string, unknown>),
+    );
+
+    // The 413 ProviderError message "request entity too large" doesn't match
+    // the regex patterns, but classifySessionError recognizes statusCode 413
+    // as CONTEXT_TOO_LARGE and sets contextTooLargeDetected = true.
+    expect(agentLoopRunCount).toBe(2);
+    expect(maybeCompactCalls).toEqual([
+      { force: false },
+      { force: true },
+    ]);
+    expect(events.some((e) => e.type === 'message_complete')).toBe(true);
+    expect(events.some((e) => e.type === 'session_error')).toBe(false);
+  });
+
+  test('context-too-large after progress surfaces error instead of silent failure', async () => {
+    firstRunErrorMode = 'context_too_large_413_with_progress';
+    forceCompactionEnabled = false;
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: Array<Record<string, unknown>> = [];
+    await session.processMessage(
+      'Run some tools then hit the limit.',
+      [],
+      (msg) => events.push(msg as unknown as Record<string, unknown>),
+    );
+
+    // Only one agent loop run — the retry path is skipped because progress was made.
+    expect(agentLoopRunCount).toBe(1);
+
+    // The error must be surfaced to clients via session_error, not silently swallowed.
+    const sessionError = events.find((e) => e.type === 'session_error') as { code?: string } | undefined;
+    expect(sessionError).toBeDefined();
     expect(sessionError?.code).toBe('CONTEXT_TOO_LARGE');
   });
 });

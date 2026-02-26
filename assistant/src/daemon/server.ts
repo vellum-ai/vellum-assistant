@@ -7,13 +7,14 @@ import { createAssistantMessage,createUserMessage } from '../agent/message-types
 import { type ChannelId, type InterfaceId,parseChannelId, parseInterfaceId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
+import type { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
-import { RunOrchestrator } from '../runtime/run-orchestrator.js';
+import * as pendingInteractions from '../runtime/pending-interactions.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { getSubagentManager } from '../subagent/index.js';
 import { IngressBlockedError } from '../util/errors.js';
@@ -25,6 +26,7 @@ import { AuthManager } from './auth-manager.js';
 import { ComputerUseSession } from './computer-use-session.js';
 import { ConfigWatcher } from './config-watcher.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
+import { cleanupRecordingsOnDisconnect } from './handlers/recording.js';
 import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 import { IpcSender } from './ipc-handler.js';
 import {
@@ -86,6 +88,41 @@ function resolveTurnInterface(sourceInterface?: string): InterfaceId {
   return 'vellum';
 }
 
+/**
+ * Build an onEvent callback that registers pending interactions when the agent
+ * loop emits confirmation_request or secret_request events. This ensures that
+ * channel approval interception can look up the session by requestId.
+ */
+function makePendingInteractionRegistrar(
+  session: Session,
+  conversationId: string,
+): (msg: ServerMessage) => void {
+  return (msg: ServerMessage) => {
+    if (msg.type === 'confirmation_request') {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: 'confirmation',
+        confirmationDetails: {
+          toolName: msg.toolName,
+          input: msg.input,
+          riskLevel: msg.riskLevel,
+          executionTarget: msg.executionTarget,
+          allowlistOptions: msg.allowlistOptions,
+          scopeOptions: msg.scopeOptions,
+          persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
+        },
+      });
+    } else if (msg.type === 'secret_request') {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: 'secret',
+      });
+    }
+  };
+}
+
 export class DaemonServer {
   private server: net.Server | null = null;
   private tcpServer: tls.Server | null = null;
@@ -114,6 +151,13 @@ export class DaemonServer {
    * Logical assistant identifier used when publishing to the assistant-events hub.
    */
   assistantId: string = 'default';
+
+  /** Optional heartbeat service reference for "Run Now" from the UI. */
+  private _heartbeatService?: HeartbeatService;
+
+  setHeartbeatService(service: HeartbeatService): void {
+    this._heartbeatService = service;
+  }
 
   private deriveMemoryPolicy(conversationId: string): SessionMemoryPolicy {
     const threadType = conversationStore.getConversationThreadType(conversationId);
@@ -460,6 +504,16 @@ export class DaemonServer {
         }
         getSubagentManager().abortAllForParent(sessionId);
       }
+      // Clean up recording state for recordings whose owning conversation is
+      // bound to the disconnecting socket. Runs outside the sessionId check
+      // because recordings may be keyed to a different conversation than the
+      // socket's current session.
+      cleanupRecordingsOnDisconnect(socket, (convId) => {
+        for (const [s, sid] of this.socketToSession.entries()) {
+          if (sid === convId) return s;
+        }
+        return undefined;
+      });
       this.socketToSession.delete(socket);
       const cuSessionIds = this.socketToCuSession.get(socket);
       if (cuSessionIds) {
@@ -674,6 +728,7 @@ export class DaemonServer {
       getOrCreateSession: (id, socket?, rebind?, options?) =>
         this.getOrCreateSession(id, socket, rebind, options),
       touchSession: (id) => this.evictor.touch(id),
+      heartbeatService: this._heartbeatService,
     };
   }
 
@@ -756,9 +811,28 @@ export class DaemonServer {
     const requestId = crypto.randomUUID();
     const messageId = session.persistUserMessage(content, attachments, requestId);
 
-    session.runAgentLoop(content, messageId, () => {}, { isInteractive: false }).catch((err) => {
-      log.error({ err, conversationId }, 'Background agent loop failed');
-    });
+    // Register pending interactions so channel approval interception can
+    // find the session by requestId when confirmation/secret events fire.
+    const onEvent = makePendingInteractionRegistrar(session, conversationId);
+    if (options?.isInteractive === true) {
+      // Interactive HTTP paths (e.g. channel ingress) still run without an IPC
+      // socket. Route prompter events through the registrar callback so
+      // confirmation_request/secret_request events are tracked, and mark the
+      // session interactive so prompt decisions are not auto-denied.
+      session.updateClient(onEvent, false);
+    }
+
+    session.runAgentLoop(content, messageId, onEvent, { isInteractive: options?.isInteractive ?? false })
+      .finally(() => {
+        // Only reset if no other caller (e.g. a real IPC client) has rebound
+        // the session's sender while the agent loop was running.
+        if (options?.isInteractive === true && session.getCurrentSender() === onEvent) {
+          session.updateClient(() => {}, true);
+        }
+      })
+      .catch((err) => {
+        log.error({ err, conversationId }, 'Background agent loop failed');
+      });
 
     return { messageId };
   }
@@ -840,7 +914,31 @@ export class DaemonServer {
       throw err;
     }
 
-    await session.runAgentLoop(resolvedContent, messageId, () => {}, { isInteractive: false });
+    // Register pending interactions so channel approval interception can
+    // find the session by requestId when confirmation/secret events fire.
+    const onEvent = makePendingInteractionRegistrar(session, conversationId);
+    if (options?.isInteractive === true) {
+      // Interactive HTTP paths (e.g. channel ingress) still run without an IPC
+      // socket. Route prompter events through the registrar callback so
+      // confirmation_request/secret_request events are tracked, and mark the
+      // session interactive so prompt decisions are not auto-denied.
+      session.updateClient(onEvent, false);
+    }
+
+    try {
+      await session.runAgentLoop(
+        resolvedContent,
+        messageId,
+        onEvent,
+        { isInteractive: options?.isInteractive ?? false },
+      );
+    } finally {
+      // Only reset if no other caller (e.g. a real IPC client) has rebound
+      // the session's sender while the agent loop was running.
+      if (options?.isInteractive === true && session.getCurrentSender() === onEvent) {
+        session.updateClient(() => {}, true);
+      }
+    }
 
     return { messageId };
   }
@@ -851,22 +949,6 @@ export class DaemonServer {
    */
   async getSessionForMessages(conversationId: string): Promise<Session> {
     return this.getOrCreateSession(conversationId, undefined, true);
-  }
-
-  createRunOrchestrator(): RunOrchestrator {
-    return new RunOrchestrator({
-      getOrCreateSession: (conversationId, transport) =>
-        this.getOrCreateSession(conversationId, undefined, true, transport ? { transport } : undefined),
-      resolveAttachments: (attachmentIds) =>
-        attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          data: a.dataBase64,
-        })),
-      deriveDefaultStrictSideEffects: (conversationId) =>
-        this.deriveMemoryPolicy(conversationId).strictSideEffects,
-    });
   }
 
 }

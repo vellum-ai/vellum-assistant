@@ -11,6 +11,8 @@ import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { deliverChannelReply } from '../../runtime/gateway-client.js';
 import { getLogger } from '../../util/logger.js';
 import { readHttpToken } from '../../util/platform.js';
+import { nonEmpty } from '../copy-composer.js';
+import { isThreadSeedSane } from '../thread-seed-composer.js';
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
@@ -20,6 +22,23 @@ import type {
 } from '../types.js';
 
 const log = getLogger('notif-adapter-telegram');
+
+function resolveTelegramMessageText(payload: ChannelDeliveryPayload): string {
+  const deliveryText = nonEmpty(payload.copy.deliveryText);
+  if (deliveryText) return deliveryText;
+
+  if (isThreadSeedSane(payload.copy.threadSeedMessage)) {
+    return payload.copy.threadSeedMessage.trim();
+  }
+
+  const body = nonEmpty(payload.copy.body);
+  if (body) return body;
+
+  const title = nonEmpty(payload.copy.title);
+  if (title) return title;
+
+  return payload.sourceEventName.replace(/[._]/g, ' ');
+}
 
 export class TelegramAdapter implements ChannelAdapter {
   readonly channel: NotificationChannel = 'telegram';
@@ -34,11 +53,9 @@ export class TelegramAdapter implements ChannelAdapter {
     const gatewayBase = getGatewayInternalBaseUrl();
     const deliverUrl = `${gatewayBase}/deliver/telegram`;
 
-    // Format copy for Telegram as plain text (no parse_mode set on gateway side)
-    let messageText = payload.copy.title + '\n\n' + payload.copy.body;
-    if (payload.copy.threadTitle) {
-      messageText += '\n\nThread: ' + payload.copy.threadTitle;
-    }
+    // Telegram is a chat surface, not a native popup. Use channel-native
+    // delivery copy when available and avoid deterministic label prefixes.
+    const messageText = resolveTelegramMessageText(payload);
 
     try {
       await deliverChannelReply(

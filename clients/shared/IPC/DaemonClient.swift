@@ -219,14 +219,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `dictation_response` message.
     public var onDictationResponse: ((DictationResponseMessage) -> Void)?
 
-    /// Called when a reminder fires.
-    public var onReminderFired: ((ReminderFiredMessage) -> Void)?
-
     /// Called when the daemon emits a generic `notification_intent` payload.
     public var onNotificationIntent: ((NotificationIntentMessage) -> Void)?
 
-    /// Called when a scheduled task completes.
-    public var onScheduleComplete: ((ScheduleCompleteMessage) -> Void)?
+    /// Called when a notification delivery creates a new vellum conversation thread.
+    public var onNotificationThreadCreated: ((IPCNotificationThreadCreated) -> Void)?
 
     /// Called when the daemon sends a `trust_rules_list_response` message.
     public var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
@@ -300,6 +297,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `history_response` message.
     public var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `message_content_response` with full (untruncated) content.
+    public var onMessageContentResponse: ((IPCMessageContentResponse) -> Void)?
+
     /// Called when the daemon sends a `share_to_slack_response` message.
     public var onShareToSlackResponse: ((ShareToSlackResponseMessage) -> Void)?
 
@@ -323,6 +323,21 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `twilio_config_response` message.
     public var onTwilioConfigResponse: ((TwilioConfigResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `heartbeat_config_response` message.
+    public var onHeartbeatConfigResponse: ((IPCHeartbeatConfigResponse) -> Void)?
+
+    /// Called when the daemon sends a `heartbeat_runs_list_response` message.
+    public var onHeartbeatRunsListResponse: ((IPCHeartbeatRunsListResponse) -> Void)?
+
+    /// Called when the daemon sends a `heartbeat_run_now_response` message.
+    public var onHeartbeatRunNowResponse: ((IPCHeartbeatRunNowResponse) -> Void)?
+
+    /// Called when the daemon sends a `heartbeat_checklist_response` message.
+    public var onHeartbeatChecklistResponse: ((IPCHeartbeatChecklistResponse) -> Void)?
+
+    /// Called when the daemon sends a `heartbeat_checklist_write_response` message.
+    public var onHeartbeatChecklistWriteResponse: ((IPCHeartbeatChecklistWriteResponse) -> Void)?
 
     /// Called when the daemon sends a `parental_control_get_response` message.
     public var onParentalControlGetResponse: ((ParentalControlGetResponseMessage) -> Void)?
@@ -411,23 +426,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `work_item_cancel_response` message.
     public var onWorkItemCancelResponse: ((IPCWorkItemCancelResponse) -> Void)?
 
-    /// Called when the daemon sends an `assistant_inbox_response` message.
-    public var onAssistantInboxResponse: ((IPCAssistantInboxResponse) -> Void)?
-
-    /// Called when the daemon sends an `assistant_inbox_reply_response` message.
-    public var onAssistantInboxReplyResponse: ((IPCAssistantInboxReplyResponse) -> Void)?
-
-    /// Called when the daemon sends an `assistant_inbox_escalation_response` message.
-    public var onAssistantInboxEscalationResponse: ((IPCAssistantInboxEscalationResponse) -> Void)?
-
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
     /// Called when a task run creates a conversation so the client can show it as a visible chat thread.
     public var onTaskRunThreadCreated: ((IPCTaskRunThreadCreated) -> Void)?
-
-    /// Called when a guardian action request creates a thread for the mac channel.
-    public var onGuardianRequestThreadCreated: ((IPCGuardianRequestThreadCreated) -> Void)?
 
     /// Called when the daemon wants us to open/focus the tasks window.
     public var onOpenTasksWindow: (() -> Void)?
@@ -450,6 +453,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `subagent_detail_response` with lazy-loaded events.
     public var onSubagentDetailResponse: ((IPCSubagentDetailResponse) -> Void)?
 
+    /// Called when the daemon sends a `recording_start` message.
+    public var onRecordingStart: ((IPCRecordingStart) -> Void)?
+
+    /// Called when the daemon sends a `recording_stop` message.
+    public var onRecordingStop: ((IPCRecordingStop) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -459,6 +468,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         let id = UUID()
         let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
         subscribers[id] = continuation
+        // onTermination fires on an arbitrary thread, but `subscribers` is
+        // MainActor-isolated. Dispatching via Task { @MainActor } is correct —
+        // the removal happens on the next MainActor tick, which is safe because
+        // a terminated continuation ignores further yields. The weak capture
+        // prevents a retain cycle if DaemonClient is deallocated first.
         continuation.onTermination = { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.subscribers.removeValue(forKey: id)
@@ -950,8 +964,21 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Request message history for a specific session.
-    public func sendHistoryRequest(sessionId: String) throws {
-        try send(HistoryRequestMessage(sessionId: sessionId))
+    /// - Parameters:
+    ///   - sessionId: The session to fetch history for.
+    ///   - limit: Max messages to return per page.
+    ///   - beforeTimestamp: Pagination cursor — only return messages before this timestamp (ms since epoch).
+    ///   - mode: `"light"` omits heavy payloads (attachments, tool images, surface data); `"full"` includes everything.
+    ///   - maxTextChars: When set, truncates assistant text content to this many characters.
+    ///   - maxToolResultChars: When set, truncates tool result content to this many characters.
+    public func sendHistoryRequest(sessionId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) throws {
+        try send(HistoryRequestMessage(sessionId: sessionId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode, maxTextChars: maxTextChars, maxToolResultChars: maxToolResultChars))
+    }
+
+    /// Request full (untruncated) content for a specific message.
+    /// Used to rehydrate messages that were loaded with truncated text/tool results.
+    public func sendMessageContentRequest(sessionId: String, messageId: String) throws {
+        try send(IPCMessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: messageId))
     }
 
     // MARK: - Apps
@@ -1036,20 +1063,22 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
     }
 
-    /// Create a guardian verification challenge, check status, or revoke for a channel.
+    /// Create a guardian verification challenge, check status, revoke, or manage outbound verification for a channel.
     public func sendGuardianVerification(
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
         assistantId: String? = nil,
-        rebind: Bool? = nil
+        rebind: Bool? = nil,
+        destination: String? = nil
     ) throws {
         try send(GuardianVerificationRequestMessage(
             action: action,
             channel: channel,
             sessionId: sessionId,
             assistantId: assistantId,
-            rebind: rebind
+            rebind: rebind,
+            destination: destination
         ))
     }
 
@@ -1087,60 +1116,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Unpublish a page and delete its Vercel deployment.
     public func sendUnpublishPage(deploymentId: String) throws {
         try send(UnpublishPageRequestMessage(deploymentId: deploymentId))
-    }
-
-    // MARK: - Assistant Inbox
-
-    /// Request the list of inbox threads from the daemon.
-    public func sendAssistantInboxListThreads(assistantId: String? = nil, limit: Int? = nil, offset: Int? = nil) throws {
-        try send(IPCAssistantInboxRequest(
-            type: "assistant_inbox",
-            action: "list_threads",
-            assistantId: assistantId,
-            limit: limit.map { Double($0) },
-            offset: offset.map { Double($0) }
-        ))
-    }
-
-    /// Request messages for a specific inbox thread from the daemon.
-    public func sendAssistantInboxGetThreadMessages(conversationId: String, limit: Int? = nil, beforeMessageId: String? = nil) throws {
-        try send(IPCAssistantInboxRequest(
-            type: "assistant_inbox",
-            action: "get_thread_messages",
-            limit: limit.map { Double($0) },
-            conversationId: conversationId,
-            beforeMessageId: beforeMessageId
-        ))
-    }
-
-    /// Request the list of pending escalations from the daemon.
-    public func sendAssistantInboxListEscalations(assistantId: String? = nil, status: String? = nil) throws {
-        try send(IPCAssistantInboxEscalationRequest(
-            type: "assistant_inbox_escalation",
-            action: "list",
-            assistantId: assistantId,
-            status: status
-        ))
-    }
-
-    /// Send a reply to an inbox thread conversation.
-    public func sendAssistantInboxReply(conversationId: String, content: String) throws {
-        try send(IPCAssistantInboxReplyRequest(
-            type: "assistant_inbox_reply",
-            conversationId: conversationId,
-            content: content
-        ))
-    }
-
-    /// Approve or deny a pending escalation request.
-    public func sendAssistantInboxEscalationDecide(approvalRequestId: String, decision: String, reason: String? = nil) throws {
-        try send(IPCAssistantInboxEscalationRequest(
-            type: "assistant_inbox_escalation",
-            action: "decide",
-            approvalRequestId: approvalRequestId,
-            decision: decision,
-            reason: reason
-        ))
     }
 
     // MARK: - Model Config
@@ -1431,6 +1406,38 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             contentRestrictions: contentRestrictions,
             blockedToolCategories: blockedToolCategories
         ))
+    }
+
+    // MARK: - Heartbeat
+
+    /// Get the current heartbeat configuration.
+    public func sendHeartbeatConfigGet() throws {
+        try send(IPCHeartbeatConfig(type: "heartbeat_config", action: "get"))
+    }
+
+    /// Set heartbeat configuration fields.
+    public func sendHeartbeatConfigSet(enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil) throws {
+        try send(IPCHeartbeatConfig(type: "heartbeat_config", action: "set", enabled: enabled, intervalMs: intervalMs, activeHoursStart: activeHoursStart, activeHoursEnd: activeHoursEnd))
+    }
+
+    /// Request the list of recent heartbeat runs.
+    public func sendHeartbeatRunsList(limit: Int? = nil) throws {
+        try send(IPCHeartbeatRunsList(type: "heartbeat_runs_list", limit: limit.map { Double($0) }))
+    }
+
+    /// Trigger an immediate heartbeat run.
+    public func sendHeartbeatRunNow() throws {
+        try send(IPCHeartbeatRunNow(type: "heartbeat_run_now"))
+    }
+
+    /// Read the heartbeat checklist (HEARTBEAT.md).
+    public func sendHeartbeatChecklistRead() throws {
+        try send(IPCHeartbeatChecklistRead(type: "heartbeat_checklist_read"))
+    }
+
+    /// Write the heartbeat checklist (HEARTBEAT.md).
+    public func sendHeartbeatChecklistWrite(content: String) throws {
+        try send(IPCHeartbeatChecklistWrite(type: "heartbeat_checklist_write", content: content))
     }
 
     // MARK: - Pairing

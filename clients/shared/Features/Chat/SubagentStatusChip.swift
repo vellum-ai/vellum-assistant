@@ -5,9 +5,6 @@ public struct SubagentStatusChip: View {
     var onAbort: (() -> Void)?
     var onTap: (() -> Void)?
 
-    @State private var phase: Int = 0
-    @State private var timer: Timer?
-
     private var statusColor: Color {
         switch subagent.status {
         case .completed: return VColor.success
@@ -32,6 +29,17 @@ public struct SubagentStatusChip: View {
     }
 
     public var body: some View {
+        if subagent.isTerminal {
+            chipContent(phase: 0)
+        } else {
+            TimelineView(.periodic(from: .now, by: 0.4)) { context in
+                chipContent(phase: Int(context.date.timeIntervalSince1970 / 0.4) % 3)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chipContent(phase: Int) -> some View {
         HStack(spacing: VSpacing.sm) {
             Image(systemName: statusIcon)
                 .font(.system(size: 11))
@@ -50,7 +58,7 @@ public struct SubagentStatusChip: View {
                                 Circle()
                                     .fill(VColor.textSecondary)
                                     .frame(width: 4, height: 4)
-                                    .opacity(dotOpacity(for: index))
+                                    .opacity(phase % 3 == index ? 1.0 : 0.3)
                             }
                         }
                     }
@@ -85,27 +93,5 @@ public struct SubagentStatusChip: View {
         )
         .contentShape(Rectangle())
         .onTapGesture { onTap?() }
-        .onAppear { startDotAnimation() }
-        .onDisappear { timer?.invalidate() }
-        .onChange(of: subagent.status) {
-            if subagent.status.isTerminal {
-                timer?.invalidate()
-                timer = nil
-            }
-        }
-    }
-
-    private func dotOpacity(for index: Int) -> Double {
-        let active = phase % 3
-        return index == active ? 1.0 : 0.3
-    }
-
-    private func startDotAnimation() {
-        guard !subagent.isTerminal else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
-            withAnimation(VAnimation.standard) {
-                phase += 1
-            }
-        }
     }
 }

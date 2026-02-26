@@ -61,6 +61,7 @@ import {
   enqueueMessage as enqueueMessageImpl,
   persistUserMessage as persistUserMessageImpl,
   redirectToSecurePrompt as redirectToSecurePromptImpl,
+  type RedirectToSecurePromptOptions,
 } from './session-messaging.js';
 // Extracted modules
 import { registerSessionNotifiers } from './session-notifiers.js';
@@ -341,6 +342,11 @@ export class Session {
     this.traceEmitter.updateSender(sendToClient);
   }
 
+  /** Returns the current sendToClient reference for identity comparison. */
+  getCurrentSender(): (msg: ServerMessage) => void {
+    return this.sendToClient;
+  }
+
   setSandboxOverride(enabled: boolean | undefined): void {
     this.sandboxOverride = enabled;
   }
@@ -378,8 +384,8 @@ export class Session {
 
   // ── Messaging ────────────────────────────────────────────────────
 
-  redirectToSecurePrompt(detectedTypes: string[], onComplete?: () => void): void {
-    redirectToSecurePromptImpl(this.conversationId, this.secretPrompter, detectedTypes, onComplete);
+  redirectToSecurePrompt(detectedTypes: string[], options?: RedirectToSecurePromptOptions): void {
+    redirectToSecurePromptImpl(this.conversationId, this.secretPrompter, detectedTypes, options);
   }
 
   enqueueMessage(
@@ -390,8 +396,9 @@ export class Session {
     activeSurfaceId?: string,
     currentPage?: string,
     metadata?: Record<string, unknown>,
+    options?: { isInteractive?: boolean },
   ): { queued: boolean; rejected?: boolean; requestId: string } {
-    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, metadata);
+    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, metadata, options);
   }
 
   getQueueDepth(): number {
@@ -514,8 +521,9 @@ export class Session {
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
+    options?: { isInteractive?: boolean },
   ): Promise<string> {
-    return processMessageImpl(this as ProcessSessionContext, content, attachments, onEvent, requestId, activeSurfaceId, currentPage);
+    return processMessageImpl(this as ProcessSessionContext, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, options);
   }
 
   // ── History ──────────────────────────────────────────────────────

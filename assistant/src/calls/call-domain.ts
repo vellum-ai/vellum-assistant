@@ -565,3 +565,103 @@ export async function relayInstruction(input: RelayInstructionInput): Promise<{ 
 
   return { ok: true };
 }
+
+// ── Guardian verification call ───────────────────────────────────────
+
+export type StartGuardianVerificationCallInput = {
+  phoneNumber: string;
+  guardianVerificationSessionId: string;
+  assistantId?: string;
+};
+
+export type StartGuardianVerificationCallResult =
+  | { ok: true; callSessionId: string; callSid: string }
+  | CallError;
+
+/**
+ * Initiate an outbound call to the guardian's phone for verification.
+ *
+ * Creates a minimal call session with a voice channel binding and
+ * passes `guardianVerificationSessionId` as a custom parameter so the
+ * relay server can detect this is a guardian verification call.
+ */
+export async function startGuardianVerificationCall(
+  input: StartGuardianVerificationCallInput,
+): Promise<StartGuardianVerificationCallResult> {
+  const { phoneNumber, guardianVerificationSessionId, assistantId = 'self' } = input;
+
+  if (!phoneNumber || !E164_REGEX.test(phoneNumber)) {
+    return { ok: false, error: 'phone_number must be in E.164 format', status: 400 };
+  }
+
+  let sessionId: string | null = null;
+
+  try {
+    const config = loadConfig();
+    const provider = new TwilioConversationRelayProvider();
+
+    // Resolve the assistant's Twilio number as the caller ID
+    const identityResult = await resolveCallerIdentity(config, undefined, assistantId);
+    if (!identityResult.ok) {
+      return { ok: false, error: identityResult.error, status: 400 };
+    }
+
+    // Create a minimal conversation so the call session has a valid FK,
+    // and bind it to the voice channel so it never appears as an unbound
+    // desktop thread.
+    const convKey = `guardian-verify:${guardianVerificationSessionId}`;
+    const { conversationId } = getOrCreateConversation(convKey);
+
+    upsertBinding({
+      conversationId,
+      sourceChannel: 'voice',
+      externalChatId: `guardian-verify:${guardianVerificationSessionId}`,
+    });
+
+    const session = createCallSession({
+      conversationId,
+      provider: 'twilio',
+      fromNumber: identityResult.fromNumber,
+      toNumber: phoneNumber,
+      callMode: 'guardian_verification',
+      guardianVerificationSessionId,
+      assistantId,
+    });
+    sessionId = session.id;
+
+    const webhookUrl = getTwilioVoiceWebhookUrl(config, session.id);
+    const statusCallbackUrl = getTwilioStatusCallbackUrl(config);
+
+    const { callSid } = await provider.initiateCall({
+      from: identityResult.fromNumber,
+      to: phoneNumber,
+      webhookUrl,
+      statusCallbackUrl,
+      customParams: {
+        guardianVerificationSessionId,
+      },
+    });
+
+    updateCallSession(session.id, { providerCallSid: callSid });
+
+    log.info(
+      { callSessionId: session.id, callSid, guardianVerificationSessionId, to: phoneNumber },
+      'Guardian verification call initiated',
+    );
+
+    return { ok: true, callSessionId: session.id, callSid };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, phoneNumber, guardianVerificationSessionId }, 'Failed to initiate guardian verification call');
+
+    if (sessionId) {
+      updateCallSession(sessionId, {
+        status: 'failed',
+        endedAt: Date.now(),
+        lastError: msg,
+      });
+    }
+
+    return { ok: false, error: `Error initiating guardian verification call: ${msg}`, status: 500 };
+  }
+}

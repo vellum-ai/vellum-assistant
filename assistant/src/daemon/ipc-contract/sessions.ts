@@ -88,6 +88,38 @@ export interface ImageGenModelSetRequest {
 export interface HistoryRequest {
   type: 'history_request';
   sessionId: string;
+  /** Max messages to return. When omitted, all messages are returned (unlimited). */
+  limit?: number;
+  /** Pagination cursor: return messages with timestamp before this value. */
+  beforeTimestamp?: number;
+  /** Pagination cursor tie-breaker: exclude this message ID when beforeTimestamp matches. */
+  beforeMessageId?: string;
+  /** Include attachment base64 data. Defaults to false in light mode. */
+  includeAttachments?: boolean;
+  /** Include tool screenshot base64 data. Defaults to false in light mode. */
+  includeToolImages?: boolean;
+  /** Include surface HTML payloads. Defaults to false in light mode. */
+  includeSurfaceData?: boolean;
+  /** Shorthand: 'light' = all include flags false (default), 'full' = all include flags true. */
+  mode?: 'light' | 'full';
+  /** Truncate message text fields beyond this character limit. When omitted, full text is returned. */
+  maxTextChars?: number;
+  /** Truncate tool result strings beyond this character limit. When omitted, full results are returned. */
+  maxToolResultChars?: number;
+}
+
+export interface MessageContentRequest {
+  type: 'message_content_request';
+  sessionId: string;
+  messageId: string;
+}
+
+export interface MessageContentResponse {
+  type: 'message_content_response';
+  sessionId: string;
+  messageId: string;
+  text?: string;
+  toolCalls?: Array<{ name: string; result?: string; input?: Record<string, unknown> }>;
 }
 
 export interface UndoRequest {
@@ -170,9 +202,18 @@ export interface ChannelBinding {
   username?: string | null;
 }
 
+/** Attention state metadata for a conversation's latest assistant message. */
+export interface AssistantAttention {
+  hasUnseenLatestAssistantMessage: boolean;
+  latestAssistantMessageAt?: number;
+  lastSeenAssistantMessageAt?: number;
+  lastSeenConfidence?: string;
+  lastSeenSignalType?: string;
+}
+
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId }>;
+  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId; assistantAttention?: AssistantAttention }>;
   /** Whether more sessions exist beyond the returned page. */
   hasMore?: boolean;
 }
@@ -262,7 +303,15 @@ export interface HistoryResponse {
       error?: string;
       conversationId?: string;
     };
+    /** True when text or tool result content was truncated due to maxTextChars/maxToolResultChars. */
+    wasTruncated?: boolean;
   }>;
+  /** Whether older messages exist beyond the returned page. */
+  hasMore: boolean;
+  /** Timestamp of the oldest message in the response (client uses as next pagination cursor). */
+  oldestTimestamp?: number;
+  /** ID of the oldest message in the response (tie-breaker for same-millisecond cursors). */
+  oldestMessageId?: string;
 }
 
 export interface UndoComplete {
@@ -342,7 +391,8 @@ export type _SessionsClientMessages =
   | SessionSwitchRequest
   | SessionRenameRequest
   | SessionsClearRequest
-  | ConversationSearchRequest;
+  | ConversationSearchRequest
+  | MessageContentRequest;
 
 export type _SessionsServerMessages =
   | AuthResult
@@ -361,4 +411,5 @@ export type _SessionsServerMessages =
   | SessionTitleUpdated
   | SessionListResponse
   | SessionsClearResponse
-  | ConversationSearchResponse;
+  | ConversationSearchResponse
+  | MessageContentResponse;

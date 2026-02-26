@@ -6,12 +6,17 @@ import { createTelegramDeliverHandler } from "./telegram-deliver.js";
 
 // Track calls to sendTelegramReply so we can assert on approval passthrough.
 let sendTelegramReplyCalls: Array<unknown[]> = [];
+let sendTypingIndicatorCalls: Array<unknown[]> = [];
 
 mock.module("../../telegram/send.js", () => ({
   sendTelegramReply: async (...args: unknown[]) => {
     sendTelegramReplyCalls.push(args);
   },
   sendTelegramAttachments: async () => {},
+  sendTypingIndicator: async (...args: unknown[]) => {
+    sendTypingIndicatorCalls.push(args);
+    return true;
+  },
 }));
 
 // ---- Helpers ----
@@ -42,7 +47,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     telegramInitialBackoffMs: 1000,
     telegramMaxRetries: 3,
     telegramTimeoutMs: 15000,
-    telegramWebhookSecret: "test-secret",
+    telegramWebhookSecret: undefined,
     twilioAuthToken: undefined,
     twilioAccountSid: undefined,
     twilioPhoneNumber: undefined,
@@ -57,6 +62,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     whatsappTimeoutMs: 15000,
     whatsappMaxRetries: 3,
     whatsappInitialBackoffMs: 1000,
+    trustProxy: false,
     ...overrides,
   };
   if (merged.runtimeGatewayOriginSecret === undefined) {
@@ -80,6 +86,7 @@ function makeRequest(body: unknown, headers?: Record<string, string>): Request {
 describe("telegram-deliver endpoint basics", () => {
   beforeEach(() => {
     sendTelegramReplyCalls = [];
+    sendTypingIndicatorCalls = [];
   });
 
   it("rejects GET requests with 405", async () => {
@@ -167,7 +174,29 @@ describe("telegram-deliver endpoint basics", () => {
     const res = await handler(req);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe("text or attachments required");
+    expect(body.error).toBe("text, attachments, or chatAction required");
+  });
+
+  it("returns 400 when chatAction is invalid", async () => {
+    const handler = createTelegramDeliverHandler(makeConfig());
+    const req = makeRequest({ chatId: "123", chatAction: "upload_photo" });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("chatAction must be \"typing\"");
+  });
+
+  it("accepts typing action-only payloads", async () => {
+    const handler = createTelegramDeliverHandler(makeConfig());
+    const req = makeRequest({ chatId: "42", chatAction: "typing" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(sendTypingIndicatorCalls).toHaveLength(1);
+    const [, chatId] = sendTypingIndicatorCalls[0] as [unknown, string];
+    expect(chatId).toBe("42");
+    expect(sendTelegramReplyCalls).toHaveLength(0);
   });
 
   it("returns 400 when JSON is invalid", async () => {
@@ -198,6 +227,7 @@ describe("telegram-deliver endpoint basics", () => {
         throw new Error("Telegram API failure");
       },
       sendTelegramAttachments: async () => {},
+      sendTypingIndicator: async () => true,
     }));
 
     const { createTelegramDeliverHandler: createHandler } = await import(
@@ -216,6 +246,10 @@ describe("telegram-deliver endpoint basics", () => {
         sendTelegramReplyCalls.push(args);
       },
       sendTelegramAttachments: async () => {},
+      sendTypingIndicator: async (...args: unknown[]) => {
+        sendTypingIndicatorCalls.push(args);
+        return true;
+      },
     }));
   });
 
@@ -357,7 +391,6 @@ describe("telegram-deliver approval validation", () => {
         chatId: "123",
         text: "Please approve",
         approval: {
-          runId: "run-1",
           requestId: "req-1",
           actions: [
             { id: "approve_once", label: "Approve once" },
@@ -397,30 +430,12 @@ describe("telegram-deliver approval validation", () => {
     expect(body.error).toBe("approval must be an object");
   });
 
-  it("returns 400 when approval.runId is missing", async () => {
-    const res = await handler(
-      makeRequest({
-        chatId: "123",
-        text: "hi",
-        approval: {
-          requestId: "req-1",
-          actions: [{ id: "ok", label: "OK" }],
-          plainTextFallback: "ok",
-        },
-      }),
-    );
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe("approval.runId is required");
-  });
-
   it("returns 400 when approval.requestId is missing", async () => {
     const res = await handler(
       makeRequest({
         chatId: "123",
         text: "hi",
         approval: {
-          runId: "run-1",
           actions: [{ id: "ok", label: "OK" }],
           plainTextFallback: "ok",
         },
@@ -437,7 +452,6 @@ describe("telegram-deliver approval validation", () => {
         chatId: "123",
         text: "hi",
         approval: {
-          runId: "run-1",
           requestId: "req-1",
           actions: [],
           plainTextFallback: "ok",
@@ -455,7 +469,6 @@ describe("telegram-deliver approval validation", () => {
         chatId: "123",
         text: "hi",
         approval: {
-          runId: "run-1",
           requestId: "req-1",
           actions: "not-array",
           plainTextFallback: "ok",
@@ -473,7 +486,6 @@ describe("telegram-deliver approval validation", () => {
         chatId: "123",
         text: "hi",
         approval: {
-          runId: "run-1",
           requestId: "req-1",
           actions: [{ label: "OK" }],
           plainTextFallback: "ok",
@@ -491,7 +503,6 @@ describe("telegram-deliver approval validation", () => {
         chatId: "123",
         text: "hi",
         approval: {
-          runId: "run-1",
           requestId: "req-1",
           actions: [{ id: "ok" }],
           plainTextFallback: "ok",
@@ -509,7 +520,6 @@ describe("telegram-deliver approval validation", () => {
         chatId: "123",
         text: "hi",
         approval: {
-          runId: "run-1",
           requestId: "req-1",
           actions: [null],
           plainTextFallback: "ok",
@@ -523,7 +533,6 @@ describe("telegram-deliver approval validation", () => {
 
   it("passes approval payload through to sendTelegramReply", async () => {
     const approval = {
-      runId: "run-x",
       requestId: "req-y",
       actions: [{ id: "go", label: "Go" }],
       plainTextFallback: "go",
@@ -550,7 +559,6 @@ describe("telegram-deliver approval validation", () => {
         chatId: "123",
         attachments: [{ id: "att-1" }],
         approval: {
-          runId: "run-1",
           requestId: "req-1",
           actions: [{ id: "ok", label: "OK" }],
           plainTextFallback: "ok",
@@ -563,16 +571,15 @@ describe("telegram-deliver approval validation", () => {
   });
 
   it("returns 400 when callback_data would exceed 64 bytes", async () => {
-    // "apr:" (4 bytes) + runId + ":" (1 byte) + actionId must stay <= 64
-    // A 60-char runId + short action id will exceed the limit.
-    const longRunId = "r".repeat(60);
+    // "apr:" (4 bytes) + requestId + ":" (1 byte) + actionId must stay <= 64
+    // A 60-char requestId + short action id will exceed the limit.
+    const longRequestId = "r".repeat(60);
     const res = await handler(
       makeRequest({
         chatId: "123",
         text: "Approve?",
         approval: {
-          runId: longRunId,
-          requestId: "req-1",
+          requestId: longRequestId,
           actions: [{ id: "ok", label: "OK" }],
           plainTextFallback: "ok",
         },
@@ -584,23 +591,22 @@ describe("telegram-deliver approval validation", () => {
   });
 
   it("accepts callback_data exactly at 64 bytes", async () => {
-    // "apr:" = 4 bytes, ":" separator = 1 byte, so runId + actionId = 59 bytes
-    const runId = "r".repeat(50);
+    // "apr:" = 4 bytes, ":" separator = 1 byte, so requestId + actionId = 59 bytes
+    const requestId = "r".repeat(50);
     const actionId = "a".repeat(9);
     const res = await handler(
       makeRequest({
         chatId: "123",
         text: "Approve?",
         approval: {
-          runId,
-          requestId: "req-1",
+          requestId,
           actions: [{ id: actionId, label: "OK" }],
           plainTextFallback: "ok",
         },
       }),
     );
     // Verify the callback_data is exactly 64 bytes
-    expect(Buffer.byteLength(`apr:${runId}:${actionId}`)).toBe(64);
+    expect(Buffer.byteLength(`apr:${requestId}:${actionId}`)).toBe(64);
     expect(res.status).toBe(200);
   });
 });

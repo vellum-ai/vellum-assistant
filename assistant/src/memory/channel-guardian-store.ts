@@ -8,7 +8,7 @@
  * requests track per-run guardian approval decisions.
  */
 
-import { and, count, desc, eq, gt, lte } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, inArray, lte, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getDb } from './db.js';
@@ -25,6 +25,8 @@ import {
 
 export type BindingStatus = 'active' | 'revoked';
 export type ChallengeStatus = 'pending' | 'consumed' | 'expired' | 'revoked';
+export type SessionStatus = 'pending' | 'consumed' | 'pending_bootstrap' | 'awaiting_response' | 'verified' | 'expired' | 'revoked' | 'locked';
+export type IdentityBindingStatus = 'pending_bootstrap' | 'bound';
 export type ApprovalRequestStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'cancelled';
 
 export interface GuardianBinding {
@@ -47,10 +49,25 @@ export interface VerificationChallenge {
   channel: string;
   challengeHash: string;
   expiresAt: number;
-  status: ChallengeStatus;
+  status: SessionStatus;
   createdBySessionId: string | null;
   consumedByExternalUserId: string | null;
   consumedByChatId: string | null;
+  // Outbound session: expected-identity binding
+  expectedExternalUserId: string | null;
+  expectedChatId: string | null;
+  expectedPhoneE164: string | null;
+  identityBindingStatus: IdentityBindingStatus | null;
+  // Outbound session: delivery tracking
+  destinationAddress: string | null;
+  lastSentAt: number | null;
+  sendCount: number;
+  nextResendAt: number | null;
+  // Session configuration
+  codeDigits: number;
+  maxAttempts: number;
+  // Telegram bootstrap deep-link token hash
+  bootstrapTokenHash: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -58,6 +75,7 @@ export interface VerificationChallenge {
 export interface GuardianApprovalRequest {
   id: string;
   runId: string;
+  requestId: string | null;
   conversationId: string;
   assistantId: string;
   channel: string;
@@ -102,10 +120,21 @@ function rowToChallenge(row: typeof channelGuardianVerificationChallenges.$infer
     channel: row.channel,
     challengeHash: row.challengeHash,
     expiresAt: row.expiresAt,
-    status: row.status as ChallengeStatus,
+    status: row.status as SessionStatus,
     createdBySessionId: row.createdBySessionId,
     consumedByExternalUserId: row.consumedByExternalUserId,
     consumedByChatId: row.consumedByChatId,
+    expectedExternalUserId: row.expectedExternalUserId ?? null,
+    expectedChatId: row.expectedChatId ?? null,
+    expectedPhoneE164: row.expectedPhoneE164 ?? null,
+    identityBindingStatus: (row.identityBindingStatus as IdentityBindingStatus) ?? null,
+    destinationAddress: row.destinationAddress ?? null,
+    lastSentAt: row.lastSentAt ?? null,
+    sendCount: row.sendCount ?? 0,
+    nextResendAt: row.nextResendAt ?? null,
+    codeDigits: row.codeDigits ?? 6,
+    maxAttempts: row.maxAttempts ?? 3,
+    bootstrapTokenHash: row.bootstrapTokenHash ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -115,6 +144,7 @@ function rowToApprovalRequest(row: typeof channelGuardianApprovalRequests.$infer
   return {
     id: row.id,
     runId: row.runId,
+    requestId: row.requestId ?? null,
     conversationId: row.conversationId,
     assistantId: row.assistantId,
     channel: row.channel,
@@ -249,6 +279,17 @@ export function createChallenge(params: {
     createdBySessionId: params.createdBySessionId ?? null,
     consumedByExternalUserId: null,
     consumedByChatId: null,
+    expectedExternalUserId: null,
+    expectedChatId: null,
+    expectedPhoneE164: null,
+    identityBindingStatus: 'bound' as const,
+    destinationAddress: null,
+    lastSentAt: null,
+    sendCount: 0,
+    nextResendAt: null,
+    codeDigits: 6,
+    maxAttempts: 3,
+    bootstrapTokenHash: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -280,6 +321,7 @@ export function findPendingChallengeByHash(
   const db = getDb();
   const now = Date.now();
 
+  // Match any consumable status: 'pending' (inbound), 'pending_bootstrap', 'awaiting_response' (outbound)
   const row = db
     .select()
     .from(channelGuardianVerificationChallenges)
@@ -288,7 +330,7 @@ export function findPendingChallengeByHash(
         eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
         eq(channelGuardianVerificationChallenges.challengeHash, challengeHash),
-        eq(channelGuardianVerificationChallenges.status, 'pending'),
+        inArray(channelGuardianVerificationChallenges.status, ['pending', 'pending_bootstrap', 'awaiting_response']),
         gt(channelGuardianVerificationChallenges.expiresAt, now),
       ),
     )
@@ -298,8 +340,12 @@ export function findPendingChallengeByHash(
 }
 
 /**
- * Find any pending (non-expired) challenge for a given (assistantId, channel).
- * Used by relay setup to detect whether a voice verification session is active.
+ * Find any pending inbound (non-expired) challenge for a given (assistantId, channel).
+ * Scoped to 'pending' status only — this is the inbound verification path used by
+ * the relay-server to gate incoming voice calls. Outbound session states
+ * (pending_bootstrap, awaiting_response) are excluded so that an active outbound
+ * verification does not inadvertently force unrelated inbound callers into the
+ * guardian verification flow.
  */
 export function findPendingChallengeForChannel(
   assistantId: string,
@@ -344,11 +390,298 @@ export function consumeChallenge(
 }
 
 // ---------------------------------------------------------------------------
+// Verification Sessions (outbound identity-bound)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create an outbound verification session with expected-identity binding.
+ * Auto-revokes prior pending/awaiting_response sessions for the same
+ * (assistantId, channel) to close the replay window.
+ */
+export function createVerificationSession(params: {
+  id: string;
+  assistantId: string;
+  channel: string;
+  challengeHash: string;
+  expiresAt: number;
+  status: SessionStatus;
+  createdBySessionId?: string;
+  expectedExternalUserId?: string | null;
+  expectedChatId?: string | null;
+  expectedPhoneE164?: string | null;
+  identityBindingStatus?: IdentityBindingStatus;
+  destinationAddress?: string | null;
+  codeDigits?: number;
+  maxAttempts?: number;
+  bootstrapTokenHash?: string | null;
+}): VerificationChallenge {
+  const db = getDb();
+  const now = Date.now();
+
+  // Revoke any prior pending/awaiting_response sessions for the same (assistantId, channel)
+  db.update(channelGuardianVerificationChallenges)
+    .set({ status: 'revoked', updatedAt: now })
+    .where(
+      and(
+        eq(channelGuardianVerificationChallenges.assistantId, params.assistantId),
+        eq(channelGuardianVerificationChallenges.channel, params.channel),
+        inArray(channelGuardianVerificationChallenges.status, ['pending', 'pending_bootstrap', 'awaiting_response']),
+      ),
+    )
+    .run();
+
+  const row = {
+    id: params.id,
+    assistantId: params.assistantId,
+    channel: params.channel,
+    challengeHash: params.challengeHash,
+    expiresAt: params.expiresAt,
+    status: params.status as string,
+    createdBySessionId: params.createdBySessionId ?? null,
+    consumedByExternalUserId: null,
+    consumedByChatId: null,
+    expectedExternalUserId: params.expectedExternalUserId ?? null,
+    expectedChatId: params.expectedChatId ?? null,
+    expectedPhoneE164: params.expectedPhoneE164 ?? null,
+    identityBindingStatus: params.identityBindingStatus ?? 'bound',
+    destinationAddress: params.destinationAddress ?? null,
+    lastSentAt: null,
+    sendCount: 0,
+    nextResendAt: null,
+    codeDigits: params.codeDigits ?? 6,
+    maxAttempts: params.maxAttempts ?? 3,
+    bootstrapTokenHash: params.bootstrapTokenHash ?? null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  db.insert(channelGuardianVerificationChallenges).values(row).run();
+
+  return rowToChallenge(row);
+}
+
+/**
+ * Find the most recent pending_bootstrap or awaiting_response session
+ * for a given (assistantId, channel).
+ */
+export function findActiveSession(
+  assistantId: string,
+  channel: string,
+): VerificationChallenge | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select()
+    .from(channelGuardianVerificationChallenges)
+    .where(
+      and(
+        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
+        eq(channelGuardianVerificationChallenges.channel, channel),
+        inArray(channelGuardianVerificationChallenges.status, ['pending_bootstrap', 'awaiting_response']),
+        gt(channelGuardianVerificationChallenges.expiresAt, now),
+      ),
+    )
+    .orderBy(desc(channelGuardianVerificationChallenges.createdAt))
+    .get();
+
+  return row ? rowToChallenge(row) : null;
+}
+
+/**
+ * Look up a pending_bootstrap session by its bootstrap token hash.
+ * Used by the Telegram /start gv_<token> bootstrap flow.
+ */
+export function findSessionByBootstrapTokenHash(
+  assistantId: string,
+  channel: string,
+  tokenHash: string,
+): VerificationChallenge | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select()
+    .from(channelGuardianVerificationChallenges)
+    .where(
+      and(
+        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
+        eq(channelGuardianVerificationChallenges.channel, channel),
+        eq(channelGuardianVerificationChallenges.bootstrapTokenHash, tokenHash),
+        eq(channelGuardianVerificationChallenges.status, 'pending_bootstrap'),
+        gt(channelGuardianVerificationChallenges.expiresAt, now),
+      ),
+    )
+    .get();
+
+  return row ? rowToChallenge(row) : null;
+}
+
+/**
+ * Identity-bound lookup for the consume path. Finds a session matching the
+ * given identity fields with an active status.
+ */
+export function findSessionByIdentity(
+  assistantId: string,
+  channel: string,
+  externalUserId?: string,
+  chatId?: string,
+  phoneE164?: string,
+): VerificationChallenge | null {
+  // Require at least one identity parameter to avoid accidentally matching
+  // an unrelated session when the caller has no parsed identity fields.
+  if (!externalUserId && !chatId && !phoneE164) {
+    return null;
+  }
+
+  const db = getDb();
+  const now = Date.now();
+
+  const conditions = [
+    eq(channelGuardianVerificationChallenges.assistantId, assistantId),
+    eq(channelGuardianVerificationChallenges.channel, channel),
+    inArray(channelGuardianVerificationChallenges.status, ['pending_bootstrap', 'awaiting_response']),
+    gt(channelGuardianVerificationChallenges.expiresAt, now),
+  ];
+
+  // Build identity match conditions
+  const identityConditions = [];
+  if (externalUserId) {
+    identityConditions.push(eq(channelGuardianVerificationChallenges.expectedExternalUserId, externalUserId));
+  }
+  if (chatId) {
+    identityConditions.push(eq(channelGuardianVerificationChallenges.expectedChatId, chatId));
+  }
+  if (phoneE164) {
+    identityConditions.push(eq(channelGuardianVerificationChallenges.expectedPhoneE164, phoneE164));
+  }
+
+  if (identityConditions.length > 0) {
+    conditions.push(or(...identityConditions)!);
+  }
+
+  const row = db
+    .select()
+    .from(channelGuardianVerificationChallenges)
+    .where(and(...conditions))
+    .orderBy(desc(channelGuardianVerificationChallenges.createdAt))
+    .get();
+
+  return row ? rowToChallenge(row) : null;
+}
+
+/**
+ * Transition a session's status with optional extra field updates.
+ */
+export function updateSessionStatus(
+  id: string,
+  status: SessionStatus,
+  extraFields?: Partial<{
+    consumedByExternalUserId: string;
+    consumedByChatId: string;
+  }>,
+): void {
+  const db = getDb();
+  const now = Date.now();
+
+  db.update(channelGuardianVerificationChallenges)
+    .set({
+      status,
+      updatedAt: now,
+      ...(extraFields?.consumedByExternalUserId !== undefined
+        ? { consumedByExternalUserId: extraFields.consumedByExternalUserId }
+        : {}),
+      ...(extraFields?.consumedByChatId !== undefined
+        ? { consumedByChatId: extraFields.consumedByChatId }
+        : {}),
+    })
+    .where(eq(channelGuardianVerificationChallenges.id, id))
+    .run();
+}
+
+/**
+ * Update outbound delivery tracking fields on a session.
+ */
+export function updateSessionDelivery(
+  id: string,
+  lastSentAt: number,
+  sendCount: number,
+  nextResendAt: number | null,
+): void {
+  const db = getDb();
+  const now = Date.now();
+
+  db.update(channelGuardianVerificationChallenges)
+    .set({
+      lastSentAt,
+      sendCount,
+      nextResendAt,
+      updatedAt: now,
+    })
+    .where(eq(channelGuardianVerificationChallenges.id, id))
+    .run();
+}
+
+/**
+ * Count actual sends to a specific destination across all sessions within a
+ * rolling time window. Uses COUNT of rows with a last_sent_at timestamp
+ * inside the window rather than SUM(send_count) to avoid double-counting
+ * cumulative session counters when resend creates new sessions that carry
+ * forward the cumulative count.
+ */
+export function countRecentSendsToDestination(
+  channel: string,
+  destinationAddress: string,
+  windowMs: number,
+): number {
+  const db = getDb();
+  const cutoff = Date.now() - windowMs;
+
+  const result = db
+    .select({ total: count() })
+    .from(channelGuardianVerificationChallenges)
+    .where(
+      and(
+        eq(channelGuardianVerificationChallenges.channel, channel),
+        eq(channelGuardianVerificationChallenges.destinationAddress, destinationAddress),
+        gte(channelGuardianVerificationChallenges.lastSentAt, cutoff),
+      ),
+    )
+    .get();
+
+  return result?.total ?? 0;
+}
+
+/**
+ * Telegram bootstrap completion: bind the expected identity fields and
+ * transition identity_binding_status from pending_bootstrap to bound.
+ */
+export function bindSessionIdentity(
+  id: string,
+  externalUserId: string,
+  chatId: string,
+): void {
+  const db = getDb();
+  const now = Date.now();
+
+  db.update(channelGuardianVerificationChallenges)
+    .set({
+      expectedExternalUserId: externalUserId,
+      expectedChatId: chatId,
+      identityBindingStatus: 'bound',
+      updatedAt: now,
+    })
+    .where(eq(channelGuardianVerificationChallenges.id, id))
+    .run();
+}
+
+// ---------------------------------------------------------------------------
 // Guardian Approval Requests
 // ---------------------------------------------------------------------------
 
 export function createApprovalRequest(params: {
   runId: string;
+  requestId?: string;
   conversationId: string;
   assistantId?: string;
   channel: string;
@@ -368,6 +701,7 @@ export function createApprovalRequest(params: {
   const row = {
     id,
     runId: params.runId,
+    requestId: params.requestId ?? null,
     conversationId: params.conversationId,
     assistantId: params.assistantId ?? 'self',
     channel: params.channel,
@@ -409,6 +743,25 @@ export function getPendingApprovalForRun(runId: string): GuardianApprovalRequest
   return row ? rowToApprovalRequest(row) : null;
 }
 
+export function getPendingApprovalForRequest(requestId: string): GuardianApprovalRequest | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.requestId, requestId),
+        eq(channelGuardianApprovalRequests.status, 'pending'),
+        gt(channelGuardianApprovalRequests.expiresAt, now),
+      ),
+    )
+    .get();
+
+  return row ? rowToApprovalRequest(row) : null;
+}
+
 /**
  * Find a pending (status = 'pending') guardian approval request for a run
  * regardless of whether it has expired. Used by the non-guardian gate to
@@ -424,6 +777,23 @@ export function getUnresolvedApprovalForRun(runId: string): GuardianApprovalRequ
     .where(
       and(
         eq(channelGuardianApprovalRequests.runId, runId),
+        eq(channelGuardianApprovalRequests.status, 'pending'),
+      ),
+    )
+    .get();
+
+  return row ? rowToApprovalRequest(row) : null;
+}
+
+export function getUnresolvedApprovalForRequest(requestId: string): GuardianApprovalRequest | null {
+  const db = getDb();
+
+  const row = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.requestId, requestId),
         eq(channelGuardianApprovalRequests.status, 'pending'),
       ),
     )
@@ -487,6 +857,41 @@ export function getPendingApprovalByRunAndGuardianChat(
 
   const conditions = [
     eq(channelGuardianApprovalRequests.runId, runId),
+    eq(channelGuardianApprovalRequests.channel, channel),
+    eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
+    eq(channelGuardianApprovalRequests.status, 'pending'),
+    gt(channelGuardianApprovalRequests.expiresAt, now),
+  ];
+  if (assistantId) {
+    conditions.push(eq(channelGuardianApprovalRequests.assistantId, assistantId));
+  }
+
+  const row = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(and(...conditions))
+    .get();
+
+  return row ? rowToApprovalRequest(row) : null;
+}
+
+/**
+ * Find a pending guardian approval request scoped to a specific requestId,
+ * guardian chat, and channel. Used when a callback button provides a requestId,
+ * so the decision is applied to exactly the right approval even when
+ * multiple approvals target the same guardian chat.
+ */
+export function getPendingApprovalByRequestAndGuardianChat(
+  requestId: string,
+  channel: string,
+  guardianChatId: string,
+  assistantId?: string,
+): GuardianApprovalRequest | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const conditions = [
+    eq(channelGuardianApprovalRequests.requestId, requestId),
     eq(channelGuardianApprovalRequests.channel, channel),
     eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
     eq(channelGuardianApprovalRequests.status, 'pending'),
@@ -582,13 +987,12 @@ export function updateApprovalDecision(
 }
 
 // ---------------------------------------------------------------------------
-// Inbox / Escalation Query Helpers
+// Escalation Query Helpers
 // ---------------------------------------------------------------------------
 
 /**
  * List approval requests filtered by assistant, and optionally by channel,
- * conversation, and status. Designed for the inbox UI to show a paginated
- * list of escalations.
+ * conversation, and status. Returns a paginated list of escalations.
  */
 export function listPendingApprovalRequests(params: {
   assistantId?: string;

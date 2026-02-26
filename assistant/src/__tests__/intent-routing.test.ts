@@ -90,81 +90,46 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
 
   test('system prompt includes the routing section heading', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain('## Tool Routing: Tasks vs Schedules vs Reminders');
+    expect(prompt).toContain('## Tool Routing: Tasks vs Schedules vs Reminders vs Notifications');
   });
 
-  test('routing section explains all three subsystems', () => {
+  test('routing section lists all four tools in the summary table', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain('### Task Queue (task_list_add / task_list_show / task_list_update / task_list_remove)');
-    expect(prompt).toContain('### Schedules (schedule_create / schedule_list / schedule_update / schedule_delete)');
-    expect(prompt).toContain('### Reminders (reminder_create / reminder_list / reminder_cancel)');
+    expect(prompt).toContain('`task_list_add`');
+    expect(prompt).toContain('`schedule_create`');
+    expect(prompt).toContain('`reminder_create`');
+    expect(prompt).toContain('`send_notification`');
   });
 
-  test('routing section contains key routing phrases for task queue', () => {
+  test('routing section warns that send_notification is immediate-only', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain('"Add to my tasks"');
-    expect(prompt).toContain('"add to my queue"');
-    expect(prompt).toContain('"put this on my task list"');
+    expect(prompt).toContain('send_notification` is immediate-only');
+    expect(prompt).toContain('fires NOW');
   });
 
-  test('routing section explains ad-hoc work item creation', () => {
+  test('routing section includes quick routing rules', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain('ad-hoc work items');
-    expect(prompt).toContain('just a `title`');
-    expect(prompt).toContain('no existing task template is needed');
+    expect(prompt).toContain('Quick routing rules');
+    expect(prompt).toContain('Future time, one-shot');
+    expect(prompt).toContain('Recurring pattern');
+    expect(prompt).toContain('No time, track as work');
   });
 
-  test('routing section clarifies schedules are for recurring automation only', () => {
+  test('routing section documents entity type routing', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain('recurring automated jobs');
-    expect(prompt).toContain('recurrence schedule (cron or RRULE)');
-    expect(prompt).toContain('ONLY when the user explicitly wants');
+    expect(prompt).toContain('Entity type routing: work items vs task templates');
+    expect(prompt).toContain('**Work items**');
+    expect(prompt).toContain('**Task templates**');
   });
 
-  test('routing section documents supported RRULE set constructs', () => {
+  test('routing section references the Time-Based Actions skill', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain('#### RRULE Set Constructs');
-    expect(prompt).toContain('**RDATE**');
-    expect(prompt).toContain('**EXDATE**');
-    expect(prompt).toContain('**EXRULE**');
-    expect(prompt).toContain('multiple RRULE lines form a union');
-  });
-
-  test('routing section documents bounded recurrence patterns', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('Bounded recurrence');
-    expect(prompt).toContain('COUNT or UNTIL');
-  });
-
-  test('routing section states exclusion precedence', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('Exclusions (EXDATE, EXRULE) take precedence over inclusions (RRULE, RDATE)');
-  });
-
-  test('routing section clarifies reminders are for time-triggered notifications', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('one-time time-triggered notifications');
-    expect(prompt).toContain('"remind me at 3pm"');
-  });
-
-  test('routing section includes common mistakes to avoid', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('### Common mistakes to avoid');
-    // The key mis-routing guard: "add this to my tasks" should go to task_list_add
-    expect(prompt).toContain('"Add this to my tasks" → task_list_add (NOT schedule_create or reminder_create)');
-  });
-
-  test('routing section distinguishes timed vs untimed "remind me"', () => {
-    const prompt = buildSystemPrompt();
-    // Without a time → task queue
-    expect(prompt).toContain('"Remind me to buy groceries" without a time → task_list_add');
-    // With a time → reminder
-    expect(prompt).toContain('"Remind me at 5pm to buy groceries" → reminder_create');
+    expect(prompt).toContain('Time-Based Actions');
   });
 
   test('routing section is present in the system prompt', () => {
     const prompt = buildSystemPrompt();
-    const taskRoutingIdx = prompt.indexOf('## Tool Routing: Tasks vs Schedules vs Reminders');
+    const taskRoutingIdx = prompt.indexOf('## Tool Routing: Tasks vs Schedules vs Reminders vs Notifications');
     expect(taskRoutingIdx).toBeGreaterThanOrEqual(0);
   });
 });
@@ -258,5 +223,71 @@ describe('cross-tool routing consistency', () => {
     // Both should redirect away from task-queue requests
     expect(scheduleCreateDef.description).toContain('add to my queue');
     expect(reminderCreateDef.description).toContain('add to my queue');
+  });
+});
+
+// =====================================================================
+// 4. Guardian verification routing section in system prompt
+// =====================================================================
+
+describe('Guardian verification routing section in system prompt', () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
+  });
+
+  test('system prompt includes the guardian verification routing heading', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('## Routing: Guardian Verification');
+  });
+
+  test('routing section includes trigger phrase "verify guardian"', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('verify guardian');
+  });
+
+  test('routing section includes trigger phrase "set guardian for SMS"', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('set guardian for SMS');
+  });
+
+  test('routing section includes trigger phrase "verify my Telegram account"', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('verify my Telegram account');
+  });
+
+  test('routing section includes trigger phrase "verify voice channel"', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('verify voice channel');
+  });
+
+  test('routing section includes trigger phrase "verify my phone number"', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('verify my phone number');
+  });
+
+  test('routing section includes trigger phrase "set up guardian verification"', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('set up guardian verification');
+  });
+
+  test('routing section references the guardian-verify-setup skill', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('guardian-verify-setup');
+  });
+
+  test('routing section mentions all three channels', () => {
+    const prompt = buildSystemPrompt();
+    // The section should mention sms, voice, and telegram as supported channels
+    const routingStart = prompt.indexOf('## Routing: Guardian Verification');
+    const routingSection = prompt.substring(routingStart, routingStart + 1000);
+    expect(routingSection).toContain('sms');
+    expect(routingSection).toContain('voice');
+    expect(routingSection).toContain('telegram');
   });
 });

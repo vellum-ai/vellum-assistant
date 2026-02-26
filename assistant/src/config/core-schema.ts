@@ -280,6 +280,9 @@ export const DaemonConfigSchema = z.object({
     .int('daemon.titleGenerationMaxTokens must be an integer')
     .positive('daemon.titleGenerationMaxTokens must be a positive integer')
     .default(30),
+  standaloneRecording: z
+    .boolean({ error: 'daemon.standaloneRecording must be a boolean' })
+    .default(true),
 });
 
 export type TimeoutConfig = z.infer<typeof TimeoutConfigSchema>;

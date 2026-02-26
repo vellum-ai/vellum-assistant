@@ -25,6 +25,12 @@ export interface NotificationDeliveryRow {
   errorCode: string | null;
   errorMessage: string | null;
   sentAt: number | null;
+  conversationId: string | null;
+  messageId: string | null;
+  conversationStrategy: string | null;
+  clientDeliveryStatus: string | null;
+  clientDeliveryError: string | null;
+  clientDeliveryAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -43,6 +49,12 @@ function rowToDelivery(row: typeof notificationDeliveries.$inferSelect): Notific
     errorCode: row.errorCode,
     errorMessage: row.errorMessage,
     sentAt: row.sentAt,
+    conversationId: row.conversationId,
+    messageId: row.messageId,
+    conversationStrategy: row.conversationStrategy,
+    clientDeliveryStatus: row.clientDeliveryStatus,
+    clientDeliveryError: row.clientDeliveryError,
+    clientDeliveryAt: row.clientDeliveryAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -61,6 +73,9 @@ export interface CreateDeliveryParams {
   errorCode?: string;
   errorMessage?: string;
   sentAt?: number;
+  conversationId?: string;
+  messageId?: string;
+  conversationStrategy?: string;
 }
 
 /** Create a new delivery audit record. */
@@ -81,6 +96,12 @@ export function createDelivery(params: CreateDeliveryParams): NotificationDelive
     errorCode: params.errorCode ?? null,
     errorMessage: params.errorMessage ?? null,
     sentAt: params.sentAt ?? null,
+    conversationId: params.conversationId ?? null,
+    messageId: params.messageId ?? null,
+    conversationStrategy: params.conversationStrategy ?? null,
+    clientDeliveryStatus: null,
+    clientDeliveryError: null,
+    clientDeliveryAt: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -114,6 +135,46 @@ export function updateDeliveryStatus(
     .update(notificationDeliveries)
     .set(updates)
     .where(eq(notificationDeliveries.id, id))
+    .run() as unknown as { changes?: number };
+
+  return (result.changes ?? 0) > 0;
+}
+
+/**
+ * Update a delivery record with the client-side outcome of posting the
+ * notification via UNUserNotificationCenter.add().
+ *
+ * Returns true if a row was updated, false otherwise (e.g. unknown deliveryId).
+ */
+export function updateDeliveryClientOutcome(
+  deliveryId: string,
+  success: boolean,
+  error?: { code?: string; message?: string },
+): boolean {
+  const db = getDb();
+  const now = Date.now();
+
+  const updates: Record<string, unknown> = {
+    clientDeliveryStatus: success ? 'delivered' : 'client_failed',
+    clientDeliveryAt: now,
+    updatedAt: now,
+  };
+
+  if (success) {
+    // Clear any stale error from previous failed attempts
+    updates.clientDeliveryError = null;
+  } else if (error?.message) {
+    updates.clientDeliveryError = error.code
+      ? `[${error.code}] ${error.message}`
+      : error.message;
+  } else if (error?.code) {
+    updates.clientDeliveryError = error.code;
+  }
+
+  const result = db
+    .update(notificationDeliveries)
+    .set(updates)
+    .where(eq(notificationDeliveries.id, deliveryId))
     .run() as unknown as { changes?: number };
 
   return (result.changes ?? 0) > 0;

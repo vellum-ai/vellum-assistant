@@ -20,6 +20,10 @@ import {
   resolveGuardianContext,
   toGuardianRuntimeContext,
 } from '../runtime/guardian-context-resolver.js';
+import {
+  composeVerificationVoice,
+  GUARDIAN_VERIFY_TEMPLATE_KEYS,
+} from '../runtime/guardian-verification-templates.js';
 import { parseJsonSafe } from '../util/json.js';
 import { getLogger } from '../util/logger.js';
 import { normalizeAssistantId } from '../util/platform.js';
@@ -135,7 +139,7 @@ export function setRelayBroadcast(fn: (msg: import('../daemon/ipc-contract.js').
 /**
  * Manages a single WebSocket connection for one call.
  */
-export type RelayConnectionState = 'connected' | 'verification_pending';
+export type RelayConnectionState = 'connected' | 'verification_pending' | 'disconnecting';
 
 export class RelayConnection {
   private ws: ServerWebSocket<RelayWebSocketData>;
@@ -162,6 +166,9 @@ export class RelayConnection {
   private guardianVerificationActive = false;
   private guardianChallengeAssistantId: string | null = null;
   private guardianVerificationFromNumber: string | null = null;
+
+  // Outbound guardian verification state (system calls the guardian)
+  private outboundGuardianVerificationSessionId: string | null = null;
 
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
@@ -367,11 +374,21 @@ export class RelayConnection {
       updateCallSession(this.callSessionId, updates);
     }
 
+    // Omit potentially sensitive keys from customParameters before persisting
+    // to the call_events table. Only allow known-safe keys through.
+    const safeCustomParameters = msg.customParameters
+      ? Object.fromEntries(
+          Object.entries(msg.customParameters).filter(
+            ([key]) => !key.toLowerCase().includes('secret'),
+          ),
+        )
+      : undefined;
+
     recordCallEvent(this.callSessionId, 'call_connected', {
       callSid: msg.callSid,
       from: msg.from,
       to: msg.to,
-      customParameters: msg.customParameters,
+      customParameters: safeCustomParameters,
     });
 
     // Inbound calls skip callee verification — verification is an
@@ -406,6 +423,29 @@ export class RelayConnection {
       guardianContext: initialGuardianContext,
     });
     this.setController(controller);
+
+    // Detect outbound guardian verification call from persisted call session
+    // mode first (deterministic source of truth), with setup custom parameter
+    // as secondary signal for backward compatibility and observability.
+    const persistedMode = session?.callMode;
+    const persistedGvSessionId = session?.guardianVerificationSessionId;
+    const customParamGvSessionId = msg.customParameters?.guardianVerificationSessionId;
+    const guardianVerificationSessionId = persistedGvSessionId ?? customParamGvSessionId;
+
+    if (persistedMode === 'guardian_verification' && guardianVerificationSessionId) {
+      this.startOutboundGuardianVerification(assistantId, guardianVerificationSessionId, msg.to);
+      return;
+    }
+
+    // Secondary signal: custom parameter without persisted mode (pre-migration sessions)
+    if (!persistedMode && customParamGvSessionId) {
+      log.warn(
+        { callSessionId: this.callSessionId, guardianVerificationSessionId: customParamGvSessionId },
+        'Guardian verification detected via setup custom parameter (no persisted call_mode) — entering verification path',
+      );
+      this.startOutboundGuardianVerification(assistantId, customParamGvSessionId, msg.to);
+      return;
+    }
 
     const config = getConfig();
     const verificationConfig = config.calls.verification;
@@ -516,6 +556,45 @@ export class RelayConnection {
   }
 
   /**
+   * Enter verification-pending state for an outbound guardian verification
+   * call. The system called the guardian's phone; prompt them to enter the
+   * verification code via DTMF or speech.
+   */
+  private startOutboundGuardianVerification(
+    assistantId: string,
+    guardianVerificationSessionId: string,
+    toNumber: string,
+  ): void {
+    this.guardianVerificationActive = true;
+    this.outboundGuardianVerificationSessionId = guardianVerificationSessionId;
+    this.guardianChallengeAssistantId = assistantId;
+    // For outbound guardian calls, the "to" number is the guardian's phone
+    this.guardianVerificationFromNumber = toNumber;
+    this.connectionState = 'verification_pending';
+    this.verificationAttempts = 0;
+    this.verificationMaxAttempts = 3;
+    this.verificationCodeLength = 6;
+    this.dtmfBuffer = '';
+
+    recordCallEvent(this.callSessionId, 'outbound_guardian_voice_verification_started', {
+      assistantId,
+      guardianVerificationSessionId,
+      maxAttempts: this.verificationMaxAttempts,
+    });
+
+    const introText = composeVerificationVoice(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO,
+      { codeDigits: this.verificationCodeLength },
+    );
+    this.sendTextToken(introText, true);
+
+    log.info(
+      { callSessionId: this.callSessionId, assistantId, guardianVerificationSessionId },
+      'Outbound guardian voice verification started',
+    );
+  }
+
+  /**
    * Extract digit characters from a speech transcript. Recognizes both
    * raw digit characters ("1 2 3") and spoken number words ("one two three").
    */
@@ -555,13 +634,18 @@ export class RelayConnection {
   /**
    * Attempt to validate an entered code against the pending voice guardian
    * challenge via validateAndConsumeChallenge. On success, binds the
-   * guardian and transitions to normal call flow. On failure, enforces
-   * max attempts and terminates the call if exhausted.
+   * guardian and transitions appropriately:
+   *   - Inbound: transitions to normal call flow
+   *   - Outbound: plays success template and ends the call
+   * On failure, enforces max attempts and terminates the call if exhausted.
    */
   private attemptGuardianCodeVerification(enteredCode: string): void {
     if (!this.guardianChallengeAssistantId || !this.guardianVerificationFromNumber) {
       return;
     }
+
+    const isOutbound = this.outboundGuardianVerificationSessionId != null;
+    const codeDigits = this.verificationCodeLength;
 
     const result = validateAndConsumeChallenge(
       this.guardianChallengeAssistantId,
@@ -578,26 +662,55 @@ export class RelayConnection {
       this.verificationAttempts = 0;
       this.dtmfBuffer = '';
 
-      recordCallEvent(this.callSessionId, 'guardian_voice_verification_succeeded', {
+      const eventName = isOutbound
+        ? 'outbound_guardian_voice_verification_succeeded'
+        : 'guardian_voice_verification_succeeded';
+
+      recordCallEvent(this.callSessionId, eventName, {
         bindingId: result.bindingId,
       });
-      log.info({ callSessionId: this.callSessionId }, 'Inbound guardian voice verification succeeded');
+      log.info(
+        { callSessionId: this.callSessionId, isOutbound },
+        'Guardian voice verification succeeded',
+      );
 
-      // Proceed to normal call flow (use startNormalCallFlow to respect
-      // the CALL_WELCOME_GREETING static greeting guard)
-      if (this.controller) {
-        this.controller.setGuardianContext(
-          toGuardianRuntimeContext(
-            'voice',
-            resolveGuardianContext({
-              assistantId: this.guardianChallengeAssistantId,
-              sourceChannel: 'voice',
-              externalChatId: this.guardianVerificationFromNumber,
-              senderExternalUserId: this.guardianVerificationFromNumber,
-            }),
-          ),
+      if (isOutbound) {
+        // Outbound guardian verification: play success and hang up.
+        // There is no normal conversation to transition to.
+        // Set disconnecting to ignore any further DTMF/speech input
+        // during the brief delay before the session ends.
+        this.connectionState = 'disconnecting';
+
+        const successText = composeVerificationVoice(
+          GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_SUCCESS,
+          { codeDigits },
         );
-        this.startNormalCallFlow(this.controller, true);
+        this.sendTextToken(successText, true);
+
+        updateCallSession(this.callSessionId, {
+          status: 'completed',
+          endedAt: Date.now(),
+        });
+
+        setTimeout(() => {
+          this.endSession('Guardian verification succeeded');
+        }, 3000);
+      } else {
+        // Inbound: proceed to normal call flow
+        if (this.controller) {
+          this.controller.setGuardianContext(
+            toGuardianRuntimeContext(
+              'voice',
+              resolveGuardianContext({
+                assistantId: this.guardianChallengeAssistantId,
+                sourceChannel: 'voice',
+                externalChatId: this.guardianVerificationFromNumber,
+                senderExternalUserId: this.guardianVerificationFromNumber,
+              }),
+            ),
+          );
+          this.startNormalCallFlow(this.controller, true);
+        }
       }
     } else {
       this.verificationAttempts++;
@@ -607,15 +720,22 @@ export class RelayConnection {
         // the goodbye window doesn't trigger more verification attempts.
         this.guardianVerificationActive = false;
 
-        recordCallEvent(this.callSessionId, 'guardian_voice_verification_failed', {
+        const failEventName = isOutbound
+          ? 'outbound_guardian_voice_verification_failed'
+          : 'guardian_voice_verification_failed';
+
+        recordCallEvent(this.callSessionId, failEventName, {
           attempts: this.verificationAttempts,
         });
         log.warn(
-          { callSessionId: this.callSessionId, attempts: this.verificationAttempts },
-          'Inbound guardian voice verification failed — max attempts reached',
+          { callSessionId: this.callSessionId, attempts: this.verificationAttempts, isOutbound },
+          'Guardian voice verification failed — max attempts reached',
         );
 
-        this.sendTextToken('Verification failed. Goodbye.', true);
+        const failureText = isOutbound
+          ? composeVerificationVoice(GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_FAILURE, { codeDigits })
+          : 'Verification failed. Goodbye.';
+        this.sendTextToken(failureText, true);
 
         updateCallSession(this.callSessionId, {
           status: 'failed',
@@ -634,23 +754,31 @@ export class RelayConnection {
           this.endSession('Guardian verification failed');
         }, 2000);
       } else {
+        const retryText = isOutbound
+          ? composeVerificationVoice(GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_RETRY, { codeDigits })
+          : 'That code was incorrect. Please try again.';
+
         log.info(
-          { callSessionId: this.callSessionId, attempt: this.verificationAttempts, maxAttempts: this.verificationMaxAttempts },
-          'Inbound guardian voice verification attempt failed — retrying',
+          { callSessionId: this.callSessionId, attempt: this.verificationAttempts, maxAttempts: this.verificationMaxAttempts, isOutbound },
+          'Guardian voice verification attempt failed — retrying',
         );
-        this.sendTextToken('That code was incorrect. Please try again.', true);
+        this.sendTextToken(retryText, true);
       }
     }
   }
 
   private async handlePrompt(msg: RelayPromptMessage): Promise<void> {
+    if (this.connectionState === 'disconnecting') {
+      return;
+    }
+
     if (!msg.last) {
       // Partial transcript, wait for final
       return;
     }
 
-    // During inbound guardian verification, attempt to parse spoken digits
-    // from the transcript and validate them.
+    // During guardian verification (inbound or outbound), attempt to parse
+    // spoken digits from the transcript and validate them.
     if (this.connectionState === 'verification_pending' && this.guardianVerificationActive) {
       const spokenDigits = RelayConnection.parseDigitsFromSpeech(msg.voicePrompt);
       log.info(
@@ -707,7 +835,7 @@ export class RelayConnection {
     const session = getCallSession(this.callSessionId);
     if (session) {
       // User message persistence is handled by the session pipeline
-      // (RunOrchestrator.startRun -> session.persistUserMessage) so we only
+      // (voice-session-bridge -> session.persistUserMessage) so we only
       // need to fire the transcript notifier for UI subscribers here.
       fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'caller', msg.voicePrompt);
     }
@@ -755,6 +883,10 @@ export class RelayConnection {
   }
 
   private handleDtmf(msg: RelayDtmfMessage): void {
+    if (this.connectionState === 'disconnecting') {
+      return;
+    }
+
     log.info(
       { callSessionId: this.callSessionId, digit: msg.digit },
       'DTMF digit received',
@@ -764,8 +896,8 @@ export class RelayConnection {
       dtmfDigit: msg.digit,
     });
 
-    // If inbound guardian verification is pending, accumulate digits and
-    // validate against the challenge via the guardian service.
+    // If guardian verification (inbound or outbound) is pending, accumulate
+    // digits and validate against the challenge via the guardian service.
     if (this.connectionState === 'verification_pending' && this.guardianVerificationActive) {
       this.dtmfBuffer += msg.digit;
 

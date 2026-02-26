@@ -26,6 +26,8 @@ CLI / macOS app / iOS app
         └── Tracing (per-session event emitter)
 ```
 
+For assistant architecture deep dives, see [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`docs/architecture/`](docs/architecture/).
+
 ## Setup
 
 ```bash
@@ -298,7 +300,7 @@ When a member's policy is `escalate`:
 1. The handler looks up the guardian binding for the `(assistantId, channel)` pair. If no binding exists, the message is denied with `escalate_no_guardian` (fail-closed).
 2. The raw message payload is stored so it can be recovered on approval.
 3. A `channel_guardian_approval_request` is created with a 30-minute TTL.
-4. The guardian is notified via two surfaces: channel push notification (Telegram/SMS) and desktop inbox UI (15-second polling). Both surfaces write to the same approval table.
+4. The guardian is notified via the canonical notification pipeline (`emitNotificationSignal`), which routes the escalation alert to all configured channels (Telegram/SMS push, desktop notification).
 5. On **approve**, the stored payload is replayed through the agent pipeline and the assistant's response is delivered to the external user. On **deny**, a refusal message is sent.
 
 ### How the Systems Connect
@@ -319,6 +321,27 @@ Guardian verification and ingress membership are complementary but independent s
 | `src/memory/ingress-member-store.ts` | Member CRUD: `findMember`, `upsertMember`, `revokeMember`, `blockMember` |
 | `src/memory/ingress-invite-store.ts` | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record) |
 | `src/memory/channel-guardian-store.ts` | Persistence for guardian bindings, verification challenges, and approval requests |
+| `src/runtime/guardian-outbound-actions.ts` | Shared business logic for outbound verification (start/resend/cancel) |
+| `src/runtime/routes/integration-routes.ts` | HTTP route handlers for outbound guardian verification endpoints |
+
+### Chat-Initiated Guardian Verification
+
+Guardian verification can also be initiated through normal desktop chat. When the user asks the assistant to set up guardian verification, the conversational routing layer loads the `guardian-verify-setup` skill, which guides the flow:
+
+1. Confirm which channel to verify (SMS, voice, or Telegram).
+2. Collect the destination (phone number or Telegram handle/chat ID).
+3. Call the outbound HTTP endpoints to start, resend, or cancel verification.
+4. Guide the user through the verification lifecycle conversationally.
+
+**Outbound HTTP Endpoints** (available when the runtime HTTP server is running):
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/integrations/guardian/outbound/start` | POST | Start outbound verification. Body: `{ channel, destination?, assistantId?, rebind? }` |
+| `/v1/integrations/guardian/outbound/resend` | POST | Resend verification code. Body: `{ channel, assistantId? }` |
+| `/v1/integrations/guardian/outbound/cancel` | POST | Cancel active session. Body: `{ channel, assistantId? }` |
+
+These endpoints share the same business logic as the IPC-based verification flow via `guardian-outbound-actions.ts`.
 
 ## Channel Readiness
 
@@ -348,13 +371,13 @@ Response type: `channel_readiness_response` with `success`, optional `snapshots`
 | `src/runtime/channel-readiness-service.ts` | Service class with probe registration, cached readiness evaluation, and built-in SMS/Telegram probes |
 | `src/daemon/handlers/config.ts` | `handleChannelReadiness` — IPC handler for `channel_readiness` messages |
 
-## Assistant Inbox (Ingress Membership + Escalation)
+## Ingress Membership + Escalation
 
-The assistant inbox provides secure cross-user messaging, allowing external users (non-guardians) to interact with the assistant through channels (Telegram, SMS) under the owner's control. Access is governed by an invite-based membership system with per-member policy enforcement.
+Secure cross-user messaging allows external users (non-guardians) to interact with the assistant through channels (Telegram, SMS) under the owner's control. Access is governed by an invite-based membership system with per-member policy enforcement.
 
 ### Ingress Membership
 
-External users join through **invite tokens** — the owner creates an invite via the desktop UI or IPC, and the external user redeems the token by sending it as a channel message. Redemption auto-creates a **member** record with an access policy:
+External users join through **invite tokens** — the owner creates an invite via IPC, and the external user redeems the token by sending it as a channel message. Redemption auto-creates a **member** record with an access policy:
 
 - **`allow`** — Messages are processed normally through the agent pipeline.
 - **`deny`** — Messages are rejected with a refusal notice.
@@ -362,20 +385,13 @@ External users join through **invite tokens** — the owner creates an invite vi
 
 Non-members (senders with no invite redemption) are denied by default. Members can be listed, updated, revoked, or blocked via the `ingress_member` IPC contract.
 
-### Escalation Flow (Dual-Surface)
+### Escalation Flow
 
-When a member's policy is `escalate`, inbound messages create a `channel_guardian_approval_request` and notify the guardian through two surfaces:
-
-1. **Channel push notification** — The guardian receives a message on their configured channel (Telegram/SMS) describing the escalation, allowing quick approve/deny from their phone.
-2. **Desktop inbox UI** — The macOS `AssistantInboxPanel` shows pending escalations with approve/deny buttons in the Escalations tab. A 15-second polling loop keeps the queue current.
+When a member's policy is `escalate`, inbound messages create a `channel_guardian_approval_request` and the guardian is notified through the canonical notification pipeline (`emitNotificationSignal`). The pipeline routes the escalation alert to all configured channels (Telegram/SMS push, desktop notification).
 
 On **approve**: the original message payload is recovered from the channel delivery store and processed through the agent pipeline. The assistant's reply is delivered back to the external user via the gateway. On **deny**: a refusal message is sent to the external user.
 
 If no guardian binding exists, escalation fails closed — the message is denied rather than left in a silent wait state.
-
-### Inbox Thread State
-
-The `assistant_inbox_thread_state` table provides a denormalized view of per-contact conversation threads, tracking unread counts, pending escalation counts, and last message timestamps. Threads are keyed by `conversationId` and bound to `(assistantId, sourceChannel, externalChatId)`. The escalation projection (`inbox-escalation-projection.ts`) keeps badge counts in sync with the `channel_guardian_approval_requests` table.
 
 ### IPC Contracts
 
@@ -383,9 +399,6 @@ The `assistant_inbox_thread_state` table provides a denormalized view of per-con
 |---|---|---|
 | `ingress_invite` | create, list, revoke, redeem | Manage invite tokens (SHA-256 hashed, raw token returned once on create) |
 | `ingress_member` | list, upsert, revoke, block | Manage member records and access policies |
-| `assistant_inbox` | list_threads, get_thread_messages | Query inbox threads and message history |
-| `assistant_inbox_escalation` | list, decide | List pending escalations and approve/deny from desktop |
-| `assistant_inbox_reply` | — | Send a reply to an external user from the desktop inbox |
 
 ### Key Modules
 
@@ -393,17 +406,15 @@ The `assistant_inbox_thread_state` table provides a denormalized view of per-con
 |------|---------|
 | `src/memory/ingress-invite-store.ts` | CRUD for invite tokens with SHA-256 hashing and expiry |
 | `src/memory/ingress-member-store.ts` | CRUD for ingress members with policy enforcement |
-| `src/memory/inbox-thread-store.ts` | Inbox thread state queries (unread counts, escalation badges) |
-| `src/memory/inbox-escalation-projection.ts` | Projects escalation state from approval requests onto thread state |
-| `src/daemon/handlers/config-inbox.ts` | IPC handlers for all inbox contracts |
-| `src/daemon/ipc-contract/inbox.ts` | TypeScript type definitions for inbox IPC messages |
+| `src/daemon/handlers/config-inbox.ts` | IPC handlers for ingress invite and member contracts |
+| `src/daemon/ipc-contract/inbox.ts` | TypeScript type definitions for ingress IPC messages |
 | `src/runtime/routes/channel-routes.ts` | ACL enforcement point — member lookup, policy check, escalation creation |
 
 ## Database
 
 SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments (with FTS5), memory items, entities, reminders, and recurrence schedules (cron + RRULE).
 
-> **Compatibility note:** The recurrence schedule system supports both cron expressions and iCalendar RRULE syntax. The legacy field names `cron_expression` and `cronExpression` remain supported in API inputs. New code should use the `expression` field with an explicit `syntax` discriminator. See [`ARCHITECTURE.md`](../ARCHITECTURE.md) for details.
+> **Compatibility note:** The recurrence schedule system supports both cron expressions and iCalendar RRULE syntax. The legacy field names `cron_expression` and `cronExpression` remain supported in API inputs. New code should use the `expression` field with an explicit `syntax` discriminator. See [`docs/architecture/scheduling.md`](docs/architecture/scheduling.md) for details.
 
 Run migrations:
 

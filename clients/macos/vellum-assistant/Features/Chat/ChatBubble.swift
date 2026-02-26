@@ -13,6 +13,8 @@ struct ChatBubble: View {
     let onDismissDocumentWidget: (String) -> Void
     let dismissedDocumentSurfaceIds: Set<String>
     var onReportMessage: ((String?) -> Void)?
+    /// Called when expanding a tool call with truncated content to fetch the full text.
+    var onRehydrate: (() -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var daemonHttpPort: Int?
     var showAvatar: Bool = true
@@ -30,6 +32,8 @@ struct ChatBubble: View {
     /// manager publishes any change (the "thundering herd" problem).
     var activeSurfaceId: String?
 
+    @Environment(\.conversationZoomScale) var conversationZoomScale
+
     var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
         !isUser && onReportMessage != nil
@@ -41,7 +45,7 @@ struct ChatBubble: View {
         hasCopyableText || canReportMessage
     }
     private var showOverflowMenu: Bool {
-        hasOverflowActions && (isHovered || showCopyConfirmation)
+        hasOverflowActions && !message.isStreaming && (isHovered || showCopyConfirmation)
     }
 
     /// Composite identity for the `.task` modifier so it re-runs when either
@@ -75,7 +79,6 @@ struct ChatBubble: View {
 
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
-        let overflowOffset: CGFloat = message.isError ? -(24 + VSpacing.sm) : (24 + VSpacing.sm)
         return content()
             .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
             .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
@@ -86,14 +89,6 @@ struct ChatBubble: View {
             )
             .overlay {
                 bubbleBorderOverlay
-            }
-            .overlay(alignment: isUser ? .topLeading : .topTrailing) {
-                if hasOverflowActions {
-                    overflowMenuButton
-                        .opacity(showOverflowMenu ? 1 : 0)
-                        .animation(VAnimation.fast, value: showOverflowMenu)
-                        .offset(x: isUser ? -(24 + VSpacing.sm) : overflowOffset)
-                }
             }
             .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
     }
@@ -182,19 +177,18 @@ struct ChatBubble: View {
                     if !isUser {
                         trailingStatus
                     }
-                }
-                // Prevent LazyVStack from compressing the bubble height, which causes the
-                // trailing tool-chip to overlap long text content.
-                .fixedSize(horizontal: false, vertical: true)
-                .contextMenu {}
-                .overlay(alignment: .topTrailing) {
-                    if !isUser && !shouldShowBubble && !hasInterleavedContent && hasOverflowActions {
+
+                    if hasOverflowActions {
                         overflowMenuButton
                             .opacity(showOverflowMenu ? 1 : 0)
                             .animation(VAnimation.fast, value: showOverflowMenu)
-                            .offset(x: 24 + VSpacing.sm)
                     }
                 }
+                // Give this content priority so LazyVStack doesn't compress it,
+                // which caused trailing tool chips to overlap long text content.
+                // Uses layoutPriority instead of fixedSize to avoid forcing
+                // full height measurement during lazy placement.
+                .layoutPriority(1)
                 .overlay(alignment: .topLeading) {
                     if !isUser && showAvatar {
                         Image(nsImage: appearance.chatAvatarImage)
@@ -239,30 +233,35 @@ struct ChatBubble: View {
     }
 
     private var overflowMenuButton: some View {
-        Menu {
+        HStack(spacing: 2) {
             if hasCopyableText {
-                Button("Copy message") {
+                Button {
                     copyMessageText()
+                } label: {
+                    Image(systemName: showCopyConfirmation ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(showCopyConfirmation ? VColor.success : VColor.textMuted)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(showCopyConfirmation ? "Copied" : "Copy message")
+                .animation(VAnimation.fast, value: showCopyConfirmation)
             }
             if let onReportMessage, !isUser {
-                Button("Export response for diagnostics") {
+                Button {
                     onReportMessage(message.daemonMessageId)
+                } label: {
+                    Image(systemName: "ladybug")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Report message")
             }
-        } label: {
-            Image(systemName: showCopyConfirmation ? "checkmark" : "ellipsis")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(showCopyConfirmation ? VColor.success : VColor.textMuted)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .tint(showCopyConfirmation ? VColor.success : VColor.textMuted)
-        .frame(width: 24, height: 24)
-        .accessibilityLabel("Message actions")
-        .animation(VAnimation.fast, value: showCopyConfirmation)
     }
 
     // MARK: - Bubble Content
@@ -282,17 +281,17 @@ struct ChatBubble: View {
                 if message.isError && hasText {
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 13 * conversationZoomScale, weight: .medium))
                             .foregroundColor(VColor.error)
                             .padding(.top, 1)
                         Text(message.text)
-                            .font(.system(size: 13))
+                            .font(.system(size: 13 * conversationZoomScale))
                             .foregroundColor(VColor.textPrimary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if hasText {
-                    let segments = Self.cachedSegments(for: message.text)
+                    let segments = Self.cachedSegments(for: message.text, isStreaming: message.isStreaming)
                     let hasRichContent = segments.contains(where: {
                         switch $0 {
                         case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
@@ -312,7 +311,7 @@ struct ChatBubble: View {
                         )
                     } else {
                         Text(markdownText)
-                            .font(.system(size: 13))
+                            .font(.system(size: 13 * conversationZoomScale))
                             .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)
                             .textSelection(.enabled)
@@ -380,14 +379,84 @@ struct ChatBubble: View {
         }
     }
 
-    // MARK: - Caches
+    // MARK: - LRU Caches
+    //
+    // Each cache entry stores (value, accessTime) where accessTime is a
+    // monotonically increasing counter. On eviction the entry with the
+    // lowest accessTime is removed (least-recently-used).
 
-    @MainActor static var segmentCache = [String: [MarkdownSegment]]()
-    @MainActor static var markdownCache = [String: AttributedString]()
+    @MainActor static var lruCounter: Int = 0
+
+    @MainActor static var segmentCache = [String: (value: [MarkdownSegment], accessTime: Int)]()
+    @MainActor static var markdownCache = [String: (value: AttributedString, accessTime: Int)]()
     /// Separate cache for inline markdown (used by interleaved text segments).
     /// Kept distinct from `markdownCache` because `markdownText` applies
     /// slash-command highlighting before caching, which would contaminate
     /// inline results (and vice versa) if they shared a dictionary.
-    @MainActor static var inlineMarkdownCache = [String: AttributedString]()
+    @MainActor static var inlineMarkdownCache = [String: (value: AttributedString, accessTime: Int)]()
     static let maxCacheSize = 100
+
+    // MARK: - Cache Guardrails
+    //
+    // Prevents a single huge message from consuming disproportionate cache
+    // space.  Text over `maxCacheableTextLength` is parsed but never stored.
+    // `estimatedCacheBytes` tracks a rough byte budget across all three
+    // caches; when it exceeds `maxCacheBytes` the oldest entries are evicted.
+
+    static let maxCacheableTextLength = 10_000
+    static let maxCacheBytes = 5_000_000
+    /// Rough byte estimate of all entries across segmentCache, markdownCache,
+    /// and inlineMarkdownCache.  Updated on insert/evict.
+    @MainActor static var estimatedCacheBytes: Int = 0
+
+    /// Estimate the in-memory cost of caching the given text's parsed result.
+    /// Uses `utf8.count * 3` as a rough AttributedString/segment overhead.
+    static func estimatedBytes(for text: String) -> Int {
+        text.utf8.count * 3
+    }
+
+    /// Evicts the oldest entries across all three caches until
+    /// `estimatedCacheBytes` drops below `maxCacheBytes`.
+    @MainActor static func evictIfOverBudget() {
+        while estimatedCacheBytes > maxCacheBytes {
+            // Find the LRU entry across all three caches.
+            var oldestKey: String?
+            var oldestTime = Int.max
+            var oldestCache: CacheKind?
+
+            for (key, entry) in markdownCache where entry.accessTime < oldestTime {
+                oldestKey = key; oldestTime = entry.accessTime; oldestCache = .markdown
+            }
+            for (key, entry) in segmentCache where entry.accessTime < oldestTime {
+                oldestKey = key; oldestTime = entry.accessTime; oldestCache = .segment
+            }
+            for (key, entry) in inlineMarkdownCache where entry.accessTime < oldestTime {
+                oldestKey = key; oldestTime = entry.accessTime; oldestCache = .inlineMarkdown
+            }
+
+            guard let key = oldestKey, let cache = oldestCache else { break }
+
+            let cost = estimatedBytes(for: key)
+            switch cache {
+            case .markdown:       markdownCache.removeValue(forKey: key)
+            case .segment:        segmentCache.removeValue(forKey: key)
+            case .inlineMarkdown: inlineMarkdownCache.removeValue(forKey: key)
+            }
+            estimatedCacheBytes -= cost
+        }
+    }
+
+    private enum CacheKind { case markdown, segment, inlineMarkdown }
+
+    // MARK: - Streaming Dedup Caches
+    //
+    // During streaming, the LRU caches above skip storing results to avoid
+    // filling up with intermediate text states. However SwiftUI reevaluates
+    // view bodies multiple times per token, often with identical text.
+    // These single-entry caches hold the last-parsed streaming result so
+    // redundant reevaluations return instantly without re-parsing.
+
+    @MainActor static var lastStreamingSegments: (text: String, value: [MarkdownSegment])?
+    @MainActor static var lastStreamingInlineMarkdown: (text: String, value: AttributedString)?
+    @MainActor static var lastStreamingMarkdown: (text: String, value: AttributedString)?
 }

@@ -31,6 +31,33 @@ export interface ScheduleRunNow {
   id: string;
 }
 
+export interface HeartbeatConfig {
+  type: 'heartbeat_config';
+  action: 'get' | 'set';
+  enabled?: boolean;
+  intervalMs?: number;
+  activeHoursStart?: number | null;
+  activeHoursEnd?: number | null;
+}
+
+export interface HeartbeatRunsList {
+  type: 'heartbeat_runs_list';
+  limit?: number;
+}
+
+export interface HeartbeatRunNow {
+  type: 'heartbeat_run_now';
+}
+
+export interface HeartbeatChecklistRead {
+  type: 'heartbeat_checklist_read';
+}
+
+export interface HeartbeatChecklistWrite {
+  type: 'heartbeat_checklist_write';
+  content: string;
+}
+
 // === Server → Client ===
 
 export interface SchedulesListResponse {
@@ -65,35 +92,50 @@ export interface RemindersListResponse {
   }>;
 }
 
-export interface ReminderFired {
-  type: 'reminder_fired';
-  reminderId: string;
-  label: string;
-  message: string;
-}
-
-export interface ScheduleComplete {
-  type: 'schedule_complete';
-  scheduleId: string;
-  name: string;
-}
-
-export interface WatcherNotification {
-  type: 'watcher_notification';
+export interface HeartbeatAlert {
+  type: 'heartbeat_alert';
   title: string;
   body: string;
 }
 
-export interface WatcherEscalation {
-  type: 'watcher_escalation';
-  title: string;
-  body: string;
+export interface HeartbeatConfigResponse {
+  type: 'heartbeat_config_response';
+  enabled: boolean;
+  intervalMs: number;
+  activeHoursStart: number | null;
+  activeHoursEnd: number | null;
+  nextRunAt: number | null;
+  success: boolean;
+  error?: string;
 }
 
-export interface AgentHeartbeatAlert {
-  type: 'agent_heartbeat_alert';
-  title: string;
-  body: string;
+export interface HeartbeatRunsListResponse {
+  type: 'heartbeat_runs_list_response';
+  runs: Array<{
+    id: string;
+    title: string;
+    createdAt: number;
+    result: string;
+    summary?: string;
+  }>;
+}
+
+export interface HeartbeatRunNowResponse {
+  type: 'heartbeat_run_now_response';
+  success: boolean;
+  error?: string;
+}
+
+export interface HeartbeatChecklistResponse {
+  type: 'heartbeat_checklist_response';
+  content: string;
+  isDefault: boolean;
+}
+
+export interface HeartbeatChecklistWriteResponse {
+  type: 'heartbeat_checklist_write_response';
+  success: boolean;
+  error?: string;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
@@ -104,13 +146,19 @@ export type _SchedulesClientMessages =
   | ScheduleRemove
   | ScheduleRunNow
   | RemindersList
-  | ReminderCancel;
+  | ReminderCancel
+  | HeartbeatConfig
+  | HeartbeatRunsList
+  | HeartbeatRunNow
+  | HeartbeatChecklistRead
+  | HeartbeatChecklistWrite;
 
 export type _SchedulesServerMessages =
   | SchedulesListResponse
   | RemindersListResponse
-  | ReminderFired
-  | ScheduleComplete
-  | WatcherNotification
-  | WatcherEscalation
-  | AgentHeartbeatAlert;
+  | HeartbeatAlert
+  | HeartbeatConfigResponse
+  | HeartbeatRunsListResponse
+  | HeartbeatRunNowResponse
+  | HeartbeatChecklistResponse
+  | HeartbeatChecklistWriteResponse;

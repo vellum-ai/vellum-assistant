@@ -125,7 +125,9 @@ extension ChatViewModel {
             }
         }
 
-        return lines.joined(separator: "\n")
+        var result = lines.joined(separator: "\n")
+        if result.count > 10_000 { result = String(result.prefix(10_000)) + "... [truncated]" }
+        return result
     }
 
     private func stringifyValue(_ value: AnyCodable) -> String {
@@ -457,6 +459,7 @@ extension ChatViewModel {
                 if let pending = pendingUserMessage {
                     let attachments = pendingUserAttachments
                     pendingUserMessage = nil
+                    pendingUserMessageDisplayText = nil
                     pendingUserAttachments = nil
                     do {
                         try daemonClient.send(UserMessageMessage(
@@ -496,7 +499,19 @@ extension ChatViewModel {
             guard !isCancelling else { return }
             if isWorkspaceRefinementInFlight {
                 refinementTextBuffer += delta.text
-                refinementStreamingText = refinementTextBuffer
+                // Throttle refinement streaming updates with 50ms coalescing
+                // to prevent republishing the entire accumulated buffer on
+                // every single token (same guard-based throttle pattern as
+                // scheduleStreamingFlush — not debounce, so flushes fire
+                // during streaming even when tokens arrive faster than 50ms).
+                if refinementFlushTask == nil {
+                    refinementFlushTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 50_000_000)
+                        guard !Task.isCancelled, let self else { return }
+                        self.refinementFlushTask = nil
+                        self.refinementStreamingText = self.refinementTextBuffer
+                    }
+                }
                 return
             }
             // Haptic on first text chunk (thinking → streaming transition)
@@ -526,6 +541,8 @@ extension ChatViewModel {
             guard belongsToSession(complete.sessionId) else { return }
             // Flush any buffered streaming text before finalizing the message.
             flushStreamingBuffer()
+            // Strip heavy binary data from old messages to cap memory growth.
+            trimOldMessagesIfNeeded()
             let wasRefinement = isWorkspaceRefinementInFlight || cancelledDuringRefinement
             isWorkspaceRefinementInFlight = false
             cancelledDuringRefinement = false
@@ -553,6 +570,13 @@ extension ChatViewModel {
                 #if os(iOS)
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 #endif
+            }
+            // Cancel the throttled refinement flush and do a final immediate
+            // flush so the complete buffer is available for the logic below.
+            refinementFlushTask?.cancel()
+            refinementFlushTask = nil
+            if wasRefinement {
+                refinementStreamingText = refinementTextBuffer
             }
             // Surface the AI's text response when a refinement produced no update
             if wasRefinement {
@@ -595,6 +619,27 @@ extension ChatViewModel {
                     onVoiceResponseComplete?(responseText)
                 }
             }
+            // Fire first-reply callback once when the first complete
+            // assistant message arrives (used for bootstrap gate).
+            // Guard: only fire if an actual assistant message with content
+            // exists, so cancellation-acknowledgement completions that
+            // carry no assistant text don't prematurely close the gate.
+            if let callback = onFirstAssistantReply {
+                if let firstAssistant = messages.first(where: { $0.role == .assistant && !$0.text.isEmpty }) {
+                    let replyText = firstAssistant.text
+                    onFirstAssistantReply = nil
+                    callback(replyText)
+
+                    // Check naming intent and fire the lacks-naming callback
+                    // once. The didSendNamingNudge flag prevents looping if
+                    // the corrective follow-up also lacks naming keywords.
+                    if !didSendNamingNudge && !ChatViewModel.replyContainsNamingIntent(replyText) {
+                        didSendNamingNudge = true
+                        onFirstReplyLacksNamingIntent?()
+                        onFirstReplyLacksNamingIntent = nil
+                    }
+                }
+            }
             var completedToolCalls: [ToolCallData]?
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -623,10 +668,19 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
-            // Reset processing messages to sent
+            // Reset processing messages to sent and drop attachment base64 data
+            // for lazy-loadable attachments (sizeBytes != nil means the daemon can
+            // re-serve them). Locally-added attachments (sizeBytes == nil) keep their
+            // data because openImageInPreview / saveFileAttachment rely on it.
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent
+                    for j in messages[i].attachments.indices {
+                        if messages[i].attachments[j].sizeBytes != nil {
+                            messages[i].attachments[j].data = ""
+                            messages[i].attachments[j].dataLength = 0
+                        }
+                    }
                 }
             }
             dispatchPendingSendDirect()
@@ -637,6 +691,17 @@ extension ChatViewModel {
             // Notify about completed tool calls
             if let toolCalls = completedToolCalls, let callback = onToolCallsComplete {
                 callback(toolCalls)
+            }
+            // Notify that the assistant response is complete
+            if let callback = onResponseComplete, !wasRefinement {
+                // Extract a summary from the last assistant message
+                if let existingId = messages.last(where: { $0.role == .assistant })?.id,
+                   let index = messages.firstIndex(where: { $0.id == existingId }) {
+                    let summary = messages[index].textSegments.joined()
+                    callback(summary)
+                } else {
+                    callback("Response complete")
+                }
             }
 
         case .undoComplete(let undoMsg):
@@ -666,6 +731,8 @@ extension ChatViewModel {
             }
             pendingVoiceMessage = false
             isWorkspaceRefinementInFlight = false
+            refinementFlushTask?.cancel()
+            refinementFlushTask = nil
             refinementMessagePreview = nil
             refinementStreamingText = nil
             cancelledDuringRefinement = false
@@ -799,6 +866,8 @@ extension ChatViewModel {
                 return
             }
             isWorkspaceRefinementInFlight = false
+            refinementFlushTask?.cancel()
+            refinementFlushTask = nil
             refinementMessagePreview = nil
             refinementStreamingText = nil
             cancelledDuringRefinement = false
@@ -830,23 +899,48 @@ extension ChatViewModel {
                 // stash the full send context so "Send Anyway" can reconstruct
                 // the original UserMessageMessage with attachments and surface metadata.
                 if err.category == "secret_blocked" {
+                    let blockedMessageIndex: Int? = {
+                        let normalizedTurnText = savedTurnUserText?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let normalizedTurnText, !normalizedTurnText.isEmpty {
+                            return messages.lastIndex(where: {
+                                $0.role == .user
+                                    && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTurnText
+                            })
+                        }
+                        return messages.lastIndex(where: { $0.role == .user })
+                    }()
+                    let blockedUserMessage = blockedMessageIndex.map { messages[$0] }
+
                     // Prefer the snapshotted turn text (the text that was actually sent)
                     // over the transcript lookup, which can miss workspace refinements
                     // that don't append a user chat message.
                     if let sendText = savedTurnUserText {
                         secretBlockedMessageText = sendText
-                    } else if let lastUserMsg = messages.last(where: { $0.role == .user }) {
-                        secretBlockedMessageText = lastUserMsg.text
+                    } else if let blockedUserMessage {
+                        secretBlockedMessageText = blockedUserMessage.text
                     }
-                    // Reconstruct IPC attachments from the last user message's ChatAttachments
-                    if let lastUserMsg = messages.last(where: { $0.role == .user }),
-                       !lastUserMsg.attachments.isEmpty {
-                        secretBlockedAttachments = lastUserMsg.attachments.map {
+                    // Reconstruct IPC attachments from the blocked user message's ChatAttachments
+                    if let blockedUserMessage, !blockedUserMessage.attachments.isEmpty {
+                        secretBlockedAttachments = blockedUserMessage.attachments.map {
                             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                         }
                     }
                     secretBlockedActiveSurfaceId = activeSurfaceId
                     secretBlockedCurrentPage = currentPage
+
+                    // Remove the blocked user bubble so secret-like text is not
+                    // retained in chat history after secure save redirect.
+                    if let blockedMessageIndex {
+                        let blockedMessage = messages[blockedMessageIndex]
+                        let blockedMessageId = blockedMessage.id
+                        if case .queued = blockedMessage.status {
+                            pendingQueuedCount = max(0, pendingQueuedCount - 1)
+                        }
+                        pendingMessageIds.removeAll { $0 == blockedMessageId }
+                        requestIdToMessageId = requestIdToMessageId.filter { $0.value != blockedMessageId }
+                        pendingLocalDeletions.remove(blockedMessageId)
+                        messages.remove(at: blockedMessageIndex)
+                    }
                 }
             }
             // Reset processing messages to sent
@@ -1042,8 +1136,10 @@ extension ChatViewModel {
                 messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
                 messages[msgIndex].toolCalls[tcIndex].isComplete = true
                 messages[msgIndex].toolCalls[tcIndex].completedAt = Date()
-                messages[msgIndex].toolCalls[tcIndex].imageData = msg.imageData
-                messages[msgIndex].toolCalls[tcIndex].cachedImage = ToolCallData.decodeImage(from: msg.imageData)
+                let decoded = ToolCallData.decodeImage(from: msg.imageData)
+                // Keep cachedImage for display, nil out raw base64 to save ~2.7MB per screenshot
+                messages[msgIndex].toolCalls[tcIndex].cachedImage = decoded
+                messages[msgIndex].toolCalls[tcIndex].imageData = decoded == nil ? msg.imageData : nil
                 if let status = msg.status, !status.isEmpty {
                     messages[msgIndex].toolCalls[tcIndex].buildingStatus = status
                 }
@@ -1115,7 +1211,7 @@ extension ChatViewModel {
                 title: surface.title,
                 data: surface.data,
                 actions: surface.actions,
-                surfaceMessage: msg
+                surfaceRef: SurfaceRef(from: msg, surface: surface)
             )
 
             // If messageId is provided, attach to that specific message (rarely used now that
@@ -1175,7 +1271,7 @@ extension ChatViewModel {
                             title: updated.title,
                             data: updated.data,
                             actions: updated.actions,
-                            surfaceMessage: existing.surfaceMessage
+                            surfaceRef: existing.surfaceRef
                         )
                         // Update floating overlay for task_progress cards (macOS only)
                         #if os(macOS)
@@ -1222,6 +1318,8 @@ extension ChatViewModel {
             guard sessionId != nil, belongsToSession(msg.sessionId) else { return }
             log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .private)")
             isWorkspaceRefinementInFlight = false
+            refinementFlushTask?.cancel()
+            refinementFlushTask = nil
             refinementMessagePreview = nil
             refinementStreamingText = nil
             cancelledDuringRefinement = false
@@ -1335,8 +1433,6 @@ extension ChatViewModel {
         case .subagentEvent(let msg):
             guard activeSubagents.contains(where: { $0.id == msg.subagentId }) else { break }
             subagentDetailStore.handleEvent(subagentId: msg.subagentId, event: msg.event)
-            // Notify SwiftUI so SubagentThreadView re-renders with updated events
-            objectWillChange.send()
 
         case .modelInfo(let msg):
             selectedModel = msg.model

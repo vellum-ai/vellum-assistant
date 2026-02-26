@@ -199,45 +199,43 @@ Confirm:
 
 Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}. This number is used for both voice calls and SMS messaging."**
 
-## Step 5.5: Guardian Verification (SMS)
+## Step 5.5: Guardian Verification (SMS and Voice)
 
-Now link the user's phone number as the trusted SMS guardian for this assistant. Tell the user: "Now let's verify your guardian identity for SMS. This links your phone number as the trusted guardian for SMS messaging."
+Now link the user's phone number as the trusted guardian for SMS and/or voice channels. Tell the user: "Now let's verify your guardian identity. This links your phone number as the trusted guardian for messaging and calls."
 
-1. Send the `guardian_verification` IPC message with `action: "create_challenge"` and `channel: "sms"`:
+Install and load the **guardian-verify-setup** skill to handle the verification flow:
 
-```json
-{
-  "type": "guardian_verification",
-  "action": "create_challenge",
-  "channel": "sms",
-  "assistantId": "<optional — omit for single-assistant setups>"
-}
-```
+- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
+- Then call `skill_load` with `skill: "guardian-verify-setup"`.
 
-2. The daemon returns a `guardian_verification_response` with `success: true`, `secret`, and `instruction`. Display the instruction to the user. It will look like: "Send `/guardian_verify <secret>` to your bot via SMS within 10 minutes."
+The guardian-verify-setup skill manages the full outbound verification flow for **one channel at a time** (sms, voice, or telegram). Each invocation handles:
+- Collecting the user's phone number as the destination (accepts any common format -- the API normalizes to E.164)
+- Starting the outbound verification session via `POST /v1/integrations/guardian/outbound/start`
+- For **SMS**: sending a 6-digit code to the phone number that the user must reply with from the SMS channel
+- For **voice**: calling the phone number and providing a code for the user to enter via their phone's keypad
+- Checking guardian status to confirm the binding was created
+- Handling resend, cancel, and error cases
 
-3. Wait for the user to confirm they have sent the verification code via SMS to the assistant's phone number.
+**If the user wants to verify both SMS and voice**, load the skill twice -- once for SMS and once for voice. Each channel requires its own separate verification session.
 
-4. Check verification status by sending `guardian_verification` with `action: "status"` and `channel: "sms"`:
+Tell the user: *"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted guardian. We'll verify one channel at a time."*
 
-```json
-{
-  "type": "guardian_verification",
-  "action": "status",
-  "channel": "sms",
-  "assistantId": "<optional — omit for single-assistant setups>"
-}
-```
-
-5. If `bound` is `true`: "Guardian verified! Your phone number is now the trusted SMS guardian."
-
-6. If `bound` is `false` and the user claims they sent the code: "The verification doesn't appear to have succeeded. Let's generate a new challenge." Repeat from substep 1.
+After the guardian-verify-setup skill completes verification for a channel, load it again for the next channel if needed. Once all desired channels are verified (or the user skips), continue to Step 6.
 
 **Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
 
-To re-check guardian status later, send `guardian_verification` with `action: "status"` and `channel: "sms"`.
+To re-check guardian status later, query the channel(s) that were verified:
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+# Check SMS guardian status
+curl -s http://localhost:7821/v1/integrations/guardian/status?channel=sms \
+  -H "Authorization: Bearer $TOKEN"
+# Check voice guardian status
+curl -s http://localhost:7821/v1/integrations/guardian/status?channel=voice \
+  -H "Authorization: Bearer $TOKEN"
+```
 
-Report the guardian verification result: **"Guardian identity: {verified | not configured}."**
+Check the status for whichever channel(s) the user actually verified (SMS, voice, or both). Report the guardian verification result per channel: **"Guardian identity — SMS: {verified | not configured}, Voice: {verified | not configured}."**
 
 ## Step 6: Enable Features
 

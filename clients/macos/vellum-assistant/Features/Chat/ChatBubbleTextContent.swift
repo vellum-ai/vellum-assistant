@@ -7,7 +7,8 @@ extension ChatBubble {
     /// Render a single text segment as a styled bubble, with table and image support.
     @ViewBuilder
     func textBubble(for segmentText: String) -> some View {
-        let segments = Self.cachedSegments(for: segmentText)
+        let streaming = message.isStreaming
+        let segments = Self.cachedSegments(for: segmentText, isStreaming: streaming)
         let hasRichContent = segments.contains(where: {
             switch $0 {
             case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
@@ -19,9 +20,9 @@ extension ChatBubble {
             if hasRichContent {
                 MarkdownSegmentView(segments: segments)
             } else {
-                let attributed = Self.cachedInlineMarkdown(for: segmentText)
+                let attributed = Self.cachedInlineMarkdown(for: segmentText, isStreaming: streaming)
                 Text(attributed)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13 * conversationZoomScale))
                     .lineSpacing(3)
                     .foregroundColor(VColor.textPrimary)
                     .tint(VColor.accent)
@@ -35,41 +36,104 @@ extension ChatBubble {
     /// Cached inline markdown AttributedString to avoid re-parsing on every render.
     /// Uses `inlineMarkdownCache` (not `markdownCache`) to avoid cross-contamination
     /// with `markdownText`, which applies slash-command highlighting before caching.
-    static func cachedInlineMarkdown(for text: String) -> AttributedString {
-        if let cached = inlineMarkdownCache[text] { return cached }
+    /// When `isStreaming` is true the result is not stored in the main LRU cache
+    /// (to avoid filling it with intermediate text states), but a single-entry
+    /// dedup cache returns the previous result when the text hasn't changed
+    /// between SwiftUI reevaluations.
+    static func cachedInlineMarkdown(for text: String, isStreaming: Bool = false) -> AttributedString {
+        if let cached = inlineMarkdownCache[text] {
+            lruCounter += 1
+            inlineMarkdownCache[text] = (cached.value, lruCounter)
+            return cached.value
+        }
+        // Streaming dedup: return the last-parsed result when text is unchanged.
+        if isStreaming, let last = lastStreamingInlineMarkdown, last.text == text {
+            return last.value
+        }
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
         let result = (try? AttributedString(markdown: text, options: options))
             ?? AttributedString(text)
-        if inlineMarkdownCache.count >= maxCacheSize {
-            // Dictionary iteration order is unspecified; this evicts an arbitrary entry.
-            if let first = inlineMarkdownCache.keys.first { inlineMarkdownCache.removeValue(forKey: first) }
+        if isStreaming {
+            lastStreamingInlineMarkdown = (text, result)
+            return result
         }
-        inlineMarkdownCache[text] = result
+        // Skip caching for very long text to avoid a single huge entry
+        // evicting many smaller, more frequently accessed entries.
+        if text.count > maxCacheableTextLength { return result }
+        if inlineMarkdownCache.count >= maxCacheSize {
+            // Evict the least-recently-used entry (lowest accessTime).
+            if let lruKey = inlineMarkdownCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                estimatedCacheBytes -= estimatedBytes(for: lruKey)
+                inlineMarkdownCache.removeValue(forKey: lruKey)
+            }
+        }
+        lruCounter += 1
+        let cost = estimatedBytes(for: text)
+        inlineMarkdownCache[text] = (result, lruCounter)
+        estimatedCacheBytes += cost
+        evictIfOverBudget()
         return result
     }
 
     /// Cached markdown segment parser to avoid re-parsing on every render.
-    static func cachedSegments(for text: String) -> [MarkdownSegment] {
-        if let cached = segmentCache[text] { return cached }
-        let result = parseMarkdownSegments(text)
-        if segmentCache.count >= maxCacheSize {
-            // Dictionary iteration order is unspecified; this evicts an arbitrary entry.
-            if let first = segmentCache.keys.first { segmentCache.removeValue(forKey: first) }
+    /// When `isStreaming` is true the result is not stored in the main LRU
+    /// cache (to avoid filling it with intermediate text states), but a
+    /// single-entry dedup cache returns the previous result when the text
+    /// hasn't changed between SwiftUI reevaluations.
+    static func cachedSegments(for text: String, isStreaming: Bool = false) -> [MarkdownSegment] {
+        if let cached = segmentCache[text] {
+            lruCounter += 1
+            segmentCache[text] = (cached.value, lruCounter)
+            return cached.value
         }
-        segmentCache[text] = result
+        // Streaming dedup: return the last-parsed result when text is unchanged.
+        if isStreaming, let last = lastStreamingSegments, last.text == text {
+            return last.value
+        }
+        let result = parseMarkdownSegments(text)
+        if isStreaming {
+            lastStreamingSegments = (text, result)
+            return result
+        }
+        // Skip caching for very long text to avoid a single huge entry
+        // evicting many smaller, more frequently accessed entries.
+        if text.count > maxCacheableTextLength { return result }
+        if segmentCache.count >= maxCacheSize {
+            // Evict the least-recently-used entry (lowest accessTime).
+            if let lruKey = segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                estimatedCacheBytes -= estimatedBytes(for: lruKey)
+                segmentCache.removeValue(forKey: lruKey)
+            }
+        }
+        lruCounter += 1
+        let cost = estimatedBytes(for: text)
+        segmentCache[text] = (result, lruCounter)
+        estimatedCacheBytes += cost
+        evictIfOverBudget()
         return result
     }
 
     /// Cached markdown parser to avoid re-parsing on every render.
+    /// When streaming, results are not stored in the main LRU cache (to
+    /// avoid filling it with intermediate text states), but a single-entry
+    /// dedup cache returns the previous result when the text hasn't changed
+    /// between SwiftUI reevaluations.
     var markdownText: AttributedString {
         let textToRender = message.text
         let trimmed = textToRender.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Return cached value if available
         if let cached = Self.markdownCache[trimmed] {
-            return cached
+            Self.lruCounter += 1
+            Self.markdownCache[trimmed] = (cached.value, Self.lruCounter)
+            return cached.value
+        }
+
+        // Streaming dedup: return the last-parsed result when text is unchanged.
+        if message.isStreaming, let last = Self.lastStreamingMarkdown, last.text == trimmed {
+            return last.value
         }
 
         // Parse markdown
@@ -88,14 +152,29 @@ extension ChatBubble {
             parsed[attrStart..<attrEnd].foregroundColor = VColor.slashCommand
         }
 
-        // Store in cache (with size limit to prevent unbounded growth)
+        // Skip main cache during streaming — intermediate text wastes cache slots.
+        // Store in the single-entry dedup cache instead.
+        if message.isStreaming {
+            Self.lastStreamingMarkdown = (trimmed, parsed)
+            return parsed
+        }
+
+        // Skip caching for very long text to avoid a single huge entry
+        // evicting many smaller, more frequently accessed entries.
+        if trimmed.count > Self.maxCacheableTextLength { return parsed }
+
+        // Store in cache with LRU eviction
         if Self.markdownCache.count >= Self.maxCacheSize {
-            // Dictionary iteration order is unspecified; this evicts an arbitrary entry.
-            if let firstKey = Self.markdownCache.keys.first {
-                Self.markdownCache.removeValue(forKey: firstKey)
+            if let lruKey = Self.markdownCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                Self.estimatedCacheBytes -= Self.estimatedBytes(for: lruKey)
+                Self.markdownCache.removeValue(forKey: lruKey)
             }
         }
-        Self.markdownCache[trimmed] = parsed
+        Self.lruCounter += 1
+        let cost = Self.estimatedBytes(for: trimmed)
+        Self.markdownCache[trimmed] = (parsed, Self.lruCounter)
+        Self.estimatedCacheBytes += cost
+        Self.evictIfOverBudget()
 
         return parsed
     }
