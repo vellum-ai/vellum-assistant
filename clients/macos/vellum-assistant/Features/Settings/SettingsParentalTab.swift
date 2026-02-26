@@ -17,6 +17,8 @@ struct SettingsParentalTab: View {
     @State private var blockedToolCategories: Set<String> = []
     @State private var allowedApps: [String] = []
     @State private var allowedWidgets: [String] = []
+    /// Per-app daily time limits in minutes. Mirrors settingsStore.appTimeLimits for local reactivity.
+    @State private var appTimeLimits: [String: Int] = [:]
 
     // -- Allowlist entry fields --
     @State private var newAppEntry: String = ""
@@ -455,6 +457,16 @@ struct SettingsParentalTab: View {
 
     // MARK: - Apps & Widgets Unified Allowlist Section
 
+    /// Picker options for daily time limits: value is minutes (0 = unlimited).
+    private let timeLimitOptions: [(label: String, minutes: Int)] = [
+        ("Unlimited", 0),
+        ("30 min", 30),
+        ("1 hr", 60),
+        ("2 hr", 120),
+        ("4 hr", 240),
+        ("8 hr", 480),
+    ]
+
     private var appsAndWidgetsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Apps & Widgets")
@@ -492,27 +504,55 @@ struct SettingsParentalTab: View {
                     .textSelection(.enabled)
             } else {
                 ForEach(allowedApps, id: \.self) { app in
-                    HStack {
-                        Text(app)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                            .textSelection(.enabled)
-                        Spacer()
-                        Toggle("", isOn: Binding(
-                            get: { allowedApps.contains(app) },
-                            set: { enabled in
-                                if !enabled {
-                                    // Optimistically remove the app so the toggle disappears
-                                    // immediately rather than snapping back to "on"
-                                    allowedApps = allowedApps.filter { $0 != app }
-                                    updateAllowlist(apps: allowedApps, widgets: nil)
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        HStack {
+                            Text(app)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                                .textSelection(.enabled)
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { allowedApps.contains(app) },
+                                set: { enabled in
+                                    if !enabled {
+                                        // Optimistically remove the app so the toggle disappears
+                                        // immediately rather than snapping back to "on"
+                                        allowedApps = allowedApps.filter { $0 != app }
+                                        updateAllowlist(apps: allowedApps, widgets: nil)
+                                    }
+                                }
+                            ))
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .accessibilityLabel("\(app) allowed")
+                            .disabled(isLoading)
+                        }
+                        // Daily time limit picker shown inline beneath each app name
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "timer")
+                                .foregroundColor(VColor.textMuted)
+                                .font(.system(size: 11))
+                            Text("Daily limit:")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Picker(
+                                "",
+                                selection: Binding<Int>(
+                                    get: { appTimeLimits[app] ?? 0 },
+                                    set: { newValue in
+                                        appTimeLimits[app] = newValue
+                                        settingsStore.setAppTimeLimit(appName: app, minutes: newValue, pin: unlockedPIN ?? "")
+                                    }
+                                )
+                            ) {
+                                ForEach(timeLimitOptions, id: \.minutes) { option in
+                                    Text(option.label).tag(option.minutes)
                                 }
                             }
-                        ))
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                        .accessibilityLabel("\(app) allowed")
-                        .disabled(isLoading)
+                            .pickerStyle(.menu)
+                            .font(VFont.caption)
+                            .accessibilityLabel("Daily time limit for \(app)")
+                        }
                     }
                 }
             }
@@ -569,6 +609,12 @@ struct SettingsParentalTab: View {
                     }
                 }
             }
+        }
+        .onAppear {
+            settingsStore.loadAppTimeLimits(pin: unlockedPIN ?? "")
+        }
+        .onChange(of: settingsStore.appTimeLimits) { _, newLimits in
+            appTimeLimits = newLimits
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
@@ -987,6 +1033,10 @@ struct SettingsParentalTab: View {
                     allowedWidgets = r.allowedWidgets
                     settingsStore.allowedApps = r.allowedApps
                     settingsStore.allowedWidgets = r.allowedWidgets
+                    // Load time limits now that we have the allowlist. Pass an
+                    // empty string when no PIN is configured — the daemon skips
+                    // PIN verification in that case.
+                    settingsStore.loadAppTimeLimits(pin: unlockedPIN ?? "")
                 }
             }
         }

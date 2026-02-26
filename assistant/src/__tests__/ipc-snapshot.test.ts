@@ -758,6 +758,27 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'heartbeat_checklist_write',
     content: '- [ ] Check email\n- [ ] Review PRs',
   },
+  parental_activity_log_append: {
+    type: 'parental_activity_log_append',
+    actionType: 'tool_call',
+    description: 'Ran bash command',
+  },
+  parental_activity_log_list: {
+    type: 'parental_activity_log_list',
+  },
+  parental_activity_log_clear: {
+    type: 'parental_activity_log_clear',
+  },
+  parental_app_time_limit_get: {
+    type: 'parental_app_time_limit_get',
+    pin: '123456',
+  },
+  parental_app_time_limit_set: {
+    type: 'parental_app_time_limit_set',
+    pin: '123456',
+    appName: 'Safari',
+    limitMinutes: 60,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -2069,6 +2090,24 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   heartbeat_checklist_write_response: {
     type: 'heartbeat_checklist_write_response',
+    success: true,
+  },
+  parental_activity_log_list_response: {
+    type: 'parental_activity_log_list_response',
+    entries: [],
+  },
+  parental_activity_log_clear_response: {
+    type: 'parental_activity_log_clear_response',
+    success: true,
+  },
+  parental_app_time_limit_get_response: {
+    type: 'parental_app_time_limit_get_response',
+    limits: { Safari: 60 },
+    usage: { Safari: 10 },
+    success: true,
+  },
+  parental_app_time_limit_set_response: {
+    type: 'parental_app_time_limit_set_response',
     success: true,
   },
 };

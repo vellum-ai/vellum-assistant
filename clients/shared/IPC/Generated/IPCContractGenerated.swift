@@ -3197,6 +3197,63 @@ public struct IPCParentalActivityLogListResponse: Codable, Sendable {
     }
 }
 
+/// Retrieve per-app daily time limits and today's usage (PIN required).
+public struct IPCParentalAppTimeLimitGetRequest: Codable, Sendable {
+    public let type: String
+    public let pin: String
+
+    public init(type: String, pin: String) {
+        self.type = type
+        self.pin = pin
+    }
+}
+
+public struct IPCParentalAppTimeLimitGetResponse: Codable, Sendable {
+    public let type: String
+    /// Map of appName → daily limit in minutes (0 = unlimited).
+    public let limits: [String: AnyCodable]
+    /// Map of appName → minutes used today.
+    public let usage: [String: AnyCodable]
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, limits: [String: AnyCodable], usage: [String: AnyCodable], success: Bool, error: String? = nil) {
+        self.type = type
+        self.limits = limits
+        self.usage = usage
+        self.success = success
+        self.error = error
+    }
+}
+
+/// Set the daily time limit for a single app (PIN required).
+public struct IPCParentalAppTimeLimitSetRequest: Codable, Sendable {
+    public let type: String
+    public let pin: String
+    public let appName: String
+    /// Limit in minutes; 0 means unlimited.
+    public let limitMinutes: Double
+
+    public init(type: String, pin: String, appName: String, limitMinutes: Double) {
+        self.type = type
+        self.pin = pin
+        self.appName = appName
+        self.limitMinutes = limitMinutes
+    }
+}
+
+public struct IPCParentalAppTimeLimitSetResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, success: Bool, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.error = error
+    }
+}
+
 /// Retrieve the current app and widget allowlists.
 public struct IPCParentalControlAllowlistGetRequest: Codable, Sendable {
     public let type: String
