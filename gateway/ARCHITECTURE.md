@@ -469,7 +469,7 @@ The Slack channel requires two tokens:
 | Token | Format | Purpose |
 |-------|--------|---------|
 | App token | `xapp-...` | Used for `apps.connections.open` to establish the Socket Mode WebSocket connection |
-| Bot token | `xbot-...` / `xoxb-...` | Used for `chat.postMessage` to send outbound messages and for `auth.test` validation |
+| Bot token | `xoxb-...` | Used for `chat.postMessage` to send outbound messages and for `auth.test` validation |
 
 Both tokens are stored in secure storage (`credential:slack_channel:app_token`, `credential:slack_channel:bot_token`) via the assistant's Slack channel config endpoints (see `assistant/ARCHITECTURE.md`). The gateway reads them via its `credential-reader` module using the same keychain-first fallback strategy as Telegram credentials.
 
