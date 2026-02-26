@@ -8,6 +8,18 @@ import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
 
 const testDir = mkdtempSync(join(tmpdir(), 'voice-bridge-test-'));
+let mockedConfig: {
+  secretDetection: { enabled: boolean };
+  calls: { disclosure: { enabled: boolean; text: string } };
+} = {
+  secretDetection: { enabled: false },
+  calls: {
+    disclosure: {
+      enabled: false,
+      text: '',
+    },
+  },
+};
 
 mock.module('../util/platform.js', () => ({
   getRootDir: () => testDir,
@@ -29,15 +41,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({
-    secretDetection: { enabled: false },
-    calls: {
-      disclosure: {
-        enabled: false,
-        text: '',
-      },
-    },
-  }),
+  getConfig: () => mockedConfig,
 }));
 
 import { setVoiceBridgeDeps, startVoiceTurn } from '../calls/voice-session-bridge.js';
@@ -85,6 +89,15 @@ function injectDeps(sessionFactory: () => Session): void {
 
 describe('voice-session-bridge', () => {
   beforeEach(() => {
+    mockedConfig = {
+      secretDetection: { enabled: false },
+      calls: {
+        disclosure: {
+          enabled: false,
+          text: '',
+        },
+      },
+    };
     const db = getDb();
     db.run('DELETE FROM messages');
     db.run('DELETE FROM conversations');
@@ -413,6 +426,91 @@ describe('voice-session-bridge', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(capturedGuardianContext).toEqual(guardianCtx);
+  });
+
+  test('inbound non-guardian opener prompt uses pickup framing instead of outbound phrasing', async () => {
+    const conversation = createConversation('voice bridge inbound opener framing test');
+    const events: ServerMessage[] = [
+      { type: 'message_complete', sessionId: conversation.id },
+    ];
+
+    let capturedPrompt: string | null = null;
+    const session = {
+      ...makeStreamingSession(events),
+      setVoiceCallControlPrompt: (prompt: string | null) => {
+        if (prompt != null) capturedPrompt = prompt;
+      },
+    } as unknown as Session;
+
+    injectDeps(() => session);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Hello there',
+      isInbound: true,
+      guardianContext: {
+        sourceChannel: 'voice',
+        actorRole: 'non-guardian',
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    if (!capturedPrompt) throw new Error('Expected voice call control prompt to be set');
+    const prompt: string = capturedPrompt;
+
+    expect(prompt).toContain('this is an inbound call you are answering (not a call you initiated)');
+    expect(prompt).toContain('Do NOT say "I\'m calling" or "I\'m calling on behalf of".');
+  });
+
+  test('inbound disclosure guidance is rewritten for pickup context', async () => {
+    mockedConfig = {
+      secretDetection: { enabled: false },
+      calls: {
+        disclosure: {
+          enabled: true,
+          text: 'At the very beginning of the call, introduce yourself as an assistant calling on behalf of the person you represent.',
+        },
+      },
+    };
+
+    const conversation = createConversation('voice bridge inbound disclosure rewrite test');
+    const events: ServerMessage[] = [
+      { type: 'message_complete', sessionId: conversation.id },
+    ];
+
+    let capturedPrompt: string | null = null;
+    const session = {
+      ...makeStreamingSession(events),
+      setVoiceCallControlPrompt: (prompt: string | null) => {
+        if (prompt != null) capturedPrompt = prompt;
+      },
+    } as unknown as Session;
+
+    injectDeps(() => session);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Hi',
+      isInbound: true,
+      guardianContext: {
+        sourceChannel: 'voice',
+        actorRole: 'non-guardian',
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    if (!capturedPrompt) throw new Error('Expected voice call control prompt to be set');
+    const prompt: string = capturedPrompt;
+
+    expect(prompt).toContain('At the very beginning of the call, introduce yourself as an assistant calling on behalf of the person you represent.');
+    expect(prompt).toContain('rewrite any disclosure naturally for pickup context');
+    expect(prompt).toContain('Do NOT say "I\'m calling", "I called you", or "I\'m calling on behalf of".');
   });
 
   test('auto-denies confirmation requests for non-guardian voice turns', async () => {

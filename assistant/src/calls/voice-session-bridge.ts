@@ -129,7 +129,9 @@ function buildVoiceCallControlPrompt(opts: {
   const disclosureEnabled = config.calls?.disclosure?.enabled === true;
   const disclosureText = config.calls?.disclosure?.text?.trim();
   const disclosureRule = disclosureEnabled && disclosureText
-    ? `0. ${disclosureText}`
+    ? opts.isInbound
+      ? `0. ${disclosureText} This is an inbound call you are answering, so rewrite any disclosure naturally for pickup context. Do NOT say "I'm calling", "I called you", or "I'm calling on behalf of".`
+      : `0. ${disclosureText}`
     : '0. Begin the conversation naturally.';
 
   const lines: string[] = ['<voice_call_control>'];
@@ -174,7 +176,7 @@ function buildVoiceCallControlPrompt(opts: {
       );
     } else {
       lines.push(
-        '7. If the latest user turn is "(call connected — deliver opening greeting)", greet the caller warmly and ask how you can help. Vary the wording; do not use a fixed template.',
+        '7. If the latest user turn is "(call connected — deliver opening greeting)", this is an inbound call you are answering (not a call you initiated). Greet the caller warmly and ask how you can help. Do NOT say "I\'m calling" or "I\'m calling on behalf of". If you need to identify your role, use pickup framing like "I\'m [name]\'s assistant." Vary the wording; do not use a fixed template.',
       );
     }
     lines.push(
