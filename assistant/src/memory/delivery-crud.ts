@@ -1,0 +1,211 @@
+/**
+ * Core CRUD operations for channel inbound events.
+ *
+ * Handles recording inbound messages, linking them to internal message IDs,
+ * finding messages by source identifiers, and managing raw payload storage.
+ */
+
+import { and, desc, eq, isNotNull } from 'drizzle-orm';
+import { v4 as uuid } from 'uuid';
+
+import { getConversationByKey, getOrCreateConversation, setConversationKeyIfAbsent } from './conversation-key-store.js';
+import { getDb } from './db.js';
+import { channelInboundEvents, conversations } from './schema.js';
+
+export interface InboundResult {
+  accepted: boolean;
+  eventId: string;
+  conversationId: string;
+  duplicate: boolean;
+}
+
+export interface RecordInboundOptions {
+  sourceMessageId?: string;
+  assistantId?: string;
+}
+
+/**
+ * Record an inbound channel event. Returns `duplicate: true` if this
+ * exact (channel, chat, message) combination was already seen.
+ */
+export function recordInbound(
+  sourceChannel: string,
+  externalChatId: string,
+  externalMessageId: string,
+  options?: RecordInboundOptions,
+): InboundResult {
+  const db = getDb();
+
+  const existing = db
+    .select({
+      id: channelInboundEvents.id,
+      conversationId: channelInboundEvents.conversationId,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.sourceChannel, sourceChannel),
+        eq(channelInboundEvents.externalChatId, externalChatId),
+        eq(channelInboundEvents.externalMessageId, externalMessageId),
+      ),
+    )
+    .get();
+
+  if (existing) {
+    return {
+      accepted: true,
+      eventId: existing.id,
+      conversationId: existing.conversationId,
+      duplicate: true,
+    };
+  }
+
+  const assistantId = options?.assistantId;
+  const legacyKey = `${sourceChannel}:${externalChatId}`;
+  const scopedKey = assistantId ? `asst:${assistantId}:${sourceChannel}:${externalChatId}` : legacyKey;
+
+  // Resolve conversation mapping with assistant-scoped keying:
+  // 1. If scoped key exists, use it directly.
+  // 2. If assistantId is "self" and legacy key exists, reuse the legacy
+  //    conversation and create a scoped alias to prevent future bleed.
+  // 3. Otherwise, create/get conversation from the scoped key.
+  let mapping: { conversationId: string; created: boolean };
+  const scopedMapping = assistantId ? getConversationByKey(scopedKey) : null;
+  if (scopedMapping) {
+    mapping = { conversationId: scopedMapping.conversationId, created: false };
+  } else if (assistantId === 'self') {
+    const legacyMapping = getConversationByKey(legacyKey);
+    if (legacyMapping) {
+      mapping = { conversationId: legacyMapping.conversationId, created: false };
+      setConversationKeyIfAbsent(scopedKey, legacyMapping.conversationId);
+    } else {
+      mapping = getOrCreateConversation(scopedKey);
+    }
+  } else {
+    mapping = getOrCreateConversation(scopedKey);
+  }
+  const now = Date.now();
+  const eventId = uuid();
+
+  db.transaction((tx) => {
+    tx.update(conversations)
+      .set({ updatedAt: now })
+      .where(eq(conversations.id, mapping.conversationId))
+      .run();
+    tx.insert(channelInboundEvents)
+      .values({
+        id: eventId,
+        sourceChannel,
+        externalChatId,
+        externalMessageId,
+        sourceMessageId: options?.sourceMessageId ?? null,
+        conversationId: mapping.conversationId,
+        deliveryStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  });
+
+  return {
+    accepted: true,
+    eventId,
+    conversationId: mapping.conversationId,
+    duplicate: false,
+  };
+}
+
+/**
+ * Link an inbound event to the user message it created, so edits can
+ * later find the correct message by source_message_id -> message_id.
+ */
+export function linkMessage(eventId: string, messageId: string): void {
+  const db = getDb();
+  db.update(channelInboundEvents)
+    .set({ messageId, updatedAt: Date.now() })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+/**
+ * Find the message ID linked to the original inbound event for a given
+ * platform-level message identifier (e.g. Telegram message_id).
+ */
+export function findMessageBySourceId(
+  sourceChannel: string,
+  externalChatId: string,
+  sourceMessageId: string,
+): { messageId: string; conversationId: string } | null {
+  const db = getDb();
+  const row = db
+    .select({
+      messageId: channelInboundEvents.messageId,
+      conversationId: channelInboundEvents.conversationId,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.sourceChannel, sourceChannel),
+        eq(channelInboundEvents.externalChatId, externalChatId),
+        eq(channelInboundEvents.sourceMessageId, sourceMessageId),
+        isNotNull(channelInboundEvents.messageId),
+      ),
+    )
+    .get();
+
+  if (!row || !row.messageId) return null;
+  return { messageId: row.messageId, conversationId: row.conversationId };
+}
+
+/**
+ * Store the raw request payload on an inbound event so it can be
+ * replayed later if processing fails.
+ */
+export function storePayload(eventId: string, payload: Record<string, unknown>): void {
+  const db = getDb();
+  db.update(channelInboundEvents)
+    .set({ rawPayload: JSON.stringify(payload), updatedAt: Date.now() })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+/**
+ * Clear a previously stored payload. Used when the ingress check
+ * detects secret-bearing content — the payload must not remain on disk.
+ */
+export function clearPayload(eventId: string): void {
+  const db = getDb();
+  db.update(channelInboundEvents)
+    .set({ rawPayload: null, updatedAt: Date.now() })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+/**
+ * Retrieve the stored raw payload for a given conversation's most recent
+ * inbound event. Used by the escalation decide flow to recover the
+ * original message content after an approve/deny decision.
+ */
+export function getLatestStoredPayload(conversationId: string): Record<string, unknown> | null {
+  const db = getDb();
+  const row = db
+    .select({
+      rawPayload: channelInboundEvents.rawPayload,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.conversationId, conversationId),
+        isNotNull(channelInboundEvents.rawPayload),
+      ),
+    )
+    .orderBy(desc(channelInboundEvents.createdAt))
+    .get();
+
+  if (!row?.rawPayload) return null;
+  try {
+    return JSON.parse(row.rawPayload) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
