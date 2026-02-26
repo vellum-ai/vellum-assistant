@@ -1660,6 +1660,13 @@ struct SettingsConnectTab: View {
                         }
                     )
                 }
+
+                Button("Clear All") {
+                    store.clearAllApprovedDevices()
+                }
+                .font(VFont.caption)
+                .foregroundColor(VColor.error)
+                .buttonStyle(.borderless)
             }
 
             Divider().background(VColor.surfaceBorder)
