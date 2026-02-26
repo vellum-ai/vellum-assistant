@@ -644,7 +644,9 @@ struct MainWindowView: View {
                 }
                 .overlay {
                     // Click-outside-to-dismiss background for control center drawer
-                    if sidebar.showControlCenterDrawer {
+                    // Must mirror the same condition as the drawer itself: hidden in child profile
+                    let isChildProfile = settingsStore.isParentalEnabled && settingsStore.activeProfile == "child"
+                    if sidebar.showControlCenterDrawer && !isChildProfile {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture {
