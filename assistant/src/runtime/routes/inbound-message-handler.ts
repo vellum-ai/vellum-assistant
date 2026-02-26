@@ -1042,9 +1042,13 @@ export async function handleChannelInbound(
               guardianFollowUpConversationGenerator,
             );
 
-            // Apply the disposition to the follow-up state machine
+            // Apply the disposition to the follow-up state machine.
+            // Capture whether the transition succeeded so we only execute
+            // follow-up actions when this handler won the race.
+            let transitionedToDispatching = false;
             if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-              progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition);
+              const transitioned = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition);
+              transitionedToDispatching = transitioned !== null;
             } else if (turnResult.disposition === 'decline') {
               finalizeFollowup(followupRequest.id, 'declined');
             }
@@ -1062,9 +1066,9 @@ export async function handleChannelInbound(
             }
 
             // Execute the action and send a completion/failure reply (fire-and-forget).
-            // The initial reply above acknowledges the guardian's choice; this
-            // follow-up message confirms whether the action succeeded.
-            if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
+            // Only proceed if we successfully transitioned to dispatching — this
+            // prevents duplicate side effects under concurrent replies.
+            if (transitionedToDispatching) {
               void (async () => {
                 try {
                   const execResult = await executeFollowupAction(
