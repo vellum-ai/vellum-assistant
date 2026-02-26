@@ -558,12 +558,30 @@ async function handleRecordingStatus(
           // is keyed by the old owner (conversationId), but the new recording
           // is owned by the requester (deferred.conversationId). Migrate the
           // entry so the 'started' handler can find it under the correct key.
+          const startAckKey = conversationId !== deferred.conversationId
+            ? deferred.conversationId : conversationId;
           if (conversationId !== deferred.conversationId) {
             pendingRestartByConversation.delete(conversationId);
-            pendingRestartByConversation.set(deferred.conversationId, deferred.operationToken);
-            log.info({ oldKey: conversationId, newKey: deferred.conversationId }, 'Migrated pendingRestartByConversation key from owner to requester');
+            pendingRestartByConversation.set(startAckKey, deferred.operationToken);
+            log.info({ oldKey: conversationId, newKey: startAckKey }, 'Migrated pendingRestartByConversation key from owner to requester');
           }
           log.info({ conversationId, newRecordingId, operationToken: deferred.operationToken }, 'Deferred restart recording started');
+
+          // Safety timeout: if the 'started' ack doesn't arrive within 30s,
+          // clear restart state to prevent wedging. Without this, a dropped
+          // 'started' callback leaves pendingRestartByConversation stuck and
+          // blocks all future restart requests with 'restart_in_progress'.
+          const expectedToken = deferred.operationToken;
+          setTimeout(() => {
+            if (pendingRestartByConversation.get(startAckKey) === expectedToken) {
+              pendingRestartByConversation.delete(startAckKey);
+              if (activeRestartToken === expectedToken) {
+                activeRestartToken = null;
+              }
+              log.warn({ conversationId: startAckKey, operationToken: expectedToken },
+                'Restart start-ack timeout — clearing stale restart state');
+            }
+          }, 30_000);
         }
 
         // Skip normal file-attachment flow for the old recording during
