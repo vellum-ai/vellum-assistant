@@ -1,9 +1,13 @@
-import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from "fs";
+import { chmodSync, readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from "fs";
 import { homedir } from "os";
 import { join, dirname } from "path";
 
-const PLATFORM_TOKEN_PATH = join(homedir(), ".vellum", "platform-token");
 const DEFAULT_PLATFORM_URL = "https://platform.vellum.ai";
+
+function getPlatformTokenPath(): string {
+  const base = process.env.BASE_DATA_DIR || homedir();
+  return join(base, ".vellum", "platform-token");
+}
 
 export function getPlatformUrl(): string {
   return process.env.VELLUM_PLATFORM_URL ?? DEFAULT_PLATFORM_URL;
@@ -11,23 +15,25 @@ export function getPlatformUrl(): string {
 
 export function readPlatformToken(): string | null {
   try {
-    return readFileSync(PLATFORM_TOKEN_PATH, "utf-8").trim();
+    return readFileSync(getPlatformTokenPath(), "utf-8").trim();
   } catch {
     return null;
   }
 }
 
 export function savePlatformToken(token: string): void {
-  const dir = dirname(PLATFORM_TOKEN_PATH);
+  const tokenPath = getPlatformTokenPath();
+  const dir = dirname(tokenPath);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  writeFileSync(PLATFORM_TOKEN_PATH, token + "\n", { mode: 0o600 });
+  writeFileSync(tokenPath, token + "\n", { mode: 0o600 });
+  chmodSync(tokenPath, 0o600);
 }
 
 export function clearPlatformToken(): void {
   try {
-    unlinkSync(PLATFORM_TOKEN_PATH);
+    unlinkSync(getPlatformTokenPath());
   } catch {
     // already doesn't exist
   }
