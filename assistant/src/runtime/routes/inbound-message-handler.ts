@@ -1057,10 +1057,15 @@ export async function handleChannelInbound(
 
             if (!stateApplied) {
               log.warn({ requestId: followupRequest.id, disposition: turnResult.disposition }, 'Follow-up state transition failed (already resolved)');
+              const staleText = await composeGuardianActionMessageGenerative(
+                { scenario: 'guardian_stale_followup' as const },
+                {},
+                guardianActionCopyGenerator,
+              );
               try {
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: externalChatId,
-                  text: 'This follow-up has already been resolved.',
+                  text: staleText,
                   assistantId,
                 }, bearerToken);
               } catch (err) {
