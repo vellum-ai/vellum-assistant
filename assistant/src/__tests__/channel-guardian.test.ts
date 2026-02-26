@@ -2772,15 +2772,16 @@ describe('outbound SMS verification', () => {
       GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST,
       { code: '123456', expiresInMinutes: 10 },
     );
-    expect(challengeSms).toContain('123456');
+    // Code should NOT appear in the message — user sees it in the app
+    expect(challengeSms).not.toContain('123456');
     expect(challengeSms).toContain('10 minutes');
-    expect(challengeSms).toContain('verification code');
+    expect(challengeSms).toContain('Vellum assistant app');
 
     const resendSms = composeVerificationSms(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND,
       { code: 'ABCDEF', expiresInMinutes: 5 },
     );
-    expect(resendSms).toContain('ABCDEF');
+    expect(resendSms).not.toContain('ABCDEF');
     expect(resendSms).toContain('5 minutes');
     expect(resendSms).toContain('resent');
 
@@ -2876,7 +2877,8 @@ describe('outbound SMS verification', () => {
       { code: '999999', expiresInMinutes: 10, assistantName: 'MyBot' },
     );
     expect(sms).toContain('[MyBot]');
-    expect(sms).toContain('999999');
+    // Code should NOT appear in the message
+    expect(sms).not.toContain('999999');
   });
 
   test('cancel_outbound returns error when no active session', () => {
@@ -3273,12 +3275,15 @@ describe('outbound Telegram verification', () => {
     expect(revoked).toBeNull();
   });
 
-  test('telegram template includes /guardian_verify command', () => {
+  test('telegram template includes /guardian_verify instruction without code', () => {
     const msg = composeVerificationTelegram(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
       { code: 'abc123', expiresInMinutes: 10 },
     );
-    expect(msg).toContain('/guardian_verify abc123');
+    // Should mention /guardian_verify but NOT include the actual code
+    expect(msg).toContain('/guardian_verify');
+    expect(msg).not.toContain('abc123');
+    expect(msg).toContain('Vellum assistant app');
   });
 
   test('telegram resend template includes (resent) suffix', () => {
@@ -3286,7 +3291,8 @@ describe('outbound Telegram verification', () => {
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND,
       { code: 'xyz789', expiresInMinutes: 5 },
     );
-    expect(msg).toContain('/guardian_verify xyz789');
+    expect(msg).toContain('/guardian_verify');
+    expect(msg).not.toContain('xyz789');
     expect(msg).toContain('(resent)');
   });
 
@@ -3296,7 +3302,8 @@ describe('outbound Telegram verification', () => {
       { code: '999999', expiresInMinutes: 10, assistantName: 'MyBot' },
     );
     expect(msg).toContain('[MyBot]');
-    expect(msg).toContain('999999');
+    // Code should NOT appear in the message
+    expect(msg).not.toContain('999999');
   });
 
   test('start_outbound for telegram with missing destination fails', () => {
@@ -3758,282 +3765,5 @@ describe('M1–M4 hardening coverage', () => {
       codeDigits: 6,
     });
     expect(voiceResult.secret).toMatch(/^\d{6}$/);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Submit Outbound Code (IPC handler)
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('submit_outbound_code via IPC handler', () => {
-  beforeEach(() => {
-    resetTables();
-  });
-
-  test('submit_outbound_code success for SMS binds guardian', () => {
-    // Create an outbound session for SMS
-    const session = createOutboundSession({
-      assistantId: 'self',
-      channel: 'sms',
-      expectedPhoneE164: '+15551234567',
-      expectedExternalUserId: '+15551234567',
-      destinationAddress: '+15551234567',
-      codeDigits: 6,
-    });
-
-    const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'submit_outbound_code',
-      channel: 'sms',
-      assistantId: 'self',
-      sessionId: session.sessionId,
-      verificationCode: session.secret,
-    };
-
-    handleGuardianVerification(msg, mockSocket, ctx);
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(true);
-    expect(resp!.bound).toBe(true);
-    expect(resp!.channel).toBe('sms');
-
-    // Verify binding was created
-    const binding = getActiveBinding('self', 'sms');
-    expect(binding).not.toBeNull();
-    expect(binding!.guardianExternalUserId).toBe('+15551234567');
-  });
-
-  test('submit_outbound_code success for Telegram binds guardian', () => {
-    const session = createOutboundSession({
-      assistantId: 'self',
-      channel: 'telegram',
-      expectedChatId: 'chat-123',
-      expectedExternalUserId: 'user-123',
-      destinationAddress: 'chat-123',
-    });
-
-    const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'submit_outbound_code',
-      channel: 'telegram',
-      assistantId: 'self',
-      sessionId: session.sessionId,
-      verificationCode: session.secret,
-    };
-
-    handleGuardianVerification(msg, mockSocket, ctx);
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(true);
-    expect(resp!.bound).toBe(true);
-
-    const binding = getActiveBinding('self', 'telegram');
-    expect(binding).not.toBeNull();
-    expect(binding!.guardianExternalUserId).toBe('user-123');
-    expect(binding!.guardianDeliveryChatId).toBe('chat-123');
-  });
-
-  test('submit_outbound_code success for voice binds guardian', () => {
-    const session = createOutboundSession({
-      assistantId: 'self',
-      channel: 'voice',
-      expectedPhoneE164: '+15559876543',
-      expectedExternalUserId: '+15559876543',
-      destinationAddress: '+15559876543',
-      codeDigits: 6,
-    });
-
-    const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'submit_outbound_code',
-      channel: 'voice',
-      assistantId: 'self',
-      verificationCode: session.secret,
-    };
-
-    handleGuardianVerification(msg, mockSocket, ctx);
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(true);
-    expect(resp!.bound).toBe(true);
-
-    const binding = getActiveBinding('self', 'voice');
-    expect(binding).not.toBeNull();
-    expect(binding!.guardianExternalUserId).toBe('+15559876543');
-  });
-
-  test('submit_outbound_code invalid code returns error and keeps session', () => {
-    const session = createOutboundSession({
-      assistantId: 'self',
-      channel: 'sms',
-      expectedPhoneE164: '+15551234567',
-      expectedExternalUserId: '+15551234567',
-      destinationAddress: '+15551234567',
-      codeDigits: 6,
-    });
-
-    const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'submit_outbound_code',
-      channel: 'sms',
-      assistantId: 'self',
-      sessionId: session.sessionId,
-      verificationCode: '000000',
-    };
-
-    handleGuardianVerification(msg, mockSocket, ctx);
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe('invalid_code');
-
-    // Session should still be active for retry
-    const activeSession = serviceFindActiveSession('self', 'sms');
-    expect(activeSession).not.toBeNull();
-
-    // No binding should be created
-    const binding = getActiveBinding('self', 'sms');
-    expect(binding).toBeNull();
-  });
-
-  test('submit_outbound_code no active session returns error', () => {
-    const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'submit_outbound_code',
-      channel: 'sms',
-      assistantId: 'self',
-      verificationCode: '123456',
-    };
-
-    handleGuardianVerification(msg, mockSocket, ctx);
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe('no_active_session');
-  });
-
-  test('submit_outbound_code rejects pending_bootstrap session', () => {
-    createOutboundSession({
-      assistantId: 'self',
-      channel: 'telegram',
-      expectedExternalUserId: 'user-123',
-      identityBindingStatus: 'pending_bootstrap',
-    });
-
-    const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'submit_outbound_code',
-      channel: 'telegram',
-      assistantId: 'self',
-      verificationCode: '123456',
-    };
-
-    handleGuardianVerification(msg, mockSocket, ctx);
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe('pending_bootstrap');
-  });
-
-  test('submit_outbound_code rejects mismatched sessionId', () => {
-    createOutboundSession({
-      assistantId: 'self',
-      channel: 'sms',
-      expectedPhoneE164: '+15551234567',
-      expectedExternalUserId: '+15551234567',
-      destinationAddress: '+15551234567',
-      codeDigits: 6,
-    });
-
-    const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'submit_outbound_code',
-      channel: 'sms',
-      assistantId: 'self',
-      sessionId: 'wrong-session-id',
-      verificationCode: '123456',
-    };
-
-    handleGuardianVerification(msg, mockSocket, ctx);
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe('session_mismatch');
-  });
-
-  test('submit_outbound_code rejects missing code', () => {
-    createOutboundSession({
-      assistantId: 'self',
-      channel: 'sms',
-      expectedPhoneE164: '+15551234567',
-      expectedExternalUserId: '+15551234567',
-      destinationAddress: '+15551234567',
-      codeDigits: 6,
-    });
-
-    const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'submit_outbound_code',
-      channel: 'sms',
-      assistantId: 'self',
-    };
-
-    handleGuardianVerification(msg, mockSocket, ctx);
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe('missing_code');
-  });
-
-  test('submit_outbound_code rejects already_bound channel', () => {
-    // Create existing binding
-    createBinding({
-      assistantId: 'self',
-      channel: 'sms',
-      guardianExternalUserId: '+15559999999',
-      guardianDeliveryChatId: '+15559999999',
-    });
-
-    // Create outbound session
-    const session = createOutboundSession({
-      assistantId: 'self',
-      channel: 'sms',
-      expectedPhoneE164: '+15551234567',
-      expectedExternalUserId: '+15551234567',
-      destinationAddress: '+15551234567',
-      codeDigits: 6,
-    });
-
-    const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'submit_outbound_code',
-      channel: 'sms',
-      assistantId: 'self',
-      verificationCode: session.secret,
-    };
-
-    handleGuardianVerification(msg, mockSocket, ctx);
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe('already_bound');
   });
 });

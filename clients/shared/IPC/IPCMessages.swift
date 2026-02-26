@@ -2009,8 +2009,7 @@ extension IPCGuardianVerificationRequest {
         sessionId: String? = nil,
         assistantId: String? = nil,
         rebind: Bool? = nil,
-        destination: String? = nil,
-        verificationCode: String? = nil
+        destination: String? = nil
     ) {
         self.init(
             type: "guardian_verification",
@@ -2019,8 +2018,7 @@ extension IPCGuardianVerificationRequest {
             sessionId: sessionId,
             assistantId: assistantId,
             rebind: rebind,
-            destination: destination,
-            verificationCode: verificationCode
+            destination: destination
         )
     }
 }

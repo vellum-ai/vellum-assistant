@@ -1,4 +1,4 @@
-import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import * as net from 'node:net';
 
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
@@ -14,7 +14,6 @@ import {
   updateSessionStatus,
   updateSessionDelivery,
 } from '../../runtime/channel-guardian-service.js';
-import { createBinding } from '../../memory/channel-guardian-store.js';
 import { createReadinessService, type ChannelReadinessService } from '../../runtime/channel-readiness-service.js';
 import {
   composeVerificationSms,
@@ -240,8 +239,6 @@ export function handleGuardianVerification(
       handleResendOutbound(msg, socket, ctx, assistantId, channel);
     } else if (msg.action === 'cancel_outbound') {
       handleCancelOutbound(socket, ctx, assistantId, channel);
-    } else if (msg.action === 'submit_outbound_code') {
-      handleSubmitOutboundCode(msg, socket, ctx, assistantId, channel);
     } else {
       ctx.send(socket, {
         type: 'guardian_verification_response',
@@ -605,9 +602,8 @@ function handleStartOutboundVoice(
 
   updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
 
-  // Initiate the outbound Twilio call (fire-and-forget), passing the secret
-  // so the relay can speak it to the guardian.
-  initiateGuardianVoiceCall(destination, sessionResult.sessionId, assistantId, sessionResult.secret);
+  // Initiate the outbound Twilio call (fire-and-forget)
+  initiateGuardianVoiceCall(destination, sessionResult.sessionId, assistantId);
 
   ctx.send(socket, {
     type: 'guardian_verification_response',
@@ -759,7 +755,7 @@ function handleResendOutbound(
     const nextResendAt = now + RESEND_COOLDOWN_MS;
 
     updateSessionDelivery(newSession.sessionId, now, newSendCount, nextResendAt);
-    initiateGuardianVoiceCall(destination, newSession.sessionId, assistantId, newSession.secret);
+    initiateGuardianVoiceCall(destination, newSession.sessionId, assistantId);
 
     ctx.send(socket, {
       type: 'guardian_verification_response',
@@ -830,137 +826,6 @@ function handleCancelOutbound(
   ctx.send(socket, {
     type: 'guardian_verification_response',
     success: true,
-    channel,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Submit outbound code handler
-// ---------------------------------------------------------------------------
-
-function handleSubmitOutboundCode(
-  msg: GuardianVerificationRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-  assistantId: string,
-  channel: ChannelId,
-): void {
-  const supportedChannels: ChannelId[] = ['sms', 'telegram', 'voice'];
-  if (!supportedChannels.includes(channel)) {
-    ctx.send(socket, {
-      type: 'guardian_verification_response',
-      success: false,
-      error: 'unsupported_channel',
-      message: `Channel "${channel}" is not supported for outbound code submission.`,
-      channel,
-    });
-    return;
-  }
-
-  const code = msg.verificationCode;
-  if (!code || code.trim().length === 0) {
-    ctx.send(socket, {
-      type: 'guardian_verification_response',
-      success: false,
-      error: 'missing_code',
-      message: 'A verification code is required.',
-      channel,
-    });
-    return;
-  }
-
-  const session = findActiveSession(assistantId, channel);
-  if (!session) {
-    ctx.send(socket, {
-      type: 'guardian_verification_response',
-      success: false,
-      error: 'no_active_session',
-      message: 'No active outbound verification session found.',
-      channel,
-    });
-    return;
-  }
-
-  if (session.identityBindingStatus === 'pending_bootstrap') {
-    ctx.send(socket, {
-      type: 'guardian_verification_response',
-      success: false,
-      error: 'pending_bootstrap',
-      message: 'Cannot submit code: waiting for bootstrap deep-link activation.',
-      channel,
-    });
-    return;
-  }
-
-  if (msg.sessionId && msg.sessionId !== session.id) {
-    ctx.send(socket, {
-      type: 'guardian_verification_response',
-      success: false,
-      error: 'session_mismatch',
-      message: 'The session ID does not match the active session.',
-      channel,
-    });
-    return;
-  }
-
-  // Check for existing active binding (code submission doesn't support rebind)
-  const existingBinding = getGuardianBinding(assistantId, channel);
-  if (existingBinding) {
-    ctx.send(socket, {
-      type: 'guardian_verification_response',
-      success: false,
-      error: 'already_bound',
-      message: 'A guardian is already bound for this channel. Revoke it first.',
-      channel,
-    });
-    return;
-  }
-
-  // Constant-time compare: hash the submitted code and compare to the session's challengeHash
-  const submittedHash = createHash('sha256').update(code.trim()).digest('hex');
-  const expectedHash = session.challengeHash;
-
-  const submittedBuf = Buffer.from(submittedHash, 'hex');
-  const expectedBuf = Buffer.from(expectedHash, 'hex');
-
-  if (submittedBuf.length !== expectedBuf.length || !timingSafeEqual(submittedBuf, expectedBuf)) {
-    ctx.send(socket, {
-      type: 'guardian_verification_response',
-      success: false,
-      error: 'invalid_code',
-      message: 'The verification code is incorrect. Please try again.',
-      channel,
-    });
-    return;
-  }
-
-  // Code matches — bind the guardian using the session's expected identity
-  const guardianExternalUserId =
-    session.expectedExternalUserId ?? session.expectedPhoneE164 ?? session.expectedChatId ?? '';
-  const guardianDeliveryChatId =
-    session.expectedChatId ?? session.expectedPhoneE164 ?? session.expectedExternalUserId ?? '';
-
-  // Revoke any existing binding before creating new one
-  revokeGuardianBinding(assistantId, channel);
-
-  createBinding({
-    assistantId,
-    channel,
-    guardianExternalUserId,
-    guardianDeliveryChatId,
-    verifiedVia: 'outbound_code',
-  });
-
-  // Mark session as consumed
-  updateSessionStatus(session.id, 'consumed', {
-    consumedByExternalUserId: guardianExternalUserId,
-    consumedByChatId: guardianDeliveryChatId,
-  });
-
-  ctx.send(socket, {
-    type: 'guardian_verification_response',
-    success: true,
-    bound: true,
     channel,
   });
 }
@@ -1050,7 +915,6 @@ function initiateGuardianVoiceCall(
   phoneNumber: string,
   guardianVerificationSessionId: string,
   assistantId: string,
-  secret?: string,
 ): void {
   (async () => {
     try {
@@ -1058,7 +922,6 @@ function initiateGuardianVoiceCall(
         phoneNumber,
         guardianVerificationSessionId,
         assistantId,
-        guardianVerificationSecret: secret,
       });
       if (result.ok) {
         log.info({ phoneNumber, guardianVerificationSessionId, callSid: result.callSid }, 'Guardian verification call initiated');

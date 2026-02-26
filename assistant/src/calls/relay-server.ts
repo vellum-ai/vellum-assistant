@@ -420,11 +420,10 @@ export class RelayConnection {
     const persistedMode = session?.callMode;
     const persistedGvSessionId = session?.guardianVerificationSessionId;
     const customParamGvSessionId = msg.customParameters?.guardianVerificationSessionId;
-    const customParamGvSecret = msg.customParameters?.guardianVerificationSecret;
     const guardianVerificationSessionId = persistedGvSessionId ?? customParamGvSessionId;
 
     if (persistedMode === 'guardian_verification' && guardianVerificationSessionId) {
-      this.startOutboundGuardianVerification(assistantId, guardianVerificationSessionId, msg.to, customParamGvSecret);
+      this.startOutboundGuardianVerification(assistantId, guardianVerificationSessionId, msg.to);
       return;
     }
 
@@ -434,7 +433,7 @@ export class RelayConnection {
         { callSessionId: this.callSessionId, guardianVerificationSessionId: customParamGvSessionId },
         'Guardian verification detected via setup custom parameter (no persisted call_mode) — entering verification path',
       );
-      this.startOutboundGuardianVerification(assistantId, customParamGvSessionId, msg.to, customParamGvSecret);
+      this.startOutboundGuardianVerification(assistantId, customParamGvSessionId, msg.to);
       return;
     }
 
@@ -555,53 +554,34 @@ export class RelayConnection {
     assistantId: string,
     guardianVerificationSessionId: string,
     toNumber: string,
-    secret?: string,
   ): void {
     this.guardianVerificationActive = true;
     this.outboundGuardianVerificationSessionId = guardianVerificationSessionId;
     this.guardianChallengeAssistantId = assistantId;
     // For outbound guardian calls, the "to" number is the guardian's phone
     this.guardianVerificationFromNumber = toNumber;
+    this.connectionState = 'verification_pending';
+    this.verificationAttempts = 0;
+    this.verificationMaxAttempts = 3;
     this.verificationCodeLength = 6;
+    this.dtmfBuffer = '';
 
     recordCallEvent(this.callSessionId, 'outbound_guardian_voice_verification_started', {
       assistantId,
       guardianVerificationSessionId,
+      maxAttempts: this.verificationMaxAttempts,
     });
 
-    if (secret) {
-      // Outbound flow: speak the code and instruct the user to enter it in the app, then end the call.
-      this.connectionState = 'connected';
-      this.guardianVerificationActive = false;
+    const introText = composeVerificationVoice(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO,
+      { codeDigits: this.verificationCodeLength },
+    );
+    this.sendTextToken(introText, true);
 
-      const codeText = composeVerificationVoice(
-        GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_OUTBOUND_CODE,
-        { codeDigits: this.verificationCodeLength, code: secret },
-      );
-      this.sendTextToken(codeText, true);
-
-      log.info(
-        { callSessionId: this.callSessionId, assistantId, guardianVerificationSessionId },
-        'Outbound guardian voice verification: code spoken, verification via UI',
-      );
-    } else {
-      // Legacy fallback: prompt for DTMF/speech code entry
-      this.connectionState = 'verification_pending';
-      this.verificationAttempts = 0;
-      this.verificationMaxAttempts = 3;
-      this.dtmfBuffer = '';
-
-      const introText = composeVerificationVoice(
-        GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO,
-        { codeDigits: this.verificationCodeLength },
-      );
-      this.sendTextToken(introText, true);
-
-      log.info(
-        { callSessionId: this.callSessionId, assistantId, guardianVerificationSessionId },
-        'Outbound guardian voice verification started (DTMF mode)',
-      );
-    }
+    log.info(
+      { callSessionId: this.callSessionId, assistantId, guardianVerificationSessionId },
+      'Outbound guardian voice verification started',
+    );
   }
 
   /**
