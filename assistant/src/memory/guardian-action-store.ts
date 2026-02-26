@@ -7,7 +7,7 @@
  * answer resolves the request and all other deliveries are marked answered.
  */
 
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, lt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getLogger } from '../util/logger.js';
@@ -210,6 +210,26 @@ export function getPendingRequestByCallSessionId(callSessionId: string): Guardia
     .orderBy(desc(guardianActionRequests.createdAt))
     .get();
   return row ? rowToRequest(row) : null;
+}
+
+/**
+ * Count pending guardian action requests for a given call session.
+ * Used as a candidate-affinity hint so the decision engine knows how many
+ * active guardian requests already exist for the current call.
+ */
+export function countPendingRequestsByCallSessionId(callSessionId: string): number {
+  const db = getDb();
+  const row = db
+    .select({ count: count() })
+    .from(guardianActionRequests)
+    .where(
+      and(
+        eq(guardianActionRequests.callSessionId, callSessionId),
+        eq(guardianActionRequests.status, 'pending'),
+      ),
+    )
+    .get();
+  return row?.count ?? 0;
 }
 
 /**
