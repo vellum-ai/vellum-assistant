@@ -303,6 +303,10 @@ export class RuntimeHttpServer {
 
     this.pairingStore.start();
 
+    if (isHttpAuthDisabled()) {
+      log.warn('DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All API endpoints are accessible without a bearer token. Do not use in production.');
+    }
+
     log.info({ port: this.actualPort, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
   }
 
