@@ -36,6 +36,11 @@ final class VoiceModeManager: ObservableObject {
     private var ttsTimeoutTask: Task<Void, Never>?
     /// Timer that fires when the conversation has been idle too long.
     private var conversationTimeoutTask: Task<Void, Never>?
+    /// When true, `handleStateTransition` will not re-arm the conversation
+    /// timeout on transitions to `.idle`. Used during CU escalation so that
+    /// `speakTransient`'s completion (which sets state to `.idle`) does not
+    /// prematurely restart the 30s timer while the CU session is still running.
+    private var conversationTimeoutPaused = false
     /// Permission request IDs currently being handled via voice.
     private var pendingPermissionIds: [String] = []
     /// Combine subscription to detect new confirmations in chat messages.
@@ -156,6 +161,7 @@ final class VoiceModeManager: ObservableObject {
 
         // Cancel conversation timeout before setting state to .off
         // (didSet would cancel it too, but be explicit for clarity).
+        conversationTimeoutPaused = false
         cancelConversationTimeout()
 
         // Set state to .off BEFORE shutdown so that any synchronous
@@ -545,7 +551,8 @@ final class VoiceModeManager: ObservableObject {
         if newState == .idle {
             // Don't start the timeout if the agent is currently executing tools —
             // the isThinking observer will restart it when thinking completes.
-            if chatViewModel?.isThinking != true {
+            // Also skip if the timeout is paused (e.g., during CU escalation).
+            if !conversationTimeoutPaused && chatViewModel?.isThinking != true {
                 startConversationTimeout()
             }
         } else {
@@ -620,6 +627,7 @@ final class VoiceModeManager: ObservableObject {
     /// conversation should not auto-deactivate.
     func pauseConversationTimeout() {
         log.info("Voice mode: conversation timeout paused")
+        conversationTimeoutPaused = true
         cancelConversationTimeout()
     }
 
@@ -627,6 +635,10 @@ final class VoiceModeManager: ObservableObject {
     /// operation completes so idle auto-deactivation can kick in again.
     func resumeConversationTimeout() {
         log.info("Voice mode: conversation timeout resumed")
+        // Clear the paused flag BEFORE the state guard so that when
+        // speakTransient finishes and transitions to .idle,
+        // handleStateTransition will properly restart the timeout.
+        conversationTimeoutPaused = false
         guard state == .idle else { return }
         startConversationTimeout()
     }
