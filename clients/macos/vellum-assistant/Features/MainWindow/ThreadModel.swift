@@ -5,6 +5,13 @@ enum ThreadKind: String, Hashable, Sendable {
     case `private`
 }
 
+/// Notification interaction state for a thread backed by a notification delivery.
+struct ThreadNotificationState: Hashable {
+    var hasUnviewedNotification: Bool
+    var lastInteractionType: String?
+    var lastInteractionAt: Date?
+}
+
 struct ThreadModel: Identifiable, Hashable {
     let id: UUID
     var title: String
@@ -18,8 +25,10 @@ struct ThreadModel: Identifiable, Hashable {
     var lastInteractedAt: Date
     var kind: ThreadKind
     var source: String?
+    /// Notification delivery state. Non-nil only for threads originating from a notification.
+    var notificationState: ThreadNotificationState?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil, notificationState: ThreadNotificationState? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -30,6 +39,7 @@ struct ThreadModel: Identifiable, Hashable {
         self.lastInteractedAt = lastInteractedAt ?? createdAt
         self.kind = kind
         self.source = source
+        self.notificationState = notificationState
     }
 
     /// Whether this thread was created by a schedule or reminder trigger.

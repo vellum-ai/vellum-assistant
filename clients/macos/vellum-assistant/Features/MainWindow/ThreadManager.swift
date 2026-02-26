@@ -191,7 +191,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             return
         }
 
-        let thread = ThreadModel(title: title, sessionId: conversationId)
+        let thread = ThreadModel(
+            title: title,
+            sessionId: conversationId,
+            notificationState: ThreadNotificationState(hasUnviewedNotification: true)
+        )
         let viewModel = makeViewModel()
         viewModel.sessionId = conversationId
         // Start the message loop so the view model receives streamed messages
@@ -351,7 +355,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 sessionId: session.id,
                 isArchived: isSessionArchived(session.id),
                 kind: session.threadType == "private" ? .private : .standard,
-                source: session.source
+                source: session.source,
+                notificationState: Self.mapNotificationState(session.notificationState)
             )
             // VM creation is lazy — getOrCreateViewModel() will instantiate
             // when the thread is first accessed (e.g. selected by the user).
@@ -386,6 +391,21 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         touchVMAccessOrder(id)
         activeThreadId = id
+
+        // Clear the unviewed notification indicator when the user opens
+        // a notification-origin thread. The daemon is separately notified
+        // via notification_conversation_viewed from the AppDelegate deep-link
+        // path, but sidebar selection also needs to send the IPC message.
+        if thread.notificationState?.hasUnviewedNotification == true,
+           let sessionId = thread.sessionId {
+            clearNotificationIndicator(threadId: id)
+            try? daemonClient.sendNotificationConversationViewed(
+                conversationId: sessionId,
+                source: "macos_conversation_opened",
+                occurredAt: Int(Date().timeIntervalSince1970 * 1000)
+            )
+        }
+
         // Switching threads is a natural point to shed cached render
         // artefacts from the previous conversation.
         Self.clearRenderCaches()
@@ -725,6 +745,24 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             vmAccessOrder.removeAll { $0 == victim }
             log.info("LRU evicted VM for thread \(victim)")
         }
+    }
+
+    /// Convert IPC notification state to the model type.
+    static func mapNotificationState(_ ipc: IPCSessionNotificationState?) -> ThreadNotificationState? {
+        guard let ipc else { return nil }
+        return ThreadNotificationState(
+            hasUnviewedNotification: ipc.hasUnviewedNotification,
+            lastInteractionType: ipc.lastInteractionType,
+            lastInteractionAt: ipc.lastInteractionAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
+        )
+    }
+
+    /// Clear the unviewed notification indicator for a thread. Called when
+    /// the user opens a notification-origin thread (the daemon is separately
+    /// notified via `notification_conversation_viewed`).
+    func clearNotificationIndicator(threadId: UUID) {
+        guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
+        threads[index].notificationState?.hasUnviewedNotification = false
     }
 
     private var archivedSessionIds: Set<String> {

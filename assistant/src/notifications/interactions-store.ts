@@ -262,6 +262,72 @@ export function getNotificationDeliverySummaries(
   return rows;
 }
 
+// -- Conversation notification state helpers ----------------------------------
+
+export interface ConversationNotificationState {
+  hasUnviewedNotification: boolean;
+  lastInteractionType: string | null;
+  lastInteractionAt: number | null;
+}
+
+/**
+ * Check whether a conversation has any notification deliveries that have
+ * not yet been explicitly viewed. Returns a summary object suitable for
+ * inclusion in the session list response.
+ */
+export function getConversationNotificationState(
+  conversationId: string,
+): ConversationNotificationState | undefined {
+  const db = getDb();
+  const row = db
+    .select({
+      id: notificationDeliveries.id,
+      viewedAt: notificationDeliveries.viewedAt,
+      lastInteractionType: notificationDeliveries.lastInteractionType,
+      lastInteractionAt: notificationDeliveries.lastInteractionAt,
+    })
+    .from(notificationDeliveries)
+    .where(
+      and(
+        eq(notificationDeliveries.conversationId, conversationId),
+        eq(notificationDeliveries.status, 'sent'),
+      ),
+    )
+    .orderBy(desc(sql`COALESCE(${notificationDeliveries.sentAt}, ${notificationDeliveries.createdAt})`))
+    .limit(1)
+    .get();
+
+  if (!row) return undefined;
+
+  return {
+    hasUnviewedNotification: row.viewedAt === null,
+    lastInteractionType: row.lastInteractionType,
+    lastInteractionAt: row.lastInteractionAt,
+  };
+}
+
+/**
+ * Batch-query notification state for multiple conversation IDs. Returns a
+ * map from conversationId to notification state. Only conversations that
+ * have at least one sent notification delivery are included.
+ */
+export function getConversationNotificationStates(
+  conversationIds: string[],
+): Map<string, ConversationNotificationState> {
+  const result = new Map<string, ConversationNotificationState>();
+  if (conversationIds.length === 0) return result;
+
+  // Query individually per conversation -- the list is typically small (50 items)
+  // and the index on conversationId makes this fast. A single SQL query with
+  // GROUP BY would be more complex and less readable for marginal perf gain.
+  for (const cid of conversationIds) {
+    const state = getConversationNotificationState(cid);
+    if (state) result.set(cid, state);
+  }
+
+  return result;
+}
+
 // -- Telegram inferred-seen helpers -------------------------------------------
 
 export interface UnseenTelegramDelivery {

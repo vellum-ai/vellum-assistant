@@ -16,3 +16,19 @@ Use `send_notification` for user-facing alerts and notifications. This tool rout
 
 - Do **NOT** use AppleScript `display notification` or other OS-level notification commands for assistant-managed alerts. Always use `send_notification`.
 - For sending messages into a specific chat, email, or SMS destination, use the messaging skill's `messaging_send` instead.
+
+## Querying Delivery History
+
+Use the runtime HTTP API to query notification delivery summaries. The endpoint returns delivery records with interaction tracking (seen/viewed status).
+
+```bash
+# List recent deliveries for this assistant
+curl -s -H "Authorization: Bearer $(cat ~/.vellum/http-token)" \
+  "http://localhost:7821/v1/notifications/deliveries?assistantId=self&limit=50"
+
+# Paginate through older deliveries
+curl -s -H "Authorization: Bearer $(cat ~/.vellum/http-token)" \
+  "http://localhost:7821/v1/notifications/deliveries?assistantId=self&limit=20&offset=20"
+```
+
+Each delivery record includes: `deliveryId`, `assistantId`, `channel`, `destination`, `status`, `seenAt`, `viewedAt`, `lastInteractionType`, `lastInteractionAt`, `sentAt`, `createdAt`, and `conversationId`.

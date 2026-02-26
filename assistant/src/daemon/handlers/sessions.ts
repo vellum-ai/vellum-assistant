@@ -13,6 +13,7 @@ import { redactSecrets } from '../../security/secret-scanner.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { truncate } from '../../util/truncate.js';
+import { getConversationNotificationStates } from '../../notifications/interactions-store.js';
 import { getAssistantName } from '../identity-helpers.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
 import type {
@@ -396,12 +397,16 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
   const bindings = externalConversationStore.getBindingsForConversations(
     conversations.map((c) => c.id),
   );
+  const notificationStates = getConversationNotificationStates(
+    conversations.map((c) => c.id),
+  );
   ctx.send(socket, {
     type: 'session_list_response',
     sessions: conversations.map((c) => {
       const binding = bindings.get(c.id);
       const originChannel = parseChannelId(c.originChannel);
       const originInterface = parseInterfaceId(c.originInterface);
+      const notifState = notificationStates.get(c.id);
       return {
         id: c.id,
         title: c.title ?? 'Untitled',
@@ -419,6 +424,13 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
         } : {}),
         ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
         ...(originInterface ? { conversationOriginInterface: originInterface } : {}),
+        ...(notifState ? {
+          notificationState: {
+            hasUnviewedNotification: notifState.hasUnviewedNotification,
+            ...(notifState.lastInteractionType ? { lastInteractionType: notifState.lastInteractionType } : {}),
+            ...(notifState.lastInteractionAt ? { lastInteractionAt: notifState.lastInteractionAt } : {}),
+          },
+        } : {}),
       };
     }),
     hasMore: offset + conversations.length < totalCount,

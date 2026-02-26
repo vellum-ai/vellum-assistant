@@ -119,6 +119,7 @@ import {
   handleSetTelegramConfig,
   handleSetupTelegram,
 } from './routes/integration-routes.js';
+import { handleListNotificationDeliveries } from './routes/notification-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
 
 // Re-export for consumers
@@ -579,6 +580,9 @@ export class RuntimeHttpServer {
       if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req);
       if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req);
       if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url);
+
+      // Notification deliveries
+      if (endpoint === 'notifications/deliveries' && req.method === 'GET') return handleListNotificationDeliveries(url);
 
       // Contacts
       if (endpoint === 'contacts' && req.method === 'GET') return handleListContacts(url);

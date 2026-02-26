@@ -3734,8 +3734,10 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let channelBinding: IPCChannelBinding?
     public let conversationOriginChannel: String?
     public let conversationOriginInterface: String?
+    /// Notification interaction state for a session/conversation.
+    public let notificationState: IPCSessionNotificationState?
 
-    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil) {
+    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, notificationState: IPCSessionNotificationState? = nil) {
         self.id = id
         self.title = title
         self.updatedAt = updatedAt
@@ -3744,6 +3746,20 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
         self.channelBinding = channelBinding
         self.conversationOriginChannel = conversationOriginChannel
         self.conversationOriginInterface = conversationOriginInterface
+        self.notificationState = notificationState
+    }
+}
+
+/// Notification interaction state for a session/conversation.
+public struct IPCSessionNotificationState: Codable, Sendable {
+    public let hasUnviewedNotification: Bool
+    public let lastInteractionType: String?
+    public let lastInteractionAt: Int?
+
+    public init(hasUnviewedNotification: Bool, lastInteractionType: String? = nil, lastInteractionAt: Int? = nil) {
+        self.hasUnviewedNotification = hasUnviewedNotification
+        self.lastInteractionType = lastInteractionType
+        self.lastInteractionAt = lastInteractionAt
     }
 }
 

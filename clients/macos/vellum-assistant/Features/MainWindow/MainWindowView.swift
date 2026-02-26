@@ -847,6 +847,11 @@ struct MainWindowView: View {
             }
         }) {
             HStack(spacing: VSpacing.xs) {
+                if thread.notificationState?.hasUnviewedNotification == true {
+                    Circle()
+                        .fill(VColor.accent)
+                        .frame(width: 7, height: 7)
+                }
                 if thread.kind == .private {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10, weight: .medium))

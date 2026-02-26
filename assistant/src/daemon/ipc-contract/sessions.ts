@@ -202,9 +202,16 @@ export interface ChannelBinding {
   username?: string | null;
 }
 
+/** Notification interaction state for a session/conversation. */
+export interface SessionNotificationState {
+  hasUnviewedNotification: boolean;
+  lastInteractionType?: string;
+  lastInteractionAt?: number;
+}
+
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId }>;
+  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId; notificationState?: SessionNotificationState }>;
   /** Whether more sessions exist beyond the returned page. */
   hasMore?: boolean;
 }
