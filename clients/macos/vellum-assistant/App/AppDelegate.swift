@@ -685,6 +685,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             mainWindow?.close()
             mainWindow = nil
             conversationZoomEnabledCancellable = nil
+            conversationBadgeCancellable?.cancel()
+            conversationBadgeCancellable = nil
+            NSApp.dockTile.badgeLabel = nil
             isConversationZoomEnabled = false
 
             if let hotKeyMonitor {
@@ -798,6 +801,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         mainWindow?.close()
         mainWindow = nil
         conversationZoomEnabledCancellable = nil
+        conversationBadgeCancellable?.cancel()
+        conversationBadgeCancellable = nil
+        NSApp.dockTile.badgeLabel = nil
         isConversationZoomEnabled = false
 
         if let hotKeyMonitor {
@@ -2106,7 +2112,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         applyDockConversationBadge(count: threadManager.unseenVisibleConversationCount)
 
         conversationBadgeCancellable = threadManager.$threads
-            .map { _ in threadManager.unseenVisibleConversationCount }
+            .map { threads in threads.filter { !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage }.count }
             .removeDuplicates()
             .sink { [weak self] count in
                 self?.applyDockConversationBadge(count: count)
@@ -2200,6 +2206,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             NotificationCenter.default.removeObserver(observer)
         }
         statusIconCancellable?.cancel()
+        conversationBadgeCancellable?.cancel()
+        NSApp.dockTile.badgeLabel = nil
         connectionStatusCancellable?.cancel()
         pulseTimer?.invalidate()
         pulseTimer = nil
