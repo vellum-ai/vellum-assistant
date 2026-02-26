@@ -3120,6 +3120,61 @@ public struct IPCPairingApprovalResponse: Codable, Sendable {
     }
 }
 
+/// Retrieve the current app and widget allowlists.
+public struct IPCParentalControlAllowlistGetRequest: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+public struct IPCParentalControlAllowlistGetResponse: Codable, Sendable {
+    public let type: String
+    public let allowedApps: [String]
+    public let allowedWidgets: [String]
+
+    public init(type: String, allowedApps: [String], allowedWidgets: [String]) {
+        self.type = type
+        self.allowedApps = allowedApps
+        self.allowedWidgets = allowedWidgets
+    }
+}
+
+/// Update the app and/or widget allowlist. PIN required when parental controls are enabled.
+public struct IPCParentalControlAllowlistUpdateRequest: Codable, Sendable {
+    public let type: String
+    /// Current PIN — required when parental mode is already enabled.
+    public let pin: String?
+    /// Full replacement list of allowed app names.
+    public let allowedApps: [String]?
+    /// Full replacement list of allowed widget names.
+    public let allowedWidgets: [String]?
+
+    public init(type: String, pin: String? = nil, allowedApps: [String]? = nil, allowedWidgets: [String]? = nil) {
+        self.type = type
+        self.pin = pin
+        self.allowedApps = allowedApps
+        self.allowedWidgets = allowedWidgets
+    }
+}
+
+public struct IPCParentalControlAllowlistUpdateResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let allowedApps: [String]
+    public let allowedWidgets: [String]
+    public let error: String?
+
+    public init(type: String, success: Bool, allowedApps: [String], allowedWidgets: [String], error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.allowedApps = allowedApps
+        self.allowedWidgets = allowedWidgets
+        self.error = error
+    }
+}
+
 /// Retrieve the current parental control settings and PIN status.
 public struct IPCParentalControlGetRequest: Codable, Sendable {
     public let type: String

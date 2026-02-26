@@ -199,6 +199,11 @@ public final class SettingsStore: ObservableObject {
     /// Whether parental controls are currently enabled. Kept in sync via IPC responses.
     @Published var isParentalEnabled: Bool = false
 
+    /// Allowlisted app names for the child profile. Empty means all apps are allowed.
+    @Published var allowedApps: [String] = []
+    /// Allowlisted widget names for the child profile. Empty means all widgets are allowed.
+    @Published var allowedWidgets: [String] = []
+
     // MARK: - Dev Mode
 
     @Published var isDevMode: Bool

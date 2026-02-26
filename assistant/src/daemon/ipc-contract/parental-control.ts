@@ -120,6 +120,40 @@ export interface ParentalControlProfileSwitchResponse {
   error?: string;
 }
 
+// === App / Widget Allowlist (Client → Server) ===
+
+/** Retrieve the current app and widget allowlists. */
+export interface ParentalControlAllowlistGetRequest {
+  type: 'parental_control_allowlist_get';
+}
+
+/** Update the app and/or widget allowlist. PIN required when parental controls are enabled. */
+export interface ParentalControlAllowlistUpdateRequest {
+  type: 'parental_control_allowlist_update';
+  /** Current PIN — required when parental mode is already enabled. */
+  pin?: string;
+  /** Full replacement list of allowed app names. */
+  allowedApps?: string[];
+  /** Full replacement list of allowed widget names. */
+  allowedWidgets?: string[];
+}
+
+// === App / Widget Allowlist (Server → Client) ===
+
+export interface ParentalControlAllowlistGetResponse {
+  type: 'parental_control_allowlist_get_response';
+  allowedApps: string[];
+  allowedWidgets: string[];
+}
+
+export interface ParentalControlAllowlistUpdateResponse {
+  type: 'parental_control_allowlist_update_response';
+  success: boolean;
+  allowedApps: string[];
+  allowedWidgets: string[];
+  error?: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _ParentalControlClientMessages =
@@ -128,7 +162,9 @@ export type _ParentalControlClientMessages =
   | ParentalControlSetPinRequest
   | ParentalControlUpdateRequest
   | ParentalControlProfileGetRequest
-  | ParentalControlProfileSwitchRequest;
+  | ParentalControlProfileSwitchRequest
+  | ParentalControlAllowlistGetRequest
+  | ParentalControlAllowlistUpdateRequest;
 
 export type _ParentalControlServerMessages =
   | ParentalControlGetResponse
@@ -136,4 +172,6 @@ export type _ParentalControlServerMessages =
   | ParentalControlSetPinResponse
   | ParentalControlUpdateResponse
   | ParentalControlProfileGetResponse
-  | ParentalControlProfileSwitchResponse;
+  | ParentalControlProfileSwitchResponse
+  | ParentalControlAllowlistGetResponse
+  | ParentalControlAllowlistUpdateResponse;

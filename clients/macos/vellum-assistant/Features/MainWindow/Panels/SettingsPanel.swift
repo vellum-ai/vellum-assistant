@@ -180,31 +180,55 @@ struct SettingsPanel: View {
 
     @ViewBuilder
     private var selectedTabContent: some View {
-        switch selectedTab {
-        case .connect:
-            SettingsConnectTab(store: store, daemonClient: daemonClient, authManager: authManager)
-        case .integrations:
-            integrationsContent
-        case .trust:
-            trustContent
-        case .reminders:
-            remindersContent
-        case .heartbeat:
-            HeartbeatSettingsTab(daemonClient: daemonClient)
-        case .wakeWord:
-            WakeWordSettingsView()
-        case .appearance:
-            SettingsAppearanceTab(store: store)
-        case .advanced:
-            SettingsAdvancedTab(
-                store: store,
-                threadManager: threadManager,
-                onClose: onClose,
-                daemonClient: daemonClient
-            )
-        case .parental:
-            SettingsParentalTab(daemonClient: daemonClient, settingsStore: store)
+        if store.isParentalEnabled && store.activeProfile == "child" {
+            // Child profile: show restricted placeholder instead of any settings content
+            childRestrictedPlaceholder
+        } else {
+            switch selectedTab {
+            case .connect:
+                SettingsConnectTab(store: store, daemonClient: daemonClient, authManager: authManager)
+            case .integrations:
+                integrationsContent
+            case .trust:
+                trustContent
+            case .reminders:
+                remindersContent
+            case .heartbeat:
+                HeartbeatSettingsTab(daemonClient: daemonClient)
+            case .wakeWord:
+                WakeWordSettingsView()
+            case .appearance:
+                SettingsAppearanceTab(store: store)
+            case .advanced:
+                SettingsAdvancedTab(
+                    store: store,
+                    threadManager: threadManager,
+                    onClose: onClose,
+                    daemonClient: daemonClient
+                )
+            case .parental:
+                SettingsParentalTab(daemonClient: daemonClient, settingsStore: store)
+            }
         }
+    }
+
+    // MARK: - Child Restricted Placeholder
+
+    private var childRestrictedPlaceholder: some View {
+        VStack(spacing: VSpacing.lg) {
+            Image(systemName: "lock.shield")
+                .font(.system(size: 48))
+                .foregroundColor(VColor.warning)
+            Text("Settings are managed by your parent")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textPrimary)
+            Text("Ask your parent to switch to their profile to change settings.")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(VSpacing.xxl)
     }
 
     // MARK: - Integrations Tab

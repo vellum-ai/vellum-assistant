@@ -39,6 +39,8 @@ export interface ParentalControlSettings {
    * set both sections to None does not silently re-apply defaults.
    */
   initialized: boolean;
+  allowedApps: string[];
+  allowedWidgets: string[];
 }
 
 const DEFAULT_SETTINGS: ParentalControlSettings = {
@@ -47,6 +49,8 @@ const DEFAULT_SETTINGS: ParentalControlSettings = {
   blockedToolCategories: [],
   activeProfile: 'parental',
   initialized: false,
+  allowedApps: [],
+  allowedWidgets: [],
 };
 
 function getSettingsPath(): string {
@@ -75,6 +79,8 @@ export function getParentalControlSettings(): ParentalControlSettings {
       initialized: typeof parsed.initialized === 'boolean'
         ? parsed.initialized
         : (typeof parsed.enabled === 'boolean' && parsed.enabled),
+      allowedApps: Array.isArray(parsed.allowedApps) ? parsed.allowedApps : [],
+      allowedWidgets: Array.isArray(parsed.allowedWidgets) ? parsed.allowedWidgets : [],
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -101,6 +107,8 @@ export function updateParentalControlSettings(
       : current.blockedToolCategories,
     activeProfile: patch.activeProfile !== undefined ? patch.activeProfile : current.activeProfile,
     initialized: patch.initialized !== undefined ? patch.initialized : current.initialized,
+    allowedApps: patch.allowedApps !== undefined ? patch.allowedApps : current.allowedApps,
+    allowedWidgets: patch.allowedWidgets !== undefined ? patch.allowedWidgets : current.allowedWidgets,
   };
   saveSettings(next);
   return next;
@@ -178,6 +186,30 @@ export function verifyPIN(pin: string): boolean {
 export function clearPIN(): void {
   deleteKey(PIN_ACCOUNT);
   log.info('Parental control PIN cleared');
+}
+
+// ---------------------------------------------------------------------------
+// App / Widget allowlist helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if the given app name is in the allowlist, or if no apps have
+ * been explicitly restricted (empty allowlist means all apps are allowed).
+ */
+export function isAppAllowed(appName: string): boolean {
+  const { allowedApps } = getParentalControlSettings();
+  if (allowedApps.length === 0) return true;
+  return allowedApps.includes(appName);
+}
+
+/**
+ * Returns true if the given widget name is in the allowlist, or if no widgets
+ * have been explicitly restricted (empty allowlist means all widgets are allowed).
+ */
+export function isWidgetAllowed(widgetName: string): boolean {
+  const { allowedWidgets } = getParentalControlSettings();
+  if (allowedWidgets.length === 0) return true;
+  return allowedWidgets.includes(widgetName);
 }
 
 // ---------------------------------------------------------------------------

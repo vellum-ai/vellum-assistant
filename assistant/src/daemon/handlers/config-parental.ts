@@ -12,6 +12,8 @@ import {
 } from '../../security/parental-control-store.js';
 import { getLogger } from '../../util/logger.js';
 import type {
+  ParentalControlAllowlistGetRequest,
+  ParentalControlAllowlistUpdateRequest,
   ParentalControlGetRequest,
   ParentalControlProfileGetRequest,
   ParentalControlProfileSwitchRequest,
@@ -236,6 +238,59 @@ export function handleParentalControlProfileSwitch(
   });
 }
 
+export function handleParentalControlAllowlistGet(
+  _msg: ParentalControlAllowlistGetRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const settings = getParentalControlSettings();
+  ctx.send(socket, {
+    type: 'parental_control_allowlist_get_response',
+    allowedApps: settings.allowedApps,
+    allowedWidgets: settings.allowedWidgets,
+  });
+}
+
+export function handleParentalControlAllowlistUpdate(
+  msg: ParentalControlAllowlistUpdateRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const settings = getParentalControlSettings();
+  const pinExists = hasPIN();
+
+  // Require PIN verification when parental mode is already enabled
+  if (settings.enabled && pinExists) {
+    if (!msg.pin || !verifyPIN(msg.pin)) {
+      ctx.send(socket, {
+        type: 'parental_control_allowlist_update_response',
+        success: false,
+        allowedApps: settings.allowedApps,
+        allowedWidgets: settings.allowedWidgets,
+        error: 'PIN required to change parental control settings',
+      });
+      return;
+    }
+  }
+
+  const updated = updateParentalControlSettings({
+    allowedApps: msg.allowedApps,
+    allowedWidgets: msg.allowedWidgets,
+  });
+
+  log.info(
+    { appCount: updated.allowedApps.length, widgetCount: updated.allowedWidgets.length },
+    'Parental control allowlist updated',
+  );
+
+  ctx.send(socket, {
+    type: 'parental_control_allowlist_update_response',
+    success: true,
+    allowedApps: updated.allowedApps,
+    allowedWidgets: updated.allowedWidgets,
+  });
+}
+
 export const parentalControlHandlers = defineHandlers({
   parental_control_get: handleParentalControlGet,
   parental_control_verify_pin: handleParentalControlVerifyPin,
@@ -243,4 +298,6 @@ export const parentalControlHandlers = defineHandlers({
   parental_control_update: handleParentalControlUpdate,
   parental_control_profile_get: handleParentalControlProfileGet,
   parental_control_profile_switch: handleParentalControlProfileSwitch,
+  parental_control_allowlist_get: handleParentalControlAllowlistGet,
+  parental_control_allowlist_update: handleParentalControlAllowlistUpdate,
 });
