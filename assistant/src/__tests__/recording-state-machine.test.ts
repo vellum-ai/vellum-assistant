@@ -66,8 +66,9 @@ mock.module('../memory/attachments-store.js', () => ({
 }));
 
 // Mock node:fs
-mock.module('node:fs', async () => {
-  const realFs = await import('fs');
+mock.module('node:fs', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const realFs = require('fs');
   return {
     ...realFs,
     existsSync: (p: string) => {
