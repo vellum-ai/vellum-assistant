@@ -163,34 +163,41 @@ export class NotificationBroadcaster {
       if (channel === 'vellum' && pairing.conversationId) {
         deepLinkTarget = { ...deepLinkTarget, conversationId: pairing.conversationId };
 
-        // Emit notification_thread_created only when a NEW conversation was
-        // actually created. Reusing an existing thread should not fire the IPC
-        // event — the client already knows about the conversation.
+        const threadTitle =
+          copy.threadTitle ??
+          copy.title ??
+          signal.sourceEventName;
+        const info: ThreadCreatedInfo = {
+          conversationId: pairing.conversationId,
+          title: threadTitle,
+          sourceEventName: signal.sourceEventName,
+        };
+
+        // The per-dispatch onThreadCreated callback fires whenever a vellum
+        // conversation is paired (new or reused) because callers like
+        // dispatchGuardianQuestion rely on it to create delivery bookkeeping
+        // rows before emitNotificationSignal() returns.
+        if (options?.onThreadCreated) {
+          try {
+            options.onThreadCreated(info);
+          } catch (err) {
+            log.error(
+              { err, signalId: signal.signalId },
+              'per-dispatch onThreadCreated callback failed — continuing broadcast',
+            );
+          }
+        }
+
+        // Emit notification_thread_created IPC event only when a NEW
+        // conversation was actually created. Reusing an existing thread
+        // should not fire the IPC event — the client already knows about
+        // the conversation.
         if (pairing.createdNewConversation && pairing.strategy === 'start_new_conversation') {
-          const threadTitle =
-            copy.threadTitle ??
-            copy.title ??
-            signal.sourceEventName;
-          const info: ThreadCreatedInfo = {
-            conversationId: pairing.conversationId,
-            title: threadTitle,
-            sourceEventName: signal.sourceEventName,
-          };
           if (this.onThreadCreated) {
             try {
               this.onThreadCreated(info);
             } catch (err) {
               log.error({ err, signalId: signal.signalId }, 'onThreadCreated callback failed — continuing broadcast');
-            }
-          }
-          if (options?.onThreadCreated) {
-            try {
-              options.onThreadCreated(info);
-            } catch (err) {
-              log.error(
-                { err, signalId: signal.signalId },
-                'per-dispatch onThreadCreated callback failed — continuing broadcast',
-              );
             }
           }
         }
