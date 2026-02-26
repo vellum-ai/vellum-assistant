@@ -6,6 +6,88 @@ import { MIGRATION_REGISTRY, type MigrationValidationResult } from './registry.j
 const log = getLogger('memory-db');
 
 /**
+ * Recover from crashed migrations before the migration runner executes.
+ *
+ * Scans memory_checkpoints for entries with value 'started' — these represent
+ * migrations that began but never completed (e.g., due to a process crash).
+ * Deletes the stalled checkpoint so the migration can re-run from scratch on
+ * this startup. Each migration's own idempotency guards (DDL IF NOT EXISTS,
+ * transactional rollback) ensure re-running is safe.
+ *
+ * Call this BEFORE running migrations so that stalled checkpoints don't block
+ * re-execution.
+ */
+export function recoverCrashedMigrations(database: DrizzleDb): string[] {
+  const raw = getSqliteFrom(database);
+
+  let rows: Array<{ key: string; value: string }>;
+  try {
+    rows = raw.query(`SELECT key, value FROM memory_checkpoints`).all() as Array<{ key: string; value: string }>;
+  } catch {
+    return [];
+  }
+
+  const crashed = rows.filter((r) => r.value === 'started').map((r) => r.key);
+  if (crashed.length === 0) return [];
+
+  log.error(
+    { crashed },
+    [
+      '╔══════════════════════════════════════════════════════════════╗',
+      '║  CRASHED MIGRATIONS DETECTED — AUTO-RECOVERING             ║',
+      '╚══════════════════════════════════════════════════════════════╝',
+      '',
+      `The following migrations started but never completed: ${crashed.join(', ')}`,
+      '',
+      'Clearing stalled checkpoints so they can be retried on this startup.',
+      'If retries continue to fail, manually inspect the database:',
+      '  sqlite3 ~/.vellum/data/assistant.db "SELECT * FROM memory_checkpoints"',
+    ].join('\n'),
+  );
+
+  for (const key of crashed) {
+    raw.query(`DELETE FROM memory_checkpoints WHERE key = ?`).run(key);
+    log.info({ key }, `Cleared stalled checkpoint "${key}" — migration will re-run`);
+  }
+
+  return crashed;
+}
+
+/**
+ * Wrap a migration function with crash-recovery bookkeeping.
+ *
+ * Writes a 'started' checkpoint before executing the migration body, then
+ * overwrites it with the completion value on success. If the process crashes
+ * between the start marker and completion, recoverCrashedMigrations (which
+ * runs before all migrations) will detect and clear it on the next startup.
+ *
+ * The migrationFn receives the raw SQLite database and should perform its
+ * own transaction management internally.
+ */
+export function withCrashRecovery(
+  database: DrizzleDb,
+  checkpointKey: string,
+  migrationFn: () => void,
+): void {
+  const raw = getSqliteFrom(database);
+
+  const existing = raw.query(
+    `SELECT value FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey) as { value: string } | null;
+  if (existing && existing.value !== 'started') return;
+
+  raw.query(
+    `INSERT OR REPLACE INTO memory_checkpoints (key, value, updated_at) VALUES (?, 'started', ?)`,
+  ).run(checkpointKey, Date.now());
+
+  migrationFn();
+
+  raw.query(
+    `UPDATE memory_checkpoints SET value = '1', updated_at = ? WHERE key = ?`,
+  ).run(Date.now(), checkpointKey);
+}
+
+/**
  * Validate the applied migration state against the registry at startup.
  *
  * Logs a prominent error when a migration started but never completed (crash
@@ -30,23 +112,20 @@ export function validateMigrationState(database: DrizzleDb): MigrationValidation
     return { crashed: [], dependencyViolations: [] };
   }
 
-  // Detect crashed migrations: a checkpoint value of 'started' means the
-  // migration wrote its start marker but never reached the completion INSERT.
-  // The migration will re-run on the next startup (its own idempotency guard
-  // will determine safety), but we surface a warning for visibility.
+  // Any remaining 'started' checkpoints after recovery + migration execution
+  // indicate a migration that was retried but failed again.
   const crashed = rows.filter((r) => r.value === 'started').map((r) => r.key);
   if (crashed.length > 0) {
     log.error(
       { crashed },
       [
         '╔══════════════════════════════════════════════════════════════╗',
-        '║  CRASHED MIGRATIONS DETECTED                               ║',
+        '║  MIGRATIONS STILL INCOMPLETE AFTER RETRY                   ║',
         '╚══════════════════════════════════════════════════════════════╝',
         '',
-        `The following migrations started but never completed: ${crashed.join(', ')}`,
+        `The following migrations were retried but still did not complete: ${crashed.join(', ')}`,
         '',
-        'These will be retried automatically on this startup.',
-        'If retries continue to fail, manually update the checkpoint:',
+        'Manual intervention is required. Inspect the database and resolve:',
         '  sqlite3 ~/.vellum/data/assistant.db "DELETE FROM memory_checkpoints WHERE key = \'<migration_key>\'"',
         'Then restart the daemon.',
       ].join('\n'),
