@@ -592,14 +592,6 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
 
   const baseDataDir = join(process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir), ".vellum");
 
-  if (existsSync(baseDataDir)) {
-    throw new Error(
-      `Base data directory already exists: ${baseDataDir}\n` +
-        "  Another assistant may already be using this directory.\n" +
-        "  To use a different directory, set the BASE_DATA_DIR environment variable.",
-    );
-  }
-
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
   console.log("");
