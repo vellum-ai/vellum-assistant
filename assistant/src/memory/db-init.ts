@@ -24,6 +24,7 @@ import {
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
   migrateReminderRoutingIntent,
+  migrateSchemaIndexesAndColumns,
   recoverCrashedMigrations,
   runComplexMigrations,
   runLateMigrations,
@@ -112,6 +113,9 @@ export function initializeDb(): void {
 
   // 19. Reminder routing metadata (routing_intent + routing_hints_json columns)
   migrateReminderRoutingIntent(database);
+
+  // 20. Schema indexes, columns, and constraints
+  migrateSchemaIndexesAndColumns(database);
 
   validateMigrationState(database);
 }

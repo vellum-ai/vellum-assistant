@@ -27,6 +27,7 @@ import {
   enqueuePruneOldConversationsJob,
   enqueueReconcileFtsJob,
   failMemoryJob,
+  failStalledJobs,
   type MemoryJob,
   resetRunningJobsToPending,
 } from './jobs-store.js';
@@ -87,6 +88,12 @@ export async function runMemoryJobsOnce(
 
   // Periodic stale item sweep (throttled to at most once per hour)
   sweepStaleItems(config);
+
+  // Fail jobs that have been running longer than the configured timeout
+  const timedOut = failStalledJobs(config.memory.jobs.stalledJobTimeoutMs);
+  if (timedOut > 0) {
+    log.warn({ timedOut }, 'Timed out stalled memory jobs');
+  }
 
   const batchSize = Math.max(1, config.memory.jobs.batchSize);
   const concurrency = Math.max(1, config.memory.jobs.workerConcurrency);

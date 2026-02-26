@@ -40,6 +40,7 @@ export interface MemoryJob<T = Record<string, unknown>> {
   deferrals: number;
   runAfter: number;
   lastError: string | null;
+  startedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -295,13 +296,14 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
   const claimed: MemoryJob[] = [];
   for (const row of candidates) {
     db.update(memoryJobs)
-      .set({ status: 'running', updatedAt: now })
+      .set({ status: 'running', startedAt: now, updatedAt: now })
       .where(and(eq(memoryJobs.id, row.id), eq(memoryJobs.status, 'pending')))
       .run();
     if (rawChanges() === 0) continue;
     claimed.push(parseRow({
       ...row,
       status: 'running',
+      startedAt: now,
       updatedAt: now,
     }));
   }
@@ -429,6 +431,37 @@ export function resetRunningJobsToPending(): number {
   return runningRows.length;
 }
 
+/**
+ * Fail running jobs whose `startedAt` is older than `timeoutMs` ago.
+ * Returns the number of jobs that were timed out.
+ */
+export function failStalledJobs(timeoutMs: number): number {
+  const now = Date.now();
+  const cutoff = now - timeoutMs;
+  const stalled = rawAll<{ id: string; type: string }>(`
+    SELECT id, type
+    FROM memory_jobs
+    WHERE status = 'running'
+      AND started_at IS NOT NULL
+      AND started_at < ?
+  `, cutoff);
+  if (stalled.length === 0) return 0;
+
+  const db = getDb();
+  for (const row of stalled) {
+    db.update(memoryJobs)
+      .set({
+        status: 'failed',
+        updatedAt: now,
+        lastError: `Job timed out after ${Math.round(timeoutMs / 60_000)} minutes`,
+      })
+      .where(and(eq(memoryJobs.id, row.id), eq(memoryJobs.status, 'running')))
+      .run();
+    log.warn({ jobId: row.id, type: row.type, timeoutMs }, 'Failed stalled memory job due to timeout');
+  }
+  return stalled.length;
+}
+
 export function getMemoryJobCounts(): Record<string, number> {
   const rows = rawAll<{ status: string; c: number }>(`
     SELECT status, COUNT(*) AS c
@@ -458,6 +491,7 @@ function parseRow(row: typeof memoryJobs.$inferSelect): MemoryJob {
     deferrals: row.deferrals,
     runAfter: row.runAfter,
     lastError: row.lastError,
+    startedAt: row.startedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

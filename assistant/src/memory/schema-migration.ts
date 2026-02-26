@@ -24,6 +24,7 @@ export {
   migrateRemainingTableIndexes,
   migrateReminderRoutingIntent,
   migrateRemoveAssistantIdColumns,
+  migrateSchemaIndexesAndColumns,
   migrateToolInvocationsFk,
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
