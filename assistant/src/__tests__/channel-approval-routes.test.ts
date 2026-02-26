@@ -961,10 +961,19 @@ describe('SMS guardian verify intercept', () => {
     deliverSpy.mockRestore();
   });
 
-  test('64-char hex messages are not treated as guardian verification codes', async () => {
-    const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
-    // Keep a pending challenge active so interception eligibility exists.
-    createVerificationChallenge('self', 'sms');
+  test('64-char hex verification codes are intercepted when a pending challenge exists', async () => {
+    const { createHash, randomBytes } = await import('node:crypto');
+    const { createChallenge } = await import('../memory/channel-guardian-store.js');
+
+    const secret = randomBytes(32).toString('hex');
+    const challengeHash = createHash('sha256').update(secret).digest('hex');
+    createChallenge({
+      id: `challenge-hex-${Date.now()}`,
+      assistantId: 'self',
+      channel: 'sms',
+      challengeHash,
+      expiresAt: Date.now() + 600_000,
+    });
 
     let processMessageCalled = false;
     const processMessage = async () => {
@@ -983,7 +992,7 @@ describe('SMS guardian verify intercept', () => {
         interface: 'sms',
         externalChatId: 'sms-chat-hex-message',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
-        content: 'a'.repeat(64),
+        content: secret,
         senderExternalUserId: 'sms-user-hex',
         replyCallbackUrl: 'https://gateway.test/deliver',
       }),
@@ -993,8 +1002,8 @@ describe('SMS guardian verify intercept', () => {
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBeUndefined();
-    expect(processMessageCalled).toBe(true);
+    expect(body.guardianVerification).toBe('verified');
+    expect(processMessageCalled).toBe(false);
   });
 });
 

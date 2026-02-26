@@ -72,10 +72,12 @@ const log = getLogger('runtime-http');
 
 /**
  * Parse a guardian verification code from message content.
- * Accepts only a bare 6-digit code as the entire message.
+ * Accepts a bare code as the entire message: 6-digit numeric OR 64-char hex
+ * (hex is retained for compatibility with unbound inbound/bootstrap sessions
+ * that intentionally use high-entropy secrets).
  */
 function parseGuardianVerifyCode(content: string): string | undefined {
-  const bareMatch = content.match(/^(\d{6})$/);
+  const bareMatch = content.match(/^([0-9a-fA-F]{64}|\d{6})$/);
   if (bareMatch) return bareMatch[1];
 
   return undefined;
