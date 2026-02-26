@@ -621,6 +621,81 @@ export function getPendingDeliveryByConversation(conversationId: string): Guardi
   }
 }
 
+/**
+ * Look up sent deliveries for expired requests eligible for follow-up.
+ * Used by inbound message routing to match late guardian answers to expired requests.
+ */
+export function getExpiredDeliveriesByDestination(
+  assistantId: string,
+  channel: string,
+  chatId: string,
+): GuardianActionDelivery[] {
+  try {
+    const db = getDb();
+
+    const rows = db
+      .select({
+        delivery: guardianActionDeliveries,
+      })
+      .from(guardianActionDeliveries)
+      .innerJoin(
+        guardianActionRequests,
+        eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
+      )
+      .where(
+        and(
+          eq(guardianActionRequests.assistantId, assistantId),
+          eq(guardianActionRequests.status, 'expired'),
+          eq(guardianActionRequests.followupState, 'none'),
+          eq(guardianActionDeliveries.destinationChannel, channel),
+          eq(guardianActionDeliveries.destinationChatId, chatId),
+          eq(guardianActionDeliveries.status, 'expired'),
+        ),
+      )
+      .all();
+
+    return rows.map((r) => rowToDelivery(r.delivery));
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no such table')) {
+      log.warn({ err }, 'guardian tables not yet created');
+      return [];
+    }
+    throw err;
+  }
+}
+
+/**
+ * Look up an expired delivery by destination conversation ID (for mac channel routing).
+ */
+export function getExpiredDeliveryByConversation(conversationId: string): GuardianActionDelivery | null {
+  try {
+    const db = getDb();
+    const rows = db
+      .select({ delivery: guardianActionDeliveries })
+      .from(guardianActionDeliveries)
+      .innerJoin(
+        guardianActionRequests,
+        eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
+      )
+      .where(
+        and(
+          eq(guardianActionDeliveries.destinationConversationId, conversationId),
+          eq(guardianActionDeliveries.status, 'expired'),
+          eq(guardianActionRequests.status, 'expired'),
+          eq(guardianActionRequests.followupState, 'none'),
+        ),
+      )
+      .all();
+    return rows.length > 0 ? rowToDelivery(rows[0].delivery) : null;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no such table')) {
+      log.warn({ err }, 'guardian tables not yet created');
+      return null;
+    }
+    throw err;
+  }
+}
+
 export function updateDeliveryStatus(
   deliveryId: string,
   status: GuardianActionDeliveryStatus,

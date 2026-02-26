@@ -14,10 +14,13 @@ import { getConfig } from '../config/loader.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import {
+  getExpiredDeliveryByConversation,
   getGuardianActionRequest,
   getPendingDeliveryByConversation,
   resolveGuardianActionRequest,
+  startFollowupFromExpiredRequest,
 } from '../memory/guardian-action-store.js';
+import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
 import { extractPreferences } from '../notifications/preference-extractor.js';
 import { createPreference } from '../notifications/preferences-store.js';
 import type { Message } from '../providers/types.js';
@@ -390,6 +393,65 @@ export async function processMessage(
         );
         session.messages.push(failMsg);
         onEvent({ type: 'assistant_text_delta', text: 'Failed to deliver your answer to the call. Please try again.' });
+      }
+      onEvent({ type: 'message_complete', sessionId: session.conversationId });
+      return persisted.id;
+    }
+  }
+
+  // ── Expired guardian action late answer interception (mac channel) ──
+  // If no pending delivery was found, check for expired requests eligible
+  // for follow-up (status='expired', followup_state='none').
+  const expiredDelivery = getExpiredDeliveryByConversation(session.conversationId);
+  if (expiredDelivery) {
+    const expiredRequest = getGuardianActionRequest(expiredDelivery.requestId);
+    if (expiredRequest && expiredRequest.status === 'expired' && expiredRequest.followupState === 'none') {
+      const guardianIfCtx = session.getTurnInterfaceContext();
+      const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum', assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum', provenanceActorRole: 'guardian' as const };
+      const userMsg = createUserMessage(content, attachments);
+      const persisted = conversationStore.addMessage(
+        session.conversationId,
+        'user',
+        JSON.stringify(userMsg.content),
+        guardianChannelMeta,
+      );
+      session.messages.push(userMsg);
+
+      const followupResult = startFollowupFromExpiredRequest(expiredRequest.id, content);
+      if (followupResult) {
+        // Use the composer without a generator — the daemon's mac path may not
+        // have direct access to the provider-backed generator, so deterministic
+        // fallback text is used.
+        const followupText = await composeGuardianActionMessageGenerative(
+          {
+            scenario: 'guardian_late_answer_followup',
+            questionText: expiredRequest.questionText,
+            lateAnswerText: content,
+          },
+        );
+        const replyMsg = createAssistantMessage(followupText);
+        conversationStore.addMessage(
+          session.conversationId,
+          'assistant',
+          JSON.stringify(replyMsg.content),
+          guardianChannelMeta,
+        );
+        session.messages.push(replyMsg);
+        onEvent({ type: 'assistant_text_delta', text: followupText });
+      } else {
+        // Follow-up already started or conflict — send stale message
+        const staleText = await composeGuardianActionMessageGenerative(
+          { scenario: 'guardian_stale_expired' },
+        );
+        const staleMsg = createAssistantMessage(staleText);
+        conversationStore.addMessage(
+          session.conversationId,
+          'assistant',
+          JSON.stringify(staleMsg.content),
+          guardianChannelMeta,
+        );
+        session.messages.push(staleMsg);
+        onEvent({ type: 'assistant_text_delta', text: staleText });
       }
       onEvent({ type: 'message_complete', sessionId: session.conversationId });
       return persisted.id;

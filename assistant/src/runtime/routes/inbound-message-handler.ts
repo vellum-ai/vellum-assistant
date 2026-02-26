@@ -17,9 +17,11 @@ import { recordConversationSeenSignal } from '../../memory/conversation-attentio
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import {
+  getExpiredDeliveriesByDestination,
   getGuardianActionRequest,
   getPendingDeliveriesByDestination,
   resolveGuardianActionRequest,
+  startFollowupFromExpiredRequest,
 } from '../../memory/guardian-action-store.js';
 import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
@@ -56,6 +58,7 @@ import type {
   GuardianActionCopyGenerator,
   MessageProcessor,
 } from '../http-types.js';
+import { composeGuardianActionMessageGenerative } from '../guardian-action-message-composer.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import {
   canonicalChannelAssistantId,
@@ -93,7 +96,7 @@ export async function handleChannelInbound(
   gatewayOriginSecret?: string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
   approvalConversationGenerator?: ApprovalConversationGenerator,
-  _guardianActionCopyGenerator?: GuardianActionCopyGenerator,
+  guardianActionCopyGenerator?: GuardianActionCopyGenerator,
 ): Promise<Response> {
   // Reject requests that lack valid gateway-origin proof. This ensures
   // channel inbound messages can only arrive via the gateway (which
@@ -798,11 +801,51 @@ export async function handleChannelInbound(
                 guardianAnswer: 'resolved',
               });
             } else {
-              // Already answered from another channel
+              // resolveGuardianActionRequest returned null — request was no
+              // longer pending. Check if it expired (could have timed out
+              // between the delivery lookup and the resolve attempt).
+              const freshRequest = getGuardianActionRequest(request.id);
+              if (freshRequest && freshRequest.status === 'expired' && freshRequest.followupState === 'none') {
+                // Expired between lookup and resolve — initiate follow-up
+                const followupResult = startFollowupFromExpiredRequest(freshRequest.id, answerText);
+                if (followupResult) {
+                  const followupText = await composeGuardianActionMessageGenerative(
+                    {
+                      scenario: 'guardian_late_answer_followup',
+                      questionText: freshRequest.questionText,
+                      lateAnswerText: answerText,
+                    },
+                    {},
+                    guardianActionCopyGenerator,
+                  );
+                  try {
+                    await deliverChannelReply(replyCallbackUrl, {
+                      chatId: externalChatId,
+                      text: followupText,
+                      assistantId,
+                    }, bearerToken);
+                  } catch (err) {
+                    log.error({ err, externalChatId }, 'Failed to deliver guardian action follow-up prompt');
+                  }
+                  return Response.json({
+                    accepted: true,
+                    duplicate: false,
+                    eventId: result.eventId,
+                    guardianAnswer: 'followup_initiated',
+                  });
+                }
+              }
+
+              // Already answered from another channel (or follow-up already started)
+              const staleText = await composeGuardianActionMessageGenerative(
+                { scenario: 'guardian_stale_expired' },
+                {},
+                guardianActionCopyGenerator,
+              );
               try {
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: externalChatId,
-                  text: 'This question has already been answered from another channel.',
+                  text: staleText,
                   assistantId,
                 }, bearerToken);
               } catch (err) {
@@ -815,6 +858,59 @@ export async function handleChannelInbound(
                 guardianAnswer: 'stale',
               });
             }
+          }
+        }
+      }
+    }
+  }
+
+  // ── Expired guardian action late answer interception ──
+  // When no pending delivery was found above, check for expired requests
+  // eligible for follow-up (status='expired', followup_state='none').
+  if (
+    !result.duplicate &&
+    trimmedContent.length > 0 &&
+    body.senderExternalUserId &&
+    replyCallbackUrl
+  ) {
+    const expiredDeliveries = getExpiredDeliveriesByDestination(canonicalAssistantId, sourceChannel, externalChatId);
+    if (expiredDeliveries.length > 0) {
+      const validExpired = expiredDeliveries.filter(
+        (d) => d.destinationExternalUserId === body.senderExternalUserId,
+      );
+
+      if (validExpired.length > 0) {
+        // Take the first matching expired delivery
+        const expiredDelivery = validExpired[0];
+        const expiredRequest = getGuardianActionRequest(expiredDelivery.requestId);
+
+        if (expiredRequest && expiredRequest.status === 'expired' && expiredRequest.followupState === 'none') {
+          const followupResult = startFollowupFromExpiredRequest(expiredRequest.id, trimmedContent);
+          if (followupResult) {
+            const followupText = await composeGuardianActionMessageGenerative(
+              {
+                scenario: 'guardian_late_answer_followup',
+                questionText: expiredRequest.questionText,
+                lateAnswerText: trimmedContent,
+              },
+              {},
+              guardianActionCopyGenerator,
+            );
+            try {
+              await deliverChannelReply(replyCallbackUrl, {
+                chatId: externalChatId,
+                text: followupText,
+                assistantId,
+              }, bearerToken);
+            } catch (err) {
+              log.error({ err, externalChatId }, 'Failed to deliver guardian action late answer follow-up');
+            }
+            return Response.json({
+              accepted: true,
+              duplicate: false,
+              eventId: result.eventId,
+              guardianAnswer: 'followup_initiated',
+            });
           }
         }
       }
