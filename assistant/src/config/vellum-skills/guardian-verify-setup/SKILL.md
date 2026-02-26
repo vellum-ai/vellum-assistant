@@ -52,7 +52,7 @@ Replace `<channel>` with `sms`, `voice`, or `telegram`, and `<destination>` with
 Report the exact next action based on the channel:
 
 - **SMS**: "I've sent a 6-digit verification code to [number]. Reply with the code from that SMS conversation (not here) to complete verification — the code can only be consumed through the SMS channel."
-- **Voice**: The response includes a `secret` field with the verification code. Tell the user the code BEFORE the call connects: "I'm calling [number] now. Your verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `/outbound/start` API call already initiates the voice call. Do NOT place a separate `call_start` call.
+- **Voice**: The response includes a `secret` field with the verification code. Tell the user the code BEFORE the call connects: "I'm calling [number] now. Your verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `/outbound/start` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
 - **Telegram with chat ID** (no `telegramBootstrapUrl` in response): The response includes a `secret` field. Show it in the current chat: "Your verification code is **[secret]**. I've also sent it to your Telegram. Open the Telegram bot chat and send `/guardian_verify [secret]` (or just reply with the code) to complete verification." If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3 or resend (Step 4).
 - **Telegram with handle** (`telegramBootstrapUrl` present in response): "Tap this deep-link first: [telegramBootstrapUrl]. After Telegram binds your identity, I'll send your verification code."
 
@@ -86,7 +86,7 @@ curl -s -X POST http://localhost:7821/v1/integrations/guardian/outbound/resend \
 On success, report the next action based on the channel:
 
 - **SMS**: "I've sent a new verification code to [number]. Reply with the code from that SMS conversation to complete verification."
-- **Voice**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects — just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `/outbound/resend` API call already initiates the voice call. Do NOT place a separate `call_start` call.
+- **Voice**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects — just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `/outbound/resend` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
 - **Telegram**: The resend response includes a fresh `secret` field. Show the new code in the current chat: "Your new verification code is **[secret]**. I've also sent it to your Telegram. Open the Telegram bot chat and send `/guardian_verify [secret]` (or just reply with the code) to complete verification." If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3.
 
 ### Resend errors
@@ -114,6 +114,31 @@ curl -s -X POST http://localhost:7821/v1/integrations/guardian/outbound/cancel \
 ```
 
 Confirm cancellation to the user. On `no_active_session`, tell them there is nothing to cancel.
+
+## Voice Auto-Check Polling
+
+For **voice** verification only: after telling the user their code and instructing keypad entry (in Step 3 or Step 4), do NOT wait for the user to report back. Instead, proactively poll for completion so the user gets instant confirmation without having to ask "did it work?"
+
+**Polling procedure:**
+
+1. Wait ~15 seconds after delivering the code (to give the user time to answer the call and enter the code).
+2. Check the binding status:
+
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s http://localhost:7821/v1/integrations/guardian/status?channel=voice \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+3. If the response shows `bound: true`: immediately send a proactive success message in the current chat — "Voice verification complete! Your phone number is now the trusted guardian." Stop polling.
+4. If not yet bound: wait ~15 seconds and poll again.
+5. Continue polling for up to **2 minutes** (approximately 8 attempts).
+6. If the 2-minute timeout is reached without `bound: true`: proactively tell the user — "I've been checking for about 2 minutes but verification hasn't completed yet. The code may have expired or wasn't entered. Would you like me to resend a new code (Step 4) or start a new session (Step 3)?"
+
+**Important polling rules:**
+- This polling loop is voice-only. Do NOT poll for SMS or Telegram channels (SMS codes are entered through the SMS channel itself; Telegram has its own bot-driven flow).
+- Do NOT require the user to ask "did it work?" — the whole point is proactive confirmation.
+- If the user sends a message while polling is in progress, handle their message normally. If their message is about verification status, the next poll iteration will provide the answer.
 
 ## Step 6: Check Guardian Status
 
