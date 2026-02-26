@@ -106,12 +106,18 @@ describe('guardian-verify-setup skill — voice auto-followup', () => {
     expect(voiceAutoCheckSection).toContain(
       'Do NOT require the user to ask',
     );
-    // There should be no phrase like "wait for the user to confirm" or
-    // "ask the user if it worked" in the voice-related sections.
-    const step3VoiceLine = skillContent
+    // The voice bullet in Step 3 should not instruct the assistant to wait
+    // for the user to confirm or ask if it worked. Narrow to just the voice
+    // bullet line to avoid false positives from Telegram's "wait for the
+    // user to confirm they clicked the link" which is unrelated to voice.
+    const step3Section = skillContent
       .split('## Step 3')[1]
       ?.split('## Step 4')[0] ?? '';
-    expect(step3VoiceLine).not.toContain('wait for the user to confirm');
-    expect(step3VoiceLine).not.toContain('ask the user if it worked');
+    const voiceBullet = step3Section
+      .split('\n')
+      .filter((line) => /^\s*-\s+\*\*Voice\*\*/.test(line))
+      .join('\n');
+    expect(voiceBullet).not.toContain('wait for the user to confirm');
+    expect(voiceBullet).not.toContain('ask the user if it worked');
   });
 });
