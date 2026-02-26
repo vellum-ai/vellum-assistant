@@ -10,6 +10,7 @@ If `$ARGUMENTS` is empty, stop and tell the user to provide a feature descriptio
 
 Extract these flags from `$ARGUMENTS` before treating the remainder as the feature description:
 
+- `--auto` — *(deprecated, ignored)* formerly controlled sweep approval; now the sweep always runs automatically
 - `--workers N` — parallel worker count for swarm phases (default: 12)
 - `--skip-plan` — skip planning; use issues already in the "Ready" column of the GH project
 - `--branch NAME` — custom feature branch name (default: auto-generated from feature description as `feature/<kebab-case-summary>`)
