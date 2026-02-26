@@ -933,7 +933,9 @@ export const notificationEvents = sqliteTable('notification_events', {
   dedupeKey: text('dedupe_key'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  index('idx_notification_events_dedupe_key').on(table.dedupeKey),
+]);
 
 export const notificationDecisions = sqliteTable('notification_decisions', {
   id: text('id').primaryKey(),
