@@ -563,7 +563,7 @@ extension DaemonClient {
     /// Extract the "type" field from raw JSON data for safe logging.
     /// Returns the type string if parseable, otherwise "<unknown>".
     /// This avoids logging the entire line which may contain sensitive values.
-    func extractMessageType(from data: Data) -> String {
+    nonisolated func extractMessageType(from data: Data) -> String {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["type"] as? String else {
             return "<unknown>"
