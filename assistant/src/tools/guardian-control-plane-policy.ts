@@ -1,5 +1,5 @@
 /**
- * Guardian control-plane policy — deterministic gate that prevents non-guardian
+ * Guardian control-plane policy \u2014 deterministic gate that prevents non-guardian
  * and unverified_channel actors from invoking guardian verification endpoints
  * conversationally via tools.
  *
@@ -74,12 +74,12 @@ export function enforceGuardianOnlyPolicy(
     return { denied: false };
   }
 
-  if (actorRole === 'non-guardian' || actorRole === 'unverified_channel') {
-    return {
-      denied: true,
-      reason: 'Guardian verification control-plane actions are restricted to guardian users. This is a security restriction \u2014 please wait for the designated guardian to perform this action.',
-    };
+  if (actorRole === 'guardian' || actorRole === undefined) {
+    return { denied: false };
   }
 
-  return { denied: false };
+  return {
+    denied: true,
+    reason: 'Guardian verification control-plane actions are restricted to guardian users. This is a security restriction \u2014 please wait for the designated guardian to perform this action.',
+  };
 }

@@ -293,6 +293,14 @@ describe('enforceGuardianOnlyPolicy', () => {
     expect(result.denied).toBe(false);
   });
 
+  test('unknown actor role is denied for guardian endpoint (allowlist, not denylist)', () => {
+    const result = enforceGuardianOnlyPolicy('bash', {
+      command: 'curl http://localhost:3000/v1/integrations/guardian/outbound/start',
+    }, 'some_future_role');
+    expect(result.denied).toBe(true);
+    expect(result.reason).toContain('restricted to guardian users');
+  });
+
   test('non-guardian actor is NOT denied for unrelated endpoint', () => {
     const result = enforceGuardianOnlyPolicy('bash', {
       command: 'curl http://localhost:3000/v1/messages',
