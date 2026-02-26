@@ -34,11 +34,22 @@ const ALLOWLIST = new Set([
   'assistant/src/runtime/middleware/twilio-validation.ts', // comment explaining proxy URL rewriting
 ]);
 
-/** Patterns that indicate a direct runtime URL reference. */
-const RUNTIME_URL_PATTERNS = [
+/** Patterns that indicate a direct runtime URL reference via hardcoded port. */
+const HARDCODED_PORT_PATTERNS = [
   'localhost:7821',
   '127\\.0\\.0\\.1:7821',
 ];
+
+/**
+ * Pattern that catches RUNTIME_HTTP_PORT used in URL construction.
+ * Matches lines containing both an http:// URL and RUNTIME_HTTP_PORT,
+ * e.g. `http://localhost:${RUNTIME_HTTP_PORT}` or
+ *      `"http://127.0.0.1:" + RUNTIME_HTTP_PORT`.
+ *
+ * Uses two alternations to handle either ordering on the same line.
+ */
+const RUNTIME_PORT_URL_PATTERN =
+  'http://.*RUNTIME_HTTP_PORT|RUNTIME_HTTP_PORT.*http://';
 
 function isTestFile(filePath: string): boolean {
   return (
@@ -54,9 +65,19 @@ function isGatewayInternal(filePath: string): boolean {
   return filePath.startsWith('gateway/src/');
 }
 
+/** Shared violation filter: exempt test files, gateway internals, and allowlisted paths. */
+function filterViolations(files: string[]): string[] {
+  return files.filter((f) => {
+    if (isTestFile(f)) return false;
+    if (isGatewayInternal(f)) return false;
+    if (ALLOWLIST.has(f)) return false;
+    return true;
+  });
+}
+
 describe('gateway-only API consumption guard', () => {
   test('no non-allowlisted files reference direct runtime URLs (port 7821)', () => {
-    const grepPattern = RUNTIME_URL_PATTERNS.join('|');
+    const grepPattern = HARDCODED_PORT_PATTERNS.join('|');
 
     let grepOutput = '';
     try {
@@ -73,17 +94,45 @@ describe('gateway-only API consumption guard', () => {
     }
 
     const files = grepOutput.split('\n').filter((f) => f.length > 0);
-
-    const violations = files.filter((f) => {
-      if (isTestFile(f)) return false;
-      if (isGatewayInternal(f)) return false;
-      if (ALLOWLIST.has(f)) return false;
-      return true;
-    });
+    const violations = filterViolations(files);
 
     if (violations.length > 0) {
       const message = [
         'Found non-allowlisted files referencing direct runtime URLs (port 7821).',
+        'All API requests must target gateway URLs — see AGENTS.md "Gateway-Only API Consumption".',
+        '',
+        'Violations:',
+        ...violations.map((f) => `  - ${f}`),
+        '',
+        'To fix: migrate the reference to use gateway URLs.',
+        'If this is an intentional exception, add it to the ALLOWLIST in gateway-only-guard.test.ts.',
+      ].join('\n');
+
+      expect(violations, message).toEqual([]);
+    }
+  });
+
+  test('no non-allowlisted files construct URLs using RUNTIME_HTTP_PORT', () => {
+    let grepOutput = '';
+    try {
+      grepOutput = execSync(
+        `git grep -lE "${RUNTIME_PORT_URL_PATTERN}" -- '*.ts' '*.js' '*.swift' '*.md'`,
+        { encoding: 'utf-8', cwd: process.cwd() + '/..' },
+      ).trim();
+    } catch (err) {
+      // Exit code 1 means no matches — that's the happy path
+      if ((err as { status?: number }).status === 1) {
+        return;
+      }
+      throw err;
+    }
+
+    const files = grepOutput.split('\n').filter((f) => f.length > 0);
+    const violations = filterViolations(files);
+
+    if (violations.length > 0) {
+      const message = [
+        'Found non-allowlisted files constructing URLs with RUNTIME_HTTP_PORT.',
         'All API requests must target gateway URLs — see AGENTS.md "Gateway-Only API Consumption".',
         '',
         'Violations:',
