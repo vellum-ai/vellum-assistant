@@ -55,6 +55,7 @@ struct RecordingSourcePickerView: View {
                 Spacer()
             } else {
                 sourceList
+                    .padding(.bottom, VSpacing.xs)
             }
 
             Divider()
@@ -63,10 +64,7 @@ struct RecordingSourcePickerView: View {
             // Audio toggle + buttons
             bottomBar
         }
-        .frame(
-            width: 420,
-            height: 690
-        )
+        .frame(width: 420)
         .background(VColor.background)
         .task {
             await viewModel.loadSources()
@@ -74,6 +72,12 @@ struct RecordingSourcePickerView: View {
         }
         .onChange(of: viewModel.captureScope) { _, _ in
             Task { await viewModel.loadPreviews() }
+            viewModel.updateWindowSize()
+        }
+        .onChange(of: viewModel.isLoading) { _, newValue in
+            if !newValue {
+                viewModel.updateWindowSize()
+            }
         }
     }
 
