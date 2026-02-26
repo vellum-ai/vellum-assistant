@@ -668,15 +668,13 @@ struct MainWindowView: View {
         .onChange(of: threadManager.activeThreadId) { oldId, newId in
             // Sync activeThreadId changes back to selectedThreadId to keep sidebar selection in sync
             selectedThreadId = newId
-            // Update persistentThreadId when the active thread changes, but only
-            // if the user is currently viewing a thread or has no selection (not an overlay).
+            // Always sync persistentThreadId so the sidebar highlights the
+            // correct thread — even when an overlay (.panel, .app) is active.
+            // Without this, archiving the active thread while viewing a panel
+            // leaves persistentThreadId pointing at the archived (invisible) thread
+            // and the sidebar shows no active highlight.
             if let newId {
-                switch windowState.selection {
-                case .thread, .none, .appEditing:
-                    windowState.persistentThreadId = newId
-                default:
-                    break
-                }
+                windowState.persistentThreadId = newId
             }
             if case .panel(.intelligence) = windowState.selection {
                 windowState.selection = nil
