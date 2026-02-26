@@ -4,44 +4,64 @@ import VellumAssistantShared
 // MARK: - Skill Category
 
 private enum SkillCategory: String, CaseIterable {
-    case core
-    case devTools
     case communication
-    case daily
-    case utilities
-    case skills // fallback
+    case productivity
+    case development
+    case media
+    case automation
+    case webSocial
+    case knowledge
+    case integration
 
     var displayName: String {
         switch self {
-        case .core: return "Core"
-        case .devTools: return "Dev Tools"
-        case .communication: return "Comms"
-        case .daily: return "Daily"
-        case .utilities: return "Utilities"
-        case .skills: return "Skills"
+        case .communication: return "Communication"
+        case .productivity: return "Productivity"
+        case .development: return "Development"
+        case .media: return "Media"
+        case .automation: return "Automation"
+        case .webSocial: return "Web & Social"
+        case .knowledge: return "Knowledge"
+        case .integration: return "Integration"
         }
     }
 
-    /// High-contrast accent colors per category for visual separation.
     var color: Color {
         switch self {
-        case .core: return Color(hex: 0xD4A017)          // deep gold
-        case .devTools: return Color(hex: 0xC1421B)      // red
-        case .communication: return Color(hex: 0x8B5DAA) // vivid purple
-        case .daily: return Color(hex: 0xD4D1C1)         // warm neutral
-        case .utilities: return Color(hex: 0x4682B4)     // steel blue
-        case .skills: return Color(hex: 0x0E8A7B)        // dark teal
+        case .communication: return Color(hex: 0x8B5DAA) // purple
+        case .productivity: return Color(hex: 0x4682B4)   // steel blue
+        case .development: return Color(hex: 0xC1421B)    // red
+        case .media: return Color(hex: 0xD4A017)          // gold
+        case .automation: return Color(hex: 0x2E8B57)     // sea green
+        case .webSocial: return Color(hex: 0xCD853F)      // peru/tan
+        case .knowledge: return Color(hex: 0x6B8E23)      // olive
+        case .integration: return Color(hex: 0x708090)    // slate gray
         }
     }
 
     var icon: String {
         switch self {
-        case .core: return "doc.text.fill"
-        case .devTools: return "hammer.fill"
         case .communication: return "bubble.left.fill"
-        case .daily: return "sun.max.fill"
-        case .utilities: return "wrench.fill"
-        case .skills: return "wand.and.stars"
+        case .productivity: return "checklist"
+        case .development: return "hammer.fill"
+        case .media: return "film.fill"
+        case .automation: return "bolt.fill"
+        case .webSocial: return "globe"
+        case .knowledge: return "book.fill"
+        case .integration: return "link"
+        }
+    }
+
+    var emoji: String {
+        switch self {
+        case .communication: return "\u{1F4AC}"
+        case .productivity: return "\u{1F4CB}"
+        case .development: return "\u{1F528}"
+        case .media: return "\u{1F3AC}"
+        case .automation: return "\u{26A1}"
+        case .webSocial: return "\u{1F310}"
+        case .knowledge: return "\u{1F4DA}"
+        case .integration: return "\u{1F517}"
         }
     }
 }
@@ -70,23 +90,56 @@ private struct CategoryGroup: Identifiable {
 private func inferCategory(_ skill: SkillInfo) -> SkillCategory {
     let text = (skill.name + " " + skill.description).lowercased()
 
-    if text.contains("code") || text.contains("app builder") || text.contains("github")
-        || text.contains("developer") || text.contains("programming") || text.contains("debug") {
-        return .devTools
-    }
-    if text.contains("gmail") || text.contains("email") || text.contains("slack")
-        || text.contains("message") || text.contains("chat") || text.contains("mail") {
+    if text.contains("email") || text.contains("message") || text.contains("messaging")
+        || text.contains("chat") || text.contains("phone") || text.contains("phone call")
+        || text.contains("voice call") || text.contains("video call")
+        || text.contains("contact") || text.contains("notification") || text.contains("followup")
+        || text.contains("sms") || text.contains("slack") || text.contains("telegram") {
         return .communication
     }
-    if text.contains("weather") || text.contains("start the day") || text.contains("briefing")
-        || text.contains("morning") || text.contains("daily") || text.contains("news") {
-        return .daily
+
+    if text.contains("task") || text.contains("calendar") || text.contains("reminder")
+        || text.contains("schedule") || text.contains("document") || text.contains("playbook")
+        || text.contains("notion") {
+        return .productivity
     }
-    if text.contains("upgrade") || text.contains("summarize") || text.contains("convert")
-        || text.contains("gog") || text.contains("utility") || text.contains("transform") {
-        return .utilities
+
+    if text.contains("code") || text.contains("app builder") || text.contains("github")
+        || text.contains("developer") || text.contains("programming") || text.contains("debug")
+        || text.contains("typescript") || text.contains("frontend") || text.contains("subagent")
+        || text.contains("api mapping") || text.contains("cli discovery") {
+        return .development
     }
-    return .skills
+
+    if text.contains("browser") || text.contains("computer use") || text.contains("macos")
+        || text.contains("watcher") || text.contains("automat") {
+        return .automation
+    }
+
+    if text.contains("image") || text.contains("screen") || text.contains("media")
+        || text.contains("transcri") || text.contains("video") || text.contains("audio")
+        || text.contains("recording") {
+        return .media
+    }
+
+    if text.contains("x.com") || text.contains("twitter") || text.contains("public ingress")
+        || text.contains("influencer") || text.contains("doordash") || text.contains("amazon")
+        || text.contains("restaurant") {
+        return .webSocial
+    }
+
+    if text.contains("knowledge") || text.contains("weather") || text.contains("start the day")
+        || text.contains("skills catalog") || text.contains("self upgrade")
+        || text.contains("briefing") {
+        return .knowledge
+    }
+
+    if text.contains("oauth") || text.contains("setup") || text.contains("configure")
+        || text.contains("connect") || text.contains("webhook") {
+        return .integration
+    }
+
+    return .knowledge
 }
 
 // MARK: - Hexagon Shape
@@ -135,14 +188,19 @@ private struct HexCoord: Hashable {
     }
 }
 
-/// Ring 1 positions (6 hexes immediately around center) for pointy-top hex grid.
-private let ring1Coords: [HexCoord] = [
+/// Hub positions for category placement. Ring 1 provides 6 positions adjacent to center;
+/// 2 evenly-spaced ring 2 positions fill out support for up to 8 categories.
+private let hubCoordPool: [HexCoord] = [
+    // Ring 1 (6 positions)
     HexCoord(q: 1, r: 0),
     HexCoord(q: 0, r: 1),
     HexCoord(q: -1, r: 1),
     HexCoord(q: -1, r: 0),
     HexCoord(q: 0, r: -1),
     HexCoord(q: 1, r: -1),
+    // Ring 2 overflow (2 positions, spaced opposite each other)
+    HexCoord(q: 2, r: -1),
+    HexCoord(q: -2, r: 1),
 ]
 
 /// Returns the axial hex neighbors adjacent to a given hex, filtered to exclude
@@ -408,12 +466,13 @@ struct ConstellationView: View {
     }
 
     private var groups: [CategoryGroup] {
+        // Workspace files (IDENTITY.md, SOUL.md, etc.) are categorized under Knowledge
         let fileItems = existingFiles.enumerated().map { idx, node in
             let path: String? = node.label.hasSuffix(".md") ? node.path : nil
             return OrbitItem(
-                id: "core-\(idx)", label: node.label, icon: "doc.text.fill",
-                emoji: nil, color: SkillCategory.core.color, filePath: path,
-                description: nil, category: nil
+                id: "workspace-\(idx)", label: node.label, icon: SkillCategory.knowledge.icon,
+                emoji: nil, color: SkillCategory.knowledge.color, filePath: path,
+                description: nil, category: .knowledge
             )
         }
 
@@ -434,13 +493,13 @@ struct ConstellationView: View {
             categoryMap[cat, default: []].append(item)
         }
 
-        var result: [CategoryGroup] = []
-
+        // Merge workspace file items into the knowledge category
         if !fileItems.isEmpty {
-            result.append(CategoryGroup(category: .core, items: fileItems))
+            categoryMap[.knowledge, default: []].insert(contentsOf: fileItems, at: 0)
         }
 
-        for cat in SkillCategory.allCases where cat != .core {
+        var result: [CategoryGroup] = []
+        for cat in SkillCategory.allCases {
             if let items = categoryMap[cat], !items.isEmpty {
                 result.append(CategoryGroup(category: cat, items: items))
             }
@@ -455,12 +514,12 @@ struct ConstellationView: View {
         var result: [PositionedHex] = []
         var usedCoords: Set<HexCoord> = [HexCoord(q: 0, r: 0)]
 
-        // Place category hubs in ring 1
-        let hubCount = min(layoutGroups.count, ring1Coords.count)
+        // Place category hubs using the hub coordinate pool (ring 1 + ring 2 overflow)
+        let hubCount = min(layoutGroups.count, hubCoordPool.count)
         var hubCoords: [HexCoord] = []
 
         for i in 0..<hubCount {
-            let coord = ring1Coords[i]
+            let coord = hubCoordPool[i]
             hubCoords.append(coord)
             usedCoords.insert(coord)
             result.append(PositionedHex(
