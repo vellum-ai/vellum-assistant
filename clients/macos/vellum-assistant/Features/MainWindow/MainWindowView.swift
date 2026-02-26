@@ -293,9 +293,7 @@ struct MainWindowView: View {
     /// Resolve display names for thread export.
     private func resolveParticipantNames() -> ChatTranscriptFormatter.ParticipantNames {
         // Assistant name: IdentityInfo → UserDefaults → fallback
-        let assistantName = IdentityInfo.load()?.name
-            ?? UserDefaults.standard.string(forKey: "assistantName")
-            ?? "Assistant"
+        let assistantName = IdentityInfo.load()?.name ?? "Assistant"
 
         // User name: stored profile → system name → fallback
         let userName: String = {

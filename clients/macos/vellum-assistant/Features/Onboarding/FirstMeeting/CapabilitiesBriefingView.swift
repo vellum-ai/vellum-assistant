@@ -93,7 +93,7 @@ struct CapabilitiesBriefingView: View {
             state: {
                 let s = OnboardingState()
                 s.currentStep = 3
-                s.assistantName = "Velly"
+                s.assistantName = "Assistant"
                 return s
             }(),
             onComplete: {}
