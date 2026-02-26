@@ -275,6 +275,18 @@ describe('buildSystemPrompt', () => {
     expect(result).not.toContain('## Recent Updates');
   });
 
+  test('includes update handling instructions when UPDATES.md exists', () => {
+    writeFileSync(join(TEST_DIR, 'UPDATES.md'), '# v1.3\n\nSome update notes.');
+    const result = buildSystemPrompt();
+    expect(result).toContain('### Update Handling');
+    expect(result).toContain('Use your judgment');
+  });
+
+  test('omits update handling instructions when UPDATES.md is absent', () => {
+    const result = buildSystemPrompt();
+    expect(result).not.toContain('### Update Handling');
+  });
+
   test('strips comment lines starting with _ from prompt files', () => {
     writeFileSync(
       join(TEST_DIR, 'IDENTITY.md'),
