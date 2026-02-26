@@ -431,11 +431,15 @@ export async function finalizeAndPublishRecording(params: {
 }): Promise<{ success: boolean; messageId?: string }> {
   const { recordingId, conversationId, filePath, notifySocket, ctx } = params;
 
-  // Idempotency guard: prevent double-finalization
+  // Idempotency guard: prevent double-finalization.
+  // Mark as finalized eagerly (before any async work) so concurrent calls
+  // for the same recordingId are rejected immediately.
   if (finalizedRecordingIds.has(recordingId)) {
     log.warn({ recordingId, conversationId }, 'Recording already finalized — skipping duplicate finalization');
     return { success: false };
   }
+  finalizedRecordingIds.add(recordingId);
+  setTimeout(() => finalizedRecordingIds.delete(recordingId), 60_000);
 
   if (!filePath) {
     // No file path — recording stopped without producing a file
@@ -562,10 +566,6 @@ export async function finalizeAndPublishRecording(params: {
         thumbnailData,
       }],
     });
-
-    // Mark as finalized and schedule cleanup to prevent unbounded growth
-    finalizedRecordingIds.add(recordingId);
-    setTimeout(() => finalizedRecordingIds.delete(recordingId), 60_000);
 
     return { success: true, messageId };
   } catch (err) {
