@@ -109,7 +109,7 @@ function main() {
 
   log.info("Starting Vellum Gateway...");
 
-  const handleTelegramWebhook = createTelegramWebhookHandler(config);
+  const { handler: handleTelegramWebhook, dedupCache: telegramDedupCache } = createTelegramWebhookHandler(config);
   const handleTelegramDeliver = createTelegramDeliverHandler(config);
   const handleTelegramReconcile = createTelegramReconcileHandler(config);
 
@@ -123,9 +123,9 @@ function main() {
   const handleTwilioStatusWebhook = createTwilioStatusWebhookHandler(config);
   const handleTwilioConnectActionWebhook = createTwilioConnectActionWebhookHandler(config);
   const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config);
-  const handleTwilioSmsWebhook = createTwilioSmsWebhookHandler(config);
+  const { handler: handleTwilioSmsWebhook, dedupCache: smsDedupCache } = createTwilioSmsWebhookHandler(config);
   const handleSmsDeliver = createSmsDeliverHandler(config);
-  const handleWhatsAppWebhook = createWhatsAppWebhookHandler(config);
+  const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } = createWhatsAppWebhookHandler(config);
   const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config);
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
@@ -350,6 +350,11 @@ function main() {
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
 
+  // Start periodic background cleanup for dedup caches
+  telegramDedupCache.startCleanup();
+  smsDedupCache.startCleanup();
+  whatsappDedupCache.startCleanup();
+
   function registerTelegramCommands(): void {
     callTelegramApi(config, "setMyCommands", {
       commands: [
@@ -453,6 +458,9 @@ function main() {
     credentialWatcher.stop();
     configFileWatcher.stop();
     httpTokenWatcher?.close();
+    telegramDedupCache.stopCleanup();
+    smsDedupCache.stopCleanup();
+    whatsappDedupCache.stopCleanup();
     setTimeout(() => {
       log.info("Drain window elapsed, stopping server");
       server.stop(true);
