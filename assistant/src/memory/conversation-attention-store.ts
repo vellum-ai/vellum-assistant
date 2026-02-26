@@ -11,7 +11,7 @@ import { v4 as uuid } from 'uuid';
 
 import { getLogger } from '../util/logger.js';
 import { getDb } from './db.js';
-import { conversationAssistantAttentionState, conversationAttentionEvents } from './schema.js';
+import { conversationAssistantAttentionState, conversationAttentionEvents, messages } from './schema.js';
 
 const log = getLogger('conversation-attention-store');
 
@@ -213,15 +213,28 @@ export function recordConversationSeenSignal(params: {
       .get();
 
     if (!state) {
-      // No state row yet — create one with seen cursor only (no latest assistant message yet)
+      // No state row yet — look up the conversation's latest assistant message so
+      // upgraded databases (with existing messages but no attention row) correctly
+      // initialize the full state on the first seen signal.
+      const latestMsg = tx
+        .select({ id: messages.id, createdAt: messages.createdAt })
+        .from(messages)
+        .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'assistant')))
+        .orderBy(desc(messages.createdAt))
+        .limit(1)
+        .get();
+
+      const latestMsgId = latestMsg?.id ?? null;
+      const latestMsgAt = latestMsg?.createdAt ?? null;
+
       tx.insert(conversationAssistantAttentionState)
         .values({
           conversationId,
           assistantId,
-          latestAssistantMessageId: null,
-          latestAssistantMessageAt: null,
-          lastSeenAssistantMessageId: null,
-          lastSeenAssistantMessageAt: null,
+          latestAssistantMessageId: latestMsgId,
+          latestAssistantMessageAt: latestMsgAt,
+          lastSeenAssistantMessageId: latestMsgId,
+          lastSeenAssistantMessageAt: latestMsgAt,
           lastSeenEventAt: eventObservedAt,
           lastSeenConfidence: confidence,
           lastSeenSignalType: signalType,
@@ -242,15 +255,25 @@ export function recordConversationSeenSignal(params: {
       (state.lastSeenAssistantMessageAt === null ||
         state.latestAssistantMessageAt > state.lastSeenAssistantMessageAt);
 
+    // Guard seen metadata monotonicity: only update lastSeen* metadata when the
+    // new signal's observedAt is at least as recent as the existing projection.
+    // Out-of-order delivery (e.g. delayed channel callbacks) must not regress
+    // the projected channel/source/confidence metadata.
+    const isNewerSignal =
+      state.lastSeenEventAt === null || eventObservedAt >= state.lastSeenEventAt;
+
     const updates: Record<string, unknown> = {
-      lastSeenEventAt: eventObservedAt,
-      lastSeenConfidence: confidence,
-      lastSeenSignalType: signalType,
-      lastSeenSourceChannel: sourceChannel,
-      lastSeenSource: source,
-      lastSeenEvidenceText: evidenceText ?? null,
       updatedAt: now,
     };
+
+    if (isNewerSignal) {
+      updates.lastSeenEventAt = eventObservedAt;
+      updates.lastSeenConfidence = confidence;
+      updates.lastSeenSignalType = signalType;
+      updates.lastSeenSourceChannel = sourceChannel;
+      updates.lastSeenSource = source;
+      updates.lastSeenEvidenceText = evidenceText ?? null;
+    }
 
     if (shouldAdvanceSeen) {
       updates.lastSeenAssistantMessageId = state.latestAssistantMessageId;
