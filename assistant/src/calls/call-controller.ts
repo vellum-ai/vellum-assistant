@@ -41,6 +41,97 @@ type ControllerState = 'idle' | 'processing' | 'waiting_on_user' | 'speaking';
 
 const ASK_GUARDIAN_CAPTURE_REGEX = /\[ASK_GUARDIAN:\s*(.+?)\]/;
 const ASK_GUARDIAN_MARKER_REGEX = /\[ASK_GUARDIAN:\s*.+?\]/g;
+
+// Flexible prefix for ASK_GUARDIAN_APPROVAL — tolerates variable whitespace
+// after the colon so the marker is recognized even if the model omits the
+// space or inserts a newline.
+const ASK_GUARDIAN_APPROVAL_PREFIX_RE = /\[ASK_GUARDIAN_APPROVAL:\s*/;
+
+/**
+ * Extract a balanced JSON object from text that starts with an
+ * ASK_GUARDIAN_APPROVAL prefix. Uses brace counting with string-literal
+ * awareness so that `}` or `}]` inside JSON string values does not
+ * terminate the match prematurely.
+ *
+ * Returns the extracted JSON string, the full marker text
+ * (prefix + JSON + "]"), and the start index — or null when:
+ *   - no prefix is found,
+ *   - braces are unbalanced (still streaming), or
+ *   - the closing `]` has not yet arrived (prevents stripping
+ *     the marker body while the bracket leaks into TTS in a later delta).
+ */
+function extractBalancedJson(
+  text: string,
+): { json: string; fullMatch: string; startIndex: number } | null {
+  const prefixMatch = ASK_GUARDIAN_APPROVAL_PREFIX_RE.exec(text);
+  if (!prefixMatch) return null;
+
+  const prefixIdx = prefixMatch.index;
+  const jsonStart = prefixIdx + prefixMatch[0].length;
+  if (jsonStart >= text.length || text[jsonStart] !== '{') return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = jsonStart; i < text.length; i++) {
+    const ch = text[i];
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        const jsonEnd = i + 1;
+        const json = text.slice(jsonStart, jsonEnd);
+        // Require the closing ']' to be present before considering this
+        // a complete match. If it hasn't arrived yet (streaming), return
+        // null so the caller keeps buffering.
+        if (jsonEnd >= text.length || text[jsonEnd] !== ']') {
+          return null;
+        }
+        const fullMatchEnd = jsonEnd + 1;
+        const fullMatch = text.slice(prefixIdx, fullMatchEnd);
+        return { json, fullMatch, startIndex: prefixIdx };
+      }
+    }
+  }
+
+  return null; // Unbalanced braces — still streaming
+}
+
+/**
+ * Strip all balanced ASK_GUARDIAN_APPROVAL markers from text, handling
+ * nested braces, string literals, and flexible whitespace correctly.
+ * Only strips complete markers (prefix + balanced JSON + closing `]`).
+ */
+function stripGuardianApprovalMarkers(text: string): string {
+  let result = text;
+  for (;;) {
+    const match = extractBalancedJson(result);
+    if (!match) break;
+    result = result.slice(0, match.startIndex) + result.slice(match.startIndex + match.fullMatch.length);
+  }
+  return result;
+}
+
 const USER_ANSWERED_MARKER_REGEX = /\[USER_ANSWERED:\s*.+?\]/g;
 const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
 const CALL_OPENING_MARKER_REGEX = /\[CALL_OPENING\]/g;
@@ -53,7 +144,8 @@ const CALL_OPENING_ACK_MARKER = '[CALL_OPENING_ACK]';
 const END_CALL_MARKER = '[END_CALL]';
 
 function stripInternalSpeechMarkers(text: string): string {
-  return text
+  let result = stripGuardianApprovalMarkers(text);
+  result = result
     .replace(ASK_GUARDIAN_MARKER_REGEX, '')
     .replace(USER_ANSWERED_MARKER_REGEX, '')
     .replace(USER_INSTRUCTION_MARKER_REGEX, '')
@@ -62,6 +154,7 @@ function stripInternalSpeechMarkers(text: string): string {
     .replace(END_CALL_MARKER_REGEX, '')
     .replace(GUARDIAN_TIMEOUT_MARKER_REGEX, '')
     .replace(GUARDIAN_UNAVAILABLE_MARKER_REGEX, '');
+  return result;
 }
 
 export class CallController {
@@ -414,6 +507,7 @@ export class CallController {
           // bracketed text (e.g. "[A]", "[note]") doesn't stall TTS.
           const afterBracket = ttsBuffer;
           const couldBeControl =
+            '[ASK_GUARDIAN_APPROVAL:'.startsWith(afterBracket) ||
             '[ASK_GUARDIAN:'.startsWith(afterBracket) ||
             '[USER_ANSWERED:'.startsWith(afterBracket) ||
             '[USER_INSTRUCTION:'.startsWith(afterBracket) ||
@@ -422,6 +516,7 @@ export class CallController {
             '[END_CALL]'.startsWith(afterBracket) ||
             '[GUARDIAN_TIMEOUT]'.startsWith(afterBracket) ||
             '[GUARDIAN_UNAVAILABLE]'.startsWith(afterBracket) ||
+            afterBracket.startsWith('[ASK_GUARDIAN_APPROVAL:') ||
             afterBracket.startsWith('[ASK_GUARDIAN:') ||
             afterBracket.startsWith('[USER_ANSWERED:') ||
             afterBracket.startsWith('[USER_INSTRUCTION:') ||
@@ -528,11 +623,30 @@ export class CallController {
         }
       }
 
-      // Check for ASK_GUARDIAN pattern
-      const askMatch = responseText.match(ASK_GUARDIAN_CAPTURE_REGEX);
-      if (askMatch) {
-        const questionText = askMatch[1];
+      // Check for structured tool-approval ASK_GUARDIAN_APPROVAL first,
+      // then informational ASK_GUARDIAN. Uses brace-balanced extraction so
+      // `}]` inside JSON string values does not truncate the payload or
+      // leak partial JSON into TTS output.
+      const approvalMatch = extractBalancedJson(responseText);
+      let approvalQuestion: string | null = null;
+      if (approvalMatch) {
+        try {
+          const parsed = JSON.parse(approvalMatch.json) as { question?: string };
+          if (parsed.question) {
+            approvalQuestion = parsed.question;
+          }
+        } catch {
+          log.warn({ callSessionId: this.callSessionId }, 'Failed to parse ASK_GUARDIAN_APPROVAL JSON payload');
+        }
+      }
 
+      const askMatch = approvalQuestion
+        ? null // structured approval takes precedence
+        : responseText.match(ASK_GUARDIAN_CAPTURE_REGEX);
+
+      const questionText = approvalQuestion ?? (askMatch ? askMatch[1] : null);
+
+      if (questionText) {
         if (this.isCallerGuardian()) {
           // Caller IS the guardian — don't dispatch cross-channel.
           // Queue an instruction so the next turn asks them directly.
