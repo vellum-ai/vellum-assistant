@@ -30,6 +30,7 @@ export { migrateNotificationDeliveryPairingColumns } from './027-notification-de
 export { migrateCallSessionMode } from './028-call-session-mode.js';
 export { migrateChannelInboundDeliveredSegments } from './029-channel-inbound-delivered-segments.js';
 export { migrateGuardianActionFollowup } from './030-guardian-action-followup.js';
+export { migrateGuardianVerificationPurpose } from './030-guardian-verification-purpose.js';
 export { migrateConversationsThreadTypeIndex } from './031-conversations-thread-type-index.js';
 export { createCoreTables } from './100-core-tables.js';
 export { createWatchersAndLogsTables } from './101-watchers-and-logs.js';
@@ -51,6 +52,7 @@ export { createMessagesFts } from './116-messages-fts.js';
 export { createConversationAttentionTables } from './117-conversation-attention.js';
 export { migrateReminderRoutingIntent } from './118-reminder-routing-intent.js';
 export { migrateSchemaIndexesAndColumns } from './119-schema-indexes-and-columns.js';
+export { migrateFkCascadeRebuilds } from './120-fk-cascade-rebuilds.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

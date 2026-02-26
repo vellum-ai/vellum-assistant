@@ -48,14 +48,15 @@ import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js'
 import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
 import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
 import { hasNoAuthOverride, hasUngatedNoAuthOverride } from './connection-policy.js';
-import { cleanupPidFile,writePid } from './daemon-control.js';
-import { createGuardianActionCopyGenerator } from './guardian-action-generators.js';
+import { cleanupPidFile, cleanupPidFileIfOwner, writePid } from './daemon-control.js';
+import { createGuardianActionCopyGenerator, createGuardianFollowUpConversationGenerator } from './guardian-action-generators.js';
 import { initPairingHandlers } from './handlers/pairing.js';
 import { installCliLaunchers } from './install-cli-launchers.js';
 import type { ServerMessage } from './ipc-protocol.js';
 import { initializeProvidersAndTools, registerMessagingProviders,registerWatcherProviders } from './providers-setup.js';
 import { seedInterfaceFiles } from './seed-files.js';
 import { DaemonServer } from './server.js';
+import { setGuardianActionCopyGenerator, setGuardianFollowUpConversationGenerator } from './session-process.js';
 import { initSlashPairingContext } from './session-slash.js';
 import { installShutdownHandlers } from './shutdown-handlers.js';
 
@@ -299,7 +300,16 @@ export async function runDaemon(): Promise<void> {
       interfacesDir: getInterfacesDir(),
       approvalCopyGenerator: createApprovalCopyGenerator(),
       approvalConversationGenerator: createApprovalConversationGenerator(),
-      guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
+      guardianActionCopyGenerator: (() => {
+        const gen = createGuardianActionCopyGenerator();
+        setGuardianActionCopyGenerator(gen);
+        return gen;
+      })(),
+      guardianFollowUpConversationGenerator: (() => {
+        const gen = createGuardianFollowUpConversationGenerator();
+        setGuardianFollowUpConversationGenerator(gen);
+        return gen;
+      })(),
       sendMessageDeps: {
         getOrCreateSession: (conversationId) =>
           server.getSessionForMessages(conversationId),
@@ -389,7 +399,7 @@ export async function runDaemon(): Promise<void> {
     });
   } catch (err) {
     log.error({ err }, 'Daemon startup failed — cleaning up');
-    cleanupPidFile();
+    cleanupPidFileIfOwner(process.pid);
     if (socketCreated) {
       try {
         removeSocketFile(getSocketPath());

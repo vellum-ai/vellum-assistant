@@ -91,7 +91,6 @@ export const memoryItems = sqliteTable('memory_items', {
 }, (table) => [
   index('idx_memory_items_scope_id').on(table.scopeId),
   index('idx_memory_items_fingerprint').on(table.fingerprint),
-  index('idx_memory_items_scope_id_status').on(table.scopeId, table.status),
 ]);
 
 export const memoryItemSources = sqliteTable('memory_item_sources', {
@@ -669,6 +668,8 @@ export const channelGuardianVerificationChallenges = sqliteTable('channel_guardi
   // Session configuration
   codeDigits: integer('code_digits').default(6),
   maxAttempts: integer('max_attempts').default(3),
+  // Distinguishes guardian verification from trusted contact verification
+  verificationPurpose: text('verification_purpose').default('guardian'),
   // Telegram bootstrap deep-link token hash
   bootstrapTokenHash: text('bootstrap_token_hash'),
   createdAt: integer('created_at').notNull(),
@@ -938,9 +939,7 @@ export const notificationEvents = sqliteTable('notification_events', {
   dedupeKey: text('dedupe_key'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-}, (table) => [
-  index('idx_notification_events_dedupe_key').on(table.dedupeKey),
-]);
+});
 
 export const notificationDecisions = sqliteTable('notification_decisions', {
   id: text('id').primaryKey(),

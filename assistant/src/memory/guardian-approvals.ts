@@ -533,3 +533,37 @@ export function countPendingByConversation(
 
   return result?.count ?? 0;
 }
+
+/**
+ * Check for an existing pending (non-expired) approval request for a specific
+ * requester on a channel. Used to deduplicate access requests — repeated
+ * messages from the same non-member should not create duplicate approval
+ * requests while one is already pending.
+ */
+export function findPendingAccessRequestForRequester(
+  assistantId: string,
+  channel: string,
+  requesterExternalUserId: string,
+  toolName: string,
+): GuardianApprovalRequest | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.assistantId, assistantId),
+        eq(channelGuardianApprovalRequests.channel, channel),
+        eq(channelGuardianApprovalRequests.requesterExternalUserId, requesterExternalUserId),
+        eq(channelGuardianApprovalRequests.toolName, toolName),
+        eq(channelGuardianApprovalRequests.status, 'pending'),
+        gt(channelGuardianApprovalRequests.expiresAt, now),
+      ),
+    )
+    .orderBy(desc(channelGuardianApprovalRequests.createdAt))
+    .get();
+
+  return row ? rowToApprovalRequest(row) : null;
+}

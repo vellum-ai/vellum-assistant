@@ -174,7 +174,9 @@ build_binaries() {
     if [ -d "$onnx_bin" ]; then
         find "$onnx_bin" -mindepth 1 -maxdepth 1 -not -name darwin -exec rm -rf {} +
         if [ "$UNIVERSAL_BUILD" != true ] && [ -d "$onnx_bin/darwin" ]; then
-            find "$onnx_bin/darwin" -mindepth 1 -maxdepth 1 -not -name "$(uname -m)" -exec rm -rf {} +
+            local arch=$(uname -m)
+            [ "$arch" = "x86_64" ] && arch="x64"
+            find "$onnx_bin/darwin" -mindepth 1 -maxdepth 1 -not -name "$arch" -exec rm -rf {} +
         fi
     fi
     # Copy bundled skills
@@ -325,8 +327,10 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     onnx_bin="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/bin/napi-v3"
     if [ -d "$onnx_bin" ]; then
         find "$onnx_bin" -mindepth 1 -maxdepth 1 -not -name darwin -exec rm -rf {} +
-        if [ -d "$onnx_bin/darwin" ]; then
-            find "$onnx_bin/darwin" -mindepth 1 -maxdepth 1 -not -name arm64 -exec rm -rf {} +
+        if [ "$UNIVERSAL_BUILD" != true ] && [ -d "$onnx_bin/darwin" ]; then
+            _arch=$(uname -m)
+            [ "$_arch" = "x86_64" ] && _arch="x64"
+            find "$onnx_bin/darwin" -mindepth 1 -maxdepth 1 -not -name "$_arch" -exec rm -rf {} +
         fi
     fi
 fi

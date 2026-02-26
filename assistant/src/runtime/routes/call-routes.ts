@@ -11,7 +11,7 @@
 import { answerCall, cancelCall, getCallStatus, relayInstruction,startCall } from '../../calls/call-domain.js';
 import { getConfig } from '../../config/loader.js';
 import { VALID_CALLER_IDENTITY_MODES } from '../../config/schema.js';
-import { httpError } from '../http-errors.js';
+import { httpError, httpErrorCodeFromStatus } from '../http-errors.js';
 
 // ── Idempotency cache ─────────────────────────────────────────────────────────
 // Stores serialized 201 responses keyed by idempotencyKey for 5 minutes so
@@ -96,7 +96,8 @@ export async function handleStartCall(req: Request, assistantId: string = 'self'
   });
 
   if (!result.ok) {
-    return httpError('INTERNAL_ERROR', result.error, result.status ?? 500);
+    const status = result.status ?? 500;
+    return httpError(httpErrorCodeFromStatus(status), result.error, status);
   }
 
   const responseBody = {
@@ -122,7 +123,8 @@ export function handleGetCallStatus(callSessionId: string): Response {
   const result = getCallStatus(callSessionId);
 
   if (!result.ok) {
-    return httpError('INTERNAL_ERROR', result.error, result.status ?? 500);
+    const status = result.status ?? 500;
+    return httpError(httpErrorCodeFromStatus(status), result.error, status);
   }
 
   const { session } = result;
@@ -161,7 +163,8 @@ export async function handleCancelCall(req: Request, callSessionId: string): Pro
   const result = await cancelCall({ callSessionId, reason });
 
   if (!result.ok) {
-    return httpError('INTERNAL_ERROR', result.error, result.status ?? 500);
+    const status = result.status ?? 500;
+    return httpError(httpErrorCodeFromStatus(status), result.error, status);
   }
 
   return Response.json({
@@ -193,7 +196,8 @@ export async function handleAnswerCall(req: Request, callSessionId: string): Pro
   });
 
   if (!result.ok) {
-    return httpError('INTERNAL_ERROR', result.error, result.status ?? 500);
+    const status = result.status ?? 500;
+    return httpError(httpErrorCodeFromStatus(status), result.error, status);
   }
 
   return Response.json({ ok: true, questionId: result.questionId });
@@ -222,7 +226,8 @@ export async function handleInstructionCall(req: Request, callSessionId: string)
   });
 
   if (!result.ok) {
-    return httpError('INTERNAL_ERROR', result.error, result.status ?? 500);
+    const status = result.status ?? 500;
+    return httpError(httpErrorCodeFromStatus(status), result.error, status);
   }
 
   return Response.json({ ok: true });

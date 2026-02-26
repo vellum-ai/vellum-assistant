@@ -65,6 +65,57 @@ The policy is implemented in `src/tools/guardian-control-plane-policy.ts`, which
 
 The `guardian-verify-setup` skill is the exclusive handler for guardian verification intents in the system prompt. Other skills (e.g., `phone-calls`) hand off to `guardian-verify-setup` rather than orchestrating verification directly.
 
+### Guardian Action Timeout-to-Follow-Up Lifecycle
+
+When a voice call's ASK_GUARDIAN consultation times out before the guardian responds, the system enters a follow-up lifecycle that allows the guardian to act on their late answer after the call has moved on. The entire flow uses LLM-generated copy (never hardcoded user-facing strings) to maintain a natural, conversational tone across voice and text channels.
+
+**Lifecycle stages:**
+
+```
+ ASK_GUARDIAN fires on call
+         |
+         v
+ [pending] -- guardian answers in time --> [answered] (normal flow)
+         |
+         | (timeout expires)
+         v
+ [expired, followup_state=none]
+         |
+         | (guardian replies late)
+         v
+ [expired, followup_state=awaiting_guardian_choice]
+         |
+         | (conversation engine classifies intent)
+         v
+ call_back / message_back / decline
+         |                        |
+         v                        v
+ [dispatching]              [declined] (terminal)
+         |
+         | (executor runs action)
+         v
+ [completed] or [failed] (terminal)
+```
+
+**Generated messaging requirement:** All user-facing copy in the guardian timeout/follow-up path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files (call-controller, inbound-message-handler, session-process) outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
+
+**Callback/message-back branch:** When the conversation engine classifies the guardian's intent as `call_back`, the executor starts an outbound call to the counterparty with context about the guardian's answer. When classified as `message_back`, the executor sends an SMS to the counterparty via the gateway's `/deliver/sms` endpoint. The counterparty phone number is resolved from the original call session by call direction (inbound: `fromNumber`; outbound: `toNumber`).
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/memory/guardian-action-store.ts` | Follow-up state machine with atomic transitions (`startFollowupFromExpiredRequest`, `progressFollowupState`, `finalizeFollowup`) and query helpers for pending/expired/follow-up deliveries |
+| `src/runtime/guardian-action-message-composer.ts` | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates. Covers all scenarios from timeout acknowledgment through follow-up completion |
+| `src/runtime/guardian-action-conversation-turn.ts` | Follow-up decision engine: classifies guardian replies into `call_back`, `message_back`, `decline`, or `keep_pending` dispositions using LLM tool calling |
+| `src/runtime/guardian-action-followup-executor.ts` | Action dispatch: resolves counterparty from call session, executes `message_back` (SMS via gateway) or `call_back` (outbound call via `startCall`), finalizes follow-up state |
+| `src/daemon/guardian-action-generators.ts` | Daemon-injected generator factories: `createGuardianActionCopyGenerator` (latency-optimized text rewriting) and `createGuardianFollowUpConversationGenerator` (tool-calling intent classification) |
+| `src/calls/call-controller.ts` | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response |
+| `src/runtime/routes/inbound-message-handler.ts` | Late reply interception for Telegram/SMS channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions |
+| `src/daemon/session-process.ts` | Late reply interception for mac/IPC channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup |
+| `src/calls/guardian-action-sweep.ts` | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations |
+| `src/memory/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`) |
+
 ### SMS Channel (Twilio)
 
 The SMS channel provides text-only messaging via Twilio, sharing the same telephony provider as voice calls. It follows the same ingress/egress pattern as Telegram but uses Twilio's HMAC-SHA1 signature validation instead of a secret header.
@@ -175,6 +226,55 @@ The `GET` endpoint reports `connected: true` only when both `hasBotToken` and `h
 |------|---------|
 | `src/daemon/handlers/config-slack-channel.ts` | Business logic for get/set/clear Slack channel config |
 | `src/runtime/routes/integration-routes.ts` | HTTP route handlers for `/v1/integrations/slack/channel/config` |
+
+### Trusted Contact Access (Channel-Agnostic)
+
+External users who are not the guardian can gain access to the assistant through a guardian-mediated verification flow. The flow is channel-agnostic — it works identically on Telegram, SMS, voice, and any future channel.
+
+**Full design doc:** [`docs/trusted-contact-access.md`](docs/trusted-contact-access.md)
+
+**Flow summary:**
+1. Unknown user messages the assistant on any channel.
+2. Ingress ACL (`inbound-message-handler.ts`) rejects the message and emits an `ingress.access_request` notification signal to the guardian.
+3. Guardian approves or denies via callback button or conversational intent (routed through `guardian-approval-interception.ts`).
+4. On approval, an identity-bound verification session with a 6-digit code is created (`access-request-decision.ts` → `channel-guardian-service.ts`).
+5. Guardian gives the code to the requester out-of-band.
+6. Requester enters the code; identity binding is verified, the challenge is consumed, and an active member record is created in `assistant_ingress_members`.
+7. All subsequent messages are accepted through the ingress ACL.
+
+**Channel-agnostic design:** The entire flow operates on abstract `ChannelId` and `externalUserId`/`externalChatId` fields. Identity binding adapts per channel: Telegram uses chat IDs, SMS/voice use E.164 phone numbers, HTTP API uses caller-provided identity. No channel-specific branching exists in the trusted contact code paths.
+
+**Lifecycle states:** `requested → pending_guardian → verification_pending → active | denied | expired`
+
+**Notification signals:** The flow emits signals at each lifecycle transition via `emitNotificationSignal()`:
+- `ingress.access_request` — non-member denied, guardian notified
+- `ingress.trusted_contact.guardian_decision` — guardian approved or denied
+- `ingress.trusted_contact.verification_sent` — code created and delivered
+- `ingress.trusted_contact.activated` — requester verified, member active
+- `ingress.trusted_contact.denied` — guardian explicitly denied
+
+**HTTP API (for management):**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/ingress/members` | GET | List trusted contacts (filterable by channel, status, policy) |
+| `/v1/ingress/members` | POST | Upsert a member (add/update trusted contact) |
+| `/v1/ingress/members/:id` | DELETE | Revoke a trusted contact |
+| `/v1/ingress/members/:id/block` | POST | Block a member |
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL, non-member rejection, verification code interception |
+| `src/runtime/routes/access-request-decision.ts` | Guardian decision → verification session creation |
+| `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler |
+| `src/runtime/channel-guardian-service.ts` | Verification challenge lifecycle, identity binding, rate limiting |
+| `src/runtime/routes/ingress-routes.ts` | HTTP API handlers for member/invite management |
+| `src/runtime/ingress-service.ts` | Business logic for member CRUD |
+| `src/memory/ingress-member-store.ts` | Member record persistence |
+| `src/memory/channel-guardian-store.ts` | Approval request and verification challenge persistence |
+| `src/config/vellum-skills/trusted-contacts/SKILL.md` | Skill teaching the assistant to manage contacts via HTTP API |
 
 ---
 

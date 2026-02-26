@@ -96,10 +96,18 @@ mock.module('node:fs', () => ({
   existsSync: () => true,
 }));
 
+const benchmarkRegistry = new Map<string, unknown>();
 mock.module('../tools/registry.js', () => ({
-  registerSkillTools: () => {},
-  unregisterSkillTools: () => {},
-  getTool: () => undefined,
+  registerSkillTools: (tools: Array<{ name: string; [k: string]: unknown }>) => {
+    for (const t of tools) benchmarkRegistry.set(t.name, t);
+    return tools;
+  },
+  unregisterSkillTools: (skillId: string) => {
+    for (const [name, t] of benchmarkRegistry) {
+      if ((t as { ownerSkillId?: string }).ownerSkillId === skillId) benchmarkRegistry.delete(name);
+    }
+  },
+  getTool: (name: string) => benchmarkRegistry.get(name),
 }));
 
 // ---------------------------------------------------------------------------

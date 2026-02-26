@@ -40,7 +40,7 @@ export function createAssistantInboxTables(database: DrizzleDb): void {
       username TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       policy TEXT NOT NULL DEFAULT 'allow',
-      invite_id TEXT REFERENCES assistant_ingress_invites(id),
+      invite_id TEXT REFERENCES assistant_ingress_invites(id) ON DELETE CASCADE,
       created_by_session_id TEXT,
       revoked_reason TEXT,
       blocked_reason TEXT,

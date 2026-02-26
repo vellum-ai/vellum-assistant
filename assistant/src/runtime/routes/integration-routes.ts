@@ -41,10 +41,12 @@ import {
 } from '../../daemon/handlers/config-telegram.js';
 import {
   cancelOutbound,
+  normalizeTelegramDestination,
   resendOutbound,
   startOutbound,
 } from '../guardian-outbound-actions.js';
 import { guardianVerificationLimiter } from '../verification-rate-limiter.js';
+import { normalizePhoneNumber } from '../../util/phone.js';
 
 /**
  * GET /v1/integrations/telegram/config
@@ -189,8 +191,18 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
     return httpError('BAD_REQUEST', 'The "channel" field is required.', 400);
   }
 
-  // Rate-limit by destination identity before processing
-  if (body.destination && guardianVerificationLimiter.isBlocked(body.destination)) {
+  // Normalize destination to prevent rate-limit bypass via format variations
+  // (e.g. "+15551234567" vs "(555) 123-4567", or "@User" vs "user")
+  let rateLimitKey = body.destination;
+  if (rateLimitKey) {
+    if (body.channel === 'sms' || body.channel === 'voice') {
+      rateLimitKey = normalizePhoneNumber(rateLimitKey) ?? rateLimitKey;
+    } else if (body.channel === 'telegram') {
+      rateLimitKey = normalizeTelegramDestination(rateLimitKey);
+    }
+  }
+
+  if (rateLimitKey && guardianVerificationLimiter.isBlocked(rateLimitKey)) {
     return httpError('RATE_LIMITED', 'Too many verification attempts for this identity. Please try again later.', 429);
   }
 
@@ -202,8 +214,8 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
     originConversationId: body.originConversationId,
   });
 
-  if (!result.success && body.destination) {
-    guardianVerificationLimiter.recordFailure(body.destination);
+  if (!result.success && rateLimitKey) {
+    guardianVerificationLimiter.recordFailure(rateLimitKey);
   }
 
   const status = result.success ? 200 : (result.error === 'rate_limited' ? 429 : 400);

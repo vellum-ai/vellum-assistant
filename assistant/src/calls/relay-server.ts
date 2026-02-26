@@ -322,13 +322,11 @@ export class RelayConnection {
       // Post a pointer message in the initiating conversation
       if (session.initiatedFromConversationId) {
         const durationMs = session.startedAt ? Date.now() - session.startedAt : 0;
-        try {
-          addPointerMessage(session.initiatedFromConversationId, 'completed', session.toNumber, {
-            duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
-          });
-        } catch (err) {
+        addPointerMessage(session.initiatedFromConversationId, 'completed', session.toNumber, {
+          duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+        }).catch((err) => {
           log.warn({ conversationId: session.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
-        }
+        });
       }
     } else {
       const detail = reason || (code ? `relay_closed_${code}` : 'relay_closed_abnormal');
@@ -344,18 +342,18 @@ export class RelayConnection {
 
       // Post a failure pointer message in the initiating conversation
       if (session.initiatedFromConversationId) {
-        try {
-          addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
-            reason: detail,
-          });
-        } catch (err) {
+        addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
+          reason: detail,
+        }).catch((err) => {
           log.warn({ conversationId: session.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
-        }
+        });
       }
     }
 
     expirePendingQuestions(this.callSessionId);
-    persistCallCompletionMessage(session.conversationId, this.callSessionId);
+    persistCallCompletionMessage(session.conversationId, this.callSessionId).catch((err) => {
+      log.error({ err, conversationId: session.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+    });
     fireCallCompletionNotifier(session.conversationId, this.callSessionId);
   }
 
@@ -458,7 +456,7 @@ export class RelayConnection {
     const config = getConfig();
     const verificationConfig = config.calls.verification;
     if (!isInbound && verificationConfig.enabled) {
-      this.startVerification(session, verificationConfig);
+      await this.startVerification(session, verificationConfig);
     } else if (isInbound) {
       // For inbound calls, check if there's a pending voice guardian
       // challenge that the caller needs to complete before proceeding.
@@ -675,7 +673,7 @@ export class RelayConnection {
         : 'guardian_voice_verification_succeeded';
 
       recordCallEvent(this.callSessionId, eventName, {
-        bindingId: result.bindingId,
+        bindingId: 'bindingId' in result ? result.bindingId : undefined,
       });
       log.info(
         { callSessionId: this.callSessionId, isOutbound },
@@ -704,16 +702,14 @@ export class RelayConnection {
         // requesting chat sees a deterministic completion notice.
         const successSession = getCallSession(this.callSessionId);
         if (successSession?.initiatedFromConversationId) {
-          try {
-            addPointerMessage(
-              successSession.initiatedFromConversationId,
-              'guardian_verification_succeeded',
-              successSession.toNumber,
-              { channel: 'voice' },
-            );
-          } catch (err) {
+          addPointerMessage(
+            successSession.initiatedFromConversationId,
+            'guardian_verification_succeeded',
+            successSession.toNumber,
+            { channel: 'voice' },
+          ).catch((err) => {
             log.warn({ conversationId: successSession.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
-          }
+          });
         }
 
         setTimeout(() => {
@@ -770,22 +766,22 @@ export class RelayConnection {
         const failSession = getCallSession(this.callSessionId);
         if (failSession) {
           expirePendingQuestions(this.callSessionId);
-          persistCallCompletionMessage(failSession.conversationId, this.callSessionId);
+          persistCallCompletionMessage(failSession.conversationId, this.callSessionId).catch((err) => {
+            log.error({ err, conversationId: failSession.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+          });
           fireCallCompletionNotifier(failSession.conversationId, this.callSessionId);
 
           // Emit a pointer message to the origin conversation so the
           // requesting chat sees a deterministic failure notice.
           if (isOutbound && failSession.initiatedFromConversationId) {
-            try {
-              addPointerMessage(
-                failSession.initiatedFromConversationId,
-                'guardian_verification_failed',
-                failSession.toNumber,
-                { channel: 'voice', reason: 'Max verification attempts exceeded' },
-              );
-            } catch (err) {
+            addPointerMessage(
+              failSession.initiatedFromConversationId,
+              'guardian_verification_failed',
+              failSession.toNumber,
+              { channel: 'voice', reason: 'Max verification attempts exceeded' },
+            ).catch((err) => {
               log.warn({ conversationId: failSession.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
-            }
+            });
           }
         }
 
@@ -995,16 +991,16 @@ export class RelayConnection {
             const session = getCallSession(this.callSessionId);
             if (session) {
               expirePendingQuestions(this.callSessionId);
-              persistCallCompletionMessage(session.conversationId, this.callSessionId);
+              persistCallCompletionMessage(session.conversationId, this.callSessionId).catch((err) => {
+                log.error({ err, conversationId: session.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+              });
               fireCallCompletionNotifier(session.conversationId, this.callSessionId);
               if (session.initiatedFromConversationId) {
-                try {
-                  addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
-                    reason: 'Callee verification failed',
-                  });
-                } catch (err) {
+                addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
+                  reason: 'Callee verification failed',
+                }).catch((err) => {
                   log.warn({ conversationId: session.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
-                }
+                });
               }
             }
 

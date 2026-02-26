@@ -1,5 +1,6 @@
 import { IntegrityError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
+import { getDbPath } from '../../util/platform.js';
 import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
 import { MIGRATION_REGISTRY, type MigrationValidationResult } from './registry.js';
 
@@ -41,7 +42,7 @@ export function recoverCrashedMigrations(database: DrizzleDb): string[] {
       '',
       'Clearing stalled checkpoints so they can be retried on this startup.',
       'If retries continue to fail, manually inspect the database:',
-      '  sqlite3 ~/.vellum/data/assistant.db "SELECT * FROM memory_checkpoints"',
+      `  sqlite3 ${getDbPath()} "SELECT * FROM memory_checkpoints"`,
     ].join('\n'),
   );
 
@@ -126,7 +127,7 @@ export function validateMigrationState(database: DrizzleDb): MigrationValidation
         `The following migrations were retried but still did not complete: ${crashed.join(', ')}`,
         '',
         'Manual intervention is required. Inspect the database and resolve:',
-        '  sqlite3 ~/.vellum/data/assistant.db "DELETE FROM memory_checkpoints WHERE key = \'<migration_key>\'"',
+        `  sqlite3 ${getDbPath()} "DELETE FROM memory_checkpoints WHERE key = '<migration_key>'"`,
         'Then restart the daemon.',
       ].join('\n'),
     );

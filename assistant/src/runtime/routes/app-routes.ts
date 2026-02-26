@@ -71,10 +71,14 @@ ${noncedHtml}
 </body>
 </html>`;
 
+  // App HTML is user- or LLM-generated and commonly contains inline event
+  // handlers (onclick, onkeydown, etc.). Nonce-only script-src blocks those
+  // because CSP nonces only authorize <script> blocks, not handler attributes.
+  // We keep 'unsafe-inline' so arbitrary app content works.
   const csp = [
     "default-src 'self'",
-    `style-src 'self' 'nonce-${nonce}' 'unsafe-inline'`,
-    `script-src 'self' 'nonce-${nonce}'`,
+    "style-src 'self' 'unsafe-inline'",
+    "script-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
     "font-src 'self' data: https:",
     "object-src 'none'",

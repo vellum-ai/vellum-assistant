@@ -42,6 +42,8 @@ function computeFingerprint(cert: X509Certificate): string {
   return cert.fingerprint256.replace(/:/g, '').toLowerCase();
 }
 
+type CertStatus = 'valid' | 'approaching_expiry' | 'invalid';
+
 /**
  * Check whether an existing cert+key pair is valid:
  * - All three files exist (cert, key, fingerprint)
@@ -49,8 +51,12 @@ function computeFingerprint(cert: X509Certificate): string {
  * - Cert is not expired
  * - Fingerprint file exists and matches the cert
  * - Private key is valid and matches the certificate
+ *
+ * Returns 'valid' if the cert is good, 'approaching_expiry' if it's still usable
+ * but expires within 30 days (renewal should be attempted), or 'invalid' if the
+ * cert cannot be used at all.
  */
-async function isExistingCertValid(): Promise<boolean> {
+async function checkCertStatus(): Promise<CertStatus> {
   const certPath = getTlsCertPath();
   const keyPath = getTlsKeyPath();
   const fpPath = getTlsFingerprintPath();
@@ -63,7 +69,7 @@ async function isExistingCertValid(): Promise<boolean> {
   ]);
 
   if (!certExists || !keyExists || !fpExists) {
-    return false;
+    return 'invalid';
   }
 
   try {
@@ -80,21 +86,14 @@ async function isExistingCertValid(): Promise<boolean> {
     const notAfter = new Date(x509.validTo);
     if (notAfter <= now) {
       log.info('Existing TLS certificate has expired, will regenerate');
-      return false;
-    }
-
-    // Auto-renew if the certificate expires within 30 days
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    if (notAfter.getTime() - now.getTime() < thirtyDaysMs) {
-      log.info('TLS certificate approaching expiry, regenerating...');
-      return false;
+      return 'invalid';
     }
 
     // Check fingerprint matches
     const actualFp = computeFingerprint(x509);
     if (actualFp !== storedFp.trim()) {
       log.info('TLS fingerprint mismatch, will regenerate');
-      return false;
+      return 'invalid';
     }
 
     // Verify the private key is valid and matches the certificate's public key.
@@ -103,13 +102,20 @@ async function isExistingCertValid(): Promise<boolean> {
     const privateKey = createPrivateKey(keyPem);
     if (!x509.checkPrivateKey(privateKey)) {
       log.info('TLS private key does not match certificate, will regenerate');
-      return false;
+      return 'invalid';
     }
 
-    return true;
+    // Cert is structurally valid — check if it's approaching expiry
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    if (notAfter.getTime() - now.getTime() < thirtyDaysMs) {
+      log.info('TLS certificate approaching expiry, will attempt renewal');
+      return 'approaching_expiry';
+    }
+
+    return 'valid';
   } catch (err) {
     log.warn({ err }, 'Failed to validate existing TLS certificate, will regenerate');
-    return false;
+    return 'invalid';
   }
 }
 
@@ -133,8 +139,9 @@ export async function ensureTlsCert(): Promise<{ cert: string; key: string; fing
   const keyPath = getTlsKeyPath();
   const fpPath = getTlsFingerprintPath();
 
-  // Check if existing cert is still valid
-  if (await isExistingCertValid()) {
+  const status = await checkCertStatus();
+
+  if (status === 'valid') {
     const [cert, key, fingerprint] = await Promise.all([
       readFile(certPath, 'utf-8'),
       readFile(keyPath, 'utf-8'),
@@ -144,7 +151,34 @@ export async function ensureTlsCert(): Promise<{ cert: string; key: string; fing
     return { cert, key, fingerprint: fingerprint.trim() };
   }
 
-  // Generate new cert
+  if (status === 'approaching_expiry') {
+    // Buffer existing cert/key/fingerprint before attempting renewal.
+    // generateNewCert() overwrites key.pem in-place, so if it fails mid-flight
+    // (e.g., key written but cert generation fails), reading from disk in the
+    // catch block would return a mismatched key/cert pair.
+    const [existingCert, existingKey, existingFp] = await Promise.all([
+      readFile(certPath, 'utf-8'),
+      readFile(keyPath, 'utf-8'),
+      readFile(fpPath, 'utf-8'),
+    ]);
+    try {
+      return await generateNewCert(tlsDir, certPath, keyPath, fpPath);
+    } catch (err) {
+      log.warn({ err }, 'Proactive TLS renewal failed, continuing with existing certificate');
+      return { cert: existingCert, key: existingKey, fingerprint: existingFp.trim() };
+    }
+  }
+
+  // status === 'invalid' — must regenerate, no fallback
+  return await generateNewCert(tlsDir, certPath, keyPath, fpPath);
+}
+
+async function generateNewCert(
+  tlsDir: string,
+  certPath: string,
+  keyPath: string,
+  fpPath: string,
+): Promise<{ cert: string; key: string; fingerprint: string }> {
   log.info('Generating new self-signed TLS certificate');
   await mkdir(tlsDir, { recursive: true });
 

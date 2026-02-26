@@ -1381,7 +1381,8 @@ extension ChatViewModel {
             }
 
         case .sessionError(let msg):
-            guard sessionId != nil, belongsToSession(msg.sessionId) else { return }
+            // Empty sessionId is treated as a broadcast (e.g. transport-level 401)
+            guard sessionId != nil, msg.sessionId.isEmpty || belongsToSession(msg.sessionId) else { return }
             log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .private)")
             isWorkspaceRefinementInFlight = false
             refinementFlushTask?.cancel()

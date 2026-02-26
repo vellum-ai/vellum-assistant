@@ -140,6 +140,16 @@ import {
   handlePairingRequest,
   handlePairingStatus,
 } from './routes/pairing-routes.js';
+import {
+  handleBlockMember,
+  handleCreateInvite,
+  handleListInvites,
+  handleListMembers,
+  handleRedeemInvite,
+  handleRevokeInvite,
+  handleRevokeMember,
+  handleUpsertMember,
+} from './routes/ingress-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
 
 // Re-export for consumers
@@ -150,6 +160,7 @@ export type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
   GuardianActionCopyGenerator,
+  GuardianFollowUpConversationGenerator,
   MessageProcessor,
   NonBlockingMessageProcessor,
   RuntimeAttachmentMetadata,
@@ -162,6 +173,7 @@ import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
   GuardianActionCopyGenerator,
+  GuardianFollowUpConversationGenerator,
   MessageProcessor,
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
@@ -186,6 +198,7 @@ export class RuntimeHttpServer {
   private approvalCopyGenerator?: ApprovalCopyGenerator;
   private approvalConversationGenerator?: ApprovalConversationGenerator;
   private guardianActionCopyGenerator?: GuardianActionCopyGenerator;
+  private guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
   private interfacesDir: string | null;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
@@ -204,6 +217,7 @@ export class RuntimeHttpServer {
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
     this.guardianActionCopyGenerator = options.guardianActionCopyGenerator;
+    this.guardianFollowUpConversationGenerator = options.guardianFollowUpConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
   }
@@ -383,13 +397,17 @@ export class RuntimeHttpServer {
       }
     }
 
-    // Per-bearer-token rate limiting for /v1/* endpoints, with per-IP fallback
-    // for unauthenticated requests (lower limits to reduce abuse surface).
+    // Per-client-IP rate limiting for /v1/* endpoints. Authenticated requests
+    // get a higher limit; unauthenticated requests get a lower limit to reduce
+    // abuse surface. We key on IP rather than bearer token because the gateway
+    // uses a single shared token for all proxied requests, which would collapse
+    // all users into one bucket.
     if (path.startsWith('/v1/')) {
+      const clientIp = extractClientIp(req, server);
       const token = extractBearerToken(req);
       const result = token
-        ? apiRateLimiter.check(token)
-        : ipRateLimiter.check(extractClientIp(req, server));
+        ? apiRateLimiter.check(clientIp)
+        : ipRateLimiter.check(clientIp);
       if (!result.allowed) {
         return rateLimitResponse(result);
       }
@@ -543,7 +561,7 @@ export class RuntimeHttpServer {
     const twilioSubpath = resolvedTwilioSubpath;
 
     if (GATEWAY_ONLY_BLOCKED_SUBPATHS.has(twilioSubpath)) {
-      return httpError('NOT_FOUND', 'Direct webhook access disabled. Use the gateway.', 410);
+      return httpError('GONE', 'Direct webhook access disabled. Use the gateway.', 410);
     }
 
     const validation = await validateTwilioWebhook(req);
@@ -677,6 +695,21 @@ export class RuntimeHttpServer {
       const contactMatch = endpoint.match(/^contacts\/([^/]+)$/);
       if (contactMatch && req.method === 'GET') return handleGetContact(contactMatch[1]);
 
+      // Ingress members
+      if (endpoint === 'ingress/members' && req.method === 'GET') return handleListMembers(url);
+      if (endpoint === 'ingress/members' && req.method === 'POST') return await handleUpsertMember(req);
+      const memberBlockMatch = endpoint.match(/^ingress\/members\/([^/]+)\/block$/);
+      if (memberBlockMatch && req.method === 'POST') return await handleBlockMember(req, memberBlockMatch[1]);
+      const memberMatch = endpoint.match(/^ingress\/members\/([^/]+)$/);
+      if (memberMatch && req.method === 'DELETE') return await handleRevokeMember(req, memberMatch[1]);
+
+      // Ingress invites
+      if (endpoint === 'ingress/invites' && req.method === 'GET') return handleListInvites(url);
+      if (endpoint === 'ingress/invites' && req.method === 'POST') return await handleCreateInvite(req);
+      if (endpoint === 'ingress/invites/redeem' && req.method === 'POST') return await handleRedeemInvite(req);
+      const inviteMatch = endpoint.match(/^ingress\/invites\/([^/]+)$/);
+      if (inviteMatch && req.method === 'DELETE') return handleRevokeInvite(inviteMatch[1]);
+
       // Integrations — Telegram config
       if (endpoint === 'integrations/telegram/config' && req.method === 'GET') return handleGetTelegramConfig();
       if (endpoint === 'integrations/telegram/config' && req.method === 'POST') return await handleSetTelegramConfig(req);
@@ -719,7 +752,7 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
         const gatewayOriginSecret = getRuntimeGatewayOriginSecret();
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator, this.guardianActionCopyGenerator);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator, this.guardianActionCopyGenerator, this.guardianFollowUpConversationGenerator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') return await handleChannelDeliveryAck(req);

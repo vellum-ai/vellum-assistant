@@ -1,4 +1,4 @@
-import { execSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { closeSync,existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -53,45 +53,29 @@ function readDaemonTimeouts(): typeof DAEMON_TIMEOUT_DEFAULTS {
 }
 
 /**
- * Find and kill any lingering daemon processes that weren't cleaned up properly
- * (e.g., after crashes or orphaned processes). Uses pgrep to scan for processes
- * matching the daemon's command-line signature, skipping the current process.
+ * Kill the stale daemon recorded in this workspace's PID file, if any.
+ * Only targets the exact PID from our PID file — never scans globally —
+ * so isolated daemons (e.g., dev instances with a different BASE_DATA_DIR)
+ * are never affected.
  */
-function killStaleDaemons(): void {
-  const myPid = process.pid;
-
-  // Match both source-mode (`bun run .../daemon/main.ts`) and any future
-  // compiled binary patterns. pgrep -f matches against the full command line.
-  const patterns = ['daemon/main\\.ts'];
-
-  for (const pattern of patterns) {
-    let output: string;
-    try {
-      output = execSync(`pgrep -f '${pattern}'`, {
-        encoding: 'utf-8',
-        timeout: 5000,
-      }).trim();
-    } catch {
-      // pgrep exits with code 1 when no processes match — not an error.
-      continue;
-    }
-
-    if (!output) continue;
-
-    const pids = output
-      .split('\n')
-      .map((s) => parseInt(s.trim(), 10))
-      .filter((pid) => !isNaN(pid) && pid !== myPid);
-
-    for (const pid of pids) {
-      try {
-        log.info({ pid }, 'Killing stale daemon process');
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        // Process may have already exited between pgrep and kill.
-      }
-    }
+function killStaleDaemon(): void {
+  const pid = readPid();
+  if (pid == null) return;
+  if (!isProcessRunning(pid)) {
+    cleanupPidFile();
+    return;
   }
+
+  // The PID file references a live process, but getDaemonStatus() (called
+  // earlier in startDaemon) already returns early when the daemon is healthy.
+  // If we reach here, the recorded process is alive but non-responsive.
+  try {
+    log.info({ pid }, 'Killing stale daemon process from PID file');
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    // Process may have exited between the check and the kill.
+  }
+  cleanupPidFile();
 }
 
 function isProcessRunning(pid: number): boolean {
@@ -125,6 +109,15 @@ export function cleanupPidFile(): void {
   }
 }
 
+/** Only remove the PID file if it belongs to the given process. Prevents a
+ *  failing second startup from deleting the PID of an already-running daemon. */
+export function cleanupPidFileIfOwner(ownerPid: number): void {
+  const currentPid = readPid();
+  if (currentPid === ownerPid) {
+    cleanupPidFile();
+  }
+}
+
 export function isDaemonRunning(): boolean {
   const pid = readPid();
   if (pid == null) return false;
@@ -154,9 +147,9 @@ export async function startDaemon(): Promise<{
     return { pid: status.pid, alreadyRunning: true };
   }
 
-  // Kill any orphaned daemon processes that weren't cleaned up (e.g., after
-  // crashes). Without this, stale daemons accumulate in the process table.
-  killStaleDaemons();
+  // Kill a stale daemon recorded in this workspace's PID file (e.g., after
+  // a crash where the process is alive but non-responsive).
+  killStaleDaemon();
 
   // Only create the root dir for socket/PID — the daemon process itself
   // handles migration + full ensureDataDir() in runDaemon(). Calling
@@ -232,6 +225,10 @@ export async function startDaemon(): Promise<{
     waited += interval;
   }
 
+  // The child process is still running but the socket hasn't appeared yet.
+  // Write the PID file so isDaemonRunning()/stopDaemon() can still track
+  // and manage the orphaned process.
+  writePid(pid);
   throw new DaemonError(
     `Daemon started but socket not available after ${maxWait}ms`,
   );

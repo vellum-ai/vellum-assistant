@@ -1,5 +1,5 @@
 import { Cron } from 'croner';
-import { and, asc, desc, eq, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, lte, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getDb } from '../memory/db.js';
@@ -118,6 +118,18 @@ export function getSchedule(id: string): ScheduleJob | null {
     .get();
   if (!row) return null;
   return parseJobRow(row);
+}
+
+export function countSchedules(): { total: number; enabled: number } {
+  const db = getDb();
+  const row = db
+    .select({
+      total: sql<number>`COUNT(*)`,
+      enabled: sql<number>`SUM(CASE WHEN ${scheduleJobs.enabled} THEN 1 ELSE 0 END)`,
+    })
+    .from(scheduleJobs)
+    .get();
+  return { total: row?.total ?? 0, enabled: row?.enabled ?? 0 };
 }
 
 export function listSchedules(options?: { enabledOnly?: boolean }): ScheduleJob[] {

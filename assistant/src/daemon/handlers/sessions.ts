@@ -10,7 +10,7 @@ import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
-import { redactSecrets } from '../../security/secret-scanner.js';
+import { compileCustomPatterns, redactSecrets } from '../../security/secret-scanner.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { truncate } from '../../util/truncate.js';
@@ -193,10 +193,13 @@ export async function handleUserMessage(
           category: 'secret_blocked',
         });
 
+        const compiledCustom = config.secretDetection.customPatterns?.length
+          ? compileCustomPatterns(config.secretDetection.customPatterns)
+          : undefined;
         const redactedMessageText = redactSecrets(messageText, {
           enabled: true,
           base64Threshold: config.secretDetection.entropyThreshold,
-        }).trim();
+        }, compiledCustom).trim();
 
         // Redirect: trigger a secure prompt so the user can enter the secret safely.
         // After save, continue the same request with redacted text so the model keeps
@@ -437,6 +440,14 @@ export async function handleUserMessage(
           }
         }
       }
+    }
+
+    // If the session has a pending tool confirmation, auto-deny it so the
+    // agent can process the user's follow-up message instead.  The agent
+    // will see the denial and can re-request the tool if still needed.
+    if (session.hasAnyPendingConfirmation()) {
+      rlog.info('Auto-denying pending confirmation(s) due to new user message');
+      session.denyAllPendingConfirmations();
     }
 
     dispatchUserMessage(

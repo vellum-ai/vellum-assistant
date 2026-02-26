@@ -17,10 +17,12 @@ import {
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
   migrateCallSessionMode,
+  migrateFkCascadeRebuilds,
   migrateChannelInboundDeliveredSegments,
   migrateConversationsThreadTypeIndex,
   migrateGuardianActionFollowup,
   migrateGuardianBootstrapToken,
+  migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
   migrateReminderRoutingIntent,
@@ -80,6 +82,9 @@ export function initializeDb(): void {
   // 11c. Guardian bootstrap token hash column (Telegram deep-link flow)
   migrateGuardianBootstrapToken(database);
 
+  // 11d. Guardian verification purpose discriminator (guardian vs trusted_contact)
+  migrateGuardianVerificationPurpose(database);
+
   // 12. Media assets
   createMediaAssetsTables(database);
 
@@ -116,6 +121,9 @@ export function initializeDb(): void {
 
   // 20. Schema indexes, columns, and constraints
   migrateSchemaIndexesAndColumns(database);
+
+  // 21. Rebuild tables to add ON DELETE CASCADE to FK constraints
+  migrateFkCascadeRebuilds(database);
 
   validateMigrationState(database);
 }

@@ -30,6 +30,9 @@ export function stripMediaPayloadsForRetry(messages: Message[]): { messages: Mes
   const nextMessages = messages.map((msg, msgIndex) => {
     const nextContent: ContentBlock[] = [];
     for (const block of msg.content) {
+      // Top-level image blocks are user-uploaded attachments. Keep the latest
+      // few (in the most recent user message) and strip older ones so the
+      // retry can actually reduce context size when images are the cause.
       if (block.type === 'image') {
         const keep = latestUserIndex === msgIndex && keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
         if (keep) {

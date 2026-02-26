@@ -356,7 +356,7 @@ function main() {
       }
 
       if (handleRuntimeProxy) {
-        const res = await handleRuntimeProxy(tracedReq);
+        const res = await handleRuntimeProxy(tracedReq, getClientIp(req, svr, config.trustProxy));
         if (res.status === 401) {
           authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
         }

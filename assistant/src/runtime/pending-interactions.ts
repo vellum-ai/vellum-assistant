@@ -67,6 +67,18 @@ export function getByConversation(conversationId: string): Array<{ requestId: st
   return results;
 }
 
+/**
+ * Remove all pending interactions for a given session.
+ * Used when auto-denying all pending confirmations (e.g. new user message).
+ */
+export function removeBySession(session: Session): void {
+  for (const [requestId, interaction] of pending) {
+    if (interaction.session === session) {
+      pending.delete(requestId);
+    }
+  }
+}
+
 /** Clear all pending interactions. Useful for testing. */
 export function clear(): void {
   pending.clear();

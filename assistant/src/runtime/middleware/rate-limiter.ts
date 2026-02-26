@@ -1,5 +1,5 @@
-// Per-bearer-token sliding-window rate limiter for /v1/* API endpoints.
-// Tracks request counts per token and returns 429 when the limit is exceeded.
+// Per-client-IP sliding-window rate limiter for /v1/* API endpoints.
+// Tracks request counts per key and returns 429 when the limit is exceeded.
 // Follows the same sliding-window pattern as gateway/src/auth-rate-limiter.ts.
 
 import type { HttpErrorResponse } from '../http-errors.js';
@@ -33,9 +33,9 @@ export class TokenRateLimiter {
    * Check whether the request should be allowed and record it.
    * Returns rate limit metadata for response headers.
    */
-  check(token: string): RateLimitResult {
+  check(key: string): RateLimitResult {
     const now = Date.now();
-    let timestamps = this.requests.get(token);
+    let timestamps = this.requests.get(key);
 
     if (!timestamps) {
       if (this.requests.size >= this.maxTrackedKeys) {
@@ -46,7 +46,7 @@ export class TokenRateLimiter {
         }
       }
       timestamps = [];
-      this.requests.set(token, timestamps);
+      this.requests.set(key, timestamps);
     }
 
     const cutoff = now - this.windowMs;
@@ -82,12 +82,12 @@ export class TokenRateLimiter {
 
   private evictStale(now: number): void {
     const cutoff = now - this.windowMs;
-    for (const [token, timestamps] of this.requests) {
+    for (const [key, timestamps] of this.requests) {
       while (timestamps.length > 0 && timestamps[0] <= cutoff) {
         timestamps.shift();
       }
       if (timestamps.length === 0) {
-        this.requests.delete(token);
+        this.requests.delete(key);
       }
     }
   }
@@ -125,30 +125,51 @@ export function rateLimitResponse(result: RateLimitResult): Response {
   });
 }
 
-/** Singleton rate limiter for the runtime HTTP API (per-bearer-token). */
+/** Singleton rate limiter for authenticated /v1/* requests (per-client-IP). */
 export const apiRateLimiter = new TokenRateLimiter();
 
 /** Singleton rate limiter for unauthenticated requests (per-IP, lower limits). */
 export const ipRateLimiter = new TokenRateLimiter(DEFAULT_IP_MAX_REQUESTS, DEFAULT_IP_WINDOW_MS, MAX_TRACKED_IPS);
 
 /**
- * Extract the client IP from a request, checking proxy headers first.
- * Falls back to the Bun server's requestIP() for the actual peer address.
+ * Extract the client IP from a request. Only trusts proxy headers
+ * (X-Forwarded-For, X-Real-IP) when the peer IP is loopback or private,
+ * meaning the request arrived via the gateway. Direct connections from
+ * external clients use the peer IP, preventing header spoofing.
  */
 export function extractClientIp(
   req: Request,
   server: { requestIP(req: Request): { address: string } | null },
 ): string {
-  // X-Forwarded-For can contain a comma-separated list; the leftmost is the original client.
-  const forwarded = req.headers.get('x-forwarded-for');
-  if (forwarded) {
-    const first = forwarded.split(',')[0].trim();
-    if (first) return first;
+  const peerIp = server.requestIP(req)?.address ?? '0.0.0.0';
+
+  if (isTrustedPeer(peerIp)) {
+    const forwarded = req.headers.get('x-forwarded-for');
+    if (forwarded) {
+      const first = forwarded.split(',')[0].trim();
+      if (first) return first;
+    }
+
+    const realIp = req.headers.get('x-real-ip');
+    if (realIp) return realIp.trim();
   }
 
-  const realIp = req.headers.get('x-real-ip');
-  if (realIp) return realIp.trim();
+  return peerIp;
+}
 
-  const peerIp = server.requestIP(req);
-  return peerIp?.address ?? '0.0.0.0';
+/** Returns true when the address is loopback or RFC-1918 private. */
+function isTrustedPeer(ip: string): boolean {
+  return (
+    ip === '127.0.0.1' ||
+    ip === '::1' ||
+    ip === '::ffff:127.0.0.1' ||
+    ip.startsWith('10.') ||
+    ip.startsWith('172.16.') || ip.startsWith('172.17.') || ip.startsWith('172.18.') ||
+    ip.startsWith('172.19.') || ip.startsWith('172.20.') || ip.startsWith('172.21.') ||
+    ip.startsWith('172.22.') || ip.startsWith('172.23.') || ip.startsWith('172.24.') ||
+    ip.startsWith('172.25.') || ip.startsWith('172.26.') || ip.startsWith('172.27.') ||
+    ip.startsWith('172.28.') || ip.startsWith('172.29.') || ip.startsWith('172.30.') ||
+    ip.startsWith('172.31.') ||
+    ip.startsWith('192.168.')
+  );
 }
