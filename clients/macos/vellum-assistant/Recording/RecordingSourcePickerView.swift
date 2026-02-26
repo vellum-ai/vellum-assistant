@@ -314,8 +314,20 @@ struct RecordingSourcePickerView: View {
             .padding(.horizontal, VSpacing.xl)
             .background {
                 // Hidden buttons for keyboard shortcuts
-                Button("") { onCancel() }.keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0)
-                Button("") { guard viewModel.canStart else { return }; onStart(viewModel.selectedRecordingOptions) }.keyboardShortcut(.defaultAction).disabled(!viewModel.canStart).opacity(0).frame(width: 0, height: 0)
+                Button("") { onCancel() }
+                    .keyboardShortcut(.cancelAction)
+                    .opacity(0)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+                Button("") {
+                    guard viewModel.canStart else { return }
+                    onStart(viewModel.selectedRecordingOptions)
+                }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!viewModel.canStart)
+                    .opacity(0)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
             }
         }
         .padding(.vertical, VSpacing.lg)
