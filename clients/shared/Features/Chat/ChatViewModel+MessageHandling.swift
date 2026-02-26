@@ -321,7 +321,8 @@ extension ChatViewModel {
                 thumbnailData: thumbnailData,
                 dataLength: dataLength,
                 sizeBytes: sizeBytes,
-                thumbnailImage: thumbnailImage
+                thumbnailImage: thumbnailImage,
+                filePath: ipc.filePath
             )
         }
     }

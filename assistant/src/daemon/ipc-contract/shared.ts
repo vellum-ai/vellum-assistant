@@ -45,4 +45,6 @@ export interface UserMessageAttachment {
   sizeBytes?: number;
   /** Base64-encoded JPEG thumbnail. Generated server-side for video attachments. */
   thumbnailData?: string;
+  /** Absolute path to the local file on disk. Present for file-backed attachments (e.g. recordings). */
+  filePath?: string;
 }

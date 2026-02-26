@@ -4,10 +4,9 @@ import * as path from 'node:path';
 
 import { v4 as uuid } from 'uuid';
 
-import { linkAttachmentToMessage, setAttachmentThumbnail,uploadFileBackedAttachment } from '../../memory/attachments-store.js';
+import { linkAttachmentToMessage, uploadFileBackedAttachment } from '../../memory/attachments-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import type { RecordingOptions,RecordingStatus } from '../ipc-protocol.js';
-import { generateVideoThumbnailFromPath } from '../video-thumbnail.js';
 import { defineHandlers, findSocketForSession, type HandlerContext,log } from './shared.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -575,19 +574,10 @@ export async function finalizeAndPublishRecording(params: {
     linkAttachmentToMessage(messageId, attachment.id, 0);
     log.info({ recordingId, messageId, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
 
-    // Generate thumbnail before notifying the client so it's included
-    // in the message_complete payload (fire-and-forget would race).
-    let thumbnailData: string | undefined;
-    try {
-      const thumb = await generateVideoThumbnailFromPath(resolvedPath);
-      if (thumb) {
-        setAttachmentThumbnail(attachment.id, thumb);
-        thumbnailData = thumb;
-        log.info({ recordingId, attachmentId: attachment.id }, 'Thumbnail generated for recording');
-      }
-    } catch (err) {
-      log.warn({ err, recordingId }, 'Thumbnail generation failed — continuing without thumbnail');
-    }
+    // Skip server-side thumbnail generation for recordings — the client
+    // generates thumbnails natively from the local file path using
+    // AVAssetImageGenerator, which is faster and doesn't depend on ffmpeg.
+    const thumbnailData: string | undefined = undefined;
 
     // Notify the client via the reporting socket
     ctx.send(notifySocket, {
@@ -605,6 +595,7 @@ export async function finalizeAndPublishRecording(params: {
         data: '',  // empty for file-backed; client uses content endpoint
         sizeBytes: attachment.sizeBytes,
         thumbnailData,
+        filePath: resolvedPath,
       }],
     });
 

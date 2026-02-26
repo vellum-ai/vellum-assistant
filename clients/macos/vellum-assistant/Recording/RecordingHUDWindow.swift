@@ -196,7 +196,7 @@ struct RecordingHUDView: View {
                         .foregroundColor(.white)
                         .frame(width: 24, height: 24)
                         .background(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
+                            RoundedRectangle(cornerRadius: VRadius.md)
                                 .fill(VColor.accent)
                         )
                 }
@@ -210,7 +210,7 @@ struct RecordingHUDView: View {
                         .foregroundColor(.white)
                         .frame(width: 24, height: 24)
                         .background(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
+                            RoundedRectangle(cornerRadius: VRadius.md)
                                 .fill(VColor.error)
                         )
                 }
@@ -218,7 +218,7 @@ struct RecordingHUDView: View {
                 .accessibilityLabel("Stop recording")
             }
         }
-        .padding(.horizontal, VSpacing.md)
+        .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
