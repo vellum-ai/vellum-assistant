@@ -200,6 +200,14 @@ describe('ConfigWatcher workspace file handlers', () => {
     expect(evictCallCount).toBe(1);
   });
 
+  test('UPDATES.md change triggers onSessionEvict', async () => {
+    watcher.start(onSessionEvict);
+    simulateFileChange(WORKSPACE_DIR, 'UPDATES.md');
+
+    await new Promise((r) => setTimeout(r, 300));
+    expect(evictCallCount).toBe(1);
+  });
+
   test('config.json change calls refreshConfigFromSources', async () => {
     // Spy on refreshConfigFromSources to verify it is called
     const originalRefresh = watcher.refreshConfigFromSources.bind(watcher);
