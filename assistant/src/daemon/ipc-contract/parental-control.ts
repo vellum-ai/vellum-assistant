@@ -170,6 +170,7 @@ export interface ParentalControlApprovalCreateResponse {
 // List approval requests (parent only - requires PIN or unlocked state)
 export interface ParentalControlApprovalListRequest {
   type: 'parental_control_approval_list'
+  pin?: string
 }
 export interface ParentalControlApprovalListResponse {
   type: 'parental_control_approval_list_response'
@@ -181,6 +182,7 @@ export interface ParentalControlApprovalListResponse {
     createdAt: string
     resolvedAt?: string
   }>
+  error?: string
 }
 
 // Respond to approval request (parent only - requires PIN)

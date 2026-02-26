@@ -1476,8 +1476,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Retrieve all approval requests. Intended for the parent profile.
-    public func sendParentalControlApprovalList() throws {
-        try send(ParentalControlApprovalListRequestMessage())
+    /// PIN is required when parental controls are enabled and a PIN is set.
+    public func sendParentalControlApprovalList(pin: String? = nil) throws {
+        try send(ParentalControlApprovalListRequestMessage(pin: pin))
     }
 
     /// Respond to an approval request. PIN is required when parental controls are enabled and a PIN is set.

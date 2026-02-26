@@ -2979,8 +2979,8 @@ public typealias ParentalControlApprovalCreateResponseMessage = IPCParentalContr
 public typealias ParentalControlApprovalListRequestMessage = IPCParentalControlApprovalListRequest
 
 extension IPCParentalControlApprovalListRequest {
-    public init() {
-        self.init(type: "parental_control_approval_list")
+    public init(pin: String? = nil) {
+        self.init(type: "parental_control_approval_list", pin: pin)
     }
 }
 

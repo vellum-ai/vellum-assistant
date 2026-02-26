@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
-import { homedir } from 'os'
 import { join } from 'path'
+
+import { getRootDir } from '../util/platform.js'
 
 export type ApprovalDecision = 'approve_always' | 'approve_once' | 'reject' | 'pending'
 
@@ -14,11 +15,13 @@ export interface ApprovalRequest {
   resolvedAt?: string
 }
 
-const STORE_PATH = join(homedir(), '.vellum', 'parental-approvals.json')
+function getStorePath(): string {
+  return join(getRootDir(), 'parental-approvals.json')
+}
 
 function readStore(): ApprovalRequest[] {
   try {
-    const raw = readFileSync(STORE_PATH, 'utf8')
+    const raw = readFileSync(getStorePath(), 'utf8')
     return JSON.parse(raw)
   } catch {
     return []
@@ -26,8 +29,8 @@ function readStore(): ApprovalRequest[] {
 }
 
 function writeStore(entries: ApprovalRequest[]): void {
-  mkdirSync(join(homedir(), '.vellum'), { recursive: true })
-  writeFileSync(STORE_PATH, JSON.stringify(entries, null, 2), 'utf8')
+  mkdirSync(getRootDir(), { recursive: true })
+  writeFileSync(getStorePath(), JSON.stringify(entries, null, 2), 'utf8')
 }
 
 export function createApprovalRequest(toolName: string, reason: string): ApprovalRequest {
@@ -55,6 +58,7 @@ export function respondToApprovalRequest(
   const entries = readStore()
   const idx = entries.findIndex((e) => e.id === requestId)
   if (idx === -1) return null
+  if (entries[idx].status !== 'pending') return null
   entries[idx] = { ...entries[idx], status: decision, resolvedAt: new Date().toISOString() }
   writeStore(entries)
   return entries[idx]

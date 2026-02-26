@@ -324,10 +324,27 @@ export function handleParentalControlApprovalCreate(
 }
 
 export function handleParentalControlApprovalList(
-  _msg: ParentalControlApprovalListRequest,
+  msg: ParentalControlApprovalListRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
+  const settings = getParentalControlSettings()
+  const pinExists = hasPIN()
+
+  // Listing pending requests is a parent-only operation; enforce the same PIN
+  // gate used by the respond handler to prevent child-mode clients from reading
+  // pending request details (tool names and reasons).
+  if (settings.enabled && pinExists) {
+    if (!msg.pin || !verifyPIN(msg.pin)) {
+      ctx.send(socket, {
+        type: 'parental_control_approval_list_response',
+        requests: [],
+        error: 'PIN required to list approval requests',
+      })
+      return
+    }
+  }
+
   const requests = listApprovalRequests()
   ctx.send(socket, {
     type: 'parental_control_approval_list_response',
@@ -355,12 +372,22 @@ export function handleParentalControlApprovalRespond(
     }
   }
 
+  const VALID_DECISIONS: ReadonlyArray<string> = ['approve_always', 'approve_once', 'reject']
+  if (!VALID_DECISIONS.includes(msg.decision as string)) {
+    ctx.send(socket, {
+      type: 'parental_control_approval_respond_response',
+      success: false,
+      error: 'Invalid decision value',
+    })
+    return
+  }
+
   const updated = respondToApprovalRequest(msg.requestId, msg.decision as Exclude<ApprovalDecision, 'pending'>)
   if (!updated) {
     ctx.send(socket, {
       type: 'parental_control_approval_respond_response',
       success: false,
-      error: 'Approval request not found',
+      error: 'Approval request not found or already resolved',
     })
     return
   }

@@ -95,6 +95,11 @@ struct SettingsParentalTab: View {
                             await settingsStore.switchProfile(to: "parental", pin: pin)
                             if settingsStore.profileSwitchError == nil {
                                 showingProfileSwitchSheet = false
+                                // Cache the PIN so the parental profile can immediately
+                                // respond to pending approval requests without a separate
+                                // unlock step.
+                                isUnlocked = true
+                                unlockedPIN = pin
                             } else {
                                 profileSwitchError = settingsStore.profileSwitchError
                             }
@@ -708,9 +713,10 @@ struct SettingsParentalTab: View {
 
     private func loadPendingApprovals() {
         let stream = daemonClient?.subscribe()
+        let pin = unlockedPIN
         Task {
             do {
-                try daemonClient?.sendParentalControlApprovalList()
+                try daemonClient?.sendParentalControlApprovalList(pin: pin)
             } catch {
                 return
             }
