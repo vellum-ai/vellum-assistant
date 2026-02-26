@@ -1918,6 +1918,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             voiceInputManager: voiceInput
         )
 
+        // Wire the audio monitor into LiveTranscriptManager so it can
+        // pause/resume wake-word detection during live transcription.
+        mainWindow.liveTranscriptManager.setAudioMonitor(audioMonitor)
+
         if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
             audioMonitor.startMonitoring()
         }

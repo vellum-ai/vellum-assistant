@@ -58,6 +58,12 @@ final class LiveTranscriptManager: ObservableObject {
         setupCallbacks()
     }
 
+    /// Late-bind the audio monitor when it isn't available at init time
+    /// (e.g. wake word coordinator is set up after the main window).
+    func setAudioMonitor(_ monitor: AlwaysOnAudioMonitor) {
+        self.audioMonitor = monitor
+    }
+
     // MARK: - Public API
 
     func startListening() {
