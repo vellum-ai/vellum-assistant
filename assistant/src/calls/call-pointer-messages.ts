@@ -6,7 +6,7 @@
 
 import * as conversationStore from '../memory/conversation-store.js';
 
-export type PointerEvent = 'started' | 'completed' | 'failed';
+export type PointerEvent = 'started' | 'completed' | 'failed' | 'guardian_verification_succeeded' | 'guardian_verification_failed';
 
 export function addPointerMessage(
   conversationId: string,
@@ -30,6 +30,14 @@ export function addPointerMessage(
       text = extra?.reason
         ? `\u{1F4DE} Call to ${phoneNumber} failed: ${extra.reason}.`
         : `\u{1F4DE} Call to ${phoneNumber} failed.`;
+      break;
+    case 'guardian_verification_succeeded':
+      text = `\u{2705} Guardian verification for ${phoneNumber} succeeded.`;
+      break;
+    case 'guardian_verification_failed':
+      text = extra?.reason
+        ? `\u{274C} Guardian verification for ${phoneNumber} failed: ${extra.reason}.`
+        : `\u{274C} Guardian verification for ${phoneNumber} failed.`;
       break;
   }
 

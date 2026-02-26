@@ -692,6 +692,17 @@ export class RelayConnection {
           endedAt: Date.now(),
         });
 
+        // Emit a pointer message to the origin conversation so the
+        // requesting chat sees a deterministic completion notice.
+        const successSession = getCallSession(this.callSessionId);
+        if (successSession?.initiatedFromConversationId) {
+          addPointerMessage(
+            successSession.initiatedFromConversationId,
+            'guardian_verification_succeeded',
+            successSession.toNumber,
+          );
+        }
+
         setTimeout(() => {
           this.endSession('Guardian verification succeeded');
         }, 3000);
@@ -748,6 +759,17 @@ export class RelayConnection {
           expirePendingQuestions(this.callSessionId);
           persistCallCompletionMessage(session.conversationId, this.callSessionId);
           fireCallCompletionNotifier(session.conversationId, this.callSessionId);
+
+          // Emit a pointer message to the origin conversation so the
+          // requesting chat sees a deterministic failure notice.
+          if (isOutbound && session.initiatedFromConversationId) {
+            addPointerMessage(
+              session.initiatedFromConversationId,
+              'guardian_verification_failed',
+              session.toNumber,
+              { reason: 'Max verification attempts exceeded' },
+            );
+          }
         }
 
         setTimeout(() => {

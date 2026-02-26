@@ -96,6 +96,8 @@ export interface StartOutboundParams {
   assistantId?: string;
   destination?: string;
   rebind?: boolean;
+  /** Origin conversation ID so completion/failure pointers can route back. */
+  originConversationId?: string;
 }
 
 export interface ResendOutboundParams {
@@ -211,6 +213,7 @@ function initiateGuardianVoiceCall(
   phoneNumber: string,
   guardianVerificationSessionId: string,
   assistantId: string,
+  originConversationId?: string,
 ): void {
   (async () => {
     try {
@@ -218,6 +221,7 @@ function initiateGuardianVoiceCall(
         phoneNumber,
         guardianVerificationSessionId,
         assistantId,
+        originConversationId,
       });
       if (result.ok) {
         log.info({ phoneNumber, guardianVerificationSessionId, callSid: result.callSid }, 'Guardian verification call initiated');
@@ -243,7 +247,7 @@ export function startOutbound(params: StartOutboundParams): OutboundActionResult
   } else if (channel === 'telegram') {
     return startOutboundTelegram(params.destination, assistantId, channel, params.rebind);
   } else if (channel === 'voice') {
-    return startOutboundVoice(params.destination, assistantId, channel, params.rebind);
+    return startOutboundVoice(params.destination, assistantId, channel, params.rebind, params.originConversationId);
   }
 
   return {
@@ -453,6 +457,7 @@ function startOutboundVoice(
   assistantId: string,
   channel: ChannelId,
   rebind?: boolean,
+  originConversationId?: string,
 ): OutboundActionResult {
   if (!rawDestination) {
     return {
@@ -507,7 +512,7 @@ function startOutboundVoice(
   const sendCount = 1;
 
   updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
-  initiateGuardianVoiceCall(destination, sessionResult.sessionId, assistantId);
+  initiateGuardianVoiceCall(destination, sessionResult.sessionId, assistantId, originConversationId);
 
   return {
     success: true,
