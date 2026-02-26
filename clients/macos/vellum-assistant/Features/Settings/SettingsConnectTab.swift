@@ -53,8 +53,8 @@ struct SettingsConnectTab: View {
     // Outbound guardian verification destination input (keyed by channel)
     @State private var guardianDestinationText: [String: String] = [:]
 
-    // Outbound verification code copy state (tracks which channel's code was just copied)
-    @State private var outboundCodeCopiedChannel: String?
+    // Outbound verification code entry (keyed by channel)
+    @State private var outboundCodeEntryText: [String: String] = [:]
 
     // Countdown timer for outbound verification expiry (ref-counted so
     // closing one channel row doesn't stop the timer for remaining rows)
@@ -1332,7 +1332,19 @@ struct SettingsConnectTab: View {
         bootstrapUrl: String?,
         outboundCode: String?
     ) -> some View {
-        let isCodeCopied = outboundCodeCopiedChannel == channel
+        let submitError: String? = {
+            switch channel {
+            case "telegram": return store.telegramOutboundSubmitError
+            case "sms": return store.smsOutboundSubmitError
+            case "voice": return store.voiceOutboundSubmitError
+            default: return nil
+            }
+        }()
+        let isPendingBootstrap = bootstrapUrl != nil
+        let codeBinding = Binding<String>(
+            get: { outboundCodeEntryText[channel] ?? "" },
+            set: { outboundCodeEntryText[channel] = $0 }
+        )
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
@@ -1347,53 +1359,31 @@ struct SettingsConnectTab: View {
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                // Verification code display
-                if let outboundCode {
-                    Text("Your verification code:")
+                // Code entry field + Verify button
+                if !isPendingBootstrap {
+                    Text("Enter the code you received:")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
 
                     HStack(spacing: VSpacing.sm) {
-                        Text(outboundCode)
+                        TextField("Verification code", text: codeBinding)
                             .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                            .textSelection(.enabled)
-                            .lineLimit(1)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 200)
 
-                        Spacer()
-
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(outboundCode, forType: .string)
-                            outboundCodeCopiedChannel = channel
-                            Task {
-                                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                                if outboundCodeCopiedChannel == channel {
-                                    outboundCodeCopiedChannel = nil
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: VSpacing.xs) {
-                                Image(systemName: isCodeCopied ? "checkmark" : "doc.on.doc")
-                                    .font(.system(size: 12, weight: .medium))
-                                Text(isCodeCopied ? "Copied" : "Copy")
-                                    .font(VFont.caption)
-                            }
-                            .foregroundColor(isCodeCopied ? VColor.success : VColor.textSecondary)
-                            .frame(height: 28)
-                            .contentShape(Rectangle())
+                        VButton(label: "Verify", style: .primary) {
+                            let code = codeBinding.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !code.isEmpty else { return }
+                            store.submitOutboundGuardianCode(channel: channel, code: code)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Copy verification code")
-                        .help("Copy code")
+                        .disabled(codeBinding.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    .padding(VSpacing.md)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                    )
+
+                    if let submitError {
+                        Text(submitError)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.error)
+                    }
                 }
 
                 // Countdown to expiry

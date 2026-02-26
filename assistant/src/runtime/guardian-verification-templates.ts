@@ -21,8 +21,10 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
   TELEGRAM_CHALLENGE_REQUEST: 'guardian_verify.telegram.challenge_request',
   /** Resend Telegram message with verification code. */
   TELEGRAM_RESEND: 'guardian_verify.telegram.resend',
-  /** Outbound voice call intro prompt: asks guardian to enter verification code via keypad. */
+  /** Inbound voice call intro prompt: asks guardian to enter verification code via keypad. */
   VOICE_CALL_INTRO: 'guardian_verify.voice.call_intro',
+  /** Outbound voice call prompt: speaks the verification code and instructs entering it in the app. */
+  VOICE_OUTBOUND_CODE: 'guardian_verify.voice.outbound_code',
   /** Voice retry prompt after an incorrect code entry. */
   VOICE_RETRY: 'guardian_verify.voice.retry',
   /** Voice success prompt after successful verification. */
@@ -67,6 +69,8 @@ export interface GuardianVerifyTemplateVars {
 export interface GuardianVerifyVoiceTemplateVars {
   /** Number of digits in the verification code. */
   codeDigits: number;
+  /** The actual verification code (used for outbound voice calls that speak the code). */
+  code?: string;
 }
 
 export interface ChannelVerifyReplyVars {
@@ -81,12 +85,12 @@ export interface ChannelVerifyReplyVars {
 const templates: Record<TextVerifyTemplateKey, (vars: GuardianVerifyTemplateVars) => string> = {
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST]: (vars) => {
     const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Your verification code is: ${vars.code}. It expires in ${vars.expiresInMinutes} minutes. Reply with this code to verify.`;
+    return `${prefix}Your verification code is: ${vars.code}. It expires in ${vars.expiresInMinutes} minutes. Enter this code in the app to verify. You can also reply with this code or use /guardian_verify ${vars.code}`;
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND]: (vars) => {
     const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Your verification code is: ${vars.code}. It expires in ${vars.expiresInMinutes} minutes. Reply with this code to verify. (resent)`;
+    return `${prefix}Your verification code is: ${vars.code}. It expires in ${vars.expiresInMinutes} minutes. Enter this code in the app to verify. You can also reply with this code or use /guardian_verify ${vars.code} (resent)`;
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED]: (_vars) => {
@@ -96,12 +100,12 @@ const templates: Record<TextVerifyTemplateKey, (vars: GuardianVerifyTemplateVars
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST]: (vars) => {
     const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Your verification code is: ${vars.code}. Reply with: /guardian_verify ${vars.code}`;
+    return `${prefix}Your verification code is: ${vars.code}. Enter this code in the app to verify. You can also reply with: /guardian_verify ${vars.code}`;
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND]: (vars) => {
     const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Your verification code is: ${vars.code}. (resent)\nReply with: /guardian_verify ${vars.code}`;
+    return `${prefix}Your verification code is: ${vars.code}. (resent)\nEnter this code in the app to verify. You can also reply with: /guardian_verify ${vars.code}`;
   },
 };
 
@@ -135,6 +139,7 @@ export function composeVerificationTelegram(
 
 type VoiceTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_OUTBOUND_CODE
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_RETRY
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_SUCCESS
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_FAILURE;
@@ -142,6 +147,11 @@ type VoiceTemplateKey =
 const voiceTemplates: Record<VoiceTemplateKey, (vars: GuardianVerifyVoiceTemplateVars) => string> = {
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO]: (vars) =>
     `You are receiving a verification call. Please enter your ${vars.codeDigits}-digit verification code using your keypad.`,
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_OUTBOUND_CODE]: (vars) => {
+    const spaced = vars.code ? vars.code.split('').join(' ') : '';
+    return `You are receiving a verification call. Your verification code is: ${spaced}. Again, your code is: ${spaced}. Please enter this code in the app to complete verification. Goodbye.`;
+  },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_RETRY]: (_vars) =>
     'That code was incorrect. Please try again.',
