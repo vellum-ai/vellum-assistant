@@ -69,6 +69,7 @@ struct MainWindowView: View {
     /// so we can restore it when they exit instead of jumping to visibleThreads.first
     /// (which may be a pinned thread unrelated to what they were doing).
     @State private var preTemporaryChatThreadId: UUID?
+    @State private var showingProfileSwitchSheet: Bool = false
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -668,7 +669,19 @@ struct MainWindowView: View {
                             onDebug: {
                                 sidebar.showControlCenterDrawer = false
                                 windowState.selection = .panel(.debug)
-                            }
+                            },
+                            onSwitchProfile: settingsStore.isParentalEnabled ? {
+                                if settingsStore.activeProfile == "parental" {
+                                    // No PIN needed to enter child mode — switch directly
+                                    sidebar.showControlCenterDrawer = false
+                                    Task { await settingsStore.switchProfile(to: "child", pin: nil) }
+                                } else {
+                                    // Switching back to parental requires PIN — show sheet
+                                    sidebar.showControlCenterDrawer = false
+                                    showingProfileSwitchSheet = true
+                                }
+                            } : nil,
+                            activeProfile: settingsStore.isParentalEnabled ? settingsStore.activeProfile : nil
                         )
                         .frame(width: drawerWidth)
                         .offset(x: drawerX, y: -28)
@@ -836,6 +849,27 @@ struct MainWindowView: View {
             if let pending = sidebar.threadPendingDeletion, let newValue, newValue != pending {
                 sidebar.threadPendingDeletion = nil
             }
+        }
+        .sheet(isPresented: $showingProfileSwitchSheet) {
+            ProfileSwitchSheet(
+                onComplete: { result in
+                    switch result {
+                    case .success(let pin):
+                        Task {
+                            await settingsStore.switchProfile(to: "parental", pin: pin)
+                            // Only dismiss if the switch succeeded; the sheet's inline error
+                            // message handles the failure case (it stays open).
+                            if settingsStore.profileSwitchError == nil {
+                                showingProfileSwitchSheet = false
+                            }
+                        }
+                    case .failure:
+                        // ProfileSwitchSheet shows "Incorrect PIN." inline — no extra action needed
+                        break
+                    }
+                },
+                daemonClient: daemonClient
+            )
         }
     }
 
@@ -1476,9 +1510,20 @@ private struct ControlCenterRow: View {
 private struct DrawerMenuView: View {
     let onSettings: () -> Void
     let onDebug: () -> Void
+    // Parental profile switcher — nil when parental controls are disabled
+    let onSwitchProfile: (() -> Void)?
+    let activeProfile: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
+
+            if let onSwitch = onSwitchProfile, let profile = activeProfile {
+                VColor.surfaceBorder.frame(height: 1)
+                    .padding(.vertical, VSpacing.xs)
+
+                DrawerProfileItem(activeProfile: profile, action: onSwitch)
+            }
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
@@ -1516,6 +1561,50 @@ private struct DrawerMenuItem: View {
                     .font(.custom("Inter", size: 13))
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
+/// A row in the Control Center drawer that shows the active parental/child profile
+/// and lets the user switch to the other profile with a single tap.
+private struct DrawerProfileItem: View {
+    let activeProfile: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    private var isParental: Bool { activeProfile == "parental" }
+    private var avatarIcon: String { isParental ? "person.crop.circle.fill" : "figure.child.circle.fill" }
+    private var avatarColor: Color { isParental ? VColor.accent : VColor.success }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.md) {
+                Image(systemName: avatarIcon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(avatarColor)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(isParental ? "Parental" : "Child")
+                        .font(.custom("Inter", size: 13))
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Switch profile")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
