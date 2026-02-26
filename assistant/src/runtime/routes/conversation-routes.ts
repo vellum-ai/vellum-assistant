@@ -303,6 +303,7 @@ export async function handleSendMessage(
       // can finish the current turn and process this queued message.
       if (session.hasAnyPendingConfirmation()) {
         session.denyAllPendingConfirmations();
+        pendingInteractions.removeBySession(session);
       }
 
       // Queue the message so it's processed when the current turn completes
