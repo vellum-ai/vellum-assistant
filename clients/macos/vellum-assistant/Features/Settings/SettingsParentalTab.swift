@@ -391,32 +391,9 @@ struct SettingsParentalTab: View {
 
     private var appsAndWidgetsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Apps")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                Button {
-                    showingAddWidgetSheet = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.accent)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Add widget")
-                .disabled(isLoading)
-                Button {
-                    showingAddAppSheet = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.accent)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Add app")
-                .disabled(isLoading)
-            }
+            Text("Apps")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
 
             Text("Child profile can only access enabled apps and widgets.")
                 .font(VFont.caption)
@@ -431,10 +408,12 @@ struct SettingsParentalTab: View {
                     .textSelection(.enabled)
             } else {
                 ForEach(allowedApps, id: \.self) { app in
-                    HStack {
+                    let iconInfo = VAppIconGenerator.generate(from: app)
+                    HStack(spacing: VSpacing.sm) {
+                        VAppIcon(sfSymbol: iconInfo.sfSymbol, gradientColors: iconInfo.colors, size: .small)
                         Text(app)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.textPrimary)
                             .textSelection(.enabled)
                         Spacer()
                         Toggle("", isOn: Binding(
@@ -453,10 +432,12 @@ struct SettingsParentalTab: View {
                     }
                 }
                 ForEach(allowedWidgets, id: \.self) { widget in
-                    HStack {
+                    let iconInfo = VAppIconGenerator.generate(from: widget)
+                    HStack(spacing: VSpacing.sm) {
+                        VAppIcon(sfSymbol: iconInfo.sfSymbol, gradientColors: iconInfo.colors, size: .small)
                         Text(widget)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.textPrimary)
                             .textSelection(.enabled)
                         Spacer()
                         Toggle("", isOn: Binding(
@@ -505,10 +486,14 @@ struct SettingsParentalTab: View {
                 .textSelection(.enabled)
 
             ForEach(availableIntegrations, id: \.id) { integration in
-                HStack {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: integration.icon)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(width: 18)
                     Text(integration.label)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.textPrimary)
                     Spacer()
                     Toggle("", isOn: Binding(
                         get: { settingsStore.allowedIntegrations.contains(integration.id) },
