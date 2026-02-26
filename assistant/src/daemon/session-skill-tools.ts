@@ -308,6 +308,14 @@ export function projectSkillTools(
           log.info({ skillId, bundled: skill.bundled }, 'Skill bundled status changed, re-registering tools');
           unregisterSkillTools(skillId);
           accepted = registerSkillTools(tools);
+        } else {
+          // Filter to only tools that are actually registered for this skill.
+          // Some tools may have been skipped during initial registration due
+          // to core-name collisions — don't let them leak back in.
+          accepted = tools.filter((t) => {
+            const reg = getTool(t.name);
+            return reg !== undefined && reg.origin === 'skill' && reg.ownerSkillId === skillId;
+          });
         }
       }
 
