@@ -3,45 +3,65 @@ import VellumAssistantShared
 
 // MARK: - Skill Category
 
-private enum SkillCategory: String, CaseIterable {
-    case core
-    case devTools
+enum SkillCategory: String, CaseIterable {
     case communication
-    case daily
-    case utilities
-    case skills // fallback
+    case productivity
+    case development
+    case media
+    case automation
+    case webSocial
+    case knowledge
+    case integration
 
     var displayName: String {
         switch self {
-        case .core: return "Core"
-        case .devTools: return "Dev Tools"
-        case .communication: return "Comms"
-        case .daily: return "Daily"
-        case .utilities: return "Utilities"
-        case .skills: return "Skills"
+        case .communication: return "Communication"
+        case .productivity: return "Productivity"
+        case .development: return "Development"
+        case .media: return "Media"
+        case .automation: return "Automation"
+        case .webSocial: return "Web & Social"
+        case .knowledge: return "Knowledge"
+        case .integration: return "Integration"
         }
     }
 
-    /// High-contrast accent colors per category for visual separation.
     var color: Color {
         switch self {
-        case .core: return Color(hex: 0xD4A017)          // deep gold
-        case .devTools: return Color(hex: 0xC1421B)      // red
-        case .communication: return Color(hex: 0x8B5DAA) // vivid purple
-        case .daily: return Color(hex: 0xD4D1C1)         // warm neutral
-        case .utilities: return Color(hex: 0x4682B4)     // steel blue
-        case .skills: return Color(hex: 0x0E8A7B)        // dark teal
+        case .communication: return Color(hex: 0x8B5DAA) // purple
+        case .productivity: return Color(hex: 0x4682B4)   // steel blue
+        case .development: return Color(hex: 0xC1421B)    // red
+        case .media: return Color(hex: 0xD4A017)          // gold
+        case .automation: return Color(hex: 0x2E8B57)     // sea green
+        case .webSocial: return Color(hex: 0xCD853F)      // peru/tan
+        case .knowledge: return Color(hex: 0x6B8E23)      // olive
+        case .integration: return Color(hex: 0x708090)    // slate gray
         }
     }
 
     var icon: String {
         switch self {
-        case .core: return "doc.text.fill"
-        case .devTools: return "hammer.fill"
         case .communication: return "bubble.left.fill"
-        case .daily: return "sun.max.fill"
-        case .utilities: return "wrench.fill"
-        case .skills: return "wand.and.stars"
+        case .productivity: return "checklist"
+        case .development: return "hammer.fill"
+        case .media: return "film.fill"
+        case .automation: return "bolt.fill"
+        case .webSocial: return "globe"
+        case .knowledge: return "book.fill"
+        case .integration: return "link"
+        }
+    }
+
+    var emoji: String {
+        switch self {
+        case .communication: return "\u{1F4AC}"
+        case .productivity: return "\u{1F4CB}"
+        case .development: return "\u{1F528}"
+        case .media: return "\u{1F3AC}"
+        case .automation: return "\u{26A1}"
+        case .webSocial: return "\u{1F310}"
+        case .knowledge: return "\u{1F4DA}"
+        case .integration: return "\u{1F517}"
         }
     }
 }
@@ -67,129 +87,127 @@ private struct CategoryGroup: Identifiable {
 
 // MARK: - Category Inference
 
-private func inferCategory(_ skill: SkillInfo) -> SkillCategory {
+func inferCategory(_ skill: SkillInfo) -> SkillCategory {
     let text = (skill.name + " " + skill.description).lowercased()
 
-    if text.contains("code") || text.contains("app builder") || text.contains("github")
-        || text.contains("developer") || text.contains("programming") || text.contains("debug") {
-        return .devTools
-    }
-    if text.contains("gmail") || text.contains("email") || text.contains("slack")
-        || text.contains("message") || text.contains("chat") || text.contains("mail") {
+    if text.contains("email") || text.contains("message") || text.contains("messaging")
+        || text.contains("chat") || text.contains("phone") || text.contains("phone call")
+        || text.contains("voice call") || text.contains("video call")
+        || text.contains("contact") || text.contains("notification") || text.contains("followup")
+        || text.contains("sms") || text.contains("slack") || text.contains("telegram") {
         return .communication
     }
-    if text.contains("weather") || text.contains("start the day") || text.contains("briefing")
-        || text.contains("morning") || text.contains("daily") || text.contains("news") {
-        return .daily
+
+    if text.contains("task") || text.contains("calendar") || text.contains("reminder")
+        || text.contains("schedule") || text.contains("document") || text.contains("playbook")
+        || text.contains("notion") {
+        return .productivity
     }
-    if text.contains("upgrade") || text.contains("summarize") || text.contains("convert")
-        || text.contains("gog") || text.contains("utility") || text.contains("transform") {
-        return .utilities
+
+    if text.contains("code") || text.contains("app builder") || text.contains("github")
+        || text.contains("developer") || text.contains("programming") || text.contains("debug")
+        || text.contains("typescript") || text.contains("frontend") || text.contains("subagent")
+        || text.contains("api mapping") || text.contains("cli discovery") {
+        return .development
     }
-    return .skills
+
+    if text.contains("browser") || text.contains("computer use") || text.contains("macos")
+        || text.contains("watcher") || text.contains("automat") {
+        return .automation
+    }
+
+    if text.contains("image") || text.contains("screen") || text.contains("media")
+        || text.contains("transcri") || text.contains("video") || text.contains("audio")
+        || text.contains("recording") {
+        return .media
+    }
+
+    if text.contains("x.com") || text.contains("twitter") || text.contains("public ingress")
+        || text.contains("influencer") || text.contains("doordash") || text.contains("amazon")
+        || text.contains("restaurant") {
+        return .webSocial
+    }
+
+    if text.contains("knowledge") || text.contains("weather") || text.contains("start the day")
+        || text.contains("skills catalog") || text.contains("self upgrade")
+        || text.contains("briefing") {
+        return .knowledge
+    }
+
+    if text.contains("oauth") || text.contains("setup") || text.contains("configure")
+        || text.contains("connect") || text.contains("webhook") {
+        return .integration
+    }
+
+    return .knowledge
 }
 
-// MARK: - Hexagon Shape
+// MARK: - Radial Node Types
 
-/// Pointy-top hexagon shape for the skill tree tiles.
-private struct HexagonShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let w = rect.width
-        let h = rect.height
-        let cx = rect.midX
-        let cy = rect.midY
-        // Pointy-top: vertices at 30-degree intervals starting from top
-        // For a pointy-top hex inscribed in the rect:
-        //   width = sqrt(3) * size, height = 2 * size
-        let size = min(w / sqrt(3), h / 2)
-        var path = Path()
-        for i in 0..<6 {
-            let angleDeg = 60.0 * Double(i) - 90.0
-            let angleRad = angleDeg * .pi / 180.0
-            let px = cx + size * CGFloat(cos(angleRad))
-            let py = cy + size * CGFloat(sin(angleRad))
-            if i == 0 {
-                path.move(to: CGPoint(x: px, y: py))
-            } else {
-                path.addLine(to: CGPoint(x: px, y: py))
+/// Represents a node positioned in the radial graph layout.
+private struct RadialNode: Identifiable {
+    let id: String
+    let position: CGPoint
+    let kind: RadialNodeKind
+}
+
+private enum RadialNodeKind {
+    case category(SkillCategory)
+    case skill(OrbitItem)
+}
+
+// MARK: - Edge Line
+
+/// Represents a connection line between two nodes.
+private struct EdgeLine: Identifiable {
+    let id: String
+    let from: CGPoint
+    let to: CGPoint
+    let color: Color
+}
+
+// MARK: - Category Node View
+
+private struct CategoryNodeView: View {
+    let category: SkillCategory
+    let size: CGFloat
+
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Image(systemName: category.icon)
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(category.color)
+
+            Text(category.displayName)
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.textPrimary)
+                .lineLimit(1)
+        }
+        .frame(width: size, height: size)
+        .background(
+            Circle()
+                .fill(category.color.opacity(isHovered ? 0.25 : 0.14))
+        )
+        .overlay(
+            Circle()
+                .stroke(category.color.opacity(isHovered ? 0.85 : 0.55), lineWidth: isHovered ? 2.5 : 2)
+        )
+        .clipShape(Circle())
+        .contentShape(Circle())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
             }
         }
-        path.closeSubpath()
-        return path
     }
 }
 
-// MARK: - Hex Coordinate
+// MARK: - Skill Node View
 
-/// Axial hex coordinate (q, r) for pointy-top hexagonal grid layout.
-private struct HexCoord: Hashable {
-    let q: Int
-    let r: Int
-
-    /// Convert axial coordinate to pixel position (pointy-top orientation).
-    func toPixel(size: CGFloat, gap: CGFloat) -> CGPoint {
-        let effectiveSize = size + gap / 2
-        let x = effectiveSize * (sqrt(3) * CGFloat(q) + sqrt(3) / 2 * CGFloat(r))
-        let y = effectiveSize * (3.0 / 2.0 * CGFloat(r))
-        return CGPoint(x: x, y: y)
-    }
-}
-
-/// Ring 1 positions (6 hexes immediately around center) for pointy-top hex grid.
-private let ring1Coords: [HexCoord] = [
-    HexCoord(q: 1, r: 0),
-    HexCoord(q: 0, r: 1),
-    HexCoord(q: -1, r: 1),
-    HexCoord(q: -1, r: 0),
-    HexCoord(q: 0, r: -1),
-    HexCoord(q: 1, r: -1),
-]
-
-/// Returns the axial hex neighbors adjacent to a given hex, filtered to exclude
-/// positions already in use and the center hex.
-private func neighborsOf(_ coord: HexCoord, excluding used: Set<HexCoord>) -> [HexCoord] {
-    let directions = [
-        HexCoord(q: 1, r: 0), HexCoord(q: 0, r: 1), HexCoord(q: -1, r: 1),
-        HexCoord(q: -1, r: 0), HexCoord(q: 0, r: -1), HexCoord(q: 1, r: -1),
-    ]
-    return directions.compactMap { dir in
-        let neighbor = HexCoord(q: coord.q + dir.q, r: coord.r + dir.r)
-        if used.contains(neighbor) || (neighbor.q == 0 && neighbor.r == 0) {
-            return nil
-        }
-        return neighbor
-    }
-}
-
-/// Computes the hex ring at a given distance from center.
-private func hexRing(radius: Int) -> [HexCoord] {
-    guard radius > 0 else { return [HexCoord(q: 0, r: 0)] }
-    let directions = [
-        HexCoord(q: 1, r: 0), HexCoord(q: 0, r: 1), HexCoord(q: -1, r: 1),
-        HexCoord(q: -1, r: 0), HexCoord(q: 0, r: -1), HexCoord(q: 1, r: -1),
-    ]
-    var results: [HexCoord] = []
-    // Start at the hex that is `radius` steps in direction 4 (q: 0, r: -1)
-    var current = HexCoord(q: 0, r: -radius)
-    for side in 0..<6 {
-        for _ in 0..<radius {
-            results.append(current)
-            current = HexCoord(
-                q: current.q + directions[side].q,
-                r: current.r + directions[side].r
-            )
-        }
-    }
-    return results
-}
-
-// MARK: - Hex Tile View (Leaf)
-
-private struct HexTileView: View {
-    let label: String
-    let icon: String
-    let emoji: String?
-    let color: Color
+private struct SkillNodeView: View {
+    let item: OrbitItem
     let size: CGFloat
     var onTap: (() -> Void)?
 
@@ -198,36 +216,34 @@ private struct HexTileView: View {
     private var isTappable: Bool { onTap != nil }
 
     var body: some View {
-        let hexWidth = sqrt(3) * size
-        let hexHeight = 2 * size
-
-        VStack(spacing: 3) {
-            if let emoji, !emoji.isEmpty {
+        VStack(spacing: 2) {
+            if let emoji = item.emoji, !emoji.isEmpty {
                 Text(emoji)
-                    .font(.system(size: 24))
+                    .font(.system(size: 18))
             } else {
-                Image(systemName: icon)
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundColor(color)
+                Image(systemName: item.icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(item.color)
             }
 
-            Text(label)
-                .font(VFont.caption)
+            Text(item.label)
+                .font(VFont.small)
                 .foregroundColor(VColor.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(maxWidth: hexWidth * 0.75)
+                .frame(maxWidth: size * 0.85)
         }
-        .frame(width: hexWidth, height: hexHeight)
+        .frame(width: size, height: size)
         .background(
-            HexagonShape()
-                .fill(color.opacity(isHovered ? 0.22 : 0.12))
+            Circle()
+                .fill(item.color.opacity(isHovered ? 0.20 : 0.10))
         )
         .overlay(
-            HexagonShape()
-                .stroke(color.opacity(isHovered ? 0.75 : 0.45), lineWidth: isHovered ? 2 : 1.5)
+            Circle()
+                .stroke(item.color.opacity(isHovered ? 0.70 : 0.40), lineWidth: isHovered ? 2 : 1.5)
         )
-        .contentShape(HexagonShape())
+        .clipShape(Circle())
+        .contentShape(Circle())
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -252,70 +268,17 @@ private struct HexTileView: View {
     }
 }
 
-// MARK: - Hub Hex Tile View
-
-private struct HubHexTileView: View {
-    let category: SkillCategory
-    let size: CGFloat
-
-    @State private var isHovered = false
-
-    var body: some View {
-        let hexWidth = sqrt(3) * size
-        let hexHeight = 2 * size
-
-        VStack(spacing: 3) {
-            Image(systemName: category.icon)
-                .font(.system(size: 26, weight: .bold))
-                .foregroundColor(category.color)
-
-            Text(category.displayName)
-                .font(VFont.bodyMedium)
-                .foregroundColor(VColor.textPrimary)
-                .lineLimit(1)
-        }
-        .padding(4)
-        .frame(width: hexWidth, height: hexHeight)
-        .background(
-            HexagonShape()
-                .fill(category.color.opacity(isHovered ? 0.30 : 0.20))
-        )
-        .overlay(
-            HexagonShape()
-                .stroke(category.color.opacity(isHovered ? 0.90 : 0.65), lineWidth: isHovered ? 3 : 2.5)
-        )
-        .contentShape(HexagonShape())
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovered = hovering
-            }
-        }
-    }
-}
-
 // MARK: - Animation Phase
 
 private enum AnimationPhase: Equatable {
     case hidden
+    case center
+    case categories
     case complete
 
-    var centerVisible: Bool { self == .complete }
-    var hubsVisible: Bool { self == .complete }
-    var leavesVisible: Bool { self == .complete }
-}
-
-// MARK: - Positioned Hex Item
-
-/// Pairs a hex coordinate with its content metadata for rendering.
-private struct PositionedHex: Identifiable {
-    let id: String
-    let coord: HexCoord
-    let kind: HexKind
-}
-
-private enum HexKind {
-    case hub(SkillCategory)
-    case leaf(OrbitItem)
+    var centerVisible: Bool { self != .hidden }
+    var categoriesVisible: Bool { self == .categories || self == .complete }
+    var skillsVisible: Bool { self == .complete }
 }
 
 // MARK: - Skill Popover View
@@ -325,7 +288,6 @@ private struct SkillPopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Emoji/icon + name row
             HStack(spacing: VSpacing.sm) {
                 if let emoji = item.emoji, !emoji.isEmpty {
                     Text(emoji)
@@ -342,7 +304,6 @@ private struct SkillPopoverView: View {
                     .lineLimit(2)
             }
 
-            // Description
             if let description = item.description, !description.isEmpty {
                 Text(description)
                     .font(VFont.caption)
@@ -350,7 +311,6 @@ private struct SkillPopoverView: View {
                     .lineLimit(4)
             }
 
-            // Category badge
             if let category = item.category {
                 Text(category.displayName)
                     .font(VFont.small)
@@ -377,8 +337,6 @@ private struct SkillPopoverView: View {
     }
 }
 
-// ViewportToolbarButton removed — using VIconButton from design system instead.
-
 // MARK: - Constellation View
 
 struct ConstellationView: View {
@@ -395,13 +353,14 @@ struct ConstellationView: View {
     @State private var zoomScale: CGFloat = 1.0
     @State private var baseZoomScale: CGFloat = 1.0
     @State private var selectedSkillItem: OrbitItem?
-    @State private var selectedHexCoord: HexCoord?
+    @State private var selectedNodeId: String?
 
-    // Uniform hex size for both positioning and rendering — hubs are
-    // visually distinguished via styling (heavier border, higher fill
-    // opacity, larger font) rather than a physically bigger hexagon.
-    private let hexSize: CGFloat = 62
-    private let hexGap: CGFloat = 4
+    // Radial layout constants
+    private let categoryRadius: CGFloat = 180
+    private let skillRadiusBase: CGFloat = 120
+    private let categoryNodeSize: CGFloat = 60
+    private let skillNodeSize: CGFloat = 44
+    private let centerAvatarSize: CGFloat = 80
 
     private var existingFiles: [WorkspaceFileNode] {
         workspaceFiles.filter { $0.exists }
@@ -411,9 +370,9 @@ struct ConstellationView: View {
         let fileItems = existingFiles.enumerated().map { idx, node in
             let path: String? = node.label.hasSuffix(".md") ? node.path : nil
             return OrbitItem(
-                id: "core-\(idx)", label: node.label, icon: "doc.text.fill",
-                emoji: nil, color: SkillCategory.core.color, filePath: path,
-                description: nil, category: nil
+                id: "workspace-\(idx)", label: node.label, icon: SkillCategory.knowledge.icon,
+                emoji: nil, color: SkillCategory.knowledge.color, filePath: path,
+                description: nil, category: .knowledge
             )
         }
 
@@ -434,13 +393,12 @@ struct ConstellationView: View {
             categoryMap[cat, default: []].append(item)
         }
 
-        var result: [CategoryGroup] = []
-
         if !fileItems.isEmpty {
-            result.append(CategoryGroup(category: .core, items: fileItems))
+            categoryMap[.knowledge, default: []].insert(contentsOf: fileItems, at: 0)
         }
 
-        for cat in SkillCategory.allCases where cat != .core {
+        var result: [CategoryGroup] = []
+        for cat in SkillCategory.allCases {
             if let items = categoryMap[cat], !items.isEmpty {
                 result.append(CategoryGroup(category: cat, items: items))
             }
@@ -449,96 +407,111 @@ struct ConstellationView: View {
         return result
     }
 
-    /// Computes hex positions for all hubs and their leaves, fanning outward from center.
-    private var positionedHexes: [PositionedHex] {
-        let layoutGroups = groups
-        var result: [PositionedHex] = []
-        var usedCoords: Set<HexCoord> = [HexCoord(q: 0, r: 0)]
+    /// Computes the angular span allocated to each category based on its skill count,
+    /// ensuring categories with more skills get proportionally more space to avoid overlaps.
+    private func categoryAngles(for groups: [CategoryGroup]) -> [(group: CategoryGroup, angle: CGFloat)] {
+        guard !groups.isEmpty else { return [] }
 
-        // Place category hubs in ring 1
-        let hubCount = min(layoutGroups.count, ring1Coords.count)
-        var hubCoords: [HexCoord] = []
+        let totalItems = groups.reduce(0) { $0 + max($1.items.count, 1) }
+        var result: [(group: CategoryGroup, angle: CGFloat)] = []
+        var currentAngle: CGFloat = -.pi / 2 // Start from top
 
-        for i in 0..<hubCount {
-            let coord = ring1Coords[i]
-            hubCoords.append(coord)
-            usedCoords.insert(coord)
-            result.append(PositionedHex(
-                id: "hub-\(layoutGroups[i].category.rawValue)",
-                coord: coord,
-                kind: .hub(layoutGroups[i].category)
-            ))
-        }
-
-        // Place leaf items in round-robin across categories so that no
-        // single category starves later ones of free neighbor positions.
-        // Each category maintains its own expansion frontier rooted at its hub.
-        struct CategoryState {
-            var leafQueue: [OrbitItem]
-            let hubCoord: HexCoord
-            var frontier: [HexCoord]
-        }
-
-        var states: [CategoryState] = (0..<hubCount).map { i in
-            CategoryState(
-                leafQueue: layoutGroups[i].items,
-                hubCoord: hubCoords[i],
-                frontier: [hubCoords[i]]
-            )
-        }
-
-        var anyPlaced = true
-        while anyPlaced {
-            anyPlaced = false
-            for idx in 0..<states.count {
-                if states[idx].leafQueue.isEmpty { continue }
-
-                // Expand frontier: find all unused neighbors of current frontier
-                var candidateCoords: [HexCoord] = []
-                for f in states[idx].frontier {
-                    let neighbors = neighborsOf(f, excluding: usedCoords)
-                    for n in neighbors where !candidateCoords.contains(where: { $0 == n }) {
-                        candidateCoords.append(n)
-                    }
-                }
-
-                // Sort candidates by distance from center to prefer outward expansion,
-                // then by distance from hub to keep the group clustered
-                let hub = states[idx].hubCoord
-                candidateCoords.sort { a, b in
-                    let distA = abs(a.q) + abs(a.r) + abs(a.q + a.r)
-                    let distB = abs(b.q) + abs(b.r) + abs(b.q + b.r)
-                    if distA != distB { return distA < distB }
-                    let hubDistA = abs(a.q - hub.q) + abs(a.r - hub.r)
-                    let hubDistB = abs(b.q - hub.q) + abs(b.r - hub.r)
-                    return hubDistA < hubDistB
-                }
-
-                // Place one leaf per category per round
-                if let coord = candidateCoords.first {
-                    let item = states[idx].leafQueue.removeFirst()
-                    usedCoords.insert(coord)
-                    states[idx].frontier.append(coord)
-                    result.append(PositionedHex(
-                        id: item.id,
-                        coord: coord,
-                        kind: .leaf(item)
-                    ))
-                    anyPlaced = true
-                }
-            }
+        for group in groups {
+            let weight = CGFloat(max(group.items.count, 1)) / CGFloat(totalItems)
+            let sectorAngle = weight * 2 * .pi
+            let midAngle = currentAngle + sectorAngle / 2
+            result.append((group: group, angle: midAngle))
+            currentAngle += sectorAngle
         }
 
         return result
     }
 
-    /// Computes zoom and pan to fit all hexes in the viewport with padding.
-    private func fitAll(viewSize: CGSize) {
-        let hexes = positionedHexes
+    /// Builds the full set of radial nodes and edge lines for the graph.
+    private func buildGraph(center: CGPoint) -> (nodes: [RadialNode], edges: [EdgeLine]) {
+        let layoutGroups = groups
+        let angles = categoryAngles(for: layoutGroups)
+        var nodes: [RadialNode] = []
+        var edges: [EdgeLine] = []
 
-        // When no skills/files are loaded the center avatar is still rendered.
-        // Reset to default viewport so the user can recover after drag/zoom.
-        guard !hexes.isEmpty else {
+        for entry in angles {
+            let group = entry.group
+            let angle = entry.angle
+
+            // Category node position on the first ring
+            let catX = center.x + categoryRadius * cos(angle)
+            let catY = center.y + categoryRadius * sin(angle)
+            let catPos = CGPoint(x: catX, y: catY)
+
+            nodes.append(RadialNode(
+                id: "cat-\(group.category.rawValue)",
+                position: catPos,
+                kind: .category(group.category)
+            ))
+
+            // Edge from center to category
+            edges.append(EdgeLine(
+                id: "edge-center-\(group.category.rawValue)",
+                from: center,
+                to: catPos,
+                color: group.category.color
+            ))
+
+            // Skill nodes fanned around their parent category
+            let itemCount = group.items.count
+            guard itemCount > 0 else { continue }
+
+            // Calculate the angular sector this category owns
+            let totalItems = layoutGroups.reduce(0) { $0 + max($1.items.count, 1) }
+            let sectorWeight = CGFloat(max(itemCount, 1)) / CGFloat(totalItems)
+            let sectorAngle = sectorWeight * 2 * .pi
+
+            // Fan spread: use most of the sector but leave some padding
+            let fanSpread = min(sectorAngle * 0.75, CGFloat(itemCount - 1) * 0.35 + 0.1)
+
+            // Determine skill radius — push outward slightly for larger groups
+            let skillRadius = skillRadiusBase + CGFloat(min(itemCount, 8)) * 5
+
+            for (skillIdx, item) in group.items.enumerated() {
+                let skillAngle: CGFloat
+                if itemCount == 1 {
+                    // Single skill: place directly outward from category
+                    skillAngle = angle
+                } else {
+                    // Distribute evenly within the fan
+                    let t = CGFloat(skillIdx) / CGFloat(itemCount - 1) - 0.5
+                    skillAngle = angle + t * fanSpread
+                }
+
+                let skillX = catX + skillRadius * cos(skillAngle)
+                let skillY = catY + skillRadius * sin(skillAngle)
+                let skillPos = CGPoint(x: skillX, y: skillY)
+
+                nodes.append(RadialNode(
+                    id: item.id,
+                    position: skillPos,
+                    kind: .skill(item)
+                ))
+
+                // Edge from category to skill
+                edges.append(EdgeLine(
+                    id: "edge-\(group.category.rawValue)-\(skillIdx)",
+                    from: catPos,
+                    to: skillPos,
+                    color: group.category.color
+                ))
+            }
+        }
+
+        return (nodes, edges)
+    }
+
+    /// Computes zoom and pan to fit all nodes in the viewport with padding.
+    private func fitAll(viewSize: CGSize) {
+        let center = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        let graph = buildGraph(center: center)
+
+        guard !graph.nodes.isEmpty else {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
                 zoomScale = 1.0
                 baseZoomScale = 1.0
@@ -548,27 +521,25 @@ struct ConstellationView: View {
             return
         }
 
-        // Compute bounding box of all hex pixel positions
         var minX = CGFloat.infinity
         var maxX = -CGFloat.infinity
         var minY = CGFloat.infinity
         var maxY = -CGFloat.infinity
 
-        for hex in hexes {
-            let pos = hex.coord.toPixel(size: hexSize, gap: hexGap)
-            minX = min(minX, pos.x)
-            maxX = max(maxX, pos.x)
-            minY = min(minY, pos.y)
-            maxY = max(maxY, pos.y)
+        for node in graph.nodes {
+            minX = min(minX, node.position.x)
+            maxX = max(maxX, node.position.x)
+            minY = min(minY, node.position.y)
+            maxY = max(maxY, node.position.y)
         }
-        // Also include center hex at (0,0)
-        minX = min(minX, 0)
-        maxX = max(maxX, 0)
-        minY = min(minY, 0)
-        maxY = max(maxY, 0)
 
-        // Add padding around the bounding box
-        let padding = hexSize * 2
+        // Include center point
+        minX = min(minX, center.x)
+        maxX = max(maxX, center.x)
+        minY = min(minY, center.y)
+        maxY = max(maxY, center.y)
+
+        let padding: CGFloat = 80
         let contentWidth = (maxX - minX) + padding * 2
         let contentHeight = (maxY - minY) + padding * 2
 
@@ -577,16 +548,10 @@ struct ConstellationView: View {
         let fitZoom = min(viewSize.width / contentWidth, viewSize.height / contentHeight)
         let clampedZoom = max(0.4, min(3.0, fitZoom))
 
-        // Center of the bounding box in canvas-local coords (relative to
-        // the canvas center, which is at viewSize/2). The hex pixel positions
-        // are already relative to the canvas center, so the content centroid
-        // offset is just the midpoint of the bounding box.
-        let contentCenterX = (minX + maxX) / 2
-        let contentCenterY = (minY + maxY) / 2
+        // Content centroid relative to view center
+        let contentCenterX = (minX + maxX) / 2 - center.x
+        let contentCenterY = (minY + maxY) / 2 - center.y
 
-        // Pan offset to re-center the content centroid in the viewport.
-        // After scaling, the centroid is at (contentCenter * zoom) from the
-        // view center, so we pan by the negative of that.
         let targetPanX = -contentCenterX * clampedZoom
         let targetPanY = -contentCenterY * clampedZoom
 
@@ -609,33 +574,33 @@ struct ConstellationView: View {
                     .scaleEffect(zoomScale)
                     .offset(totalOffset)
 
-                // Dismiss layer: clear tap target behind the popover
+                // Dismiss layer for popover
                 if selectedSkillItem != nil {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture {
                             withAnimation(VAnimation.fast) {
                                 selectedSkillItem = nil
-                                selectedHexCoord = nil
+                                selectedNodeId = nil
                             }
                         }
                 }
 
-                // Skill popover overlay — recompute pixel position from the
-                // stored hex coord each render cycle so the popover tracks the
-                // correct hex even after window resize or geometry changes.
-                if let selected = selectedSkillItem, let coord = selectedHexCoord {
-                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height * 0.5)
-                    let pixelPos = coord.toPixel(size: hexSize, gap: hexGap)
-                    let anchorInCanvas = CGPoint(x: canvasCenter.x + pixelPos.x, y: canvasCenter.y + pixelPos.y)
+                // Skill popover overlay — derive position from current layout so it
+                // tracks the node even after panel resize or recenter.
+                if let selected = selectedSkillItem, let nodeId = selectedNodeId {
+                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    let currentGraph = buildGraph(center: canvasCenter)
 
-                    let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let scaledX = viewCenter.x + (anchorInCanvas.x - viewCenter.x) * zoomScale + totalOffset.width
-                    let scaledY = viewCenter.y + (anchorInCanvas.y - viewCenter.y) * zoomScale + totalOffset.height - 80
+                    if let nodePos = currentGraph.nodes.first(where: { $0.id == nodeId })?.position {
+                        let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                        let scaledX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
+                        let scaledY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
 
-                    SkillPopoverView(item: selected)
-                        .position(x: scaledX, y: scaledY)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                        SkillPopoverView(item: selected)
+                            .position(x: scaledX, y: scaledY)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
                 }
             }
                 .frame(width: proxy.size.width, height: proxy.size.height)
@@ -673,11 +638,24 @@ struct ConstellationView: View {
                         }
                 )
                 .onAppear {
+                    // Staggered animation: center -> categories -> skills
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        phase = .complete
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                            phase = .center
+                        }
                     }
-                    // Auto-fit all hexes into the viewport on initial load
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                            phase = .categories
+                        }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                            phase = .complete
+                        }
+                    }
+                    // Auto-fit into viewport after animation settles
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
                         fitAll(viewSize: proxy.size)
                     }
                 }
@@ -686,7 +664,7 @@ struct ConstellationView: View {
                     if selectedSkillItem != nil {
                         withAnimation(VAnimation.fast) {
                             selectedSkillItem = nil
-                            selectedHexCoord = nil
+                            selectedNodeId = nil
                         }
                         return .handled
                     }
@@ -751,8 +729,8 @@ struct ConstellationView: View {
 
     @ViewBuilder
     private func canvas(size: CGSize) -> some View {
-        let center = CGPoint(x: size.width / 2, y: size.height * 0.5)
-        let hexes = positionedHexes
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let graph = buildGraph(center: center)
 
         ZStack {
             // Background radial glow
@@ -763,30 +741,40 @@ struct ConstellationView: View {
                 endRadius: min(size.width, size.height) * 0.5
             )
 
-            // Hex tiles
-            ForEach(Array(hexes.enumerated()), id: \.element.id) { idx, hex in
-                let pixelPos = hex.coord.toPixel(size: hexSize, gap: hexGap)
-                let position = CGPoint(x: center.x + pixelPos.x, y: center.y + pixelPos.y)
+            // Edge lines drawn first (behind nodes)
+            Canvas { context, _ in
+                for edge in graph.edges {
+                    var path = Path()
+                    path.move(to: edge.from)
+                    path.addLine(to: edge.to)
+                    context.stroke(
+                        path,
+                        with: .color(edge.color.opacity(phase.categoriesVisible ? 0.25 : 0.0)),
+                        lineWidth: 1.5
+                    )
+                }
+            }
+            .allowsHitTesting(false)
+            .animation(.easeInOut(duration: 0.4), value: phase)
 
-                switch hex.kind {
-                case .hub(let category):
-                    HubHexTileView(category: category, size: hexSize)
-                        .position(position)
-                        .scaleEffect(phase.hubsVisible ? 1 : 0.3)
-                        .opacity(phase.hubsVisible ? 1 : 0)
+            // Category and skill nodes
+            ForEach(Array(graph.nodes.enumerated()), id: \.element.id) { idx, node in
+                switch node.kind {
+                case .category(let category):
+                    CategoryNodeView(category: category, size: categoryNodeSize)
+                        .position(node.position)
+                        .scaleEffect(phase.categoriesVisible ? 1 : 0.3)
+                        .opacity(phase.categoriesVisible ? 1 : 0)
                         .animation(
                             .spring(response: 0.45, dampingFraction: 0.7)
-                                .delay(0.12 + Double(idx) * 0.04),
+                                .delay(Double(idx) * 0.04),
                             value: phase
                         )
 
-                case .leaf(let item):
-                    HexTileView(
-                        label: item.label,
-                        icon: item.icon,
-                        emoji: item.emoji,
-                        color: item.color,
-                        size: hexSize,
+                case .skill(let item):
+                    SkillNodeView(
+                        item: item,
+                        size: skillNodeSize,
                         onTap: item.filePath != nil
                             ? { onFileSelected?(item.filePath!) }
                             : item.description != nil
@@ -794,21 +782,21 @@ struct ConstellationView: View {
                                     withAnimation(VAnimation.fast) {
                                         if selectedSkillItem?.id == item.id {
                                             selectedSkillItem = nil
-                                            selectedHexCoord = nil
+                                            selectedNodeId = nil
                                         } else {
                                             selectedSkillItem = item
-                                            selectedHexCoord = hex.coord
+                                            selectedNodeId = node.id
                                         }
                                     }
                                 }
                                 : nil
                     )
-                    .position(position)
-                    .scaleEffect(phase.leavesVisible ? 1 : 0.4)
-                    .opacity(phase.leavesVisible ? 1 : 0)
+                    .position(node.position)
+                    .scaleEffect(phase.skillsVisible ? 1 : 0.4)
+                    .opacity(phase.skillsVisible ? 1 : 0)
                     .animation(
                         .spring(response: 0.5, dampingFraction: 0.7)
-                            .delay(0.20 + Double(idx) * 0.03),
+                            .delay(0.08 + Double(idx) * 0.02),
                         value: phase
                     )
                 }
@@ -816,16 +804,16 @@ struct ConstellationView: View {
 
             // Center avatar on top of everything
             DinoFaceView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
-                .frame(width: 80, height: 80)
+                .frame(width: centerAvatarSize, height: centerAvatarSize)
                 .background(
-                    HexagonShape()
+                    Circle()
                         .fill(VColor.background.opacity(0.9))
-                        .frame(width: sqrt(3) * hexSize, height: 2 * hexSize)
+                        .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
                 )
                 .overlay(
-                    HexagonShape()
+                    Circle()
                         .stroke(Forest._500.opacity(0.4), lineWidth: 2)
-                        .frame(width: sqrt(3) * hexSize, height: 2 * hexSize)
+                        .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
                 )
                 .allowsHitTesting(false)
                 .position(center)
