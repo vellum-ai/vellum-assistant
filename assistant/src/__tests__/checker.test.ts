@@ -2724,11 +2724,26 @@ describe('Permission Checker', () => {
     );
 
     test('getDefaultRuleTemplates has no extra rules when extraDirs is empty', () => {
-      // Default testConfig has no skills property → getConfig returns default
-      // with extraDirs: []
       const templates = getDefaultRuleTemplates();
       const extraRules = templates.filter((t) => t.id.includes('extra-'));
       expect(extraRules.length).toBe(0);
+    });
+
+    test('getDefaultRuleTemplates tolerates partial config mocks', () => {
+      const originalSkills = testConfig.skills;
+      const originalSandbox = testConfig.sandbox;
+      try {
+        testConfig.skills = {} as any;
+        testConfig.sandbox = {} as any;
+
+        const templates = getDefaultRuleTemplates();
+        expect(Array.isArray(templates)).toBe(true);
+        expect(templates.some((t) => t.id.includes('extra-'))).toBe(false);
+        expect(templates.some((t) => t.id === 'default:allow-bash-global')).toBe(false);
+      } finally {
+        testConfig.skills = originalSkills;
+        testConfig.sandbox = originalSandbox;
+      }
     });
   });
 

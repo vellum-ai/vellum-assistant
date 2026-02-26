@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -94,15 +94,26 @@ mock.module('../version.js', () => ({
 
 const { syncUpdateBulletinOnStartup } = await import('../config/update-bulletin.js');
 
+// The real template is now comment-only (no materialized content). Tests that
+// exercise materialization need a template with real content, so we swap in a
+// test template before each test and restore the original afterwards.
+const TEMPLATE_PATH = join(import.meta.dirname, '..', 'config', 'templates', 'UPDATES.md');
+const originalTemplate = readFileSync(TEMPLATE_PATH, 'utf-8');
+const TEST_TEMPLATE = '## What\'s New\n\nTest release notes.\n';
+
 describe('syncUpdateBulletinOnStartup', () => {
   beforeEach(() => {
     store.clear();
     tempDir = join(tmpdir(), `update-bulletin-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(tempDir, { recursive: true });
+    // Write a test template with real content so materialization proceeds
+    writeFileSync(TEMPLATE_PATH, TEST_TEMPLATE, 'utf-8');
   });
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+    // Restore the original comment-only template
+    writeFileSync(TEMPLATE_PATH, originalTemplate, 'utf-8');
   });
 
   it('creates workspace file on first eligible run', () => {
@@ -255,6 +266,40 @@ describe('syncUpdateBulletinOnStartup', () => {
 
     const entries = readdirSync(tempDir);
     const tmpFiles = entries.filter((e) => e.includes('.tmp.'));
+    expect(tmpFiles).toHaveLength(0);
+  });
+
+  it('skips materialization when template is comment-only', () => {
+    // Restore the real comment-only template for this test
+    writeFileSync(TEMPLATE_PATH, originalTemplate, 'utf-8');
+
+    const workspacePath = join(tempDir, 'UPDATES.md');
+    syncUpdateBulletinOnStartup();
+
+    expect(existsSync(workspacePath)).toBe(false);
+  });
+
+  it('preserves existing file when atomic write fails', () => {
+    const workspacePath = join(tempDir, 'UPDATES.md');
+    const originalContent = '<!-- vellum-update-release:0.9.0 -->\nOriginal content.\n';
+    writeFileSync(workspacePath, originalContent, 'utf-8');
+
+    // Make tempDir read-only so the temp file creation fails.
+    // On macOS/Linux, 0o555 prevents new file creation inside the directory.
+    chmodSync(tempDir, 0o555);
+    try {
+      expect(() => syncUpdateBulletinOnStartup()).toThrow();
+    } finally {
+      chmodSync(tempDir, 0o755);
+    }
+
+    // Original content should be preserved (atomic write never renamed over it)
+    const content = readFileSync(workspacePath, 'utf-8');
+    expect(content).toBe(originalContent);
+
+    // No temp file leftovers
+    const entries = readdirSync(tempDir);
+    const tmpFiles = entries.filter((e: string) => e.includes('.tmp.'));
     expect(tmpFiles).toHaveLength(0);
   });
 });

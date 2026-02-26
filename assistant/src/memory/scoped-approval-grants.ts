@@ -47,6 +47,13 @@ export interface ScopedApprovalGrant {
 }
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Max CAS retry attempts when a concurrent consumer steals the selected candidate. */
+const MAX_CAS_RETRIES = 3;
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -213,6 +220,11 @@ export interface ConsumeByToolSignatureResult {
  * All non-null scope fields on the grant must match the provided context.
  * This is enforced via SQL conditions that check: either the grant field is
  * NULL (wildcard), or it equals the provided value.
+ *
+ * If a CAS contention miss occurs (another consumer races and wins the
+ * selected candidate), re-selects and retries up to {@link MAX_CAS_RETRIES}
+ * times before giving up. This prevents false denials when multiple matching
+ * grants exist but a concurrent consumer steals the first pick.
  */
 export function consumeScopedApprovalGrantByToolSignature(
   params: ConsumeByToolSignatureParams,
@@ -262,54 +274,60 @@ export function consumeScopedApprovalGrantByToolSignature(
     conditions.push(sql`${scopedApprovalGrants.requesterExternalUserId} IS NULL`);
   }
 
-  // Select a single matching grant to consume (prefer most specific: fewest NULL scope fields).
-  // This avoids burning multiple grants when a wildcard grant and a specific grant both match.
-  const candidate = db
-    .select({ id: scopedApprovalGrants.id })
-    .from(scopedApprovalGrants)
-    .where(and(...conditions))
-    .orderBy(
-      // Prefer grants with more non-null context fields (most specific first)
-      sql`(CASE WHEN ${scopedApprovalGrants.executionChannel} IS NOT NULL THEN 1 ELSE 0 END
+  const specificityOrder = sql`(CASE WHEN ${scopedApprovalGrants.executionChannel} IS NOT NULL THEN 1 ELSE 0 END
          + CASE WHEN ${scopedApprovalGrants.conversationId} IS NOT NULL THEN 1 ELSE 0 END
          + CASE WHEN ${scopedApprovalGrants.callSessionId} IS NOT NULL THEN 1 ELSE 0 END
-         + CASE WHEN ${scopedApprovalGrants.requesterExternalUserId} IS NOT NULL THEN 1 ELSE 0 END) DESC`,
-    )
-    .limit(1)
-    .get();
+         + CASE WHEN ${scopedApprovalGrants.requesterExternalUserId} IS NOT NULL THEN 1 ELSE 0 END) DESC`;
 
-  if (!candidate) {
-    return { ok: false, grant: null };
+  // Retry loop: if CAS fails because another consumer stole our candidate,
+  // re-select and try again — another matching active grant may still exist.
+  for (let attempt = 0; attempt <= MAX_CAS_RETRIES; attempt++) {
+    // Select a single matching grant to consume (prefer most specific: fewest NULL scope fields).
+    // This avoids burning multiple grants when a wildcard grant and a specific grant both match.
+    const candidate = db
+      .select({ id: scopedApprovalGrants.id })
+      .from(scopedApprovalGrants)
+      .where(and(...conditions))
+      .orderBy(specificityOrder)
+      .limit(1)
+      .get();
+
+    if (!candidate) {
+      return { ok: false, grant: null };
+    }
+
+    db.update(scopedApprovalGrants)
+      .set({
+        status: 'consumed',
+        consumedAt: currentTime,
+        consumedByRequestId: params.consumingRequestId,
+        updatedAt: currentTime,
+      })
+      .where(
+        and(
+          eq(scopedApprovalGrants.id, candidate.id),
+          eq(scopedApprovalGrants.status, 'active'),
+        ),
+      )
+      .run();
+
+    if (rawChanges() === 0) {
+      // CAS failed — another consumer raced and won this candidate; retry with next match
+      continue;
+    }
+
+    // Fetch the consumed grant
+    const row = db
+      .select()
+      .from(scopedApprovalGrants)
+      .where(eq(scopedApprovalGrants.id, candidate.id))
+      .get();
+
+    return { ok: true, grant: row ? rowToGrant(row) : null };
   }
 
-  db.update(scopedApprovalGrants)
-    .set({
-      status: 'consumed',
-      consumedAt: currentTime,
-      consumedByRequestId: params.consumingRequestId,
-      updatedAt: currentTime,
-    })
-    .where(
-      and(
-        eq(scopedApprovalGrants.id, candidate.id),
-        eq(scopedApprovalGrants.status, 'active'),
-      ),
-    )
-    .run();
-
-  if (rawChanges() === 0) {
-    // CAS failed — another consumer raced and won
-    return { ok: false, grant: null };
-  }
-
-  // Fetch the consumed grant
-  const row = db
-    .select()
-    .from(scopedApprovalGrants)
-    .where(eq(scopedApprovalGrants.id, candidate.id))
-    .get();
-
-  return { ok: true, grant: row ? rowToGrant(row) : null };
+  // All retry attempts exhausted — every candidate was stolen by concurrent consumers
+  return { ok: false, grant: null };
 }
 
 // ---------------------------------------------------------------------------
