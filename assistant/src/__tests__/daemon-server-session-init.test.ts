@@ -1,6 +1,7 @@
 import type * as net from 'node:net';
 
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import * as pendingInteractions from '../runtime/pending-interactions.js';
 
 interface MockMemoryPolicy {
   scopeId: string;
@@ -33,9 +34,13 @@ class MockSession {
   public readonly conversationId: string;
   public memoryPolicy: MockMemoryPolicy;
   public updateClientCalls = 0;
+  public lastUpdateClientHasNoClient: boolean | undefined;
+  public lastUpdateClientSender: ((msg: Record<string, unknown>) => void) | undefined;
+  public lastRunAgentLoopOptions: { skipPreMessageRollback?: boolean; isInteractive?: boolean } | undefined;
   public setSandboxOverrideCalls = 0;
   private stale = false;
   private processing = false;
+  public guardianContext: Record<string, unknown> | null = null;
 
   constructor(
     conversationId: string,
@@ -55,8 +60,10 @@ class MockSession {
 
   async loadFromDb(): Promise<void> {}
 
-  updateClient(): void {
+  updateClient(sender?: (msg: Record<string, unknown>) => void, hasNoClient = false): void {
     this.updateClientCalls += 1;
+    this.lastUpdateClientSender = sender;
+    this.lastUpdateClientHasNoClient = hasNoClient;
   }
 
   setSandboxOverride(): void {
@@ -88,6 +95,49 @@ class MockSession {
   handleConfirmationResponse(): void {}
 
   async processMessage(): Promise<void> {}
+
+  setAssistantId(): void {}
+
+  setGuardianContext(ctx: Record<string, unknown> | null): void {
+    this.guardianContext = ctx;
+  }
+
+  setChannelCapabilities(): void {}
+
+  setCommandIntent(): void {}
+
+  setTurnChannelContext(): void {}
+
+  getTurnChannelContext(): null {
+    return null;
+  }
+
+  setTurnInterfaceContext(): void {}
+
+  getTurnInterfaceContext(): null {
+    return null;
+  }
+
+  persistUserMessage(): string {
+    this.processing = true;
+    return 'msg-1';
+  }
+
+  async runAgentLoop(
+    _content: string,
+    _messageId: string,
+    _onEvent: (msg: Record<string, unknown>) => void,
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
+  ): Promise<void> {
+    this.lastRunAgentLoopOptions = options;
+    this.processing = false;
+  }
+
+  setPreactivatedSkillIds(): void {}
+
+  getMessages(): Array<Record<string, unknown>> {
+    return [];
+  }
 
   undo(): number {
     return 1;
@@ -141,6 +191,9 @@ mock.module('../config/loader.js', () => ({
     rateLimit: {
       maxRequestsPerMinute: 0,
       maxTokensPerSession: 0,
+    },
+    secretDetection: {
+      enabled: false,
     },
   }),
   loadRawConfig: () => ({}),
@@ -236,6 +289,7 @@ describe('DaemonServer initial session hydration', () => {
     lastCreatedWorkingDir = undefined;
     lastCreatedMemoryPolicy = undefined;
     lastCreateConversationArgs = undefined;
+    pendingInteractions.clear();
   });
 
   test('hydrates latest session before session_info so undo works after reconnect', async () => {
@@ -524,5 +578,42 @@ describe('DaemonServer initial session hydration', () => {
       includeDefaultFallback: true,
       strictSideEffects: true,
     });
+  });
+
+  test('interactive HTTP processing marks no-socket sessions interactive and registers confirmation prompts', async () => {
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+
+    await server.processMessage(
+      conversation.id,
+      'send me a notification',
+      undefined,
+      { isInteractive: true },
+      'telegram',
+      'telegram',
+    );
+
+    const session = internal.sessions.get(conversation.id);
+    expect(session).toBeDefined();
+    expect(session!.lastRunAgentLoopOptions?.isInteractive).toBe(true);
+    expect(session!.lastUpdateClientHasNoClient).toBe(false);
+
+    const sender = session!.lastUpdateClientSender;
+    expect(typeof sender).toBe('function');
+    sender!({
+      type: 'confirmation_request',
+      requestId: 'req-interactive-1',
+      toolName: 'notify_desktop',
+      input: { title: 'Weather' },
+      riskLevel: 'high',
+      allowlistOptions: [{ label: 'notify_desktop:*', description: 'notify_desktop:*', pattern: 'notify_desktop:*' }],
+      scopeOptions: [{ label: 'everywhere', scope: 'everywhere' }],
+      persistentDecisionsAllowed: true,
+    });
+
+    const interaction = pendingInteractions.get('req-interactive-1');
+    expect(interaction).toBeDefined();
+    expect(interaction?.kind).toBe('confirmation');
+    expect(interaction?.conversationId).toBe(conversation.id);
   });
 });
