@@ -123,7 +123,7 @@ export class PermissionPrompter {
     for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
       this.pending.delete(requestId);
-      pending.resolve({ decision: 'deny', decisionContext: 'auto_denied_new_user_message' });
+      pending.resolve({ decision: 'deny', decisionContext: 'The user sent a new message instead of responding to this permission prompt. Stop what you are doing and respond to the user\'s new message. Do NOT retry this tool or request permission again until the user asks you to.' });
     }
   }
 
