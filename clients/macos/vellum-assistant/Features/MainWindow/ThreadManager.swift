@@ -398,6 +398,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // SwiftUI's onChange cycle calls selectThread with the same id).
         if id != previousActiveId, let sessionId = thread.sessionId {
             emitConversationSeenSignal(conversationId: sessionId)
+            if let idx = threads.firstIndex(where: { $0.id == id }) {
+                threads[idx].hasUnseenLatestAssistantMessage = false
+            }
         }
     }
 
@@ -653,6 +656,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
            let thread = threads.first(where: { $0.id == id }),
            let sessionId = thread.sessionId {
             emitConversationSeenSignal(conversationId: sessionId)
+            if let idx = threads.firstIndex(where: { $0.id == id }) {
+                threads[idx].hasUnseenLatestAssistantMessage = false
+            }
         }
     }
 

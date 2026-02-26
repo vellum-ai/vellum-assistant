@@ -27,6 +27,7 @@ export function handleListConversationAttention(url: URL): Response {
     assistantId: 'self',
     state: stateParam as AttentionFilterState,
     sourceChannel: channel,
+    source: sourceParam !== 'all' ? sourceParam : undefined,
     limit: limit + 1, // fetch one extra to determine hasMore
     before,
   });
@@ -34,7 +35,7 @@ export function handleListConversationAttention(url: URL): Response {
   const hasMore = attentionStates.length > limit;
   const pageStates = hasMore ? attentionStates.slice(0, limit) : attentionStates;
 
-  // Batch-fetch conversation metadata for title and source filtering
+  // Batch-fetch conversation metadata for title enrichment
   const conversationIds = pageStates.map((s) => s.conversationId);
   const conversationMap = new Map<string, { title: string | null; source: string }>();
   for (const id of conversationIds) {
@@ -44,7 +45,7 @@ export function handleListConversationAttention(url: URL): Response {
     }
   }
 
-  let results = pageStates.map((attn) => {
+  const results = pageStates.map((attn) => {
     const conv = conversationMap.get(attn.conversationId);
     const convSource = conv?.source ?? 'user';
     const hasUnseen = attn.latestAssistantMessageAt !== null &&
@@ -68,11 +69,6 @@ export function handleListConversationAttention(url: URL): Response {
       lastSeenEvidenceText: attn.lastSeenEvidenceText ? truncate(attn.lastSeenEvidenceText, 200, '') : null,
     };
   });
-
-  // Apply source filter client-side (attention store doesn't know about conversation source)
-  if (sourceParam !== 'all') {
-    results = results.filter((r) => r.source === sourceParam);
-  }
 
   return Response.json({
     conversations: results,
