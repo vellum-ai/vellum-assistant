@@ -3142,3 +3142,82 @@ exports[`IPC message snapshots ServerMessage types heartbeat_checklist_write_res
   "type": "heartbeat_checklist_write_response",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types parental_control_profile_get serializes to expected JSON 1`] = `
+{
+  "type": "parental_control_profile_get",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types parental_control_profile_switch serializes to expected JSON 1`] = `
+{
+  "pin": "123456",
+  "targetProfile": "parental",
+  "type": "parental_control_profile_switch",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types parental_control_allowlist_get serializes to expected JSON 1`] = `
+{
+  "type": "parental_control_allowlist_get",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types parental_control_allowlist_update serializes to expected JSON 1`] = `
+{
+  "allowedApps": [
+    "Safari",
+    "Calculator",
+  ],
+  "allowedWidgets": [
+    "weather",
+    "clock",
+  ],
+  "pin": "123456",
+  "type": "parental_control_allowlist_update",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types parental_control_profile_get_response serializes to expected JSON 1`] = `
+{
+  "activeProfile": "parental",
+  "type": "parental_control_profile_get_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types parental_control_profile_switch_response serializes to expected JSON 1`] = `
+{
+  "activeProfile": "parental",
+  "success": true,
+  "type": "parental_control_profile_switch_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types parental_control_allowlist_get_response serializes to expected JSON 1`] = `
+{
+  "allowedApps": [
+    "Safari",
+    "Calculator",
+  ],
+  "allowedWidgets": [
+    "weather",
+    "clock",
+  ],
+  "type": "parental_control_allowlist_get_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types parental_control_allowlist_update_response serializes to expected JSON 1`] = `
+{
+  "allowedApps": [
+    "Safari",
+    "Calculator",
+  ],
+  "allowedWidgets": [
+    "weather",
+    "clock",
+  ],
+  "success": true,
+  "type": "parental_control_allowlist_update_response",
+}
+`;

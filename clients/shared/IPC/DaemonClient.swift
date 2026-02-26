@@ -365,6 +365,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `parental_control_profile_switch_response` message.
     public var onParentalControlProfileSwitchResponse: ((ParentalControlProfileSwitchResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `parental_control_allowlist_get_response` message.
+    public var onParentalControlAllowlistGetResponse: ((ParentalControlAllowlistGetResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `parental_control_allowlist_update_response` message.
+    public var onParentalControlAllowlistUpdateResponse: ((ParentalControlAllowlistUpdateResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `twitter_integration_config_response` message.
     public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
 
@@ -1443,6 +1449,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Switch the active profile. PIN is required when switching to "parental" and a PIN has been set.
     public func sendParentalControlProfileSwitch(targetProfile: String, pin: String?) throws {
         try send(ParentalControlProfileSwitchRequestMessage(targetProfile: targetProfile, pin: pin))
+    }
+
+    /// Request the current app and widget allowlists.
+    public func sendParentalControlAllowlistGet() throws {
+        try send(ParentalControlAllowlistGetRequestMessage())
+    }
+
+    /// Update the app and/or widget allowlist. PIN is required when parental controls are enabled.
+    public func sendParentalControlAllowlistUpdate(pin: String? = nil, allowedApps: [String]? = nil, allowedWidgets: [String]? = nil) throws {
+        try send(ParentalControlAllowlistUpdateRequestMessage(pin: pin, allowedApps: allowedApps, allowedWidgets: allowedWidgets))
     }
 
     // MARK: - Heartbeat

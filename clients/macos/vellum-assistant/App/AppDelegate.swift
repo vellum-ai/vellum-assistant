@@ -2184,7 +2184,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     /// Opens the settings panel in the main window.
     /// All entry points (Cmd+,, menu bar, onboarding skip, task input) use this.
+    /// When parental controls are active and the child profile is selected, the
+    /// action is blocked and an alert is shown instead.
     @objc public func showSettingsWindow(_ sender: Any?) {
+        let store = services.settingsStore
+        if store.isParentalEnabled && store.activeProfile == "child" {
+            let alert = NSAlert()
+            alert.messageText = "Settings are managed by your parent"
+            alert.informativeText = "Ask your parent to switch to their profile to change settings."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
         showMainWindow()
         mainWindow?.windowState.selection = .panel(.settings)
     }

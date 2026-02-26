@@ -266,6 +266,10 @@ extension DaemonClient {
             onParentalControlProfileGetResponse?(msg)
         case .parentalControlProfileSwitchResponse(let msg):
             onParentalControlProfileSwitchResponse?(msg)
+        case .parentalControlAllowlistGetResponse(let msg):
+            onParentalControlAllowlistGetResponse?(msg)
+        case .parentalControlAllowlistUpdateResponse(let msg):
+            onParentalControlAllowlistUpdateResponse?(msg)
         case .pairingApprovalRequest(let msg):
             onPairingApprovalRequest?(msg)
         case .approvedDevicesListResponse(let msg):

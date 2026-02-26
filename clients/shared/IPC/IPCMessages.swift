@@ -2324,6 +2324,8 @@ public enum ServerMessage: Decodable, Sendable {
     case parentalControlUpdateResponse(ParentalControlUpdateResponseMessage)
     case parentalControlProfileGetResponse(ParentalControlProfileGetResponseMessage)
     case parentalControlProfileSwitchResponse(ParentalControlProfileSwitchResponseMessage)
+    case parentalControlAllowlistGetResponse(ParentalControlAllowlistGetResponseMessage)
+    case parentalControlAllowlistUpdateResponse(ParentalControlAllowlistUpdateResponseMessage)
     case conversationSearchResponse(ConversationSearchResponseMessage)
     case pairingApprovalRequest(PairingApprovalRequestMessage)
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
@@ -2734,6 +2736,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "parental_control_profile_switch_response":
             let message = try ParentalControlProfileSwitchResponseMessage(from: decoder)
             self = .parentalControlProfileSwitchResponse(message)
+        case "parental_control_allowlist_get_response":
+            let message = try ParentalControlAllowlistGetResponseMessage(from: decoder)
+            self = .parentalControlAllowlistGetResponse(message)
+        case "parental_control_allowlist_update_response":
+            let message = try ParentalControlAllowlistUpdateResponseMessage(from: decoder)
+            self = .parentalControlAllowlistUpdateResponse(message)
         case "conversation_search_response":
             let message = try ConversationSearchResponseMessage(from: decoder)
             self = .conversationSearchResponse(message)
@@ -2911,6 +2919,34 @@ extension IPCParentalControlProfileSwitchRequest {
 /// Result of a profile switch operation.
 /// Backed by generated `IPCParentalControlProfileSwitchResponse`.
 public typealias ParentalControlProfileSwitchResponseMessage = IPCParentalControlProfileSwitchResponse
+
+/// Retrieve the current app and widget allowlists.
+/// Backed by generated `IPCParentalControlAllowlistGetRequest`.
+public typealias ParentalControlAllowlistGetRequestMessage = IPCParentalControlAllowlistGetRequest
+
+extension IPCParentalControlAllowlistGetRequest {
+    public init() {
+        self.init(type: "parental_control_allowlist_get")
+    }
+}
+
+/// App and widget allowlists response.
+/// Backed by generated `IPCParentalControlAllowlistGetResponse`.
+public typealias ParentalControlAllowlistGetResponseMessage = IPCParentalControlAllowlistGetResponse
+
+/// Update the app and/or widget allowlist.
+/// Backed by generated `IPCParentalControlAllowlistUpdateRequest`.
+public typealias ParentalControlAllowlistUpdateRequestMessage = IPCParentalControlAllowlistUpdateRequest
+
+extension IPCParentalControlAllowlistUpdateRequest {
+    public init(pin: String? = nil, allowedApps: [String]? = nil, allowedWidgets: [String]? = nil) {
+        self.init(type: "parental_control_allowlist_update", pin: pin, allowedApps: allowedApps, allowedWidgets: allowedWidgets)
+    }
+}
+
+/// Result of an allowlist update operation.
+/// Backed by generated `IPCParentalControlAllowlistUpdateResponse`.
+public typealias ParentalControlAllowlistUpdateResponseMessage = IPCParentalControlAllowlistUpdateResponse
 
 // MARK: - Layout Config Wire Types
 // Defined here temporarily; canonical home is LayoutConfig.swift (M1 / #2973)

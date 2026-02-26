@@ -649,6 +649,23 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     content_restrictions: ['violence', 'adult_content'],
     blocked_tool_categories: ['shell', 'network'],
   },
+  parental_control_profile_get: {
+    type: 'parental_control_profile_get',
+  },
+  parental_control_profile_switch: {
+    type: 'parental_control_profile_switch',
+    targetProfile: 'parental',
+    pin: '123456',
+  },
+  parental_control_allowlist_get: {
+    type: 'parental_control_allowlist_get',
+  },
+  parental_control_allowlist_update: {
+    type: 'parental_control_allowlist_update',
+    pin: '123456',
+    allowedApps: ['Safari', 'Calculator'],
+    allowedWidgets: ['weather', 'clock'],
+  },
   ingress_invite: {
     type: 'ingress_invite',
     action: 'create',
@@ -1888,6 +1905,26 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     has_pin: true,
     content_restrictions: ['violence', 'adult_content'],
     blocked_tool_categories: ['shell', 'network'],
+  },
+  parental_control_profile_get_response: {
+    type: 'parental_control_profile_get_response',
+    activeProfile: 'parental',
+  },
+  parental_control_profile_switch_response: {
+    type: 'parental_control_profile_switch_response',
+    success: true,
+    activeProfile: 'parental',
+  },
+  parental_control_allowlist_get_response: {
+    type: 'parental_control_allowlist_get_response',
+    allowedApps: ['Safari', 'Calculator'],
+    allowedWidgets: ['weather', 'clock'],
+  },
+  parental_control_allowlist_update_response: {
+    type: 'parental_control_allowlist_update_response',
+    success: true,
+    allowedApps: ['Safari', 'Calculator'],
+    allowedWidgets: ['weather', 'clock'],
   },
   ingress_invite_response: {
     type: 'ingress_invite_response',

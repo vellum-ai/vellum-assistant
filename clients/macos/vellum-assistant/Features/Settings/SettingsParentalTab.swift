@@ -15,6 +15,12 @@ struct SettingsParentalTab: View {
     @State private var hasPIN: Bool = false
     @State private var contentRestrictions: Set<String> = []
     @State private var blockedToolCategories: Set<String> = []
+    @State private var allowedApps: [String] = []
+    @State private var allowedWidgets: [String] = []
+
+    // -- Allowlist entry fields --
+    @State private var newAppEntry: String = ""
+    @State private var newWidgetEntry: String = ""
 
     // -- Local UI state --
     @State private var isLoading: Bool = false
@@ -50,6 +56,11 @@ struct SettingsParentalTab: View {
                     pinSection
                     contentRestrictionsSection
                     toolCategorySection
+                    // Allowlist section is only editable from the parental profile
+                    if settingsStore.activeProfile == "parental" {
+                        appAllowlistSection
+                        widgetAllowlistSection
+                    }
                 } else {
                     lockedPlaceholder
                 }
@@ -399,6 +410,114 @@ struct SettingsParentalTab: View {
         .vCard(background: VColor.surfaceSubtle)
     }
 
+    // MARK: - App Allowlist Section
+
+    private var appAllowlistSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("App Allowlist")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("When non-empty, only listed apps can be used in child mode. Leave empty to allow all apps.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            HStack(spacing: VSpacing.xs) {
+                TextField("App name", text: $newAppEntry)
+                    .textFieldStyle(.roundedBorder)
+                    .font(VFont.body)
+                VButton(label: "Add", style: .primary) {
+                    let entry = newAppEntry.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !entry.isEmpty, !allowedApps.contains(entry) else { return }
+                    let updated = allowedApps + [entry]
+                    newAppEntry = ""
+                    updateAllowlist(apps: updated, widgets: nil)
+                }
+                .disabled(isLoading || newAppEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            if allowedApps.isEmpty {
+                Text("No apps restricted — all apps allowed.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .textSelection(.enabled)
+            } else {
+                ForEach(allowedApps, id: \.self) { app in
+                    HStack {
+                        Text(app)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                            .textSelection(.enabled)
+                        Spacer()
+                        VButton(label: "Remove", style: .danger) {
+                            let updated = allowedApps.filter { $0 != app }
+                            updateAllowlist(apps: updated, widgets: nil)
+                        }
+                        .disabled(isLoading)
+                    }
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Widget Allowlist Section
+
+    private var widgetAllowlistSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Widget Allowlist")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("When non-empty, only listed widgets can be used in child mode. Leave empty to allow all widgets.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            HStack(spacing: VSpacing.xs) {
+                TextField("Widget name", text: $newWidgetEntry)
+                    .textFieldStyle(.roundedBorder)
+                    .font(VFont.body)
+                VButton(label: "Add", style: .primary) {
+                    let entry = newWidgetEntry.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !entry.isEmpty, !allowedWidgets.contains(entry) else { return }
+                    let updated = allowedWidgets + [entry]
+                    newWidgetEntry = ""
+                    updateAllowlist(apps: nil, widgets: updated)
+                }
+                .disabled(isLoading || newWidgetEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            if allowedWidgets.isEmpty {
+                Text("No widgets restricted — all widgets allowed.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .textSelection(.enabled)
+            } else {
+                ForEach(allowedWidgets, id: \.self) { widget in
+                    HStack {
+                        Text(widget)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                            .textSelection(.enabled)
+                        Spacer()
+                        VButton(label: "Remove", style: .danger) {
+                            let updated = allowedWidgets.filter { $0 != widget }
+                            updateAllowlist(apps: nil, widgets: updated)
+                        }
+                        .disabled(isLoading)
+                    }
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
     private var lockedPlaceholder: some View {
         VStack(spacing: VSpacing.md) {
             Image(systemName: "lock.fill")
@@ -472,6 +591,98 @@ struct SettingsParentalTab: View {
                     blockedToolCategories = Set(r.blocked_tool_categories)
                 } else {
                     errorMessage = "No response from daemon."
+                }
+            }
+
+            // Also fetch the allowlist
+            loadAllowlist()
+        }
+    }
+
+    private func loadAllowlist() {
+        let stream = daemonClient?.subscribe()
+        Task {
+            do {
+                try daemonClient?.sendParentalControlAllowlistGet()
+            } catch {
+                return
+            }
+
+            let response: ParentalControlAllowlistGetResponseMessage? = await withTaskGroup(of: ParentalControlAllowlistGetResponseMessage?.self) { group in
+                group.addTask {
+                    guard let stream else { return nil }
+                    for await message in stream {
+                        if case .parentalControlAllowlistGetResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            await MainActor.run {
+                if let r = response {
+                    allowedApps = r.allowedApps
+                    allowedWidgets = r.allowedWidgets
+                    settingsStore.allowedApps = r.allowedApps
+                    settingsStore.allowedWidgets = r.allowedWidgets
+                }
+            }
+        }
+    }
+
+    private func updateAllowlist(apps: [String]?, widgets: [String]?) {
+        isLoading = true
+        errorMessage = nil
+        successMessage = nil
+
+        let stream = daemonClient?.subscribe()
+        let pin = unlockedPIN
+        Task {
+            do {
+                try daemonClient?.sendParentalControlAllowlistUpdate(
+                    pin: pin,
+                    allowedApps: apps,
+                    allowedWidgets: widgets
+                )
+            } catch {
+                await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
+                return
+            }
+
+            let response: ParentalControlAllowlistUpdateResponseMessage? = await withTaskGroup(of: ParentalControlAllowlistUpdateResponseMessage?.self) { group in
+                group.addTask {
+                    guard let stream else { return nil }
+                    for await message in stream {
+                        if case .parentalControlAllowlistUpdateResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            await MainActor.run {
+                isLoading = false
+                if let r = response, r.success {
+                    allowedApps = r.allowedApps
+                    allowedWidgets = r.allowedWidgets
+                    settingsStore.allowedApps = r.allowedApps
+                    settingsStore.allowedWidgets = r.allowedWidgets
+                } else {
+                    errorMessage = response?.error ?? "Update failed."
+                    // Reload to restore correct state on failure
+                    loadAllowlist()
                 }
             }
         }
