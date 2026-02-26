@@ -1042,13 +1042,41 @@ export async function handleChannelInbound(
               guardianFollowUpConversationGenerator,
             );
 
-            // Apply the disposition to the follow-up state machine
+            // Apply the disposition to the follow-up state machine.
+            // Both progressFollowupState and finalizeFollowup are compare-and-set:
+            // they return null when the transition fails (e.g. a concurrent message
+            // already advanced the state). In that case, send a stale notice instead
+            // of the disposition-specific reply.
+            let transitionApplied = true;
             if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-              progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition);
+              transitionApplied = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition) !== null;
             } else if (turnResult.disposition === 'decline') {
-              finalizeFollowup(followupRequest.id, 'declined');
+              transitionApplied = finalizeFollowup(followupRequest.id, 'declined') !== null;
             }
             // keep_pending: no state change — guardian can reply again
+
+            if (!transitionApplied) {
+              const staleText = await composeGuardianActionMessageGenerative(
+                { scenario: 'guardian_stale_followup' as const },
+                {},
+                guardianActionCopyGenerator,
+              );
+              try {
+                await deliverChannelReply(replyCallbackUrl, {
+                  chatId: externalChatId,
+                  text: staleText,
+                  assistantId,
+                }, bearerToken);
+              } catch (err) {
+                log.error({ err, externalChatId }, 'Failed to deliver stale follow-up notice');
+              }
+              return Response.json({
+                accepted: true,
+                duplicate: false,
+                eventId: result.eventId,
+                guardianFollowUp: 'stale_ignored',
+              });
+            }
 
             // Deliver the generated reply to the guardian
             try {

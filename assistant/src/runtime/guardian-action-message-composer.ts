@@ -27,6 +27,7 @@ export type GuardianActionMessageScenario =
   | 'guardian_followup_declined_ack'
   | 'guardian_stale_answered'
   | 'guardian_stale_expired'
+  | 'guardian_stale_followup'
   | 'outbound_message_copy'
   | 'followup_message_sent'
   | 'followup_call_started'
@@ -175,6 +176,9 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
 
     case 'guardian_stale_expired':
       return 'That request has already expired. No further action is needed.';
+
+    case 'guardian_stale_followup':
+      return 'It looks like this follow-up has already been handled. No further action is needed.';
 
     case 'outbound_message_copy':
       return context.callerIdentifier && context.questionText
