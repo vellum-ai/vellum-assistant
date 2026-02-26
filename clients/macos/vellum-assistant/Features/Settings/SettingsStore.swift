@@ -587,6 +587,13 @@ public final class SettingsStore: ObservableObject {
                     self.stopGuardianStatusPolling(for: channel)
                 }
             } else {
+                // Errors that indicate the outbound session is no longer valid
+                // should clear the outbound UI state so the user isn't stuck
+                // in the pending verification view.
+                let terminalErrors: Set<String> = ["no_active_session", "already_bound"]
+                if let error = response.error, terminalErrors.contains(error) {
+                    self.clearOutboundState(for: channel)
+                }
                 self.stopGuardianStatusPolling(for: channel)
             }
         }
