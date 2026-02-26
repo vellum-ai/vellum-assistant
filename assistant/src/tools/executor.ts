@@ -214,6 +214,13 @@ export class ToolExecutor {
 
       return execResult;
     } catch (err) {
+      // Extract classified risk level if the PermissionChecker attached it
+      // before re-throwing. This preserves audit accuracy for high-risk
+      // tool attempts that fail mid-permission-evaluation.
+      if (err instanceof Error && typeof (err as Error & { riskLevel?: string }).riskLevel === 'string') {
+        riskLevel = (err as Error & { riskLevel?: string }).riskLevel!;
+      }
+
       const durationMs = Date.now() - startTime;
       const msg = err instanceof Error ? err.message : String(err);
       const isAbort = err instanceof Error && err.name === 'AbortError';
