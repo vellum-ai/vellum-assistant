@@ -1298,26 +1298,24 @@ struct SettingsConnectTab: View {
             }
 
             if channel == "telegram" {
-                Text("Enter a Telegram @username (e.g. @janedoe) or numeric chat ID for the guardian.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                HStack(spacing: 0) {
+                    Text("Enter a @username or chat ID. ")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
 
-                Button {
-                    if let url = URL(string: "https://web.telegram.org/k/#@userinfobot") {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "questionmark.circle")
-                            .font(.system(size: 11))
-                        Text("Find your Telegram username or chat ID")
+                    Button {
+                        if let url = URL(string: "https://web.telegram.org/k/#@userinfobot") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } label: {
+                        Text("Find yours →")
                             .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
                     }
-                    .foregroundColor(VColor.accent)
-                }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
                 }
             }
         }
