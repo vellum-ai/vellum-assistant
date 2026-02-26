@@ -7,6 +7,10 @@ import { cast,createRowMapper, parseJson } from '../../util/row-mapper.js';
 
 export type RoutingIntent = 'single_channel' | 'multi_channel' | 'all_channels';
 
+export interface RoutingHints {
+  [key: string]: unknown;
+}
+
 export interface ReminderRow {
   id: string;
   label: string;
@@ -17,7 +21,7 @@ export interface ReminderRow {
   firedAt: number | null;
   conversationId: string | null;
   routingIntent: RoutingIntent;
-  routingHints: Record<string, unknown>;
+  routingHints: RoutingHints;
   createdAt: number;
   updatedAt: number;
 }
@@ -32,7 +36,7 @@ const parseRow = createRowMapper<typeof reminders.$inferSelect, ReminderRow>({
   firedAt: 'firedAt',
   conversationId: 'conversationId',
   routingIntent: { from: 'routingIntent', transform: cast<RoutingIntent>() },
-  routingHints: { from: 'routingHintsJson', transform: parseJson<Record<string, unknown>>({}) },
+  routingHints: { from: 'routingHintsJson', transform: parseJson<RoutingHints>({}) },
   createdAt: 'createdAt',
   updatedAt: 'updatedAt',
 });
@@ -43,7 +47,7 @@ export function insertReminder(params: {
   fireAt: number;
   mode: 'notify' | 'execute';
   routingIntent?: RoutingIntent;
-  routingHints?: Record<string, unknown>;
+  routingHints?: RoutingHints;
 }): ReminderRow {
   const db = getDb();
   const id = uuid();

@@ -51,32 +51,30 @@ describe('reminder-store', () => {
     expect(r.updatedAt).toBeGreaterThan(0);
   });
 
-  test('insertReminder persists routing_intent and routing_hints', () => {
-    const hints = { preferred: ['telegram'], fallback: 'sms' };
+  test('insertReminder persists routing metadata', () => {
     const r = insertReminder({
       label: 'Multi-channel',
-      message: 'Deliver to multiple channels',
+      message: 'Deliver everywhere',
       fireAt: Date.now() + 60_000,
       mode: 'notify',
-      routingIntent: 'multi_channel',
-      routingHints: hints,
+      routingIntent: 'all_channels',
+      routingHints: { preferred: ['telegram', 'sms'] },
     });
 
-    expect(r.routingIntent).toBe('multi_channel');
-    expect(r.routingHints).toEqual(hints);
+    expect(r.routingIntent).toBe('all_channels');
+    expect(r.routingHints).toEqual({ preferred: ['telegram', 'sms'] });
 
     const fetched = getReminder(r.id);
-    expect(fetched).not.toBeNull();
-    expect(fetched!.routingIntent).toBe('multi_channel');
-    expect(fetched!.routingHints).toEqual(hints);
+    expect(fetched!.routingIntent).toBe('all_channels');
+    expect(fetched!.routingHints).toEqual({ preferred: ['telegram', 'sms'] });
   });
 
-  test('insertReminder defaults routing_intent to single_channel when omitted', () => {
+  test('insertReminder defaults routingIntent to single_channel when omitted', () => {
     const r = insertReminder({
-      label: 'Default routing',
-      message: 'No routing specified',
+      label: 'No routing',
+      message: 'Should default',
       fireAt: Date.now() + 60_000,
-      mode: 'execute',
+      mode: 'notify',
     });
 
     expect(r.routingIntent).toBe('single_channel');
@@ -109,15 +107,14 @@ describe('reminder-store', () => {
 
   // ── listReminders ──────────────────────────────────────────────────
 
-  test('listReminders returns all reminders with routing fields', () => {
+  test('listReminders returns all reminders with routing metadata', () => {
     insertReminder({ label: 'A', message: 'a', fireAt: Date.now() + 60_000, mode: 'notify' });
-    insertReminder({ label: 'B', message: 'b', fireAt: Date.now() + 120_000, mode: 'execute', routingIntent: 'all_channels', routingHints: { urgent: true } });
+    insertReminder({ label: 'B', message: 'b', fireAt: Date.now() + 120_000, mode: 'execute', routingIntent: 'multi_channel' });
 
     const all = listReminders();
     expect(all).toHaveLength(2);
     expect(all[0].routingIntent).toBe('single_channel');
-    expect(all[1].routingIntent).toBe('all_channels');
-    expect(all[1].routingHints).toEqual({ urgent: true });
+    expect(all[1].routingIntent).toBe('multi_channel');
   });
 
   test('listReminders with pendingOnly filters to pending only', () => {

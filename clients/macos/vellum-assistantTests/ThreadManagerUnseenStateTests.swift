@@ -57,6 +57,76 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         XCTAssertTrue(updated.hasUnseenLatestAssistantMessage)
     }
 
+    func testInactiveThreadMarkedUnseenWhenAssistantContinuesSameMessageAfterSwitch() {
+        guard let initialThreadId = threadManager.activeThreadId,
+              let initialVm = threadManager.chatViewModel(for: initialThreadId),
+              let initialIndex = threadManager.threads.firstIndex(where: { $0.id == initialThreadId }) else {
+            XCTFail("Expected an initial active thread and VM")
+            return
+        }
+
+        threadManager.threads[initialIndex].sessionId = "session-initial"
+        initialVm.sessionId = "session-initial"
+        initialVm.messages.append(ChatMessage(role: .user, text: "Seed"))
+
+        initialVm.handleServerMessage(.assistantTextDelta(
+            AssistantTextDeltaMessage(text: "First chunk", sessionId: "session-initial")
+        ))
+        waitForPropagation()
+        XCTAssertFalse(threadManager.threads[initialIndex].hasUnseenLatestAssistantMessage)
+
+        threadManager.createThread()
+        guard let secondaryThreadId = threadManager.activeThreadId,
+              let secondaryIndex = threadManager.threads.firstIndex(where: { $0.id == secondaryThreadId }),
+              let secondaryVm = threadManager.chatViewModel(for: secondaryThreadId) else {
+            XCTFail("Expected a secondary active thread and VM")
+            return
+        }
+
+        threadManager.threads[secondaryIndex].sessionId = "session-secondary"
+        secondaryVm.sessionId = "session-secondary"
+        threadManager.selectThread(id: secondaryThreadId)
+
+        initialVm.handleServerMessage(.assistantTextDelta(
+            AssistantTextDeltaMessage(text: " + second chunk", sessionId: "session-initial")
+        ))
+        initialVm.handleServerMessage(.messageComplete(
+            MessageCompleteMessage(sessionId: "session-initial")
+        ))
+
+        waitForPropagation()
+
+        guard let updated = threadManager.threads.first(where: { $0.id == initialThreadId }) else {
+            XCTFail("Expected thread to exist")
+            return
+        }
+        XCTAssertTrue(updated.hasUnseenLatestAssistantMessage)
+    }
+
+    func testActiveThreadEmitsSeenSignalEvenWhenAlreadySeen() {
+        guard let threadId = threadManager.activeThreadId,
+              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }),
+              let vm = threadManager.chatViewModel(for: threadId) else {
+            XCTFail("Expected active thread and view model")
+            return
+        }
+
+        threadManager.threads[index].sessionId = "session-realtime"
+        threadManager.threads[index].hasUnseenLatestAssistantMessage = false
+        vm.sessionId = "session-realtime"
+
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Streaming reply", sessionId: "session-realtime")))
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "session-realtime")))
+
+        waitForPropagation()
+
+        XCTAssertFalse(threadManager.threads[index].hasUnseenLatestAssistantMessage)
+
+        let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        XCTAssertFalse(seenSignals.isEmpty, "Seen signal should be emitted even when thread was already marked as seen")
+        XCTAssertEqual(seenSignals.last?.conversationId, "session-realtime")
+    }
+
     func testActiveThreadAssistantReplyClearsUnseenAndEmitsSeenSignal() {
         guard let threadId = threadManager.activeThreadId,
               let index = threadManager.threads.firstIndex(where: { $0.id == threadId }),

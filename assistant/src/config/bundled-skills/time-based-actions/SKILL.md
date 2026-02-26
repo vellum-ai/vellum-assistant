@@ -66,12 +66,12 @@ Use `notify` for simple alerts. Use `execute` when the reminder should trigger t
 
 ## Reminder Routing
 
-`reminder_create` accepts optional routing fields that control multi-channel delivery at trigger time:
+`reminder_create` supports a `routing_intent` parameter that controls how the reminder is delivered at trigger time:
+- **`single_channel`** (default) — deliver to one best channel
+- **`multi_channel`** — deliver to a subset of channels
+- **`all_channels`** — deliver to every available channel
 
-- **`routing_intent`** — `single_channel` (default), `multi_channel`, or `all_channels`
-- **`routing_hints`** — optional free-form JSON object with delivery hints (e.g. preferred channels, fallback order)
-
-These fields are model-authored metadata stored with the reminder and evaluated at trigger time. If omitted, the reminder defaults to `single_channel` delivery.
+You can also pass `routing_hints` (a JSON object) to influence routing decisions (e.g. preferred channels, exclusions).
 
 ## Tool Summary
 

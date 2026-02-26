@@ -13,15 +13,13 @@ Create, list, and cancel one-time reminders. Reminders fire at a specific future
 
 ## Routing
 
-When creating a reminder, you can specify how it should be delivered at trigger time:
+Control how the reminder is delivered at trigger time with `routing_intent`:
 
-- **`routing_intent`** — controls how many channels receive the reminder:
-  - `single_channel` (default) — deliver to the originating channel only
-  - `multi_channel` — deliver to a subset of available channels
-  - `all_channels` — deliver to every connected channel
-- **`routing_hints`** — optional free-form JSON object with hints for trigger-time routing (e.g. preferred channels, fallback order). These are model-authored and not parsed server-side.
+- **single_channel** (default) — deliver to one best channel
+- **multi_channel** — deliver to a subset of channels
+- **all_channels** — deliver to every available channel
 
-If `routing_intent` is omitted, it defaults to `single_channel`.
+Optionally pass `routing_hints` (a JSON object) to influence routing decisions (e.g. preferred channels, exclusions). When omitted, defaults to `{}`.
 
 ## Usage Notes
 

@@ -110,9 +110,15 @@ export class NotificationBroadcaster {
         continue;
       }
 
-      // Pull rendered copy from the decision; fall back to copy-composer if missing
+      // Pull rendered copy from the decision; fall back to copy-composer if
+      // missing or effectively blank. The decision engine's LLM occasionally
+      // returns empty title/body strings that pass type-only validation, so
+      // treat copy with no usable content the same as missing copy.
       let copy = decision.renderedCopy[channel];
-      if (!copy) {
+      if (!copy || (!copy.title?.trim() && !copy.body?.trim())) {
+        if (copy) {
+          log.warn({ channel, signalId: signal.signalId }, 'Decision copy has empty title and body — using fallback');
+        }
         if (!fallbackCopy) {
           fallbackCopy = composeFallbackCopy(signal, decision.selectedChannels);
         }

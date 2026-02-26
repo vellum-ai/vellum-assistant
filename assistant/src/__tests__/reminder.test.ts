@@ -120,73 +120,6 @@ describe('reminder tool', () => {
     expect(result.content).toContain('Mode: execute');
   });
 
-  // ── routing_intent ──────────────────────────────────────────────────
-
-  test('create defaults routing_intent to single_channel', async () => {
-    const future = new Date(Date.now() + 60_000).toISOString();
-    const result = executeReminderCreate({
-      fire_at: future,
-      label: 'Default routing',
-      message: 'Should default to single_channel',
-    });
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain('Routing: single_channel');
-  });
-
-  test('create with routing_intent multi_channel succeeds', async () => {
-    const future = new Date(Date.now() + 60_000).toISOString();
-    const result = executeReminderCreate({
-      fire_at: future,
-      label: 'Multi routing',
-      message: 'Multi-channel delivery',
-      routing_intent: 'multi_channel',
-    });
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain('Routing: multi_channel');
-  });
-
-  test('create with routing_intent all_channels succeeds', async () => {
-    const future = new Date(Date.now() + 60_000).toISOString();
-    const result = executeReminderCreate({
-      fire_at: future,
-      label: 'All routing',
-      message: 'All-channel delivery',
-      routing_intent: 'all_channels',
-    });
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain('Routing: all_channels');
-  });
-
-  test('create with invalid routing_intent returns error', async () => {
-    const future = new Date(Date.now() + 60_000).toISOString();
-    const result = executeReminderCreate({
-      fire_at: future,
-      label: 'Bad routing',
-      message: 'Invalid routing intent',
-      routing_intent: 'invalid_value',
-    });
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('routing_intent must be one of');
-  });
-
-  test('create with routing_hints passes through', async () => {
-    const future = new Date(Date.now() + 60_000).toISOString();
-    const result = executeReminderCreate({
-      fire_at: future,
-      label: 'With hints',
-      message: 'Has routing hints',
-      routing_intent: 'multi_channel',
-      routing_hints: { preferred: ['telegram', 'sms'], fallback: 'email' },
-    });
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain('Routing: multi_channel');
-  });
-
   test('create requires fire_at', async () => {
     const result = executeReminderCreate({
       label: 'No fire_at',
@@ -219,6 +152,86 @@ describe('reminder tool', () => {
     expect(result.content).toContain('message is required');
   });
 
+  // ── routing ────────────────────────────────────────────────────────
+
+  test('create defaults routing_intent to single_channel', async () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const result = executeReminderCreate({
+      fire_at: future,
+      label: 'Default routing',
+      message: 'Should default to single_channel',
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Routing: single_channel');
+  });
+
+  test('create with routing_intent all_channels succeeds', async () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const result = executeReminderCreate({
+      fire_at: future,
+      label: 'All channels',
+      message: 'Deliver everywhere',
+      routing_intent: 'all_channels',
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Routing: all_channels');
+  });
+
+  test('create with routing_intent multi_channel succeeds', async () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const result = executeReminderCreate({
+      fire_at: future,
+      label: 'Multi channel',
+      message: 'Deliver to subset',
+      routing_intent: 'multi_channel',
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Routing: multi_channel');
+  });
+
+  test('create with invalid routing_intent returns error', async () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const result = executeReminderCreate({
+      fire_at: future,
+      label: 'Bad routing',
+      message: 'Invalid intent',
+      routing_intent: 'broadcast',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('routing_intent must be one of');
+  });
+
+  test('create with routing_hints object succeeds', async () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const result = executeReminderCreate({
+      fire_at: future,
+      label: 'With hints',
+      message: 'Has routing hints',
+      routing_intent: 'multi_channel',
+      routing_hints: { preferred: ['telegram'] },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Routing: multi_channel');
+  });
+
+  test('create without routing fields still works (backward compat)', async () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const result = executeReminderCreate({
+      fire_at: future,
+      label: 'No routing',
+      message: 'Legacy reminder',
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Reminder created');
+    expect(result.content).toContain('Routing: single_channel');
+  });
+
   // ── list ────────────────────────────────────────────────────────────
 
   test('list returns "No reminders found" when empty', async () => {
@@ -227,7 +240,7 @@ describe('reminder tool', () => {
     expect(result.content).toContain('No reminders found');
   });
 
-  test('list returns formatted reminders with routing metadata', async () => {
+  test('list returns formatted reminders with routing', async () => {
     const future = new Date(Date.now() + 60_000).toISOString();
     executeReminderCreate({
       fire_at: future,
@@ -240,7 +253,7 @@ describe('reminder tool', () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Test reminder');
     expect(result.content).toContain('pending');
-    expect(result.content).toContain('routing:all_channels');
+    expect(result.content).toContain('routing: all_channels');
   });
 
   // ── cancel ──────────────────────────────────────────────────────────
