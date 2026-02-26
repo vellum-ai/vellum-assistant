@@ -643,17 +643,26 @@ export async function handleChannelInbound(
         displayName: body.senderName,
         username: body.senderUsername,
       });
-      log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Guardian verified: auto-upserted ingress member');
+
+      const verifyLogLabel = verifyResult.verificationType === 'trusted_contact'
+        ? 'Trusted contact verified'
+        : 'Guardian verified';
+      log.info({ sourceChannel, externalUserId: body.senderExternalUserId, verificationType: verifyResult.verificationType }, `${verifyLogLabel}: auto-upserted ingress member`);
     }
 
     // Deliver a deterministic template-driven reply and short-circuit.
     // Verification code messages must never produce agent-generated copy.
     if (replyCallbackUrl) {
-      const replyText = verifyResult.success
-        ? composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS)
-        : composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED, {
-            failureReason: stripVerificationFailurePrefix(verifyResult.reason),
-          });
+      let replyText: string;
+      if (!verifyResult.success) {
+        replyText = composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED, {
+          failureReason: stripVerificationFailurePrefix(verifyResult.reason),
+        });
+      } else if (verifyResult.verificationType === 'trusted_contact') {
+        replyText = composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS);
+      } else {
+        replyText = composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS);
+      }
       try {
         await deliverChannelReply(replyCallbackUrl, {
           chatId: externalChatId,

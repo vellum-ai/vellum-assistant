@@ -35,6 +35,8 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
   CHANNEL_VERIFY_FAILED: 'guardian_verify.channel.failed',
   /** Deterministic reply for bootstrap deep-link success. */
   CHANNEL_BOOTSTRAP_BOUND: 'guardian_verify.channel.bootstrap_bound',
+  /** Deterministic reply after successful trusted contact verification. */
+  CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS: 'guardian_verify.channel.trusted_contact_success',
 } as const;
 
 export type GuardianVerifyTemplateKey =
@@ -52,7 +54,8 @@ type TextVerifyTemplateKey =
 export type ChannelVerifyReplyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED
-  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_BOOTSTRAP_BOUND;
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_BOOTSTRAP_BOUND
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS;
 
 // ---------------------------------------------------------------------------
 // Template Variables
@@ -173,6 +176,9 @@ const channelVerifyReplyTemplates: Record<ChannelVerifyReplyTemplateKey, (vars: 
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_BOOTSTRAP_BOUND]: () =>
     'Welcome! Your identity has been linked. Please check for a verification code message.',
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS]: () =>
+    'Verification successful! You can now message the assistant.',
 };
 
 /**
