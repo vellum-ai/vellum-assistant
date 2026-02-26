@@ -14,7 +14,7 @@ import { v4 as uuid } from 'uuid';
 import { getLogger } from '../util/logger.js';
 import { pairDeliveryWithConversation } from './conversation-pairing.js';
 import { composeFallbackCopy } from './copy-composer.js';
-import { createDelivery, updateDeliveryStatus } from './deliveries-store.js';
+import { createDelivery, findDeliveryByDecisionAndChannel, updateDeliveryStatus } from './deliveries-store.js';
 import { resolveDestinations } from './destination-resolver.js';
 import type { NotificationSignal } from './signal.js';
 import type {
@@ -188,6 +188,24 @@ export class NotificationBroadcaster {
 
       try {
         if (hasPersistedDecision) {
+          const existingDelivery = findDeliveryByDecisionAndChannel(persistedDecisionId, channel);
+          if (existingDelivery) {
+            log.info(
+              { channel, signalId: signal.signalId, existingDeliveryId: existingDelivery.id },
+              'Delivery already exists for this decision+channel — skipping duplicate',
+            );
+            results.push({
+              channel,
+              destination: destinationLabel,
+              status: 'skipped',
+              errorMessage: 'Duplicate delivery skipped',
+              conversationId: existingDelivery.conversationId ?? undefined,
+              messageId: existingDelivery.messageId ?? undefined,
+              conversationStrategy: existingDelivery.conversationStrategy ?? undefined,
+            });
+            continue;
+          }
+
           createDelivery({
             id: deliveryId,
             notificationDecisionId: persistedDecisionId,
