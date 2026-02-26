@@ -374,6 +374,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func selectThread(id: UUID) {
         guard let thread = threads.first(where: { $0.id == id }) else { return }
 
+        trimPreviousThreadIfNeeded(nextThreadId: id)
+
         // Re-create the ViewModel if it was LRU-evicted.
         if chatViewModels[id] == nil {
             let viewModel = makeViewModel()
@@ -629,10 +631,22 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func activateThread(_ id: UUID) {
+        trimPreviousThreadIfNeeded(nextThreadId: id)
         activeThreadId = id
     }
 
     // MARK: - Private
+
+    /// Trim the previously active thread's view model to shed memory before
+    /// switching to a different thread. Skipped when the VM hasn't loaded
+    /// history yet or when it has an active generation in progress.
+    private func trimPreviousThreadIfNeeded(nextThreadId: UUID) {
+        guard let previousId = activeThreadId, previousId != nextThreadId,
+              let vm = chatViewModels[previousId],
+              vm.isHistoryLoaded,
+              !vm.isSending, !vm.isThinking else { return }
+        vm.trimForBackground()
+    }
 
     /// Backfill ThreadModel.sessionId when the daemon assigns a session to a new thread.
     private func backfillSessionId(_ sessionId: String, for viewModel: ChatViewModel) {

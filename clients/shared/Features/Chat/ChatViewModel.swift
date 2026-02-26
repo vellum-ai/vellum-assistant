@@ -500,6 +500,21 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Aggressively trim this view model for background retention. Keeps only
+    /// the latest page of messages with heavy content stripped, and resets
+    /// pagination so re-activation fetches fresh history from the daemon.
+    public func trimForBackground() {
+        let pageSize = Self.messagePageSize
+        if messages.count > pageSize {
+            messages = Array(messages.suffix(pageSize))
+        }
+        for i in messages.indices {
+            messages[i].stripHeavyContent()
+        }
+        displayedMessageCount = Self.messagePageSize
+        isHistoryLoaded = false
+    }
+
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
     public var activeSurfaceId: String? {
