@@ -135,10 +135,19 @@ describe('Hook Runner', () => {
     expect(wsDir).toStartWith(rootDir);
   });
 
-  // Skip: child.kill() + 'close' event is unreliable on macOS when the hook
-  // script is a bash process tree — SIGTERM/SIGKILL may not trigger 'close',
-  // causing the test to hang. The timeout logic works in production but is
-  // not deterministically testable in unit tests.
+  // SKIPPED: child.kill() + 'close' event is unreliable on macOS when the hook
+  // script is a bash process tree — SIGTERM/SIGKILL may not trigger the 'close'
+  // event, causing the test to hang indefinitely. The timeout logic in runner.ts
+  // (lines 90-102) works correctly in production, but the combination of
+  // `sleep 10` in a child bash process + kill + waiting for 'close' is not
+  // deterministically testable in unit tests on macOS.
+  //
+  // Re-enable when:
+  // - Bun's child_process reliably emits 'close' after SIGKILL on macOS, OR
+  // - The runner is refactored to use Bun.spawn() (which has different process
+  //   group semantics), OR
+  // - A test-only flag is added to use a more controllable timeout mechanism
+  //   (e.g., AbortController) instead of child.kill().
   test.skip('[experimental] times out after specified duration', async () => {
     const hook = createTestHook(hooksDir, 'slow-hook', '#!/bin/bash\nsleep 10');
     const eventData: HookEventData = { event: 'pre-tool-execute' };
