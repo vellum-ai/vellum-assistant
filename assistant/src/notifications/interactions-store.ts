@@ -131,6 +131,7 @@ export function recordNotificationDeliveryInteraction(
     const delivery = tx
       .select({
         seenAt: notificationDeliveries.seenAt,
+        viewedAt: notificationDeliveries.viewedAt,
         lastInteractionAt: notificationDeliveries.lastInteractionAt,
       })
       .from(notificationDeliveries)
@@ -144,11 +145,13 @@ export function recordNotificationDeliveryInteraction(
       summaryUpdates.seenEvidenceText = params.evidenceText ?? null;
     }
 
-    // viewed_at: only set for explicit vellum view interactions from known sources
+    // viewed_at: only set for explicit vellum view interactions from known sources,
+    // with monotonicity guard to prevent regression on out-of-order events
     if (
       params.interactionType === 'viewed' &&
       params.confidence === 'explicit' &&
-      VELLUM_VIEW_SOURCES.has(params.source)
+      VELLUM_VIEW_SOURCES.has(params.source) &&
+      (!delivery?.viewedAt || params.occurredAt >= delivery.viewedAt)
     ) {
       summaryUpdates.viewedAt = params.occurredAt;
     }
