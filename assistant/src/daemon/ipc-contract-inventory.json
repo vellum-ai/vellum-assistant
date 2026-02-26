@@ -17,6 +17,7 @@
     "_SubagentsClientMessages",
     "_SurfacesClientMessages",
     "_TrustClientMessages",
+    "_SettingsClientMessages",
     "_WorkItemsClientMessages",
     "_WorkspaceClientMessages"
   ],
@@ -177,6 +178,7 @@
     "usage_request",
     "user_message",
     "vercel_api_config",
+    "voice_config_update",
     "watch_observation",
     "work_item_approve_permissions",
     "work_item_cancel",

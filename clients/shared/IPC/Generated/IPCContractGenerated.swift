@@ -5823,6 +5823,18 @@ public struct IPCVercelApiConfigResponse: Codable, Sendable {
     }
 }
 
+/// Request from a session or IPC client to change the voice activation key.
+public struct IPCVoiceConfigUpdateRequest: Codable, Sendable {
+    public let type: String
+    /// The desired activation key (enum value or natural-language name).
+    public let activationKey: String
+
+    public init(type: String, activationKey: String) {
+        self.type = type
+        self.activationKey = activationKey
+    }
+}
+
 public struct IPCWatchCompleteRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
