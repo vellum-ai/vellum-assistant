@@ -83,9 +83,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @Published private(set) var busyThreadIds: Set<UUID> = []
 
     /// Threads that are not archived — used by the UI to populate the sidebar.
-    /// Sorted: pinned first (by pinnedOrder ascending), then unpinned by createdAt descending.
-    /// Using createdAt (not lastInteractedAt) keeps thread positions stable — only
-    /// pinning/unpinning causes a thread to move in the sidebar.
+    /// Sorted: pinned first (by pinnedOrder ascending), then unpinned by lastInteractedAt descending.
+    /// Threads move to the top when messages are sent or received, but NOT when clicked/selected.
     var visibleThreads: [ThreadModel] {
         threads.filter { !$0.isArchived && $0.kind != .private }.sorted { a, b in
             if a.isPinned && b.isPinned {
@@ -93,7 +92,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             }
             if a.isPinned { return true }
             if b.isPinned { return false }
-            return a.createdAt > b.createdAt
+            return a.lastInteractedAt > b.lastInteractedAt
         }
     }
 
