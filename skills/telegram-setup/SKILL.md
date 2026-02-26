@@ -47,13 +47,11 @@ This endpoint automatically:
 - Stores the bot token with bot username metadata
 - Generates a webhook secret if one does not already exist
 - Triggers an immediate gateway webhook reconcile
-- Registers bot commands (`/new`, `/guardian_verify`)
+- Registers bot commands (`/new`)
 
 If the request fails, check the response body for an error message. If the token is invalid, tell the user and ask them to re-enter the token via the secure prompt (repeat Step 1).
 
-On success, check the `commandsRegistered` field in the response. Confirm to the user which commands were registered (e.g., "Registered bot commands: /new, /guardian_verify").
-
-> **Note:** Telegram's command menu may take a few minutes to propagate to all clients. Users can type commands manually (e.g., `/guardian_verify <secret>`) even if the command menu hasn't updated yet.
+On success, check the `commandsRegistered` field in the response. Confirm to the user which commands were registered (e.g., "Registered bot commands: /new").
 
 ### Step 3: Webhook Registration (Automatic)
 
@@ -74,9 +72,9 @@ curl -sf -X POST http://localhost:7821/v1/integrations/guardian/challenge \
   -d '{"channel":"telegram"}'
 ```
 
-2. The response includes `secret` and `instruction`. Display the instruction to the user. It will look like: "Send `/guardian_verify <secret>` to your bot from your Telegram account within 10 minutes."
+2. The response includes `secret` and `instruction`. Display the `secret` code to the user. Tell them: "You'll receive a message from your Telegram bot asking for a verification code. Reply to that message with the code shown here."
 
-3. Wait for the user to confirm they have sent the command. The verification happens automatically when the bot receives the `/guardian_verify` message — the channel inbound handler validates the token and creates the guardian binding.
+3. Wait for the user to confirm they have replied with the code. The verification happens automatically when the bot receives the code — the channel inbound handler validates it and creates the guardian binding.
 
 4. If the user confirms success: "Guardian verified! Your Telegram account is now the trusted guardian for this bot."
 
@@ -113,7 +111,7 @@ If the binding is absent and the user said they completed the verification:
 Summarize what was done:
 - Bot verified and credentials stored securely
 - Webhook registration: handled automatically by the gateway
-- Bot commands registered (list the commands from `commandsRegistered`)
+- Bot commands registered: /new
 - Guardian identity verified (if completed and binding confirmed)
 - Routing configuration validated
 
@@ -146,5 +144,5 @@ The following steps still require **manual** action:
 |------|---------|
 | Bot token from @BotFather | User must create a bot and provide the token via secure prompt |
 | Bot configuration and command registration | Configured via the setup skill (Step 2 above) using the `/v1/integrations/telegram/setup` endpoint |
-| Guardian verification | User sends `/guardian_verify <secret>` to the bot (Step 4 above) |
+| Guardian verification | User replies with the verification code in the bot's Telegram chat (Step 4 above) |
 | Multi-assistant routing | Requires manual `GATEWAY_ASSISTANT_ROUTING_JSON` configuration |

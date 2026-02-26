@@ -67,14 +67,21 @@ import { handleApprovalInterception } from './guardian-approval-interception.js'
 const log = getLogger('runtime-http');
 
 /**
- * Parse a `/guardian_verify` command from message content.
- * Supports `/guardian_verify <code>`, `/guardian_verify@BotName <code>`,
- * and normalized whitespace.
- * Returns the verification code if the message is a verify command, or undefined otherwise.
+ * Parse a guardian verification code from message content.
+ * Accepts three formats:
+ *   1. `/guardian_verify <code>` (legacy command format)
+ *   2. `/guardian_verify@BotName <code>` (Telegram group format)
+ *   3. A bare code (hex string or 6-digit numeric) as the entire message
+ * Returns the verification code if recognized, or undefined otherwise.
  */
 function parseGuardianVerifyCommand(content: string): string | undefined {
-  const match = content.match(/^\/guardian_verify(?:@\S+)?\s+(\S+)/);
-  return match?.[1];
+  // Legacy /guardian_verify command format
+  const commandMatch = content.match(/^\/guardian_verify(?:@\S+)?\s+(\S+)/);
+  if (commandMatch) return commandMatch[1];
+
+  // Bare code: 64-char hex (standard channels) or 6-digit numeric (voice)
+  const bareMatch = content.match(/^([0-9a-fA-F]{64}|\d{6})$/);
+  return bareMatch?.[1];
 }
 
 export async function handleChannelInbound(

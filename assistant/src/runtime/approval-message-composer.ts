@@ -219,10 +219,10 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
     case 'guardian_verify_challenge_setup':
       if (context.channel === 'voice') {
         // Voice challenges use a six-digit numeric code that can be spoken aloud
-        const code = context.verifyCommand?.replace('/guardian_verify ', '') ?? 'the verification code';
-        return `To complete guardian verification, speak or enter the six-digit code: ${code}. This code expires in ${Math.round((context.ttlSeconds ?? 600) / 60)} minutes.`;
+        const code = context.verifyCommand ?? 'the verification code';
+        return `To complete guardian verification, speak or enter the six-digit code: ${code}.`;
       }
-      return `To complete guardian verification, send ${context.verifyCommand ?? 'the verification command'} within ${context.ttlSeconds ?? 60} seconds.`;
+      return `To complete guardian verification, reply in the channel with the code you were given.`;
 
     case 'guardian_verify_status_bound':
       return 'A guardian is currently active for this channel.';
