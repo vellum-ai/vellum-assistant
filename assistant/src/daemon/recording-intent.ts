@@ -9,7 +9,9 @@ export type RecordingIntentResult =
   | { kind: 'start_only' }
   | { kind: 'stop_only' }
   | { kind: 'start_with_remainder'; remainder: string }
-  | { kind: 'stop_with_remainder'; remainder: string };
+  | { kind: 'stop_with_remainder'; remainder: string }
+  | { kind: 'start_and_stop_only' }
+  | { kind: 'start_and_stop_with_remainder'; remainder: string };
 
 // ─── Start recording patterns ────────────────────────────────────────────────
 
@@ -275,15 +277,30 @@ export function resolveRecordingIntent(
   const hasStart = detectRecordingIntent(normalized);
   const hasStop = detectStopRecordingIntent(normalized);
 
-  // Step 5: Resolve — start takes precedence when both are present
+  // Step 5: Resolve
   if (hasStart) {
+    if (hasStop) {
+      // Both start and stop detected — use combined variants
+      if (isRecordingOnly(normalized)) {
+        // Check if stop-only after stripping start patterns
+        const withoutStart = stripRecordingIntent(normalized);
+        if (isStopRecordingOnly(withoutStart)) {
+          return { kind: 'start_and_stop_only' };
+        }
+      }
+      let remainder = stripRecordingIntent(text);
+      remainder = stripStopRecordingIntent(remainder);
+      if (hasSubstantiveContent(remainder, dynamicNames)) {
+        return { kind: 'start_and_stop_with_remainder', remainder };
+      }
+      return { kind: 'start_and_stop_only' };
+    }
+    // Only start detected
     if (isRecordingOnly(normalized)) {
       return { kind: 'start_only' };
     }
     // Strip from the ORIGINAL text to preserve user's exact phrasing
-    let remainder = stripRecordingIntent(text);
-    // Also strip stop-recording clauses when both intents are present
-    if (hasStop) remainder = stripStopRecordingIntent(remainder);
+    const remainder = stripRecordingIntent(text);
     if (hasSubstantiveContent(remainder, dynamicNames)) {
       return { kind: 'start_with_remainder', remainder };
     }
