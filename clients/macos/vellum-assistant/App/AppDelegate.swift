@@ -2015,7 +2015,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// Creates the MainWindow and wires callbacks, without showing it.
     /// Safe to call multiple times — no-ops if mainWindow already exists.
     @discardableResult
-    private func ensureMainWindowExists(isFirstLaunch: Bool = false) -> MainWindow {
+    func ensureMainWindowExists(isFirstLaunch: Bool = false) -> MainWindow {
         if let existing = mainWindow { return existing }
         let main = MainWindow(services: services, isFirstLaunch: isFirstLaunch)
         main.onMicrophoneToggle = { [weak self] in
