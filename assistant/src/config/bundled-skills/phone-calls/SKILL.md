@@ -364,11 +364,10 @@ No additional configuration is needed beyond the standard Twilio setup (Steps 1-
 
 ### Guardian voice verification for inbound calls
 
-To link the user's phone number as the trusted voice guardian, use the **guardian-verify-setup** skill. This skill handles the full outbound verification flow:
+To link the user's phone number as the trusted voice guardian, install and load the **guardian-verify-setup** skill. This skill handles the full outbound verification flow:
 
-```
-skill_load skill=guardian-verify-setup
-```
+- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
+- Then call `skill_load` with `skill: "guardian-verify-setup"`.
 
 When invoked for the `voice` channel, the guardian-verify-setup skill:
 1. Collects the user's phone number as the destination

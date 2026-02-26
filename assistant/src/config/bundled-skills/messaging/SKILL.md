@@ -63,11 +63,10 @@ The sms-setup skill also includes optional **guardian verification** for SMS, wh
 
 ### Guardian Verification (SMS, Voice, or Telegram)
 
-If the user asks to verify their guardian identity for any channel (SMS, voice, or Telegram), load the **guardian-verify-setup** skill:
+If the user asks to verify their guardian identity for any channel (SMS, voice, or Telegram), install and load the **guardian-verify-setup** skill:
 
-```
-skill_load skill=guardian-verify-setup
-```
+- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
+- Then call `skill_load` with `skill: "guardian-verify-setup"`.
 
 The guardian-verify-setup skill handles the full outbound verification flow for all supported channels. It collects the user's destination (phone number or Telegram chat ID/handle), initiates an outbound verification session, and guides the user through entering or replying with the verification code. This is the single source of truth for guardian verification setup -- do not duplicate the verification flow inline.
 

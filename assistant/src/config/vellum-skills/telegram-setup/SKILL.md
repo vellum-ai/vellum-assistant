@@ -64,11 +64,10 @@ The daemon handles token retrieval from secure storage internally — you do not
 
 Now link the user's Telegram account as the trusted guardian for this bot. Tell the user: "Now let's verify your guardian identity. This links your Telegram account as the trusted guardian for this bot."
 
-Load and run the **guardian-verify-setup** skill to handle the verification flow:
+Install and load the **guardian-verify-setup** skill to handle the verification flow:
 
-```
-skill_load skill=guardian-verify-setup
-```
+- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
+- Then call `skill_load` with `skill: "guardian-verify-setup"`.
 
 The guardian-verify-setup skill manages the full outbound verification flow for Telegram, including:
 - Collecting the user's Telegram chat ID or @handle as the destination

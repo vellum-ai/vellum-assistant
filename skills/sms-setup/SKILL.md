@@ -169,11 +169,10 @@ After deletion, return to Step 3b to collect information and resubmit. Warn the 
 
 Now link the user's phone number as the trusted SMS guardian. Tell the user: "Now let's verify your guardian identity for SMS. This links your phone number as the trusted guardian for SMS messaging."
 
-Load and run the **guardian-verify-setup** skill to handle the verification flow:
+Install and load the **guardian-verify-setup** skill to handle the verification flow:
 
-```
-skill_load skill=guardian-verify-setup
-```
+- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
+- Then call `skill_load` with `skill: "guardian-verify-setup"`.
 
 When invoking the skill, indicate the channel is `sms`. The guardian-verify-setup skill manages the full outbound verification flow, including:
 - Collecting the user's phone number as the destination (accepts any common format -- the API normalizes to E.164)
