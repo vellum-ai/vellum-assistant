@@ -125,6 +125,15 @@ export function cleanupPidFile(): void {
   }
 }
 
+/** Only remove the PID file if it belongs to the given process. Prevents a
+ *  failing second startup from deleting the PID of an already-running daemon. */
+export function cleanupPidFileIfOwner(ownerPid: number): void {
+  const currentPid = readPid();
+  if (currentPid === ownerPid) {
+    cleanupPidFile();
+  }
+}
+
 export function isDaemonRunning(): boolean {
   const pid = readPid();
   if (pid == null) return false;
