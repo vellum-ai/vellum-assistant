@@ -117,7 +117,7 @@ extension AppDelegate {
 
     private func requestNotificationAuthorization(trigger: String, showDeniedToast: Bool) {
         let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if granted {
                 log.info("Notification authorization granted (\(trigger))")
                 return
@@ -138,7 +138,7 @@ extension AppDelegate {
         lastNotificationPermissionToastAtMs = nowMs
 
         mainWindow?.windowState.showToast(
-            message: "Notifications are off for Vellum. Turn them on in System Settings to receive banners.",
+            message: "Notifications are off for Vellum. Turn them on in System Settings to receive banners and dock badges.",
             style: .warning,
             primaryAction: VToastAction(label: "Open Settings") { [weak self] in
                 self?.openNotificationSettings()
