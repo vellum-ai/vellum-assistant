@@ -741,7 +741,9 @@ struct ConstellationView: View {
             )
         }
 
-        var categoryMap: [SkillCategory: [OrbitItem]] = [:]
+        var categoryMap: [SkillCategory: [OrbitItem]] = [
+            .knowledge: fileItems,
+        ]
         for skill in skills {
             let cat = inferCategory(skill)
             let item = OrbitItem(

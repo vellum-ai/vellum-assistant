@@ -477,135 +477,148 @@ struct MainWindowView: View {
             }
     }
 
+    /// Top bar with sidebar toggle, chat bubble toggle, and action buttons.
+    private var topBarView: some View {
+        HStack(spacing: VSpacing.sm) {
+            VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarExpanded, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                withAnimation(VAnimation.panel) {
+                    sidebarExpanded.toggle()
+                }
+            }
+            if isChatBubbleVisible {
+                ChatBubbleToggle(
+                    isActive: isChatBubbleActive,
+                    tooltip: isChatBubbleActive ? "Hide chat" : "Show chat",
+                    onToggle: { toggleChatBubble() }
+                )
+            }
+            Spacer()
+            PTTKeyIndicator {
+                settingsStore.pendingSettingsTab = .wakeWord
+                windowState.selection = .panel(.settings)
+            }
+            if windowState.isShowingChat || isChatBubbleActive {
+                topBarChatActions
+            }
+        }
+        .padding(.leading, trafficLightPadding)
+        .padding(.trailing, VSpacing.lg)
+        .frame(height: 36)
+        .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+    }
+
+    /// Chat-specific action buttons shown in the top bar.
+    @ViewBuilder
+    private var topBarChatActions: some View {
+        // Copy Thread button — only visible when there's content to copy
+        if threadManager.activeViewModel?.messages.contains(where: {
+            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) == true {
+            VIconButton(
+                label: "Copy thread",
+                icon: copyThread.showConfirmation ? "checkmark" : "list.clipboard",
+                isActive: copyThread.showConfirmation,
+                iconOnly: true,
+                tooltip: copyThread.showConfirmation ? "Copied!" : "Copy thread"
+            ) {
+                let messages = threadManager.activeViewModel?.messages ?? []
+                let title = threadManager.activeThread?.title
+                let names = resolveParticipantNames()
+                let markdown = ChatTranscriptFormatter.threadMarkdown(
+                    messages: messages,
+                    threadTitle: title,
+                    participantNames: names
+                )
+                guard !markdown.isEmpty else { return }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(markdown, forType: .string)
+                copyThread.cancel()
+                copyThread.showConfirmation = true
+                let timer = DispatchWorkItem { [copyThread] in copyThread.showConfirmation = false }
+                copyThread.confirmationTimer = timer
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+            }
+        }
+
+        // Voice mode toggle
+        VIconButton(
+            label: "Voice Mode",
+            icon: voiceModeManager.state != .off ? "waveform.circle.fill" : "waveform.circle",
+            isActive: voiceModeManager.state != .off,
+            iconOnly: true,
+            tooltip: voiceModeManager.state != .off ? "Exit voice mode" : "Voice mode"
+        ) {
+            toggleVoiceMode()
+        }
+
+        // Temporary chat toggle — always visible on private threads (so users can exit temp chat),
+        // only visible on normal threads when no messages exist yet
+        if threadManager.activeThread?.kind == .private || threadManager.activeViewModel?.messages.contains(where: {
+            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) != true {
+            TemporaryChatToggle(
+                isActive: threadManager.activeThread?.kind == .private,
+                tooltip: threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat",
+                onToggle: { toggleTemporaryChat() }
+            )
+        }
+    }
+
+    /// Control center drawer overlay.
+    @ViewBuilder
+    private var controlCenterDrawerOverlay: some View {
+        if sidebar.showControlCenterDrawer {
+            let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
+            let drawerX = sidebarExpanded
+                ? 16 + VSpacing.sm
+                : 16 + sidebarCollapsedWidth - VSpacing.xs
+            DrawerMenuView(
+                onSettings: {
+                    sidebar.showControlCenterDrawer = false
+                    windowState.selection = .panel(.settings)
+                },
+                onDebug: {
+                    sidebar.showControlCenterDrawer = false
+                    windowState.selection = .panel(.debug)
+                }
+            )
+            .frame(width: drawerWidth)
+            .offset(x: drawerX, y: -28)
+            .zIndex(10)
+            .transition(.opacity)
+        }
+    }
+
     /// Core layout extracted to break up type-checker complexity.
     private var coreLayoutView: some View {
         GeometryReader { geometry in
-            Group {
-                VStack(spacing: 0) {
-                    // Top bar (always visible, above sidebar)
-                    HStack(spacing: VSpacing.sm) {
-                        VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarExpanded, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
-                            withAnimation(VAnimation.panel) {
-                                sidebarExpanded.toggle()
-                            }
-                        }
-                        if isChatBubbleVisible {
-                            ChatBubbleToggle(
-                                isActive: isChatBubbleActive,
-                                tooltip: isChatBubbleActive ? "Hide chat" : "Show chat",
-                                onToggle: { toggleChatBubble() }
-                            )
-                        }
-                        Spacer()
-                        PTTKeyIndicator {
-                            settingsStore.pendingSettingsTab = .wakeWord
-                            windowState.selection = .panel(.settings)
-                        }
-                        if windowState.isShowingChat || isChatBubbleActive {
-                            // Copy Thread button — only visible when there's content to copy
-                            if threadManager.activeViewModel?.messages.contains(where: {
-                                !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            }) == true {
-                                VIconButton(
-                                    label: "Copy thread",
-                                    icon: copyThread.showConfirmation ? "checkmark" : "list.clipboard",
-                                    isActive: copyThread.showConfirmation,
-                                    iconOnly: true,
-                                    tooltip: copyThread.showConfirmation ? "Copied!" : "Copy thread"
-                                ) {
-                                    let messages = threadManager.activeViewModel?.messages ?? []
-                                    let title = threadManager.activeThread?.title
-                                    let names = resolveParticipantNames()
-                                    let markdown = ChatTranscriptFormatter.threadMarkdown(
-                                        messages: messages,
-                                        threadTitle: title,
-                                        participantNames: names
-                                    )
-                                    guard !markdown.isEmpty else { return }
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(markdown, forType: .string)
-                                    copyThread.cancel()
-                                    copyThread.showConfirmation = true
-                                    let timer = DispatchWorkItem { [copyThread] in copyThread.showConfirmation = false }
-                                    copyThread.confirmationTimer = timer
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
-                                }
-                            }
+            VStack(spacing: 0) {
+                topBarView
 
-                            // Voice mode toggle
-                            VIconButton(
-                                label: "Voice Mode",
-                                icon: voiceModeManager.state != .off ? "waveform.circle.fill" : "waveform.circle",
-                                isActive: voiceModeManager.state != .off,
-                                iconOnly: true,
-                                tooltip: voiceModeManager.state != .off ? "Exit voice mode" : "Voice mode"
-                            ) {
-                                toggleVoiceMode()
-                            }
+                // Main container: sidebar + content with uniform padding
+                HStack(spacing: 16) {
+                    sidebarView
 
-                            // Temporary chat toggle — always visible on private threads (so users can exit temp chat),
-                            // only visible on normal threads when no messages exist yet
-                            if threadManager.activeThread?.kind == .private || threadManager.activeViewModel?.messages.contains(where: {
-                                !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            }) != true {
-                                TemporaryChatToggle(
-                                    isActive: threadManager.activeThread?.kind == .private,
-                                    tooltip: threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat",
-                                    onToggle: { toggleTemporaryChat() }
-                                )
-                            }
-                        }
-                    }
-                    .padding(.leading, trafficLightPadding)
-                    .padding(.trailing, VSpacing.lg)
-                    .frame(height: 36)
-                    .background(adaptiveColor(light: Moss._50, dark: Moss._950))
-
-                    // Main container: sidebar + content with uniform padding
-                    HStack(spacing: 16) {
-                        sidebarView
-
-                        chatContentView(geometry: geometry)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                    }
-                    .padding(16)
-                    .animation(VAnimation.panel, value: sidebarExpanded)
+                    chatContentView(geometry: geometry)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                 }
-                .overlay {
-                    // Click-outside-to-dismiss background for control center drawer
-                    if sidebar.showControlCenterDrawer {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                                    sidebar.showControlCenterDrawer = false
-                                }
-                            }
-                    }
-                }
-                .overlay(alignment: .bottomLeading) {
-                    // Control center drawer rendered at top level so it floats above all content
-                    if sidebar.showControlCenterDrawer {
-                        let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
-                        let drawerX = sidebarExpanded
-                            ? 16 + VSpacing.sm
-                            : 16 + sidebarCollapsedWidth - VSpacing.xs
-                        DrawerMenuView(
-                            onSettings: {
+                .padding(16)
+                .animation(VAnimation.panel, value: sidebarExpanded)
+            }
+            .overlay {
+                // Click-outside-to-dismiss background for control center drawer
+                if sidebar.showControlCenterDrawer {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                                 sidebar.showControlCenterDrawer = false
-                                windowState.selection = .panel(.settings)
-                            },
-                            onDebug: {
-                                sidebar.showControlCenterDrawer = false
-                                windowState.selection = .panel(.debug)
                             }
-                        )
-                        .frame(width: drawerWidth)
-                        .offset(x: drawerX, y: -28)
-                        .zIndex(10)
-                        .transition(.opacity)
-                    }
+                        }
                 }
+            }
+            .overlay(alignment: .bottomLeading) {
+                controlCenterDrawerOverlay
             }
             .ignoresSafeArea(edges: .top)
             .background(VColor.background.ignoresSafeArea())
