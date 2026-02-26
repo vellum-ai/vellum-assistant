@@ -10,7 +10,7 @@
  * readable.
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 
 import { getDb } from '../memory/db.js';
 import {
@@ -165,24 +165,22 @@ function enrichGuardianContext(
 
     const requestIds = [...new Set(deliveries.map((d) => d.requestId))];
 
-    // Count pending requests and find the most recent callSessionId
+    // Batch-fetch all guardian requests in one query to avoid N+1 lookups
+    const requests = db
+      .select({
+        status: guardianActionRequests.status,
+        callSessionId: guardianActionRequests.callSessionId,
+        createdAt: guardianActionRequests.createdAt,
+      })
+      .from(guardianActionRequests)
+      .where(inArray(guardianActionRequests.id, requestIds))
+      .all();
+
     let pendingCount = 0;
     let recentCallSessionId: string | null = null;
     let recentCreatedAt = 0;
 
-    for (const requestId of requestIds) {
-      const request = db
-        .select({
-          status: guardianActionRequests.status,
-          callSessionId: guardianActionRequests.callSessionId,
-          createdAt: guardianActionRequests.createdAt,
-        })
-        .from(guardianActionRequests)
-        .where(eq(guardianActionRequests.id, requestId))
-        .get();
-
-      if (!request) continue;
-
+    for (const request of requests) {
       if (request.status === 'pending') {
         pendingCount++;
       }
