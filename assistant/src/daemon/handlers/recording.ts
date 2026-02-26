@@ -778,12 +778,12 @@ async function handleRecordingStatus(
           // but the new one couldn't start. Send explicit follow-up text so
           // the user knows the state.
           if (!newRecordingId && finResult.success) {
-            ctx.send(notifySocket, {
+            ctx.send(freshSocket, {
               type: 'assistant_text_delta',
               text: 'Previous recording saved. New recording failed to start.',
-              sessionId: conversationId,
+              sessionId: deferred.conversationId,
             });
-            ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+            ctx.send(freshSocket, { type: 'message_complete', sessionId: deferred.conversationId });
           }
           // Other failure combos:
           // - new-start-failure + old-finalize-failure: finalizeAndPublishRecording
