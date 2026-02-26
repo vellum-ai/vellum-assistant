@@ -171,6 +171,43 @@ Confirm:
 
 Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}. This number is used for both voice calls and SMS messaging."**
 
+## Step 5.5: Guardian Verification (SMS and Voice)
+
+Now link the user's phone number as the trusted guardian for SMS and/or voice channels. Tell the user: "Now let's verify your guardian identity. This links your phone number as the trusted guardian for messaging and calls."
+
+Install and load the **guardian-verify-setup** skill to handle the verification flow:
+
+- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
+- Then call `skill_load` with `skill: "guardian-verify-setup"`.
+
+The guardian-verify-setup skill manages the full outbound verification flow, including:
+- Asking the user which channel to verify (sms, voice, or both)
+- Collecting the user's phone number as the destination (accepts any common format -- the API normalizes to E.164)
+- Starting the outbound verification session via `POST /v1/integrations/guardian/outbound/start`
+- For **SMS**: sending a 6-digit code to the phone number that the user must reply with from the SMS channel
+- For **voice**: calling the phone number and providing a code for the user to enter via their phone's keypad
+- Checking guardian status to confirm the binding was created
+- Handling resend, cancel, and error cases
+
+Tell the user: *"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted guardian."*
+
+After the guardian-verify-setup skill completes verification for the desired channels (or the user skips), continue to Step 6.
+
+**Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
+
+To re-check guardian status later, query the channel(s) that were verified:
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+# Check SMS guardian status
+curl -s http://localhost:7821/v1/integrations/guardian/status?channel=sms \
+  -H "Authorization: Bearer $TOKEN"
+# Check voice guardian status
+curl -s http://localhost:7821/v1/integrations/guardian/status?channel=voice \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Check the status for whichever channel(s) the user actually verified (SMS, voice, or both). Report the guardian verification result per channel: **"Guardian identity — SMS: {verified | not configured}, Voice: {verified | not configured}."**
+
 ## Step 6: Enable Features
 
 Now that Twilio is configured, the user can enable the features that depend on it:

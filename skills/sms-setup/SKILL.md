@@ -165,6 +165,26 @@ After deletion, return to Step 3b to collect information and resubmit. Warn the 
 
 **On failure:** Report the exact error message and guide the user through resolution.
 
+## Step 3.5: Guardian Verification (SMS)
+
+Now link the user's phone number as the trusted SMS guardian. Tell the user: "Now let's verify your guardian identity for SMS. This links your phone number as the trusted guardian for SMS messaging."
+
+Install and load the **guardian-verify-setup** skill to handle the verification flow:
+
+- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
+- Then call `skill_load` with `skill: "guardian-verify-setup"`.
+
+When invoking the skill, indicate the channel is `sms`. The guardian-verify-setup skill manages the full outbound verification flow, including:
+- Collecting the user's phone number as the destination (accepts any common format -- the API normalizes to E.164)
+- Starting the outbound verification session via `POST /v1/integrations/guardian/outbound/start` with `channel: "sms"`
+- Sending a 6-digit code to the phone number that the user must reply with from the SMS channel
+- Checking guardian status to confirm the binding was created
+- Handling resend, cancel, and error cases
+
+Tell the user: *"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted SMS guardian."*
+
+**Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 4 without blocking.
+
 ## Step 4: Test Send
 
 Run a test SMS to verify end-to-end delivery:
