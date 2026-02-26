@@ -18,7 +18,7 @@ extension ChatBubble {
 
         bubbleChrome {
             if hasRichContent {
-                MarkdownSegmentView(segments: segments)
+                MarkdownSegmentView(segments: segments, isStreaming: streaming)
             } else {
                 let attributed = Self.cachedInlineMarkdown(for: segmentText, isStreaming: streaming)
                 Text(attributed)
@@ -26,7 +26,7 @@ extension ChatBubble {
                     .lineSpacing(3)
                     .foregroundColor(VColor.textPrimary)
                     .tint(VColor.accent)
-                    .textSelection(.enabled)
+                    .textSelection(streaming ? .disabled : .enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 520, alignment: .leading)
             }
