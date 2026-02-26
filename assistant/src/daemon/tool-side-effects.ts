@@ -7,6 +7,7 @@
  * registry entry instead of another if/else branch.
  */
 
+import { normalizeActivationKey } from './handlers/config-voice.js';
 import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
 import { openAppViaSurface } from '../tools/apps/open-proxy.js';
 import type { ToolExecutionResult } from '../tools/types.js';
@@ -95,6 +96,18 @@ registerHook(
     }
   },
 );
+
+// Broadcast activation key change to all connected clients so every
+// macOS/iOS instance picks up the new setting immediately.
+registerHook('voice_config_update', (_name, input, _result, { broadcastToAllClients }) => {
+  const key = input.activation_key as string | undefined;
+  if (key) {
+    const normalized = normalizeActivationKey(key);
+    if (normalized.ok) {
+      broadcastToAllClients?.({ type: 'client_settings_update', key: 'activationKey', value: normalized.value });
+    }
+  }
+});
 
 // ── Runner ───────────────────────────────────────────────────────────
 
