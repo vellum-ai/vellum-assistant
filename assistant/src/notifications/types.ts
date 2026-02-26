@@ -79,12 +79,30 @@ export interface RenderedChannelCopy {
   threadSeedMessage?: string;
 }
 
+// -- Thread action types ------------------------------------------------------
+
+/** Start a new conversation thread for the notification delivery. */
+export interface ThreadActionStartNew {
+  action: 'start_new';
+}
+
+/** Reuse an existing conversation thread identified by conversationId. */
+export interface ThreadActionReuseExisting {
+  action: 'reuse_existing';
+  conversationId: string;
+}
+
+/** Per-channel thread action — either start a new thread or reuse an existing one. */
+export type ThreadAction = ThreadActionStartNew | ThreadActionReuseExisting;
+
 /** Output produced by the notification decision engine for a given signal. */
 export interface NotificationDecision {
   shouldNotify: boolean;
   selectedChannels: NotificationChannel[];
   reasoningSummary: string;
   renderedCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>>;
+  /** Per-channel thread action. When absent for a channel, defaults to start_new. */
+  threadActions?: Partial<Record<NotificationChannel, ThreadAction>>;
   deepLinkTarget?: Record<string, unknown>;
   dedupeKey: string;
   confidence: number;
