@@ -727,6 +727,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'heartbeat_checklist_write',
     content: '- [ ] Check email\n- [ ] Review PRs',
   },
+  voice_config_update: {
+    type: 'voice_config_update',
+    activationKey: 'fn',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1997,6 +2001,23 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   heartbeat_checklist_write_response: {
     type: 'heartbeat_checklist_write_response',
     success: true,
+  },
+  navigate_settings: {
+    type: 'navigate_settings',
+    tab: 'general',
+  },
+  client_settings_update: {
+    type: 'client_settings_update',
+    key: 'activationKey',
+    value: 'fn',
+  },
+  identity_changed: {
+    type: 'identity_changed',
+    name: 'Vellum',
+    role: 'assistant',
+    personality: 'friendly',
+    emoji: '',
+    home: '',
   },
 };
 

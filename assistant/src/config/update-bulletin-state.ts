@@ -4,7 +4,7 @@ const ACTIVE_RELEASES_KEY = 'updates:active_releases';
 const COMPLETED_RELEASES_KEY = 'updates:completed_releases';
 
 function parseReleaseArray(raw: string | null): string[] {
-  if (raw === null) return [];
+  if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];

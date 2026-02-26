@@ -23,13 +23,13 @@ import {
   resolveGuardianActionRequest,
   startFollowupFromExpiredRequest,
 } from '../memory/guardian-action-store.js';
+import { extractPreferences } from '../notifications/preference-extractor.js';
+import { createPreference } from '../notifications/preferences-store.js';
+import type { Message } from '../providers/types.js';
 import { processGuardianFollowUpTurn } from '../runtime/guardian-action-conversation-turn.js';
 import { executeFollowupAction } from '../runtime/guardian-action-followup-executor.js';
 import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
 import type { GuardianActionCopyGenerator, GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
-import { extractPreferences } from '../notifications/preference-extractor.js';
-import { createPreference } from '../notifications/preferences-store.js';
-import type { Message } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import { resolveGuardianVerificationIntent } from './guardian-verification-intent.js';
 import type { UsageStats } from './ipc-contract.js';
@@ -791,9 +791,9 @@ export async function processMessage(
         // that the request was already resolved and skip action execution.
         let stateApplied = true;
         if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-          stateApplied = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition) !== null;
+          stateApplied = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition) !== undefined;
         } else if (turnResult.disposition === 'decline') {
-          stateApplied = finalizeFollowup(followupRequest.id, 'declined') !== null;
+          stateApplied = finalizeFollowup(followupRequest.id, 'declined') !== undefined;
         }
         // keep_pending: no state change — guardian can reply again
 

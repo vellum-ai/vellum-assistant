@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, isNull, sql, asc } from 'drizzle-orm';
+import { and, asc,count, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 
@@ -11,7 +11,7 @@ import { getLogger } from '../util/logger.js';
 import { createRowMapper } from '../util/row-mapper.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
 import { projectAssistantMessage } from './conversation-attention-store.js';
-import { getDb, rawAll, rawExec, rawGet } from './db.js';
+import { getDb, rawExec, rawGet } from './db.js';
 import { indexMessageNow } from './indexer.js';
 import { channelInboundEvents, conversations, llmRequestLogs, memoryEmbeddings, memoryItemEntities, memoryItems, memoryItemSources, memorySegments, messageAttachments, messages, toolInvocations } from './schema.js';
 
