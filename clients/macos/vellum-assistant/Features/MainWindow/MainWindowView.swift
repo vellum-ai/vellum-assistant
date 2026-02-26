@@ -1528,6 +1528,8 @@ private struct DrawerThemeToggle: View {
                     }
                     .buttonStyle(.plain)
                     .help(option.tooltip)
+                    .accessibilityLabel("\(option.tooltip) theme")
+                    .accessibilityValue(isSelected ? "Selected" : "")
                 }
             }
             .padding(2)
