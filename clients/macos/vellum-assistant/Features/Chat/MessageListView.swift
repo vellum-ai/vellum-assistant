@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import VellumAssistantShared
 
@@ -47,8 +48,10 @@ struct MessageListView: View {
     /// Read once at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared ObservableObject.
     @State private var scrollDebounceTask: Task<Void, Never>?
-    @ObservedObject private var taskProgressOverlay = TaskProgressOverlayManager.shared
-    private var activeSurfaceId: String? { taskProgressOverlay.activeSurfaceId }
+    /// Only the active surface ID is needed here (to suppress inline rendering).
+    /// Observing the full TaskProgressOverlayManager would cause the entire
+    /// message list to re-render on every frequent `data` progress tick.
+    @State private var activeSurfaceId: String?
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -398,6 +401,9 @@ struct MessageListView: View {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
                 // When mid-scroll, do nothing — let SwiftUI handle the text reflow naturally.
+            }
+            .onReceive(TaskProgressOverlayManager.shared.$activeSurfaceId) { newId in
+                activeSurfaceId = newId
             }
         }
         .id(threadId)

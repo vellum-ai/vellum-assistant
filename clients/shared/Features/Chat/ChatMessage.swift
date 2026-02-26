@@ -1143,8 +1143,8 @@ public struct InlineSurfaceData: Identifiable, Equatable {
     public let id: String
     public let surfaceType: SurfaceType
     public let title: String?
-    public let data: SurfaceData
-    public let actions: [SurfaceActionButton]
+    public var data: SurfaceData
+    public var actions: [SurfaceActionButton]
     /// Lightweight reference for dynamic pages, used to re-open the workspace.
     /// Replaces the former full UiSurfaceShowMessage to avoid retaining
     /// entire HTML payloads in memory.
@@ -1425,17 +1425,10 @@ public struct ChatMessage: Identifiable, Equatable {
         }
         for i in inlineSurfaces.indices {
             if inlineSurfaces[i].completionState != nil {
-                // Surface is completed — keep the SurfaceRef but clear the data payload.
+                // Surface is completed — clear the heavy data payload.
                 // The surface can be re-fetched from the daemon if the user scrolls back.
-                inlineSurfaces[i] = InlineSurfaceData(
-                    id: inlineSurfaces[i].id,
-                    surfaceType: inlineSurfaces[i].surfaceType,
-                    title: inlineSurfaces[i].title,
-                    data: inlineSurfaces[i].data,
-                    actions: [],
-                    surfaceRef: inlineSurfaces[i].surfaceRef,
-                    completionState: inlineSurfaces[i].completionState
-                )
+                inlineSurfaces[i].data = .stripped
+                inlineSurfaces[i].actions = []
             }
         }
         isContentStripped = true

@@ -57,9 +57,11 @@ extension ChatBubble {
                 .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                 .lineLimit(1)
 
-            Text(formattedFileSize(base64Length: attachment.dataLength))
-                .font(VFont.small)
-                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
+            if attachment.dataLength > 0 {
+                Text(formattedFileSize(base64Length: attachment.dataLength))
+                    .font(VFont.small)
+                    .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
+            }
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
@@ -96,7 +98,9 @@ extension ChatBubble {
     }
 
     func openImageInPreview(_ attachment: ChatAttachment) {
-        guard let data = Data(base64Encoded: attachment.data) else { return }
+        guard !attachment.data.isEmpty,
+              let data = Data(base64Encoded: attachment.data),
+              !data.isEmpty else { return }
         let tempDir = FileManager.default.temporaryDirectory
         let sanitized = (attachment.filename as NSString).lastPathComponent
         let fileURL = tempDir.appendingPathComponent(sanitized.isEmpty ? "image" : sanitized)
@@ -109,7 +113,9 @@ extension ChatBubble {
     }
 
     func saveFileAttachment(_ attachment: ChatAttachment) {
-        guard let data = Data(base64Encoded: attachment.data) else { return }
+        guard !attachment.data.isEmpty,
+              let data = Data(base64Encoded: attachment.data),
+              !data.isEmpty else { return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = (attachment.filename as NSString).lastPathComponent
         panel.canCreateDirectories = true
