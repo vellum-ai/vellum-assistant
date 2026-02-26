@@ -110,6 +110,10 @@ actor ThumbnailProvider {
         }
 
         await acquireSlot()
+        guard !Task.isCancelled else {
+            releaseSlot()
+            return ThumbnailResult(image: nil, status: .failed(.cancelled), fromCache: false)
+        }
         let result: ThumbnailResult
         do {
             let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
@@ -178,6 +182,10 @@ actor ThumbnailProvider {
         }
 
         await acquireSlot()
+        guard !Task.isCancelled else {
+            releaseSlot()
+            return ThumbnailResult(image: nil, status: .failed(.cancelled), fromCache: false)
+        }
         let result: ThumbnailResult
         do {
             let filter = SCContentFilter(desktopIndependentWindow: scWindow)
