@@ -4,6 +4,7 @@ import SwiftUI
 /// (before the first token or tool call arrives).
 public struct TypingIndicatorView: View {
     @State private var animate = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init() {}
 
@@ -13,11 +14,13 @@ public struct TypingIndicatorView: View {
                 Circle()
                     .fill(VColor.textMuted)
                     .frame(width: 8, height: 8)
-                    .scaleEffect(animate ? 1.0 : 0.5)
+                    .scaleEffect(reduceMotion ? 1.0 : (animate ? 1.0 : 0.5))
                     .animation(
-                        .easeInOut(duration: 0.5)
-                            .repeatForever(autoreverses: true)
-                            .delay(Double(index) * 0.18),
+                        reduceMotion
+                            ? nil
+                            : .easeInOut(duration: 0.5)
+                                .repeatForever(autoreverses: true)
+                                .delay(Double(index) * 0.18),
                         value: animate
                     )
             }
@@ -29,7 +32,9 @@ public struct TypingIndicatorView: View {
                 .fill(VColor.surface)
         )
         .onAppear {
-            animate = true
+            if !reduceMotion {
+                animate = true
+            }
         }
         .onDisappear {
             animate = false

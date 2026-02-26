@@ -5,6 +5,7 @@ public struct VLoadingIndicator: View {
     public var color: Color = VColor.accent
 
     @State private var isAnimating = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(size: CGFloat = 20, color: Color = VColor.accent) {
         self.size = size
@@ -16,13 +17,17 @@ public struct VLoadingIndicator: View {
             .trim(from: 0, to: 0.7)
             .stroke(color, lineWidth: 2)
             .frame(width: size, height: size)
-            .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
+            .rotationEffect(Angle(degrees: reduceMotion ? 0 : (isAnimating ? 360 : 0)))
             .animation(
-                .linear(duration: 0.8).repeatForever(autoreverses: false),
+                reduceMotion
+                    ? nil
+                    : .linear(duration: 0.8).repeatForever(autoreverses: false),
                 value: isAnimating
             )
             .onAppear {
-                isAnimating = true
+                if !reduceMotion {
+                    isAnimating = true
+                }
             }
             .onDisappear {
                 isAnimating = false
