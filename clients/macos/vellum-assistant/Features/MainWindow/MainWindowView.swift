@@ -1843,14 +1843,10 @@ private struct ProfileSwitchModal: View {
     @ViewBuilder
     private func profileAvatarColumn(isParental: Bool) -> some View {
         VStack(spacing: VSpacing.xs) {
-            ZStack {
-                Circle()
-                    .fill(isParental ? VColor.accent.opacity(0.15) : VColor.success.opacity(0.15))
-                    .frame(width: 52, height: 52)
-                Image(systemName: isParental ? "crown.fill" : "figure.child")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundColor(isParental ? VColor.accent : VColor.success)
-            }
+            Image(systemName: isParental ? "crown.fill" : "figure.child")
+                .font(.system(size: 30, weight: .medium))
+                .foregroundColor(isParental ? VColor.accent : VColor.success)
+                .frame(width: 36, height: 36)
             Text(isParental ? "Parental Mode" : "Child Mode")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
