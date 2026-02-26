@@ -393,13 +393,13 @@ describe('SubagentManager abort race guard', () => {
 });
 
 describe('SubagentManager sendMessage validation', () => {
-  test('rejects empty content without throwing', () => {
+  test('rejects empty content without throwing', async () => {
     const manager = new SubagentManager();
     const subagentId = 'sub-1';
     injectFakeSubagent(manager, subagentId, makeState(subagentId));
 
-    expect(manager.sendMessage(subagentId, '')).toBe('empty');
-    expect(manager.sendMessage(subagentId, '   ')).toBe('empty');
-    expect(manager.sendMessage(subagentId, '\n\t')).toBe('empty');
+    expect(await manager.sendMessage(subagentId, '')).toBe('empty');
+    expect(await manager.sendMessage(subagentId, '   ')).toBe('empty');
+    expect(await manager.sendMessage(subagentId, '\n\t')).toBe('empty');
   });
 });

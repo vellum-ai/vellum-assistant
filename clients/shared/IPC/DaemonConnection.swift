@@ -40,6 +40,16 @@ extension DaemonClient {
         let parameters: NWParameters
 
         if case .socket(let path) = config.transport {
+            // Validate the daemon process is alive before attempting a socket connection.
+            // The socket file can outlive the daemon (crash, unclean shutdown), causing
+            // NWConnection to hang until the connect timeout instead of failing fast.
+            if FileManager.default.fileExists(atPath: path), !Self.isDaemonProcessAlive() {
+                log.warning("Stale daemon socket detected — PID is dead, removing socket at \(path, privacy: .public)")
+                try? FileManager.default.removeItem(atPath: path)
+                isConnecting = false
+                throw NWError.posix(.ECONNREFUSED)
+            }
+
             log.info("Connecting to daemon socket at \(path, privacy: .public)")
             endpoint = NWEndpoint.unix(path: path)
             parameters = NWParameters()

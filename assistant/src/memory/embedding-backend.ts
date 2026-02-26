@@ -4,11 +4,46 @@ import { getOllamaBaseUrlEnv } from '../config/env.js';
 import type { AssistantConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { GeminiEmbeddingBackend } from './embedding-gemini.js';
-import { LocalEmbeddingBackend } from './embedding-local.js';
 import { OllamaEmbeddingBackend } from './embedding-ollama.js';
 import { OpenAIEmbeddingBackend } from './embedding-openai.js';
 
 const log = getLogger('memory-embeddings');
+
+/**
+ * Lazy wrapper around LocalEmbeddingBackend that dynamically imports the
+ * module on first use. This avoids eagerly loading @huggingface/transformers
+ * (which statically imports onnxruntime-node) at module evaluation time.
+ * In compiled binaries where onnxruntime-node isn't bundled, the static
+ * import would crash the entire daemon at startup. By deferring the import,
+ * the failure is contained and other embedding backends can be used instead.
+ */
+class LazyLocalEmbeddingBackend implements EmbeddingBackend {
+  readonly provider = 'local' as const;
+  readonly model: string;
+  private delegate: EmbeddingBackend | null = null;
+  private initPromise: Promise<EmbeddingBackend> | null = null;
+
+  constructor(model: string) {
+    this.model = model;
+  }
+
+  async embed(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
+    const backend = await this.getDelegate();
+    return backend.embed(texts, options);
+  }
+
+  private async getDelegate(): Promise<EmbeddingBackend> {
+    if (this.delegate) return this.delegate;
+    if (!this.initPromise) {
+      this.initPromise = (async () => {
+        const { LocalEmbeddingBackend } = await import('./embedding-local.js');
+        this.delegate = new LocalEmbeddingBackend(this.model);
+        return this.delegate;
+      })();
+    }
+    return this.initPromise;
+  }
+}
 
 /** Global cache of embedding backend instances, keyed by "provider:model". */
 const backendCache = new Map<string, EmbeddingBackend>();
@@ -106,7 +141,7 @@ export function selectEmbeddingBackend(config: AssistantConfig): EmbeddingBacken
   if (requested === 'local') {
     return {
       backend: getCachedOrCreate('local', config.memory.embeddings.localModel,
-        () => new LocalEmbeddingBackend(config.memory.embeddings.localModel)),
+        () => new LazyLocalEmbeddingBackend(config.memory.embeddings.localModel)),
       reason: null,
     };
   }
@@ -128,10 +163,9 @@ export function selectEmbeddingBackend(config: AssistantConfig): EmbeddingBacken
   for (const provider of order) {
     switch (provider) {
       case 'local':
-        // Local embeddings are always available (model downloaded on first use)
         return {
           backend: getCachedOrCreate('local', config.memory.embeddings.localModel,
-            () => new LocalEmbeddingBackend(config.memory.embeddings.localModel)),
+            () => new LazyLocalEmbeddingBackend(config.memory.embeddings.localModel)),
           reason: null,
         };
       case 'openai':

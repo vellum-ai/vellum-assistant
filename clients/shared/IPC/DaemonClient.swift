@@ -599,6 +599,23 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
     #endif
 
+    // MARK: - PID Validation
+
+    /// Check whether the daemon process is alive by reading the PID file and
+    /// sending signal 0 to the process. Returns `false` if the PID file is
+    /// missing, unreadable, or the process is not running.
+    #if os(macOS)
+    public static func isDaemonProcessAlive(environment: [String: String]? = nil) -> Bool {
+        let pidPath = VellumAssistantShared.resolvePidPath(environment: environment)
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: pidPath)),
+              let pidString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let pid = pid_t(pidString) else {
+            return false
+        }
+        return kill(pid, 0) == 0
+    }
+    #endif
+
     // MARK: - Send
 
     public enum SendError: Error, LocalizedError {

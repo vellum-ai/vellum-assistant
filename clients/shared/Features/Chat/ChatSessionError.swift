@@ -10,6 +10,7 @@ public enum SessionErrorCategory: Equatable, Sendable {
     case sessionAborted
     case processingFailed
     case regenerateFailed
+    case authenticationRequired
     case unknown
 
     public init(from code: SessionErrorCode) {
@@ -31,7 +32,7 @@ public enum SessionErrorCategory: Equatable, Sendable {
         case .regenerateFailed:
             self = .regenerateFailed
         case .authenticationRequired:
-            self = .unknown
+            self = .authenticationRequired
         case .unknown:
             self = .unknown
         }
@@ -56,6 +57,8 @@ public enum SessionErrorCategory: Equatable, Sendable {
             return "Click Retry or send your message again. Copy debug info if the problem repeats."
         case .regenerateFailed:
             return "Click Retry to regenerate, or send a new message instead."
+        case .authenticationRequired:
+            return "Sign in or check your credentials in Settings to continue."
         case .unknown:
             return "Click Retry or send a new message. Copy debug info if the problem repeats."
         }

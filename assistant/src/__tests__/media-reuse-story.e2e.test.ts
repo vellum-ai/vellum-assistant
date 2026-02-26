@@ -365,7 +365,7 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
       generatedImageBase64,
     );
 
-    const msgB = addMessage(threadB.id, 'assistant', 'Here is your generated portrait!');
+    const msgB = await addMessage(threadB.id, 'assistant', 'Here is your generated portrait!');
     linkAttachmentToMessage(msgB.id, outputAttachment.id, 0);
 
     // Verify the output attachment exists in the DB via raw search
@@ -475,7 +475,7 @@ describe('Private-thread variant: cross-thread media blocking', () => {
     // Upload selfie in a private thread
     const privateThread = createConversation({ title: 'Private selfie thread', threadType: 'private' });
     const selfie = uploadAttachment('private-selfie.png', 'image/png', TINY_PNG_BASE64);
-    const msg = addMessage(privateThread.id, 'user', 'My private selfie');
+    const msg = await addMessage(privateThread.id, 'user', 'My private selfie');
     linkAttachmentToMessage(msg.id, selfie.id, 0);
 
     // Search from a standard thread
@@ -499,7 +499,7 @@ describe('Private-thread variant: cross-thread media blocking', () => {
     const privateThread = createConversation({ title: 'Private selfie thread', threadType: 'private' });
     const base64 = Buffer.from('private image data').toString('base64');
     const selfie = uploadAttachment('private-selfie.png', 'image/png', base64);
-    const msg = addMessage(privateThread.id, 'user', 'My private selfie');
+    const msg = await addMessage(privateThread.id, 'user', 'My private selfie');
     linkAttachmentToMessage(msg.id, selfie.id, 0);
 
     // Try to materialize from a standard thread
@@ -523,7 +523,7 @@ describe('Private-thread variant: cross-thread media blocking', () => {
   test('selfie in private thread IS accessible from the same private thread', async () => {
     const privateThread = createConversation({ title: 'Private selfie thread', threadType: 'private' });
     const selfie = uploadAttachment('private-selfie.png', 'image/png', TINY_PNG_BASE64);
-    const msg = addMessage(privateThread.id, 'user', 'My private selfie');
+    const msg = await addMessage(privateThread.id, 'user', 'My private selfie');
     linkAttachmentToMessage(msg.id, selfie.id, 0);
 
     // Search from the same private thread
@@ -552,7 +552,7 @@ describe('Private-thread variant: cross-thread media blocking', () => {
   test('selfie in private thread A is NOT accessible from private thread B', async () => {
     const privateThreadA = createConversation({ title: 'Private thread A', threadType: 'private' });
     const selfie = uploadAttachment('thread-a-selfie.png', 'image/png', TINY_PNG_BASE64);
-    const msgA = addMessage(privateThreadA.id, 'user', 'Selfie in thread A');
+    const msgA = await addMessage(privateThreadA.id, 'user', 'Selfie in thread A');
     linkAttachmentToMessage(msgA.id, selfie.id, 0);
 
     // Search from a different private thread
