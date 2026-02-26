@@ -429,6 +429,9 @@ final class HTTPTransport {
         if let observedAt = signal.observedAt {
             body["observedAt"] = observedAt
         }
+        if let metadata = signal.metadata {
+            body["metadata"] = metadata
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
