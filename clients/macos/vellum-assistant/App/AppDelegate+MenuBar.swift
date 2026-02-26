@@ -187,6 +187,11 @@ extension AppDelegate {
         }
     }
 
+    /// Whether conversation zoom commands should be enabled (public for the SwiftUI command group).
+    public var isConversationZoomEnabled: Bool {
+        mainWindow?.windowState.isConversationVisible ?? false
+    }
+
     @objc public func handleConversationZoomIn() { routeZoomIntent(.conversationZoomIn) }
     @objc public func handleConversationZoomOut() { routeZoomIntent(.conversationZoomOut) }
     @objc public func handleConversationZoomReset() { routeZoomIntent(.conversationZoomReset) }
