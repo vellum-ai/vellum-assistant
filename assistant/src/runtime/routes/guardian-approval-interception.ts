@@ -11,7 +11,9 @@ import {
   updateApprovalDecision,
   type GuardianApprovalRequest,
 } from '../../memory/channel-guardian-store.js';
+import { createScopedApprovalGrant } from '../../memory/scoped-approval-grants.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
+import { computeToolApprovalDigest } from '../../security/tool-approval-digest.js';
 import { getLogger } from '../../util/logger.js';
 import { runApprovalConversationTurn } from '../approval-conversation-turn.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
@@ -23,6 +25,7 @@ import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
   handleChannelDecision,
+  type PendingApprovalInfo,
 } from '../channel-approvals.js';
 import { deliverChannelReply } from '../gateway-client.js';
 import type {
@@ -45,6 +48,68 @@ import {
 } from './channel-route-shared.js';
 
 const log = getLogger('runtime-http');
+
+/** TTL for scoped approval grants minted on guardian approve_once decisions. */
+export const GRANT_TTL_MS = 5 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// Scoped grant minting on guardian tool-approval decisions
+// ---------------------------------------------------------------------------
+
+/**
+ * Mint a `tool_signature` scoped grant when a guardian approves a tool-approval
+ * request.  Only mints when the approval info contains a tool invocation with
+ * input (so we can compute the input digest).  Informational ASK_GUARDIAN
+ * requests that lack tool input are skipped.
+ *
+ * Fails silently on error — grant minting is best-effort and must never block
+ * the approval flow.
+ */
+function tryMintToolApprovalGrant(params: {
+  approvalInfo: PendingApprovalInfo;
+  approval: GuardianApprovalRequest;
+  decisionChannel: ChannelId;
+  guardianExternalUserId: string;
+}): void {
+  const { approvalInfo, approval, decisionChannel, guardianExternalUserId } = params;
+
+  // Only mint for requests that carry a tool name — the presence of toolName
+  // distinguishes tool-approval requests from informational ones.
+  // computeToolApprovalDigest can deterministically hash {} so zero-argument
+  // tool invocations must still receive a grant.
+  if (!approvalInfo.toolName) {
+    return;
+  }
+
+  try {
+    const inputDigest = computeToolApprovalDigest(approvalInfo.toolName, approvalInfo.input);
+
+    createScopedApprovalGrant({
+      assistantId: approval.assistantId,
+      scopeMode: 'tool_signature',
+      toolName: approvalInfo.toolName,
+      inputDigest,
+      requestChannel: approval.channel,
+      decisionChannel,
+      executionChannel: null,
+      conversationId: approval.conversationId,
+      callSessionId: null,
+      guardianExternalUserId,
+      requesterExternalUserId: approval.requesterExternalUserId,
+      expiresAt: new Date(Date.now() + GRANT_TTL_MS).toISOString(),
+    });
+
+    log.info(
+      { toolName: approvalInfo.toolName, conversationId: approval.conversationId },
+      'Minted scoped approval grant for guardian tool-approval decision',
+    );
+  } catch (err) {
+    log.error(
+      { err, toolName: approvalInfo.toolName, conversationId: approval.conversationId },
+      'Failed to mint scoped approval grant (non-fatal)',
+    );
+  }
+}
 
 export interface ApprovalInterceptionParams {
   conversationId: string;
@@ -207,6 +272,13 @@ export async function handleApprovalInterception(
           return accessResult;
         }
 
+        // Capture pending approval info before handleChannelDecision resolves
+        // (and removes) the pending interaction. Needed for grant minting.
+        const cbApprovalInfo = getApprovalInfoByConversation(guardianApproval.conversationId);
+        const cbMatchedInfo = callbackDecision.requestId
+          ? cbApprovalInfo.find(a => a.requestId === callbackDecision!.requestId)
+          : cbApprovalInfo[0];
+
         // Apply the decision to the underlying session using the requester's
         // conversation context
         const result = handleChannelDecision(
@@ -223,6 +295,16 @@ export async function handleApprovalInterception(
             status: approvalStatus,
             decidedByExternalUserId: senderExternalUserId,
           });
+
+          // Mint a scoped grant when a guardian approves a tool-approval request
+          if (callbackDecision.action !== 'reject' && cbMatchedInfo) {
+            tryMintToolApprovalGrant({
+              approvalInfo: cbMatchedInfo,
+              approval: guardianApproval,
+              decisionChannel: sourceChannel,
+              guardianExternalUserId: senderExternalUserId,
+            });
+          }
 
           // Notify the requester's chat about the outcome with the tool name
           const outcomeText = await composeApprovalMessageGenerative({
@@ -346,6 +428,13 @@ export async function handleApprovalInterception(
           ...(engineResult.targetRequestId ? { requestId: engineResult.targetRequestId } : {}),
         };
 
+        // Capture pending approval info before handleChannelDecision resolves
+        // (and removes) the pending interaction. Needed for grant minting.
+        const engineApprovalInfo = getApprovalInfoByConversation(targetApproval.conversationId);
+        const engineMatchedInfo = engineDecision.requestId
+          ? engineApprovalInfo.find(a => a.requestId === engineDecision.requestId)
+          : engineApprovalInfo[0];
+
         const result = handleChannelDecision(
           targetApproval.conversationId,
           engineDecision,
@@ -360,6 +449,16 @@ export async function handleApprovalInterception(
             status: approvalStatus,
             decidedByExternalUserId: senderExternalUserId,
           });
+
+          // Mint a scoped grant when a guardian approves a tool-approval request
+          if (decisionAction !== 'reject' && engineMatchedInfo) {
+            tryMintToolApprovalGrant({
+              approvalInfo: engineMatchedInfo,
+              approval: targetApproval,
+              decisionChannel: sourceChannel,
+              guardianExternalUserId: senderExternalUserId,
+            });
+          }
 
           // Notify the requester's chat about the outcome
           const outcomeText = await composeApprovalMessageGenerative({
@@ -492,6 +591,13 @@ export async function handleApprovalInterception(
             return accessResult;
           }
 
+          // Capture pending approval info before handleChannelDecision resolves
+          // (and removes) the pending interaction. Needed for grant minting.
+          const legacyApprovalInfo = getApprovalInfoByConversation(targetLegacyApproval.conversationId);
+          const legacyMatchedInfo = legacyGuardianDecision.requestId
+            ? legacyApprovalInfo.find(a => a.requestId === legacyGuardianDecision.requestId)
+            : legacyApprovalInfo[0];
+
           const result = handleChannelDecision(
             targetLegacyApproval.conversationId,
             legacyGuardianDecision,
@@ -503,6 +609,16 @@ export async function handleApprovalInterception(
               status: approvalStatus,
               decidedByExternalUserId: senderExternalUserId,
             });
+
+            // Mint a scoped grant when a guardian approves a tool-approval request
+            if (legacyGuardianDecision.action !== 'reject' && legacyMatchedInfo) {
+              tryMintToolApprovalGrant({
+                approvalInfo: legacyMatchedInfo,
+                approval: targetLegacyApproval,
+                decisionChannel: sourceChannel,
+                guardianExternalUserId: senderExternalUserId,
+              });
+            }
 
             // Notify the requester's chat about the outcome
             const outcomeText = await composeApprovalMessageGenerative({
