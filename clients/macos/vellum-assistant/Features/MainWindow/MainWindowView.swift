@@ -1168,7 +1168,6 @@ struct MainWindowView: View {
             VColor.divider
                 .frame(height: 1)
                 .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
 
             // MARK: Threads (scrollable)
             SidebarThreadsHeader(onNewThread: {
@@ -1399,6 +1398,8 @@ struct MainWindowView: View {
 
     /// Open an app in the workspace view (main content area).
     private func openAppInWorkspace(app: AppListManager.AppItem) {
+        // Reset sticky chat dock so apps open in view-only mode by default
+        isAppChatOpen = false
         appListManager.recordAppOpen(
             id: app.id,
             name: app.name,
@@ -1490,14 +1491,14 @@ private struct SidebarThreadsHeader: View {
     var body: some View {
         HStack {
             Text("Threads")
-                .font(.system(size: 18, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundColor(VColor.textPrimary)
             Spacer()
             VIconButton(label: "New thread", icon: "plus", iconOnly: true, action: onNewThread)
         }
         .padding(.leading, 20)
         .padding(.trailing, VSpacing.md)
-        .padding(.vertical, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
     }
 }
 
