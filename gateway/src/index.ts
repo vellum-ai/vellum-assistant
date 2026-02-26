@@ -433,7 +433,7 @@ function main() {
   }
 
   const telegramFromEnv = isTelegramConfigured();
-  const slackFromEnv = !!(config.slackChannelBotToken && config.slackChannelAppToken);
+  const slackFromEnv = !!(process.env.SLACK_CHANNEL_BOT_TOKEN && process.env.SLACK_CHANNEL_APP_TOKEN);
 
   const credentialWatcher = new CredentialWatcher((event) => {
     if (event.telegramChanged && !telegramFromEnv) {
