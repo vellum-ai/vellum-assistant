@@ -133,6 +133,7 @@ export { isPrivateAddress } from './middleware/auth.js';
 export type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
+  GuardianActionCopyGenerator,
   MessageProcessor,
   NonBlockingMessageProcessor,
   RuntimeAttachmentMetadata,
@@ -144,6 +145,7 @@ export type {
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
+  GuardianActionCopyGenerator,
   MessageProcessor,
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
@@ -167,6 +169,7 @@ export class RuntimeHttpServer {
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private approvalCopyGenerator?: ApprovalCopyGenerator;
   private approvalConversationGenerator?: ApprovalConversationGenerator;
+  private guardianActionCopyGenerator?: GuardianActionCopyGenerator;
   private interfacesDir: string | null;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
@@ -184,6 +187,7 @@ export class RuntimeHttpServer {
     this.persistAndProcessMessage = options.persistAndProcessMessage;
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
+    this.guardianActionCopyGenerator = options.guardianActionCopyGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
   }
@@ -664,7 +668,7 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
         const gatewayOriginSecret = getRuntimeGatewayOriginSecret();
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator, this.guardianActionCopyGenerator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') return await handleChannelDeliveryAck(req);
