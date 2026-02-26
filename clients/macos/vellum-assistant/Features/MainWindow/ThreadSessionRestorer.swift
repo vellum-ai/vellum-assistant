@@ -201,9 +201,10 @@ final class ThreadSessionRestorer {
 
             let thread = ThreadModel(
                 title: title,
-                createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
+                createdAt: Date(timeIntervalSince1970: TimeInterval(session.createdAt) / 1000.0),
                 sessionId: session.id,
                 isArchived: delegate.isSessionArchived(session.id),
+                lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 kind: kind,
                 source: session.source,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false

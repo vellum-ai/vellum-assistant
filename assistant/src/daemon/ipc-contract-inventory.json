@@ -13,11 +13,11 @@
     "_ParentalControlClientMessages",
     "_SchedulesClientMessages",
     "_SessionsClientMessages",
+    "_SettingsClientMessages",
     "_SkillsClientMessages",
     "_SubagentsClientMessages",
     "_SurfacesClientMessages",
     "_TrustClientMessages",
-    "_SettingsClientMessages",
     "_WorkItemsClientMessages",
     "_WorkspaceClientMessages"
   ],

@@ -78,9 +78,9 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
 // MARK: - Helpers
 
 /// Build an IPCSessionListResponse via JSON round-trip.
-private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, threadType: String?, channelBinding: [String: Any]?)]) -> SessionListResponseMessage {
+private func makeSessionListResponse(sessions: [(id: String, title: String, createdAt: Int, updatedAt: Int, threadType: String?, channelBinding: [String: Any]?)]) -> SessionListResponseMessage {
     let sessionDicts = sessions.map { session -> [String: Any] in
-        var dict: [String: Any] = ["id": session.id, "title": session.title, "updatedAt": session.updatedAt]
+        var dict: [String: Any] = ["id": session.id, "title": session.title, "createdAt": session.createdAt, "updatedAt": session.updatedAt]
         if let threadType = session.threadType {
             dict["threadType"] = threadType
         }
@@ -96,12 +96,12 @@ private func makeSessionListResponse(sessions: [(id: String, title: String, upda
 
 /// Convenience overload with threadType but no channelBinding.
 private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, threadType: String?)]) -> SessionListResponseMessage {
-    makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.threadType, nil) })
+    makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.updatedAt, $0.threadType, nil) })
 }
 
 /// Convenience overload without threadType for existing tests.
 private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int)]) -> SessionListResponseMessage {
-    makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, nil) })
+    makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.updatedAt, nil, nil) })
 }
 
 /// Build an IPCHistoryResponse via JSON round-trip.

@@ -839,8 +839,8 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   session_list_response: {
     type: 'session_list_response',
     sessions: [
-      { id: 'sess-001', title: 'First session', updatedAt: 1700000000, threadType: 'standard' },
-      { id: 'sess-002', title: 'Second session', updatedAt: 1700001000, threadType: 'standard', assistantAttention: { hasUnseenLatestAssistantMessage: true, latestAssistantMessageAt: 1700001000, lastSeenConfidence: 'explicit', lastSeenSignalType: 'macos_notification_view' } },
+      { id: 'sess-001', title: 'First session', createdAt: 1699999000, updatedAt: 1700000000, threadType: 'standard' },
+      { id: 'sess-002', title: 'Second session', createdAt: 1700000000, updatedAt: 1700001000, threadType: 'standard', assistantAttention: { hasUnseenLatestAssistantMessage: true, latestAssistantMessageAt: 1700001000, lastSeenConfidence: 'explicit', lastSeenSignalType: 'macos_notification_view' } },
     ],
   },
   sessions_clear_response: {
