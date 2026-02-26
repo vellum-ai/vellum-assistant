@@ -137,6 +137,16 @@ import {
   handlePairingRequest,
   handlePairingStatus,
 } from './routes/pairing-routes.js';
+import {
+  handleBlockMember,
+  handleCreateInvite,
+  handleListInvites,
+  handleListMembers,
+  handleRedeemInvite,
+  handleRevokeInvite,
+  handleRevokeMember,
+  handleUpsertMember,
+} from './routes/ingress-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
 
 // Re-export for consumers
@@ -673,6 +683,21 @@ export class RuntimeHttpServer {
       if (endpoint === 'contacts/merge' && req.method === 'POST') return await handleMergeContacts(req);
       const contactMatch = endpoint.match(/^contacts\/([^/]+)$/);
       if (contactMatch && req.method === 'GET') return handleGetContact(contactMatch[1]);
+
+      // Ingress members
+      if (endpoint === 'ingress/members' && req.method === 'GET') return handleListMembers(url);
+      if (endpoint === 'ingress/members' && req.method === 'POST') return await handleUpsertMember(req);
+      const memberBlockMatch = endpoint.match(/^ingress\/members\/([^/]+)\/block$/);
+      if (memberBlockMatch && req.method === 'POST') return await handleBlockMember(req, memberBlockMatch[1]);
+      const memberMatch = endpoint.match(/^ingress\/members\/([^/]+)$/);
+      if (memberMatch && req.method === 'DELETE') return await handleRevokeMember(req, memberMatch[1]);
+
+      // Ingress invites
+      if (endpoint === 'ingress/invites' && req.method === 'GET') return handleListInvites(url);
+      if (endpoint === 'ingress/invites' && req.method === 'POST') return await handleCreateInvite(req);
+      if (endpoint === 'ingress/invites/redeem' && req.method === 'POST') return await handleRedeemInvite(req);
+      const inviteMatch = endpoint.match(/^ingress\/invites\/([^/]+)$/);
+      if (inviteMatch && req.method === 'DELETE') return handleRevokeInvite(inviteMatch[1]);
 
       // Integrations — Telegram config
       if (endpoint === 'integrations/telegram/config' && req.method === 'GET') return handleGetTelegramConfig();
