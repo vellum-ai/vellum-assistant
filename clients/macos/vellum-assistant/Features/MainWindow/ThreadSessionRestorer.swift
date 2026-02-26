@@ -205,6 +205,8 @@ final class ThreadSessionRestorer {
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 sessionId: session.id,
                 isArchived: delegate.isSessionArchived(session.id),
+                isPinned: session.isPinned ?? false,
+                displayOrder: session.displayOrder.map { Int($0) },
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 kind: kind,
                 source: session.source,
