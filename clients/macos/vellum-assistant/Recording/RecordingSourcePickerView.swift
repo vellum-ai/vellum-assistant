@@ -54,13 +54,7 @@ struct RecordingSourcePickerView: View {
                     .foregroundColor(VColor.textSecondary)
                 Spacer()
             } else {
-                // Absorb extra vertical space between preview and source list
-                // so the source list sits close to the bottom bar.
-                Spacer(minLength: VSpacing.sm)
-                    .layoutPriority(-1)
-
                 sourceList
-                    .layoutPriority(1)
             }
 
             Divider()
@@ -71,7 +65,7 @@ struct RecordingSourcePickerView: View {
         }
         .frame(
             width: 420,
-            height: 740
+            height: 690
         )
         .background(VColor.background)
         .task {
@@ -368,15 +362,15 @@ private struct ButtonPrimarySwitchStyle: ToggleStyle {
         HStack {
             configuration.label
             ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-                RoundedRectangle(cornerRadius: VRadius.sm + 2)
+                Capsule()
                     .fill(configuration.isOn ? VColor.buttonPrimary : VColor.toggleOff)
                     .frame(width: trackWidth, height: trackHeight)
                     .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.sm + 2)
+                        Capsule()
                             .stroke(VColor.toggleBorder, lineWidth: 1)
                     )
 
-                RoundedRectangle(cornerRadius: VRadius.sm)
+                Circle()
                     .fill(Color.white)
                     .frame(width: knobSize, height: knobSize)
                     .padding(.horizontal, knobPadding)
