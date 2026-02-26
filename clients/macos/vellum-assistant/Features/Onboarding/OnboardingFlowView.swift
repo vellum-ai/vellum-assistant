@@ -42,10 +42,14 @@ struct OnboardingFlowView: View {
                 VStack(spacing: 0) {
                     Spacer()
 
-                    // Persistent evolving avatar — stays in place across step transitions
-                    EvolvingAvatarView(evolutionState: state.avatarEvolutionState, animated: true)
-                        .scaleEffect(0.3)
+                    // Avatar placeholder circle with initial letter
+                    Image(nsImage: AvatarAppearanceManager.buildInitialLetterAvatar(
+                        name: state.assistantName,
+                        size: 128
+                    ))
+                        .resizable()
                         .frame(width: 128, height: 128)
+                        .clipShape(Circle())
                         .padding(.bottom, VSpacing.xxl)
 
                     // Step content — Group flattens into parent VStack so
@@ -61,8 +65,6 @@ struct OnboardingFlowView: View {
                                     guard !isAdvancingFromWakeUp else { return }
                                     isAdvancingFromWakeUp = true
                                     state.hasHatched = true
-                                    DeterministicEvolutionEngine.applyMilestone(.hatched, to: state.avatarEvolutionState)
-                                    state.avatarEvolutionState.save()
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                         state.advance()
                                     }

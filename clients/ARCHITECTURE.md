@@ -553,24 +553,17 @@ Appearance-related preferences that must be shared with the daemon live in the w
 
 ---
 
-## Avatar Evolution Pipeline
+## Avatar System
 
-The avatar evolves during onboarding based on conversation and identity choices.
-
-**Data flow:** Conversation → ModelTraitInferenceService (local heuristics) → AvatarEvolutionState → AvatarEvolutionResolver → LOOKS.md → AvatarAppearanceManager (file watcher) → UI
+The avatar uses a simple image-based approach: a custom user-uploaded profile picture, or a colored-circle initial-letter fallback.
 
 **Components:**
-- `AvatarEvolutionState` — Lifecycle stage, trait scores, feature unlocks, user overrides
-- `DeterministicEvolutionEngine` — Maps onboarding milestones to guaranteed visual unlocks
-- `ModelTraitInferenceService` — Infers trait scores from conversation (local heuristics, swappable)
-- `AvatarEvolutionResolver` — Merges deterministic + model + user layers with strict precedence
-- `AvatarCustomizationPanel` — User override surface with per-field lock/unlock
+- `AvatarAppearanceManager` — Observable singleton that provides `chatAvatarImage` (custom PNG or initial-letter fallback). Watches the custom avatar file for live updates.
+- `AvatarCustomizationPanel` — User surface for uploading/clearing a custom profile picture
 
 **Custom avatar storage:** User-uploaded profile pictures are stored at `~/.vellum/workspace/data/avatar/custom-avatar.png`. On first launch after upgrade, any legacy avatar from `~/Library/Application Support/vellum-assistant/` is automatically migrated (copied, not moved). The avatar customization panel is accessible from the Identity panel via a "Customize Avatar" CTA button.
 
-**Precedence:** `user overrides > deterministic constraints > model-driven traits > defaults`
-
-**Persistence:** Evolution state in UserDefaults, resolved appearance in LOOKS.md
+**Fallback:** When no custom avatar exists, `buildInitialLetterAvatar(name:)` renders a Forest._600 circle with the assistant's first initial in white.
 
 ## iOS Connection Architecture
 

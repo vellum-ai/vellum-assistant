@@ -1130,15 +1130,18 @@ struct ConstellationView: View {
             }
 
             // Center avatar on top of everything
-            DinoFaceView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
+            Image(nsImage: appearance.chatAvatarImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
                 .frame(width: centerAvatarSize, height: centerAvatarSize)
+                .clipShape(Circle())
                 .background(
-                    RoundedRectangle(cornerRadius: VRadius.xl)
+                    Circle()
                         .fill(VColor.background.opacity(0.9))
                         .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.xl)
+                    Circle()
                         .stroke(Forest._500.opacity(0.4), lineWidth: 2)
                         .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
                 )

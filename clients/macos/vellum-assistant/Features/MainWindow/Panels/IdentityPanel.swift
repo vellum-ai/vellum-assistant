@@ -33,9 +33,12 @@ struct IdentityPanel: View {
 
                     // Card wrapping avatar + ID fields
                     VStack(spacing: 0) {
-                        // Compact avatar
-                        DinoSceneView(seed: identity?.name ?? remoteIdentity?.name ?? lockfileAssistant?.assistantId ?? "default", palette: appearance.palette, outfit: appearance.outfit)
-                            .frame(width: 120, height: 140)
+                        // Avatar image or initial-letter fallback
+                        Image(nsImage: appearance.chatAvatarImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 80, height: 80)
+                            .clipShape(Circle())
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, VSpacing.lg)
 

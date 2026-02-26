@@ -109,7 +109,6 @@ export class ConfigWatcher {
       'SOUL.md': () => onSessionEvict(),
       'IDENTITY.md': () => { onSessionEvict(); onIdentityChanged?.(); },
       'USER.md': () => onSessionEvict(),
-      'LOOKS.md': () => onSessionEvict(),
       'UPDATES.md': () => onSessionEvict(),
     };
 

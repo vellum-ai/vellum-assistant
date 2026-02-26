@@ -193,14 +193,6 @@ describe('ConfigWatcher workspace file handlers', () => {
     expect(evictCallCount).toBe(1);
   });
 
-  test('LOOKS.md change triggers onSessionEvict', async () => {
-    watcher.start(onSessionEvict);
-    simulateFileChange(WORKSPACE_DIR, 'LOOKS.md');
-
-    await new Promise((r) => setTimeout(r, 300));
-    expect(evictCallCount).toBe(1);
-  });
-
   test('UPDATES.md change triggers onSessionEvict', async () => {
     watcher.start(onSessionEvict);
     simulateFileChange(WORKSPACE_DIR, 'UPDATES.md');
