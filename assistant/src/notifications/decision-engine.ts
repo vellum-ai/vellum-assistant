@@ -197,7 +197,7 @@ function buildFallbackDecision(
     copy[ch] = {
       title: signal.sourceEventName,
       body: fallbackBody,
-      deliveryText: fallbackBody,
+      ...(ch === 'telegram' ? { deliveryText: fallbackBody } : {}),
     };
   }
 

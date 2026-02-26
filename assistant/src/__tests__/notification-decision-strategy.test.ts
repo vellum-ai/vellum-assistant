@@ -126,8 +126,9 @@ describe('notification decision strategy', () => {
       // Both channels get the same copy
       expect(copy.vellum!.title).toBe(copy.telegram!.title);
       expect(copy.vellum!.body).toBe(copy.telegram!.body);
-      // Telegram gets a dedicated chat message field.
+      // Telegram gets a dedicated chat message field; vellum does not.
       expect(copy.telegram!.deliveryText).toBe(copy.telegram!.body);
+      expect(copy.vellum!.deliveryText).toBeUndefined();
     });
 
     test('empty payload falls back to default text in template', () => {
