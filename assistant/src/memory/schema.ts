@@ -17,7 +17,9 @@ export const conversations = sqliteTable('conversations', {
   originChannel: text('origin_channel'),
   originInterface: text('origin_interface'),
   isAutoTitle: integer('is_auto_title').notNull().default(1),
-});
+}, (table) => [
+  index('idx_conversations_updated_at').on(table.updatedAt),
+]);
 
 export const messages = sqliteTable('messages', {
   id: text('id').primaryKey(),
