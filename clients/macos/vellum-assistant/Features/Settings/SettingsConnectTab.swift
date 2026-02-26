@@ -44,6 +44,11 @@ struct SettingsConnectTab: View {
     // Twilio number picker (Voice card)
     @State private var voiceNumberPickerExpanded = false
 
+    // Slack channel credential entry
+    @State private var slackChannelSetupExpanded = false
+    @State private var slackChannelBotTokenInput = ""
+    @State private var slackChannelAppTokenInput = ""
+
     // Email copy state
     @State private var emailCopied: Bool = false
 
@@ -91,6 +96,7 @@ struct SettingsConnectTab: View {
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
             store.refreshChannelGuardianStatus(channel: "voice")
+            store.fetchSlackChannelConfig()
             gatewayExpanded = store.ingressPublicBaseUrl.isEmpty
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
@@ -435,6 +441,7 @@ struct SettingsConnectTab: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             mobileCard
             telegramCard
+            slackChannelCard
             twilioCard
             voiceCard
             emailCard
@@ -596,6 +603,127 @@ struct SettingsConnectTab: View {
                     telegramSetupExpanded = false
                 }
                 .disabled(telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+    }
+
+    // MARK: - Slack Channel Card
+
+    private var slackChannelCard: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Slack")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Message your assistant from Slack")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+
+            if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
+                channelStatusRow(
+                    label: "Bot",
+                    icon: "checkmark.circle.fill",
+                    iconColor: VColor.success,
+                    value: {
+                        var parts: [String] = []
+                        if let username = store.slackChannelBotUsername {
+                            parts.append("@\(username)")
+                        }
+                        if let team = store.slackChannelTeamName {
+                            parts.append(team)
+                        }
+                        return parts.isEmpty ? "Configured" : parts.joined(separator: " — ")
+                    }(),
+                    action: .init(label: "Clear", style: .danger, disabled: store.slackChannelSaveInProgress) {
+                        store.clearSlackChannelConfig()
+                        slackChannelBotTokenInput = ""
+                        slackChannelAppTokenInput = ""
+                        slackChannelSetupExpanded = false
+                    }
+                )
+            } else if slackChannelSetupExpanded {
+                slackChannelCredentialEntry
+            } else {
+                channelStatusRow(
+                    label: "Bot",
+                    icon: "exclamationmark.triangle",
+                    iconColor: VColor.warning,
+                    value: "Not configured",
+                    valueColor: VColor.textMuted,
+                    action: .init(label: "Set Up", style: .secondary) {
+                        slackChannelSetupExpanded = true
+                    }
+                )
+            }
+
+            if let error = store.slackChannelError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+
+            if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
+                Divider().background(VColor.surfaceBorder)
+                guardianStatusRow(channel: "slack")
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Slack Channel Credential Entry
+
+    private var slackChannelCredentialEntry: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack {
+                Text("Slack Credentials")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                Spacer()
+                VButton(label: "Cancel", style: .tertiary) {
+                    slackChannelSetupExpanded = false
+                    slackChannelBotTokenInput = ""
+                    slackChannelAppTokenInput = ""
+                }
+            }
+
+            SecureField("Bot Token (xoxb-...)", text: $slackChannelBotTokenInput)
+                .vInputStyle()
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+
+            SecureField("App Token (xapp-...)", text: $slackChannelAppTokenInput)
+                .vInputStyle()
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Create a Slack app with Socket Mode enabled to get these tokens")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+
+            if store.slackChannelSaveInProgress {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Saving...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            } else {
+                VButton(label: "Save", style: .primary) {
+                    store.saveSlackChannelConfig(
+                        botToken: slackChannelBotTokenInput,
+                        appToken: slackChannelAppTokenInput
+                    )
+                    slackChannelBotTokenInput = ""
+                    slackChannelAppTokenInput = ""
+                    slackChannelSetupExpanded = false
+                }
+                .disabled(
+                    slackChannelBotTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || slackChannelAppTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
             }
         }
     }
@@ -1288,6 +1416,7 @@ struct SettingsConnectTab: View {
             switch channel {
             case "telegram": return "@username or chat ID"
             case "sms", "voice": return "+1234567890"
+            case "slack": return "Slack user ID"
             default: return "Destination"
             }
         }()
