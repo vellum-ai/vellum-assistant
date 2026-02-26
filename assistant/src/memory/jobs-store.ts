@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid';
 
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
-import { getDb, rawAll,rawGet } from './db.js';
+import { getDb, rawAll, rawChanges, rawGet } from './db.js';
 import { memoryJobs } from './schema.js';
 
 const log = getLogger('memory-jobs-store');
@@ -294,11 +294,11 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
 
   const claimed: MemoryJob[] = [];
   for (const row of candidates) {
-    const result = db.update(memoryJobs)
+    db.update(memoryJobs)
       .set({ status: 'running', updatedAt: now })
       .where(and(eq(memoryJobs.id, row.id), eq(memoryJobs.status, 'pending')))
-      .run() as unknown as { changes?: number };
-    if ((result.changes ?? 0) === 0) continue;
+      .run();
+    if (rawChanges() === 0) continue;
     claimed.push(parseRow({
       ...row,
       status: 'running',

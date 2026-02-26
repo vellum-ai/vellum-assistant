@@ -10,6 +10,7 @@ import {
 import type { ServerMessage } from '../../daemon/ipc-contract.js';
 import { PairingStore } from '../../daemon/pairing-store.js';
 import { getLogger } from '../../util/logger.js';
+import { httpError } from '../http-errors.js';
 
 const log = getLogger('runtime-http');
 
@@ -32,18 +33,18 @@ export async function handlePairingRegister(req: Request, ctx: PairingHandlerCon
     const localLanUrl = typeof body.localLanUrl === 'string' ? body.localLanUrl : null;
 
     if (!pairingRequestId || !pairingSecret || !gatewayUrl) {
-      return Response.json({ error: 'Missing required fields: pairingRequestId, pairingSecret, gatewayUrl' }, { status: 400 });
+      return httpError('BAD_REQUEST', 'Missing required fields: pairingRequestId, pairingSecret, gatewayUrl', 400);
     }
 
     const result = ctx.pairingStore.register({ pairingRequestId, pairingSecret, gatewayUrl, localLanUrl });
     if (!result.ok) {
-      return Response.json({ error: 'Conflict: pairingRequestId exists with different secret' }, { status: 409 });
+      return httpError('CONFLICT', 'Conflict: pairingRequestId exists with different secret', 409);
     }
 
     return Response.json({ ok: true });
   } catch (err) {
     log.error({ err }, 'Failed to register pairing request');
-    return Response.json({ error: 'Internal server error' }, { status: 500 });
+    return httpError('INTERNAL_ERROR', 'Internal server error', 500);
   }
 }
 
@@ -63,17 +64,17 @@ export async function handlePairingRequest(req: Request, ctx: PairingHandlerCont
     log.info({ pairingRequestId, deviceName, hasDeviceId: !!deviceId }, 'Pairing request received');
 
     if (!deviceId || !deviceName) {
-      return Response.json({ error: 'Missing required fields: deviceId, deviceName' }, { status: 400 });
+      return httpError('BAD_REQUEST', 'Missing required fields: deviceId, deviceName', 400);
     }
 
     if (!pairingRequestId || !pairingSecret) {
-      return Response.json({ error: 'Missing required fields: pairingRequestId, pairingSecret' }, { status: 400 });
+      return httpError('BAD_REQUEST', 'Missing required fields: pairingRequestId, pairingSecret', 400);
     }
 
     const result = ctx.pairingStore.beginRequest({ pairingRequestId, pairingSecret, deviceId, deviceName });
     if (!result.ok) {
       const statusCode = result.reason === 'invalid_secret' ? 403 : result.reason === 'not_found' ? 403 : 410;
-      return Response.json({ error: 'Forbidden' }, { status: statusCode });
+      return httpError('FORBIDDEN', 'Forbidden', statusCode);
     }
 
     const entry = result.entry;
@@ -105,7 +106,7 @@ export async function handlePairingRequest(req: Request, ctx: PairingHandlerCont
     return Response.json({ status: 'pending' });
   } catch (err) {
     log.error({ err }, 'Failed to process pairing request');
-    return Response.json({ error: 'Internal server error' }, { status: 500 });
+    return httpError('INTERNAL_ERROR', 'Internal server error', 500);
   }
 }
 
@@ -119,16 +120,16 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
   const secret = url.searchParams.get('secret') ?? '';
 
   if (!id || !secret) {
-    return Response.json({ error: 'Missing required params: id, secret' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'Missing required params: id, secret', 400);
   }
 
   if (!ctx.pairingStore.validateSecret(id, secret)) {
-    return Response.json({ error: 'Forbidden' }, { status: 403 });
+    return httpError('FORBIDDEN', 'Forbidden', 403);
   }
 
   const entry = ctx.pairingStore.get(id);
   if (!entry) {
-    return Response.json({ error: 'Not found' }, { status: 404 });
+    return httpError('NOT_FOUND', 'Not found', 404);
   }
 
   if (entry.status === 'approved') {

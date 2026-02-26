@@ -731,14 +731,17 @@ export function injectMemoryRecallAsSeparateMessage<T extends { role: 'user' | '
 ): T[] {
   if (memoryRecallText.trim().length === 0) return messages;
   if (messages.length === 0) return messages;
+  // These synthetic messages satisfy the structural constraint T extends { role; content }
+  // but may lack extra fields present on T. In practice T is always Message which has
+  // only role and content, so the cast is safe.
   const contextMessage = {
     role: 'user' as const,
-    content: [{ type: 'text', text: memoryRecallText }],
-  } as unknown as T;
+    content: [{ type: 'text' as const, text: memoryRecallText }],
+  } as T;
   const ackMessage = {
     role: 'assistant' as const,
-    content: [{ type: 'text', text: MEMORY_CONTEXT_ACK }],
-  } as unknown as T;
+    content: [{ type: 'text' as const, text: MEMORY_CONTEXT_ACK }],
+  } as T;
   return [
     ...messages.slice(0, -1),
     contextMessage,

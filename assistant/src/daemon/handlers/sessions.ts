@@ -683,7 +683,7 @@ export async function handleSessionSwitch(
   // If the target session is headless-locked (actively executing a task run),
   // skip rebinding the socket so tool confirmations stay suppressed.
   const existingSession = ctx.sessions.get(msg.sessionId);
-  const isHeadlessLocked = existingSession && (existingSession as unknown as { headlessLock?: boolean }).headlessLock;
+  const isHeadlessLocked = existingSession?.headlessLock;
 
   ctx.socketToSession.set(socket, msg.sessionId);
 

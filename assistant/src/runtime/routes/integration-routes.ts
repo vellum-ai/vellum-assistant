@@ -21,6 +21,7 @@ import {
   createGuardianChallenge,
   getGuardianStatus,
 } from '../../daemon/handlers/config-channels.js';
+import { httpError } from '../http-errors.js';
 import {
   clearTelegramConfig,
   getTelegramConfig,
@@ -143,18 +144,12 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
     originConversationId?: string;
   };
   if (!body.channel) {
-    return Response.json(
-      { success: false, error: 'missing_channel', message: 'The "channel" field is required.' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'The "channel" field is required.', 400);
   }
 
   // Rate-limit by destination identity before processing
   if (body.destination && guardianVerificationLimiter.isBlocked(body.destination)) {
-    return Response.json(
-      { success: false, error: 'rate_limited', message: 'Too many verification attempts for this identity. Please try again later.' },
-      { status: 429 },
-    );
+    return httpError('RATE_LIMITED', 'Too many verification attempts for this identity. Please try again later.', 429);
   }
 
   const result = startOutbound({
@@ -185,10 +180,7 @@ export async function handleResendOutbound(req: Request): Promise<Response> {
     originConversationId?: string;
   };
   if (!body.channel) {
-    return Response.json(
-      { success: false, error: 'missing_channel', message: 'The "channel" field is required.' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'The "channel" field is required.', 400);
   }
   const result = resendOutbound({
     channel: body.channel,
@@ -210,10 +202,7 @@ export async function handleCancelOutbound(req: Request): Promise<Response> {
     assistantId?: string;
   };
   if (!body.channel) {
-    return Response.json(
-      { success: false, error: 'missing_channel', message: 'The "channel" field is required.' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'The "channel" field is required.', 400);
   }
   const result = cancelOutbound({
     channel: body.channel,

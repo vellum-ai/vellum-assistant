@@ -3,6 +3,7 @@ import { initializeProviders } from '../../providers/registry.js';
 import { setSecureKey } from '../../security/secure-keys.js';
 import { assertMetadataWritable, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { getLogger } from '../../util/logger.js';
+import { httpError } from '../http-errors.js';
 
 const log = getLogger('runtime-http');
 
@@ -16,26 +17,23 @@ export async function handleAddSecret(req: Request): Promise<Response> {
   const { type, name, value } = body;
 
   if (!type || typeof type !== 'string') {
-    return Response.json({ error: 'type is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'type is required', 400);
   }
   if (!name || typeof name !== 'string') {
-    return Response.json({ error: 'name is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'name is required', 400);
   }
   if (!value || typeof value !== 'string') {
-    return Response.json({ error: 'value is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'value is required', 400);
   }
 
   try {
     if (type === 'api_key') {
       if (!API_KEY_PROVIDERS.includes(name as typeof API_KEY_PROVIDERS[number])) {
-        return Response.json(
-          { error: `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(', ')}` },
-          { status: 400 },
-        );
+        return httpError('BAD_REQUEST', `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(', ')}`, 400);
       }
       const stored = setSecureKey(name, value);
       if (!stored) {
-        return Response.json({ error: 'Failed to store API key in secure storage' }, { status: 500 });
+        return httpError('INTERNAL_ERROR', 'Failed to store API key in secure storage', 500);
       }
       invalidateConfigCache();
       initializeProviders(getConfig());
@@ -46,10 +44,7 @@ export async function handleAddSecret(req: Request): Promise<Response> {
     if (type === 'credential') {
       const colonIdx = name.indexOf(':');
       if (colonIdx < 1 || colonIdx === name.length - 1) {
-        return Response.json(
-          { error: 'For credential type, name must be in "service:field" format (e.g. "github:api_token")' },
-          { status: 400 },
-        );
+        return httpError('BAD_REQUEST', 'For credential type, name must be in "service:field" format (e.g. "github:api_token")', 400);
       }
       assertMetadataWritable();
       const service = name.slice(0, colonIdx);
@@ -57,20 +52,17 @@ export async function handleAddSecret(req: Request): Promise<Response> {
       const key = `credential:${service}:${field}`;
       const stored = setSecureKey(key, value);
       if (!stored) {
-        return Response.json({ error: 'Failed to store credential in secure storage' }, { status: 500 });
+        return httpError('INTERNAL_ERROR', 'Failed to store credential in secure storage', 500);
       }
       upsertCredentialMetadata(service, field, {});
       log.info({ service, field }, 'Credential added via HTTP');
       return Response.json({ success: true, type, name }, { status: 201 });
     }
 
-    return Response.json(
-      { error: `Unknown secret type: ${type}. Valid types: api_key, credential` },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', `Unknown secret type: ${type}. Valid types: api_key, credential`, 400);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, type, name }, 'Failed to add secret via HTTP');
-    return Response.json({ error: message }, { status: 500 });
+    return httpError('INTERNAL_ERROR', message, 500);
   }
 }

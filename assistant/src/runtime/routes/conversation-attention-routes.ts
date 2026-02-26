@@ -10,6 +10,7 @@ import {
 } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { truncate } from '../../util/truncate.js';
+import { httpError } from '../http-errors.js';
 
 export function handleListConversationAttention(url: URL): Response {
   const stateParam = url.searchParams.get('state') ?? 'all';
@@ -22,7 +23,7 @@ export function handleListConversationAttention(url: URL): Response {
   const before = rawBefore !== undefined && Number.isFinite(rawBefore) ? rawBefore : undefined;
 
   if (!['seen', 'unseen', 'all'].includes(stateParam)) {
-    return Response.json({ error: 'Invalid state parameter. Must be seen, unseen, or all.' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'Invalid state parameter. Must be seen, unseen, or all.', 400);
   }
 
   const attentionStates = listConversationAttention({

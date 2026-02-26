@@ -152,7 +152,9 @@ export class SubagentManager {
     // Store the managed subagent early so the wrapper can read the mutable
     // parentSendToClient reference — this ensures reconnects are picked up.
     const managed: ManagedSubagent = {
-      session: undefined as unknown as Session,
+      // Placeholder — replaced with the real Session a few lines below, before
+      // any code reads this field. Using null! avoids the `as unknown as` cast.
+      session: null! as Session,
       state,
       parentSendToClient,
     };

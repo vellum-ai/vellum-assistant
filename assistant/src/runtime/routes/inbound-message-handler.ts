@@ -65,6 +65,7 @@ import type {
 import { processGuardianFollowUpTurn } from '../guardian-action-conversation-turn.js';
 import { composeGuardianActionMessageGenerative } from '../guardian-action-message-composer.js';
 import { executeFollowupAction } from '../guardian-action-followup-executor.js';
+import { httpError } from '../http-errors.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import {
   canonicalChannelAssistantId,
@@ -141,40 +142,34 @@ export async function handleChannelInbound(
   } = body;
 
   if (!body.sourceChannel || typeof body.sourceChannel !== 'string') {
-    return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'sourceChannel is required', 400);
   }
   // Validate and narrow to canonical ChannelId at the boundary — the gateway
   // only sends well-known channel strings, so an unknown value is rejected.
   if (!isChannelId(body.sourceChannel)) {
-    return Response.json(
-      { error: `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(', ')}` },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(', ')}`, 400);
   }
 
   const sourceChannel = body.sourceChannel;
 
   if (!body.interface || typeof body.interface !== 'string') {
-    return Response.json({ error: 'interface is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'interface is required', 400);
   }
   const sourceInterface = parseInterfaceId(body.interface);
   if (!sourceInterface) {
-    return Response.json(
-      { error: `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}` },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}`, 400);
   }
 
   if (!externalChatId || typeof externalChatId !== 'string') {
-    return Response.json({ error: 'externalChatId is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'externalChatId is required', 400);
   }
   if (!externalMessageId || typeof externalMessageId !== 'string') {
-    return Response.json({ error: 'externalMessageId is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'externalMessageId is required', 400);
   }
 
   // Reject non-string content regardless of whether attachments are present.
   if (content != null && typeof content !== 'string') {
-    return Response.json({ error: 'content must be a string' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'content must be a string', 400);
   }
 
   const trimmedContent = typeof content === 'string' ? content.trim() : '';
@@ -183,7 +178,7 @@ export async function handleChannelInbound(
   const hasCallbackData = typeof body.callbackData === 'string' && body.callbackData.length > 0;
 
   if (trimmedContent.length === 0 && !hasAttachments && !isEdit && !hasCallbackData) {
-    return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'content or attachmentIds is required', 400);
   }
 
   // Canonicalize the assistant ID so all DB-facing operations use the
@@ -328,7 +323,7 @@ export async function handleChannelInbound(
     : undefined;
 
   if (isEdit && !sourceMessageId) {
-    return Response.json({ error: 'sourceMetadata.messageId is required for edits' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'sourceMetadata.messageId is required for edits', 400);
   }
 
   // ── Edit path: update existing message content, no new agent loop ──

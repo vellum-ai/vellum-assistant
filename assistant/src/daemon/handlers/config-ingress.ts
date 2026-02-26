@@ -219,7 +219,7 @@ export async function handleIngressConfig(
         }
       }
     } else {
-      ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
+      ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String(msg.action)}` });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

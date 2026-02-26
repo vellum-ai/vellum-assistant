@@ -36,6 +36,11 @@ final class VoiceModeManager: ObservableObject {
     private var ttsTimeoutTask: Task<Void, Never>?
     /// Timer that fires when the conversation has been idle too long.
     private var conversationTimeoutTask: Task<Void, Never>?
+    /// When true, `handleStateTransition` will not re-arm the conversation
+    /// timeout on transitions to `.idle`. Used during CU escalation so that
+    /// `speakTransient`'s completion (which sets state to `.idle`) does not
+    /// prematurely restart the 30s timer while the CU session is still running.
+    private var conversationTimeoutPaused = false
     /// Permission request IDs currently being handled via voice.
     private var pendingPermissionIds: [String] = []
     /// Combine subscription to detect new confirmations in chat messages.
@@ -156,6 +161,7 @@ final class VoiceModeManager: ObservableObject {
 
         // Cancel conversation timeout before setting state to .off
         // (didSet would cancel it too, but be explicit for clarity).
+        conversationTimeoutPaused = false
         cancelConversationTimeout()
 
         // Set state to .off BEFORE shutdown so that any synchronous
@@ -235,6 +241,11 @@ final class VoiceModeManager: ObservableObject {
         voiceService.resetStreamingTTS()
 
         Task {
+            // Capture frontmost app context BEFORE awaiting transcription so we
+            // capture the app the user was looking at when they spoke, not after
+            // potential app switches during transcription finalization.
+            let ctx = DictationContextCapture.capture()
+
             let text = await voiceService.stopRecordingAndGetTranscription()
             let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -252,27 +263,48 @@ final class VoiceModeManager: ObservableObject {
 
             partialTranscription = trimmed
 
-            // Capture frontmost app context so the daemon knows what the user
-            // is looking at during voice conversations (matches PTT behavior).
-            let ctx = DictationContextCapture.capture()
+            // Build the context prefix from captured app context. Sanitize
+            // attacker-controlled values (window titles, selected text) to
+            // prevent prompt injection and excessive length.
             var contextPrefix = ""
             if !ctx.appName.isEmpty {
                 var parts: [String] = ["app: \(ctx.appName)"]
                 if !ctx.windowTitle.isEmpty {
-                    parts.append("window: \"\(ctx.windowTitle)\"")
+                    let sanitizedTitle = Self.sanitize(ctx.windowTitle, maxLength: 200)
+                    parts.append("window: \"\(sanitizedTitle)\"")
                 }
                 if let selected = ctx.selectedText, !selected.isEmpty {
-                    parts.append("selected text: \"\(selected)\"")
+                    let sanitizedSelected = Self.sanitize(selected, maxLength: 500)
+                    parts.append("selected text: \"\(sanitizedSelected)\"")
                 }
                 contextPrefix = "[User's current \(parts.joined(separator: ", "))]\n"
             }
 
-            // Send the transcribed message through the daemon (full context)
+            // Pass context via pendingVoiceContextPrefix so it's injected into
+            // the daemon-bound text only — not into inputText, which is used for
+            // chat bubble display and thread auto-titling.
             chatViewModel.pendingVoiceMessage = true
-            chatViewModel.inputText = contextPrefix + trimmed
+            if !contextPrefix.isEmpty {
+                chatViewModel.pendingVoiceContextPrefix = contextPrefix
+            }
+            chatViewModel.inputText = trimmed
             chatViewModel.sendMessage()
             log.info("Voice mode: sent transcription to chat via daemon")
         }
+    }
+
+    /// Sanitize attacker-controlled text (window titles, selected text) by
+    /// truncating to a maximum length and stripping bracket patterns like
+    /// `[...]` that could be confused with instruction markers.
+    private static func sanitize(_ input: String, maxLength: Int) -> String {
+        var result = String(input.prefix(maxLength))
+        // Strip bracket patterns that could look like instruction markers
+        result = result.replacingOccurrences(
+            of: "\\[.*?\\]",
+            with: "",
+            options: .regularExpression
+        )
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Streaming TTS from daemon response
@@ -519,7 +551,8 @@ final class VoiceModeManager: ObservableObject {
         if newState == .idle {
             // Don't start the timeout if the agent is currently executing tools —
             // the isThinking observer will restart it when thinking completes.
-            if chatViewModel?.isThinking != true {
+            // Also skip if the timeout is paused (e.g., during CU escalation).
+            if !conversationTimeoutPaused && chatViewModel?.isThinking != true {
                 startConversationTimeout()
             }
         } else {
@@ -594,6 +627,7 @@ final class VoiceModeManager: ObservableObject {
     /// conversation should not auto-deactivate.
     func pauseConversationTimeout() {
         log.info("Voice mode: conversation timeout paused")
+        conversationTimeoutPaused = true
         cancelConversationTimeout()
     }
 
@@ -601,6 +635,10 @@ final class VoiceModeManager: ObservableObject {
     /// operation completes so idle auto-deactivation can kick in again.
     func resumeConversationTimeout() {
         log.info("Voice mode: conversation timeout resumed")
+        // Clear the paused flag BEFORE the state guard so that when
+        // speakTransient finishes and transitions to .idle,
+        // handleStateTransition will properly restart the timeout.
+        conversationTimeoutPaused = false
         guard state == .idle else { return }
         startConversationTimeout()
     }

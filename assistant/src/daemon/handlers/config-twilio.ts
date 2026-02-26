@@ -1062,7 +1062,7 @@ export async function handleTwilioConfig(
         type: 'twilio_config_response',
         success: false,
         hasCredentials: hasTwilioCredentials(),
-        error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}`,
+        error: `Unknown action: ${String(msg.action)}`,
       });
     }
   } catch (err) {
