@@ -54,7 +54,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 
 describe("payload size guard", () => {
   test("returns 413 when content-length exceeds limit", async () => {
-    const handler = createTelegramWebhookHandler(makeConfig());
+    const { handler } = createTelegramWebhookHandler(makeConfig());
     const body = JSON.stringify({ data: "x".repeat(300) });
     const req = new Request("http://localhost:7830/webhooks/telegram", {
       method: "POST",
@@ -72,7 +72,7 @@ describe("payload size guard", () => {
   });
 
   test("returns 413 when body exceeds limit even without content-length", async () => {
-    const handler = createTelegramWebhookHandler(makeConfig());
+    const { handler } = createTelegramWebhookHandler(makeConfig());
     const body = JSON.stringify({ data: "x".repeat(300) });
     const req = new Request("http://localhost:7830/webhooks/telegram", {
       method: "POST",
@@ -87,7 +87,7 @@ describe("payload size guard", () => {
   });
 
   test("accepts payload within limit", async () => {
-    const handler = createTelegramWebhookHandler(
+    const { handler } = createTelegramWebhookHandler(
       makeConfig({ maxWebhookPayloadBytes: 10000 }),
     );
     const body = JSON.stringify({ update_id: 1, message: { text: "hi", chat: { id: 1, type: "private" }, from: { id: 1 }, message_id: 1 } });
