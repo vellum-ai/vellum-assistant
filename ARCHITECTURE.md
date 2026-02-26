@@ -14,6 +14,8 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Assistant scheduling deep dive | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md) |
 | Assistant security deep dive | [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md) |
 | Gateway SMS parity checklist | [`gateway/docs/sms-twilio-parity-checklist.md`](gateway/docs/sms-twilio-parity-checklist.md) |
+| Trusted contact access design | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md) |
+| Trusted contacts operator runbook | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md) |
 
 ## Cross-Cutting Invariants
 
@@ -21,6 +23,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - Production LLM calls go through the provider abstraction, not provider SDKs in feature code.
 - Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants.
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.
+- Trusted contact ingress ACL is channel-agnostic; identity binding adapts per channel (chat ID, E.164 phone, external user ID) without channel-specific branching.
 
 ## System Overview
 
