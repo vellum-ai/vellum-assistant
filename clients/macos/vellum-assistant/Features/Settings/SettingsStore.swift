@@ -255,10 +255,7 @@ public final class SettingsStore: ObservableObject {
     }()
 
     private static func canonicalizeTimeZoneIdentifier(_ raw: String) -> String? {
-        if let tz = TimeZone(identifier: raw) {
-            return tz.identifier
-        }
-        return allKnownTimeZoneIdentifiersByLowercase[raw.lowercased()]
+        allKnownTimeZoneIdentifiersByLowercase[raw.lowercased()]
     }
 
     init(
