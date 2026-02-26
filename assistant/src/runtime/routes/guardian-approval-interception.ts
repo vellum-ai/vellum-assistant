@@ -73,9 +73,11 @@ function tryMintToolApprovalGrant(params: {
 }): void {
   const { approvalInfo, approval, decisionChannel, guardianExternalUserId } = params;
 
-  // Only mint for tool-approval requests that have invocation input.
-  // Informational ASK_GUARDIAN requests won't have meaningful input to digest.
-  if (!approvalInfo.toolName || !approvalInfo.input || Object.keys(approvalInfo.input).length === 0) {
+  // Only mint for requests that carry a tool name — the presence of toolName
+  // distinguishes tool-approval requests from informational ones.
+  // computeToolApprovalDigest can deterministically hash {} so zero-argument
+  // tool invocations must still receive a grant.
+  if (!approvalInfo.toolName) {
     return;
   }
 

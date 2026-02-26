@@ -236,11 +236,12 @@ describe('guardian grant minting on tool-approval decisions', () => {
 
   // ── 2. approve_once for non-tool-approval does NOT mint a grant ──
 
-  test('approve_once for informational request (empty input) does NOT mint a grant', async () => {
+  test('approve_once for informational request (no toolName) does NOT mint a grant', async () => {
     const requestId = 'req-no-grant-1';
-    createTestGuardianApproval(requestId, { toolName: 'ask_guardian_question' });
-    // Register with empty input to simulate informational ASK_GUARDIAN
-    registerPendingInteraction(requestId, CONVERSATION_ID, 'ask_guardian_question', {});
+    // Informational requests have no meaningful tool name — the empty string
+    // signals that this is not a tool-approval request.
+    createTestGuardianApproval(requestId, { toolName: '' });
+    registerPendingInteraction(requestId, CONVERSATION_ID, '', {});
 
     const result = await handleApprovalInterception({
       conversationId: 'guardian-conv-2',
@@ -259,6 +260,47 @@ describe('guardian grant minting on tool-approval decisions', () => {
 
     // No grant should have been minted
     expect(countGrants()).toBe(0);
+
+    deliverSpy.mockRestore();
+    composeSpy.mockRestore();
+  });
+
+  // ── 2b. approve_once for zero-argument tool call DOES mint a grant ──
+
+  test('approve_once for zero-argument tool call mints a scoped grant', async () => {
+    const requestId = 'req-grant-zero-arg';
+    const zeroArgTool = 'get_system_status';
+    createTestGuardianApproval(requestId, { toolName: zeroArgTool });
+    // Register with empty input object to simulate a zero-argument tool call
+    registerPendingInteraction(requestId, CONVERSATION_ID, zeroArgTool, {});
+
+    const result = await handleApprovalInterception({
+      conversationId: 'guardian-conv-2b',
+      callbackData: `apr:${requestId}:approve_once`,
+      content: '',
+      externalChatId: GUARDIAN_CHAT,
+      sourceChannel: 'telegram',
+      senderExternalUserId: GUARDIAN_USER,
+      replyCallbackUrl: 'https://gateway.test/deliver',
+      guardianCtx: makeGuardianContext(),
+      assistantId: ASSISTANT_ID,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.type).toBe('guardian_decision_applied');
+
+    // A grant MUST be minted even though input is {}
+    expect(countGrants()).toBe(1);
+
+    const grant = getLatestGrant();
+    expect(grant).not.toBeNull();
+    expect(grant!.scope_mode).toBe('tool_signature');
+    expect(grant!.tool_name).toBe(zeroArgTool);
+    expect(grant!.status).toBe('active');
+
+    // Verify the input digest matches what computeToolApprovalDigest produces for empty input
+    const expectedDigest = computeToolApprovalDigest(zeroArgTool, {});
+    expect(grant!.input_digest).toBe(expectedDigest);
 
     deliverSpy.mockRestore();
     composeSpy.mockRestore();
