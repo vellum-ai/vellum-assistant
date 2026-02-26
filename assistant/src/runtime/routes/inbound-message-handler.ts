@@ -571,7 +571,7 @@ export async function handleChannelInbound(
         destinationAddress: externalChatId,
       });
 
-      // Compose and send the verification code via Telegram
+      // Compose and send the verification prompt via Telegram
       const telegramBody = composeVerificationTelegram(
         GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
         {

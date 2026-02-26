@@ -3274,23 +3274,22 @@ describe('outbound Telegram verification', () => {
     expect(revoked).toBeNull();
   });
 
-  test('telegram template includes verification code in message', () => {
+  test('telegram template does not include verification code in message', () => {
     const msg = composeVerificationTelegram(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
       { code: 'abc123', expiresInMinutes: 10 },
     );
-    // Code must be visible in-channel for bootstrap flows where the app cannot display it
-    expect(msg).toContain('abc123');
-    expect(msg).toContain('/guardian_verify abc123');
+    expect(msg).not.toContain('abc123');
+    expect(msg).toContain('/guardian_verify <code>');
   });
 
-  test('telegram resend template includes code and (resent) suffix', () => {
+  test('telegram resend template does not include code and includes (resent) suffix', () => {
     const msg = composeVerificationTelegram(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND,
       { code: 'xyz789', expiresInMinutes: 5 },
     );
-    expect(msg).toContain('xyz789');
-    expect(msg).toContain('/guardian_verify xyz789');
+    expect(msg).not.toContain('xyz789');
+    expect(msg).toContain('/guardian_verify <code>');
     expect(msg).toContain('(resent)');
   });
 
@@ -3300,7 +3299,7 @@ describe('outbound Telegram verification', () => {
       { code: '999999', expiresInMinutes: 10, assistantName: 'MyBot' },
     );
     expect(msg).toContain('Vellum assistant');
-    expect(msg).toContain('999999');
+    expect(msg).not.toContain('999999');
   });
 
   test('start_outbound for telegram with missing destination fails', () => {
