@@ -64,6 +64,7 @@ import type {
 } from '../http-types.js';
 import { processGuardianFollowUpTurn } from '../guardian-action-conversation-turn.js';
 import { composeGuardianActionMessageGenerative } from '../guardian-action-message-composer.js';
+import { executeFollowupAction } from '../guardian-action-followup-executor.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import {
   canonicalChannelAssistantId,
@@ -1056,6 +1057,28 @@ export async function handleChannelInbound(
               }, bearerToken);
             } catch (err) {
               log.error({ err, externalChatId }, 'Failed to deliver guardian follow-up conversation reply');
+            }
+
+            // Execute the action and send a completion/failure reply (fire-and-forget).
+            // The initial reply above acknowledges the guardian's choice; this
+            // follow-up message confirms whether the action succeeded.
+            if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
+              void (async () => {
+                try {
+                  const execResult = await executeFollowupAction(
+                    followupRequest.id,
+                    turnResult.disposition as 'call_back' | 'message_back',
+                    guardianActionCopyGenerator,
+                  );
+                  await deliverChannelReply(replyCallbackUrl, {
+                    chatId: externalChatId,
+                    text: execResult.guardianReplyText,
+                    assistantId,
+                  }, bearerToken);
+                } catch (execErr) {
+                  log.error({ err: execErr, requestId: followupRequest.id }, 'Follow-up action execution or completion reply failed');
+                }
+              })();
             }
 
             return Response.json({

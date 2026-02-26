@@ -27,7 +27,10 @@ export type GuardianActionMessageScenario =
   | 'guardian_followup_declined_ack'
   | 'guardian_stale_answered'
   | 'guardian_stale_expired'
-  | 'outbound_message_copy';
+  | 'outbound_message_copy'
+  | 'followup_message_sent'
+  | 'followup_call_started'
+  | 'followup_action_failed';
 
 export interface GuardianActionMessageContext {
   scenario: GuardianActionMessageScenario;
@@ -38,6 +41,7 @@ export interface GuardianActionMessageContext {
   lateAnswerText?: string;
   followupAction?: string;
   failureReason?: string;
+  counterpartyPhone?: string;
 }
 
 export interface ComposeGuardianActionMessageOptions {
@@ -178,6 +182,21 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
         : context.questionText
           ? `Someone tried to reach you earlier and asked: "${context.questionText}". Please reply when you get a chance.`
           : 'Someone tried to reach you earlier. Please reply when you get a chance.';
+
+    case 'followup_message_sent':
+      return context.counterpartyPhone
+        ? `Done! I've sent a text message to ${context.counterpartyPhone} with your answer.`
+        : "Done! I've sent them a text message with your answer.";
+
+    case 'followup_call_started':
+      return context.counterpartyPhone
+        ? `Got it! I'm calling ${context.counterpartyPhone} back now to relay your answer.`
+        : "Got it! I'm calling them back now to relay your answer.";
+
+    case 'followup_action_failed':
+      return context.failureReason
+        ? `I'm sorry, I wasn't able to complete that. ${context.failureReason}`
+        : "I'm sorry, something went wrong and I couldn't complete that action. Please try again later.";
 
     default: {
       const _exhaustive: never = context.scenario;
