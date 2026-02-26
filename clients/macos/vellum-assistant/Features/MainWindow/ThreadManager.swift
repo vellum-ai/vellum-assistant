@@ -263,6 +263,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         threads.remove(at: index)
         chatViewModels.removeValue(forKey: id)
         unsubscribeFromBusyState(for: id)
+        threadInteractionStates.removeValue(forKey: id)
         vmAccessOrder.removeAll { $0 == id }
 
         // Reclaim memory held by static caches that may reference
@@ -295,6 +296,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             // Session ID already known — safe to release the view model.
             chatViewModels.removeValue(forKey: id)
             unsubscribeFromBusyState(for: id)
+            threadInteractionStates.removeValue(forKey: id)
             vmAccessOrder.removeAll { $0 == id }
         } else if chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true
                     && chatViewModels[id]?.isBootstrapping != true {
@@ -304,6 +306,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             // Clean up immediately.
             chatViewModels.removeValue(forKey: id)
             unsubscribeFromBusyState(for: id)
+            threadInteractionStates.removeValue(forKey: id)
             vmAccessOrder.removeAll { $0 == id }
         } else {
             // Session ID is nil but a session is expected (user messages exist
@@ -606,6 +609,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func removeChatViewModel(for threadId: UUID) {
         chatViewModels.removeValue(forKey: threadId)
         unsubscribeFromBusyState(for: threadId)
+        threadInteractionStates.removeValue(forKey: threadId)
         vmAccessOrder.removeAll { $0 == threadId }
     }
 
@@ -777,6 +781,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             archivedSessionIds = archived
             chatViewModels.removeValue(forKey: threadId)
             unsubscribeFromBusyState(for: threadId)
+            threadInteractionStates.removeValue(forKey: threadId)
             vmAccessOrder.removeAll { $0 == threadId }
         }
     }
@@ -952,7 +957,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         )
     }
 
-    /// Remove busy-state and interaction-state subscriptions for a thread (e.g. on archive/close).
+    /// Remove busy-state and interaction-state subscriptions for a thread.
+    ///
+    /// Does NOT clear `threadInteractionStates` — the last known interaction
+    /// state is preserved so that evicted (but still visible) threads continue
+    /// showing the correct sidebar cue.  Callers that permanently remove a
+    /// thread (close / archive) should clear the entry explicitly.
     private func unsubscribeFromBusyState(for threadId: UUID) {
         busyStateCancellables.removeValue(forKey: threadId)
         assistantActivityCancellables[threadId]?.cancel()
@@ -960,7 +970,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         latestAssistantActivitySnapshots.removeValue(forKey: threadId)
         busyThreadIds.remove(threadId)
         interactionStateCancellables.removeValue(forKey: threadId)
-        threadInteractionStates.removeValue(forKey: threadId)
     }
 
     // MARK: - Interaction State
