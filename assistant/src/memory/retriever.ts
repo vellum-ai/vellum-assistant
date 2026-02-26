@@ -473,7 +473,17 @@ function formatRecallResult(
   const selected = trimToTokenBudget(merged, maxInjectTokens, config.memory.retrieval.injectionFormat);
   markItemUsage(selected);
 
-  const injectedText = buildInjectedText(selected, config.memory.retrieval.injectionFormat);
+  let injectedText = buildInjectedText(selected, config.memory.retrieval.injectionFormat);
+
+  // Surface degradation notice in the injected text so the model knows
+  // semantic search is unavailable and recall quality may be reduced.
+  if (collected.semanticSearchFailed) {
+    const notice = '[Note: Semantic search is currently unavailable. Memory recall is limited to lexical and recency matching — results may be incomplete or miss semantically relevant memories.]';
+    injectedText = injectedText.length > 0
+      ? injectedText + '\n\n' + notice
+      : notice;
+  }
+
   const topCandidates: MemoryRecallCandiateDebug[] = selected.slice(0, 10).map((c) => ({
     key: c.key,
     type: c.type,
