@@ -1,8 +1,8 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import { stripCommentLines } from './system-prompt.js';
 import { appendReleaseBlock, hasReleaseBlock } from './update-bulletin-format.js';
+import { getTemplatePath } from './update-bulletin-template-path.js';
 import {
   addActiveRelease,
   getActiveReleases,
@@ -61,7 +61,7 @@ export function syncUpdateBulletinOnStartup(): void {
   }
 
   // --- Template materialization ---
-  const templatePath = join(import.meta.dirname ?? __dirname, 'templates', 'UPDATES.md');
+  const templatePath = getTemplatePath();
   if (!existsSync(templatePath)) return;
 
   const rawTemplate = readFileSync(templatePath, 'utf-8');
