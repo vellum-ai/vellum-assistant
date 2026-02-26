@@ -5,9 +5,42 @@ Arguments (optional): $ARGUMENTS
 Parse optional flags from `$ARGUMENTS`:
 
 - **`--namespace NAME`** (optional): when provided, only process PRs whose head branch starts with `swarm/<NAME>/`. Any TODO items added will be prefixed with `[<NAME>]` (e.g., `- [<NAME>] Address the feedback on <link>`). When omitted, process all PRs. TODO items will still be namespaced if the PR's branch name matches `swarm/<NAME>/...` (the namespace is inferred from the branch).
+- **`--force`** (optional): skip active blitz filtering (see below). Process all PRs regardless of whether they're owned by a running blitz.
+
 To check a PR's head branch name, include `headRefName` in the `--json` fields when fetching PR data.
 
 <instructions>
+
+## Active blitz detection
+
+Before processing PRs, check if any blitz or safe-blitz runs are actively managing their own review cycles. This prevents standalone check-reviews from picking up work that's already being handled by an in-process blitz.
+
+**Skip this section entirely if `--namespace` was explicitly provided or `--force` was passed.** When `--namespace` is provided, the caller is explicitly claiming ownership of that namespace (this is how the blitz sweep itself calls check-reviews). When `--force` is passed, the caller wants to process everything regardless.
+
+If neither `--namespace` nor `--force` was provided:
+
+1. Check if `.private/ACTIVE_BLITZ.md` exists. If not, skip to the main processing below.
+2. Read `.private/ACTIVE_BLITZ.md`. Each non-empty, non-comment line (lines not starting with `#`) represents an active blitz run in the format:
+   ```
+   <namespace> <type> <heartbeat-ISO-timestamp>
+   ```
+   Example: `approval-conv-flow safe-blitz 2026-02-26T10:00:00Z`
+
+3. For each entry, check if the heartbeat is stale (older than 30 minutes):
+   ```bash
+   HEARTBEAT="<heartbeat-timestamp>"
+   HEARTBEAT_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$HEARTBEAT" "+%s" 2>/dev/null)
+   NOW_EPOCH=$(date "+%s")
+   AGE=$(( NOW_EPOCH - HEARTBEAT_EPOCH ))
+   ```
+   - If `AGE > 1800` (30 minutes): the entry is stale. Remove it from the file and log: `"Removing stale blitz entry '<namespace>' (last heartbeat <AGE>s ago)"`. Do not add this namespace to the exclusion list.
+   - If `AGE <= 1800`: add the namespace to an internal **exclusion list**.
+
+4. When building the list of PRs to process from UNREVIEWED_PRS.md, exclude any PR whose head branch starts with `swarm/<excluded-namespace>/` for any namespace in the exclusion list. Log: `"Skipping <N> PRs owned by active <type> '<namespace>' (heartbeat <AGE>s ago)"`
+
+5. Include the skipped PRs in the output table with a new verdict: `🔒 Owned` and a note indicating which blitz owns them. Do NOT remove these PRs from UNREVIEWED_PRS.md.
+
+---
 
 Look at every item in .private/UNREVIEWED_PRS.md. Each line is a PR URL like `https://github.com/<owner>/<repo>/pull/123`.
 
@@ -94,6 +127,7 @@ Display a table with these columns:
   - 📝 Valid feedback
   - ⚠️ Regression risk
   - ⏳ Pending
+  - 🔒 Owned (PR belongs to an active blitz — skipped)
 - **TODO / Removed**: Use ✅ for yes, — for no.
 
 ### Regression risk flagging
