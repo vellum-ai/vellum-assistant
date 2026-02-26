@@ -23,7 +23,6 @@ import {
   registerDoctorCommand,
   registerSessionsCommand,
 } from './cli/core-commands.js';
-import { registerDoordashCommand } from './cli/doordash.js';
 import { registerEmailCommand } from './cli/email.js';
 import { registerInfluencerCommand } from './cli/influencer.js';
 import { registerMapCommand } from './cli/map.js';
@@ -50,7 +49,6 @@ registerAuditCommand(program);
 registerDoctorCommand(program);
 registerHooksCommand(program);
 registerEmailCommand(program);
-registerDoordashCommand(program);
 registerAmazonCommand(program);
 registerCompletionsCommand(program);
 
