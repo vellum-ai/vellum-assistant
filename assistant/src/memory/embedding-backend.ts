@@ -35,7 +35,18 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
 
   async embed(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
     const backend = await this.getDelegate();
-    return backend.embed(texts, options);
+    try {
+      return await backend.embed(texts, options);
+    } catch (err) {
+      // The onnxruntime-node failure surfaces here during the first embed() call
+      // (via LocalEmbeddingBackend.initialize()). Mark broken so auto mode stops
+      // selecting local on subsequent requests.
+      if (!localBackendBroken && isInitializationError(err)) {
+        localBackendBroken = true;
+        log.warn({ err }, 'Local embedding backend permanently unavailable; auto mode will skip it');
+      }
+      throw err;
+    }
   }
 
   private async getDelegate(): Promise<EmbeddingBackend> {
@@ -55,6 +66,13 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
     }
     return this.initPromise;
   }
+}
+
+/** Detect errors thrown by LocalEmbeddingBackend.initialize() so we can
+ *  distinguish permanent init failures from transient embed-time errors. */
+function isInitializationError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.message.includes('Local embedding backend unavailable');
 }
 
 /** Global cache of embedding backend instances, keyed by "provider:model". */
