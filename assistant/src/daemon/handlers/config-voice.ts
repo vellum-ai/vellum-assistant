@@ -42,7 +42,6 @@ const NATURAL_LANGUAGE_MAP: Record<string, ActivationKey> = {
   fn_shift: 'fn_shift',
   'fn+shift': 'fn_shift',
   'fn shift': 'fn_shift',
-  'ctrl+shift': 'fn_shift',
   'shift+fn': 'fn_shift',
   none: 'none',
   off: 'none',
