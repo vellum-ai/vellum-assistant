@@ -1239,6 +1239,23 @@ struct MainWindowView: View {
                         ForEach(displayedScheduleThreads) { thread in
                             threadItem(thread)
                                 .padding(.bottom, VSpacing.xxs)
+                                .overlay(alignment: .top) {
+                                    if sidebar.dropTargetThreadId == thread.id {
+                                        Rectangle()
+                                            .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
+                                            .frame(height: 2)
+                                            .transition(.opacity)
+                                    }
+                                }
+                                .dropDestination(for: String.self) { items, _ in
+                                    sidebar.dropTargetThreadId = nil
+                                    guard let droppedId = items.first,
+                                          let sourceUUID = UUID(uuidString: droppedId),
+                                          sourceUUID != thread.id else { return false }
+                                    return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
+                                } isTargeted: { isTargeted in
+                                    sidebar.dropTargetThreadId = isTargeted ? thread.id : nil
+                                }
                         }
 
                         if scheduleThreads.count > 3 {

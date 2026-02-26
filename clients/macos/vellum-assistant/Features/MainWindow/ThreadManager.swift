@@ -560,7 +560,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Move a thread to a new position in the visible list (for drag-and-drop reorder).
     /// Works for any thread: pinned-to-pinned reorders among pinned items,
     /// unpinned-to-pinned pins the source, and unpinned-to-unpinned reorders
-    /// using displayOrder.
+    /// using displayOrder. When the target is a schedule thread, the source is
+    /// inserted at the end of the unpinned regular threads list (the boundary
+    /// between regular and scheduled threads).
     @discardableResult
     func moveThread(sourceId: UUID, beforeId: UUID) -> Bool {
         guard let sourceIdx = threads.firstIndex(where: { $0.id == sourceId }),
@@ -589,8 +591,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 recompactPinnedOrders()
             }
 
-            // Build the current visible unpinned order and insert the source before the target
-            let unpinned = visibleThreads.filter { !$0.isPinned && !$0.isScheduleThread }
+            // Build the current visible unpinned order and insert the source before the target.
+            // Include schedule threads so that dropping on a schedule thread places the source
+            // at the boundary (end of regular threads, just before the first schedule thread).
+            let unpinned = visibleThreads.filter { !$0.isPinned }
             var reordered = unpinned.filter { $0.id != sourceId }
             let targetPos = reordered.firstIndex(where: { $0.id == beforeId }) ?? reordered.endIndex
             if let movedThread = unpinned.first(where: { $0.id == sourceId }) ?? [threads[sourceIdx]].first {
@@ -618,18 +622,26 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Send the current thread ordering to the daemon so it persists across restarts.
-    /// Only sends explicit displayOrder for threads that have been user-reordered
-    /// (non-nil displayOrder) or are pinned. Threads without explicit ordering get
-    /// displayOrder: nil so the daemon clears any previously stored value, preserving
-    /// the default "new threads sort to top by recency" behavior.
+    /// For pinned threads, derives a deterministic displayOrder from pinnedOrder so
+    /// the pinned ordering survives restarts. For unpinned threads that have been
+    /// explicitly reordered (non-nil displayOrder), sends their displayOrder. For
+    /// unpinned threads without explicit ordering, sends nil so they sort by recency.
     private func sendReorderThreads() {
         let visible = visibleThreads
         var updates: [IPCReorderThreadsRequestUpdate] = []
         for thread in visible {
             guard let sessionId = thread.sessionId else { continue }
+            let order: Double?
+            if thread.isPinned {
+                // Pinned threads always need a persisted displayOrder derived from
+                // their pinnedOrder so their user-defined order survives restarts.
+                order = Double(thread.pinnedOrder ?? 0)
+            } else {
+                order = thread.displayOrder.map { Double($0) }
+            }
             updates.append(IPCReorderThreadsRequestUpdate(
                 sessionId: sessionId,
-                displayOrder: thread.displayOrder.map { Double($0) },
+                displayOrder: order,
                 isPinned: thread.isPinned
             ))
         }
