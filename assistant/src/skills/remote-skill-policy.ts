@@ -1,6 +1,7 @@
 export type RemoteSkillProvider = 'clawhub' | 'skillssh';
 
 export type SkillsShRisk = 'safe' | 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+export type SkillsShRiskThreshold = Exclude<SkillsShRisk, 'unknown'>;
 
 export interface RemoteSkillPolicy {
   /**
@@ -16,7 +17,7 @@ export interface RemoteSkillPolicy {
   /**
    * Maximum allowed Skills.sh audit risk. Anything above this threshold is blocked.
    */
-  maxSkillsShRisk: SkillsShRisk;
+  maxSkillsShRisk: SkillsShRiskThreshold;
 }
 
 export interface ClawhubModerationState {
@@ -82,7 +83,7 @@ function normalizeSkillsShRisk(audit: SkillsShAuditState | null | undefined): Sk
 
 function exceedsSkillsShRiskThreshold(
   audit: SkillsShAuditState | null | undefined,
-  threshold: SkillsShRisk,
+  threshold: SkillsShRiskThreshold,
 ): boolean {
   const actualRisk = normalizeSkillsShRisk(audit);
   return SKILLS_SH_RISK_RANK[actualRisk] > SKILLS_SH_RISK_RANK[threshold];

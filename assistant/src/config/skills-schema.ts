@@ -29,12 +29,15 @@ export const RemoteProvidersConfigSchema = z.object({
 });
 
 const VALID_SKILLS_SH_RISK_LEVELS = ['safe', 'low', 'medium', 'high', 'critical', 'unknown'] as const;
+// 'unknown' is valid as a risk label on a skill but not as a threshold — setting the threshold
+// to 'unknown' would silently disable fail-closed behavior since nothing can exceed it.
+const VALID_MAX_RISK_LEVELS = ['safe', 'low', 'medium', 'high', 'critical'] as const;
 
 export const RemotePolicyConfigSchema = z.object({
   blockSuspicious: z.boolean({ error: 'skills.remotePolicy.blockSuspicious must be a boolean' }).default(true),
   blockMalware: z.boolean({ error: 'skills.remotePolicy.blockMalware must be a boolean' }).default(true),
-  maxSkillsShRisk: z.enum(VALID_SKILLS_SH_RISK_LEVELS, {
-    error: `skills.remotePolicy.maxSkillsShRisk must be one of: ${VALID_SKILLS_SH_RISK_LEVELS.join(', ')}`,
+  maxSkillsShRisk: z.enum(VALID_MAX_RISK_LEVELS, {
+    error: `skills.remotePolicy.maxSkillsShRisk must be one of: ${VALID_MAX_RISK_LEVELS.join(', ')}`,
   }).default('medium'),
 });
 
