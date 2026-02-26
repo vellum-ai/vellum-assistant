@@ -68,6 +68,32 @@ describe('buildTemporalContext', () => {
     expect(result).toContain('Timezone source: user_profile_memory');
   });
 
+  test('uses configured user timezone when profile timezone is unavailable', () => {
+    const result = buildTemporalContext({
+      nowMs: WED_FEB_18,
+      hostTimeZone: 'UTC',
+      configuredUserTimeZone: 'America/Chicago',
+      userTimeZone: null,
+    });
+    expect(result).toContain('Timezone: America/Chicago');
+    expect(result).toContain('Current local time: 2026-02-18T06:00:00-06:00');
+    expect(result).toContain('User timezone: America/Chicago');
+    expect(result).toContain('Timezone source: user_settings');
+  });
+
+  test('configured user timezone takes precedence over profile timezone', () => {
+    const result = buildTemporalContext({
+      nowMs: WED_FEB_18,
+      hostTimeZone: 'UTC',
+      configuredUserTimeZone: 'America/Los_Angeles',
+      userTimeZone: 'America/New_York',
+    });
+    expect(result).toContain('Timezone: America/Los_Angeles');
+    expect(result).toContain('Current local time: 2026-02-18T04:00:00-08:00');
+    expect(result).toContain('User timezone: America/Los_Angeles');
+    expect(result).toContain('Timezone source: user_settings');
+  });
+
   test('falls back to host timezone when user timezone is unavailable', () => {
     const result = buildTemporalContext({
       nowMs: WED_FEB_18,
@@ -83,6 +109,13 @@ describe('buildTemporalContext', () => {
     const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
     expect(result).toContain('work week = Monday–Friday');
     expect(result).toContain('weekend = Saturday–Sunday');
+  });
+
+  test('formats midnight hours as 00 (never 24) in local ISO output', () => {
+    const justAfterMidnight = Date.UTC(2026, 1, 19, 0, 5, 0);
+    const result = buildTemporalContext({ nowMs: justAfterMidnight, timeZone: 'UTC' });
+    expect(result).toContain('Current local time: 2026-02-19T00:05:00+00:00');
+    expect(result).not.toContain('T24:05:00');
   });
 });
 

@@ -285,6 +285,12 @@ export const DaemonConfigSchema = z.object({
     .default(true),
 });
 
+export const UiConfigSchema = z.object({
+  userTimezone: z
+    .string({ error: 'ui.userTimezone must be a string' })
+    .optional(),
+});
+
 export type TimeoutConfig = z.infer<typeof TimeoutConfigSchema>;
 export type RateLimitConfig = z.infer<typeof RateLimitConfigSchema>;
 export type SecretDetectionConfig = z.infer<typeof SecretDetectionConfigSchema>;
@@ -299,3 +305,4 @@ export type IngressWebhookConfig = z.infer<typeof IngressWebhookConfigSchema>;
 export type IngressRateLimitConfig = z.infer<typeof IngressRateLimitConfigSchema>;
 export type DaemonConfig = z.infer<typeof DaemonConfigSchema>;
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;
+export type UiConfig = z.infer<typeof UiConfigSchema>;

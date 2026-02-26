@@ -387,8 +387,8 @@ graph TB
 ### Key design decisions
 
 - **Fresh each turn**: `buildTemporalContext()` is called at the start of every agent loop invocation, ensuring the model always sees the current date even in long-running conversations.
-- **Clock source invariant**: Absolute time (`now`) always comes from the daemon host clock (`Date.now()`), never from channel/client clocks.
-- **Timezone precedence**: If dynamic profile memory contains a valid user timezone, temporal context uses it for local-date interpretation. Otherwise it falls back to daemon host timezone.
+- **Clock source invariant**: Absolute time (`now`) always comes from the assistant host clock (`Date.now()`), never from channel/client clocks.
+- **Timezone precedence**: If `ui.userTimezone` is configured, temporal context uses it for local-date interpretation. Otherwise it falls back to dynamic profile memory, then assistant host timezone.
 - **Timezone-aware**: Uses `Intl.DateTimeFormat` APIs for DST-safe date arithmetic and timezone validation/canonicalization.
 - **Bounded output**: Hard-capped at 1500 characters and 14 horizon entries to prevent prompt bloat.
 - **Runtime-only**: The injected `<temporal_context>` block is stripped from `this.messages` after the agent loop completes via `stripTemporalContext`. It never persists in conversation history.

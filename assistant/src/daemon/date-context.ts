@@ -13,6 +13,8 @@ export interface TemporalContextOptions {
   timeZone?: string;
   /** IANA timezone for the daemon host clock (defaults to process local timezone). */
   hostTimeZone?: string;
+  /** IANA timezone configured in user settings (if available). */
+  configuredUserTimeZone?: string | null;
   /** IANA timezone inferred from user profile/memory (if available). */
   userTimeZone?: string | null;
   /** Number of future days to list (default 14, hard-capped at 14). */
@@ -124,7 +126,7 @@ function formatLocalIsoWithOffset(date: Date, timeZone: string): string {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    hour12: false,
+    hourCycle: 'h23',
     timeZoneName: 'shortOffset',
   });
   const parts = fmt.formatToParts(date);
@@ -174,13 +176,27 @@ export function buildTemporalContext(options: TemporalContextOptions = {}): stri
   const resolvedHostTimeZone = canonicalizeTimeZone(
     options.hostTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
   ) ?? 'UTC';
+  const resolvedConfiguredUserTimeZone = options.configuredUserTimeZone
+    ? canonicalizeTimeZone(options.configuredUserTimeZone)
+    : null;
   const resolvedUserTimeZone = options.userTimeZone
     ? canonicalizeTimeZone(options.userTimeZone)
     : null;
   const resolvedTimeZone = options.timeZone
     ? canonicalizeTimeZone(options.timeZone)
     : null;
-  const timeZone = resolvedTimeZone ?? resolvedUserTimeZone ?? resolvedHostTimeZone;
+  const timeZone = resolvedTimeZone
+    ?? resolvedConfiguredUserTimeZone
+    ?? resolvedUserTimeZone
+    ?? resolvedHostTimeZone;
+  const userTimeZone = resolvedConfiguredUserTimeZone ?? resolvedUserTimeZone;
+  const timeZoneSource = resolvedTimeZone
+    ? 'explicit_override'
+    : resolvedConfiguredUserTimeZone
+      ? 'user_settings'
+      : resolvedUserTimeZone
+        ? 'user_profile_memory'
+        : 'daemon_host_fallback';
   const horizonDays = Math.min(options.horizonDays ?? MAX_HORIZON_ENTRIES, MAX_HORIZON_ENTRIES);
 
   const todayParts = localDateParts(now, timeZone);
@@ -214,8 +230,8 @@ export function buildTemporalContext(options: TemporalContextOptions = {}): stri
     `Current UTC time: ${now.toISOString()}`,
     `Clock source: daemon host machine`,
     `Daemon host timezone: ${resolvedHostTimeZone}`,
-    `User timezone: ${resolvedUserTimeZone ?? 'unknown'}`,
-    `Timezone source: ${resolvedUserTimeZone ? 'user_profile_memory' : 'daemon_host_fallback'}`,
+    `User timezone: ${userTimeZone ?? 'unknown'}`,
+    `Timezone source: ${timeZoneSource}`,
     ``,
     `Week definitions: work week = Monday–Friday, weekend = Saturday–Sunday`,
     ``,

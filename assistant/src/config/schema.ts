@@ -48,6 +48,7 @@ export type {
   SmsConfig,
   ThinkingConfig,
   TimeoutConfig,
+  UiConfig,
 } from './core-schema.js';
 export {
   AuditLogConfigSchema,
@@ -65,6 +66,7 @@ export {
   SmsConfigSchema,
   ThinkingConfigSchema,
   TimeoutConfigSchema,
+  UiConfigSchema,
 } from './core-schema.js';
 export type {
   MemoryCleanupConfig,
@@ -144,6 +146,7 @@ import {
   SmsConfigSchema,
   ThinkingConfigSchema,
   TimeoutConfigSchema,
+  UiConfigSchema,
 } from './core-schema.js';
 import { MemoryConfigSchema } from './memory-schema.js';
 import { NotificationsConfigSchema } from './notifications-schema.js';
@@ -214,6 +217,7 @@ export const AssistantConfigSchema = z.object({
   platform: PlatformConfigSchema.default({} as any),
   daemon: DaemonConfigSchema.default({} as any),
   notifications: NotificationsConfigSchema.default({} as any),
+  ui: UiConfigSchema.default({} as any),
 }).superRefine((config, ctx) => {
   if (config.contextWindow?.targetInputTokens != null && config.contextWindow?.maxInputTokens != null &&
       config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {

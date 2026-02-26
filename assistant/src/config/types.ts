@@ -40,5 +40,6 @@ export type {
   SwarmConfig,
   ThinkingConfig,
   TimeoutConfig,
+  UiConfig,
   WorkspaceGitConfig,
 } from './schema.js';

@@ -326,12 +326,13 @@ export async function runAgentLoopImpl(
 
     // Compute fresh temporal context each turn for date grounding.
     // Absolute "now" is always anchored to daemon host clock, while local
-    // date semantics prefer user timezone when available in profile memory.
+    // date semantics prefer configured user timezone, then profile memory.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const userTimeZone = extractUserTimeZoneFromDynamicProfile(dynamicProfile.text);
+    const configuredUserTimeZone = getConfig().ui.userTimezone ?? null;
     const temporalContext = buildTemporalContext({
-      timeZone: userTimeZone ?? hostTimeZone,
       hostTimeZone,
+      configuredUserTimeZone,
       userTimeZone,
     });
 

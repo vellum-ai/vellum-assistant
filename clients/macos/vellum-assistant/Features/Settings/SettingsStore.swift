@@ -67,6 +67,7 @@ public final class SettingsStore: ObservableObject {
     @Published var mediaEmbedsEnabled: Bool
     @Published var mediaEmbedsEnabledSince: Date?
     @Published var mediaEmbedVideoAllowlistDomains: [String]
+    @Published var userTimezone: String?
 
     // MARK: - Twitter Integration State
 
@@ -249,6 +250,17 @@ public final class SettingsStore: ObservableObject {
         return nil
     }
 
+    private static let allKnownTimeZoneIdentifiersByLowercase: [String: String] = {
+        Dictionary(uniqueKeysWithValues: TimeZone.knownTimeZoneIdentifiers.map { ($0.lowercased(), $0) })
+    }()
+
+    private static func canonicalizeTimeZoneIdentifier(_ raw: String) -> String? {
+        if let tz = TimeZone(identifier: raw) {
+            return tz.identifier
+        }
+        return allKnownTimeZoneIdentifiersByLowercase[raw.lowercased()]
+    }
+
     init(
         daemonClient: DaemonClient? = nil,
         configPath: String? = nil,
@@ -306,6 +318,7 @@ public final class SettingsStore: ObservableObject {
         self.mediaEmbedsEnabled = mediaSettings.enabled
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
+        self.userTimezone = Self.loadUserTimezone(from: configPath)
 
         // When enabledSince was defaulted to "now" (no value on disk),
         // persist it immediately so subsequent loads produce the same
@@ -1661,6 +1674,34 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    // MARK: - User Timezone Actions
+
+    /// Saves a user timezone override under `ui.userTimezone`.
+    ///
+    /// Returns an error string when the value is not a valid IANA timezone.
+    @discardableResult
+    func saveUserTimezone(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            clearUserTimezone()
+            return nil
+        }
+
+        guard let canonical = Self.canonicalizeTimeZoneIdentifier(trimmed) else {
+            return "Use an IANA timezone like America/New_York."
+        }
+
+        userTimezone = canonical
+        persistUserTimezone()
+        return nil
+    }
+
+    /// Removes the user timezone override so runtime falls back to profile memory or host timezone.
+    func clearUserTimezone() {
+        userTimezone = nil
+        persistUserTimezone()
+    }
+
     // MARK: - Media Embed Actions
 
     /// Toggles media embeds on or off and persists the change to the workspace config.
@@ -1800,5 +1841,36 @@ public final class SettingsStore: ObservableObject {
             domains: domains,
             didDefaultEnabledSince: didDefault
         )
+    }
+
+    // MARK: - User Timezone Loading/Persistence
+
+    private func persistUserTimezone() {
+        let existingConfig = WorkspaceConfigIO.read(from: configPath)
+        var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
+        if let timezone = userTimezone {
+            existingUI["userTimezone"] = timezone
+        } else {
+            existingUI.removeValue(forKey: "userTimezone")
+        }
+
+        do {
+            try WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
+        } catch {
+            log.error("Failed to merge workspace config for user timezone: \(error)")
+        }
+    }
+
+    private static func loadUserTimezone(from configPath: String? = nil) -> String? {
+        let config = WorkspaceConfigIO.read(from: configPath)
+        guard let ui = config["ui"] as? [String: Any],
+              let raw = ui["userTimezone"] as? String else {
+            return nil
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        return canonicalizeTimeZoneIdentifier(trimmed)
     }
 }

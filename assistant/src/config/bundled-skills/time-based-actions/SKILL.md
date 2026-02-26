@@ -40,7 +40,7 @@ If you use `send_notification` for any of these, the notification fires immediat
 ## Time Grounding Source
 
 Use the injected `<temporal_context>` block as the authoritative clock source:
-- `Current UTC time` is the canonical current instant (from daemon host clock).
+- `Current UTC time` is the canonical current instant (from assistant host clock).
 - `Current local time` + `Timezone` are the active local-calendar interpretation.
 - `User timezone` + `Timezone source` tell you whether local-time interpretation is user-specific or host fallback.
 
