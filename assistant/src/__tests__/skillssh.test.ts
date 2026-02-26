@@ -276,6 +276,15 @@ describe('deriveOverallRisk', () => {
     };
     expect(deriveOverallRisk(audit)).toBe('unknown');
   });
+
+  test('returns unknown for inherited prototype property names like toString/constructor (fail closed)', () => {
+    for (const label of ['toString', 'constructor', 'hasOwnProperty', 'valueOf']) {
+      const audit: SkillsShAuditReport = {
+        ath: { risk: label, analyzedAt: '' },
+      };
+      expect(deriveOverallRisk(audit)).toBe('unknown');
+    }
+  });
 });
 
 // ─── Combined search + audit ────────────────────────────────────────────────────

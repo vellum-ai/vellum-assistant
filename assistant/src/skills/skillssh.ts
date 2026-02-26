@@ -71,11 +71,11 @@ export function deriveOverallRisk(audit: SkillsShAuditReport): SkillsShRisk {
 
   let maxRank = -1;
   for (const dim of dimensions) {
-    const rank = RISK_RANK[dim.risk];
-    if (rank === undefined) {
-      // Unrecognized risk label -- fail closed
+    if (!Object.hasOwn(RISK_RANK, dim.risk)) {
+      // Unrecognized risk label -- fail closed (hasOwn guards against inherited properties like toString/constructor)
       return 'unknown';
     }
+    const rank = RISK_RANK[dim.risk];
     if (rank > maxRank) maxRank = rank;
   }
 
