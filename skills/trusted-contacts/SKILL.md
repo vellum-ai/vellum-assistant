@@ -5,11 +5,11 @@ user-invocable: true
 metadata: {"vellum": {"emoji": "\ud83d\udc65"}}
 ---
 
-You are helping your user manage trusted contacts for the Vellum Assistant. Trusted contacts control who is allowed to send messages to the assistant through external channels like Telegram and SMS. All operations go through the runtime HTTP API using `curl` with bearer auth.
+You are helping your user manage trusted contacts for the Vellum Assistant. Trusted contacts control who is allowed to send messages to the assistant through external channels like Telegram and SMS. All operations go through the gateway HTTP API using `curl` with bearer auth.
 
 ## Prerequisites
 
-- The runtime HTTP API is available at `http://localhost:7821` (or the configured `RUNTIME_HTTP_PORT`).
+- The gateway API is available at `http://localhost:7830` (or the configured gateway port).
 - The bearer token is stored at `~/.vellum/http-token`. Read it with: `TOKEN=$(cat ~/.vellum/http-token)`.
 
 ## Concepts
@@ -27,7 +27,7 @@ Use this to show the user who currently has access, or to look up a specific con
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s http://localhost:7821/v1/ingress/members \
+curl -s http://localhost:7830/v1/ingress/members \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -38,7 +38,7 @@ Optional query parameters for filtering:
 
 Example with filters:
 ```bash
-curl -s "http://localhost:7821/v1/ingress/members?sourceChannel=telegram&status=active" \
+curl -s "http://localhost:7830/v1/ingress/members?sourceChannel=telegram&status=active" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -63,7 +63,7 @@ Ask the user: *"I'll add [name/identifier] on [channel] as an allowed contact. S
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST http://localhost:7821/v1/ingress/members \
+curl -s -X POST http://localhost:7830/v1/ingress/members \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -95,7 +95,7 @@ First, list members to find the member's `id`, then revoke:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X DELETE "http://localhost:7821/v1/ingress/members/<member_id>" \
+curl -s -X DELETE "http://localhost:7830/v1/ingress/members/<member_id>" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"reason": "<optional reason>"}'
@@ -111,7 +111,7 @@ Ask the user: *"I'll block [name/identifier]. They will be permanently denied fr
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST "http://localhost:7821/v1/ingress/members/<member_id>/block" \
+curl -s -X POST "http://localhost:7830/v1/ingress/members/<member_id>/block" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"reason": "<optional reason>"}'
