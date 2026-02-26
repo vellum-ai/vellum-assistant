@@ -20,6 +20,7 @@ export interface AssistantEntry {
 
 interface LockfileData {
   assistants?: AssistantEntry[];
+  platformBaseUrl?: string;
   [key: string]: unknown;
 }
 
@@ -101,4 +102,24 @@ export function saveAssistantEntry(entry: AssistantEntry): void {
   const entries = readAssistants();
   entries.unshift(entry);
   writeAssistants(entries);
+}
+
+/**
+ * Read the assistant config file and sync client-relevant values to the
+ * lockfile. This lets external tools (e.g. vel) discover the platform URL
+ * without importing the assistant config schema.
+ */
+export function syncConfigToLockfile(): void {
+  const configPath = join(getBaseDir(), ".vellum", "workspace", "config.json");
+  if (!existsSync(configPath)) return;
+
+  try {
+    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    const platform = raw.platform as Record<string, unknown> | undefined;
+    const data = readLockfile();
+    data.platformBaseUrl = (platform?.baseUrl as string) || undefined;
+    writeLockfile(data);
+  } catch {
+    // Config file unreadable — skip sync
+  }
 }
