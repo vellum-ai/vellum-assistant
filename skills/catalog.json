@@ -73,6 +73,12 @@
       "description": "Connect any OAuth service — create app credentials and authorize via browser automation. Works for any provider with a well-known config.",
       "emoji": "\ud83d\udd11",
       "includes": ["browser"]
+    },
+    {
+      "id": "guardian-verify-setup",
+      "name": "Guardian Verify Setup",
+      "description": "Set up guardian verification for SMS, voice, or Telegram channels via outbound verification flow",
+      "emoji": "\ud83d\udd10"
     }
   ]
 }
