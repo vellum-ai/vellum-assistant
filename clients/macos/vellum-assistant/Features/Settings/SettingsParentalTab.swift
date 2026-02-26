@@ -99,32 +99,6 @@ struct SettingsParentalTab: View {
                 settingsStore.loadAllowedIntegrations(pin: "")
             }
         }
-        .sheet(isPresented: $showingProfileSwitchSheet) {
-            ProfileSwitchSheet(
-                onComplete: { result in
-                    switch result {
-                    case .success(let pin):
-                        Task {
-                            await settingsStore.switchProfile(to: "parental", pin: pin)
-                            if settingsStore.profileSwitchError == nil {
-                                showingProfileSwitchSheet = false
-                                // Cache the PIN so the parental profile can immediately
-                                // respond to pending approval requests without a separate
-                                // unlock step.
-                                isUnlocked = true
-                                unlockedPIN = pin
-                                settingsStore.loadAllowedIntegrations(pin: pin)
-                            } else {
-                                profileSwitchError = settingsStore.profileSwitchError
-                            }
-                        }
-                    case .failure:
-                        profileSwitchError = "Incorrect PIN."
-                    }
-                },
-                daemonClient: daemonClient
-            )
-        }
         .sheet(isPresented: $showingPINSheet) {
             PINSheet(
                 mode: pinSheetMode,
