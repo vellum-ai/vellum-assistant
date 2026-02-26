@@ -76,7 +76,7 @@ function normalizeSkillsShRisk(audit: SkillsShAuditState | null | undefined): Sk
   const risk = audit?.risk;
   if (risk == null) return 'unknown';
   // Coerce unrecognized risk labels to 'unknown' so we fail closed.
-  if (!(risk in SKILLS_SH_RISK_RANK)) return 'unknown';
+  if (!Object.hasOwn(SKILLS_SH_RISK_RANK, risk)) return 'unknown';
   return risk;
 }
 

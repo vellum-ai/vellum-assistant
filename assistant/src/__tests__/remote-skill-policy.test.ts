@@ -130,6 +130,20 @@ describe('remote skill policy — skills.sh', () => {
     expect(decision).toEqual({ ok: false, reason: 'skillssh_risk_exceeds_threshold' });
   });
 
+  test('prototype property risk label is treated as unknown and blocked', () => {
+    const decision = evaluateRemoteSkillInstall(
+      {
+        provider: 'skillssh',
+        slug: 'proto-risk-skill',
+        // "toString" exists on Object.prototype — must not be treated as a known risk label
+        audit: { risk: 'toString' as never },
+      },
+      policy,
+    );
+
+    expect(decision).toEqual({ ok: false, reason: 'skillssh_risk_exceeds_threshold' });
+  });
+
   test('unrecognized risk string is coerced to unknown and blocked', () => {
     const decision = evaluateRemoteSkillInstall(
       {
