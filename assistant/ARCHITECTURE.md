@@ -57,6 +57,14 @@ The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`
 | `src/daemon/handlers/config-channels.ts` | IPC handler that delegates to the same shared actions |
 | `src/config/vellum-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate guardian verification via chat |
 
+**Guardian-Only Tool Invocation Gate:**
+
+Guardian verification control-plane endpoints (`/v1/integrations/guardian/*`) are protected by a deterministic gate in the tool executor (`src/tools/executor.ts`). Before any tool invocation proceeds, the executor checks whether the invocation targets a guardian control-plane endpoint and whether the actor role is allowed. The policy uses an allowlist: only `guardian` and `undefined` (desktop/trusted) actor roles can invoke these endpoints. Non-guardian and unverified-channel actors receive a denial message explaining the restriction.
+
+The policy is implemented in `src/tools/guardian-control-plane-policy.ts`, which inspects tool inputs (bash commands, URLs) for guardian endpoint paths. This is a defense-in-depth measure — even if the LLM attempts to call guardian endpoints on behalf of a non-guardian actor, the tool executor blocks it deterministically.
+
+The `guardian-verify-setup` skill is the exclusive handler for guardian verification intents in the system prompt. Other skills (e.g., `phone-calls`) hand off to `guardian-verify-setup` rather than orchestrating verification directly.
+
 ### SMS Channel (Twilio)
 
 The SMS channel provides text-only messaging via Twilio, sharing the same telephony provider as voice calls. It follows the same ingress/egress pattern as Telegram but uses Twilio's HMAC-SHA1 signature validation instead of a secret header.
