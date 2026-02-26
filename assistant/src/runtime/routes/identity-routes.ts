@@ -35,10 +35,21 @@ function getDiskSpaceInfo(): DiskSpaceInfo | null {
   }
 }
 
+function getPackageVersion(): string | undefined {
+  try {
+    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../../package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    return pkg.version;
+  } catch {
+    return undefined;
+  }
+}
+
 export function handleHealth(): Response {
   return Response.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
+    version: getPackageVersion(),
     disk: getDiskSpaceInfo(),
   });
 }
@@ -71,15 +82,7 @@ export function handleGetIdentity(): Response {
     if (home) { fields.home = home; continue; }
   }
 
-  // Read version from package.json
-  let version: string | undefined;
-  try {
-    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../../package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-    version = pkg.version;
-  } catch {
-    // ignore
-  }
+  const version = getPackageVersion();
 
   // Read createdAt from IDENTITY.md file birthtime
   let createdAt: string | undefined;

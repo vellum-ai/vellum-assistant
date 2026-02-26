@@ -262,7 +262,7 @@ The channel guardian service generates verification challenge instructions with 
 
 ### Operator Notes
 
-- **Verify command formats:** The `/guardian_verify` command accepts both `/guardian_verify <code>` and `/guardian_verify@BotName <code>` (Telegram appends the bot username in group chats). The handler normalizes both formats automatically.
+- **Verification input format:** Channel verification accepts a bare code reply only (6-digit numeric for outbound sessions; 64-char hex retained for legacy inbound challenge compatibility).
 - **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the IPC request. Without it, the daemon returns `already_bound`. This prevents accidental guardian replacement.
 - **Takeover prevention:** Verification is rejected when an active binding exists for a different external user. Same-user re-verification is allowed.
 
@@ -274,9 +274,9 @@ This section documents the end-to-end flow from guardian verification through in
 
 Guardian verification establishes a cryptographic trust binding between a human identity and an `(assistantId, channel)` pair. The flow is:
 
-1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a `guardian_verify` IPC message (action: `create_challenge`) to the daemon. The daemon generates a random secret (32-byte hex for text channels, 6-digit numeric for voice), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
-2. **Secret sharing** — The desktop displays the secret and instructs the owner to send `/guardian_verify <secret>` to the bot on the target channel (e.g., Telegram).
-3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts the `/guardian_verify` prefix before normal message processing. It hashes the provided secret, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
+1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_challenge` action) to the daemon. The daemon generates a random secret (32-byte hex for text channels, 6-digit numeric for voice), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
+2. **Secret sharing** — The desktop displays the secret and instructs the owner to reply with that code in the target channel conversation (e.g., Telegram or SMS).
+3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts valid verification-code replies before normal message processing. It hashes the provided secret, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
 4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `externalUserId` and `chatId`. The verifier receives a confirmation message.
 
 Rate limiting protects against brute-force attempts: 5 invalid attempts within 15 minutes trigger a 30-minute lockout per `(assistantId, channel, actor)` tuple. The same generic failure message is returned for both invalid codes and rate-limited attempts to avoid leaking state.
@@ -317,7 +317,7 @@ Guardian verification and ingress membership are complementary but independent s
 |------|---------|
 | `src/runtime/channel-guardian-service.ts` | Challenge lifecycle: `createVerificationChallenge`, `validateAndConsumeChallenge`, `getGuardianBinding`, `isGuardian` |
 | `src/runtime/guardian-context-resolver.ts` | Actor role classification: guardian / non-guardian / unverified_channel |
-| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, `/guardian_verify` command intercept, escalation creation |
+| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation |
 | `src/memory/ingress-member-store.ts` | Member CRUD: `findMember`, `upsertMember`, `revokeMember`, `blockMember` |
 | `src/memory/ingress-invite-store.ts` | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record) |
 | `src/memory/channel-guardian-store.ts` | Persistence for guardian bindings, verification challenges, and approval requests |

@@ -72,26 +72,15 @@ const log = getLogger('runtime-http');
 
 /**
  * Parse a guardian verification code from message content.
- * Accepts three formats:
- *   1. `/guardian_verify <code>` (legacy command format)
- *   2. `/guardian_verify@BotName <code>` (Telegram group format)
- *   3. A bare code as the entire message: 6-digit numeric OR 64-char hex
- *      (hex is retained for backward compatibility with in-flight inbound
- *      challenges that still use high-entropy secrets)
- * Returns `{ code, isExplicitCommand }` if recognized, or undefined otherwise.
- * `isExplicitCommand` is true for legacy /guardian_verify commands (explicit
- * intent) and false for bare codes (which need additional gating to avoid
- * intercepting normal 6-digit messages like zip codes or PINs).
+ * Accepts a bare code as the entire message: 6-digit numeric OR 64-char hex
+ * (hex is retained for backward compatibility with in-flight inbound
+ * challenges that still use high-entropy secrets).
  */
-function parseGuardianVerifyCommand(content: string): { code: string; isExplicitCommand: boolean } | undefined {
-  // Legacy /guardian_verify command format
-  const commandMatch = content.match(/^\/guardian_verify(?:@\S+)?\s+(\S+)/);
-  if (commandMatch) return { code: commandMatch[1], isExplicitCommand: true };
-
+function parseGuardianVerifyCode(content: string): string | undefined {
   // Bare code: 6-digit numeric (identity-bound outbound sessions) or
   // 64-char hex (unbound inbound challenges)
   const bareMatch = content.match(/^([0-9a-fA-F]{64}|\d{6})$/);
-  if (bareMatch) return { code: bareMatch[1], isExplicitCommand: false };
+  if (bareMatch) return bareMatch[1];
 
   return undefined;
 }
@@ -201,10 +190,10 @@ export async function handleChannelInbound(
   // recordInbound (where we have a conversationId).
   let resolvedMember: ReturnType<typeof findMember> = null;
 
-  // /guardian_verify must bypass the ACL membership check — users without a
+  // Verification codes must bypass the ACL membership check — users without a
   // member record need to verify before they can be recognized as members.
-  const guardianVerifyParsed = parseGuardianVerifyCommand(trimmedContent);
-  const isGuardianVerifyCommand = guardianVerifyParsed !== undefined;
+  const guardianVerifyCode = parseGuardianVerifyCode(trimmedContent);
+  const isGuardianVerifyCode = guardianVerifyCode !== undefined;
 
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
   // hasn't been verified yet and needs to complete the bootstrap handshake.
@@ -225,11 +214,11 @@ export async function handleChannelInbound(
     });
 
     if (!resolvedMember) {
-      // Determine whether a /guardian_verify bypass is warranted: only allow
+      // Determine whether a verification-code bypass is warranted: only allow
       // when there is a pending (unconsumed, unexpired) challenge AND no
       // active guardian binding for this (assistantId, channel).
       let denyNonMember = true;
-      if (isGuardianVerifyCommand) {
+      if (isGuardianVerifyCode) {
         // Allow bypass when there is any consumable challenge or active
         // outbound session.  The !hasActiveBinding guard is intentionally
         // omitted: rebind sessions create a consumable challenge while a
@@ -240,7 +229,7 @@ export async function handleChannelInbound(
         if (hasPendingChallenge || hasActiveOutboundSession) {
           denyNonMember = false;
         } else {
-          log.info({ sourceChannel, hasPendingChallenge, hasActiveOutboundSession }, 'Ingress ACL: guardian_verify bypass denied');
+          log.info({ sourceChannel, hasPendingChallenge, hasActiveOutboundSession }, 'Ingress ACL: guardian verification bypass denied');
         }
       }
 
@@ -538,7 +527,7 @@ export async function handleChannelInbound(
     : undefined;
 
   // ── Telegram bootstrap deep-link handling ──
-  // Intercept /start gv_<token> commands BEFORE the guardian_verify intercept.
+  // Intercept /start gv_<token> commands BEFORE the verification-code intercept.
   // When a user clicks the deep link, Telegram sends /start gv_<token> which
   // the gateway forwards with commandIntent: { type: 'start', payload: 'gv_<token>' }.
   // We resolve the bootstrap token, bind the session identity, create a new
@@ -571,7 +560,7 @@ export async function handleChannelInbound(
         destinationAddress: externalChatId,
       });
 
-      // Compose and send the verification code via Telegram
+      // Compose and send the verification prompt via Telegram
       const telegramBody = composeVerificationTelegram(
         GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
         {
@@ -597,34 +586,32 @@ export async function handleChannelInbound(
     // If not found or expired, fall through to normal /start handling
   }
 
-  // ── Guardian verification command intercept (deterministic) ──
+  // ── Guardian verification code intercept (deterministic) ──
   // Validate/consume the challenge synchronously so side effects (member
   // upsert, binding creation) complete before any reply. The reply is
-  // delivered via template-driven deterministic messages and the command
+  // delivered via template-driven deterministic messages and the code
   // is short-circuited — it NEVER enters the agent pipeline. This
-  // prevents verification commands from producing agent-generated copy.
+  // prevents verification code messages from producing agent-generated copy.
   //
   // Bare 6-digit codes are only intercepted when there is actually a
   // pending challenge or active outbound session for this channel.
   // Without this guard, normal 6-digit messages (zip codes, PINs, etc.)
   // would be swallowed by the verification handler and never reach the
-  // agent pipeline.  Legacy /guardian_verify commands are always
-  // intercepted because the explicit command prefix signals clear intent.
-  const shouldInterceptVerification = guardianVerifyParsed !== undefined &&
-    (guardianVerifyParsed.isExplicitCommand ||
-     !!getPendingChallenge(canonicalAssistantId, sourceChannel) ||
+  // agent pipeline.
+  const shouldInterceptVerification = guardianVerifyCode !== undefined &&
+    (!!getPendingChallenge(canonicalAssistantId, sourceChannel) ||
      !!findActiveSession(canonicalAssistantId, sourceChannel));
 
   if (
     !result.duplicate &&
     shouldInterceptVerification &&
-    guardianVerifyParsed !== undefined &&
+    guardianVerifyCode !== undefined &&
     body.senderExternalUserId
   ) {
     const verifyResult = validateAndConsumeChallenge(
       canonicalAssistantId,
       sourceChannel,
-      guardianVerifyParsed.code,
+      guardianVerifyCode,
       body.senderExternalUserId,
       externalChatId,
       body.senderUsername,
@@ -648,7 +635,7 @@ export async function handleChannelInbound(
     }
 
     // Deliver a deterministic template-driven reply and short-circuit.
-    // Verification commands must never produce agent-generated copy.
+    // Verification code messages must never produce agent-generated copy.
     if (replyCallbackUrl) {
       const replyText = verifyResult.success
         ? composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS)

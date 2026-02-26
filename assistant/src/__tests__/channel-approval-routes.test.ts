@@ -881,7 +881,7 @@ describe('SMS channel approval decisions', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('SMS guardian verify intercept', () => {
-  test('/guardian_verify command works with sourceChannel sms', async () => {
+  test('verification code reply works with sourceChannel sms', async () => {
     const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
     const { secret } = createVerificationChallenge('self', 'sms');
 
@@ -898,7 +898,7 @@ describe('SMS guardian verify intercept', () => {
         interface: 'sms',
         externalChatId: 'sms-chat-verify',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
-        content: `/guardian_verify ${secret}`,
+        content: secret,
         senderExternalUserId: 'sms-user-42',
         replyCallbackUrl: 'https://gateway.test/deliver',
       }),
@@ -921,7 +921,11 @@ describe('SMS guardian verify intercept', () => {
     deliverSpy.mockRestore();
   });
 
-  test('/guardian_verify with invalid token returns failed via SMS', async () => {
+  test('invalid verification code returns failed via SMS', async () => {
+    const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
+    // Ensure there is a pending challenge so bare-code verification is intercepted.
+    createVerificationChallenge('self', 'sms');
+
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const req = new Request('http://localhost/channels/inbound', {
@@ -935,7 +939,7 @@ describe('SMS guardian verify intercept', () => {
         interface: 'sms',
         externalChatId: 'sms-chat-verify-fail',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
-        content: '/guardian_verify invalid-token-here',
+        content: '000000',
         senderExternalUserId: 'sms-user-43',
         replyCallbackUrl: 'https://gateway.test/deliver',
       }),
@@ -1242,14 +1246,14 @@ describe('deliver-once idempotency guard', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('assistant-scoped guardian verification via handleChannelInbound', () => {
-  test('/guardian_verify uses the threaded assistantId (default: self)', async () => {
+  test('verification code uses the threaded assistantId (default: self)', async () => {
     const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
     const { secret } = createVerificationChallenge('self', 'telegram');
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const req = makeInboundRequest({
-      content: `/guardian_verify ${secret}`,
+      content: secret,
       senderExternalUserId: 'user-default-asst',
     });
 
@@ -1262,7 +1266,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     deliverSpy.mockRestore();
   });
 
-  test('/guardian_verify with explicit assistantId resolves against that assistant', async () => {
+  test('verification code with explicit assistantId resolves against that assistant', async () => {
     const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
     const { getGuardianBinding } = await import('../runtime/channel-guardian-service.js');
 
@@ -1271,7 +1275,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const req = makeInboundRequest({
-      content: `/guardian_verify ${secret}`,
+      content: secret,
       senderExternalUserId: 'user-for-asst-x',
     });
 
@@ -1288,7 +1292,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     deliverSpy.mockRestore();
   });
 
-  test('cross-assistant challenge verification fails', async () => {
+  test('cross-assistant challenge code does not verify against a different assistant scope', async () => {
     const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
 
     const { secret } = createVerificationChallenge('asst-A-cross', 'telegram');
@@ -1296,7 +1300,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const req = makeInboundRequest({
-      content: `/guardian_verify ${secret}`,
+      content: secret,
       senderExternalUserId: 'user-cross-test',
     });
 
@@ -1304,7 +1308,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe('failed');
+    expect(body.guardianVerification).toBeUndefined();
 
     deliverSpy.mockRestore();
   });

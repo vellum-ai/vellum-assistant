@@ -1517,15 +1517,10 @@ struct SettingsConnectTab: View {
     }
 
     /// Extracts a guardian verification code from a raw instruction string.
-    /// Supports three formats:
-    ///   1. Legacy `/guardian_verify <hex>` command
-    ///   2. "N-digit code: <digits>" (numeric codes, e.g. "6-digit code: 123456")
-    ///   3. "the code: <hex>" (high-entropy hex codes for inbound challenges)
+    /// Supports two formats:
+    ///   1. "N-digit code: <digits>" (numeric codes, e.g. "6-digit code: 123456")
+    ///   2. "the code: <hex>" (high-entropy hex codes for inbound challenges)
     private func extractGuardianCommand(from instruction: String) -> String? {
-        // Try legacy /guardian_verify command format first
-        if let range = instruction.range(of: #"`?/guardian_verify\s+[0-9a-fA-F]+`?"#, options: .regularExpression) {
-            return String(instruction[range]).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
-        }
         // Try N-digit code format (e.g., "6-digit code: 123456")
         if let code = extractNumericCode(from: instruction) {
             return code
@@ -1556,9 +1551,8 @@ struct SettingsConnectTab: View {
 
     @ViewBuilder
     private func guardianInstructionView(channel: String, instruction: String) -> some View {
-        // All channels now use 6-digit numeric codes. extractGuardianCommand
-        // handles both the legacy /guardian_verify format and the new
-        // "six-digit code: 123456" format.
+        // All channels now use code-only verification. extractGuardianCommand
+        // handles both "six-digit code: 123456" and "the code: <hex>" formats.
         let command: String? = extractGuardianCommand(from: instruction)
         let isCopied = guardianCommandCopiedChannel == channel
 

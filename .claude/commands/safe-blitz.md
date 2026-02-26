@@ -53,9 +53,7 @@ Read and follow `.claude/phases/plan-and-spec.md`. For safe-blitz mode, replace 
 `<feature-branch-name>`
 ```
 
-When presenting the plan for approval, also show:
-- The feature branch name
-- Note: "All milestone PRs will target the feature branch `<name>`. A final PR into main will be created at the end for your review."
+**Skip the approval step** (step 5 in plan-and-spec.md). Do NOT pause for user confirmation after creating the plan. Instead, log a summary of the plan (project issue link, milestone list, feature branch name) and proceed directly to the next phase. Safe-blitz already has review gates on every milestone PR and a final PR into main, so an upfront approval is unnecessary.
 
 ## Phase 3: Prepare Milestone List
 

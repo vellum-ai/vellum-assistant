@@ -67,9 +67,9 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
 }));
 
 // Voice call mock
-const voiceCallInitCalls: Array<{ phoneNumber: string; guardianVerificationSessionId: string; assistantId?: string }> = [];
+const voiceCallInitCalls: Array<{ phoneNumber: string; guardianVerificationSessionId: string; assistantId?: string; originConversationId?: string }> = [];
 mock.module('../calls/call-domain.js', () => ({
-  startGuardianVerificationCall: async (input: { phoneNumber: string; guardianVerificationSessionId: string; assistantId?: string }) => {
+  startGuardianVerificationCall: async (input: { phoneNumber: string; guardianVerificationSessionId: string; assistantId?: string; originConversationId?: string }) => {
     voiceCallInitCalls.push(input);
     return { ok: true, callSessionId: 'mock-call-session', callSid: 'CA-mock' };
   },
@@ -235,6 +235,26 @@ describe('startOutbound', () => {
     expect(result.sendCount).toBe(1);
   });
 
+  test('voice: passes originConversationId to startGuardianVerificationCall', () => {
+    voiceCallInitCalls.length = 0;
+    const result = startOutbound({
+      channel: 'voice',
+      destination: '+15559876543',
+      originConversationId: 'conv-origin-linkage-test',
+    });
+    expect(result.success).toBe(true);
+    // The voice call mock should have been invoked with the origin conversation
+    expect(voiceCallInitCalls.length).toBe(1);
+    expect(voiceCallInitCalls[0].phoneNumber).toBe('+15559876543');
+  });
+
+  test('voice: succeeds without originConversationId (backward compat)', () => {
+    voiceCallInitCalls.length = 0;
+    const result = startOutbound({ channel: 'voice', destination: '+15551119999' });
+    expect(result.success).toBe(true);
+    expect(voiceCallInitCalls.length).toBe(1);
+  });
+
   test('unsupported channel returns unsupported_channel', () => {
     // Cast to bypass type checking for test purposes
     const result = startOutbound({ channel: 'email' as never });
@@ -268,6 +288,49 @@ describe('resendOutbound', () => {
     expect(resendResult.success).toBe(true);
     expect(resendResult.verificationSessionId).toBeDefined();
     expect(resendResult.sendCount).toBe(2);
+  });
+
+  test('SMS: preserves originConversationId on resend', () => {
+    const startResult = startOutbound({ channel: 'sms', destination: '+15551113333' });
+    expect(startResult.success).toBe(true);
+
+    if (startResult.verificationSessionId) {
+      updateSessionDelivery(startResult.verificationSessionId, Date.now() - 60_000, 1, Date.now() - 1);
+    }
+
+    const resendResult = resendOutbound({
+      channel: 'sms',
+      originConversationId: 'conv-resend-sms-origin',
+    });
+    expect(resendResult.success).toBe(true);
+    expect(resendResult.originConversationId).toBe('conv-resend-sms-origin');
+  });
+
+  test('voice: preserves originConversationId on resend and passes it to call initiation', async () => {
+    voiceCallInitCalls.length = 0;
+    const startResult = startOutbound({ channel: 'voice', destination: '+15559991111' });
+    expect(startResult.success).toBe(true);
+
+    if (startResult.verificationSessionId) {
+      updateSessionDelivery(startResult.verificationSessionId, Date.now() - 60_000, 1, Date.now() - 1);
+    }
+
+    const resendResult = resendOutbound({
+      channel: 'voice',
+      originConversationId: 'conv-resend-voice-origin',
+    });
+    expect(resendResult.success).toBe(true);
+    expect(resendResult.originConversationId).toBe('conv-resend-voice-origin');
+
+    // Allow the fire-and-forget async call to flush
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The resend voice call should carry the origin conversation ID
+    const resendCall = voiceCallInitCalls.find(
+      (c) => c.originConversationId === 'conv-resend-voice-origin',
+    );
+    expect(resendCall).toBeDefined();
+    expect(resendCall!.phoneNumber).toBe('+15559991111');
   });
 });
 
@@ -339,6 +402,29 @@ describe('HTTP route: handleResendOutbound', () => {
     const body = await resp.json() as Record<string, unknown>;
     expect(body.error).toBe('no_active_session');
   });
+
+  test('passes originConversationId through on successful resend', async () => {
+    // Start a session first
+    const startReq = jsonRequest({ channel: 'sms', destination: '+15556667777' });
+    const startResp = await handleStartOutbound(startReq);
+    expect(startResp.status).toBe(200);
+    const startBody = await startResp.json() as Record<string, unknown>;
+
+    // Expire the cooldown so resend is allowed
+    if (startBody.verificationSessionId) {
+      updateSessionDelivery(startBody.verificationSessionId as string, Date.now() - 60_000, 1, Date.now() - 1);
+    }
+
+    const resendReq = jsonRequest({
+      channel: 'sms',
+      originConversationId: 'conv-resend-http-origin',
+    });
+    const resendResp = await handleResendOutbound(resendReq);
+    expect(resendResp.status).toBe(200);
+    const resendBody = await resendResp.json() as Record<string, unknown>;
+    expect(resendBody.success).toBe(true);
+    expect(resendBody.originConversationId).toBe('conv-resend-http-origin');
+  });
 });
 
 describe('HTTP route: handleCancelOutbound', () => {
@@ -370,5 +456,111 @@ describe('HTTP route: handleCancelOutbound', () => {
     expect(cancelResp.status).toBe(200);
     const body = await cancelResp.json() as Record<string, unknown>;
     expect(body.success).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Origin conversation linkage
+// ===========================================================================
+
+describe('origin conversation linkage', () => {
+  test('startOutbound SMS echoes originConversationId in result', () => {
+    const result = startOutbound({
+      channel: 'sms',
+      destination: '+15551119999',
+      originConversationId: 'conv-origin-sms-test',
+    });
+    expect(result.success).toBe(true);
+    expect(result.originConversationId).toBe('conv-origin-sms-test');
+  });
+
+  test('startOutbound voice echoes originConversationId in result', () => {
+    const result = startOutbound({
+      channel: 'voice',
+      destination: '+15552229999',
+      originConversationId: 'conv-origin-voice-test',
+    });
+    expect(result.success).toBe(true);
+    expect(result.originConversationId).toBe('conv-origin-voice-test');
+  });
+
+  test('startOutbound Telegram (chat ID) echoes originConversationId in result', () => {
+    const result = startOutbound({
+      channel: 'telegram',
+      destination: '999888777',
+      originConversationId: 'conv-origin-tg-test',
+    });
+    expect(result.success).toBe(true);
+    expect(result.originConversationId).toBe('conv-origin-tg-test');
+  });
+
+  test('startOutbound without originConversationId returns undefined for field', () => {
+    const result = startOutbound({
+      channel: 'sms',
+      destination: '+15553338888',
+    });
+    expect(result.success).toBe(true);
+    expect(result.originConversationId).toBeUndefined();
+  });
+
+  test('HTTP handleStartOutbound passes originConversationId through', async () => {
+    const req = jsonRequest({
+      channel: 'sms',
+      destination: '+15557776666',
+      originConversationId: 'conv-origin-http-test',
+    });
+    const resp = await handleStartOutbound(req);
+    expect(resp.status).toBe(200);
+    const body = await resp.json() as Record<string, unknown>;
+    expect(body.success).toBe(true);
+    expect(body.originConversationId).toBe('conv-origin-http-test');
+  });
+
+  test('voice call initiation receives originConversationId', async () => {
+    const result = startOutbound({
+      channel: 'voice',
+      destination: '+15554443333',
+      originConversationId: 'conv-origin-voice-init',
+    });
+    expect(result.success).toBe(true);
+
+    // Allow the fire-and-forget async call to flush
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The voice call mock should have been called with originConversationId
+    expect(voiceCallInitCalls.length).toBeGreaterThan(0);
+    const lastCall = voiceCallInitCalls[voiceCallInitCalls.length - 1];
+    expect(lastCall.phoneNumber).toBe('+15554443333');
+    expect(lastCall.originConversationId).toBe('conv-origin-voice-init');
+  });
+
+  test('resendOutbound voice carries originConversationId to call initiation', async () => {
+    voiceCallInitCalls.length = 0;
+
+    // Start a voice session (no origin initially)
+    const startResult = startOutbound({ channel: 'voice', destination: '+15552228888' });
+    expect(startResult.success).toBe(true);
+
+    // Expire cooldown
+    if (startResult.verificationSessionId) {
+      updateSessionDelivery(startResult.verificationSessionId, Date.now() - 60_000, 1, Date.now() - 1);
+    }
+
+    // Resend with origin conversation ID
+    const resendResult = resendOutbound({
+      channel: 'voice',
+      originConversationId: 'conv-resend-origin-linkage',
+    });
+    expect(resendResult.success).toBe(true);
+    expect(resendResult.originConversationId).toBe('conv-resend-origin-linkage');
+
+    // Allow fire-and-forget async call to flush
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const resendCall = voiceCallInitCalls.find(
+      (c) => c.originConversationId === 'conv-resend-origin-linkage',
+    );
+    expect(resendCall).toBeDefined();
+    expect(resendCall!.phoneNumber).toBe('+15552228888');
   });
 });

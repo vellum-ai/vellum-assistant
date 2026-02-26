@@ -1519,4 +1519,109 @@ describe('relay-server', () => {
 
     relay.destroy();
   });
+
+  // ── Outbound guardian verification pointer messages ─────────────────
+
+  test('outbound guardian verification success emits pointer to origin conversation', async () => {
+    ensureConversation('conv-gv-pointer-success');
+    ensureConversation('conv-gv-pointer-success-origin');
+    const session = createCallSession({
+      conversationId: 'conv-gv-pointer-success',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15559999999',
+      assistantId: 'test-assistant',
+      callMode: 'guardian_verification',
+      guardianVerificationSessionId: 'gv-session-ptr-success',
+      initiatedFromConversationId: 'conv-gv-pointer-success-origin',
+    });
+
+    const challenge = createVerificationChallenge('test-assistant', 'voice');
+    const secret = challenge.secret;
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_gv_pointer_success',
+      from: '+15551111111',
+      to: '+15559999999',
+      customParameters: { guardianVerificationSessionId: 'gv-session-ptr-success' },
+    }));
+
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+
+    // Enter the correct code via DTMF
+    for (const digit of secret) {
+      await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit }));
+    }
+
+    // Verification should have succeeded
+    expect(relay.isGuardianVerificationActive()).toBe(false);
+
+    // Origin conversation should have a pointer message
+    const originText = getLatestAssistantText('conv-gv-pointer-success-origin');
+    expect(originText).not.toBeNull();
+    expect(originText).toContain('Guardian verification');
+    expect(originText).toContain('+15559999999');
+    expect(originText).toContain('succeeded');
+
+    // Let the delayed endSession callback flush
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+
+    relay.destroy();
+  });
+
+  test('outbound guardian verification failure emits pointer to origin conversation', async () => {
+    ensureConversation('conv-gv-pointer-fail');
+    ensureConversation('conv-gv-pointer-fail-origin');
+    const session = createCallSession({
+      conversationId: 'conv-gv-pointer-fail',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15559999999',
+      assistantId: 'test-assistant',
+      callMode: 'guardian_verification',
+      guardianVerificationSessionId: 'gv-session-ptr-fail',
+      initiatedFromConversationId: 'conv-gv-pointer-fail-origin',
+    });
+
+    createVerificationChallenge('test-assistant', 'voice');
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_gv_pointer_fail',
+      from: '+15551111111',
+      to: '+15559999999',
+      customParameters: { guardianVerificationSessionId: 'gv-session-ptr-fail' },
+    }));
+
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+
+    // Enter wrong codes 3 times (max attempts = 3)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      for (const digit of '000000') {
+        await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit }));
+      }
+    }
+
+    // Call should be marked as failed
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('failed');
+
+    // Origin conversation should have a failure pointer message
+    const originText = getLatestAssistantText('conv-gv-pointer-fail-origin');
+    expect(originText).not.toBeNull();
+    expect(originText).toContain('Guardian verification');
+    expect(originText).toContain('+15559999999');
+    expect(originText).toContain('failed');
+
+    // Let the delayed endSession callback flush
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+
+    relay.destroy();
+  });
 });

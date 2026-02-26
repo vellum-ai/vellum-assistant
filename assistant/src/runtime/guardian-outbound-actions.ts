@@ -96,11 +96,15 @@ export interface StartOutboundParams {
   assistantId?: string;
   destination?: string;
   rebind?: boolean;
+  /** Origin conversation ID so completion/failure pointers can route back. */
+  originConversationId?: string;
 }
 
 export interface ResendOutboundParams {
   channel: ChannelId;
   assistantId?: string;
+  /** Origin conversation ID so completion/failure pointers can route back on resend. */
+  originConversationId?: string;
 }
 
 export interface CancelOutboundParams {
@@ -125,6 +129,8 @@ export interface OutboundActionResult {
   sendCount?: number;
   telegramBootstrapUrl?: string;
   pendingBootstrap?: boolean;
+  /** Echoed back so consumers know which conversation to target for pointers. */
+  originConversationId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +217,7 @@ function initiateGuardianVoiceCall(
   phoneNumber: string,
   guardianVerificationSessionId: string,
   assistantId: string,
+  originConversationId?: string,
 ): void {
   (async () => {
     try {
@@ -218,6 +225,7 @@ function initiateGuardianVoiceCall(
         phoneNumber,
         guardianVerificationSessionId,
         assistantId,
+        originConversationId,
       });
       if (result.ok) {
         log.info({ phoneNumber, guardianVerificationSessionId, callSid: result.callSid }, 'Guardian verification call initiated');
@@ -237,13 +245,14 @@ function initiateGuardianVoiceCall(
 export function startOutbound(params: StartOutboundParams): OutboundActionResult {
   const assistantId = normalizeAssistantId(params.assistantId ?? 'self');
   const channel = params.channel;
+  const originConversationId = params.originConversationId;
 
   if (channel === 'sms') {
-    return startOutboundSms(params.destination, assistantId, channel, params.rebind);
+    return startOutboundSms(params.destination, assistantId, channel, params.rebind, originConversationId);
   } else if (channel === 'telegram') {
-    return startOutboundTelegram(params.destination, assistantId, channel, params.rebind);
+    return startOutboundTelegram(params.destination, assistantId, channel, params.rebind, originConversationId);
   } else if (channel === 'voice') {
-    return startOutboundVoice(params.destination, assistantId, channel, params.rebind);
+    return startOutboundVoice(params.destination, assistantId, channel, params.rebind, originConversationId);
   }
 
   return {
@@ -259,6 +268,7 @@ function startOutboundSms(
   assistantId: string,
   channel: ChannelId,
   rebind?: boolean,
+  originConversationId?: string,
 ): OutboundActionResult {
   if (!rawDestination) {
     return {
@@ -330,6 +340,7 @@ function startOutboundSms(
     nextResendAt,
     sendCount,
     channel,
+    originConversationId,
   };
 }
 
@@ -338,6 +349,7 @@ function startOutboundTelegram(
   assistantId: string,
   channel: ChannelId,
   rebind?: boolean,
+  originConversationId?: string,
 ): OutboundActionResult {
   if (!destination) {
     return {
@@ -412,6 +424,7 @@ function startOutboundTelegram(
       nextResendAt,
       sendCount,
       channel,
+      originConversationId,
     };
   }
 
@@ -445,6 +458,7 @@ function startOutboundTelegram(
     expiresAt: sessionResult.expiresAt,
     telegramBootstrapUrl,
     channel,
+    originConversationId,
   };
 }
 
@@ -453,6 +467,7 @@ function startOutboundVoice(
   assistantId: string,
   channel: ChannelId,
   rebind?: boolean,
+  originConversationId?: string,
 ): OutboundActionResult {
   if (!rawDestination) {
     return {
@@ -507,7 +522,7 @@ function startOutboundVoice(
   const sendCount = 1;
 
   updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
-  initiateGuardianVoiceCall(destination, sessionResult.sessionId, assistantId);
+  initiateGuardianVoiceCall(destination, sessionResult.sessionId, assistantId, originConversationId);
 
   return {
     success: true,
@@ -517,6 +532,7 @@ function startOutboundVoice(
     nextResendAt,
     sendCount,
     channel,
+    originConversationId,
   };
 }
 
@@ -527,6 +543,7 @@ function startOutboundVoice(
 export function resendOutbound(params: ResendOutboundParams): OutboundActionResult {
   const assistantId = normalizeAssistantId(params.assistantId ?? 'self');
   const channel = params.channel;
+  const originConversationId = params.originConversationId;
 
   const session = findActiveSession(assistantId, channel);
   if (!session) {
@@ -620,6 +637,7 @@ export function resendOutbound(params: ResendOutboundParams): OutboundActionResu
       nextResendAt,
       sendCount: newSendCount,
       channel,
+      originConversationId,
     };
   } else if (channel === 'voice') {
     const newSession = createOutboundSession({
@@ -636,7 +654,7 @@ export function resendOutbound(params: ResendOutboundParams): OutboundActionResu
     const nextResendAt = now + RESEND_COOLDOWN_MS;
 
     updateSessionDelivery(newSession.sessionId, now, newSendCount, nextResendAt);
-    initiateGuardianVoiceCall(destination, newSession.sessionId, assistantId);
+    initiateGuardianVoiceCall(destination, newSession.sessionId, assistantId, originConversationId);
 
     return {
       success: true,
@@ -645,6 +663,7 @@ export function resendOutbound(params: ResendOutboundParams): OutboundActionResu
       nextResendAt,
       sendCount: newSendCount,
       channel,
+      originConversationId,
     };
   }
 
@@ -679,6 +698,7 @@ export function resendOutbound(params: ResendOutboundParams): OutboundActionResu
     nextResendAt,
     sendCount: newSendCount,
     channel,
+    originConversationId,
   };
 }
 

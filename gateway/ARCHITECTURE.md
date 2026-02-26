@@ -174,10 +174,9 @@ All channel ingress paths canonicalize the `assistantId` via `normalizeAssistant
 
 #### Guardian Verify Code Parsing
 
-The inbound message handler (`inbound-message-handler.ts`) accepts verification codes in two formats:
+The inbound message handler (`inbound-message-handler.ts`) accepts verification codes as bare-code replies:
 
 - **Bare code**: A 6-digit numeric code sent as the entire message body. This is the primary flow — the user is shown a verification code in setup UI and sends that code in-channel as a plain message.
-- **Legacy command**: `/guardian_verify <code>` (or `/guardian_verify@BotName <code>` for Telegram group chats). This format is still accepted for backward compatibility but is no longer the recommended flow.
 
 #### Explicit Rebind Policy
 
@@ -246,13 +245,13 @@ flowchart TD
     HAS_BINDING -- No --> DENY_ESCALATE["Deny: escalate_no_guardian"]
     HAS_BINDING -- Yes --> CREATE_APPROVAL["Create approval request<br/>+ notify guardian (dual-surface)"]
 
-    ESCALATE_CHECK -- No --> VERIFY_CHECK{"Guardian verify<br/>code or command?"}
+    ESCALATE_CHECK -- No --> VERIFY_CHECK{"Guardian verify<br/>code?"}
     VERIFY_CHECK -- Yes --> VERIFY["Validate challenge<br/>→ create guardian binding"]
     VERIFY_CHECK -- No --> ROLE_RESOLVE["Resolve actor role<br/>(guardian-context-resolver)"]
     ROLE_RESOLVE --> APPROVAL_INTERCEPT["Approval interception<br/>+ message processing"]
 ```
 
-This ordering ensures that ingress ACL decisions are finalized before any agent processing occurs. Guardian verification codes (bare codes or the legacy `/guardian_verify` command) are intercepted after ACL enforcement but before the agent loop, so they never trigger inference.
+This ordering ensures that ingress ACL decisions are finalized before any agent processing occurs. Guardian verification code replies are intercepted after ACL enforcement but before the agent loop, so they never trigger inference.
 
 #### Actor Role Resolution
 
@@ -303,7 +302,7 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 | `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian bindings, verification challenges, and approval requests (all scoped by `assistantId`) |
 | `assistant/src/runtime/channel-guardian-service.ts` | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId` |
 | `assistant/src/runtime/guardian-context-resolver.ts` | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity |
-| `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, `/guardian_verify` command intercept, escalation creation, actor role resolution |
+| `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation, actor role resolution |
 | `assistant/src/runtime/routes/channel-routes.ts` | Approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`) |
 | `assistant/src/calls/guardian-dispatch.ts` | Cross-channel ASK_GUARDIAN dispatch: creates guardian_action_requests, fans out to mac/telegram/sms, manages deliveries |
 | `assistant/src/calls/guardian-action-sweep.ts` | Periodic 60s sweep for expired guardian action requests; sends expiry notices to delivery channels |
@@ -315,7 +314,7 @@ The ingress membership system extends the guardian security model to support con
 
 #### Ingress Membership ACL
 
-The channel inbound handler (`inbound-message-handler.ts`) enforces an access control layer between message receipt and agent processing. The ACL runs at the top of the handler, before guardian role resolution or `/guardian_verify` command interception (see [Inbound Message Decision Chain](#inbound-message-decision-chain) for the full ordering):
+The channel inbound handler (`inbound-message-handler.ts`) enforces an access control layer between message receipt and agent processing. The ACL runs at the top of the handler, before guardian role resolution or verification-code interception (see [Inbound Message Decision Chain](#inbound-message-decision-chain) for the full ordering):
 
 1. When `senderExternalUserId` is present, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)` or `(sourceChannel, externalChatId)`.
 2. If no member record exists, the message is denied (`not_a_member`).

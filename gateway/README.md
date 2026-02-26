@@ -403,7 +403,7 @@ See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for lo
 
 | Symptom | Cause | Resolution |
 |---------|-------|------------|
-| `/guardian_verify` command gets no reply | The verification message did not reach the runtime, or the challenge expired | Ensure the gateway is running, the bot token is valid, and the Telegram webhook is registered. Challenges expire after 10 minutes -- generate a new one via the desktop UI. |
+| Guardian verification code reply gets no response | The verification message did not reach the runtime, or the challenge expired | Ensure the gateway is running, the bot token is valid, and the Telegram webhook is registered. Challenges expire after 10 minutes -- generate a new one via the desktop UI. |
 | Non-guardian actions auto-denied with "no guardian configured" | No guardian binding exists for the channel. The runtime is fail-closed for unverified channels. | Set up a guardian by running the verification flow from the desktop UI. |
 | Approval prompt not delivered to guardian | The `replyCallbackUrl` may be unreachable, or the guardian's chat ID is stale | Verify `GATEWAY_INTERNAL_BASE_URL` is set correctly (especially in containerized deployments). Re-verify the guardian if the chat ID has changed. |
 | Guardian approval expired | The 30-minute TTL elapsed without a decision. A proactive sweep (every 60s) auto-denied the approval and notified both the requester and guardian. | The non-guardian user must re-trigger the action. |
