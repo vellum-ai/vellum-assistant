@@ -23,7 +23,8 @@ extension AppDelegate {
                 type: "recording_status",
                 sessionId: msg.recordingId,
                 status: "failed",
-                error: "Screen recording permission is required. Please grant access in System Settings > Privacy & Security > Screen Recording, then try again."
+                error: "Screen recording permission is required. Please grant access in System Settings > Privacy & Security > Screen Recording, then try again.",
+                operationToken: msg.operationToken
             )
             try? daemonClient.send(statusMsg)
             return
@@ -35,7 +36,8 @@ extension AppDelegate {
         if options?.promptForSource == true {
             showRecordingSourcePicker(
                 recordingId: msg.recordingId,
-                attachToConversationId: msg.attachToConversationId
+                attachToConversationId: msg.attachToConversationId,
+                operationToken: msg.operationToken
             )
             return
         }
@@ -44,12 +46,36 @@ extension AppDelegate {
         startRecording(
             recordingId: msg.recordingId,
             options: options,
-            attachToConversationId: msg.attachToConversationId
+            attachToConversationId: msg.attachToConversationId,
+            operationToken: msg.operationToken
         )
     }
 
+    /// Handle a `recording_pause` message from the daemon.
+    func handleRecordingPause(_ msg: IPCRecordingPause) {
+        let paused = recordingManager.pause(sessionId: msg.recordingId)
+        if paused {
+            recordingHUDWindow?.setPaused(true)
+        }
+    }
+
+    /// Handle a `recording_resume` message from the daemon.
+    func handleRecordingResume(_ msg: IPCRecordingResume) {
+        let resumed = recordingManager.resume(sessionId: msg.recordingId)
+        if resumed {
+            recordingHUDWindow?.setPaused(false)
+        }
+    }
+
     /// Show the recording source picker, then start recording with the selected options.
-    private func showRecordingSourcePicker(recordingId: String, attachToConversationId: String?) {
+    ///
+    /// When `operationToken` is set (restart flow), dismissing the picker without
+    /// selecting a source sends a `restart_cancelled` status to the daemon.
+    private func showRecordingSourcePicker(
+        recordingId: String,
+        attachToConversationId: String?,
+        operationToken: String? = nil
+    ) {
         if recordingPickerWindow == nil {
             recordingPickerWindow = RecordingSourcePickerWindow()
         }
@@ -60,18 +86,32 @@ extension AppDelegate {
                     recordingId: recordingId,
                     options: selectedOptions,
                     attachToConversationId: attachToConversationId,
-                    promptForSource: true
+                    promptForSource: true,
+                    operationToken: operationToken
                 )
             },
             onCancel: { [weak self] in
-                // Notify daemon that recording was cancelled
-                let statusMsg = IPCRecordingStatus(
-                    type: "recording_status",
-                    sessionId: recordingId,
-                    status: "failed",
-                    error: "Recording cancelled by user"
-                )
-                try? self?.daemonClient.send(statusMsg)
+                if operationToken != nil {
+                    // Restart flow: picker dismissed without selection —
+                    // send restart_cancelled so the daemon knows to abort.
+                    let statusMsg = IPCRecordingStatus(
+                        type: "recording_status",
+                        sessionId: recordingId,
+                        status: "restart_cancelled",
+                        operationToken: operationToken
+                    )
+                    try? self?.daemonClient.send(statusMsg)
+                    log.info("Restart cancelled — source picker dismissed for session \(recordingId, privacy: .public)")
+                } else {
+                    // Normal start flow: picker cancelled
+                    let statusMsg = IPCRecordingStatus(
+                        type: "recording_status",
+                        sessionId: recordingId,
+                        status: "failed",
+                        error: "Recording cancelled by user"
+                    )
+                    try? self?.daemonClient.send(statusMsg)
+                }
             }
         )
     }
@@ -81,12 +121,17 @@ extension AppDelegate {
         recordingId: String,
         options: IPCRecordingOptions?,
         attachToConversationId: String?,
-        promptForSource: Bool = false
+        promptForSource: Bool = false,
+        operationToken: String? = nil
     ) {
         // Wire up re-prompt callback so RecordingManager can re-show the
         // source picker when the selected source is no longer available.
         recordingManager.onSourceValidationFailed = { [weak self] sessionId, conversationId in
-            self?.showRecordingSourcePicker(recordingId: sessionId, attachToConversationId: conversationId)
+            self?.showRecordingSourcePicker(
+                recordingId: sessionId,
+                attachToConversationId: conversationId,
+                operationToken: operationToken
+            )
         }
 
         Task {
@@ -120,7 +165,8 @@ extension AppDelegate {
                 sessionId: recordingId,
                 options: effectiveOptions,
                 attachToConversationId: attachToConversationId,
-                promptForSource: promptForSource
+                promptForSource: promptForSource,
+                operationToken: operationToken
             )
 
             guard started else { return }
@@ -130,13 +176,29 @@ extension AppDelegate {
                 recordingHUDWindow = RecordingHUDWindow()
             }
 
-            recordingHUDWindow?.show(onStop: { [weak self] in
-                guard let self else { return }
-                Task {
-                    _ = await self.recordingManager.stop(sessionId: recordingId)
-                    self.recordingHUDWindow?.dismiss()
+            recordingHUDWindow?.show(
+                onStop: { [weak self] in
+                    guard let self else { return }
+                    Task {
+                        _ = await self.recordingManager.stop(sessionId: recordingId)
+                        self.recordingHUDWindow?.dismiss()
+                    }
+                },
+                onPauseResume: { [weak self] requestPause in
+                    guard let self else { return }
+                    if requestPause {
+                        let paused = self.recordingManager.pause(sessionId: recordingId)
+                        if paused {
+                            self.recordingHUDWindow?.setPaused(true)
+                        }
+                    } else {
+                        let resumed = self.recordingManager.resume(sessionId: recordingId)
+                        if resumed {
+                            self.recordingHUDWindow?.setPaused(false)
+                        }
+                    }
                 }
-            })
+            )
         }
     }
 }

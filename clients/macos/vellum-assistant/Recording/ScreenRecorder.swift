@@ -416,6 +416,16 @@ final class ScreenRecorder: NSObject {
     /// RecordingManager sets this to react to stream failures (update state, send IPC, clean up).
     var onStreamError: ((RecorderError) -> Void)?
 
+    /// When true, incoming sample buffers are silently dropped instead of being
+    /// appended to the writer. The SCStream keeps running so resume is instant.
+    /// Thread-safe: read on the output queue, written from MainActor.
+    var isPaused: Bool {
+        get { pauseLock.withLock { _isPaused } }
+        set { pauseLock.withLock { _isPaused = newValue } }
+    }
+    private var _isPaused = false
+    private let pauseLock = NSLock()
+
     /// Background queue for processing sample buffers from ScreenCaptureKit.
     private let outputQueue = DispatchQueue(label: "com.vellum.screen-recorder.output", qos: .userInitiated)
 
@@ -1347,6 +1357,8 @@ private final class StreamOutputDelegate: NSObject, SCStreamOutput, SCStreamDele
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        // Drop frames while paused — the stream keeps running so resume is instant
+        guard !recorder.isPaused else { return }
         writerContext.processSampleBuffer(sampleBuffer, ofType: type)
     }
 

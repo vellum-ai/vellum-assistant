@@ -5,7 +5,8 @@ import VellumAssistantShared
 /// Recording indicator HUD that shows a red dot, elapsed time, and stop button.
 ///
 /// Floats as a small panel in the top-right corner of the screen during
-/// an active recording. Uses design system tokens for styling.
+/// an active recording. Supports pause/resume toggle. Uses design system
+/// tokens for styling.
 @MainActor
 final class RecordingHUDWindow {
     private var panel: NSPanel?
@@ -13,18 +14,21 @@ final class RecordingHUDWindow {
 
     /// Show the recording HUD.
     ///
-    /// - Parameter onStop: Called when the user clicks the stop button.
-    func show(onStop: @escaping () -> Void) {
+    /// - Parameters:
+    ///   - onStop: Called when the user clicks the stop button.
+    ///   - onPauseResume: Called when the user toggles pause/resume. The
+    ///     Bool parameter is `true` when requesting pause, `false` for resume.
+    func show(onStop: @escaping () -> Void, onPauseResume: ((Bool) -> Void)? = nil) {
         dismiss()
 
-        let vm = RecordingHUDViewModel(onStop: onStop)
+        let vm = RecordingHUDViewModel(onStop: onStop, onPauseResume: onPauseResume)
         self.viewModel = vm
 
         let hudView = RecordingHUDView(viewModel: vm)
         let hostingController = NSHostingController(rootView: hudView)
 
         let hudPanel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 180, height: 44),
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 44),
             styleMask: [.nonactivatingPanel, .hudWindow, .utilityWindow],
             backing: .buffered,
             defer: false
@@ -42,13 +46,23 @@ final class RecordingHUDWindow {
         // Position in the top-right corner
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
-            let x = screenFrame.maxX - 196
+            let x = screenFrame.maxX - 236
             let y = screenFrame.maxY - 60
             hudPanel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
         hudPanel.orderFront(nil)
         self.panel = hudPanel
+    }
+
+    /// Update the HUD to reflect paused state.
+    func setPaused(_ paused: Bool) {
+        viewModel?.isPaused = paused
+        if paused {
+            viewModel?.pauseTimer()
+        } else {
+            viewModel?.resumeTimer()
+        }
     }
 
     /// Update the HUD to show a failure message.
@@ -72,13 +86,16 @@ final class RecordingHUDWindow {
 final class RecordingHUDViewModel: ObservableObject {
     @Published var elapsedSeconds: Int = 0
     @Published var isRecording = true
+    @Published var isPaused = false
     @Published var failureMessage: String?
 
     private var timer: Timer?
     private let onStop: () -> Void
+    private let onPauseResume: ((Bool) -> Void)?
 
-    init(onStop: @escaping () -> Void) {
+    init(onStop: @escaping () -> Void, onPauseResume: ((Bool) -> Void)? = nil) {
         self.onStop = onStop
+        self.onPauseResume = onPauseResume
         startTimer()
     }
 
@@ -90,6 +107,18 @@ final class RecordingHUDViewModel: ObservableObject {
         }
     }
 
+    /// Pause the elapsed-time timer (called when recording is paused).
+    func pauseTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    /// Resume the elapsed-time timer (called when recording is resumed).
+    func resumeTimer() {
+        guard timer == nil else { return }
+        startTimer()
+    }
+
     func stopTimer() {
         timer?.invalidate()
         timer = nil
@@ -98,6 +127,11 @@ final class RecordingHUDViewModel: ObservableObject {
     func stop() {
         stopTimer()
         onStop()
+    }
+
+    func togglePauseResume() {
+        let requestPause = !isPaused
+        onPauseResume?(requestPause)
     }
 
     var formattedTime: String {
@@ -127,11 +161,11 @@ struct RecordingHUDView: View {
                     .foregroundColor(VColor.error)
                     .lineLimit(1)
             } else {
-                // Recording indicator dot with pulse animation
+                // Recording/paused indicator dot
                 Circle()
-                    .fill(VColor.error)
+                    .fill(viewModel.isPaused ? VColor.warning : VColor.error)
                     .frame(width: 10, height: 10)
-                    .opacity(dotOpacity)
+                    .opacity(viewModel.isPaused ? 1.0 : dotOpacity)
                     .onAppear {
                         withAnimation(
                             .easeInOut(duration: 0.8)
@@ -141,13 +175,33 @@ struct RecordingHUDView: View {
                         }
                     }
 
-                // Elapsed time
+                // Elapsed time (freezes when paused via timer pause)
                 Text(viewModel.formattedTime)
                     .font(VFont.monoSmall)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(viewModel.isPaused ? VColor.textSecondary : VColor.textPrimary)
                     .monospacedDigit()
 
+                if viewModel.isPaused {
+                    Text("Paused")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.warning)
+                }
+
                 Spacer()
+
+                // Pause/Resume toggle button
+                Button(action: { viewModel.togglePauseResume() }) {
+                    Image(systemName: viewModel.isPaused ? "play.fill" : "pause.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white)
+                        .frame(width: 24, height: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .fill(VColor.accent)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(viewModel.isPaused ? "Resume recording" : "Pause recording")
 
                 // Stop button
                 Button(action: { viewModel.stop() }) {
@@ -174,6 +228,6 @@ struct RecordingHUDView: View {
                         .stroke(VColor.surfaceBorder, lineWidth: 1)
                 )
         )
-        .frame(width: 180, height: 44)
+        .frame(width: 220, height: 44)
     }
 }
