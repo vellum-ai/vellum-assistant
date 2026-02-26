@@ -506,7 +506,7 @@ export class Session {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; titleText?: string },
   ): Promise<void> {
     return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
   }
