@@ -1152,9 +1152,21 @@ extension ChatViewModel {
                let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete }) {
                 targetMsgIndex = msgIndex
                 targetTcIndex = tcIndex
+            } else if let existingId = currentAssistantMessageId,
+                      let currentIdx = messages.firstIndex(where: { $0.id == existingId }) {
+                // Current assistant message has no incomplete tool calls.
+                // Search backward from current message position for rotated messages.
+                for i in stride(from: currentIdx - 1, through: max(0, currentIdx - 5), by: -1) {
+                    guard messages[i].role == .assistant else { continue }
+                    if let tcIndex = messages[i].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                        targetMsgIndex = i
+                        targetTcIndex = tcIndex
+                        break
+                    }
+                }
             } else {
-                // Fallback: search backward for assistant messages with incomplete tool calls,
-                // but only within the current turn (after the last user message).
+                // currentAssistantMessageId is nil — search backward within current turn
+                // (reconnect scenario where there are no queued messages).
                 let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) ?? 0
                 for i in stride(from: messages.count - 1, through: lastUserIndex, by: -1) {
                     guard messages[i].role == .assistant else { continue }
