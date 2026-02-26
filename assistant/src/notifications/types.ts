@@ -79,6 +79,45 @@ export interface RenderedChannelCopy {
   threadSeedMessage?: string;
 }
 
+// -- Per-channel thread action types ------------------------------------------
+
+/**
+ * Thread action telling the broadcaster to start a new conversation thread.
+ * This is the default when no candidate is selected or on fallback.
+ */
+export interface ThreadActionStartNew {
+  action: 'start_new';
+}
+
+/**
+ * Thread action telling the broadcaster to reuse an existing conversation.
+ * The conversationId must match one of the daemon-provided candidates.
+ */
+export interface ThreadActionReuseExisting {
+  action: 'reuse_existing';
+  conversationId: string;
+}
+
+export type ThreadAction = ThreadActionStartNew | ThreadActionReuseExisting;
+
+/**
+ * Lightweight metadata about a candidate conversation thread that the
+ * decision engine can select for reuse. Built by the thread-candidates
+ * module and injected into the decision prompt per selected channel.
+ */
+export interface ThreadCandidate {
+  conversationId: string;
+  title: string | null;
+  updatedAt: number;
+  /** The most recent sourceEventName that created this thread, if known. */
+  latestSourceEventName: string | null;
+  channel: NotificationChannel;
+  /** Guardian-specific: count of pending (unresolved) guardian action requests associated with this thread. */
+  pendingGuardianRequestCount?: number;
+  /** Guardian-specific: most recent callSessionId associated with this thread, if any. */
+  recentCallSessionId?: string | null;
+}
+
 /** Output produced by the notification decision engine for a given signal. */
 export interface NotificationDecision {
   shouldNotify: boolean;
@@ -91,4 +130,6 @@ export interface NotificationDecision {
   fallbackUsed: boolean;
   /** UUID of the persisted decision row (set after persistence in the decision engine). */
   persistedDecisionId?: string;
+  /** Per-channel thread actions decided by the model. Absent channels default to start_new. */
+  threadActions?: Partial<Record<NotificationChannel, ThreadAction>>;
 }
