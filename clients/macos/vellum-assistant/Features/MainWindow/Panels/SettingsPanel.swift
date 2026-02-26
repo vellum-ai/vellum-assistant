@@ -25,19 +25,28 @@ enum SettingsTab: String {
     }
 
     /// Maps legacy tab names (from IPC or saved state) to current tabs.
-    static func fromLegacyRawValue(_ value: String) -> SettingsTab? {
+    /// The `isDevMode` parameter gates dev-only tabs so external callers
+    /// (e.g. daemon IPC) cannot navigate to them when dev mode is off.
+    static func fromLegacyRawValue(_ value: String, isDevMode: Bool = false) -> SettingsTab? {
+        let tab: SettingsTab?
         // Try current values first
-        if let tab = SettingsTab(rawValue: value) { return tab }
-        // Map legacy names
-        switch value {
-        case "Connect": return .account
-        case "Integrations": return .modelsAndServices
-        case "Trust": return .permissions
-        case "Schedules": return .automation
-        case "Heartbeat": return .automation
-        case "Advanced": return .advanced
-        default: return nil
+        if let direct = SettingsTab(rawValue: value) {
+            tab = direct
+        } else {
+            // Map legacy names
+            switch value {
+            case "Connect": tab = .account
+            case "Integrations": tab = .modelsAndServices
+            case "Trust": tab = .permissions
+            case "Schedules": tab = .automation
+            case "Heartbeat": tab = .automation
+            case "Advanced": tab = .advanced
+            default: tab = nil
+            }
         }
+        // Block dev-only tabs when dev mode is disabled
+        if tab == .advanced && !isDevMode { return nil }
+        return tab
     }
 }
 
