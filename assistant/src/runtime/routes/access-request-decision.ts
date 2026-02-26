@@ -77,7 +77,8 @@ export function handleAccessRequestDecision(
 
   // On approve: create an identity-bound outbound verification session.
   // The session is bound to the requester's identity on the same channel
-  // so only the original requester can consume the code.
+  // so only the original requester can consume the code. Mark as
+  // trusted_contact so the consume path skips guardian binding creation.
   const session = createOutboundSession({
     assistantId: approval.assistantId,
     channel: approval.channel,
@@ -85,6 +86,7 @@ export function handleAccessRequestDecision(
     expectedChatId: approval.requesterChatId,
     identityBindingStatus: 'bound',
     destinationAddress: approval.requesterChatId,
+    verificationPurpose: 'trusted_contact',
   });
 
   return {

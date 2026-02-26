@@ -2740,9 +2740,10 @@ describe('outbound SMS verification', () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      // Identity-bound outbound sessions produce trusted_contact verification
-      // (no guardian binding created)
-      expect(result.verificationType).toBe('trusted_contact');
+      // Guardian outbound sessions (no verificationPurpose override) create
+      // guardian bindings on success
+      expect(result.verificationType).toBe('guardian');
+      expect(result.bindingId).toBeDefined();
     }
   });
 
