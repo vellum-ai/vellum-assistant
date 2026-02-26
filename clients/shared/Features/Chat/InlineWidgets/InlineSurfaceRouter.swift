@@ -39,7 +39,7 @@ public struct InlineSurfaceRouter: View {
     /// render as compact fallback chips — no need for the full card wrapper.
     private var isChipOnlySurface: Bool {
         switch surface.data {
-        case .browserView, .fileUpload:
+        case .browserView:
             return true
         default:
             return false
@@ -198,6 +198,19 @@ public struct InlineSurfaceRouter: View {
             ConfirmationSurfaceView(data: data, actions: surface.actions) { actionId in
                 onAction(surface.id, actionId, nil)
             }
+        #if os(macOS)
+        case .fileUpload(let data):
+            FileUploadSurfaceView(
+                data: data,
+                onSubmit: { files in
+                    let payload: [String: AnyCodable] = ["files": AnyCodable(files)]
+                    onAction(surface.id, "submit", payload)
+                },
+                onCancel: {
+                    onAction(surface.id, "cancel", nil)
+                }
+            )
+        #endif
         default:
             InlineFallbackChip(surfaceType: surface.surfaceType)
         }
