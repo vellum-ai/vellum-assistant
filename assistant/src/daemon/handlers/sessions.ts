@@ -35,6 +35,7 @@ import type {
 } from '../ipc-protocol.js';
 import { normalizeThreadType } from '../ipc-protocol.js';
 import { executeRecordingIntent } from '../recording-executor.js';
+import { classifyRecordingIntentFallback, containsRecordingKeywords } from '../recording-intent-fallback.js';
 import { resolveRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { generateVideoThumbnail } from '../video-thumbnail.js';
@@ -343,7 +344,41 @@ export async function handleUserMessage(
         rlog.info({ remaining: msg.content, kind: intentResult.kind }, 'Recording intent with remainder — continuing with remaining text');
       }
 
-      // 'none' falls through to normal processing
+      // 'none' — deterministic resolver found nothing; try LLM fallback
+      // if the text contains recording-related keywords.
+      if (intentResult.kind === 'none' && containsRecordingKeywords(messageText)) {
+        const fallback = await classifyRecordingIntentFallback(messageText);
+        rlog.info({ fallbackAction: fallback.action, fallbackConfidence: fallback.confidence }, 'Recording intent LLM fallback result');
+
+        if (fallback.action !== 'none' && fallback.confidence === 'high') {
+          const kindMap: Record<string, import('../recording-intent.js').RecordingIntentResult> = {
+            start: { kind: 'start_only' },
+            stop: { kind: 'stop_only' },
+            restart: { kind: 'restart_only' },
+            pause: { kind: 'pause_only' },
+            resume: { kind: 'resume_only' },
+          };
+          const mapped = kindMap[fallback.action];
+          if (mapped) {
+            const execResult = executeRecordingIntent(mapped, {
+              conversationId: msg.sessionId,
+              socket,
+              ctx,
+            });
+
+            if (execResult.handled) {
+              rlog.info({ kind: mapped.kind, source: 'llm_fallback' }, 'Recording intent intercepted via LLM fallback');
+              ctx.send(socket, {
+                type: 'assistant_text_delta',
+                text: execResult.responseText!,
+                sessionId: msg.sessionId,
+              });
+              ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+              return;
+            }
+          }
+        }
+      }
     }
 
     dispatchUserMessage(
