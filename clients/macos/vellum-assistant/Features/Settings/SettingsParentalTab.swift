@@ -1171,6 +1171,7 @@ private struct PINSheet: View {
     }
 
     private func advance() {
+        guard !isLoading else { return }
         errorMessage = nil
         switch mode {
         case .set:
