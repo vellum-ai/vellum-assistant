@@ -300,7 +300,9 @@ extension DaemonClient {
         }
 
         receiveBuffer = Data()
-        decodeBuffer = Data()
+        queue.async { [weak self] in
+            self?.decodeBuffer = Data()
+        }
         cuObservationSequenceBySession.removeAll()
         isConnected = false
         isConnecting = false
