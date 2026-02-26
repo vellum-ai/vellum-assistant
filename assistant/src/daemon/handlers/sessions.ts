@@ -95,6 +95,7 @@ export async function handleUserMessage(
       source: 'user_message' | 'secure_redirect_resume',
       activeSurfaceId?: string,
       currentPage?: string,
+      displayContent?: string,
     ): void => {
       const receivedDescription = source === 'user_message'
         ? 'User message received'
@@ -117,6 +118,8 @@ export async function handleUserMessage(
         activeSurfaceId,
         currentPage,
         queuedChannelMetadata,
+        undefined,
+        displayContent,
       );
       if (result.rejected) {
         rlog.warn({ source }, 'Message rejected — queue is full');
@@ -167,7 +170,7 @@ export async function handleUserMessage(
       // Fire-and-forget: don't block the IPC handler so the connection can
       // continue receiving messages (e.g. cancel, confirmations, or
       // additional user_message that will be queued by the session).
-      session.processMessage(content, attachments, sendEvent, dispatchRequestId, activeSurfaceId, currentPage).catch((err) => {
+      session.processMessage(content, attachments, sendEvent, dispatchRequestId, activeSurfaceId, currentPage, undefined, displayContent).catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         rlog.error({ err, source }, 'Error processing user message (session or provider failure)');
         ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
@@ -235,21 +238,38 @@ export async function handleUserMessage(
       rlog.info({ action, source: 'commandIntent' }, 'Recording command intent received in user_message');
       if (action === 'start') {
         const recordingId = handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
+        const responseText = recordingId ? 'Starting screen recording.' : 'A recording is already active.';
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: recordingId ? 'Starting screen recording.' : 'A recording is already active.',
+          text: responseText,
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        // Keep in-memory session history aligned with DB so regenerate() and
+        // other history operations that rely on session.messages stay consistent.
+        // Only push when agent loop is NOT active to avoid corrupting role alternation.
+        if (!session.isProcessing()) {
+          session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
+          session.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
+        }
         return;
       } else if (action === 'stop') {
         const stopped = handleRecordingStop(msg.sessionId, ctx) !== undefined;
+        const responseText = stopped ? 'Stopping the recording.' : 'No active recording to stop.';
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+          text: responseText,
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        if (!session.isProcessing()) {
+          session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
+          session.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
+        }
         return;
       } else if (action === 'restart') {
         const restartResult = handleRecordingRestart(msg.sessionId, socket, ctx);
@@ -259,24 +279,44 @@ export async function handleUserMessage(
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: restartResult.responseText }]));
+        if (!session.isProcessing()) {
+          session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
+          session.messages.push({ role: 'assistant', content: [{ type: 'text', text: restartResult.responseText }] });
+        }
         return;
       } else if (action === 'pause') {
         const paused = handleRecordingPause(msg.sessionId, ctx) !== undefined;
+        const responseText = paused ? 'Pausing the recording.' : 'No active recording to pause.';
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: paused ? 'Pausing the recording.' : 'No active recording to pause.',
+          text: responseText,
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        if (!session.isProcessing()) {
+          session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
+          session.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
+        }
         return;
       } else if (action === 'resume') {
         const resumed = handleRecordingResume(msg.sessionId, ctx) !== undefined;
+        const responseText = resumed ? 'Resuming the recording.' : 'No active recording to resume.';
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: resumed ? 'Resuming the recording.' : 'No active recording to resume.',
+          text: responseText,
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        if (!session.isProcessing()) {
+          session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
+          session.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
+        }
         return;
       } else {
         // Unrecognized action — fall through to normal text handling
@@ -285,6 +325,7 @@ export async function handleUserMessage(
     }
 
     // ── Standalone recording intent interception ──────────────────────────
+    let originalContentBeforeStrip: string | undefined;
     if (config.daemon.standaloneRecording && messageText) {
       const name = getAssistantName();
       const dynamicNames = [name].filter(Boolean) as string[];
@@ -308,6 +349,12 @@ export async function handleUserMessage(
             sessionId: msg.sessionId,
           });
           ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+          conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+          conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
+          if (!session.isProcessing()) {
+            session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
+            session.messages.push({ role: 'assistant', content: [{ type: 'text', text: execResult.responseText! }] });
+          }
           return;
         }
       }
@@ -319,6 +366,9 @@ export async function handleUserMessage(
           socket,
           ctx,
         });
+
+        // Preserve the original text so the DB stores the full message
+        originalContentBeforeStrip = messageText;
 
         // Continue with stripped text for downstream processing
         msg.content = execResult.remainderText ?? messageText;
@@ -376,6 +426,12 @@ export async function handleUserMessage(
                 sessionId: msg.sessionId,
               });
               ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+              conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+              conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
+              if (!session.isProcessing()) {
+                session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
+                session.messages.push({ role: 'assistant', content: [{ type: 'text', text: execResult.responseText! }] });
+              }
               return;
             }
           }
@@ -390,6 +446,7 @@ export async function handleUserMessage(
       'user_message',
       msg.activeSurfaceId,
       msg.currentPage,
+      originalContentBeforeStrip,
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
