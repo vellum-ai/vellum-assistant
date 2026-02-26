@@ -147,7 +147,7 @@ build_binaries() {
     command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
 
     # Daemon
-    local daemon_flags=(--external electron --external "chromium-bidi/*" --external onnxruntime-node)
+    local daemon_flags=(--external electron --external "chromium-bidi/*" --external onnxruntime-node --external @huggingface/transformers)
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
@@ -304,7 +304,7 @@ if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     fi
 fi
 if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
-    local_daemon_flags=(--external electron --external "chromium-bidi/*" --external onnxruntime-node)
+    local_daemon_flags=(--external electron --external "chromium-bidi/*" --external onnxruntime-node --external @huggingface/transformers)
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         local_daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
