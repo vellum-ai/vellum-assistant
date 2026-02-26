@@ -76,7 +76,7 @@ export interface ProcessSessionContext {
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
-  persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>): string;
+  persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>, displayContent?: string): string;
   runAgentLoop(
     content: string,
     userMessageId: string,
@@ -265,7 +265,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // resolves early (no runAgentLoop call), so we must continue draining.
   let userMessageId: string;
   try {
-    userMessageId = session.persistUserMessage(resolvedContent, next.attachments, next.requestId, next.metadata);
+    userMessageId = session.persistUserMessage(resolvedContent, next.attachments, next.requestId, next.metadata, next.displayContent);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId: session.conversationId, requestId: next.requestId }, 'Failed to persist queued message');
@@ -336,6 +336,7 @@ export async function processMessage(
   activeSurfaceId?: string,
   currentPage?: string,
   options?: { isInteractive?: boolean },
+  displayContent?: string,
 ): Promise<string> {
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
@@ -475,7 +476,7 @@ export async function processMessage(
 
   let userMessageId: string;
   try {
-    userMessageId = session.persistUserMessage(resolvedContent, attachments, requestId);
+    userMessageId = session.persistUserMessage(resolvedContent, attachments, requestId, undefined, displayContent);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     onEvent({ type: 'error', message });

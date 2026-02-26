@@ -25,6 +25,8 @@ export interface QueuedMessage {
   isInteractive?: boolean;
   /** Timestamp (ms) when the message was enqueued. */
   queuedAt: number;
+  /** Original user message text to persist to DB when recording intent stripping produced a different `content`. */
+  displayContent?: string;
 }
 
 export const MAX_QUEUE_DEPTH = 10;
