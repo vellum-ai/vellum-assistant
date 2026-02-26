@@ -987,47 +987,86 @@ export async function handleChannelInbound(
         (d) => d.destinationExternalUserId === body.senderExternalUserId,
       );
 
-      // Use first valid delivery (multiple awaiting_guardian_choice for same
-      // guardian+chat is unlikely but we handle it gracefully)
-      const matchedFollowup = validFollowup[0];
-      if (matchedFollowup) {
-        const followupRequest = getGuardianActionRequest(matchedFollowup.requestId);
+      if (validFollowup.length > 0) {
+        let matchedFollowup = validFollowup.length === 1 ? validFollowup[0] : null;
+        let followupReplyText = trimmedContent;
 
-        if (followupRequest && followupRequest.followupState === 'awaiting_guardian_choice') {
-          const turnResult = await processGuardianFollowUpTurn(
-            {
-              questionText: followupRequest.questionText,
-              lateAnswerText: followupRequest.lateAnswerText ?? '',
-              guardianReply: trimmedContent,
-            },
-            guardianFollowUpConversationGenerator,
-          );
-
-          // Apply the disposition to the follow-up state machine
-          if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-            progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition);
-          } else if (turnResult.disposition === 'decline') {
-            finalizeFollowup(followupRequest.id, 'declined');
-          }
-          // keep_pending: no state change — guardian can reply again
-
-          // Deliver the generated reply to the guardian
-          try {
-            await deliverChannelReply(replyCallbackUrl, {
-              chatId: externalChatId,
-              text: turnResult.replyText,
-              assistantId,
-            }, bearerToken);
-          } catch (err) {
-            log.error({ err, externalChatId }, 'Failed to deliver guardian follow-up conversation reply');
+        // Multiple follow-up deliveries: require request code prefix for disambiguation
+        if (validFollowup.length > 1) {
+          for (const d of validFollowup) {
+            const req = getGuardianActionRequest(d.requestId);
+            if (req && trimmedContent.toUpperCase().startsWith(req.requestCode)) {
+              matchedFollowup = d;
+              followupReplyText = trimmedContent.slice(req.requestCode.length).trim();
+              break;
+            }
           }
 
-          return Response.json({
-            accepted: true,
-            duplicate: false,
-            eventId: result.eventId,
-            guardianFollowUp: turnResult.disposition,
-          });
+          if (!matchedFollowup) {
+            // Send disambiguation message listing the request codes
+            const codes = validFollowup
+              .map((d) => {
+                const req = getGuardianActionRequest(d.requestId);
+                return req ? req.requestCode : null;
+              })
+              .filter(Boolean);
+            try {
+              await deliverChannelReply(replyCallbackUrl, {
+                chatId: externalChatId,
+                text: `You have multiple pending follow-up questions. Please prefix your reply with the reference code (${codes.join(', ')}) to indicate which question you are responding to.`,
+                assistantId,
+              }, bearerToken);
+            } catch (err) {
+              log.error({ err, externalChatId }, 'Failed to deliver guardian follow-up disambiguation message');
+            }
+            return Response.json({
+              accepted: true,
+              duplicate: false,
+              eventId: result.eventId,
+              guardianFollowUp: 'disambiguation_sent',
+            });
+          }
+        }
+
+        if (matchedFollowup) {
+          const followupRequest = getGuardianActionRequest(matchedFollowup.requestId);
+
+          if (followupRequest && followupRequest.followupState === 'awaiting_guardian_choice') {
+            const turnResult = await processGuardianFollowUpTurn(
+              {
+                questionText: followupRequest.questionText,
+                lateAnswerText: followupRequest.lateAnswerText ?? '',
+                guardianReply: followupReplyText,
+              },
+              guardianFollowUpConversationGenerator,
+            );
+
+            // Apply the disposition to the follow-up state machine
+            if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
+              progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition);
+            } else if (turnResult.disposition === 'decline') {
+              finalizeFollowup(followupRequest.id, 'declined');
+            }
+            // keep_pending: no state change — guardian can reply again
+
+            // Deliver the generated reply to the guardian
+            try {
+              await deliverChannelReply(replyCallbackUrl, {
+                chatId: externalChatId,
+                text: turnResult.replyText,
+                assistantId,
+              }, bearerToken);
+            } catch (err) {
+              log.error({ err, externalChatId }, 'Failed to deliver guardian follow-up conversation reply');
+            }
+
+            return Response.json({
+              accepted: true,
+              duplicate: false,
+              eventId: result.eventId,
+              guardianFollowUp: turnResult.disposition,
+            });
+          }
         }
       }
     }

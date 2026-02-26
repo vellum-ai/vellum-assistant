@@ -25,6 +25,7 @@ import {
 } from '../memory/guardian-action-store.js';
 import { processGuardianFollowUpTurn } from '../runtime/guardian-action-conversation-turn.js';
 import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
+import type { GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
 import { extractPreferences } from '../notifications/preference-extractor.js';
 import { createPreference } from '../notifications/preferences-store.js';
 import type { Message } from '../providers/types.js';
@@ -39,6 +40,19 @@ import { resolveSlash, type SlashContext } from './session-slash.js';
 import type { TraceEmitter } from './trace-emitter.js';
 
 const log = getLogger('session-process');
+
+// ---------------------------------------------------------------------------
+// Module-level generator injection
+// ---------------------------------------------------------------------------
+// The daemon lifecycle creates the generator once and injects it here so the
+// mac/IPC channel path can classify follow-up replies without threading the
+// generator through Session / DaemonServer constructors.
+let _guardianFollowUpGenerator: GuardianFollowUpConversationGenerator | undefined;
+
+/** Inject the guardian follow-up conversation generator (called from lifecycle.ts). */
+export function setGuardianFollowUpConversationGenerator(gen: GuardianFollowUpConversationGenerator): void {
+  _guardianFollowUpGenerator = gen;
+}
 
 /** Build a model_info event with fresh config data. */
 function buildModelInfoEvent(): ServerMessage {
@@ -487,6 +501,7 @@ export async function processMessage(
           lateAnswerText: followupRequest.lateAnswerText ?? '',
           guardianReply: content,
         },
+        _guardianFollowUpGenerator,
       );
 
       // Apply the disposition to the follow-up state machine
