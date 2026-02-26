@@ -70,6 +70,7 @@
     "channel_readiness",
     "confirmation_response",
     "conversation_search",
+    "conversation_seen_signal",
     "cu_observation",
     "cu_session_abort",
     "cu_session_create",
