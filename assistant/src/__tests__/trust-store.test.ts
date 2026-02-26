@@ -671,7 +671,7 @@ describe('Trust Store', () => {
       expect(defaults).toHaveLength(NUM_DEFAULTS);
       for (const rule of defaults) {
         expect(rule.priority).toBe(DEFAULT_PRIORITY_BY_ID.get(rule.id)!);
-        if (rule.id === 'default:allow-bash-rm-bootstrap') {
+        if (rule.id === 'default:allow-bash-rm-bootstrap' || rule.id === 'default:allow-bash-rm-updates') {
           expect(rule.scope).toBe(join(testDir, 'workspace'));
         } else {
           expect(rule.scope).toBe('everywhere');
@@ -693,12 +693,16 @@ describe('Trust Store', () => {
         'browser_close',
         'browser_extract',
         'browser_fill_credential',
+        'browser_hover',
         'browser_navigate',
         'browser_press_key',
         'browser_screenshot',
+        'browser_scroll',
+        'browser_select_option',
         'browser_snapshot',
         'browser_type',
         'browser_wait_for',
+        'browser_wait_for_download',
         'computer_use_click',
         'computer_use_double_click',
         'computer_use_drag',
@@ -840,6 +844,18 @@ describe('Trust Store', () => {
       expect(other).not.toBeNull();
       expect(other!.id).not.toBe('default:allow-bash-rm-bootstrap');
       expect(other!.id).toBe('default:allow-bash-global');
+    });
+
+    test('updates delete rule matches only when workingDir is the workspace dir', () => {
+      const workspaceDir = join(testDir, 'workspace');
+      const match = findHighestPriorityRule('bash', ['rm UPDATES.md'], workspaceDir);
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:allow-bash-rm-updates');
+      expect(match!.decision).toBe('allow');
+      // Outside workspace, should NOT match the updates rule
+      const other = findHighestPriorityRule('bash', ['rm UPDATES.md'], '/tmp/other-project');
+      expect(other).not.toBeNull();
+      expect(other!.id).not.toBe('default:allow-bash-rm-updates');
     });
 
     test('default ask does not affect files outside protected directory', () => {
