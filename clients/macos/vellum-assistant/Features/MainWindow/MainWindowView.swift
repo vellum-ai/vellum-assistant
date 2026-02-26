@@ -1087,7 +1087,7 @@ struct MainWindowView: View {
                 Image(systemName: app.sfSymbol ?? "square.grid.2x2")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
-                    .frame(width: 16, height: 16)
+                    .frame(width: VSpacing.xl)
                 Text(app.name)
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
@@ -1218,7 +1218,7 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence) {
                 windowState.togglePanel(.intelligence)
             }
-            SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps) {
+            SidebarNavRow(icon: "square.grid.2x2", label: "Things", isActive: windowState.activePanel == .apps) {
                 windowState.togglePanel(.apps)
             }
 
@@ -1342,7 +1342,7 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
                 windowState.togglePanel(.intelligence)
             }
-            SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps, isExpanded: false) {
+            SidebarNavRow(icon: "square.grid.2x2", label: "Things", isActive: windowState.activePanel == .apps, isExpanded: false) {
                 windowState.togglePanel(.apps)
             }
 
@@ -1514,7 +1514,7 @@ private struct SidebarNavRow: View {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
-                    .frame(width: 18)
+                    .frame(width: VSpacing.xl)
                 Text(label)
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
