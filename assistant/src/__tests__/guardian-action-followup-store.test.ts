@@ -242,8 +242,23 @@ describe('guardian-action-followup-store', () => {
     expect(result).toBeNull();
   });
 
-  test('progressFollowupState rejects non-expired request', () => {
+  test('progressFollowupState rejects none -> awaiting_guardian_choice even on expired request', () => {
     const request = createTestRequest('conv-followup-13b');
+    markTimedOutWithReason(request.id, 'call_timeout');
+
+    // none -> awaiting_guardian_choice must only go through startFollowupFromExpiredRequest
+    // (which atomically sets lateAnswerText and lateAnsweredAt)
+    const result = progressFollowupState(request.id, 'awaiting_guardian_choice');
+    expect(result).toBeNull();
+
+    // Verify followup_state unchanged
+    const reloaded = getGuardianActionRequest(request.id);
+    expect(reloaded!.followupState).toBe('none');
+    expect(reloaded!.status).toBe('expired');
+  });
+
+  test('progressFollowupState rejects non-expired request', () => {
+    const request = createTestRequest('conv-followup-13c');
 
     // Request is still 'pending', not 'expired' — follow-up transitions must not apply
     const result = progressFollowupState(request.id, 'awaiting_guardian_choice');

@@ -333,7 +333,7 @@ export function cancelGuardianActionRequest(id: string): void {
  * Terminal states (completed, declined, failed) are only reachable via
  * finalizeFollowup, which properly sets followupCompletedAt. */
 const FOLLOWUP_TRANSITIONS: Record<FollowupState, FollowupState[]> = {
-  none: ['awaiting_guardian_choice'],
+  none: [],
   awaiting_guardian_choice: ['dispatching'],
   dispatching: [],
   completed: [],
