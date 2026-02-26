@@ -50,8 +50,8 @@ Replace `<channel>` with `sms`, `voice`, or `telegram`, and `<destination>` with
 Report the exact next action based on the channel:
 
 - **SMS**: "I've sent a 6-digit verification code to [number]. Reply with the code here or text it back to the number."
-- **Voice**: "I'm calling [number] now with a 6-digit verification code. Enter the code here once you receive it."
-- **Telegram with chat ID** (no `telegramBootstrapUrl` in response): "I've sent a verification code to your Telegram. Reply with the code here."
+- **Voice**: The response includes a `secret` field with the verification code. Tell the user the code BEFORE the call connects: "I'm calling [number] now. Your verification code is [secret]. When you answer the call, enter this code using your phone's keypad."
+- **Telegram with chat ID** (no `telegramBootstrapUrl` in response): "I've sent a verification code to your Telegram. Send the code back to me in the Telegram bot chat to complete verification."
 - **Telegram with handle** (`telegramBootstrapUrl` present in response): "Tap this deep-link first: [telegramBootstrapUrl]. After Telegram binds your identity, I'll send your verification code."
 
 After reporting the bootstrap URL for Telegram handle flows, wait for the user to confirm they clicked the link. Then check guardian status (Step 6) to see if the bootstrap completed and a code was sent.
