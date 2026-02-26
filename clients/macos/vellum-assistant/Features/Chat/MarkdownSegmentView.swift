@@ -59,7 +59,7 @@ struct MarkdownSegmentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
                 case .table(let headers, let rows):
-                    MarkdownTableView(headers: headers, rows: rows, maxWidth: maxContentWidth ?? .infinity)
+                    MarkdownTableView(headers: headers, rows: rows, maxWidth: maxContentWidth ?? .infinity, isStreaming: isStreaming)
 
                 case .image(let alt, let url):
                     AnimatedImageView(urlString: url)
