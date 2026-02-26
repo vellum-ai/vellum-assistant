@@ -41,15 +41,18 @@ const URL_TOOLS = new Set(['network_request', 'web_fetch', 'browser_navigate']);
 function normalizeForMatching(value: string): string {
   let normalized = value;
   // Iteratively decode percent-encoding to handle double-encoding (%252F → %2F → /)
+  // Use per-sequence replacement instead of decodeURIComponent to avoid a single
+  // malformed sequence (e.g. %ZZ) preventing all other valid sequences from decoding.
   let prev = '';
   while (prev !== normalized) {
     prev = normalized;
-    try {
-      normalized = decodeURIComponent(normalized);
-    } catch {
-      // If decoding fails (malformed sequence), stop and use what we have
-      break;
-    }
+    normalized = normalized.replace(/%[0-9a-fA-F]{2}/g, (match) => {
+      try {
+        return decodeURIComponent(match);
+      } catch {
+        return match;
+      }
+    });
   }
   // Collapse consecutive slashes (but preserve the double slash in protocol e.g. https://)
   normalized = normalized.replace(/(?<!:)\/{2,}/g, '/');

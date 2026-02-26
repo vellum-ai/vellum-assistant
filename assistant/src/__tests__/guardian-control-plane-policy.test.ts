@@ -316,6 +316,13 @@ describe('isGuardianControlPlaneInvocation', () => {
         command: 'curl http://localhost:3000/v1/integrations%2Fother%2Fservice',
       })).toBe(false);
     });
+
+    test('detects guardian endpoint despite malformed percent-encoding elsewhere in command', () => {
+      const result = isGuardianControlPlaneInvocation('bash', {
+        command: 'curl -H "X: %ZZ" http://localhost:3000/v1/integrations%2Fguardian%2Foutbound%2Fstart -d \'{"channel":"sms"}\'',
+      });
+      expect(result).toBe(true);
+    });
   });
 });
 
