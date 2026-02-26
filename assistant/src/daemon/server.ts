@@ -822,9 +822,15 @@ export class DaemonServer {
       session.updateClient(onEvent, false);
     }
 
-    session.runAgentLoop(content, messageId, onEvent, { isInteractive: options?.isInteractive ?? false }).catch((err) => {
-      log.error({ err, conversationId }, 'Background agent loop failed');
-    });
+    session.runAgentLoop(content, messageId, onEvent, { isInteractive: options?.isInteractive ?? false })
+      .finally(() => {
+        if (options?.isInteractive === true) {
+          session.updateClient(() => {}, true);
+        }
+      })
+      .catch((err) => {
+        log.error({ err, conversationId }, 'Background agent loop failed');
+      });
 
     return { messageId };
   }
@@ -917,12 +923,18 @@ export class DaemonServer {
       session.updateClient(onEvent, false);
     }
 
-    await session.runAgentLoop(
-      resolvedContent,
-      messageId,
-      onEvent,
-      { isInteractive: options?.isInteractive ?? false },
-    );
+    try {
+      await session.runAgentLoop(
+        resolvedContent,
+        messageId,
+        onEvent,
+        { isInteractive: options?.isInteractive ?? false },
+      );
+    } finally {
+      if (options?.isInteractive === true) {
+        session.updateClient(() => {}, true);
+      }
+    }
 
     return { messageId };
   }

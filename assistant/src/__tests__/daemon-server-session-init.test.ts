@@ -37,6 +37,9 @@ class MockSession {
   public lastUpdateClientHasNoClient: boolean | undefined;
   public lastUpdateClientSender: ((msg: Record<string, unknown>) => void) | undefined;
   public lastRunAgentLoopOptions: { skipPreMessageRollback?: boolean; isInteractive?: boolean } | undefined;
+  public updateClientHistory: Array<{ hasNoClient: boolean }> = [];
+  /** When set, runAgentLoop will invoke onEvent with this message during execution. */
+  public confirmationToEmitDuringLoop: Record<string, unknown> | undefined;
   public setSandboxOverrideCalls = 0;
   private stale = false;
   private processing = false;
@@ -64,6 +67,7 @@ class MockSession {
     this.updateClientCalls += 1;
     this.lastUpdateClientSender = sender;
     this.lastUpdateClientHasNoClient = hasNoClient;
+    this.updateClientHistory.push({ hasNoClient });
   }
 
   setSandboxOverride(): void {
@@ -126,10 +130,13 @@ class MockSession {
   async runAgentLoop(
     _content: string,
     _messageId: string,
-    _onEvent: (msg: Record<string, unknown>) => void,
+    onEvent: (msg: Record<string, unknown>) => void,
     options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
   ): Promise<void> {
     this.lastRunAgentLoopOptions = options;
+    if (this.confirmationToEmitDuringLoop) {
+      onEvent(this.confirmationToEmitDuringLoop);
+    }
     this.processing = false;
   }
 
@@ -584,6 +591,19 @@ describe('DaemonServer initial session hydration', () => {
     const server = new DaemonServer();
     const internal = asDaemonServerTestAccess(server);
 
+    // Pre-configure the mock to emit a confirmation_request during runAgentLoop,
+    // simulating a tool requesting approval while the session is interactive.
+    MockSession.prototype.confirmationToEmitDuringLoop = {
+      type: 'confirmation_request',
+      requestId: 'req-interactive-1',
+      toolName: 'notify_desktop',
+      input: { title: 'Weather' },
+      riskLevel: 'high',
+      allowlistOptions: [{ label: 'notify_desktop:*', description: 'notify_desktop:*', pattern: 'notify_desktop:*' }],
+      scopeOptions: [{ label: 'everywhere', scope: 'everywhere' }],
+      persistentDecisionsAllowed: true,
+    };
+
     await server.processMessage(
       conversation.id,
       'send me a notification',
@@ -593,24 +613,24 @@ describe('DaemonServer initial session hydration', () => {
       'telegram',
     );
 
+    MockSession.prototype.confirmationToEmitDuringLoop = undefined;
+
     const session = internal.sessions.get(conversation.id);
     expect(session).toBeDefined();
     expect(session!.lastRunAgentLoopOptions?.isInteractive).toBe(true);
-    expect(session!.lastUpdateClientHasNoClient).toBe(false);
 
-    const sender = session!.lastUpdateClientSender;
-    expect(typeof sender).toBe('function');
-    sender!({
-      type: 'confirmation_request',
-      requestId: 'req-interactive-1',
-      toolName: 'notify_desktop',
-      input: { title: 'Weather' },
-      riskLevel: 'high',
-      allowlistOptions: [{ label: 'notify_desktop:*', description: 'notify_desktop:*', pattern: 'notify_desktop:*' }],
-      scopeOptions: [{ label: 'everywhere', scope: 'everywhere' }],
-      persistentDecisionsAllowed: true,
-    });
+    // Verify the session was marked interactive during the loop, then restored.
+    // updateClientHistory: [0] = initial no-socket creation (hasNoClient: true),
+    //                      [1] = interactive override (hasNoClient: false),
+    //                      [2] = reset after loop (hasNoClient: true)
+    expect(session!.updateClientHistory.length).toBeGreaterThanOrEqual(3);
+    expect(session!.updateClientHistory[1].hasNoClient).toBe(false);
+    expect(session!.updateClientHistory[2].hasNoClient).toBe(true);
 
+    // After the loop completes, the session is restored to no-client state.
+    expect(session!.lastUpdateClientHasNoClient).toBe(true);
+
+    // The pending interaction was registered during the loop.
     const interaction = pendingInteractions.get('req-interactive-1');
     expect(interaction).toBeDefined();
     expect(interaction?.kind).toBe('confirmation');
