@@ -814,7 +814,7 @@ public final class ChatViewModel: ObservableObject {
     public func sendMessage() {
         let rawText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = isVoiceModeActive
-            ? "[Voice conversation — keep spoken responses brief (2-3 sentences) but fully complete the task using any tools needed. Do not give up early. When interacting with macOS apps (Messages, Contacts, Calendar, Reminders, Notes, Mail, etc.), always use osascript with AppleScript — never query databases directly or use sqlite3.]\n\n\(rawText)"
+            ? "[Voice conversation — keep spoken responses brief (2-3 sentences) but fully complete the task using any tools needed. Do not give up early. Proactively use tools to fulfill requests rather than describing how. When interacting with macOS apps (Messages, Contacts, Calendar, Reminders, Notes, Mail, etc.), always use osascript with AppleScript — never query databases directly or use sqlite3. Prefer CLI tools and background automation (osascript/AppleScript) over foreground computer use, which takes over the user's screen.]\n\n\(rawText)"
             : rawText
         let hasAttachments = !pendingAttachments.isEmpty
         let hasSkillInvocation = pendingSkillInvocation != nil
