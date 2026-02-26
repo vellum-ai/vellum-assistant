@@ -264,14 +264,18 @@ export async function handleChannelInbound(
         // Notify the guardian about the access request so they can approve/deny.
         // Only fires when a guardian binding exists and no duplicate pending
         // request already exists for this requester.
-        notifyGuardianOfAccessRequest({
-          canonicalAssistantId,
-          sourceChannel,
-          externalChatId,
-          senderExternalUserId: body.senderExternalUserId,
-          senderName: body.senderName,
-          senderUsername: body.senderUsername,
-        });
+        try {
+          notifyGuardianOfAccessRequest({
+            canonicalAssistantId,
+            sourceChannel,
+            externalChatId,
+            senderExternalUserId: body.senderExternalUserId,
+            senderName: body.senderName,
+            senderUsername: body.senderUsername,
+          });
+        } catch (err) {
+          log.error({ err, sourceChannel, externalChatId }, 'Failed to notify guardian of access request');
+        }
 
         return Response.json({ accepted: true, denied: true, reason: 'not_a_member' });
       }
