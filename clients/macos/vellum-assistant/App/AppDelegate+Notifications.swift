@@ -147,17 +147,9 @@ extension AppDelegate {
     }
 
     private func openNotificationSettings() {
-        let candidates = [
-            "x-apple.systempreferences:com.apple.preference.notifications?id=\(Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant")",
-            "x-apple.systempreferences:com.apple.preference.notifications",
-        ]
-        for candidate in candidates {
-            guard let url = URL(string: candidate) else { continue }
-            if NSWorkspace.shared.open(url) {
-                return
-            }
+        if !PermissionManager.openNotificationSettings() {
+            log.warning("Failed to open macOS Notification settings URL")
         }
-        log.warning("Failed to open macOS Notification settings URL")
     }
 
     private func normalizeNotificationUserInfoValue(_ value: Any?) -> Any? {

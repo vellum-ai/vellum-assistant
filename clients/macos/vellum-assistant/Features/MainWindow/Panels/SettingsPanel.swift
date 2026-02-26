@@ -38,6 +38,10 @@ struct SettingsPanel: View {
     @State private var setupRequired: (id: String, skillId: String, hint: String)?
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
+    @State private var microphoneGranted: Bool = false
+    @State private var speechRecognitionGranted: Bool = false
+    @State private var notificationsGranted: Bool = false
+    @State private var notificationBadgesGranted: Bool = false
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var showModelDropdown = false
     @State private var mouseDownMonitor: Any?
@@ -79,7 +83,7 @@ struct SettingsPanel: View {
         }
         .task {
             // Refresh permission status when the view appears
-            refreshPermissionStatus()
+            await refreshPermissionStatus()
         }
         .onAppear {
             store.refreshAPIKeyState()
@@ -137,7 +141,9 @@ struct SettingsPanel: View {
             // System Settings and returns to the app via Cmd+Tab or clicking.
             // Uses NSApplication notification instead of scenePhase because this
             // view is hosted in an NSHostingController, not a SwiftUI Scene.
-            refreshPermissionStatus()
+            Task { @MainActor in
+                await refreshPermissionStatus()
+            }
         }
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
@@ -676,27 +682,35 @@ struct SettingsPanel: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                permissionRow(
-                    emoji: "\u{1F47B}",
-                    label: "Accessibility",
-                    granted: accessibilityGranted,
-                    action: {
-                        // Request accessibility permission (opens System Settings)
-                        _ = PermissionManager.accessibilityStatus(prompt: true)
-                        startPermissionPolling()
-                    }
-                )
+                permissionRow(label: "Accessibility", granted: accessibilityGranted) {
+                    _ = PermissionManager.accessibilityStatus(prompt: true)
+                    startPermissionPolling()
+                }
 
-                permissionRow(
-                    emoji: "\u{1F355}",
-                    label: "Screen Recording",
-                    granted: screenRecordingGranted,
-                    action: {
-                        // Request screen recording permission (opens System Settings)
-                        PermissionManager.requestScreenRecordingAccess()
-                        startPermissionPolling()
-                    }
-                )
+                permissionRow(label: "Screen Recording", granted: screenRecordingGranted) {
+                    PermissionManager.requestScreenRecordingAccess()
+                    startPermissionPolling()
+                }
+
+                permissionRow(label: "Microphone", granted: microphoneGranted) {
+                    PermissionManager.requestMicrophoneAccess()
+                    startPermissionPolling()
+                }
+
+                permissionRow(label: "Speech Recognition", granted: speechRecognitionGranted) {
+                    PermissionManager.requestSpeechRecognitionAccess()
+                    startPermissionPolling()
+                }
+
+                permissionRow(label: "Notifications", granted: notificationsGranted) {
+                    PermissionManager.requestNotificationAccess()
+                    startPermissionPolling()
+                }
+
+                permissionRow(label: "Notification Badges", granted: notificationBadgesGranted) {
+                    PermissionManager.requestNotificationBadgeAccess()
+                    startPermissionPolling()
+                }
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
@@ -948,14 +962,9 @@ struct SettingsPanel: View {
 
     // MARK: - Permission Row
 
-    private func permissionRow(emoji: String, label: String, granted: Bool, action: @escaping () -> Void) -> some View {
+    private func permissionRow(label: String, granted: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: VSpacing.md) {
-                Text(emoji)
-                    .font(.system(size: 14))
-                    .frame(width: 20)
-                    .accessibilityLabel(label)
-
                 Text(label)
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
@@ -983,9 +992,13 @@ struct SettingsPanel: View {
 
     // MARK: - Permission Helpers
 
-    private func refreshPermissionStatus() {
+    private func refreshPermissionStatus() async {
         accessibilityGranted = PermissionManager.accessibilityStatus() == .granted
         screenRecordingGranted = PermissionManager.screenRecordingStatus() == .granted
+        microphoneGranted = PermissionManager.microphoneStatus() == .granted
+        speechRecognitionGranted = PermissionManager.speechRecognitionStatus() == .granted
+        notificationsGranted = await PermissionManager.notificationStatus() == .granted
+        notificationBadgesGranted = await PermissionManager.notificationBadgeStatus() == .granted
     }
 
     private func startPermissionPolling() {
@@ -995,8 +1008,6 @@ struct SettingsPanel: View {
         // 2. Fallback: Poll every 1 second for 15 seconds to catch edge cases where
         //    the notification doesn't fire (e.g., user grants permission while app
         //    stays focused)
-        //
-        // Polling stops early if both permissions are granted, minimizing overhead.
         permissionCheckTask?.cancel()
 
         permissionCheckTask = Task { @MainActor in
@@ -1005,12 +1016,7 @@ struct SettingsPanel: View {
                 try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
 
                 guard !Task.isCancelled else { return }
-                refreshPermissionStatus()
-
-                // Stop polling if both permissions are granted
-                if accessibilityGranted && screenRecordingGranted {
-                    return
-                }
+                await refreshPermissionStatus()
             }
         }
     }
