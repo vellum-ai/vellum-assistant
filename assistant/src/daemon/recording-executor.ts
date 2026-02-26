@@ -74,5 +74,29 @@ export function executeRecordingIntent(
         remainderText: result.remainder,
         pendingStop: true,
       };
+
+    case 'start_and_stop_only': {
+      handleRecordingStop(context.conversationId, context.ctx);
+      const recordingId = handleRecordingStart(
+        context.conversationId,
+        { promptForSource: true },
+        context.socket,
+        context.ctx,
+      );
+      return {
+        handled: true,
+        responseText: recordingId
+          ? 'Stopping current recording and starting a new one.'
+          : 'Stopping the recording.',
+      };
+    }
+
+    case 'start_and_stop_with_remainder':
+      return {
+        handled: false,
+        remainderText: result.remainder,
+        pendingStart: true,
+        pendingStop: true,
+      };
   }
 }

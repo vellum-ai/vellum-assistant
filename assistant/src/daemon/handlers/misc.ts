@@ -125,10 +125,31 @@ export async function handleTaskSubmit(
         return;
       }
 
-      if (intentResult.kind === 'start_with_remainder' || intentResult.kind === 'stop_with_remainder') {
+      if (intentResult.kind === 'start_and_stop_only') {
+        let activeSessionId = ctx.socketToSession.get(socket);
+        if (!activeSessionId) {
+          const conversation = conversationStore.createConversation(msg.task);
+          activeSessionId = conversation.id;
+          ctx.socketToSession.set(socket, activeSessionId);
+        }
+
+        const execResult = executeRecordingIntent(intentResult, {
+          conversationId: activeSessionId,
+          socket,
+          ctx,
+        });
+
+        rlog.info('Recording start+stop intent intercepted');
+        ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
+        ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: activeSessionId });
+        ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+        return;
+      }
+
+      if (intentResult.kind === 'start_with_remainder' || intentResult.kind === 'stop_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder') {
         // Defer recording action until after classifier creates the final conversation
-        pendingRecordingStart = intentResult.kind === 'start_with_remainder';
-        pendingRecordingStop = intentResult.kind === 'stop_with_remainder';
+        pendingRecordingStart = intentResult.kind === 'start_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder';
+        pendingRecordingStop = intentResult.kind === 'stop_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder';
         (msg as { task: string }).task = intentResult.remainder;
         rlog.info({ remaining: intentResult.remainder }, 'Recording intent deferred, continuing with remaining text');
       }

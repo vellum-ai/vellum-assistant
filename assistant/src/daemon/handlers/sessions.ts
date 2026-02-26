@@ -174,7 +174,7 @@ export async function handleUserMessage(
     };
 
     const config = getConfig();
-    const messageText = msg.content ?? '';
+    let messageText = msg.content ?? '';
 
     // Block inbound messages that contain secrets and redirect to secure prompt
     if (!msg.bypassSecretCheck) {
@@ -252,7 +252,7 @@ export async function handleUserMessage(
         // Execute deferred recording actions immediately for user_message path
         if (execResult.pendingStop) handleRecordingStop(msg.sessionId, ctx);
         if (execResult.pendingStart) handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
-        msg.content = execResult.remainderText;
+        messageText = execResult.remainderText;
         rlog.info({ remaining: execResult.remainderText }, 'Recording intent handled, continuing with remaining text');
       }
     }
