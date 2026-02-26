@@ -124,6 +124,7 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
   if (tier !== 'low') {
     parts.push(buildToolPermissionSection());
     parts.push(buildTaskScheduleReminderRoutingSection());
+    parts.push(buildGuardianVerificationRoutingSection());
     parts.push(buildAttachmentSection());
     parts.push(buildInChatConfigurationSection());
     parts.push(buildChannelCommandIntentSection());
@@ -183,6 +184,31 @@ function buildTaskScheduleReminderRoutingSection(): string {
     '',
     '### task_list_show UI note',
     'When you call `task_list_show`, the Tasks window opens automatically. Present a brief summary in chat — do NOT also create a separate surface/UI (`ui_show` or `app_create`) to display the task queue.',
+  ].join('\n');
+}
+
+export function buildGuardianVerificationRoutingSection(): string {
+  return [
+    '## Routing: Guardian Verification',
+    '',
+    'When the user wants to verify their identity as the trusted guardian for a messaging channel, load the **Guardian Verify Setup** skill.',
+    '',
+    '### Trigger phrases',
+    '- "verify guardian"',
+    '- "set guardian for SMS"',
+    '- "verify my Telegram account"',
+    '- "verify voice channel"',
+    '- "verify my phone number"',
+    '- "set up guardian verification"',
+    '',
+    '### What it does',
+    'The skill walks through outbound guardian verification for SMS, voice, or Telegram:',
+    '1. Confirm channel (sms, voice, telegram)',
+    '2. Collect destination (phone number or Telegram handle/chat ID)',
+    '3. Start outbound verification via runtime HTTP API',
+    '4. Guide the user through code entry, resend, or cancel',
+    '',
+    'Load with: `skill_load` using `skill: "guardian-verify-setup"`',
   ].join('\n');
 }
 
