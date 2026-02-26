@@ -2206,7 +2206,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     /// Opens the settings panel and navigates to a specific tab.
     public func showSettingsTab(_ tab: String) {
-        if let settingsTab = SettingsTab(rawValue: tab) {
+        if let settingsTab = SettingsTab.fromLegacyRawValue(tab, isDevMode: services.settingsStore.isDevMode) {
             services.settingsStore.pendingSettingsTab = settingsTab
         }
         showSettingsWindow(nil)
