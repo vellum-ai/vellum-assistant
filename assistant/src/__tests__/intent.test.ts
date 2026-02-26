@@ -82,6 +82,18 @@ describe('classifyIntent', () => {
     ).toBe(ToolIntent.Read);
   });
 
+  test('file_write (workspace-scoped) → Read', () => {
+    expect(
+      classifyIntent('file_write', { file_path: `${WORKSPACE_DIR}/bar.txt` }, WORKSPACE_DIR, RiskLevel.Low),
+    ).toBe(ToolIntent.Read);
+  });
+
+  test('file_write (outside workspace) → Write', () => {
+    expect(
+      classifyIntent('file_write', { file_path: '/etc/shadow' }, WORKSPACE_DIR, RiskLevel.Low),
+    ).toBe(ToolIntent.Write);
+  });
+
   test('bash (sandbox enabled) → Read', () => {
     expect(classifyIntent('bash', { command: 'echo hello' }, WORKSPACE_DIR, RiskLevel.Low)).toBe(ToolIntent.Read);
   });

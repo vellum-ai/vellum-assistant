@@ -27,7 +27,7 @@ export function classifyIntent(
   // 1. Workspace-scoped tools: sandbox provides isolation, so reads are safe.
   if (
     toolName === 'file_read' ||
-    toolName === 'file_write' ||
+    (toolName === 'file_write' && isWorkspaceScopedInvocation(toolName, input, workingDir)) ||
     (toolName === 'file_edit' && isWorkspaceScopedInvocation(toolName, input, workingDir)) ||
     toolName === 'bash'
   ) {
