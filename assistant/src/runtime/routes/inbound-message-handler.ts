@@ -1044,18 +1044,19 @@ export async function handleChannelInbound(
 
             // Apply the disposition to the follow-up state machine.
             // Both progressFollowupState and finalizeFollowup are compare-and-set:
-            // they return null when the transition fails (e.g. a concurrent message
-            // already advanced the state). In that case, send a stale notice instead
-            // of the disposition-specific reply.
-            let transitionApplied = true;
+            // they return null when the transition was not applied (e.g. a concurrent
+            // reply already advanced the state). In that case we notify the guardian
+            // that the request was already resolved and skip action execution.
+            let stateApplied = true;
             if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-              transitionApplied = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition) !== null;
+              stateApplied = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition) !== null;
             } else if (turnResult.disposition === 'decline') {
-              transitionApplied = finalizeFollowup(followupRequest.id, 'declined') !== null;
+              stateApplied = finalizeFollowup(followupRequest.id, 'declined') !== null;
             }
             // keep_pending: no state change — guardian can reply again
 
-            if (!transitionApplied) {
+            if (!stateApplied) {
+              log.warn({ requestId: followupRequest.id, disposition: turnResult.disposition }, 'Follow-up state transition failed (already resolved)');
               const staleText = await composeGuardianActionMessageGenerative(
                 { scenario: 'guardian_stale_followup' as const },
                 {},

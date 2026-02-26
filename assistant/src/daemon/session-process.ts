@@ -523,18 +523,22 @@ export async function processMessage(
 
       // Apply the disposition to the follow-up state machine.
       // Both progressFollowupState and finalizeFollowup are compare-and-set:
-      // they return null when the transition fails (e.g. a concurrent message
-      // already advanced the state). In that case, send a stale notice instead
-      // of the disposition-specific reply.
-      let transitionApplied = true;
+      // they return null when the transition was not applied (e.g. a concurrent
+      // reply already advanced the state). In that case we notify the guardian
+      // that the request was already resolved and skip action execution.
+      let stateApplied = true;
       if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-        transitionApplied = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition) !== null;
+        stateApplied = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition) !== null;
       } else if (turnResult.disposition === 'decline') {
-        transitionApplied = finalizeFollowup(followupRequest.id, 'declined') !== null;
+        stateApplied = finalizeFollowup(followupRequest.id, 'declined') !== null;
       }
       // keep_pending: no state change — guardian can reply again
 
-      const replyText = transitionApplied
+      if (!stateApplied) {
+        log.warn({ requestId: followupRequest.id, disposition: turnResult.disposition }, 'Follow-up state transition failed (already resolved)');
+      }
+
+      const replyText = stateApplied
         ? turnResult.replyText
         : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_followup' });
       const replyMsg = createAssistantMessage(replyText);
@@ -551,7 +555,7 @@ export async function processMessage(
       // Execute the action and send a completion/failure message (fire-and-forget).
       // The initial reply above acknowledges the guardian's choice; the executor
       // carries out the actual call_back or message_back and posts a second message.
-      if (transitionApplied && (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back')) {
+      if (stateApplied && (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back')) {
         void (async () => {
           try {
             const execResult = await executeFollowupAction(
