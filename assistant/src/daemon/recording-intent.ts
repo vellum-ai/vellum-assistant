@@ -1,8 +1,13 @@
-// Recording intent detection for standalone screen recording routing.
-// Used by task/message handlers to intercept recording-related prompts
+// Recording intent resolution for standalone screen recording routing.
+// Exports `resolveRecordingIntent` as the single public entry point for
+// text-based intent detection. Handlers use this (or structured
+// `commandIntent` payloads) to intercept recording-related prompts
 // before they reach the classifier or create a CU session.
+//
+// Internal helpers (detect/strip/classify) are kept as private utilities
+// consumed only by `resolveRecordingIntent`.
 
-export type RecordingIntentClass = 'start_only' | 'stop_only' | 'mixed' | 'none';
+type RecordingIntentClass = 'start_only' | 'stop_only' | 'mixed' | 'none';
 
 export type RecordingIntentResult =
   | { kind: 'none' }
@@ -60,13 +65,13 @@ const RECORDING_CLAUSE_PATTERNS: RegExp[] = [
 const FILLER_PATTERN =
   /\b(please|pls|plz|can\s+you|could\s+you|would\s+you|now|right\s+now|thanks|thank\s+you|thx|ty|for\s+me|ok(ay)?|hey|hi|just)\b/gi;
 
-// ─── Public API ──────────────────────────────────────────────────────────────
+// ─── Internal helpers ────────────────────────────────────────────────────────
 
 /**
  * Returns true if the user's message includes any recording-related phrases.
  * Does not distinguish between recording-only and mixed-intent prompts.
  */
-export function detectRecordingIntent(taskText: string): boolean {
+function detectRecordingIntent(taskText: string): boolean {
   return START_RECORDING_PATTERNS.some((p) => p.test(taskText));
 }
 
@@ -76,7 +81,7 @@ export function detectRecordingIntent(taskText: string): boolean {
  * "record my screen while I work" -> false (has CU task component)
  * "open Chrome and record my screen" -> false (has CU task component)
  */
-export function isRecordingOnly(taskText: string): boolean {
+function isRecordingOnly(taskText: string): boolean {
   if (!detectRecordingIntent(taskText)) return false;
 
   // Strip the recording clause and check if anything substantive remains
@@ -93,7 +98,7 @@ export function isRecordingOnly(taskText: string): boolean {
  * Requires explicit "stop/end/finish/halt recording" phrasing --
  * bare "stop", "end it", or "quit" are too ambiguous and will not match.
  */
-export function detectStopRecordingIntent(taskText: string): boolean {
+function detectStopRecordingIntent(taskText: string): boolean {
   return STOP_RECORDING_PATTERNS.some((p) => p.test(taskText));
 }
 
@@ -102,7 +107,7 @@ export function detectStopRecordingIntent(taskText: string): boolean {
  * Used when a recording intent is embedded in a broader CU task so the
  * recording portion can be handled separately while the task continues.
  */
-export function stripRecordingIntent(taskText: string): string {
+function stripRecordingIntent(taskText: string): string {
   let result = taskText;
   for (const pattern of RECORDING_CLAUSE_PATTERNS) {
     result = result.replace(pattern, '');
@@ -115,7 +120,7 @@ export function stripRecordingIntent(taskText: string): string {
  * Removes stop-recording clauses from a message, returning the cleaned text.
  * Analogous to stripRecordingIntent but for stop-recording phrases.
  */
-export function stripStopRecordingIntent(taskText: string): string {
+function stripStopRecordingIntent(taskText: string): string {
   let result = taskText;
   for (const pattern of STOP_RECORDING_CLAUSE_PATTERNS) {
     result = result.replace(pattern, '');
@@ -130,7 +135,7 @@ export function stripStopRecordingIntent(taskText: string): string {
  * "how do I stop recording?" -> false (has additional context)
  * "stop recording and close the browser" -> false (has CU task component)
  */
-export function isStopRecordingOnly(taskText: string): boolean {
+function isStopRecordingOnly(taskText: string): boolean {
   if (!detectStopRecordingIntent(taskText)) return false;
 
   const stripped = stripStopRecordingIntent(taskText);
@@ -168,7 +173,7 @@ export function stripDynamicNames(text: string, dynamicNames: string[]): string 
  * punctuation, and dynamic assistant names. Used to determine whether
  * remaining text after stripping recording clauses needs further processing.
  */
-export function hasSubstantiveContent(text: string, dynamicNames?: string[]): boolean {
+function hasSubstantiveContent(text: string, dynamicNames?: string[]): boolean {
   let cleaned = text;
   if (dynamicNames && dynamicNames.length > 0) {
     cleaned = stripDynamicNames(cleaned, dynamicNames);
@@ -192,7 +197,7 @@ const WH_INTERROGATIVE = /^\s*(how|what|why|when|where|who|which)\b/i;
  * "open Chrome and record my screen" → false  (command — trigger recording)
  * "can you record my screen?" → false  (polite imperative — trigger recording)
  */
-export function isInterrogative(text: string, dynamicNames?: string[]): boolean {
+function isInterrogative(text: string, dynamicNames?: string[]): boolean {
   let cleaned = text;
   if (dynamicNames && dynamicNames.length > 0) {
     cleaned = stripDynamicNames(cleaned, dynamicNames);
@@ -215,7 +220,7 @@ export function isInterrogative(text: string, dynamicNames?: string[]): boolean 
  * If `dynamicNames` are provided, they are stripped from the beginning of the
  * text before classification (e.g., "Nova, record my screen" -> "record my screen").
  */
-export function classifyRecordingIntent(
+function classifyRecordingIntent(
   taskText: string,
   dynamicNames?: string[],
 ): RecordingIntentClass {

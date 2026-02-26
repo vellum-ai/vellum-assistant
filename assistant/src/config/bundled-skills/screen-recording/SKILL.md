@@ -8,42 +8,51 @@ Capture screen recordings as video files attached to the conversation.
 
 ## Activation
 
-This skill activates when the user asks to record their screen. Common phrases:
+This skill activates when the user asks to record their screen. Intent is resolved through a two-tier pipeline:
 
-**Start recording:**
-- "record my screen"
-- "start recording"
-- "begin recording"
-- "capture my screen"
-- "capture my display"
-- "make a recording"
-- "Nova, record my screen" (where Nova is the assistant's identity name)
-- "hey Nova, start recording"
+1. **Structured `commandIntent`** (primary path) — The client sends a `commandIntent` payload with `domain: "screen_recording"` and `action: "start" | "stop"`. This bypasses all text parsing and is the preferred routing mechanism. The macOS/iOS client sends this when the user taps a dedicated recording button or uses a keyboard shortcut.
 
-**Stop recording:**
-- "stop recording"
-- "end recording"
-- "finish recording"
-- "halt recording"
+2. **Text resolver fallback** — When no `commandIntent` is present, `resolveRecordingIntent()` analyzes the user's natural-language text through a deterministic pipeline:
+   - Strip dynamic assistant name prefixes (e.g., "Nova, ...")
+   - Strip leading polite wrappers ("please", "hey", etc.)
+   - Interrogative gate — WH-questions ("how do I record?") return `none` (no side effects)
+   - Detect start/stop recording patterns via regex
+   - Classify as pure intent or extract a remainder for mixed-intent prompts
 
-## Classification
+## Intent Resolution
 
-Recording prompts are classified into four intent types:
+The text resolver produces a `RecordingIntentResult` with one of these kinds:
 
-- **start_only** — Pure recording request with no additional task (e.g., "record my screen"). Handled by standalone recording route.
-- **stop_only** — Pure stop request with no additional task (e.g., "stop recording"). Handled by standalone recording route.
-- **mixed** — Recording intent embedded in a broader task (e.g., "open Safari and record my screen"). Not intercepted; routed to normal processing.
-- **none** — No recording intent detected. Normal routing.
+- **`start_only`** — Pure recording request with no additional task (e.g., "record my screen")
+- **`stop_only`** — Pure stop request with no additional task (e.g., "stop recording")
+- **`start_with_remainder`** — Recording intent embedded in a broader task (e.g., "open Safari and record my screen"). The remainder ("open Safari") is forwarded to normal processing while recording starts as a side effect.
+- **`stop_with_remainder`** — Stop intent embedded in a broader task (e.g., "stop recording and close the browser")
+- **`start_and_stop_only`** — Both start and stop with no remainder (e.g., "stop recording and start a new recording")
+- **`start_and_stop_with_remainder`** — Both start and stop with additional task text
+- **`none`** — No recording intent detected, or the message is a question about recording
 
-Dynamic name prefixes (from IDENTITY.md) are stripped during classification, so "Nova, record my screen" classifies the same as "record my screen".
+## Routing Examples
 
-## Routing
+**Structured intent (commandIntent path):**
+```
+{ commandIntent: { domain: "screen_recording", action: "start" } }
+  -> Starts recording immediately, no text parsing
+{ commandIntent: { domain: "screen_recording", action: "stop" } }
+  -> Stops recording immediately, no text parsing
+```
 
-Recording-only requests are handled by the **standalone recording route** — they do NOT create a computer-use session.
+**Text resolver (fallback path):**
+```
+"record my screen"         -> start_only     -> standalone recording route
+"stop recording"           -> stop_only      -> standalone recording route
+"Nova, start recording"    -> start_only     -> standalone recording route (name stripped)
+"please record my screen"  -> start_only     -> standalone recording route (filler stripped)
+"how do I record?"         -> none           -> normal routing (interrogative gate)
+"open Safari and record"   -> start_with_remainder -> recording starts, "open Safari" continues
+"stop recording and close" -> stop_with_remainder  -> recording stops, "close" continues
+```
 
-- When the user says "record my screen" (with no other task), the daemon intercepts this and starts a standalone recording directly.
-- When the user says "stop recording", the daemon intercepts and stops the active recording for the current conversation.
-- The recording is saved as a video file and attached to the conversation thread.
+Recording-only intents (`start_only`, `stop_only`, `start_and_stop_only`) are handled by the **standalone recording route** -- they do NOT create a computer-use session.
 
 ## Behavior Rules
 
@@ -51,10 +60,11 @@ Recording-only requests are handled by the **standalone recording route** — th
 2. **One recording at a time.** If a recording is already active, starting another returns an "already recording" message.
 3. **Conversation-scoped.** Each recording is linked to the conversation that started it. Stopping in a different thread does not affect unrelated recordings.
 4. **Permission required.** Screen recording requires macOS Screen Recording permission. If denied, the user sees actionable guidance to enable it in System Settings.
-5. **Mixed-intent prompts** (recording + other task) are NOT intercepted by the standalone route.
+5. **Mixed-intent prompts** (recording + other task) start/stop the recording as a side effect while the remainder text proceeds through normal classification and routing.
+6. **Questions are not commands.** WH-questions like "how do I stop recording?" are routed to the assistant for a text answer, not treated as recording commands.
 
 ## What This Skill Does NOT Do
 
-- This skill does not contain recorder logic — the `RecordingManager` and `ScreenRecorder` in the macOS app handle the actual recording.
+- This skill does not contain recorder logic -- the `RecordingManager` and `ScreenRecorder` in the macOS app handle the actual recording.
 - This skill does not provide shell commands or scripts for recording.
 - This skill does not fall back to computer use for recording tasks.
