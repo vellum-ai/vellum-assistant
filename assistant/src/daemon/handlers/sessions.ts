@@ -245,8 +245,8 @@ export async function handleUserMessage(
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         // Keep in-memory session history aligned with DB so regenerate() and
         // other history operations that rely on session.messages stay consistent.
         // Only push when agent loop is NOT active to avoid corrupting role alternation.
@@ -264,8 +264,8 @@ export async function handleUserMessage(
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         if (!session.isProcessing()) {
           session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
           session.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
@@ -279,8 +279,8 @@ export async function handleUserMessage(
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: restartResult.responseText }]));
+        await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: restartResult.responseText }]));
         if (!session.isProcessing()) {
           session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
           session.messages.push({ role: 'assistant', content: [{ type: 'text', text: restartResult.responseText }] });
@@ -295,8 +295,8 @@ export async function handleUserMessage(
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         if (!session.isProcessing()) {
           session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
           session.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
@@ -311,8 +311,8 @@ export async function handleUserMessage(
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         if (!session.isProcessing()) {
           session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
           session.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
@@ -349,8 +349,8 @@ export async function handleUserMessage(
             sessionId: msg.sessionId,
           });
           ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-          conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-          conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
+          await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+          await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
           if (!session.isProcessing()) {
             session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
             session.messages.push({ role: 'assistant', content: [{ type: 'text', text: execResult.responseText! }] });
@@ -426,8 +426,8 @@ export async function handleUserMessage(
                 sessionId: msg.sessionId,
               });
               ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-              conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-              conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
+              await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+              await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
               if (!session.isProcessing()) {
                 session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
                 session.messages.push({ role: 'assistant', content: [{ type: 'text', text: execResult.responseText! }] });

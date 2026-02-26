@@ -85,7 +85,7 @@ export class AgentLoop {
 
   async run(
     messages: Message[],
-    onEvent: (event: AgentEvent) => void,
+    onEvent: (event: AgentEvent) => void | Promise<void>,
     signal?: AbortSignal,
     requestId?: string,
     onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
@@ -244,7 +244,7 @@ export class AgentLoop {
         };
         history.push(assistantMessage);
 
-        onEvent({ type: 'message_complete', message: assistantMessage });
+        await onEvent({ type: 'message_complete', message: assistantMessage });
 
         // Check for tool use
         toolUseBlocks = response.content.filter(

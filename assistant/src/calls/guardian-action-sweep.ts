@@ -28,10 +28,10 @@ let sweepTimer: ReturnType<typeof setInterval> | null = null;
 /**
  * Sweep expired guardian action requests and clean up.
  */
-export function sweepExpiredGuardianActions(
+export async function sweepExpiredGuardianActions(
   gatewayBaseUrl: string,
   bearerToken?: string,
-): void {
+): Promise<void> {
   const expired = getExpiredGuardianActionRequests();
 
   for (const request of expired) {
@@ -55,7 +55,7 @@ export function sweepExpiredGuardianActions(
 
       if ((delivery.destinationChannel === 'vellum' || delivery.destinationChannel === 'macos' || delivery.destinationChannel === 'mac') && delivery.destinationConversationId) {
         // Add expiry message to vellum guardian thread
-        addMessage(
+        await addMessage(
           delivery.destinationConversationId,
           'assistant',
           JSON.stringify([{ type: 'text', text: 'This guardian question has expired without a response.' }]),

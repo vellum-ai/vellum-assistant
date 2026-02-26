@@ -281,11 +281,11 @@ export function handleError(
   }
 }
 
-export function handleMessageComplete(
+export async function handleMessageComplete(
   state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: 'message_complete' }>,
-): void {
+): Promise<void> {
   // Flush any remaining directive display buffer
   if (state.pendingDirectiveDisplayBuffer.length > 0) {
     deps.onEvent({
@@ -315,7 +315,7 @@ export function handleMessageComplete(
       userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
       assistantMessageInterface: deps.turnInterfaceContext.assistantMessageInterface,
     };
-    conversationStore.addMessage(
+    await conversationStore.addMessage(
       deps.ctx.conversationId,
       'user',
       JSON.stringify(toolResultBlocks),
@@ -360,7 +360,7 @@ export function handleMessageComplete(
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
     assistantMessageInterface: deps.turnInterfaceContext.assistantMessageInterface,
   };
-  const assistantMsg = conversationStore.addMessage(
+  const assistantMsg = await conversationStore.addMessage(
     deps.ctx.conversationId,
     'assistant',
     JSON.stringify(contentWithSurfaces),
@@ -424,11 +424,11 @@ export function handleUsage(
 // ── Dispatcher ───────────────────────────────────────────────────────
 
 /** Routes an AgentEvent to the appropriate handler. */
-export function dispatchAgentEvent(
+export async function dispatchAgentEvent(
   state: EventHandlerState,
   deps: EventHandlerDeps,
   event: AgentEvent,
-): void {
+): Promise<void> {
   switch (event.type) {
     case 'text_delta':
       handleTextDelta(state, deps, event);
@@ -452,7 +452,7 @@ export function dispatchAgentEvent(
       handleError(state, deps, event);
       break;
     case 'message_complete':
-      handleMessageComplete(state, deps, event);
+      await handleMessageComplete(state, deps, event);
       break;
     case 'usage':
       handleUsage(state, deps, event);

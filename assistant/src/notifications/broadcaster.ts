@@ -126,7 +126,7 @@ export class NotificationBroadcaster {
       }
 
       // Pair the delivery with a conversation before sending
-      const pairing = pairDeliveryWithConversation(signal, channel, copy);
+      const pairing = await pairDeliveryWithConversation(signal, channel, copy);
 
       // For the vellum channel, merge the conversationId into deep-link metadata
       // so the macOS/iOS client can navigate directly to the notification thread.
