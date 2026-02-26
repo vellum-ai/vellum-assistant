@@ -235,9 +235,24 @@ final class VoiceModeManager: ObservableObject {
 
             partialTranscription = trimmed
 
+            // Capture frontmost app context so the daemon knows what the user
+            // is looking at during voice conversations (matches PTT behavior).
+            let ctx = DictationContextCapture.capture()
+            var contextPrefix = ""
+            if !ctx.appName.isEmpty {
+                var parts: [String] = ["app: \(ctx.appName)"]
+                if !ctx.windowTitle.isEmpty {
+                    parts.append("window: \"\(ctx.windowTitle)\"")
+                }
+                if let selected = ctx.selectedText, !selected.isEmpty {
+                    parts.append("selected text: \"\(selected)\"")
+                }
+                contextPrefix = "[User's current \(parts.joined(separator: ", "))]\n"
+            }
+
             // Send the transcribed message through the daemon (full context)
             chatViewModel.pendingVoiceMessage = true
-            chatViewModel.inputText = trimmed
+            chatViewModel.inputText = contextPrefix + trimmed
             chatViewModel.sendMessage()
             log.info("Voice mode: sent transcription to chat via daemon")
         }
