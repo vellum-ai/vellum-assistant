@@ -24,6 +24,7 @@ import type {
   HistoryRequest,
   MessageContentRequest,
   RegenerateRequest,
+  ReorderThreadsRequest,
   SandboxSetRequest,
   SecretResponse,
   ServerMessage,
@@ -1149,6 +1150,19 @@ export function handleMessageContentRequest(
   });
 }
 
+export function handleReorderThreads(
+  msg: ReorderThreadsRequest,
+  _socket: net.Socket,
+  _ctx: HandlerContext,
+): void {
+  if (!Array.isArray(msg.updates)) {
+    return;
+  }
+  conversationStore.batchSetDisplayOrders(
+    msg.updates.map((u) => ({ id: u.sessionId, displayOrder: u.displayOrder, isPinned: u.isPinned })),
+  );
+}
+
 export const sessionHandlers = defineHandlers({
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
@@ -1167,4 +1181,5 @@ export const sessionHandlers = defineHandlers({
   usage_request: handleUsageRequest,
   sandbox_set: handleSandboxSet,
   conversation_search: handleConversationSearch,
+  reorder_threads: handleReorderThreads,
 });
