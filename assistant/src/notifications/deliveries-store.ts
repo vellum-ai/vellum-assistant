@@ -6,7 +6,7 @@
  * (decision, channel, destination) are tracked via the `attempt` counter.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { getDb } from '../memory/db.js';
 import { notificationDeliveries } from '../memory/schema.js';
@@ -189,4 +189,23 @@ export function listDeliveries(decisionId: string): NotificationDeliveryRow[] {
     .where(eq(notificationDeliveries.notificationDecisionId, decisionId))
     .all();
   return rows.map(rowToDelivery);
+}
+
+/** Check whether a delivery already exists for a given decision+channel pair. */
+export function findDeliveryByDecisionAndChannel(
+  decisionId: string,
+  channel: NotificationChannel,
+): NotificationDeliveryRow | undefined {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(notificationDeliveries)
+    .where(
+      and(
+        eq(notificationDeliveries.notificationDecisionId, decisionId),
+        eq(notificationDeliveries.channel, channel),
+      ),
+    )
+    .get();
+  return row ? rowToDelivery(row) : undefined;
 }
