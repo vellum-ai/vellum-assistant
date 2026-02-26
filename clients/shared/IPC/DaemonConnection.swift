@@ -43,9 +43,22 @@ extension DaemonClient {
             // Validate the daemon process is alive before attempting a socket connection.
             // The socket file can outlive the daemon (crash, unclean shutdown), causing
             // NWConnection to hang until the connect timeout instead of failing fast.
-            if FileManager.default.fileExists(atPath: path), !Self.isDaemonProcessAlive() {
+            //
+            // Skip this check for custom socket transports (VELLUM_DAEMON_SOCKET) —
+            // SSH-forwarded or external sockets have no local PID file.
+            let isCustomSocket = ProcessInfo.processInfo.environment["VELLUM_DAEMON_SOCKET"] != nil
+            if !isCustomSocket, FileManager.default.fileExists(atPath: path), !Self.isDaemonProcessAlive() {
                 log.warning("Stale daemon socket detected — PID is dead, removing socket at \(path, privacy: .public)")
-                try? FileManager.default.removeItem(atPath: path)
+                // Only remove the path if it is actually a Unix socket, not a regular file.
+                var isSocket = false
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                   let fileType = attrs[.type] as? FileAttributeType,
+                   fileType == .typeSocket {
+                    isSocket = true
+                }
+                if isSocket {
+                    try? FileManager.default.removeItem(atPath: path)
+                }
                 isConnecting = false
                 throw NWError.posix(.ECONNREFUSED)
             }
