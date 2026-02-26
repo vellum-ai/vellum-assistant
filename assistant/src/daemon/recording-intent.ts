@@ -307,12 +307,46 @@ function hasSubstantiveContent(text: string, dynamicNames?: string[]): boolean {
 const WH_INTERROGATIVE = /^\s*(how|what|why|when|where|who|which)\b/i;
 
 /**
+ * Indirect informational patterns that indicate the user is asking *about*
+ * recording rather than commanding a recording action. These catch prompts
+ * where the WH-word is buried after polite filler or an informational verb:
+ *
+ * - "can you tell me how to stop recording?"
+ * - "explain how to stop the recording"
+ * - "is there a way to stop recording?"
+ * - "I'd like to know how to pause the recording"
+ * - "do you know how to start recording?"
+ *
+ * Critical: these must NOT match polite imperatives like "can you stop
+ * recording?" — the key distinction is the intermediary informational
+ * verb/phrase (tell/explain/describe/show + how, "is there a way", etc.).
+ */
+const INDIRECT_INFORMATIONAL_PATTERNS: RegExp[] = [
+  // "tell me how...", "can you explain how...", "show me how..."
+  /^\s*(can\s+you\s+|could\s+you\s+|would\s+you\s+)?(tell|explain|describe|show)\s+(me\s+)?how\b/i,
+  // "is there a way to...", "are there any ways to..."
+  /^\s*(is\s+there|are\s+there)\s+(a\s+|any\s+)?(ways?|methods?|options?|means)\s+to\b/i,
+  // "I'd like to know...", "I want to know..."
+  /^\s*(i('d|\s+would)\s+like\s+to\s+know|i\s+want\s+to\s+know)\b/i,
+  // "do you know how to...", "can I learn how to..."
+  /^\s*(do\s+you\s+know\s+how|can\s+i\s+learn(\s+how)?)\s+to\b/i,
+  // Bare informational verbs at start: "explain how...", "tell me how..."
+  /^\s*(explain|describe)\s+(to\s+me\s+)?how\b/i,
+  // "tell me about..." (informational, not imperative)
+  /^\s*(tell|explain|describe|show)\s+(me\s+)?(about\s+)?(how|what|why|when|where)\b/i,
+];
+
+/**
  * Returns true if the text appears to be a question about recording rather
  * than an imperative command that includes recording.
  *
  * "how do I stop recording?" → true  (question — don't trigger side effects)
+ * "can you tell me how to stop recording?" → true  (informational — don't trigger)
+ * "explain how to stop the recording" → true  (informational — don't trigger)
+ * "is there a way to stop recording?" → true  (capability question — don't trigger)
  * "open Chrome and record my screen" → false  (command — trigger recording)
  * "can you record my screen?" → false  (polite imperative — trigger recording)
+ * "can you stop recording?" → false  (polite imperative — trigger stop)
  */
 function isInterrogative(text: string, dynamicNames?: string[]): boolean {
   let cleaned = text;
@@ -321,7 +355,19 @@ function isInterrogative(text: string, dynamicNames?: string[]): boolean {
   }
   // Strip polite prefixes that don't change interrogative status
   cleaned = cleaned.replace(/^\s*(hey|hi|hello|please|pls|plz)[,\s]+/i, '');
-  return WH_INTERROGATIVE.test(cleaned);
+
+  // Direct WH-questions (how/what/why/when/where/who/which)
+  if (WH_INTERROGATIVE.test(cleaned)) {
+    return true;
+  }
+
+  // Indirect informational patterns — checked on cleaned text after
+  // stripping polite prefixes, so "please tell me how..." is caught
+  if (INDIRECT_INFORMATIONAL_PATTERNS.some((p) => p.test(cleaned))) {
+    return true;
+  }
+
+  return false;
 }
 
 // ─── Unified classification ─────────────────────────────────────────────────
@@ -392,8 +438,9 @@ export function resolveRecordingIntent(
   // Step 2: Strip leading polite wrappers for normalization
   normalized = normalized.replace(/^\s*(hey|hi|hello|please|pls|plz)[,\s]+/i, '');
 
-  // Step 3: Interrogative gate — WH-questions are not commands
-  if (WH_INTERROGATIVE.test(normalized)) {
+  // Step 3: Interrogative gate — questions (WH-words and indirect
+  // informational patterns) are not commands
+  if (isInterrogative(normalized, dynamicNames)) {
     return { kind: 'none' };
   }
 

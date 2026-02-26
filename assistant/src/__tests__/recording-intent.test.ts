@@ -271,6 +271,84 @@ describe('resolveRecordingIntent', () => {
     test('returns none for question about resume', () => {
       expect(resolveRecordingIntent('how do I resume recording?')).toEqual({ kind: 'none' });
     });
+
+    // ── Indirect informational patterns ───────────────────────────────────
+
+    test.each([
+      'can you tell me how to stop recording?',
+      'could you tell me how to stop recording?',
+      'would you tell me how to stop recording?',
+      'explain how to stop the recording',
+      'tell me how recording works',
+      'describe how screen recording works',
+      'show me how to record my screen',
+      'is there a way to stop recording?',
+      'is there a method to pause recording?',
+      'are there any ways to record my screen?',
+      "I'd like to know how to stop recording",
+      "I would like to know how to pause the recording",
+      'I want to know how to start recording',
+      'do you know how to start recording?',
+      'can I learn how to record my screen?',
+      'can you explain how to record my screen?',
+      'tell me about how screen recording works',
+      'explain to me how to stop recording',
+      'tell me what screen recording does',
+      'describe how to start a recording',
+      'please, tell me how to stop recording',
+      'hey, can you explain how to record my screen?',
+    ])('returns none for indirect informational question: "%s"', (text) => {
+      expect(resolveRecordingIntent(text)).toEqual({ kind: 'none' });
+    });
+
+    test('indirect informational with dynamic name returns none', () => {
+      expect(resolveRecordingIntent('Nova, can you tell me how to stop recording?', ['Nova'])).toEqual({ kind: 'none' });
+      expect(resolveRecordingIntent('Nova, explain how to record my screen', ['Nova'])).toEqual({ kind: 'none' });
+      expect(resolveRecordingIntent('hey Nova, is there a way to stop recording?', ['Nova'])).toEqual({ kind: 'none' });
+    });
+
+    // ── Polite imperatives that should still execute (NOT none) ──────────
+
+    test.each([
+      ['can you stop recording?', 'stop_only'],
+      ['could you record my screen?', 'start_only'],
+      ['can you pause the recording?', 'pause_only'],
+      ['would you resume recording?', 'resume_only'],
+      ['please stop recording', 'stop_only'],
+      ['can you start recording?', 'start_only'],
+      ['could you stop the recording please', 'stop_only'],
+    ] as const)('polite imperative "%s" resolves to %s (not none)', (text, expected) => {
+      expect(resolveRecordingIntent(text).kind).toBe(expected);
+    });
+  });
+
+  // ── Mixed-intent with remainder (regression coverage) ────────────────────
+
+  describe('mixed-intent with remainder', () => {
+    test('"stop recording and start a new one and open safari" → restart_with_remainder', () => {
+      const result = resolveRecordingIntent('stop recording and start a new one and open safari');
+      expect(result.kind).toBe('restart_with_remainder');
+      if (result.kind === 'restart_with_remainder') {
+        expect(result.remainder).toContain('open safari');
+      }
+    });
+
+    test('"record my screen and open Chrome and go to google.com" → start_with_remainder', () => {
+      const result = resolveRecordingIntent('record my screen and open Chrome and go to google.com');
+      expect(result.kind).toBe('start_with_remainder');
+      if (result.kind === 'start_with_remainder') {
+        expect(result.remainder).toContain('open Chrome');
+        expect(result.remainder).toContain('google.com');
+      }
+    });
+
+    test('"stop recording and send the file to Bob" → stop_with_remainder', () => {
+      const result = resolveRecordingIntent('stop recording and send the file to Bob');
+      expect(result.kind).toBe('stop_with_remainder');
+      if (result.kind === 'stop_with_remainder') {
+        expect(result.remainder).toContain('send the file to Bob');
+      }
+    });
   });
 
   // ── Dynamic names ──────────────────────────────────────────────────────────
