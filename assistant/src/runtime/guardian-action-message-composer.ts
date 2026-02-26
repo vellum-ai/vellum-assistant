@@ -181,11 +181,17 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
       return 'It looks like this follow-up has already been handled. No further action is needed.';
 
     case 'outbound_message_copy':
-      return context.callerIdentifier && context.questionText
-        ? `Hi, ${context.callerIdentifier} tried to reach you earlier and asked: "${context.questionText}". Please reply when you get a chance.`
-        : context.questionText
-          ? `Someone tried to reach you earlier and asked: "${context.questionText}". Please reply when you get a chance.`
-          : 'Someone tried to reach you earlier. Please reply when you get a chance.';
+      // This SMS is sent TO the original caller relaying the guardian's answer.
+      // When lateAnswerText is available, include it — that's the whole point of message_back.
+      if (context.lateAnswerText && context.questionText) {
+        return `Hi! You asked "${context.questionText}" earlier. Here's the answer: ${context.lateAnswerText}`;
+      }
+      if (context.lateAnswerText) {
+        return `Hi! Regarding your earlier question — here's the answer: ${context.lateAnswerText}`;
+      }
+      return context.questionText
+        ? `Hi! You asked "${context.questionText}" earlier. We'll get back to you with an answer soon.`
+        : 'Hi! Thanks for calling earlier. We\'ll get back to you soon.';
 
     case 'followup_message_sent':
       return context.counterpartyPhone

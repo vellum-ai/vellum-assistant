@@ -55,16 +55,13 @@ export type FollowupExecutionResult =
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the counterparty (the external person who called in) from the
- * original call session. For inbound calls, the counterparty is fromNumber.
- * For outbound calls initiated by the assistant, the counterparty is toNumber.
+ * Resolve the counterparty (the external person) from the original call
+ * session. For inbound calls the counterparty is fromNumber; for outbound
+ * calls initiated by startCall the counterparty is toNumber.
  *
- * Heuristic: if the call session's assistant owns the toNumber (typical for
- * inbound calls where toNumber = Twilio number), the counterparty is
- * fromNumber. Otherwise (outbound calls), the counterparty is toNumber.
- * Since guardian action requests always originate from inbound voice calls
- * (callers asking questions that need guardian approval), the counterparty
- * is reliably the fromNumber.
+ * Heuristic: outbound calls created via startCall always set
+ * initiatedFromConversationId. When that field is present we treat the
+ * call as outbound and use toNumber. Otherwise (inbound) we use fromNumber.
  */
 export function resolveCounterparty(callSessionId: string): CounterpartyInfo | null {
   const session = getCallSession(callSessionId);
@@ -73,11 +70,13 @@ export function resolveCounterparty(callSessionId: string): CounterpartyInfo | n
     return null;
   }
 
-  // Guardian action requests come from inbound calls where fromNumber is the
-  // external caller. This is the person we want to call back or message.
-  const phoneNumber = session.fromNumber;
+  // Outbound calls (startCall) store the assistant's number in fromNumber
+  // and the callee in toNumber. They always have initiatedFromConversationId.
+  const isOutbound = !!session.initiatedFromConversationId;
+  const phoneNumber = isOutbound ? session.toNumber : session.fromNumber;
+
   if (!phoneNumber) {
-    log.warn({ callSessionId }, 'Cannot resolve counterparty: no fromNumber on call session');
+    log.warn({ callSessionId, isOutbound }, 'Cannot resolve counterparty: no phone number on call session');
     return null;
   }
 
