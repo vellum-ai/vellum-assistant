@@ -86,35 +86,43 @@ export function reconcileFtsIndexes(): FtsReconciliationResult[] {
   const results: FtsReconciliationResult[] = [];
 
   // memory_segment_fts tracks memory_segments
-  const memResult = reconcileTable({
-    ftsTable: 'memory_segment_fts',
-    ftsIdColumn: 'segment_id',
-    ftsContentColumn: 'text',
-    baseTable: 'memory_segments',
-    baseIdColumn: 'id',
-    baseContentColumn: 'text',
-  });
-  results.push(memResult);
-  if (memResult.missingInserted > 0 || memResult.orphansRemoved > 0 || memResult.staleRefreshed > 0) {
-    log.info(memResult, 'Reconciled memory_segment_fts');
-  } else {
-    log.debug(memResult, 'memory_segment_fts is in sync');
+  try {
+    const memResult = reconcileTable({
+      ftsTable: 'memory_segment_fts',
+      ftsIdColumn: 'segment_id',
+      ftsContentColumn: 'text',
+      baseTable: 'memory_segments',
+      baseIdColumn: 'id',
+      baseContentColumn: 'text',
+    });
+    results.push(memResult);
+    if (memResult.missingInserted > 0 || memResult.orphansRemoved > 0 || memResult.staleRefreshed > 0) {
+      log.info(memResult, 'Reconciled memory_segment_fts');
+    } else {
+      log.debug(memResult, 'memory_segment_fts is in sync');
+    }
+  } catch (err) {
+    log.error({ err }, 'Failed to reconcile memory_segment_fts');
   }
 
   // messages_fts tracks messages
-  const msgResult = reconcileTable({
-    ftsTable: 'messages_fts',
-    ftsIdColumn: 'message_id',
-    ftsContentColumn: 'content',
-    baseTable: 'messages',
-    baseIdColumn: 'id',
-    baseContentColumn: 'content',
-  });
-  results.push(msgResult);
-  if (msgResult.missingInserted > 0 || msgResult.orphansRemoved > 0 || msgResult.staleRefreshed > 0) {
-    log.info(msgResult, 'Reconciled messages_fts');
-  } else {
-    log.debug(msgResult, 'messages_fts is in sync');
+  try {
+    const msgResult = reconcileTable({
+      ftsTable: 'messages_fts',
+      ftsIdColumn: 'message_id',
+      ftsContentColumn: 'content',
+      baseTable: 'messages',
+      baseIdColumn: 'id',
+      baseContentColumn: 'content',
+    });
+    results.push(msgResult);
+    if (msgResult.missingInserted > 0 || msgResult.orphansRemoved > 0 || msgResult.staleRefreshed > 0) {
+      log.info(msgResult, 'Reconciled messages_fts');
+    } else {
+      log.debug(msgResult, 'messages_fts is in sync');
+    }
+  } catch (err) {
+    log.error({ err }, 'Failed to reconcile messages_fts');
   }
 
   return results;
