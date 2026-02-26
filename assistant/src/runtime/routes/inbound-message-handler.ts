@@ -950,7 +950,7 @@ export async function handleChannelInbound(
                 requestCodes: codes,
                 channel: sourceChannel,
               },
-              {},
+              { requiredKeywords: codes },
               guardianActionCopyGenerator,
             );
             try {
@@ -1079,7 +1079,7 @@ export async function handleChannelInbound(
                 requestCodes: codes,
                 channel: sourceChannel,
               },
-              {},
+              { requiredKeywords: codes },
               guardianActionCopyGenerator,
             );
             try {

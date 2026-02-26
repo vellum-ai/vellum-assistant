@@ -27,6 +27,7 @@ const log = getLogger('guardian-action-sweep');
 const SWEEP_INTERVAL_MS = 60_000;
 
 let sweepTimer: ReturnType<typeof setInterval> | null = null;
+let sweepInProgress = false;
 
 /**
  * Send expiry notices to all delivery destinations for a guardian action
@@ -46,42 +47,38 @@ export async function sendGuardianExpiryNotices(
   for (const delivery of deliveries) {
     if (delivery.status !== 'sent' && delivery.status !== 'pending') continue;
 
-    const expiryText = await composeGuardianActionMessageGenerative(
-      {
-        scenario: 'guardian_stale_expired',
-        channel: delivery.destinationChannel,
-      },
-      {},
-      guardianActionCopyGenerator,
-    );
+    try {
+      const expiryText = await composeGuardianActionMessageGenerative(
+        {
+          scenario: 'guardian_stale_expired',
+          channel: delivery.destinationChannel,
+        },
+        {},
+        guardianActionCopyGenerator,
+      );
 
-    if ((delivery.destinationChannel === 'vellum' || delivery.destinationChannel === 'macos' || delivery.destinationChannel === 'mac') && delivery.destinationConversationId) {
-      // Add expiry message to vellum guardian thread.
-      try {
+      if ((delivery.destinationChannel === 'vellum' || delivery.destinationChannel === 'macos' || delivery.destinationChannel === 'mac') && delivery.destinationConversationId) {
+        // Add expiry message to vellum guardian thread.
         await addMessage(
           delivery.destinationConversationId,
           'assistant',
           JSON.stringify([{ type: 'text', text: expiryText }]),
           { userMessageChannel: 'voice', assistantMessageChannel: 'vellum', userMessageInterface: 'voice', assistantMessageInterface: 'vellum' },
         );
-      } catch (err) {
-        log.error({ err, deliveryId: delivery.id }, 'Failed to add expiry message to guardian thread');
-      }
-    } else if (delivery.destinationChatId) {
-      // External channel — send expiry notice
-      const deliverUrl = `${gatewayBaseUrl}/deliver/${delivery.destinationChannel}`;
-      try {
+      } else if (delivery.destinationChatId) {
+        // External channel — send expiry notice
+        const deliverUrl = `${gatewayBaseUrl}/deliver/${delivery.destinationChannel}`;
         await deliverChannelReply(deliverUrl, {
           chatId: delivery.destinationChatId,
           text: expiryText,
           assistantId,
         }, bearerToken);
-      } catch (err) {
-        log.error(
-          { err, deliveryId: delivery.id, channel: delivery.destinationChannel },
-          'Failed to deliver guardian action expiry notice',
-        );
       }
+    } catch (err) {
+      log.error(
+        { err, deliveryId: delivery.id, channel: delivery.destinationChannel },
+        'Failed to compose or deliver guardian action expiry notice',
+      );
     }
   }
 }
@@ -128,10 +125,14 @@ export function startGuardianActionSweep(
 ): void {
   if (sweepTimer) return;
   sweepTimer = setInterval(async () => {
+    if (sweepInProgress) return;
+    sweepInProgress = true;
     try {
       await sweepExpiredGuardianActions(gatewayBaseUrl, bearerToken, guardianActionCopyGenerator);
     } catch (err) {
       log.error({ err }, 'Guardian action sweep failed');
+    } finally {
+      sweepInProgress = false;
     }
   }, SWEEP_INTERVAL_MS);
 }
@@ -141,4 +142,5 @@ export function stopGuardianActionSweep(): void {
     clearInterval(sweepTimer);
     sweepTimer = null;
   }
+  sweepInProgress = false;
 }
