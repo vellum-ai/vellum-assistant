@@ -438,6 +438,7 @@ export function progressFollowupState(
     .where(
       and(
         eq(guardianActionRequests.id, id),
+        eq(guardianActionRequests.status, 'expired'),
         eq(guardianActionRequests.followupState, request.followupState),
       ),
     )
@@ -449,7 +450,8 @@ export function progressFollowupState(
 
 /**
  * Finalize a follow-up by setting the terminal followup_state and
- * recording followup_completed_at. Only succeeds from a non-terminal state.
+ * recording followup_completed_at. Only succeeds from a non-terminal state
+ * and only on expired requests.
  */
 export function finalizeFollowup(
   id: string,
@@ -473,6 +475,7 @@ export function finalizeFollowup(
     .where(
       and(
         eq(guardianActionRequests.id, id),
+        eq(guardianActionRequests.status, 'expired'),
         eq(guardianActionRequests.followupState, request.followupState),
       ),
     )

@@ -239,6 +239,19 @@ describe('guardian-action-followup-store', () => {
     expect(result).toBeNull();
   });
 
+  test('progressFollowupState rejects non-expired request', () => {
+    const request = createTestRequest('conv-followup-13b');
+
+    // Request is still 'pending', not 'expired' — follow-up transitions must not apply
+    const result = progressFollowupState(request.id, 'awaiting_guardian_choice');
+    expect(result).toBeNull();
+
+    // Verify followup_state unchanged
+    const reloaded = getGuardianActionRequest(request.id);
+    expect(reloaded!.followupState).toBe('none');
+    expect(reloaded!.status).toBe('pending');
+  });
+
   // ── finalizeFollowup ────────────────────────────────────────────────
 
   test('finalizeFollowup sets followup_completed_at for completed', () => {
@@ -283,6 +296,19 @@ describe('guardian-action-followup-store', () => {
     // followup_state is 'none', cannot finalize
     const result = finalizeFollowup(request.id, 'completed');
     expect(result).toBeNull();
+  });
+
+  test('finalizeFollowup rejects non-expired request', () => {
+    const request = createTestRequest('conv-followup-17b');
+
+    // Request is still 'pending', not 'expired' — finalize must not apply
+    const result = finalizeFollowup(request.id, 'completed');
+    expect(result).toBeNull();
+
+    // Verify followup_state unchanged
+    const reloaded = getGuardianActionRequest(request.id);
+    expect(reloaded!.followupState).toBe('none');
+    expect(reloaded!.status).toBe('pending');
   });
 
   // ── Existing behavior preserved ─────────────────────────────────────
