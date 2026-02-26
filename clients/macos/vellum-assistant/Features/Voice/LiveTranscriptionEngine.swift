@@ -50,10 +50,10 @@ final class LiveTranscriptionEngine {
         switch authStatus {
         case .notDetermined:
             log.info("Speech recognition authorization not determined — requesting")
-            SFSpeechRecognizer.requestAuthorization { [weak self] status in
+            SFSpeechRecognizer.requestAuthorization { status in
                 DispatchQueue.main.async {
                     if status == .authorized {
-                        self?.start()
+                        log.info("Speech recognition authorization granted — user can retry")
                     } else {
                         log.warning("Speech recognition authorization denied")
                     }
