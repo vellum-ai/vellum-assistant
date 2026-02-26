@@ -165,6 +165,7 @@ export async function handleTaskSubmit(
     let pendingRecordingStart = false;
     let pendingRecordingStop = false;
     let pendingRecordingRestart: 'restart_with_remainder' | 'start_and_stop_with_remainder' | false = false;
+    let originalTaskBeforeStrip: string | undefined;
     if (config.daemon.standaloneRecording) {
       const name = getAssistantName();
       const dynamicNames = [name].filter(Boolean) as string[];
@@ -276,6 +277,8 @@ export async function handleTaskSubmit(
           pendingRecordingStart = intentResult.kind === 'start_with_remainder';
           pendingRecordingRestart = intentResult.kind === 'restart_with_remainder' ? 'restart_with_remainder' : false;
         }
+        // Preserve the original text so the DB stores the full message
+        originalTaskBeforeStrip = msg.task;
         (msg as { task: string }).task = intentResult.remainder;
         rlog.info({ remaining: intentResult.remainder }, 'Recording intent deferred, continuing with remaining text');
       }
@@ -409,7 +412,7 @@ export async function handleTaskSubmit(
       // Start streaming immediately — client doesn't need to send user_message
       session.processMessage(msg.task, msg.attachments ?? [], (event) => {
         ctx.send(socket, event);
-      }, requestId).catch((err) => {
+      }, requestId, undefined, undefined, undefined, originalTaskBeforeStrip).catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         rlog.error({ err }, 'Error processing task_submit text QA');
         ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });

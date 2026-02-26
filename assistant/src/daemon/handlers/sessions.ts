@@ -95,6 +95,7 @@ export async function handleUserMessage(
       source: 'user_message' | 'secure_redirect_resume',
       activeSurfaceId?: string,
       currentPage?: string,
+      displayContent?: string,
     ): void => {
       const receivedDescription = source === 'user_message'
         ? 'User message received'
@@ -117,6 +118,8 @@ export async function handleUserMessage(
         activeSurfaceId,
         currentPage,
         queuedChannelMetadata,
+        undefined,
+        displayContent,
       );
       if (result.rejected) {
         rlog.warn({ source }, 'Message rejected — queue is full');
@@ -167,7 +170,7 @@ export async function handleUserMessage(
       // Fire-and-forget: don't block the IPC handler so the connection can
       // continue receiving messages (e.g. cancel, confirmations, or
       // additional user_message that will be queued by the session).
-      session.processMessage(content, attachments, sendEvent, dispatchRequestId, activeSurfaceId, currentPage).catch((err) => {
+      session.processMessage(content, attachments, sendEvent, dispatchRequestId, activeSurfaceId, currentPage, undefined, displayContent).catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         rlog.error({ err, source }, 'Error processing user message (session or provider failure)');
         ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
@@ -285,6 +288,7 @@ export async function handleUserMessage(
     }
 
     // ── Standalone recording intent interception ──────────────────────────
+    let originalContentBeforeStrip: string | undefined;
     if (config.daemon.standaloneRecording && messageText) {
       const name = getAssistantName();
       const dynamicNames = [name].filter(Boolean) as string[];
@@ -319,6 +323,9 @@ export async function handleUserMessage(
           socket,
           ctx,
         });
+
+        // Preserve the original text so the DB stores the full message
+        originalContentBeforeStrip = messageText;
 
         // Continue with stripped text for downstream processing
         msg.content = execResult.remainderText ?? messageText;
@@ -390,6 +397,7 @@ export async function handleUserMessage(
       'user_message',
       msg.activeSurfaceId,
       msg.currentPage,
+      originalContentBeforeStrip,
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
