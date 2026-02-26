@@ -303,6 +303,7 @@ extension AppDelegate {
                 return false
             }
             threadManager.activeThreadId = thread.id
+            threadManager.clearNotificationIndicator(threadId: thread.id)
             return true
         }
 
