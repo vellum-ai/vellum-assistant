@@ -210,6 +210,7 @@ struct ChatView: View {
                             inputText: $inputText,
                             hasAPIKey: hasAPIKey,
                             isSending: isSending,
+                            hasPendingConfirmation: messages.contains(where: { $0.confirmation?.state == .pending }),
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,

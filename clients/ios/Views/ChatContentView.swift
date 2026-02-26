@@ -242,7 +242,7 @@ struct ChatContentView: View {
             InputBarView(
                 text: $viewModel.inputText,
                 isInputFocused: $isInputFocused,
-                isGenerating: viewModel.isSending || viewModel.isThinking,
+                isGenerating: (viewModel.isSending && !viewModel.hasPendingConfirmation) || viewModel.isThinking,
                 isCancelling: viewModel.isCancelling,
                 onSend: viewModel.sendMessage,
                 onStop: viewModel.stopGenerating,
