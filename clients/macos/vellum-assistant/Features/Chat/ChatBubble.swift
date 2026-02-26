@@ -101,7 +101,8 @@ struct ChatBubble: View {
         calendar.timeZone = tz
         let formatter = DateFormatter()
         formatter.timeZone = tz
-        formatter.dateFormat = "H:mm"
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
         let timeString = formatter.string(from: message.timestamp)
         if calendar.isDateInToday(message.timestamp) {
             return "Today, \(timeString)"
@@ -111,6 +112,15 @@ struct ChatBubble: View {
             dayFormatter.dateFormat = "MMM d"
             return "\(dayFormatter.string(from: message.timestamp)), \(timeString)"
         }
+    }
+
+    private var detailedTimestamp: String {
+        let tz = ChatTimestampTimeZone.resolve()
+        let formatter = DateFormatter()
+        formatter.timeZone = tz
+        formatter.dateStyle = .full
+        formatter.timeStyle = .long
+        return formatter.string(from: message.timestamp)
     }
 
     /// Whether the text/attachment bubble should be rendered.
@@ -236,6 +246,10 @@ struct ChatBubble: View {
 
     private var overflowMenuButton: some View {
         HStack(spacing: 2) {
+            Text(formattedTimestamp)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .help(detailedTimestamp)
             if hasCopyableText {
                 Button {
                     copyMessageText()
