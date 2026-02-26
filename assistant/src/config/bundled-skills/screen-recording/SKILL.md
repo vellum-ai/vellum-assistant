@@ -124,7 +124,7 @@ The remainder preserves the user's original phrasing (stripping is applied to th
 
 1. **Do not invoke computer use** for recording-only requests. The daemon handles these directly.
 2. **One recording at a time.** If a recording is already active, starting another returns an "already recording" message.
-3. **Conversation-scoped.** Each recording is linked to the conversation that started it. Stopping in a different thread does not affect unrelated recordings.
+3. **Conversation-linked.** Each recording is linked to the conversation that started it for attachment purposes. However, since only one recording can be active at a time, stop commands from any conversation will stop the active recording regardless of which conversation started it.
 4. **Permission required.** Screen recording requires macOS Screen Recording permission. If denied, the user sees actionable guidance to enable it in System Settings.
 5. **Mixed-intent prompts** (recording + other task) are NOT intercepted by the standalone route — the recording action is deferred and executed alongside the task.
 6. **Restart always reopens the source picker** and requires source reselection.
