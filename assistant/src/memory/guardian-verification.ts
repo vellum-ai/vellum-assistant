@@ -18,6 +18,7 @@ import { channelGuardianVerificationChallenges } from './schema.js';
 export type ChallengeStatus = 'pending' | 'consumed' | 'expired' | 'revoked';
 export type SessionStatus = 'pending' | 'consumed' | 'pending_bootstrap' | 'awaiting_response' | 'verified' | 'expired' | 'revoked' | 'locked';
 export type IdentityBindingStatus = 'pending_bootstrap' | 'bound';
+export type VerificationPurpose = 'guardian' | 'trusted_contact';
 
 export interface VerificationChallenge {
   id: string;
@@ -42,6 +43,8 @@ export interface VerificationChallenge {
   // Session configuration
   codeDigits: number;
   maxAttempts: number;
+  // Distinguishes guardian verification from trusted contact verification
+  verificationPurpose: VerificationPurpose;
   // Telegram bootstrap deep-link token hash
   bootstrapTokenHash: string | null;
   createdAt: number;
@@ -73,6 +76,7 @@ function rowToChallenge(row: typeof channelGuardianVerificationChallenges.$infer
     nextResendAt: row.nextResendAt ?? null,
     codeDigits: row.codeDigits ?? 6,
     maxAttempts: row.maxAttempts ?? 3,
+    verificationPurpose: (row.verificationPurpose as VerificationPurpose) ?? 'guardian',
     bootstrapTokenHash: row.bootstrapTokenHash ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -251,6 +255,7 @@ export function createVerificationSession(params: {
   destinationAddress?: string | null;
   codeDigits?: number;
   maxAttempts?: number;
+  verificationPurpose?: VerificationPurpose;
   bootstrapTokenHash?: string | null;
 }): VerificationChallenge {
   const db = getDb();
@@ -288,6 +293,7 @@ export function createVerificationSession(params: {
     nextResendAt: null,
     codeDigits: params.codeDigits ?? 6,
     maxAttempts: params.maxAttempts ?? 3,
+    verificationPurpose: params.verificationPurpose ?? 'guardian',
     bootstrapTokenHash: params.bootstrapTokenHash ?? null,
     createdAt: now,
     updatedAt: now,

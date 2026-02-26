@@ -17,6 +17,7 @@ import {
   getExpiredGuardianActionRequests,
 } from '../memory/guardian-action-store.js';
 import { deliverChannelReply } from '../runtime/gateway-client.js';
+import { getGuardianActionFallbackMessage } from '../runtime/guardian-action-message-composer.js';
 import { getLogger } from '../util/logger.js';
 import { expirePendingQuestions } from './call-store.js';
 
@@ -45,10 +46,11 @@ export function sendGuardianExpiryNotices(
 
     if ((delivery.destinationChannel === 'vellum' || delivery.destinationChannel === 'macos' || delivery.destinationChannel === 'mac') && delivery.destinationConversationId) {
       // Add expiry message to vellum guardian thread
+      const expiryText = getGuardianActionFallbackMessage({ scenario: 'guardian_stale_expired' });
       void addMessage(
         delivery.destinationConversationId,
         'assistant',
-        JSON.stringify([{ type: 'text', text: 'This guardian question has expired without a response.' }]),
+        JSON.stringify([{ type: 'text', text: expiryText }]),
         { userMessageChannel: 'voice', assistantMessageChannel: 'vellum', userMessageInterface: 'voice', assistantMessageInterface: 'vellum' },
       ).catch((err) => log.error({ err, deliveryId: delivery.id }, 'Failed to add expiry message to guardian thread'));
     } else if (delivery.destinationChatId) {
@@ -56,9 +58,10 @@ export function sendGuardianExpiryNotices(
       const deliverUrl = `${gatewayBaseUrl}/deliver/${delivery.destinationChannel}`;
       void (async () => {
         try {
+          const channelExpiryText = getGuardianActionFallbackMessage({ scenario: 'guardian_stale_expired' });
           await deliverChannelReply(deliverUrl, {
             chatId: delivery.destinationChatId!,
-            text: 'The guardian question has expired without a response. The call has moved on.',
+            text: channelExpiryText,
             assistantId,
           }, bearerToken);
         } catch (err) {
@@ -105,9 +108,9 @@ export function startGuardianActionSweep(
   bearerToken?: string,
 ): void {
   if (sweepTimer) return;
-  sweepTimer = setInterval(() => {
+  sweepTimer = setInterval(async () => {
     try {
-      sweepExpiredGuardianActions(gatewayBaseUrl, bearerToken);
+      await sweepExpiredGuardianActions(gatewayBaseUrl, bearerToken);
     } catch (err) {
       log.error({ err }, 'Guardian action sweep failed');
     }

@@ -473,7 +473,7 @@ export async function processMessage(
           _guardianActionCopyGenerator,
         );
         const replyMsg = createAssistantMessage(followupText);
-        conversationStore.addMessage(
+        await conversationStore.addMessage(
           session.conversationId,
           'assistant',
           JSON.stringify(replyMsg.content),
@@ -489,7 +489,7 @@ export async function processMessage(
           _guardianActionCopyGenerator,
         );
         const staleMsg = createAssistantMessage(staleText);
-        conversationStore.addMessage(
+        await conversationStore.addMessage(
           session.conversationId,
           'assistant',
           JSON.stringify(staleMsg.content),
@@ -552,7 +552,7 @@ export async function processMessage(
         ? turnResult.replyText
         : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_followup' }, {}, _guardianActionCopyGenerator);
       const replyMsg = createAssistantMessage(replyText);
-      conversationStore.addMessage(
+      await conversationStore.addMessage(
         session.conversationId,
         'assistant',
         JSON.stringify(replyMsg.content),
@@ -574,7 +574,7 @@ export async function processMessage(
               _guardianActionCopyGenerator,
             );
             const completionMsg = createAssistantMessage(execResult.guardianReplyText);
-            conversationStore.addMessage(
+            await conversationStore.addMessage(
               session.conversationId,
               'assistant',
               JSON.stringify(completionMsg.content),

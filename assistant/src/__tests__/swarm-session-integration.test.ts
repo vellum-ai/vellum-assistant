@@ -134,7 +134,7 @@ describe('swarm through AgentLoop', () => {
     const loop = new AgentLoop(mockProvider, 'system prompt', {}, tools, toolExecutor);
     const messages: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'Build a feature' }] }];
 
-    const history = await loop.run(messages, (e) => events.push(e));
+    const history = await loop.run(messages, (e) => { events.push(e); });
 
     // Should have tool_use event
     const toolUseEvents = events.filter(e => e.type === 'tool_use');
@@ -186,7 +186,7 @@ describe('swarm through AgentLoop', () => {
     const messages: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'go' }] }];
 
     // Should not hang or throw
-    const history = await loop.run(messages, (e) => events.push(e), controller.signal);
+    const history = await loop.run(messages, (e) => { events.push(e); }, controller.signal);
     expect(history.length).toBeGreaterThanOrEqual(1);
   });
 });

@@ -366,7 +366,9 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
     log.info({ callSessionId: session.id, callSid }, 'Call initiated successfully');
 
     // Post a concise pointer message in the initiating conversation
-    addPointerMessage(conversationId, 'started', phoneNumber);
+    addPointerMessage(conversationId, 'started', phoneNumber).catch((err) => {
+      log.warn({ conversationId, err }, 'Failed to post call-started pointer message');
+    });
 
     return {
       ok: true,
@@ -392,7 +394,9 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
     }
 
     // Post a failure pointer message in the initiating conversation
-    addPointerMessage(conversationId, 'failed', phoneNumber, { reason: msg });
+    addPointerMessage(conversationId, 'failed', phoneNumber, { reason: msg }).catch((pointerErr) => {
+      log.warn({ conversationId, err: pointerErr }, 'Failed to post call-failed pointer message');
+    });
 
     return { ok: false, error: `Error initiating call: ${msg}`, status: 500 };
   }

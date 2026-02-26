@@ -103,7 +103,7 @@ describe('whatsapp-webhook', () => {
   });
 
   it('validates GET verify-token handshake', async () => {
-    const handler = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
     const req = new Request(
       'http://localhost:7830/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=verify-token&hub.challenge=12345',
       { method: 'GET' },
@@ -115,7 +115,7 @@ describe('whatsapp-webhook', () => {
   });
 
   it('rejects GET verify-token handshake when token mismatches', async () => {
-    const handler = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
     const req = new Request(
       'http://localhost:7830/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=12345',
       { method: 'GET' },
@@ -126,7 +126,7 @@ describe('whatsapp-webhook', () => {
   });
 
   it('fails closed when whatsappAppSecret is not configured', async () => {
-    const handler = createWhatsAppWebhookHandler({
+    const { handler } = createWhatsAppWebhookHandler({
       ...baseConfig,
       whatsappAppSecret: undefined,
     });
@@ -140,7 +140,7 @@ describe('whatsapp-webhook', () => {
   it('rejects POST when signature verification fails', async () => {
     verifyWhatsAppWebhookSignatureMock.mockImplementation(() => false);
 
-    const handler = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
     const res = await handler(buildPostReq({ object: 'whatsapp_business_account', entry: [] }));
 
     expect(res.status).toBe(403);
@@ -148,7 +148,7 @@ describe('whatsapp-webhook', () => {
   });
 
   it('acknowledges non-message payloads without forwarding', async () => {
-    const handler = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
     normalizeWhatsAppWebhookMock.mockImplementation(() => []);
 
     const res = await handler(buildPostReq({ object: 'whatsapp_business_account', entry: [] }));
@@ -160,7 +160,7 @@ describe('whatsapp-webhook', () => {
   });
 
   it('forwards normalized inbound WhatsApp messages to runtime with channel metadata', async () => {
-    const handler = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
 
     normalizeWhatsAppWebhookMock.mockImplementation(() => [{
       whatsappMessageId: 'wamid-1',
@@ -205,7 +205,7 @@ describe('whatsapp-webhook', () => {
   });
 
   it('returns 500 when runtime forwarding fails for a normalized message', async () => {
-    const handler = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
     normalizeWhatsAppWebhookMock.mockImplementation(() => [{
       whatsappMessageId: 'wamid-fail',
       event: {

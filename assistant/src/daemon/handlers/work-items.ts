@@ -465,8 +465,10 @@ export async function handleWorkItemRunTask(
     );
 
     // Release the headless lock now that the task run is done
-    if (session) {
-      session.headlessLock = false;
+    // (TS can't track that session is mutated inside the closure above)
+    const doneSession = session as { headlessLock: boolean } | null;
+    if (doneSession) {
+      doneSession.headlessLock = false;
     }
 
     // Don't overwrite cancelled status — the cancel handler already set it
@@ -485,8 +487,9 @@ export async function handleWorkItemRunTask(
     ctx.broadcast({ type: 'tasks_changed' });
   } catch (err) {
     // Release the headless lock on failure
-    if (session) {
-      session.headlessLock = false;
+    const errSession = session as { headlessLock: boolean } | null;
+    if (errSession) {
+      errSession.headlessLock = false;
     }
     log.error({ err, workItemId: msg.id }, 'work_item_run_task failed');
     updateWorkItem(msg.id, {

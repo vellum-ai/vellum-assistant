@@ -1,0 +1,282 @@
+/**
+ * Tests for the non-member access request notification flow.
+ *
+ * When a non-member messages the assistant on a channel, the system should:
+ * 1. Deny the message with the standard rejection reply
+ * 2. Notify the guardian (if a guardian binding exists)
+ * 3. Create a guardian approval request for the access request
+ * 4. Deduplicate: don't create duplicate requests for repeated messages
+ */
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+
+// ---------------------------------------------------------------------------
+// Test isolation: in-memory SQLite via temp directory
+// ---------------------------------------------------------------------------
+
+const testDir = mkdtempSync(join(tmpdir(), 'non-member-access-request-test-'));
+
+mock.module('../util/platform.js', () => ({
+  getRootDir: () => testDir,
+  getDataDir: () => testDir,
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getSocketPath: () => join(testDir, 'test.sock'),
+  getPidPath: () => join(testDir, 'test.pid'),
+  getDbPath: () => join(testDir, 'test.db'),
+  getLogPath: () => join(testDir, 'test.log'),
+  ensureDataDir: () => {},
+  normalizeAssistantId: (id: string) => id === 'self' ? 'self' : id,
+  readHttpToken: () => 'test-bearer-token',
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
+// Mock security check to always pass
+mock.module('../security/secret-ingress.js', () => ({
+  checkIngressForSecrets: () => ({ blocked: false }),
+}));
+
+// Mock ingress member store: findMember always returns null (non-member),
+// updateLastSeen is a no-op.
+mock.module('../memory/ingress-member-store.js', () => ({
+  findMember: () => null,
+  updateLastSeen: () => {},
+  upsertMember: () => {},
+}));
+
+mock.module('../config/env.js', () => ({
+  getGatewayInternalBaseUrl: () => 'http://127.0.0.1:7830',
+}));
+
+// Track emitNotificationSignal calls
+const emitSignalCalls: Array<Record<string, unknown>> = [];
+mock.module('../notifications/emit-signal.js', () => ({
+  emitNotificationSignal: async (params: Record<string, unknown>) => {
+    emitSignalCalls.push(params);
+    return {
+      signalId: 'mock-signal-id',
+      deduplicated: false,
+      dispatched: true,
+      reason: 'mock',
+      deliveryResults: [],
+    };
+  },
+}));
+
+// Track deliverChannelReply calls
+const deliverReplyCalls: Array<{ url: string; payload: Record<string, unknown> }> = [];
+mock.module('../runtime/gateway-client.js', () => ({
+  deliverChannelReply: async (url: string, payload: Record<string, unknown>) => {
+    deliverReplyCalls.push({ url, payload });
+  },
+}));
+
+import {
+  createBinding,
+  findPendingAccessRequestForRequester,
+} from '../memory/channel-guardian-store.js';
+import { initializeDb, resetDb } from '../memory/db.js';
+import { handleChannelInbound } from '../runtime/routes/channel-routes.js';
+
+initializeDb();
+
+afterAll(() => {
+  resetDb();
+  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const TEST_BEARER_TOKEN = 'test-token';
+
+function resetState(): void {
+  const { getDb } = require('../memory/db.js');
+  const db = getDb();
+  db.run('DELETE FROM channel_guardian_approval_requests');
+  db.run('DELETE FROM channel_guardian_bindings');
+  db.run('DELETE FROM channel_inbound_events');
+  db.run('DELETE FROM conversations');
+  db.run('DELETE FROM notification_events');
+  emitSignalCalls.length = 0;
+  deliverReplyCalls.length = 0;
+}
+
+function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
+  const body: Record<string, unknown> = {
+    sourceChannel: 'telegram',
+    interface: 'telegram',
+    externalChatId: 'chat-123',
+    externalMessageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    content: 'Hello, can I use this assistant?',
+    senderExternalUserId: 'user-unknown-456',
+    senderName: 'Alice Unknown',
+    senderUsername: 'alice_unknown',
+    replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
+    ...overrides,
+  };
+
+  return new Request('http://localhost:8080/channels/inbound', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Gateway-Origin': TEST_BEARER_TOKEN,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('non-member access request notification', () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  test('non-member message is denied with rejection reply', async () => {
+    const req = buildInboundRequest();
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = await resp.json() as Record<string, unknown>;
+
+    expect(json.denied).toBe(true);
+    expect(json.reason).toBe('not_a_member');
+
+    // Rejection reply was delivered
+    expect(deliverReplyCalls.length).toBe(1);
+    expect((deliverReplyCalls[0].payload as Record<string, unknown>).text).toContain("you haven't been approved");
+  });
+
+  test('guardian is notified when a non-member messages and a guardian binding exists', async () => {
+    // Set up a guardian binding for this channel
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-789',
+      guardianDeliveryChatId: 'guardian-chat-789',
+    });
+
+    const req = buildInboundRequest();
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = await resp.json() as Record<string, unknown>;
+
+    // Message is still denied
+    expect(json.denied).toBe(true);
+    expect(json.reason).toBe('not_a_member');
+
+    // Rejection reply was delivered
+    expect(deliverReplyCalls.length).toBe(1);
+
+    // A notification signal was emitted
+    expect(emitSignalCalls.length).toBe(1);
+    expect(emitSignalCalls[0].sourceEventName).toBe('ingress.access_request');
+    expect(emitSignalCalls[0].sourceChannel).toBe('telegram');
+    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
+    expect(payload.senderExternalUserId).toBe('user-unknown-456');
+    expect(payload.senderName).toBe('Alice Unknown');
+
+    // An approval request was created
+    const pending = findPendingAccessRequestForRequester(
+      'self',
+      'telegram',
+      'user-unknown-456',
+      'ingress_access_request',
+    );
+    expect(pending).not.toBeNull();
+    expect(pending!.status).toBe('pending');
+    expect(pending!.requesterExternalUserId).toBe('user-unknown-456');
+    expect(pending!.guardianExternalUserId).toBe('guardian-user-789');
+    expect(pending!.toolName).toBe('ingress_access_request');
+  });
+
+  test('no duplicate approval requests for repeated messages from same non-member', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-789',
+      guardianDeliveryChatId: 'guardian-chat-789',
+    });
+
+    // First message
+    const req1 = buildInboundRequest();
+    await handleChannelInbound(req1, undefined, TEST_BEARER_TOKEN);
+
+    // Second message from the same user
+    const req2 = buildInboundRequest({
+      externalMessageId: `msg-second-${Date.now()}`,
+      content: 'Please let me in!',
+    });
+    await handleChannelInbound(req2, undefined, TEST_BEARER_TOKEN);
+
+    // Both messages should be denied with rejection replies
+    expect(deliverReplyCalls.length).toBe(2);
+
+    // Only one notification signal should be emitted (second is deduplicated)
+    expect(emitSignalCalls.length).toBe(1);
+
+    // Only one approval request should exist
+    const pending = findPendingAccessRequestForRequester(
+      'self',
+      'telegram',
+      'user-unknown-456',
+      'ingress_access_request',
+    );
+    expect(pending).not.toBeNull();
+  });
+
+  test('deny works without error when no guardian binding exists', async () => {
+    // No guardian binding — should deny without notification
+    const req = buildInboundRequest();
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = await resp.json() as Record<string, unknown>;
+
+    expect(json.denied).toBe(true);
+    expect(json.reason).toBe('not_a_member');
+
+    // Rejection reply was still delivered
+    expect(deliverReplyCalls.length).toBe(1);
+
+    // No notification signal was emitted
+    expect(emitSignalCalls.length).toBe(0);
+
+    // No approval request was created
+    const pending = findPendingAccessRequestForRequester(
+      'self',
+      'telegram',
+      'user-unknown-456',
+      'ingress_access_request',
+    );
+    expect(pending).toBeNull();
+  });
+
+  test('no notification when senderExternalUserId is absent', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-789',
+      guardianDeliveryChatId: 'guardian-chat-789',
+    });
+
+    // Message without senderExternalUserId — can't identify the requester.
+    // The ACL check requires senderExternalUserId to look up members,
+    // so without it the non-member gate is bypassed entirely.
+    const req = buildInboundRequest({
+      senderExternalUserId: undefined,
+    });
+    await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+
+    // No access request notification should fire (no identity to notify about)
+    expect(emitSignalCalls.length).toBe(0);
+  });
+});

@@ -70,7 +70,7 @@ function isTelegramChatId(destination: string): boolean {
  * "@username" count against the same per-destination rate window.
  * Numeric chat IDs are returned as-is.
  */
-function normalizeTelegramDestination(destination: string): string {
+export function normalizeTelegramDestination(destination: string): string {
   if (isTelegramChatId(destination)) return destination;
   return destination.replace(/^@/, '').toLowerCase();
 }

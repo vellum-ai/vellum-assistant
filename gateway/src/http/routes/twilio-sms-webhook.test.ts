@@ -120,7 +120,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("rejects GET requests with 405", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const req = new Request("http://localhost:7830/webhooks/twilio/sms", {
       method: "GET",
     });
@@ -129,7 +129,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("rejects missing signature with 403", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const req = new Request("http://localhost:7830/webhooks/twilio/sms", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -140,7 +140,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("rejects invalid signature with 403", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const req = new Request("http://localhost:7830/webhooks/twilio/sms", {
       method: "POST",
       headers: {
@@ -154,7 +154,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("rejects when twilioAuthToken is not configured (fail-closed)", async () => {
-    const handler = createTwilioSmsWebhookHandler({
+    const { handler } = createTwilioSmsWebhookHandler({
       ...baseConfig,
       twilioAuthToken: undefined,
     });
@@ -168,7 +168,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("returns 400 when MessageSid is missing", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = { Body: "hello", From: "+15551234567", To: "+15559876543" };
     const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
@@ -179,7 +179,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("forwards valid SMS to runtime and returns 200", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "Hello from SMS",
@@ -207,7 +207,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("deduplicates by MessageSid", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "dedup test",
@@ -235,7 +235,7 @@ describe("twilio-sms-webhook", () => {
       Promise.resolve({ forwarded: false, rejected: false }),
     );
 
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "fail test",
@@ -249,7 +249,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("allows retry after failed forwarding (does not dedup failures)", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "retry test",
@@ -284,7 +284,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("allows retry after handleInbound throws (does not dedup exceptions)", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "throw test",
@@ -317,7 +317,7 @@ describe("twilio-sms-webhook", () => {
       Promise.resolve({ forwarded: false, rejected: true, rejectionReason: "No route" }),
     );
 
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "rejected test",
@@ -333,7 +333,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("rejects oversized payload via Content-Length header", async () => {
-    const handler = createTwilioSmsWebhookHandler({
+    const { handler } = createTwilioSmsWebhookHandler({
       ...baseConfig,
       maxWebhookPayloadBytes: 50,
     });
@@ -351,7 +351,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("/new triggers resetConversation and does not forward as normal message", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "/new",
@@ -386,7 +386,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("/new is case-insensitive and trims whitespace", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "  /NEW  ",
@@ -408,7 +408,7 @@ describe("twilio-sms-webhook", () => {
       unmappedPolicy: "reject",
       defaultAssistantId: undefined,
     };
-    const handler = createTwilioSmsWebhookHandler(rejectConfig);
+    const { handler } = createTwilioSmsWebhookHandler(rejectConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "/new",
@@ -439,7 +439,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("MMS payload (NumMedia > 0) sends unsupported notice and forwards text body", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "Check out this photo",
@@ -473,7 +473,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("MMS detected via MediaUrl0 when NumMedia is absent forwards text body", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "Check out this photo",
@@ -511,7 +511,7 @@ describe("twilio-sms-webhook", () => {
       defaultAssistantId: undefined,
       assistantPhoneNumbers: { "ast-alpha": "+15559876543" },
     };
-    const handler = createTwilioSmsWebhookHandler(phoneConfig);
+    const { handler } = createTwilioSmsWebhookHandler(phoneConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "Hello via phone routing",
@@ -537,7 +537,7 @@ describe("twilio-sms-webhook", () => {
       defaultAssistantId: undefined,
       assistantPhoneNumbers: { "ast-beta": "+15559876543" },
     };
-    const handler = createTwilioSmsWebhookHandler(phoneConfig);
+    const { handler } = createTwilioSmsWebhookHandler(phoneConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "/new",
@@ -565,7 +565,7 @@ describe("twilio-sms-webhook", () => {
       defaultAssistantId: undefined,
       assistantPhoneNumbers: { "ast-beta": "+15559876543" },
     };
-    const handler = createTwilioSmsWebhookHandler(phoneConfig);
+    const { handler } = createTwilioSmsWebhookHandler(phoneConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "MMS inbound",
@@ -595,7 +595,7 @@ describe("twilio-sms-webhook", () => {
       ...baseConfig,
       assistantPhoneNumbers: { "ast-alpha": "+15550001111" },
     };
-    const handler = createTwilioSmsWebhookHandler(phoneConfig);
+    const { handler } = createTwilioSmsWebhookHandler(phoneConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "Hello fallthrough",
@@ -618,7 +618,7 @@ describe("twilio-sms-webhook", () => {
       defaultAssistantId: undefined,
       assistantPhoneNumbers: { "ast-alpha": "+15559876543" },
     };
-    const handler = createTwilioSmsWebhookHandler(phoneConfig);
+    const { handler } = createTwilioSmsWebhookHandler(phoneConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "Hello via phone routing",
@@ -641,7 +641,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("passes default routing override to handleInbound when no phone match", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "Hello default routing",
@@ -669,7 +669,7 @@ describe("twilio-sms-webhook", () => {
       unmappedPolicy: "reject",
       defaultAssistantId: undefined,
     };
-    const handler = createTwilioSmsWebhookHandler(rejectConfig);
+    const { handler } = createTwilioSmsWebhookHandler(rejectConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     // Use a unique From number to avoid the module-level rejection notice
     // rate limiter (shouldSendRejectionNotice) cooldown from other tests.
@@ -702,7 +702,7 @@ describe("twilio-sms-webhook", () => {
       Promise.resolve({ forwarded: false, rejected: true, rejectionReason: "test" }),
     );
 
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     // Use a unique From number to avoid the module-level rejection notice
     // rate limiter (shouldSendRejectionNotice) cooldown from other tests.
@@ -731,7 +731,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("MMS detected via MediaContentType0 when NumMedia is absent forwards text body", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "Here is a file",
@@ -763,7 +763,7 @@ describe("twilio-sms-webhook", () => {
   });
 
   it("MMS with empty body sends unsupported notice but does not forward", async () => {
-    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const { handler } = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "",

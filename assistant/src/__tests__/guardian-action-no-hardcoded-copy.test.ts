@@ -17,7 +17,9 @@ import { join } from 'path';
 
 const SCANNED_FILES = [
   'calls/call-controller.ts',
+  'calls/guardian-action-sweep.ts',
   'runtime/routes/inbound-message-handler.ts',
+  'runtime/guardian-action-conversation-turn.ts',
   'daemon/session-process.ts',
 ];
 

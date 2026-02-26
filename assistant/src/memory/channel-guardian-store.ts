@@ -22,6 +22,7 @@ export {
   type ChallengeStatus,
   type SessionStatus,
   type IdentityBindingStatus,
+  type VerificationPurpose,
   type VerificationChallenge,
   createChallenge,
   revokePendingChallenges,
@@ -57,6 +58,7 @@ export {
   getApprovalRequestByRunId,
   resolveApprovalRequest,
   countPendingByConversation,
+  findPendingAccessRequestForRequester,
 } from './guardian-approvals.js';
 
 export {

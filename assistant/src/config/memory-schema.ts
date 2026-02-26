@@ -216,6 +216,11 @@ export const MemoryJobsConfigSchema = z.object({
     .int('memory.jobs.batchSize must be an integer')
     .positive('memory.jobs.batchSize must be a positive integer')
     .default(10),
+  stalledJobTimeoutMs: z
+    .number({ error: 'memory.jobs.stalledJobTimeoutMs must be a number' })
+    .int('memory.jobs.stalledJobTimeoutMs must be an integer')
+    .positive('memory.jobs.stalledJobTimeoutMs must be a positive integer')
+    .default(30 * 60 * 1000),
 });
 
 export const MemoryRetentionConfigSchema = z.object({

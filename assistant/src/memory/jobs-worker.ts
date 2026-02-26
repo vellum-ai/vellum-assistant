@@ -18,6 +18,7 @@ import {
   RETRY_MAX_ATTEMPTS,
   retryDelayForAttempt,
 } from './job-utils.js';
+import { QdrantCircuitOpenError } from './qdrant-circuit-breaker.js';
 import {
   claimMemoryJobs,
   completeMemoryJob,
@@ -27,6 +28,7 @@ import {
   enqueuePruneOldConversationsJob,
   enqueueReconcileFtsJob,
   failMemoryJob,
+  failStalledJobs,
   type MemoryJob,
   resetRunningJobsToPending,
 } from './jobs-store.js';
@@ -87,6 +89,12 @@ export async function runMemoryJobsOnce(
 
   // Periodic stale item sweep (throttled to at most once per hour)
   sweepStaleItems(config);
+
+  // Fail jobs that have been running longer than the configured timeout
+  const timedOut = failStalledJobs(config.memory.jobs.stalledJobTimeoutMs);
+  if (timedOut > 0) {
+    log.warn({ timedOut }, 'Timed out stalled memory jobs');
+  }
 
   const batchSize = Math.max(1, config.memory.jobs.batchSize);
   const concurrency = Math.max(1, config.memory.jobs.workerConcurrency);
@@ -179,6 +187,13 @@ function handleJobError(job: MemoryJob, err: unknown): void {
       log.error({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, job exceeded max deferrals');
     } else {
       log.debug({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, deferring job');
+    }
+  } else if (err instanceof QdrantCircuitOpenError) {
+    const result = deferMemoryJob(job.id);
+    if (result === 'failed') {
+      log.error({ jobId: job.id, type: job.type }, 'Qdrant circuit breaker open, job exceeded max deferrals');
+    } else {
+      log.debug({ jobId: job.id, type: job.type }, 'Qdrant circuit breaker open, deferring job');
     }
   } else {
     const message = err instanceof Error ? err.message : String(err);

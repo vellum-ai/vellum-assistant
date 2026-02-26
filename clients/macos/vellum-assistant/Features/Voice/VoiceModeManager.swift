@@ -127,7 +127,7 @@ final class VoiceModeManager: ObservableObject {
                 guard let self, self.state == .idle else { return }
                 if thinking {
                     self.cancelConversationTimeout()
-                } else {
+                } else if !self.conversationTimeoutPaused {
                     self.startConversationTimeout()
                 }
             }
@@ -241,11 +241,10 @@ final class VoiceModeManager: ObservableObject {
         voiceService.resetStreamingTTS()
 
         Task {
-            // Capture frontmost app context BEFORE awaiting transcription so we
-            // capture the app the user was looking at when they spoke, not after
-            // potential app switches during transcription finalization.
+            // Capture context on MainActor before awaiting transcription so it
+            // reflects the app the user was looking at when they spoke, not
+            // whatever app may be frontmost after the async wait completes.
             let ctx = DictationContextCapture.capture()
-
             let text = await voiceService.stopRecordingAndGetTranscription()
             let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -271,11 +270,15 @@ final class VoiceModeManager: ObservableObject {
                 var parts: [String] = ["app: \(ctx.appName)"]
                 if !ctx.windowTitle.isEmpty {
                     let sanitizedTitle = Self.sanitize(ctx.windowTitle, maxLength: 200)
-                    parts.append("window: \"\(sanitizedTitle)\"")
+                    if !sanitizedTitle.isEmpty {
+                        parts.append("window: \"\(sanitizedTitle)\"")
+                    }
                 }
                 if let selected = ctx.selectedText, !selected.isEmpty {
                     let sanitizedSelected = Self.sanitize(selected, maxLength: 500)
-                    parts.append("selected text: \"\(sanitizedSelected)\"")
+                    if !sanitizedSelected.isEmpty {
+                        parts.append("selected text: \"\(sanitizedSelected)\"")
+                    }
                 }
                 contextPrefix = "[User's current \(parts.joined(separator: ", "))]\n"
             }

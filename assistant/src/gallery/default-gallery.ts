@@ -107,8 +107,8 @@ const focusTimerHtml = `<!DOCTYPE html>
   <div class="mode-label" id="modeLabel">Work Session</div>
   <div class="timer-display" id="timerDisplay">25:00</div>
   <div class="controls">
-    <button class="btn-primary" id="startBtn" onclick="toggleTimer()">Start</button>
-    <button class="btn-secondary" id="resetBtn" onclick="resetTimer()">Reset</button>
+    <button class="btn-primary" id="startBtn">Start</button>
+    <button class="btn-secondary" id="resetBtn">Reset</button>
   </div>
   <div class="stats">
     <div class="stat-item">
@@ -183,6 +183,9 @@ const focusTimerHtml = `<!DOCTYPE html>
     document.getElementById('modeLabel').classList.remove('break');
     updateDisplay();
   }
+
+  document.getElementById('startBtn').addEventListener('click', toggleTimer);
+  document.getElementById('resetBtn').addEventListener('click', resetTimer);
 
   updateDisplay();
 </script>
@@ -334,8 +337,8 @@ const habitTrackerHtml = `<!DOCTYPE html>
   <h1>Habit Tracker</h1>
 </div>
 <div class="add-form">
-  <input type="text" id="habitInput" placeholder="Add a new habit..." onkeydown="if(event.key==='Enter')addHabit()">
-  <button class="btn-primary" onclick="addHabit()">Add</button>
+  <input type="text" id="habitInput" placeholder="Add a new habit...">
+  <button class="btn-primary" id="addHabitBtn">Add</button>
 </div>
 <div class="days-header">
   <div></div>
@@ -387,12 +390,12 @@ const habitTrackerHtml = `<!DOCTYPE html>
       html += '<div class="habit-row">';
       html += '<div style="display:flex;align-items:center;gap:8px">';
       html += '<span class="habit-name">' + escapeHtml(record.data.name) + '</span>';
-      html += '<button class="delete-btn" onclick="deleteHabit(\\''+record.id+'\\')">x</button>';
+      html += '<button class="delete-btn" data-delete-habit="'+record.id+'">x</button>';
       html += '</div>';
       dates.forEach(function(date) {
         var checked = completedDates.indexOf(date) !== -1;
         html += '<div class="check-cell">';
-        html += '<button class="check-btn' + (checked ? ' checked' : '') + '" onclick="toggleDate(\\''+record.id+'\\',\\''+date+'\\')">';
+        html += '<button class="check-btn' + (checked ? ' checked' : '') + '" data-toggle-habit="'+record.id+'" data-toggle-date="'+date+'">';
         html += checked ? '\\u2713' : '';
         html += '</button></div>';
       });
@@ -437,6 +440,17 @@ const habitTrackerHtml = `<!DOCTYPE html>
       loadHabits();
     });
   }
+
+  document.getElementById('habitInput').addEventListener('keydown', function(event) {
+    if (event.key === 'Enter') addHabit();
+  });
+  document.getElementById('addHabitBtn').addEventListener('click', addHabit);
+  document.getElementById('habitsList').addEventListener('click', function(event) {
+    var btn = event.target.closest('[data-delete-habit]');
+    if (btn) { deleteHabit(btn.getAttribute('data-delete-habit')); return; }
+    var toggle = event.target.closest('[data-toggle-habit]');
+    if (toggle) { toggleDate(toggle.getAttribute('data-toggle-habit'), toggle.getAttribute('data-toggle-date')); }
+  });
 
   initDates();
   loadHabits();
@@ -629,9 +643,9 @@ const expenseTrackerHtml = `<!DOCTYPE html>
     <option value="entertainment">Entertainment</option>
     <option value="other">Other</option>
   </select>
-  <input type="text" class="input-desc" id="descInput" placeholder="Description..." onkeydown="if(event.key==='Enter')addExpense()">
+  <input type="text" class="input-desc" id="descInput" placeholder="Description...">
   <input type="date" class="input-date" id="dateInput">
-  <button class="btn-primary" onclick="addExpense()">Add</button>
+  <button class="btn-primary" id="addExpenseBtn">Add</button>
 </div>
 <div class="section-title">By Category</div>
 <div class="categories-grid" id="categoriesGrid"></div>
@@ -693,7 +707,7 @@ const expenseTrackerHtml = `<!DOCTYPE html>
         listHtml += '<div class="expense-meta">' + escapeHtml(r.data.category || 'other') + ' \\u00B7 ' + escapeHtml(r.data.date || '') + '</div>';
         listHtml += '</div>';
         listHtml += '<div class="expense-amount">$' + amt.toFixed(2) + '</div>';
-        listHtml += '<button class="delete-btn" onclick="deleteExpense(\\''+r.id+'\\')">x</button>';
+        listHtml += '<button class="delete-btn" data-delete-expense="'+r.id+'">x</button>';
         listHtml += '</div>';
       });
     }
@@ -723,6 +737,15 @@ const expenseTrackerHtml = `<!DOCTYPE html>
       loadExpenses();
     });
   }
+
+  document.getElementById('descInput').addEventListener('keydown', function(event) {
+    if (event.key === 'Enter') addExpense();
+  });
+  document.getElementById('addExpenseBtn').addEventListener('click', addExpense);
+  document.getElementById('expenseList').addEventListener('click', function(event) {
+    var btn = event.target.closest('[data-delete-expense]');
+    if (btn) { deleteExpense(btn.getAttribute('data-delete-expense')); }
+  });
 
   loadExpenses();
 </script>

@@ -8,6 +8,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import type { ServerWebSocket } from 'bun';
+
 import type { BrowserRelayWebSocketData } from '../browser-extension-relay/server.js';
 import { extensionRelayServer } from '../browser-extension-relay/server.js';
 import {
@@ -55,6 +57,7 @@ import {
   rateLimitHeaders,
   rateLimitResponse,
 } from './middleware/rate-limiter.js';
+import { withRequestLogging } from './middleware/request-logger.js';
 import {
   cloneRequestWithBody,
   GATEWAY_ONLY_BLOCKED_SUBPATHS,
@@ -134,6 +137,16 @@ import {
   handlePairingRequest,
   handlePairingStatus,
 } from './routes/pairing-routes.js';
+import {
+  handleBlockMember,
+  handleCreateInvite,
+  handleListInvites,
+  handleListMembers,
+  handleRedeemInvite,
+  handleRevokeInvite,
+  handleRevokeMember,
+  handleUpsertMember,
+} from './routes/ingress-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
 
 // Re-export for consumers
@@ -249,15 +262,13 @@ export class RuntimeHttpServer {
         open(ws) {
           const data = ws.data as AllWebSocketData;
           if ('wsType' in data && data.wsType === 'browser-relay') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            extensionRelayServer.handleOpen(ws as any);
+            extensionRelayServer.handleOpen(ws as ServerWebSocket<BrowserRelayWebSocketData>);
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
           log.info({ callSessionId }, 'ConversationRelay WebSocket opened');
           if (callSessionId) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const connection = new RelayConnection(ws as any, callSessionId);
+            const connection = new RelayConnection(ws as ServerWebSocket<RelayWebSocketData>, callSessionId);
             activeRelayConnections.set(callSessionId, connection);
           }
         },
@@ -265,8 +276,7 @@ export class RuntimeHttpServer {
           const data = ws.data as AllWebSocketData;
           const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
           if ('wsType' in data && data.wsType === 'browser-relay') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            extensionRelayServer.handleMessage(ws as any, raw);
+            extensionRelayServer.handleMessage(ws as ServerWebSocket<BrowserRelayWebSocketData>, raw);
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -278,8 +288,7 @@ export class RuntimeHttpServer {
         close(ws, code, reason) {
           const data = ws.data as AllWebSocketData;
           if ('wsType' in data && data.wsType === 'browser-relay') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            extensionRelayServer.handleClose(ws as any, code, reason?.toString());
+            extensionRelayServer.handleClose(ws as ServerWebSocket<BrowserRelayWebSocketData>, code, reason?.toString());
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -342,6 +351,10 @@ export class RuntimeHttpServer {
   }
 
   private async handleRequest(req: Request, server: ReturnType<typeof Bun.serve>): Promise<Response> {
+    return withRequestLogging(req, () => this.routeRequest(req, server));
+  }
+
+  private async routeRequest(req: Request, server: ReturnType<typeof Bun.serve>): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
 
@@ -381,13 +394,17 @@ export class RuntimeHttpServer {
       }
     }
 
-    // Per-bearer-token rate limiting for /v1/* endpoints, with per-IP fallback
-    // for unauthenticated requests (lower limits to reduce abuse surface).
+    // Per-client-IP rate limiting for /v1/* endpoints. Authenticated requests
+    // get a higher limit; unauthenticated requests get a lower limit to reduce
+    // abuse surface. We key on IP rather than bearer token because the gateway
+    // uses a single shared token for all proxied requests, which would collapse
+    // all users into one bucket.
     if (path.startsWith('/v1/')) {
+      const clientIp = extractClientIp(req, server);
       const token = extractBearerToken(req);
       const result = token
-        ? apiRateLimiter.check(token)
-        : ipRateLimiter.check(extractClientIp(req, server));
+        ? apiRateLimiter.check(clientIp)
+        : ipRateLimiter.check(clientIp);
       if (!result.allowed) {
         return rateLimitResponse(result);
       }
@@ -674,6 +691,21 @@ export class RuntimeHttpServer {
       if (endpoint === 'contacts/merge' && req.method === 'POST') return await handleMergeContacts(req);
       const contactMatch = endpoint.match(/^contacts\/([^/]+)$/);
       if (contactMatch && req.method === 'GET') return handleGetContact(contactMatch[1]);
+
+      // Ingress members
+      if (endpoint === 'ingress/members' && req.method === 'GET') return handleListMembers(url);
+      if (endpoint === 'ingress/members' && req.method === 'POST') return await handleUpsertMember(req);
+      const memberBlockMatch = endpoint.match(/^ingress\/members\/([^/]+)\/block$/);
+      if (memberBlockMatch && req.method === 'POST') return await handleBlockMember(req, memberBlockMatch[1]);
+      const memberMatch = endpoint.match(/^ingress\/members\/([^/]+)$/);
+      if (memberMatch && req.method === 'DELETE') return await handleRevokeMember(req, memberMatch[1]);
+
+      // Ingress invites
+      if (endpoint === 'ingress/invites' && req.method === 'GET') return handleListInvites(url);
+      if (endpoint === 'ingress/invites' && req.method === 'POST') return await handleCreateInvite(req);
+      if (endpoint === 'ingress/invites/redeem' && req.method === 'POST') return await handleRedeemInvite(req);
+      const inviteMatch = endpoint.match(/^ingress\/invites\/([^/]+)$/);
+      if (inviteMatch && req.method === 'DELETE') return handleRevokeInvite(inviteMatch[1]);
 
       // Integrations — Telegram config
       if (endpoint === 'integrations/telegram/config' && req.method === 'GET') return handleGetTelegramConfig();

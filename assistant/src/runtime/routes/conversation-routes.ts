@@ -273,6 +273,13 @@ export async function handleSendMessage(
       : [];
 
     if (session.isProcessing()) {
+      // If a tool confirmation is pending, auto-deny it so the agent
+      // can finish the current turn and process this queued message.
+      if (session.hasAnyPendingConfirmation()) {
+        session.denyAllPendingConfirmations();
+        pendingInteractions.removeBySession(session);
+      }
+
       // Queue the message so it's processed when the current turn completes
       const requestId = crypto.randomUUID();
       const result = session.enqueueMessage(

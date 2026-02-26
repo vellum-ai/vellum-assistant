@@ -232,10 +232,10 @@ describe('attachment orphan cleanup', () => {
     db.run('DELETE FROM conversations');
   });
 
-  test('deleteLastExchange cleans up orphaned attachments', () => {
+  test('deleteLastExchange cleans up orphaned attachments', async () => {
     const conv = createConversation('test');
-    addMessage(conv.id, 'user', 'hello');
-    const assistantMsg = addMessage(conv.id, 'assistant', 'Here is a file');
+    await addMessage(conv.id, 'user', 'hello');
+    const assistantMsg = await addMessage(conv.id, 'assistant', 'Here is a file');
 
     const stored = uploadAttachment('chart.png', 'image/png', 'iVBOR');
     linkAttachmentToMessage(assistantMsg.id, stored.id, 0);
@@ -252,11 +252,11 @@ describe('attachment orphan cleanup', () => {
     expect(remaining.c).toBe(0);
   });
 
-  test('deleteLastExchange preserves attachments still linked to other messages', () => {
+  test('deleteLastExchange preserves attachments still linked to other messages', async () => {
     const conv = createConversation('test');
-    const msg1 = addMessage(conv.id, 'assistant', 'first');
-    addMessage(conv.id, 'user', 'question');
-    const msg2 = addMessage(conv.id, 'assistant', 'second');
+    const msg1 = await addMessage(conv.id, 'assistant', 'first');
+    await addMessage(conv.id, 'user', 'question');
+    const msg2 = await addMessage(conv.id, 'assistant', 'second');
 
     const shared = uploadAttachment('shared.png', 'image/png', 'AAAA');
     linkAttachmentToMessage(msg1.id, shared.id, 0);
@@ -271,9 +271,9 @@ describe('attachment orphan cleanup', () => {
     expect(remaining.c).toBe(1);
   });
 
-  test('clearAll removes all attachments', () => {
+  test('clearAll removes all attachments', async () => {
     const conv = createConversation('test');
-    const msg = addMessage(conv.id, 'assistant', 'file');
+    const msg = await addMessage(conv.id, 'assistant', 'file');
     const stored = uploadAttachment('doc.pdf', 'application/pdf', 'JVBER');
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
@@ -286,10 +286,10 @@ describe('attachment orphan cleanup', () => {
     expect(linkCount.c).toBe(0);
   });
 
-  test('deleteLastExchange does not delete unlinked user uploads', () => {
+  test('deleteLastExchange does not delete unlinked user uploads', async () => {
     const conv = createConversation('test');
-    addMessage(conv.id, 'user', 'hello');
-    const assistantMsg = addMessage(conv.id, 'assistant', 'Here is a file');
+    await addMessage(conv.id, 'user', 'hello');
+    const assistantMsg = await addMessage(conv.id, 'assistant', 'Here is a file');
 
     // An attachment linked to the assistant message (should be cleaned up)
     const linked = uploadAttachment('chart.png', 'image/png', 'iVBOR');
@@ -438,15 +438,15 @@ describe('attachment reuse across thread lifecycles', () => {
     db.run('DELETE FROM conversations');
   });
 
-  test('attachment uploaded in conversation A is retrievable by ID without any conversation reference', () => {
+  test('attachment uploaded in conversation A is retrievable by ID without any conversation reference', async () => {
     const convA = createConversation('Thread A');
-    const msgA = addMessage(convA.id, 'assistant', 'Here is a file');
+    const msgA = await addMessage(convA.id, 'assistant', 'Here is a file');
     const stored = uploadAttachment('report.pdf', 'application/pdf', 'JVBER');
     linkAttachmentToMessage(msgA.id, stored.id, 0);
 
     // Create a completely separate conversation
     const convB = createConversation('Thread B');
-    addMessage(convB.id, 'user', 'hello');
+    await addMessage(convB.id, 'user', 'hello');
 
     // The attachment is retrievable by ID regardless of which conversation is active.
     const fetched = getAttachmentById(stored.id);
@@ -456,12 +456,12 @@ describe('attachment reuse across thread lifecycles', () => {
     expect(fetched!.dataBase64).toBe('JVBER');
   });
 
-  test('attachment can be linked to messages in different conversations', () => {
+  test('attachment can be linked to messages in different conversations', async () => {
     const convA = createConversation('Thread A');
     const convB = createConversation('Thread B');
 
-    const msgA = addMessage(convA.id, 'assistant', 'Original file');
-    const msgB = addMessage(convB.id, 'assistant', 'Reused file');
+    const msgA = await addMessage(convA.id, 'assistant', 'Original file');
+    const msgB = await addMessage(convB.id, 'assistant', 'Reused file');
 
     // Upload once, link to both conversations
     const stored = uploadAttachment('shared.png', 'image/png', 'iVBORw0K');
@@ -478,16 +478,16 @@ describe('attachment reuse across thread lifecycles', () => {
     expect(linkedB[0].id).toBe(stored.id);
   });
 
-  test('deleting conversation A does not orphan attachment reused in conversation B', () => {
+  test('deleting conversation A does not orphan attachment reused in conversation B', async () => {
     const convA = createConversation('Thread A');
     const convB = createConversation('Thread B');
 
     // deleteLastExchange deletes from the last user message onward,
     // so we need a user message before the assistant message that carries the attachment.
-    addMessage(convA.id, 'user', 'Please generate a chart');
-    const msgA = addMessage(convA.id, 'assistant', 'Original');
-    addMessage(convB.id, 'user', 'Show me the chart');
-    const msgB = addMessage(convB.id, 'assistant', 'Reused');
+    await addMessage(convA.id, 'user', 'Please generate a chart');
+    const msgA = await addMessage(convA.id, 'assistant', 'Original');
+    await addMessage(convB.id, 'user', 'Show me the chart');
+    const msgB = await addMessage(convB.id, 'assistant', 'Reused');
 
     const stored = uploadAttachment('chart.png', 'image/png', 'AAAA');
     linkAttachmentToMessage(msgA.id, stored.id, 0);
@@ -506,12 +506,12 @@ describe('attachment reuse across thread lifecycles', () => {
     expect(linkedB[0].id).toBe(stored.id);
   });
 
-  test('content-hash dedup works across conversations', () => {
+  test('content-hash dedup works across conversations', async () => {
     const convA = createConversation('Thread A');
     const convB = createConversation('Thread B');
 
-    addMessage(convA.id, 'user', 'upload in A');
-    addMessage(convB.id, 'user', 'upload in B');
+    await addMessage(convA.id, 'user', 'upload in A');
+    await addMessage(convB.id, 'user', 'upload in B');
 
     // Same content uploaded in two different conversation contexts
     const first = uploadAttachment('photo.png', 'image/png', 'DEDUPCROSS');
@@ -535,11 +535,11 @@ describe('no private-thread attachment visibility boundary', () => {
     db.run('DELETE FROM conversations');
   });
 
-  test('attachment from a private thread is visible via getAttachmentById (no thread scoping)', () => {
+  test('attachment from a private thread is visible via getAttachmentById (no thread scoping)', async () => {
     const privateConv = createConversation({ title: 'Secret', threadType: 'private' });
     expect(privateConv.threadType).toBe('private');
 
-    const msg = addMessage(privateConv.id, 'assistant', 'Private content');
+    const msg = await addMessage(privateConv.id, 'assistant', 'Private content');
     const stored = uploadAttachment('secret.pdf', 'application/pdf', 'JVBER');
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
@@ -549,12 +549,12 @@ describe('no private-thread attachment visibility boundary', () => {
     expect(fetched!.originalFilename).toBe('secret.pdf');
   });
 
-  test('attachment from private thread can be linked to a standard thread message', () => {
+  test('attachment from private thread can be linked to a standard thread message', async () => {
     const privateConv = createConversation({ title: 'Private', threadType: 'private' });
     const standardConv = createConversation({ title: 'Standard', threadType: 'standard' });
 
-    const privateMsg = addMessage(privateConv.id, 'assistant', 'Private file');
-    const standardMsg = addMessage(standardConv.id, 'assistant', 'Reusing private file');
+    const privateMsg = await addMessage(privateConv.id, 'assistant', 'Private file');
+    const standardMsg = await addMessage(standardConv.id, 'assistant', 'Reusing private file');
 
     const stored = uploadAttachment('private-doc.png', 'image/png', 'PRIVDATA');
     linkAttachmentToMessage(privateMsg.id, stored.id, 0);
@@ -569,9 +569,9 @@ describe('no private-thread attachment visibility boundary', () => {
     expect(linkedStandard[0].id).toBe(stored.id);
   });
 
-  test('getAttachmentsForMessage returns private thread attachments', () => {
+  test('getAttachmentsForMessage returns private thread attachments', async () => {
     const privateConv = createConversation({ title: 'Private', threadType: 'private' });
-    const msg = addMessage(privateConv.id, 'assistant', 'Private media');
+    const msg = await addMessage(privateConv.id, 'assistant', 'Private media');
     const stored = uploadAttachment('photo.jpg', 'image/jpeg', 'AAAA');
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
@@ -592,12 +592,12 @@ describe('no private-thread attachment visibility boundary', () => {
     expect(fromStandard.id).toBe(fromPrivate.id);
   });
 
-  test('clearAll removes attachments from both private and standard threads', () => {
+  test('clearAll removes attachments from both private and standard threads', async () => {
     const privateConv = createConversation({ title: 'Private', threadType: 'private' });
     const standardConv = createConversation({ title: 'Standard', threadType: 'standard' });
 
-    const privateMsg = addMessage(privateConv.id, 'assistant', 'Private file');
-    const standardMsg = addMessage(standardConv.id, 'assistant', 'Standard file');
+    const privateMsg = await addMessage(privateConv.id, 'assistant', 'Private file');
+    const standardMsg = await addMessage(standardConv.id, 'assistant', 'Standard file');
 
     const att1 = uploadAttachment('private.png', 'image/png', 'PRIV');
     const att2 = uploadAttachment('standard.png', 'image/png', 'STD');

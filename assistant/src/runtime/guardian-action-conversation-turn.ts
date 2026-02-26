@@ -17,6 +17,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
+import { getGuardianActionFallbackMessage } from './guardian-action-message-composer.js';
 import type {
   GuardianFollowUpConversationContext,
   GuardianFollowUpConversationGenerator,
@@ -30,8 +31,7 @@ const log = getLogger('guardian-action-conversation-turn');
 // Fallback text
 // ---------------------------------------------------------------------------
 
-const FALLBACK_RETRY_TEXT =
-  "Sorry, I didn't quite catch that. Would you like to call them back, send them a message, or skip it for now?";
+const FALLBACK_RETRY_TEXT = getGuardianActionFallbackMessage({ scenario: 'guardian_followup_clarification' });
 
 const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
   'call_back',

@@ -22,7 +22,7 @@ export function createTasksAndWorkItemsTables(database: DrizzleDb): void {
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS task_runs (
       id TEXT PRIMARY KEY,
-      task_id TEXT NOT NULL REFERENCES tasks(id),
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
       conversation_id TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       started_at INTEGER,

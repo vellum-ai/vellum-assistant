@@ -7,8 +7,10 @@ import { statSync } from 'node:fs';
 import { getDbPath } from '../../util/platform.js';
 import { countConversations } from '../../memory/conversation-store.js';
 import { getMemoryJobCounts } from '../../memory/jobs-store.js';
-import { listSchedules } from '../../schedule/schedule-store.js';
+import { countSchedules } from '../../schedule/schedule-store.js';
 import { rawAll } from '../../memory/db.js';
+import { getConfig } from '../../config/loader.js';
+import { getProviderDebugStatus } from '../../providers/registry.js';
 
 /** Process start time — used to calculate uptime. */
 const startedAt = Date.now();
@@ -40,14 +42,18 @@ export function handleDebug(): Response {
 
   const memoryJobCounts = getMemoryJobCounts();
 
-  const schedules = listSchedules();
-  const enabledSchedules = schedules.filter((s) => s.enabled).length;
+  const scheduleCounts = countSchedules();
+
+  const config = getConfig();
+  const providerOrder = Array.isArray(config.providerOrder) ? config.providerOrder : [];
+  const providerStatus = getProviderDebugStatus(config.provider, providerOrder);
 
   return Response.json({
     session: {
       uptimeSeconds,
       startedAt: new Date(startedAt).toISOString(),
     },
+    provider: providerStatus,
     memory: {
       conversationCount,
       memoryItemCount,
@@ -57,8 +63,8 @@ export function handleDebug(): Response {
       memory: memoryJobCounts,
     },
     schedules: {
-      total: schedules.length,
-      enabled: enabledSchedules,
+      total: scheduleCounts.total,
+      enabled: scheduleCounts.enabled,
     },
     timestamp: new Date(now).toISOString(),
   });

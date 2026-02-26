@@ -4,22 +4,19 @@ import { getConfig } from '../config/loader.js';
 import { getHookManager } from '../hooks/manager.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { RiskLevel } from '../permissions/types.js';
-import { isToolBlocked } from '../security/parental-control-store.js';
 import { redactSensitiveFields } from '../security/redaction.js';
 import { TokenExpiredError } from '../security/token-manager.js';
-import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 import { PermissionDeniedError,ToolError } from '../util/errors.js';
 import { pathExists, safeStatSync } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
 import { resolveExecutionTarget } from './execution-target.js';
 import { executeWithTimeout,safeTimeoutMs } from './execution-timeout.js';
-import { enforceGuardianOnlyPolicy } from './guardian-control-plane-policy.js';
 import { PermissionChecker } from './permission-checker.js';
-import { getAllTools,getTool } from './registry.js';
 import { SecretDetectionHandler } from './secret-detection-handler.js';
 import { applyEdit } from './shared/filesystem/edit-engine.js';
 import { sandboxPolicy } from './shared/filesystem/path-policy.js';
 import { MAX_FILE_SIZE_BYTES } from './shared/filesystem/size-guard.js';
+import { ToolApprovalHandler } from './tool-approval-handler.js';
 import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 
 const log = getLogger('tool-executor');
@@ -28,11 +25,13 @@ export class ToolExecutor {
   private prompter: PermissionPrompter;
   private permissionChecker: PermissionChecker;
   private secretDetectionHandler: SecretDetectionHandler;
+  private approvalHandler: ToolApprovalHandler;
 
   constructor(prompter: PermissionPrompter) {
     this.prompter = prompter;
     this.permissionChecker = new PermissionChecker(prompter);
     this.secretDetectionHandler = new SecretDetectionHandler(prompter);
+    this.approvalHandler = new ToolApprovalHandler();
   }
 
   async execute(
@@ -57,163 +56,18 @@ export class ToolExecutor {
       startedAtMs: startTime,
     });
 
-    // Bail out immediately if the session was aborted before this tool started.
-    // Individual tool implementations check the signal themselves for mid-run
-    // cancellation, but a pre-execution check prevents expensive permission
-    // lookups and prompter interactions after the user has already cancelled.
-    if (context.signal?.aborted) {
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent(context, {
-        type: 'error',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'error',
-        durationMs,
-        errorMessage: 'Cancelled',
-        isExpected: true,
-        errorCategory: 'tool_failure',
-      });
-      return { content: 'Cancelled', isError: true };
+    // Run pre-execution approval gates (abort, parental controls, guardian
+    // policy, allowed-tool-set, task-run preflight, tool registry lookup).
+    const gateResult = this.approvalHandler.checkPreExecutionGates(
+      name, input, context, executionTarget, riskLevel, startTime,
+      (event) => emitLifecycleEvent(context, event),
+    );
+
+    if (!gateResult.allowed) {
+      return gateResult.result;
     }
 
-    // Reject tools blocked by parental control settings before any permission check.
-    if (isToolBlocked(name)) {
-      log.warn(
-        {
-          toolName: name,
-          sessionId: context.sessionId,
-          conversationId: context.conversationId,
-          principal: context.principal,
-          reason: 'blocked_by_parental_controls',
-        },
-        'Parental control blocked tool invocation',
-      );
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent(context, {
-        type: 'permission_denied',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'deny',
-        reason: 'Blocked by parental control settings',
-        durationMs,
-      });
-      return { content: 'This tool is blocked by parental control settings.', isError: true };
-    }
-
-    // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.
-    const guardianCheck = enforceGuardianOnlyPolicy(name, input, context.guardianActorRole);
-    if (guardianCheck.denied) {
-      log.warn({
-        toolName: name,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        actorRole: context.guardianActorRole,
-        reason: 'guardian_only_policy',
-      }, 'Guardian-only policy blocked tool invocation');
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent(context, {
-        type: 'permission_denied',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'deny',
-        reason: guardianCheck.reason!,
-        durationMs,
-      });
-      return { content: guardianCheck.reason!, isError: true };
-    }
-
-    // Gate tools not active for the current turn
-    if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
-      const msg = `Tool "${name}" is not currently active. Load the skill that provides this tool first.`;
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent(context, {
-        type: 'error',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'error',
-        durationMs,
-        errorMessage: msg,
-        isExpected: true,
-        errorCategory: 'tool_failure',
-      });
-      return { content: msg, isError: true };
-    }
-
-    // Belt-and-suspenders guard for task runs: only preflight-approved tools
-    // may execute. This catches cases where ephemeral rules might not cover
-    // a tool, ensuring unapproved calls fail deterministically instead of
-    // falling through to the interactive prompter.
-    if (context.taskRunId) {
-      const taskRules = getTaskRunRules(context.taskRunId);
-      const approvedToolNames = new Set(taskRules.map((r) => r.tool));
-      if (approvedToolNames.size > 0 && !approvedToolNames.has(name)) {
-        const msg = `Tool '${name}' was not approved in the task's preflight. Add it to required tools and re-approve.`;
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent(context, {
-          type: 'permission_denied',
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
-          sessionId: context.sessionId,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          decision: 'deny',
-          reason: msg,
-          durationMs,
-        });
-        return { content: msg, isError: true };
-      }
-    }
-
-    const tool = getTool(name);
-    if (!tool) {
-      const available = getAllTools().filter((t) => t.executionMode !== 'proxy' || context.proxyToolResolver).map((t) => t.name).sort().join(', ');
-      const msg = `Unknown tool: ${name}. Available tools: ${available}`;
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent(context, {
-        type: 'error',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'error',
-        durationMs,
-        errorMessage: msg,
-        isExpected: true,
-        errorCategory: 'tool_failure',
-      });
-      return { content: msg, isError: true };
-    }
+    const tool = gateResult.tool;
 
     try {
       // Check permissions via the extracted PermissionChecker
@@ -360,6 +214,13 @@ export class ToolExecutor {
 
       return execResult;
     } catch (err) {
+      // Extract classified risk level if the PermissionChecker attached it
+      // before re-throwing. This preserves audit accuracy for high-risk
+      // tool attempts that fail mid-permission-evaluation.
+      if (err instanceof Error && typeof (err as Error & { riskLevel?: string }).riskLevel === 'string') {
+        riskLevel = (err as Error & { riskLevel?: string }).riskLevel!;
+      }
+
       const durationMs = Date.now() - startTime;
       const msg = err instanceof Error ? err.message : String(err);
       const isAbort = err instanceof Error && err.name === 'AbortError';

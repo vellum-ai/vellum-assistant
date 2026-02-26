@@ -134,6 +134,7 @@ mock.module('../tools/registry.js', () => ({
     for (const id of skillIds) {
       mockSkillRefCount.set(id, (mockSkillRefCount.get(id) ?? 0) + 1);
     }
+    return tools;
   },
   unregisterSkillTools: (skillId: string) => {
     mockUnregisteredSkillIds.push(skillId);

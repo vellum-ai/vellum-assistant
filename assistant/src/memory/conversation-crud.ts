@@ -253,21 +253,6 @@ export async function addMessage(conversationId: string, role: string, content: 
   }
   const message = { id: messageId, conversationId, role, content, createdAt: now, ...(metadataStr ? { metadata: metadataStr } : {}) };
 
-  // Verify the FTS trigger fired for this message. The trigger is atomic with
-  // the INSERT (see 116-messages-fts.ts), so a missing FTS row after a
-  // successful transaction indicates the trigger was dropped or the FTS table
-  // was recreated without triggers. Log a warning so the desync is visible.
-  try {
-    const ftsRow = rawGet<{ c: number }>(
-      'SELECT COUNT(*) AS c FROM messages_fts WHERE message_id = ?', messageId,
-    );
-    if (ftsRow && ftsRow.c === 0) {
-      log.warn({ conversationId, messageId }, 'FTS sync missing: messages_fts row not found after INSERT — search index may be stale');
-    }
-  } catch (err) {
-    log.warn({ err, conversationId, messageId }, 'FTS sync check failed — messages_fts may be corrupted or missing');
-  }
-
   if (!opts?.skipIndexing) {
     try {
       const config = getConfig();
@@ -384,13 +369,17 @@ export function clearAll(): { conversations: number; messages: number } {
   // clear non-cascading memory tables too.
   //
   // FTS virtual tables are cleared before their base tables. If an FTS
-  // table is corrupted, the DELETE will fail — we catch and log the error
-  // so that the rest of the cleanup can proceed. The FTS table can be
-  // rebuilt via its backfill migration after the corruption is resolved.
+  // table is corrupted, the DELETE will fail — we drop the associated
+  // triggers so that the subsequent base-table DELETEs don't also fail
+  // (SQLite triggers are atomic with the triggering statement, so a
+  // corrupted FTS table would roll back every base-table DELETE).
   try {
     rawExec('DELETE FROM memory_segment_fts');
   } catch (err) {
-    log.warn({ err }, 'clearAll: failed to clear memory_segment_fts — FTS index may be corrupted');
+    log.warn({ err }, 'clearAll: failed to clear memory_segment_fts — dropping triggers so base-table cleanup can proceed');
+    rawExec('DROP TRIGGER IF EXISTS memory_segments_ai');
+    rawExec('DROP TRIGGER IF EXISTS memory_segments_ad');
+    rawExec('DROP TRIGGER IF EXISTS memory_segments_au');
   }
   rawExec('DELETE FROM memory_item_sources');
   rawExec('DELETE FROM memory_segments');
@@ -407,7 +396,10 @@ export function clearAll(): { conversations: number; messages: number } {
   try {
     rawExec('DELETE FROM messages_fts');
   } catch (err) {
-    log.warn({ err }, 'clearAll: failed to clear messages_fts — FTS index may be corrupted');
+    log.warn({ err }, 'clearAll: failed to clear messages_fts — dropping triggers so base-table cleanup can proceed');
+    rawExec('DROP TRIGGER IF EXISTS messages_fts_ai');
+    rawExec('DROP TRIGGER IF EXISTS messages_fts_ad');
+    rawExec('DROP TRIGGER IF EXISTS messages_fts_au');
   }
   rawExec('DELETE FROM messages');
   rawExec('DELETE FROM conversations');
@@ -486,20 +478,6 @@ export function updateMessageContent(messageId: string, newContent: string): voi
     .set({ content: newContent })
     .where(eq(messages.id, messageId))
     .run();
-
-  // Verify FTS trigger synced the content update. The UPDATE trigger
-  // atomically deletes the old FTS row and inserts a new one, so a
-  // missing row here indicates a trigger or FTS table issue.
-  try {
-    const ftsRow = rawGet<{ c: number }>(
-      'SELECT COUNT(*) AS c FROM messages_fts WHERE message_id = ?', messageId,
-    );
-    if (ftsRow && ftsRow.c === 0) {
-      log.warn({ messageId }, 'FTS sync missing after updateMessageContent — search index may be stale');
-    }
-  } catch (err) {
-    log.warn({ err, messageId }, 'FTS sync check failed after updateMessageContent');
-  }
 }
 
 /**

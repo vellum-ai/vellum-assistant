@@ -12,6 +12,7 @@ import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import {
   createApprovalRequest,
+  findPendingAccessRequestForRequester,
 } from '../../memory/channel-guardian-store.js';
 import { recordConversationSeenSignal } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
@@ -264,6 +265,23 @@ export async function handleChannelInbound(
             log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
           }
         }
+
+        // Notify the guardian about the access request so they can approve/deny.
+        // Only fires when a guardian binding exists and no duplicate pending
+        // request already exists for this requester.
+        try {
+          notifyGuardianOfAccessRequest({
+            canonicalAssistantId,
+            sourceChannel,
+            externalChatId,
+            senderExternalUserId: body.senderExternalUserId,
+            senderName: body.senderName,
+            senderUsername: body.senderUsername,
+          });
+        } catch (err) {
+          log.error({ err, sourceChannel, externalChatId }, 'Failed to notify guardian of access request');
+        }
+
         return Response.json({ accepted: true, denied: true, reason: 'not_a_member' });
       }
     }
@@ -634,17 +652,52 @@ export async function handleChannelInbound(
         displayName: body.senderName,
         username: body.senderUsername,
       });
-      log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Guardian verified: auto-upserted ingress member');
+
+      const verifyLogLabel = verifyResult.verificationType === 'trusted_contact'
+        ? 'Trusted contact verified'
+        : 'Guardian verified';
+      log.info({ sourceChannel, externalUserId: body.senderExternalUserId, verificationType: verifyResult.verificationType }, `${verifyLogLabel}: auto-upserted ingress member`);
+
+      // Emit activated signal when a trusted contact completes verification.
+      // Member record is persisted above before this event fires, satisfying
+      // the persistence-before-event ordering invariant.
+      if (verifyResult.verificationType === 'trusted_contact') {
+        void emitNotificationSignal({
+          sourceEventName: 'ingress.trusted_contact.activated',
+          sourceChannel,
+          sourceSessionId: result.conversationId,
+          assistantId: canonicalAssistantId,
+          attentionHints: {
+            requiresAction: false,
+            urgency: 'low',
+            isAsyncBackground: false,
+            visibleInSourceNow: false,
+          },
+          contextPayload: {
+            sourceChannel,
+            externalUserId: body.senderExternalUserId,
+            externalChatId,
+            senderName: body.senderName ?? null,
+            senderUsername: body.senderUsername ?? null,
+          },
+          dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${body.senderExternalUserId}`,
+        });
+      }
     }
 
     // Deliver a deterministic template-driven reply and short-circuit.
     // Verification code messages must never produce agent-generated copy.
     if (replyCallbackUrl) {
-      const replyText = verifyResult.success
-        ? composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS)
-        : composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED, {
-            failureReason: stripVerificationFailurePrefix(verifyResult.reason),
-          });
+      let replyText: string;
+      if (!verifyResult.success) {
+        replyText = composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED, {
+          failureReason: stripVerificationFailurePrefix(verifyResult.reason),
+        });
+      } else if (verifyResult.verificationType === 'trusted_contact') {
+        replyText = composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_TRUSTED_CONTACT_VERIFY_SUCCESS);
+      } else {
+        replyText = composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS);
+      }
       try {
         await deliverChannelReply(replyCallbackUrl, {
           chatId: externalChatId,
@@ -1318,6 +1371,108 @@ export async function handleChannelInbound(
     duplicate: result.duplicate,
     eventId: result.eventId,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Non-member access request notification
+// ---------------------------------------------------------------------------
+
+/**
+ * Fire-and-forget: look up the guardian binding and, if present, create an
+ * approval request + emit a notification signal so the guardian can
+ * approve/deny the unknown user. Deduplicates by checking for an existing
+ * pending approval for the same (requester, assistant, channel).
+ */
+function notifyGuardianOfAccessRequest(params: {
+  canonicalAssistantId: string;
+  sourceChannel: ChannelId;
+  externalChatId: string;
+  senderExternalUserId?: string;
+  senderName?: string;
+  senderUsername?: string;
+}): void {
+  const {
+    canonicalAssistantId,
+    sourceChannel,
+    externalChatId,
+    senderExternalUserId,
+    senderName,
+    senderUsername,
+  } = params;
+
+  if (!senderExternalUserId) return;
+
+  const binding = getGuardianBinding(canonicalAssistantId, sourceChannel);
+  if (!binding) {
+    log.debug({ sourceChannel, canonicalAssistantId }, 'No guardian binding for access request notification');
+    return;
+  }
+
+  // Deduplicate: skip if there is already a pending approval request for
+  // the same requester on this channel.
+  const existing = findPendingAccessRequestForRequester(
+    canonicalAssistantId,
+    sourceChannel,
+    senderExternalUserId,
+    'ingress_access_request',
+  );
+  if (existing) {
+    log.debug(
+      { sourceChannel, senderExternalUserId, existingId: existing.id },
+      'Skipping duplicate access request notification',
+    );
+    return;
+  }
+
+  const senderIdentifier = senderName || senderUsername || senderExternalUserId;
+  const requestId = `access-req-${canonicalAssistantId}-${sourceChannel}-${senderExternalUserId}-${Date.now()}`;
+
+  const approvalRequest = createApprovalRequest({
+    runId: `ingress-access-request-${Date.now()}`,
+    requestId,
+    conversationId: `access-req-${sourceChannel}-${senderExternalUserId}`,
+    assistantId: canonicalAssistantId,
+    channel: sourceChannel,
+    requesterExternalUserId: senderExternalUserId,
+    requesterChatId: externalChatId,
+    guardianExternalUserId: binding.guardianExternalUserId,
+    guardianChatId: binding.guardianDeliveryChatId,
+    toolName: 'ingress_access_request',
+    riskLevel: 'access_request',
+    reason: `${senderIdentifier} is requesting access to the assistant`,
+    expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
+  });
+
+  void emitNotificationSignal({
+    sourceEventName: 'ingress.access_request',
+    sourceChannel,
+    sourceSessionId: `access-req-${sourceChannel}-${senderExternalUserId}`,
+    assistantId: canonicalAssistantId,
+    attentionHints: {
+      requiresAction: true,
+      urgency: 'high',
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      requestId,
+      sourceChannel,
+      externalChatId,
+      senderExternalUserId,
+      senderName: senderName ?? null,
+      senderUsername: senderUsername ?? null,
+      senderIdentifier,
+    },
+    // Scoped to the approval request ID so duplicate notifications for the
+    // same request are suppressed, but a new request (after deny/expire)
+    // gets its own dedupe key and the guardian is notified again.
+    dedupeKey: `access-request:${approvalRequest.id}`,
+  });
+
+  log.info(
+    { sourceChannel, senderExternalUserId, senderIdentifier },
+    'Guardian notified of non-member access request',
+  );
 }
 
 // ---------------------------------------------------------------------------
