@@ -4,6 +4,13 @@
 
 export type RecordingIntentClass = 'start_only' | 'stop_only' | 'mixed' | 'none';
 
+export type RecordingIntentResult =
+  | { kind: 'none' }
+  | { kind: 'start_only' }
+  | { kind: 'stop_only' }
+  | { kind: 'start_with_remainder'; remainder: string }
+  | { kind: 'stop_with_remainder'; remainder: string };
+
 // ─── Start recording patterns ────────────────────────────────────────────────
 
 const START_RECORDING_PATTERNS: RegExp[] = [
@@ -230,4 +237,70 @@ export function classifyRecordingIntent(
   }
 
   return 'none';
+}
+
+// ─── Structured intent resolver ─────────────────────────────────────────────
+
+/**
+ * Resolves recording intent from user text into a structured result that
+ * distinguishes pure recording commands from commands with remaining task text.
+ *
+ * Pipeline:
+ * 1. Strip dynamic assistant names (leading vocative)
+ * 2. Strip leading polite wrappers
+ * 3. Interrogative gate — questions return `none`
+ * 4. Detect start/stop patterns (start takes precedence when both present)
+ * 5. Determine if recording-only or has a remainder, stripping from the
+ *    ORIGINAL text to preserve the user's exact phrasing
+ */
+export function resolveRecordingIntent(
+  text: string,
+  dynamicNames?: string[],
+): RecordingIntentResult {
+  // Step 1: Strip dynamic assistant names for normalization
+  let normalized =
+    dynamicNames && dynamicNames.length > 0
+      ? stripDynamicNames(text, dynamicNames)
+      : text;
+
+  // Step 2: Strip leading polite wrappers for normalization
+  normalized = normalized.replace(/^\s*(hey|hi|hello|please|pls|plz)[,\s]+/i, '');
+
+  // Step 3: Interrogative gate — WH-questions are not commands
+  if (WH_INTERROGATIVE.test(normalized)) {
+    return { kind: 'none' };
+  }
+
+  // Step 4: Detect start and stop patterns on the normalized text
+  const hasStart = detectRecordingIntent(normalized);
+  const hasStop = detectStopRecordingIntent(normalized);
+
+  // Step 5: Resolve — start takes precedence when both are present
+  if (hasStart) {
+    if (isRecordingOnly(normalized)) {
+      return { kind: 'start_only' };
+    }
+    // Strip from the ORIGINAL text to preserve user's exact phrasing
+    let remainder = stripRecordingIntent(text);
+    // Also strip stop-recording clauses when both intents are present
+    if (hasStop) remainder = stripStopRecordingIntent(remainder);
+    if (hasSubstantiveContent(remainder, dynamicNames)) {
+      return { kind: 'start_with_remainder', remainder };
+    }
+    return { kind: 'start_only' };
+  }
+
+  if (hasStop) {
+    if (isStopRecordingOnly(normalized)) {
+      return { kind: 'stop_only' };
+    }
+    // Strip from the ORIGINAL text to preserve user's exact phrasing
+    const remainder = stripStopRecordingIntent(text);
+    if (hasSubstantiveContent(remainder, dynamicNames)) {
+      return { kind: 'stop_with_remainder', remainder };
+    }
+    return { kind: 'stop_only' };
+  }
+
+  return { kind: 'none' };
 }
