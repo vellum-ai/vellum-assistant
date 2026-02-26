@@ -1887,12 +1887,9 @@ public final class ChatViewModel: ObservableObject {
                         return result.count > 2000 ? String(result.prefix(2000)) + "...[truncated]" : result
                     }()
 
-                    // Discard base64 image data that fails to decode — don't retain failed base64
-                    let validImageData: String? = {
-                        guard let imgData = tc.imageData else { return nil }
-                        let decoded = ToolCallData.decodeImage(from: imgData)
-                        return decoded != nil ? imgData : nil
-                    }()
+                    // Decode image once — pass decoded image directly to avoid double-decode
+                    // (ToolCallData.init also decodes base64, so skip that by passing imageData: nil)
+                    let decodedImage = ToolCallData.decodeImage(from: tc.imageData)
 
                     var toolCall = ToolCallData(
                         toolName: tc.name,
@@ -1903,8 +1900,9 @@ public final class ChatViewModel: ObservableObject {
                         isError: tc.isError ?? false,
                         isComplete: true,
                         arrivedBeforeText: toolsBeforeText,
-                        imageData: validImageData
+                        imageData: nil
                     )
+                    toolCall.cachedImage = decodedImage
                     // Defer expensive formatting — store the raw dict for lazy computation
                     // when the user expands the tool call chip. Cap the raw dict size
                     // to prevent unbounded memory from large tool inputs (mirrors the
