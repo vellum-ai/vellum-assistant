@@ -152,6 +152,19 @@ Concretely:
 
 Why: the gateway is the single point of ingress, handling TLS termination, auth, rate limiting, and routing. Exposing the daemon directly bypasses these protections and breaks the deployment model.
 
+### Gateway-Only API Consumption
+
+All assistant API requests from clients, CLI, skills, and user-facing tooling **MUST** target gateway URLs. Never construct URLs using the daemon runtime port (`7821`) or `RUNTIME_HTTP_PORT` for external API consumption.
+
+**Exception boundary:** The gateway service itself may call the runtime internally. Tests may use direct runtime URLs for isolated unit/integration scenarios. Intentional local daemon-control paths are exempt:
+- `clients/shared/IPC/DaemonClient.swift`
+- `clients/macos/vellum-assistant/App/AppDelegate.swift` (`localHttpEnabled`)
+- `clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift` (health probe)
+
+**Migration rule:** If a needed endpoint is not available at the gateway, add a gateway route/proxy first, then consume it. Do not work around a missing gateway endpoint by hitting the runtime directly.
+
+**Ban on hardcoded runtime hosts/ports:** Do not embed `localhost:7821`, `127.0.0.1:7821`, or runtime-port-derived URLs in docs, skills, or user-facing guidance. Always reference gateway URLs instead. A CI guard test (`gateway-only-guard.test.ts`) enforces this — any new direct runtime URL reference in production code or skills will fail CI.
+
 ## LLM Provider Abstraction
 
 All LLM calls in production code **MUST** go through the provider abstraction layer — never import `@anthropic-ai/sdk` (or any other provider SDK) directly.
