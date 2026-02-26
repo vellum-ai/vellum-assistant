@@ -300,8 +300,10 @@ final class ComputerUseSession: ObservableObject {
             verifier.resetBlockCount()
 
         case .needsConfirmation(let reason):
-            // Skip confirmation when auto-approve is on
-            if autoApproveTools {
+            // Auto-approve only low-risk confirmations (AppleScript).
+            // Destructive keys and form submissions (Enter) always prompt.
+            let isLowRisk = agentAction.type == .runAppleScript
+            if autoApproveTools && isLowRisk {
                 log.info("[\(action.stepNumber)] Auto-approved: \(reason)")
                 verifier.recordConfirmedAction(agentAction)
                 verifier.resetBlockCount()
