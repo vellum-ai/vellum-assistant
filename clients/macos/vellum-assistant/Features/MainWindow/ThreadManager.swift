@@ -62,6 +62,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Subscription to activeViewModel's messages count changes.
     /// Forwards only message count changes to ThreadManager's objectWillChange.
     private var activeViewModelCancellable: AnyCancellable?
+    /// Subscriptions to per-thread busy-state changes (isSending, isThinking, pendingQueuedCount).
+    private var busyStateCancellables: [UUID: Set<AnyCancellable>] = [:]
+    /// Cached set of thread IDs whose ChatViewModel indicates active processing.
+    @Published private(set) var busyThreadIds: Set<UUID> = []
 
     /// Threads that are not archived — used by the UI to populate the sidebar.
     /// Sorted: pinned first (by pinnedOrder ascending), then unpinned by lastInteractedAt descending.
@@ -130,6 +134,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
+        subscribeToBusyState(for: thread.id, viewModel: viewModel)
         touchVMAccessOrder(thread.id)
         evictStaleCachedViewModels()
         activeThreadId = thread.id
@@ -148,6 +153,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
+        subscribeToBusyState(for: thread.id, viewModel: viewModel)
         touchVMAccessOrder(thread.id)
         evictStaleCachedViewModels()
         activeThreadId = thread.id
@@ -176,6 +182,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
+        subscribeToBusyState(for: thread.id, viewModel: viewModel)
         touchVMAccessOrder(thread.id)
         evictStaleCachedViewModels()
 
@@ -199,6 +206,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
+        subscribeToBusyState(for: thread.id, viewModel: viewModel)
         touchVMAccessOrder(thread.id)
         evictStaleCachedViewModels()
 
@@ -217,6 +225,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         threads.remove(at: index)
         chatViewModels.removeValue(forKey: id)
+        unsubscribeFromBusyState(for: id)
         vmAccessOrder.removeAll { $0 == id }
 
         // Reclaim memory held by static caches that may reference
@@ -248,6 +257,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             archivedSessionIds = archived
             // Session ID already known — safe to release the view model.
             chatViewModels.removeValue(forKey: id)
+            unsubscribeFromBusyState(for: id)
             vmAccessOrder.removeAll { $0 == id }
         } else if chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true
                     && chatViewModels[id]?.isBootstrapping != true {
@@ -256,6 +266,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             // a session will never be created, so there is nothing to backfill.
             // Clean up immediately.
             chatViewModels.removeValue(forKey: id)
+            unsubscribeFromBusyState(for: id)
             vmAccessOrder.removeAll { $0 == id }
         } else {
             // Session ID is nil but a session is expected (user messages exist
@@ -526,6 +537,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID) {
         chatViewModels[threadId] = vm
+        subscribeToBusyState(for: threadId, viewModel: vm)
         touchVMAccessOrder(threadId)
         evictStaleCachedViewModels()
         // Re-subscribe if this is the active view model
@@ -536,6 +548,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func removeChatViewModel(for threadId: UUID) {
         chatViewModels.removeValue(forKey: threadId)
+        unsubscribeFromBusyState(for: threadId)
         vmAccessOrder.removeAll { $0 == threadId }
     }
 
@@ -663,6 +676,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             archived.insert(sessionId)
             archivedSessionIds = archived
             chatViewModels.removeValue(forKey: threadId)
+            unsubscribeFromBusyState(for: threadId)
             vmAccessOrder.removeAll { $0 == threadId }
         }
     }
@@ -686,6 +700,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             viewModel.isHistoryLoaded = true
         }
         chatViewModels[threadId] = viewModel
+        subscribeToBusyState(for: threadId, viewModel: viewModel)
         touchVMAccessOrder(threadId)
         evictStaleCachedViewModels()
         return viewModel
@@ -709,6 +724,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             }
             chatViewModels[victim]?.stopGenerating()
             chatViewModels.removeValue(forKey: victim)
+            unsubscribeFromBusyState(for: victim)
             vmAccessOrder.removeAll { $0 == victim }
             log.info("LRU evicted VM for thread \(victim)")
         }
@@ -750,6 +766,49 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         // Clear the flag so future activeThreadId changes persist normally
         isRestoringThreads = false
+    }
+
+    // MARK: - Busy State
+
+    /// Whether the given thread's ChatViewModel indicates active processing.
+    func isThreadBusy(_ threadId: UUID) -> Bool {
+        busyThreadIds.contains(threadId)
+    }
+
+    /// Subscribe to busy-state publishers on a ChatViewModel so `busyThreadIds` stays current.
+    func subscribeToBusyState(for threadId: UUID, viewModel: ChatViewModel) {
+        // Tear down any previous subscriptions for this thread.
+        busyStateCancellables.removeValue(forKey: threadId)
+        var subs = Set<AnyCancellable>()
+
+        let mgr = viewModel.messageManager
+        // Combine the three relevant publishers into a single derived boolean.
+        Publishers.CombineLatest3(
+            mgr.$isSending,
+            mgr.$isThinking,
+            mgr.$pendingQueuedCount
+        )
+        .map { isSending, isThinking, pendingQueuedCount in
+            isSending || isThinking || pendingQueuedCount > 0
+        }
+        .removeDuplicates()
+        .sink { [weak self] isBusy in
+            guard let self else { return }
+            if isBusy {
+                self.busyThreadIds.insert(threadId)
+            } else {
+                self.busyThreadIds.remove(threadId)
+            }
+        }
+        .store(in: &subs)
+
+        busyStateCancellables[threadId] = subs
+    }
+
+    /// Remove busy-state subscriptions for a thread (e.g. on archive/close).
+    private func unsubscribeFromBusyState(for threadId: UUID) {
+        busyStateCancellables.removeValue(forKey: threadId)
+        busyThreadIds.remove(threadId)
     }
 
     /// Subscribe to the active ChatViewModel's messages publisher.
