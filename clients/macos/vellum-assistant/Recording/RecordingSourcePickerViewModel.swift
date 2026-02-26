@@ -110,6 +110,42 @@ final class RecordingSourcePickerViewModel: ObservableObject {
     /// The picker window, used to determine which display it's on.
     weak var pickerWindow: NSWindow?
 
+    // MARK: - Window Sizing
+
+    /// Maximum number of source rows visible without scrolling.
+    static let maxVisibleSourceRows = 3
+
+    /// Calculate the ideal window height for the given number of source items.
+    ///
+    /// Sizes the window to fit up to 3 source rows without scrolling.
+    /// Beyond 3, the source list scrolls at the capped height.
+    static func idealWindowHeight(sourceCount: Int) -> CGFloat {
+        let fixedHeight: CGFloat = 444
+        let rowAllocation: CGFloat = 78
+        let listPadding: CGFloat = 12
+        let visibleRows = min(max(sourceCount, 1), maxVisibleSourceRows)
+        return fixedHeight + rowAllocation * CGFloat(visibleRows) + listPadding
+    }
+
+    /// Resize the picker window to fit the current number of source items.
+    ///
+    /// Keeps the window's top edge fixed while adjusting the height.
+    /// Converts the desired content height to frame height so the calculation
+    /// is correct regardless of title-bar style.
+    func updateWindowSize() {
+        guard let window = pickerWindow else { return }
+        let sourceCount = captureScope == .display ? displays.count : windows.count
+        let idealContentHeight = Self.idealWindowHeight(sourceCount: sourceCount)
+
+        let contentRect = NSRect(x: 0, y: 0, width: window.frame.width, height: idealContentHeight)
+        let targetFrameHeight = window.frameRect(forContentRect: contentRect).height
+
+        var frame = window.frame
+        frame.origin.y += frame.size.height - targetFrameHeight
+        frame.size.height = targetFrameHeight
+        window.setFrame(frame, display: true, animate: true)
+    }
+
     /// Computed recording options for the current selection.
     var selectedRecordingOptions: IPCRecordingOptions {
         IPCRecordingOptions(
