@@ -200,6 +200,11 @@ public struct ToolCallChip: View {
                     ? VColor.error.opacity(0.3)
                     : VColor.surfaceBorder.opacity(0.5), lineWidth: 0.5)
         )
+        .onChange(of: toolCall.inputFull) { _ in
+            // Invalidate the cached formatted input so the next render picks up
+            // the fresh (rehydrated) value instead of the stale truncated one.
+            cachedInputFull = nil
+        }
     }
 }
 

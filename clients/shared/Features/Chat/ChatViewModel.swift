@@ -501,22 +501,45 @@ public final class ChatViewModel: ObservableObject {
     public func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
         guard let idx = messages.firstIndex(where: { $0.daemonMessageId == response.messageId }) else { return }
 
-        // Update text with full content
+        // Update text with full content. When collapsing multiple text segments
+        // into one, also update contentOrder so stale .text(N>0) references are
+        // removed — otherwise interleaved content orders become invalid.
         if let fullText = response.text {
             messages[idx].textSegments = fullText.isEmpty ? [] : [fullText]
+            if !messages[idx].contentOrder.isEmpty {
+                var seenText = false
+                messages[idx].contentOrder = messages[idx].contentOrder.compactMap { entry in
+                    if case .text = entry {
+                        if seenText { return nil }
+                        seenText = true
+                        return .text(0)
+                    }
+                    return entry
+                }
+            }
         }
 
-        // Update tool call results with full content
+        // Update tool call results with full content.
+        // Use positional matching first — when a message has multiple tool calls
+        // with the same name (e.g. two `bash` calls), name-based lookup always
+        // overwrites the first match. Fall back to name-based only when the
+        // positional index is out of bounds or the name doesn't match.
         if let fullToolCalls = response.toolCalls {
-            for fullTC in fullToolCalls {
-                if let tcIdx = messages[idx].toolCalls.firstIndex(where: { $0.toolName == fullTC.name }) {
-                    if let result = fullTC.result {
-                        messages[idx].toolCalls[tcIdx].result = result
-                    }
-                    if let input = fullTC.input {
-                        messages[idx].toolCalls[tcIdx].inputFull = ToolCallData.formatAllToolInput(input)
-                        messages[idx].toolCalls[tcIdx].inputRawDict = input
-                    }
+            for (i, fullTC) in fullToolCalls.enumerated() {
+                let tcIdx: Int
+                if i < messages[idx].toolCalls.count && messages[idx].toolCalls[i].toolName == fullTC.name {
+                    tcIdx = i
+                } else if let fallback = messages[idx].toolCalls.firstIndex(where: { $0.toolName == fullTC.name }) {
+                    tcIdx = fallback
+                } else {
+                    continue
+                }
+                if let result = fullTC.result {
+                    messages[idx].toolCalls[tcIdx].result = result
+                }
+                if let input = fullTC.input {
+                    messages[idx].toolCalls[tcIdx].inputFull = ToolCallData.formatAllToolInput(input)
+                    messages[idx].toolCalls[tcIdx].inputRawDict = input
                 }
             }
         }

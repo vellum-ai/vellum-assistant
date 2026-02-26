@@ -317,6 +317,11 @@ private struct UsedToolsRow: View {
             }
         }
         .animation(VAnimation.fast, value: isExpanded)
+        .onChange(of: toolCall.inputFull) { _ in
+            // Invalidate the cached formatted input so the next render picks up
+            // the fresh (rehydrated) value instead of the stale truncated one.
+            cachedInputFull = nil
+        }
     }
 
     /// Open the image in Preview.app. Tries the original file path first; falls
