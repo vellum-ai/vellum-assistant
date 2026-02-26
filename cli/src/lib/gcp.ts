@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { existsSync, unlinkSync, writeFileSync } from "fs";
+import { unlinkSync, writeFileSync } from "fs";
 import { tmpdir, userInfo } from "os";
 import { join } from "path";
 
@@ -370,13 +370,12 @@ const DESIRED_FIREWALL_RULES: FirewallRuleSpec[] = [
   },
 ];
 
-async function resolveInstallScriptPath(): Promise<string | null> {
-  const sourcePath = join(import.meta.dir, "..", "adapters", "install.sh");
-  if (existsSync(sourcePath)) {
-    return sourcePath;
-  }
-  console.warn("\u26a0\ufe0f  Install script not found at", sourcePath, "(expected in compiled binary)");
-  return null;
+import INSTALL_SCRIPT_CONTENT from "../adapters/install.sh" with { type: "text" };
+
+function resolveInstallScriptPath(): string {
+  const tmpPath = join(tmpdir(), `vellum-install-${process.pid}.sh`);
+  writeFileSync(tmpPath, INSTALL_SCRIPT_CONTENT, { mode: 0o755 });
+  return tmpPath;
 }
 
 async function pollInstance(
@@ -459,11 +458,7 @@ async function recoverFromCurlFailure(
   sshUser: string,
   account?: string,
 ): Promise<void> {
-  const installScriptPath = await resolveInstallScriptPath();
-  if (!installScriptPath) {
-    console.warn("\u26a0\ufe0f  Skipping install script upload (not available in compiled binary)");
-    return;
-  }
+  const installScriptPath = resolveInstallScriptPath();
 
   const scpArgs = [
     "compute",
@@ -488,6 +483,7 @@ async function recoverFromCurlFailure(
   if (account) sshArgs.push(`--account=${account}`);
   console.log("\ud83d\udd27 Running install script on instance...");
   await exec("gcloud", sshArgs);
+  try { unlinkSync(installScriptPath); } catch {}
 }
 
 export async function hatchGcp(

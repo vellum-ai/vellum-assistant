@@ -306,28 +306,13 @@ extension AppDelegate {
             return true
         }
 
-        if trySelect() {
-            // Report explicit conversation view for notification deep-links.
-            try? daemonClient.sendNotificationConversationViewed(
-                conversationId: conversationId,
-                source: "macos_conversation_opened",
-                occurredAt: Int(Date().timeIntervalSince1970 * 1000)
-            )
-            return
-        }
+        if trySelect() { return }
 
         // Thread may not be loaded yet — retry up to 5 times with 500ms delay
         Task { @MainActor in
             for _ in 0..<5 {
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                if trySelect() {
-                    try? self.daemonClient.sendNotificationConversationViewed(
-                        conversationId: conversationId,
-                        source: "macos_conversation_opened",
-                        occurredAt: Int(Date().timeIntervalSince1970 * 1000)
-                    )
-                    return
-                }
+                if trySelect() { return }
             }
             log.warning("Could not find thread for conversation \(conversationId) after retries")
         }

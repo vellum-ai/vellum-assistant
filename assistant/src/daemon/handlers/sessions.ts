@@ -740,10 +740,12 @@ export function handleHistoryRequest(
 
     // Apply text truncation when maxTextChars is set
     let wasTruncated = false;
+    let textWasTruncated = false;
     let text = m.text;
     if (msg.maxTextChars !== undefined && text.length > msg.maxTextChars) {
       text = text.slice(0, msg.maxTextChars) + ' \u2026 [truncated]';
       wasTruncated = true;
+      textWasTruncated = true;
     }
 
     // Apply tool result truncation when maxToolResultChars is set
@@ -764,8 +766,8 @@ export function handleHistoryRequest(
       timestamp: m.timestamp,
       ...(truncatedToolCalls.length > 0 ? { toolCalls: truncatedToolCalls, toolCallsBeforeText: m.toolCallsBeforeText } : {}),
       ...(attachments ? { attachments } : {}),
-      ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
-      ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
+      ...(!textWasTruncated && m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
+      ...(!textWasTruncated && m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
       ...(filteredSurfaces.length > 0 ? { surfaces: filteredSurfaces } : {}),
       ...(m.subagentNotification ? { subagentNotification: m.subagentNotification } : {}),
       ...(wasTruncated ? { wasTruncated: true } : {}),
@@ -927,8 +929,35 @@ export function handleMessageContentRequest(
     const content = JSON.parse(dbMessage.content);
     const rendered = renderHistoryContent(content);
     text = rendered.text || undefined;
-    if (rendered.toolCalls.length > 0) {
-      toolCalls = rendered.toolCalls.map((tc) => ({
+    let mergedToolCalls = rendered.toolCalls;
+
+    // Handle legacy conversations where tool_result blocks are stored in the
+    // following user message rather than inline with the assistant message.
+    // This mirrors the mergeToolResults logic used by handleHistoryRequest.
+    if (dbMessage.role === 'assistant' && mergedToolCalls.some((tc) => tc.result === undefined)) {
+      const nextMsg = conversationStore.getNextMessage(msg.sessionId, dbMessage.createdAt, dbMessage.id);
+      if (nextMsg && nextMsg.role === 'user') {
+        try {
+          const nextContent = JSON.parse(nextMsg.content);
+          const nextRendered = renderHistoryContent(nextContent);
+          if (nextRendered.text.trim() === '' && nextRendered.toolCalls.length > 0) {
+            for (const resultEntry of nextRendered.toolCalls) {
+              const unresolved = mergedToolCalls.find((tc) => tc.result === undefined);
+              if (unresolved) {
+                unresolved.result = resultEntry.result;
+                unresolved.isError = resultEntry.isError;
+                if (resultEntry.imageData) unresolved.imageData = resultEntry.imageData;
+              }
+            }
+          }
+        } catch {
+          // Next message isn't valid JSON — skip merging
+        }
+      }
+    }
+
+    if (mergedToolCalls.length > 0) {
+      toolCalls = mergedToolCalls.map((tc) => ({
         name: tc.name,
         input: tc.input,
         ...(tc.result !== undefined ? { result: tc.result } : {}),

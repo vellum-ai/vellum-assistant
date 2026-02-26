@@ -1,9 +1,14 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 
-import { ANSI, renderChatApp } from "../components/DefaultMainScreen";
 import { findAssistantByName, loadLatestAssistant } from "../lib/assistant-config";
 import { GATEWAY_PORT, type Species } from "../lib/constants";
+
+const ANSI = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+};
 
 const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
 const FALLBACK_ASSISTANT_ID = "default";
@@ -107,6 +112,8 @@ ${ANSI.bold}EXAMPLES:${ANSI.reset}
 
 export async function client(): Promise<void> {
   const { runtimeUrl, assistantId, species, bearerToken, project, zone } = parseArgs();
+
+  const { renderChatApp } = await import("../components/DefaultMainScreen");
 
   process.stdout.write("\x1b[2J\x1b[H");
 

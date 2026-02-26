@@ -19,7 +19,7 @@ export function addPointerMessage(
     case 'started':
       text = extra?.verificationCode
         ? `\u{1F4DE} Call to ${phoneNumber} started. Verification code: ${extra.verificationCode}`
-        : `\u{1F4DE} Call to ${phoneNumber} started. See voice thread for details.`;
+        : `\u{1F4DE} Call to ${phoneNumber} started.`;
       break;
     case 'completed':
       text = extra?.duration
@@ -33,11 +33,14 @@ export function addPointerMessage(
       break;
   }
 
+  // Pointer messages are assistant-generated status updates in the initiating
+  // desktop thread. Do not set userMessageChannel — doing so would mark the
+  // conversation's origin channel as voice, causing it to leak into the
+  // desktop thread list as a channel-bound session.
   conversationStore.addMessage(
     conversationId,
     'assistant',
     JSON.stringify([{ type: 'text', text }]),
-    { userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
   );
 }
 

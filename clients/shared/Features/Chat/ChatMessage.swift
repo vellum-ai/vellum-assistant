@@ -1388,14 +1388,16 @@ public struct ChatMessage: Identifiable, Equatable {
         self.isError = isError
     }
 
-    /// Maximum text segment length before truncation during stripping.
-    private static let stripTextLimit = 200
-
     /// Release heavyweight data (images, attachment binary data, completed surface
-    /// payloads, tool results, large text) to reduce memory pressure on old messages
+    /// payloads, tool results) to reduce memory pressure on old messages
     /// that are no longer visible.
+    /// Text segments are preserved in full — they are lightweight compared to binary
+    /// data and are needed for transcript export. Full content can be rehydrated from
+    /// the daemon via message_content_request if needed.
     /// Metadata (tool names, inputSummary, inputRawValue, surface refs) is preserved for display.
     public mutating func stripHeavyContent() {
+        guard !isContentStripped else { return }
+
         // Tool calls: clear images, results, full input, and raw dict.
         // Keep toolName, inputSummary, and inputRawValue (short one-liner) intact for display.
         for i in toolCalls.indices {
@@ -1422,13 +1424,6 @@ public struct ChatMessage: Identifiable, Equatable {
                     surfaceRef: inlineSurfaces[i].surfaceRef,
                     completionState: inlineSurfaces[i].completionState
                 )
-            }
-        }
-        // Truncate long text segments to reduce string memory.
-        let limit = Self.stripTextLimit
-        for i in textSegments.indices {
-            if textSegments[i].count > limit {
-                textSegments[i] = String(textSegments[i].prefix(limit)) + " \u{2026} [stripped]"
             }
         }
         isContentStripped = true

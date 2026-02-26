@@ -62,6 +62,9 @@ struct SettingsConnectTab: View {
     @State private var countdownTimer: Timer?
     @State private var countdownTimerRefCount: Int = 0
 
+    // Refresh button minimum-spin state (keyed by row label)
+    @State private var refreshSpinning: Set<String> = []
+
     // Token regeneration state
     @State private var isRegeneratingToken: Bool = false
 
@@ -144,7 +147,7 @@ struct SettingsConnectTab: View {
             if authManager.isLoading {
                 channelStatusRow(
                     label: "Account",
-                    icon: "arrow.trianglehead.2.counterclockwise",
+                    icon: "arrow.triangle.2.circlepath",
                     iconColor: VColor.textMuted,
                     value: "Checking..."
                 )
@@ -1295,26 +1298,24 @@ struct SettingsConnectTab: View {
             }
 
             if channel == "telegram" {
-                Text("Enter a Telegram @username (e.g. @janedoe) or numeric chat ID for the guardian.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                HStack(spacing: 0) {
+                    Text("Enter a @username or chat ID. ")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
 
-                Button {
-                    if let url = URL(string: "https://web.telegram.org/k/#@userinfobot") {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "questionmark.circle")
-                            .font(.system(size: 11))
-                        Text("Find your Telegram username or chat ID")
+                    Button {
+                        if let url = URL(string: "https://web.telegram.org/k/#@userinfobot") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } label: {
+                        Text("Find yours →")
                             .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
                     }
-                    .foregroundColor(VColor.accent)
-                }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
                 }
             }
         }
@@ -1617,6 +1618,16 @@ struct SettingsConnectTab: View {
 
     // MARK: - Mobile Card (Pairing + Approved Devices)
 
+    private var mobilePairingLabel: some View {
+        HStack(spacing: VSpacing.xs) {
+            Text("Device Pairing")
+            VInfoTooltip("Scan a QR code with the iOS app to pair your phone with this Mac.")
+        }
+        .font(VFont.caption)
+        .foregroundColor(VColor.textSecondary)
+        .frame(width: 140, alignment: .leading)
+    }
+
     private var mobileCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -1628,47 +1639,33 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.textMuted)
             }
 
-            VButton(label: "Show QR Code", leftIcon: "qrcode", style: .primary) {
-                showingPairingQR = true
-            }
-            .disabled(isRegeneratingToken)
-
-            // Status line — LAN pairing works without a cloud gateway URL.
-            let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
-            let hasToken = !bearerToken.isEmpty
-
-            if isRegeneratingToken {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Restarting daemon with new token\u{2026}")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else if !hasGateway {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 14))
-                    Text("Configure a gateway URL to enable pairing")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.warning)
-                }
-            } else if !hasToken {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 14))
-                        Text("Bearer token required")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.warning)
-                    }
-                    VButton(label: "Generate Token", leftIcon: "key", style: .secondary) {
-                        regenerateHttpToken()
-                    }
+            // Connected devices — shown as status rows (mirrors Telegram bot / Twilio phone rows)
+            if store.approvedDevices.isEmpty {
+                channelStatusRow(
+                    label: "Device",
+                    icon: "iphone",
+                    iconColor: VColor.textMuted,
+                    value: "No devices paired",
+                    valueColor: VColor.textMuted
+                )
+            } else {
+                ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
+                    channelStatusRow(
+                        label: "Device",
+                        icon: "iphone",
+                        iconColor: VColor.success,
+                        value: device.deviceName,
+                        action: .init(label: "Remove", style: .danger) {
+                            store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
+                        }
+                    )
                 }
             }
+
+            Divider().background(VColor.surfaceBorder)
+
+            // Device pairing row — mirrors Guardian Verification row layout
+            mobilePairingRow
 
             // Compact advanced disclosure for power users
             Divider().background(VColor.surfaceBorder)
@@ -1700,43 +1697,59 @@ struct SettingsConnectTab: View {
                     .padding(.top, VSpacing.sm)
                 }
             }
-
-            // Connected devices
-            if !store.approvedDevices.isEmpty {
-                Divider().background(VColor.surfaceBorder)
-
-                ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(device.deviceName)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                            Text("Last paired: \(formattedDeviceDate(device.lastPairedAt))")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        Button("Remove") {
-                            store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
-                        }
-                        .font(VFont.caption)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                    .padding(.vertical, VSpacing.xs)
-                }
-            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    private func formattedDeviceDate(_ timestamp: Int) -> String {
-        let date = Date(timeIntervalSince1970: Double(timestamp) / 1000.0)
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+    @ViewBuilder
+    private var mobilePairingRow: some View {
+        let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
+        let hasToken = !bearerToken.isEmpty
+
+        if isRegeneratingToken {
+            HStack(spacing: VSpacing.sm) {
+                mobilePairingLabel
+                ProgressView()
+                    .controlSize(.small)
+                Text("Restarting daemon\u{2026}")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        } else if !hasGateway {
+            HStack(spacing: VSpacing.sm) {
+                mobilePairingLabel
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(VColor.warning)
+                    .font(.system(size: 12))
+                Text("Configure a gateway URL to enable pairing")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.warning)
+            }
+        } else if !hasToken {
+            HStack(spacing: VSpacing.sm) {
+                mobilePairingLabel
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(VColor.warning)
+                    .font(.system(size: 12))
+                Text("Bearer token required")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.warning)
+                Spacer()
+                VButton(label: "Generate Token", style: .secondary) {
+                    regenerateHttpToken()
+                }
+            }
+        } else {
+            HStack(spacing: VSpacing.sm) {
+                mobilePairingLabel
+                Spacer()
+                VButton(label: "Pair Device", leftIcon: "qrcode", style: .primary) {
+                    showingPairingQR = true
+                }
+            }
+        }
     }
 
 
@@ -1811,7 +1824,9 @@ struct SettingsConnectTab: View {
         lastChecked: Date? = nil,
         onRefresh: (() -> Void)? = nil
     ) -> some View {
-        HStack(spacing: VSpacing.sm) {
+        let spinning = isRefreshing || refreshSpinning.contains(label)
+
+        return HStack(spacing: VSpacing.sm) {
             Text(label)
                 .font(VFont.bodyMedium)
                 .foregroundColor(VColor.textSecondary)
@@ -1825,23 +1840,27 @@ struct SettingsConnectTab: View {
                 .font(VFont.body)
                 .foregroundColor(status.color)
 
-            Spacer()
-
             if let onRefresh {
                 let tooltipText: String = {
-                    if isRefreshing { return "Checking..." }
+                    if spinning { return "Checking..." }
                     if let lastChecked { return "Last verified: \(relativeTimeString(from: lastChecked))" }
                     return "Test connection"
                 }()
 
                 Button {
-                    if !isRefreshing { onRefresh() }
+                    guard !spinning else { return }
+                    refreshSpinning.insert(label)
+                    onRefresh()
+                    Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        refreshSpinning.remove(label)
+                    }
                 } label: {
-                    Image(systemName: "arrow.trianglehead.2.counterclockwise")
+                    Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(isRefreshing ? VColor.accent : VColor.textMuted)
-                        .rotationEffect(.degrees(isRefreshing ? 360 : 0))
-                        .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                        .foregroundColor(spinning ? VColor.accent : VColor.textMuted)
+                        .rotationEffect(.degrees(spinning ? 360 : 0))
+                        .animation(spinning ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: spinning)
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
@@ -1849,6 +1868,8 @@ struct SettingsConnectTab: View {
                 .accessibilityLabel("Refresh \(label) status")
                 .help(tooltipText)
             }
+
+            Spacer()
         }
     }
 

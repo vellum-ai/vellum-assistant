@@ -214,9 +214,9 @@ Now link the user's phone number as the trusted SMS guardian for this assistant.
 }
 ```
 
-2. The daemon returns a `guardian_verification_response` with `success: true`, `secret`, and `instruction`. Display the instruction to the user. It will look like: "Send `/guardian_verify <secret>` to your bot via SMS within 10 minutes."
+2. The daemon returns a `guardian_verification_response` with `success: true`, `secret`, and `instruction`. Display the 6-digit `secret` code to the user. Tell them: "Send this 6-digit code by SMS to your assistant's phone number."
 
-3. Wait for the user to confirm they have sent the verification code via SMS to the assistant's phone number.
+3. Wait for the user to confirm they have replied with the verification code via SMS to the assistant's phone number.
 
 4. Check verification status by sending `guardian_verification` with `action: "status"` and `channel: "sms"`:
 

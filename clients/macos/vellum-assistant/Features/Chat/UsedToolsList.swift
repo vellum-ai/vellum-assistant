@@ -317,6 +317,24 @@ private struct UsedToolsRow: View {
             }
         }
         .animation(VAnimation.fast, value: isExpanded)
+        .onChange(of: isExpanded) { newValue in
+            // Populate the cache *before* the expanded body evaluates so that
+            // `resolvedInputFull` returns the formatted input on the very first
+            // render of the expanded section — avoiding a visible flash/pop-in
+            // for lazy-loaded history tool calls where `.onAppear` fires too late.
+            if newValue, cachedInputFull == nil {
+                if let dict = toolCall.inputRawDict {
+                    cachedInputFull = ToolCallData.formatAllToolInput(dict)
+                } else if !toolCall.inputFull.isEmpty {
+                    cachedInputFull = toolCall.inputFull
+                }
+            }
+        }
+        .onChange(of: toolCall.inputFull) { _ in
+            // Invalidate the cached formatted input so the next render picks up
+            // the fresh (rehydrated) value instead of the stale truncated one.
+            cachedInputFull = nil
+        }
     }
 
     /// Open the image in Preview.app. Tries the original file path first; falls
