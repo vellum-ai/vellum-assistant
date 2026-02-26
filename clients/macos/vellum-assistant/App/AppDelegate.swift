@@ -1958,12 +1958,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
 
-            // Persist the assistant name in case it was changed during replay.
-            let trimmedName = state.assistantName.trimmingCharacters(in: .whitespaces)
-            if !trimmedName.isEmpty {
-                UserDefaults.standard.set(trimmedName, forKey: "assistantName")
-            }
-
             onboarding.close()
             self?.onboardingWindow = nil
 
@@ -1992,13 +1986,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
-
-            // Persist the assistant name chosen during onboarding so the
-            // wake-up greeting can use it (IDENTITY.md may not be written yet).
-            let trimmedName = state.assistantName.trimmingCharacters(in: .whitespaces)
-            if !trimmedName.isEmpty {
-                UserDefaults.standard.set(trimmedName, forKey: "assistantName")
-            }
 
             onboarding.close()
             self?.onboardingWindow = nil
