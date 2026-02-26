@@ -39,6 +39,9 @@ final class VoiceInputManager {
     /// Floating overlay showing dictation state (recording/processing/done).
     private let overlayWindow = DictationOverlayWindow()
 
+    /// Overlay for first-use permission prompts (microphone/speech recognition).
+    private let permissionOverlay = PermissionPromptOverlay()
+
     /// True after a dictation request has been sent to the daemon and we're awaiting a response.
     /// Used by `stopRecording()` to decide whether the overlay should stay visible.
     private var awaitingDaemonResponse = false
@@ -101,6 +104,7 @@ final class VoiceInputManager {
         }
         stopRecording()
         overlayWindow.dismiss()
+        permissionOverlay.dismiss()
     }
 
     /// Directly toggle recording on/off — used by UI mic buttons that bypass the Fn-key hold flow.
@@ -238,31 +242,20 @@ final class VoiceInputManager {
             return
         }
 
-        // Check microphone access first
+        // Check microphone and speech permissions before recording.
+        // Show an informative overlay for first-use or denied states instead of
+        // silently opening System Settings.
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        if micStatus == .notDetermined {
-            AVCaptureDevice.requestAccess(for: .audio) { _ in }
-            log.info("Requested microphone authorization — try again after approving")
-            currentDictationContext = nil
-            return
-        }
-        if micStatus == .denied || micStatus == .restricted {
-            log.warning("Microphone access denied — opening System Settings")
-            openPrivacySettings(for: "Privacy_Microphone")
-            currentDictationContext = nil
-            return
-        }
+        let speechStatus = SFSpeechRecognizer.authorizationStatus()
 
-        let authStatus = SFSpeechRecognizer.authorizationStatus()
-        if authStatus == .notDetermined {
-            SFSpeechRecognizer.requestAuthorization { _ in }
-            log.info("Requested speech recognition authorization — try again after approving")
+        if micStatus == .notDetermined || speechStatus == .notDetermined {
+            showPermissionPrompt(kind: .notDetermined)
             currentDictationContext = nil
             return
         }
-        if authStatus == .denied || authStatus == .restricted {
-            log.warning("Speech recognition denied — opening System Settings")
-            openPrivacySettings(for: "Privacy_SpeechRecognition")
+        if micStatus == .denied || micStatus == .restricted
+            || speechStatus == .denied || speechStatus == .restricted {
+            showPermissionPrompt(kind: .denied)
             currentDictationContext = nil
             return
         }
@@ -339,6 +332,85 @@ final class VoiceInputManager {
             audioEngine.inputNode.removeTap(onBus: 0)
             overlayWindow.dismiss()
         }
+    }
+
+    // MARK: - Permission Prompt
+
+    /// Possible permission states that trigger a prompt overlay.
+    private enum PermissionPromptKind {
+        case notDetermined
+        case denied
+    }
+
+    /// Display name for the currently configured activation key, for use in user-facing copy.
+    private var activationKeyDisplayName: String {
+        let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
+        switch stored {
+        case "ctrl": return "ctrl"
+        case "fn_shift": return "fn + shift"
+        case "none": return "the activation key"
+        default: return "fn"
+        }
+    }
+
+    /// Show the permission prompt overlay explaining why access is needed and providing
+    /// action buttons. After the user grants access, recording starts automatically.
+    private func showPermissionPrompt(kind: PermissionPromptKind) {
+        let keyName = activationKeyDisplayName
+
+        switch kind {
+        case .notDetermined:
+            permissionOverlay.show(
+                kind: .notDetermined(keyName: keyName),
+                onGrantAccess: { [weak self] in
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        await self.requestPermissionsAndRecord()
+                    }
+                },
+                onDismiss: { [weak self] in
+                    log.info("User dismissed permission prompt")
+                    self?.permissionOverlay.dismiss()
+                }
+            )
+
+        case .denied:
+            permissionOverlay.show(
+                kind: .denied(keyName: keyName),
+                onGrantAccess: { },
+                onDismiss: { [weak self] in
+                    self?.permissionOverlay.dismiss()
+                }
+            )
+        }
+    }
+
+    /// Request both microphone and speech recognition permissions sequentially,
+    /// then start recording if both are granted.
+    private func requestPermissionsAndRecord() async {
+        let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
+        guard micGranted else {
+            log.warning("Microphone access denied by user")
+            showPermissionPrompt(kind: .denied)
+            return
+        }
+
+        let speechGranted = await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { status in
+                continuation.resume(returning: status == .authorized)
+            }
+        }
+        guard speechGranted else {
+            log.warning("Speech recognition access denied by user")
+            showPermissionPrompt(kind: .denied)
+            return
+        }
+
+        log.info("Permissions granted — starting recording")
+        if self.currentMode == .dictation {
+            self.currentDictationContext = DictationContextCapture.capture()
+        }
+        self.beginRecording()
     }
 
     private func openPrivacySettings(for pane: String) {
