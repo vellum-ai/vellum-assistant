@@ -15,12 +15,14 @@ enum RecordingState: Equatable, Sendable {
     case idle
     case starting
     case recording
+    case paused
     case stopping
+    case restarting
     case failed(String)
 
     var isActive: Bool {
         switch self {
-        case .starting, .recording, .stopping: return true
+        case .starting, .recording, .paused, .stopping, .restarting: return true
         case .idle, .failed: return false
         }
     }
@@ -38,6 +40,10 @@ final class RecordingManager: ObservableObject {
     @Published private(set) var state: RecordingState = .idle
     @Published private(set) var ownerSessionId: String?
     @Published private(set) var attachToConversationId: String?
+
+    /// Operation token for restart race hardening. When set, status messages
+    /// include this token so the daemon can reject stale completions.
+    private(set) var operationToken: String?
 
     // MARK: - Dependencies
 
@@ -67,7 +73,7 @@ final class RecordingManager: ObservableObject {
     ///   - attachToConversationId: Optional conversation ID to attach the recording to.
     /// - Returns: `true` if the recording started successfully, `false` otherwise.
     @discardableResult
-    func start(sessionId: String, options: IPCRecordingOptions? = nil, attachToConversationId: String? = nil, promptForSource: Bool = false) async -> Bool {
+    func start(sessionId: String, options: IPCRecordingOptions? = nil, attachToConversationId: String? = nil, promptForSource: Bool = false, operationToken: String? = nil) async -> Bool {
         guard !state.isActive else {
             log.warning("Cannot start recording — already active (state=\(String(describing: self.state)), owner=\(self.ownerSessionId ?? "nil"))")
             sendStatus(sessionId: sessionId, status: "failed", error: "Another recording is already active")
@@ -76,7 +82,12 @@ final class RecordingManager: ObservableObject {
 
         self.ownerSessionId = sessionId
         self.attachToConversationId = attachToConversationId
+        self.operationToken = operationToken
         self.state = .starting
+
+        // Reset pause flag so a stale isPaused from a previous session
+        // (e.g. error-during-pause) doesn't silently drop every frame.
+        recorder.isPaused = false
 
         // Clear any stale stream error callback from a previous session.
         // If the prior recording ended via stream error, the old callback
@@ -180,6 +191,11 @@ final class RecordingManager: ObservableObject {
             return nil
         }
 
+        // If paused, unpause so the writer can finalize cleanly
+        if state == .paused {
+            recorder.isPaused = false
+        }
+
         state = .stopping
 
         do {
@@ -198,6 +214,7 @@ final class RecordingManager: ObservableObject {
             let savedConversationId = attachToConversationId
             ownerSessionId = nil
             attachToConversationId = nil
+            operationToken = nil
 
             _ = savedSessionId
             _ = savedConversationId
@@ -213,6 +230,53 @@ final class RecordingManager: ObservableObject {
         }
     }
 
+    // MARK: - Pause
+
+    /// Pause the active recording.
+    ///
+    /// Only valid when the state is `.recording`. The underlying ScreenRecorder
+    /// stream keeps running but frames are dropped, so the output file won't
+    /// contain the paused interval.
+    ///
+    /// - Parameter sessionId: The recording session ID. Must match the active recording.
+    /// - Returns: `true` if the recording was paused, `false` if not in a pausable state.
+    @discardableResult
+    func pause(sessionId: String) -> Bool {
+        guard state == .recording, ownerSessionId == sessionId else {
+            log.warning("Cannot pause recording — not recording (state=\(String(describing: self.state)), owner=\(self.ownerSessionId ?? "nil"), requested=\(sessionId, privacy: .public))")
+            return false
+        }
+
+        recorder.isPaused = true
+        state = .paused
+        sendStatus(sessionId: sessionId, status: "paused")
+        log.info("Recording paused for session \(sessionId, privacy: .public)")
+        return true
+    }
+
+    // MARK: - Resume
+
+    /// Resume a paused recording.
+    ///
+    /// Only valid when the state is `.paused`. Resumes writing frames from
+    /// the ScreenRecorder stream.
+    ///
+    /// - Parameter sessionId: The recording session ID. Must match the active recording.
+    /// - Returns: `true` if the recording was resumed, `false` if not in a resumable state.
+    @discardableResult
+    func resume(sessionId: String) -> Bool {
+        guard state == .paused, ownerSessionId == sessionId else {
+            log.warning("Cannot resume recording — not paused (state=\(String(describing: self.state)), owner=\(self.ownerSessionId ?? "nil"), requested=\(sessionId, privacy: .public))")
+            return false
+        }
+
+        recorder.isPaused = false
+        state = .recording
+        sendStatus(sessionId: sessionId, status: "resumed")
+        log.info("Recording resumed for session \(sessionId, privacy: .public)")
+        return true
+    }
+
     // MARK: - Force Stop
 
     /// Force-stop any active recording, regardless of owner. Used during app shutdown.
@@ -222,6 +286,11 @@ final class RecordingManager: ObservableObject {
     /// It discards the recording rather than trying to finalize the file.
     func forceStop() {
         guard state.isActive else { return }
+
+        // Unpause before cancelling so internal state is consistent
+        if state == .paused {
+            recorder.isPaused = false
+        }
 
         recorder.onStreamError = nil
         recorder.cancelRecording()
@@ -234,6 +303,7 @@ final class RecordingManager: ObservableObject {
         state = .idle
         ownerSessionId = nil
         attachToConversationId = nil
+        operationToken = nil
         log.info("Force-stopped recording (synchronous cancel)")
     }
 
@@ -258,7 +328,8 @@ final class RecordingManager: ObservableObject {
             filePath: filePath,
             durationMs: durationMs.flatMap { Double($0) },
             error: error,
-            attachToConversationId: attachToConversationId
+            attachToConversationId: attachToConversationId,
+            operationToken: operationToken
         )
 
         do {

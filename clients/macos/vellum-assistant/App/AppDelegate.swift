@@ -1082,6 +1082,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         }
 
+        // Handle recording_pause from daemon
+        daemonClient.onRecordingPause = { [weak self] msg in
+            guard let self else { return }
+            self.handleRecordingPause(msg)
+        }
+
+        // Handle recording_resume from daemon
+        daemonClient.onRecordingResume = { [weak self] msg in
+            guard let self else { return }
+            self.handleRecordingResume(msg)
+        }
+
         // Restart DaemonClient connection when the health monitor relaunches
         // the daemon process so we don't wait for the backoff timer to expire.
         assistantCli.onDaemonRestarted = { [weak self] in

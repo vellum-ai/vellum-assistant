@@ -216,10 +216,23 @@ export function handleRecordingRestart(
   activeRestartToken = operationToken;
   pendingRestartByConversation.set(conversationId, operationToken);
 
+  // Resolve the actual owner conversation ID. When conversation B requests
+  // a restart but the recording is owned by conversation A, the stop above
+  // used the global fallback to find A's recording. We need to pass A's
+  // conversationId to cleanupMaps so it can delete the correct map entry.
+  let ownerConversationId = conversationId;
+  if (recordingOwnerByConversation.get(conversationId) !== stoppedRecordingId && recordingOwnerByConversation.size > 0) {
+    const [activeConv, activeRec] = [...recordingOwnerByConversation.entries()][0];
+    if (activeRec === stoppedRecordingId) {
+      ownerConversationId = activeConv;
+      log.info({ conversationId, ownerConversationId, stoppedRecordingId }, 'Resolved restart cleanup to actual owner conversation');
+    }
+  }
+
   // Immediately clean up the old recording maps so the start call
   // doesn't hit the "already active" guard. The stop command has already
   // been sent; we clean maps here to ensure atomic stop/start handoff.
-  cleanupMaps(stoppedRecordingId, conversationId);
+  cleanupMaps(stoppedRecordingId, ownerConversationId);
   cancelStopTimeout(stoppedRecordingId);
 
   // Start a new recording with the operation token
