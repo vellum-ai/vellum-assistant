@@ -26,6 +26,7 @@ import type { ProxyApprovalCallback, ProxyApprovalRequest } from '../tools/netwo
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { projectSkillTools, type SkillProjectionCache } from './session-skill-tools.js';
+import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
 import type { SurfaceSessionContext } from './session-surfaces.js';
 import {
   surfaceProxyResolver,
@@ -55,6 +56,8 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   headlessLock?: boolean;
   /** When set, this session is executing a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
+  /** Guardian runtime context for the session — actorRole is propagated into ToolContext for control-plane policy enforcement. */
+  guardianContext?: GuardianRuntimeContext;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -105,6 +108,7 @@ export function createToolExecutor(
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
+      guardianActorRole: ctx.guardianContext?.actorRole,
       onOutput,
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,
