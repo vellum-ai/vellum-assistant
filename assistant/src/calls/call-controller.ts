@@ -19,10 +19,12 @@ import {
   createPendingQuestion,
   expirePendingQuestions,
   getCallSession,
+  getPendingQuestion,
   recordCallEvent,
   updateCallSession,
 } from './call-store.js';
 import { dispatchGuardianQuestion } from './guardian-dispatch.js';
+import { getByPendingQuestionId, markTimedOutWithReason } from '../memory/guardian-action-store.js';
 import type { RelayConnection } from './relay-server.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
 import { startVoiceTurn, type VoiceTurnHandle } from './voice-session-bridge.js';
@@ -92,6 +94,8 @@ export class CallController {
    * alternation in the underlying session pipeline.
    */
   private lastSentWasOpener = false;
+  /** Set to true after a guardian consultation timeout. Prevents repeated long waits if the model emits another ASK_GUARDIAN. */
+  private guardianUnavailableForCall = false;
 
   constructor(
     callSessionId: string,
@@ -514,6 +518,15 @@ export class CallController {
           log.info({ callSessionId: this.callSessionId }, 'Caller is guardian — skipping ASK_GUARDIAN dispatch, asking directly');
           this.pendingInstructions.push(`You just tried to use [ASK_GUARDIAN] but the person on the phone IS your guardian. Ask them directly: "${questionText}"`);
           // Fall through to normal turn completion (idle + flushPendingInstructions)
+        } else if (this.guardianUnavailableForCall) {
+          // Guardian was already unreachable this call — skip the long wait cycle.
+          log.info({ callSessionId: this.callSessionId }, 'Guardian still unavailable for this call — skipping ASK_GUARDIAN dispatch');
+          this.pendingInstructions.push(
+            `You tried to use [ASK_GUARDIAN] again, but the guardian is still unavailable for this call. `
+            + `Do not wait — continue the conversation without pausing. `
+            + `Note the question "${questionText}" for when the guardian becomes available.`,
+          );
+          // Fall through to normal turn completion (idle + flushPendingInstructions)
         } else {
           const pendingQuestion = createPendingQuestion(this.callSessionId, questionText);
           this.state = 'waiting_on_user';
@@ -538,13 +551,30 @@ export class CallController {
           this.consultationTimer = setTimeout(() => {
             if (this.state === 'waiting_on_user') {
               log.info({ callSessionId: this.callSessionId }, 'User consultation timed out');
-              this.relay.sendTextToken(
-                'I\'m sorry, I wasn\'t able to get that information in time. Let me move on.',
-                true,
-              );
+              this.guardianUnavailableForCall = true;
+
+              // Mark the linked guardian action request as timed out
+              const pq = getPendingQuestion(this.callSessionId);
+              if (pq) {
+                const actionRequest = getByPendingQuestionId(pq.id);
+                if (actionRequest) {
+                  markTimedOutWithReason(actionRequest.id, 'call_timeout');
+                }
+              }
+
               this.state = 'idle';
               updateCallSession(this.callSessionId, { status: 'in_progress' });
               expirePendingQuestions(this.callSessionId);
+
+              // Inject a system instruction so the model generates a natural
+              // timeout acknowledgment instead of a hardcoded utterance.
+              this.pendingInstructions.push(
+                `The guardian could not be reached in time. `
+                + `Acknowledge this to the caller naturally. `
+                + `Ask if they would like the guardian called back when available. `
+                + `Then continue the conversation by asking any remaining questions you need answered.`,
+              );
+
               // Restart silence detection now that we're back to idle.
               // flushPendingInstructions / drainPendingCallerUtterances will
               // reset it again when they start a new turn, but we need the

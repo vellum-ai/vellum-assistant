@@ -39,7 +39,7 @@ export function sweepExpiredGuardianActions(
     const deliveries = getDeliveriesByRequestId(request.id);
 
     // Expire the request and all deliveries
-    expireGuardianActionRequest(request.id);
+    expireGuardianActionRequest(request.id, 'sweep_timeout');
 
     // Expire associated pending questions
     expirePendingQuestions(request.callSessionId);

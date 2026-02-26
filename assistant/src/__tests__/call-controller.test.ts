@@ -128,6 +128,10 @@ import {
 } from '../calls/call-store.js';
 import type { RelayConnection } from '../calls/relay-server.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import {
+  getByPendingQuestionId,
+  getGuardianActionRequest,
+} from '../memory/guardian-action-store.js';
 import { conversations } from '../memory/schema.js';
 
 initializeDb();
@@ -1046,6 +1050,177 @@ describe('call-controller', () => {
     expect(turnContents.length).toBe(1);
     expect(turnContents[0]).toContain('[USER_INSTRUCTION: Suggest morning slots]');
     expect(turnContents[0]).toContain('Actually, I prefer 10am');
+
+    controller.destroy();
+  });
+
+  // ── Consultation timeout: instruction injection ───────────────────
+
+  test('consultation timeout: injects instruction instead of sending hardcoded text', async () => {
+    mockConsultationTimeoutMs = 50;
+
+    // Trigger ASK_GUARDIAN to enter waiting_on_user state
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Let me check. [ASK_GUARDIAN: What time works?]'],
+    ));
+    const { relay, controller } = setupController();
+    await controller.handleCallerUtterance('Book me in');
+    expect(controller.getState()).toBe('waiting_on_user');
+
+    // Record relay tokens sent before the timeout
+    const tokensBefore = relay.sentTokens.length;
+
+    // Set up mock to capture what content the timeout-triggered turn receives
+    const turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(async (opts: { content: string; onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      turnContents.push(opts.content);
+      opts.onTextDelta('I was not able to reach your guardian.');
+      opts.onComplete();
+      return { turnId: `run-${turnContents.length}`, abort: () => {} };
+    });
+
+    // Wait for the short consultation timeout to fire
+    await new Promise((r) => setTimeout(r, 200));
+
+    // The timeout should NOT have sent the old hardcoded text directly via relay
+    const tokensAfterTimeout = relay.sentTokens.slice(tokensBefore);
+    const directText = tokensAfterTimeout.map((t) => t.token).join('');
+    expect(directText).not.toContain('I\'m sorry, I wasn\'t able to get that information in time');
+
+    // Instead, an instruction should have been injected and flushed as a turn
+    expect(turnContents.length).toBe(1);
+    expect(turnContents[0]).toContain('[USER_INSTRUCTION:');
+    expect(turnContents[0]).toContain('guardian could not be reached');
+    expect(turnContents[0]).toContain('called back');
+
+    controller.destroy();
+  });
+
+  test('consultation timeout: sets guardianUnavailableForCall flag', async () => {
+    mockConsultationTimeoutMs = 50;
+
+    // Trigger ASK_GUARDIAN to enter waiting_on_user state
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Checking. [ASK_GUARDIAN: Confirm time?]'],
+    ));
+    const { controller } = setupController();
+    await controller.handleCallerUtterance('Schedule please');
+    expect(controller.getState()).toBe('waiting_on_user');
+
+    // Set up mock for the timeout-triggered turn
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(['Guardian is unavailable.']));
+
+    // Wait for the short consultation timeout
+    await new Promise((r) => setTimeout(r, 200));
+
+    // Now trigger another ASK_GUARDIAN — the guard should prevent dispatch.
+    // Use a mock that emits ASK_GUARDIAN on the first call but plain text on
+    // subsequent calls (the instruction flush), avoiding an infinite loop.
+    const turnContents: string[] = [];
+    let askGuardianCallCount = 0;
+    mockStartVoiceTurn.mockImplementation(async (opts: { content: string; onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      turnContents.push(opts.content);
+      askGuardianCallCount++;
+      if (askGuardianCallCount === 1) {
+        opts.onTextDelta('I need to ask about insurance. [ASK_GUARDIAN: Insurance details?]');
+      } else {
+        opts.onTextDelta('Noted, I will check on that later.');
+      }
+      opts.onComplete();
+      return { turnId: `run-${turnContents.length}`, abort: () => {} };
+    });
+
+    await controller.handleCallerUtterance('What about my insurance?');
+
+    // Give the pending instruction flush time to fire
+    await new Promise((r) => setTimeout(r, 100));
+
+    // The second ASK_GUARDIAN should have been intercepted — the guard
+    // should have queued an instruction about guardian still being unavailable
+    expect(turnContents.length).toBeGreaterThanOrEqual(1);
+    const hasGuardianUnavailableInstruction = turnContents.some(
+      (c) => c.includes('guardian is still unavailable'),
+    );
+    expect(hasGuardianUnavailableInstruction).toBe(true);
+
+    controller.destroy();
+  });
+
+  test('consultation timeout: subsequent ASK_GUARDIAN when guard is active does not dispatch', async () => {
+    mockConsultationTimeoutMs = 50;
+
+    // Trigger ASK_GUARDIAN to enter waiting_on_user state
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Let me ask. [ASK_GUARDIAN: Preferred date?]'],
+    ));
+    const { session, controller } = setupController();
+    await controller.handleCallerUtterance('Schedule please');
+    expect(controller.getState()).toBe('waiting_on_user');
+
+    // Let the timeout fire
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(['Moving on.']));
+    await new Promise((r) => setTimeout(r, 200));
+
+    // Now the model emits another ASK_GUARDIAN. Use a counter-based mock
+    // so the instruction flush turn produces plain text (not another ASK_GUARDIAN).
+    let callCount = 0;
+    mockStartVoiceTurn.mockImplementation(async (opts: { content: string; onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      callCount++;
+      if (callCount === 1) {
+        opts.onTextDelta('Let me check insurance. [ASK_GUARDIAN: Insurance number?]');
+      } else {
+        opts.onTextDelta('I will follow up on that.');
+      }
+      opts.onComplete();
+      return { turnId: `run-${callCount}`, abort: () => {} };
+    });
+    await controller.handleCallerUtterance('What about insurance?');
+
+    // Give the pending instruction flush time to fire
+    await new Promise((r) => setTimeout(r, 100));
+
+    // No new pending question should have been created for the second ASK_GUARDIAN
+    // (the first one was expired by the timeout)
+    const pq = getPendingQuestion(session.id);
+    expect(pq).toBeNull();
+
+    controller.destroy();
+  });
+
+  test('consultation timeout: marks guardian action request as timed out with call_timeout reason', async () => {
+    mockConsultationTimeoutMs = 50;
+
+    // Trigger ASK_GUARDIAN to enter waiting_on_user state
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Let me check. [ASK_GUARDIAN: What time works?]'],
+    ));
+    const { session, controller } = setupController();
+    await controller.handleCallerUtterance('Book me in');
+    expect(controller.getState()).toBe('waiting_on_user');
+
+    // The ASK_GUARDIAN path fires dispatchGuardianQuestion which creates a
+    // guardian action request linked to the pending question. Give the
+    // fire-and-forget dispatch a microtask tick to complete.
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Look up the guardian action request created by dispatchGuardianQuestion
+    const pq = getPendingQuestion(session.id);
+    expect(pq).not.toBeNull();
+    const actionRequest = getByPendingQuestionId(pq!.id);
+    expect(actionRequest).not.toBeNull();
+    expect(actionRequest!.status).toBe('pending');
+
+    // Set up mock for the timeout-triggered turn
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(['Guardian unavailable.']));
+
+    // Wait for the short consultation timeout
+    await new Promise((r) => setTimeout(r, 200));
+
+    // The guardian action request should now be marked as expired with 'call_timeout' reason
+    const updatedRequest = getGuardianActionRequest(actionRequest!.id);
+    expect(updatedRequest).not.toBeNull();
+    expect(updatedRequest!.status).toBe('expired');
+    expect(updatedRequest!.expiredReason).toBe('call_timeout');
 
     controller.destroy();
   });
