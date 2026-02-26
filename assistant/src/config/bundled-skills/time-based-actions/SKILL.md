@@ -45,6 +45,7 @@ Use the injected `<temporal_context>` block as the authoritative clock source:
 - `User timezone` + `Timezone source` tell you whether local-time interpretation is user-specific or host fallback.
 
 When `User timezone: unknown` and the request is locale-specific (e.g. "at 3pm", "tomorrow morning", "tonight"), ask once for their timezone and then proceed.
+If the user confirms a timezone, suggest saving it in Settings -> Appearance -> User timezone so future reminders resolve correctly without re-asking.
 
 ## Relative Time Parsing
 

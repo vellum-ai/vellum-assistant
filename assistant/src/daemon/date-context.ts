@@ -27,7 +27,8 @@ const MAX_HORIZON_ENTRIES = 14;
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
 const TIMEZONE_SUBJECT_LINE_RE = /^\s*-\s*time\s*zone\s*:\s*(.+)$/i;
 const TIMEZONE_SUBJECT_COMPACT_RE = /^\s*-\s*timezone\s*:\s*(.+)$/i;
-const TIMEZONE_TOKEN_RE = /\b(?:[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)+|UTC|GMT)\b/g;
+const TIMEZONE_TOKEN_RE = /\b(?:[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)+|(?:UTC|GMT)(?:[+-]\d{1,2}(?::?\d{2})?)?)\b/gi;
+const UTC_GMT_OFFSET_TOKEN_RE = /^(?:UTC|GMT)([+-])(\d{1,2})(?::?(\d{2}))?$/i;
 
 function normalizeOffsetToken(offsetToken: string): string {
   if (offsetToken === 'GMT' || offsetToken === 'UTC') {
@@ -41,9 +42,54 @@ function normalizeOffsetToken(offsetToken: string): string {
   return `${sign}${hours.padStart(2, '0')}:${(minutes ?? '00').padStart(2, '0')}`;
 }
 
+function canonicalizeUtcGmtOffsetToken(offsetToken: string): string | null {
+  if (/^(?:UTC|GMT)$/i.test(offsetToken)) {
+    return 'UTC';
+  }
+  const match = offsetToken.match(UTC_GMT_OFFSET_TOKEN_RE);
+  if (!match) {
+    return null;
+  }
+  const [, sign, hoursRaw, minutesRaw] = match;
+  const hours = Number.parseInt(hoursRaw, 10);
+  const minutes = Number.parseInt(minutesRaw ?? '0', 10);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) {
+    return null;
+  }
+  if (hours > 14 || minutes > 59) {
+    return null;
+  }
+  const totalMinutes = (hours * 60 + minutes) * (sign === '+' ? 1 : -1);
+  if (Math.abs(totalMinutes) > 14 * 60) {
+    return null;
+  }
+  if (totalMinutes === 0) {
+    return 'UTC';
+  }
+  // `Etc/GMT` uses POSIX sign semantics: east-of-UTC offsets use a minus sign.
+  if (Math.abs(totalMinutes) % 60 !== 0) {
+    return null;
+  }
+  const etcSign = totalMinutes > 0 ? '-' : '+';
+  const absHours = Math.abs(totalMinutes) / 60;
+  return `Etc/GMT${etcSign}${absHours}`;
+}
+
 function canonicalizeTimeZone(timeZone: string): string | null {
+  const trimmed = timeZone.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const canonicalOffset = canonicalizeUtcGmtOffsetToken(trimmed);
+  if (canonicalOffset) {
+    try {
+      return new Intl.DateTimeFormat('en-US', { timeZone: canonicalOffset }).resolvedOptions().timeZone;
+    } catch {
+      return null;
+    }
+  }
   try {
-    return new Intl.DateTimeFormat('en-US', { timeZone }).resolvedOptions().timeZone;
+    return new Intl.DateTimeFormat('en-US', { timeZone: trimmed }).resolvedOptions().timeZone;
   } catch {
     return null;
   }

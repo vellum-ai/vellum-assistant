@@ -105,6 +105,18 @@ describe('buildTemporalContext', () => {
     expect(result).toContain('Timezone source: daemon_host_fallback');
   });
 
+  test('accepts UTC/GMT offset-style user timezone values', () => {
+    const result = buildTemporalContext({
+      nowMs: WED_FEB_18,
+      hostTimeZone: 'UTC',
+      userTimeZone: 'UTC+2',
+    });
+    expect(result).toContain('Timezone: Etc/GMT-2');
+    expect(result).toContain('Current local time: 2026-02-18T14:00:00+02:00');
+    expect(result).toContain('User timezone: Etc/GMT-2');
+    expect(result).toContain('Timezone source: user_profile_memory');
+  });
+
   test('includes week definitions', () => {
     const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
     expect(result).toContain('work week = Monday–Friday');
@@ -145,6 +157,24 @@ describe('extractUserTimeZoneFromDynamicProfile', () => {
       '</dynamic-user-profile>',
     ].join('\n');
     expect(extractUserTimeZoneFromDynamicProfile(profile)).toBeNull();
+  });
+
+  test('extracts UTC/GMT offset tokens from explicit timezone profile line', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- timezone: UTC+2',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('Etc/GMT-2');
+  });
+
+  test('extracts GMT negative offset tokens from generic profile text', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- preferences: schedule notifications in GMT-5 whenever possible.',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('Etc/GMT+5');
   });
 });
 
