@@ -312,4 +312,18 @@ describe('Guardian verification routing section in system prompt', () => {
     // Must advise not to re-ask channel if already specified
     expect(lower.includes('do not re-ask') || lower.includes('already specified')).toBe(true);
   });
+
+  test('routing section disambiguates "set myself up as your guardian" phrasing', () => {
+    const prompt = buildSystemPrompt();
+    const lower = prompt.toLowerCase();
+    expect(lower).toContain('help me set myself up as your guardian');
+    expect(lower).toContain('asking to verify themselves as guardian');
+  });
+
+  test('routing section discourages conceptual detours for direct setup requests', () => {
+    const prompt = buildSystemPrompt();
+    const lower = prompt.toLowerCase();
+    expect(lower).toContain('do not give conceptual');
+    expect(lower).toContain('unless the user explicitly asks');
+  });
 });

@@ -1,5 +1,7 @@
 import { startCall } from '../../calls/call-domain.js';
 import { getConfig } from '../../config/loader.js';
+import { findActiveSession } from '../../runtime/channel-guardian-service.js';
+import { normalizePhoneNumber } from '../../util/phone.js';
 import type { ToolContext, ToolExecutionResult } from '../types.js';
 
 export async function executeCallStart(
@@ -8,6 +10,24 @@ export async function executeCallStart(
 ): Promise<ToolExecutionResult> {
   if (!getConfig().calls.enabled) {
     return { content: 'Error: Calls feature is disabled via configuration. Set calls.enabled to true to use this feature.', isError: true };
+  }
+
+  const requestedPhone = typeof input.phone_number === 'string'
+    ? normalizePhoneNumber(input.phone_number)
+    : null;
+  if (requestedPhone) {
+    const assistantId = context.assistantId ?? 'self';
+    const activeVoiceVerification = findActiveSession(assistantId, 'voice');
+    const verificationDestination = activeVoiceVerification?.destinationAddress ?? activeVoiceVerification?.expectedPhoneE164;
+    if (verificationDestination === requestedPhone) {
+      return {
+        content: [
+          'Error: A guardian voice verification call is already active for this number.',
+          'Use the guardian outbound verification flow (`/v1/integrations/guardian/outbound/start` or `/resend`) and wait for completion before using `call_start`.',
+        ].join(' '),
+        isError: true,
+      };
+    }
   }
 
   const result = await startCall({
