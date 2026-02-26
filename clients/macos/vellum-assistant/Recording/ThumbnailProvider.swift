@@ -117,10 +117,15 @@ actor ThumbnailProvider {
         let result: ThumbnailResult
         do {
             let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+            let selfPid = ProcessInfo.processInfo.processIdentifier
 
-            // Get current shareable content to find Vellum app windows to exclude
+            // Get current shareable content to find Vellum app windows to exclude.
+            // Match by bundle ID first, falling back to PID for SPM builds where
+            // Bundle.main.bundleIdentifier is nil and the fallback string may not match.
             let shareable = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            let vellumApps = shareable.applications.filter { $0.bundleIdentifier == selfBundleId }
+            let vellumApps = shareable.applications.filter {
+                $0.bundleIdentifier == selfBundleId || $0.processID == selfPid
+            }
 
             let filter = SCContentFilter(
                 display: scDisplay,
