@@ -2,7 +2,7 @@ import type { ChannelId } from './channels/types.js';
 
 export type GatewayInboundEventV1 = {
   version: "v1";
-  sourceChannel: Extract<ChannelId, 'telegram' | 'sms' | 'whatsapp'>;
+  sourceChannel: Extract<ChannelId, 'telegram' | 'sms' | 'whatsapp' | 'slack'>;
   receivedAt: string;
   routing: {
     assistantId: string;

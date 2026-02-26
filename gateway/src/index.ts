@@ -374,6 +374,7 @@ function main() {
   }
 
   const telegramFromEnv = isTelegramConfigured();
+  const slackFromEnv = !!(config.slackChannelBotToken && config.slackChannelAppToken);
 
   const credentialWatcher = new CredentialWatcher((event) => {
     if (event.telegramChanged && !telegramFromEnv) {
@@ -417,6 +418,18 @@ function main() {
         config.whatsappAppSecret = undefined;
         config.whatsappWebhookVerifyToken = undefined;
         log.info("WhatsApp credentials cleared");
+      }
+    }
+
+    if (event.slackChannelChanged && !slackFromEnv) {
+      if (event.slackChannelCredentials) {
+        config.slackChannelBotToken = event.slackChannelCredentials.botToken;
+        config.slackChannelAppToken = event.slackChannelCredentials.appToken;
+        log.info("Slack channel credentials loaded from credential vault");
+      } else {
+        config.slackChannelBotToken = undefined;
+        config.slackChannelAppToken = undefined;
+        log.info("Slack channel credentials cleared");
       }
     }
   });
