@@ -1,7 +1,7 @@
- 
+
 import * as net from 'node:net';
 
-import { beforeEach, describe, expect, mock,test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 // ─── Mocks (must be before any imports that depend on them) ─────────────────
 
@@ -53,25 +53,57 @@ mock.module('../daemon/identity-helpers.js', () => ({
   getAssistantName: () => mockAssistantName,
 }));
 
-// ── Mock recording-intent — we control the classification result ───────────
+// ── Mock recording-intent — we control the resolution result ───────────────
 
-let mockClassifyResult: 'start_only' | 'stop_only' | 'mixed' | 'none' = 'none';
+type RecordingIntentResult =
+  | { kind: 'none' }
+  | { kind: 'start_only' }
+  | { kind: 'stop_only' }
+  | { kind: 'start_with_remainder'; remainder: string }
+  | { kind: 'stop_with_remainder'; remainder: string }
+  | { kind: 'start_and_stop_only' }
+  | { kind: 'start_and_stop_with_remainder'; remainder: string }
+  | { kind: 'restart_only' }
+  | { kind: 'restart_with_remainder'; remainder: string }
+  | { kind: 'pause_only' }
+  | { kind: 'resume_only' };
+
+let mockIntentResult: RecordingIntentResult = { kind: 'none' };
 
 mock.module('../daemon/recording-intent.js', () => ({
-  classifyRecordingIntent: () => mockClassifyResult,
-  // Keep legacy exports in case anything references them transitively
-  isRecordingOnly: () => false,
-  isStopRecordingOnly: () => false,
-  detectRecordingIntent: () => false,
-  detectStopRecordingIntent: () => false,
-  stripRecordingIntent: (t: string) => t,
-  stripStopRecordingIntent: (t: string) => t,
+  resolveRecordingIntent: () => mockIntentResult,
+  stripDynamicNames: (t: string) => t,
+}));
+
+// ── Mock recording-executor — we control the execution output ──────────────
+
+interface RecordingExecutionOutput {
+  handled: boolean;
+  responseText?: string;
+  remainderText?: string;
+  pendingStart?: boolean;
+  pendingStop?: boolean;
+  pendingRestart?: boolean;
+  recordingStarted?: boolean;
+}
+
+let mockExecuteResult: RecordingExecutionOutput = { handled: false };
+let executorCalled = false;
+
+mock.module('../daemon/recording-executor.js', () => ({
+  executeRecordingIntent: () => {
+    executorCalled = true;
+    return mockExecuteResult;
+  },
 }));
 
 // ── Mock recording handlers ────────────────────────────────────────────────
 
 let recordingStartCalled = false;
 let recordingStopCalled = false;
+let recordingRestartCalled = false;
+let recordingPauseCalled = false;
+let recordingResumeCalled = false;
 
 mock.module('../daemon/handlers/recording.js', () => ({
   handleRecordingStart: () => {
@@ -82,6 +114,19 @@ mock.module('../daemon/handlers/recording.js', () => ({
     recordingStopCalled = true;
     return 'mock-recording-id';
   },
+  handleRecordingRestart: () => {
+    recordingRestartCalled = true;
+    return { initiated: true, responseText: 'Restarting screen recording.', operationToken: 'mock-token' };
+  },
+  handleRecordingPause: () => {
+    recordingPauseCalled = true;
+    return 'mock-recording-id';
+  },
+  handleRecordingResume: () => {
+    recordingResumeCalled = true;
+    return 'mock-recording-id';
+  },
+  isRecordingIdle: () => true,
   recordingHandlers: {},
   __resetRecordingState: noop,
 }));
@@ -91,7 +136,10 @@ mock.module('../daemon/handlers/recording.js', () => ({
 mock.module('../memory/conversation-store.js', () => ({
   getMessages: () => [],
   addMessage: () => ({ id: 'msg-mock', role: 'assistant', content: '' }),
-  createConversation: (title?: string) => ({ id: 'conv-mock', title: title ?? 'Untitled' }),
+  createConversation: (titleOrOpts?: string | { title?: string }) => {
+    const title = typeof titleOrOpts === 'string' ? titleOrOpts : titleOrOpts?.title ?? 'Untitled';
+    return { id: 'conv-mock', title };
+  },
   getConversation: () => ({ id: 'conv-mock' }),
   updateConversationTitle: noop,
   clearAll: noop,
@@ -102,7 +150,7 @@ mock.module('../memory/conversation-store.js', () => ({
 }));
 
 mock.module('../memory/conversation-title-service.js', () => ({
-  GENERATING_TITLE: '(generating…)',
+  GENERATING_TITLE: '(generating\u2026)',
   queueGenerateConversationTitle: noop,
   UNTITLED_FALLBACK: 'Untitled',
 }));
@@ -118,6 +166,10 @@ mock.module('../memory/attachments-store.js', () => ({
 
 mock.module('../security/secret-ingress.js', () => ({
   checkIngressForSecrets: () => ({ blocked: false }),
+}));
+
+mock.module('../security/secret-scanner.js', () => ({
+  redactSecrets: (text: string) => text,
 }));
 
 // ── Mock classifier (for task_submit fallthrough) ──────────────────────────
@@ -228,6 +280,10 @@ function createCtx(overrides?: Partial<HandlerContext>): {
     getQueueDepth: () => 0,
     setPreactivatedSkillIds: noop,
     redirectToSecurePrompt: noop,
+    setEscalationHandler: noop,
+    dispose: noop,
+    hasPendingConfirmation: () => false,
+    hasPendingSecret: () => false,
   };
 
   const sessions = new Map<string, any>();
@@ -258,19 +314,27 @@ function createCtx(overrides?: Partial<HandlerContext>): {
   return { ctx, sent, fakeSocket };
 }
 
+function resetMockState(): void {
+  mockIntentResult = { kind: 'none' };
+  mockExecuteResult = { handled: false };
+  mockAssistantName = null;
+  recordingStartCalled = false;
+  recordingStopCalled = false;
+  recordingRestartCalled = false;
+  recordingPauseCalled = false;
+  recordingResumeCalled = false;
+  executorCalled = false;
+  classifierCalled = false;
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('recording intent handler integration — handleTaskSubmit', () => {
-  beforeEach(() => {
-    mockClassifyResult = 'none';
-    mockAssistantName = null;
-    recordingStartCalled = false;
-    recordingStopCalled = false;
-    classifierCalled = false;
-  });
+  beforeEach(resetMockState);
 
-  test('start_only → calls handleRecordingStart, sends task_routed + text_delta + message_complete, returns early', async () => {
-    mockClassifyResult = 'start_only';
+  test('start_only → executeRecordingIntent called, sends task_routed + text_delta + message_complete, returns early', async () => {
+    mockIntentResult = { kind: 'start_only' };
+    mockExecuteResult = { handled: true, responseText: 'Starting screen recording.', recordingStarted: true };
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleTaskSubmit } = await import('../daemon/handlers/misc.js');
@@ -280,18 +344,21 @@ describe('recording intent handler integration — handleTaskSubmit', () => {
       ctx,
     );
 
-    expect(recordingStartCalled).toBe(true);
-    expect(recordingStopCalled).toBe(false);
+    expect(executorCalled).toBe(true);
     expect(classifierCalled).toBe(false);
 
     const types = sent.map((m) => m.type);
     expect(types).toContain('task_routed');
     expect(types).toContain('assistant_text_delta');
     expect(types).toContain('message_complete');
+
+    const textDelta = sent.find((m) => m.type === 'assistant_text_delta');
+    expect(textDelta?.text).toBe('Starting screen recording.');
   });
 
-  test('stop_only → calls handleRecordingStop, sends task_routed + text_delta + message_complete, returns early', async () => {
-    mockClassifyResult = 'stop_only';
+  test('stop_only → executeRecordingIntent called, sends task_routed + text_delta + message_complete, returns early', async () => {
+    mockIntentResult = { kind: 'stop_only' };
+    mockExecuteResult = { handled: true, responseText: 'Stopping the recording.' };
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleTaskSubmit } = await import('../daemon/handlers/misc.js');
@@ -301,18 +368,21 @@ describe('recording intent handler integration — handleTaskSubmit', () => {
       ctx,
     );
 
-    expect(recordingStopCalled).toBe(true);
-    expect(recordingStartCalled).toBe(false);
+    expect(executorCalled).toBe(true);
     expect(classifierCalled).toBe(false);
 
     const types = sent.map((m) => m.type);
     expect(types).toContain('task_routed');
     expect(types).toContain('assistant_text_delta');
     expect(types).toContain('message_complete');
+
+    const textDelta = sent.find((m) => m.type === 'assistant_text_delta');
+    expect(textDelta?.text).toBe('Stopping the recording.');
   });
 
-  test('mixed → does NOT call handleRecordingStart/Stop, falls through to classifier', async () => {
-    mockClassifyResult = 'mixed';
+  test('start_with_remainder → defers recording, falls through to classifier with remaining text', async () => {
+    mockIntentResult = { kind: 'start_with_remainder', remainder: 'open Safari' };
+    mockExecuteResult = { handled: false, remainderText: 'open Safari', pendingStart: true };
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleTaskSubmit } = await import('../daemon/handlers/misc.js');
@@ -322,11 +392,9 @@ describe('recording intent handler integration — handleTaskSubmit', () => {
       ctx,
     );
 
-    expect(recordingStartCalled).toBe(false);
-    expect(recordingStopCalled).toBe(false);
     expect(classifierCalled).toBe(true);
 
-    // Should NOT have recording-specific messages before the classifier output
+    // Should NOT have recording-only messages before the classifier output
     const recordingSpecific = sent.filter(
       (m) => m.type === 'assistant_text_delta' && typeof m.text === 'string' &&
         (m.text.includes('Starting screen recording') || m.text.includes('Stopping the recording')),
@@ -334,8 +402,8 @@ describe('recording intent handler integration — handleTaskSubmit', () => {
     expect(recordingSpecific).toHaveLength(0);
   });
 
-  test('none → does NOT call handleRecordingStart/Stop, falls through to classifier', async () => {
-    mockClassifyResult = 'none';
+  test('none → does NOT call executeRecordingIntent, falls through to classifier', async () => {
+    mockIntentResult = { kind: 'none' };
     const { ctx, sent: _sent, fakeSocket } = createCtx();
 
     const { handleTaskSubmit } = await import('../daemon/handlers/misc.js');
@@ -345,23 +413,187 @@ describe('recording intent handler integration — handleTaskSubmit', () => {
       ctx,
     );
 
-    expect(recordingStartCalled).toBe(false);
-    expect(recordingStopCalled).toBe(false);
+    expect(executorCalled).toBe(false);
     expect(classifierCalled).toBe(true);
+  });
+
+  test('restart_only → executeRecordingIntent called, sends task_routed + text_delta + message_complete, returns early', async () => {
+    mockIntentResult = { kind: 'restart_only' };
+    mockExecuteResult = { handled: true, responseText: 'Restarting screen recording.' };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleTaskSubmit } = await import('../daemon/handlers/misc.js');
+    await handleTaskSubmit(
+      { type: 'task_submit', task: 'restart the recording', source: 'voice' } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(executorCalled).toBe(true);
+    expect(classifierCalled).toBe(false);
+
+    const types = sent.map((m) => m.type);
+    expect(types).toContain('task_routed');
+    expect(types).toContain('assistant_text_delta');
+    expect(types).toContain('message_complete');
+
+    const textDelta = sent.find((m) => m.type === 'assistant_text_delta');
+    expect(textDelta?.text).toBe('Restarting screen recording.');
+  });
+
+  test('pause_only → executeRecordingIntent called, sends task_routed + text_delta + message_complete, returns early', async () => {
+    mockIntentResult = { kind: 'pause_only' };
+    mockExecuteResult = { handled: true, responseText: 'Pausing the recording.' };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleTaskSubmit } = await import('../daemon/handlers/misc.js');
+    await handleTaskSubmit(
+      { type: 'task_submit', task: 'pause the recording', source: 'voice' } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(executorCalled).toBe(true);
+    expect(classifierCalled).toBe(false);
+
+    const types = sent.map((m) => m.type);
+    expect(types).toContain('task_routed');
+    expect(types).toContain('assistant_text_delta');
+    expect(types).toContain('message_complete');
+
+    const textDelta = sent.find((m) => m.type === 'assistant_text_delta');
+    expect(textDelta?.text).toBe('Pausing the recording.');
+  });
+
+  test('resume_only → executeRecordingIntent called, sends task_routed + text_delta + message_complete, returns early', async () => {
+    mockIntentResult = { kind: 'resume_only' };
+    mockExecuteResult = { handled: true, responseText: 'Resuming the recording.' };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleTaskSubmit } = await import('../daemon/handlers/misc.js');
+    await handleTaskSubmit(
+      { type: 'task_submit', task: 'resume the recording', source: 'voice' } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(executorCalled).toBe(true);
+    expect(classifierCalled).toBe(false);
+
+    const types = sent.map((m) => m.type);
+    expect(types).toContain('task_routed');
+    expect(types).toContain('assistant_text_delta');
+    expect(types).toContain('message_complete');
+
+    const textDelta = sent.find((m) => m.type === 'assistant_text_delta');
+    expect(textDelta?.text).toBe('Resuming the recording.');
+  });
+
+  test('restart_with_remainder → defers restart, falls through to classifier with remaining text', async () => {
+    mockIntentResult = { kind: 'restart_with_remainder', remainder: 'open Safari' };
+    mockExecuteResult = { handled: false, remainderText: 'open Safari', pendingRestart: true };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleTaskSubmit } = await import('../daemon/handlers/misc.js');
+    await handleTaskSubmit(
+      { type: 'task_submit', task: 'restart the recording and open Safari', source: 'voice' } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(classifierCalled).toBe(true);
+
+    // Should NOT have restart-specific messages before classifier output
+    const recordingSpecific = sent.filter(
+      (m) => m.type === 'assistant_text_delta' && typeof m.text === 'string' &&
+        m.text.includes('Restarting screen recording'),
+    );
+    expect(recordingSpecific).toHaveLength(0);
+  });
+
+  test('commandIntent restart → routes directly via handleRecordingRestart, returns early', async () => {
+    // commandIntent bypasses text-based intent resolution entirely
+    mockIntentResult = { kind: 'none' }; // should not matter
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleTaskSubmit } = await import('../daemon/handlers/misc.js');
+    await handleTaskSubmit(
+      {
+        type: 'task_submit',
+        task: 'restart recording',
+        source: 'voice',
+        commandIntent: { domain: 'screen_recording', action: 'restart' },
+      } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(recordingRestartCalled).toBe(true);
+    expect(classifierCalled).toBe(false);
+
+    const types = sent.map((m) => m.type);
+    expect(types).toContain('task_routed');
+    expect(types).toContain('assistant_text_delta');
+    expect(types).toContain('message_complete');
+  });
+
+  test('commandIntent pause → routes directly via handleRecordingPause, returns early', async () => {
+    mockIntentResult = { kind: 'none' };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleTaskSubmit } = await import('../daemon/handlers/misc.js');
+    await handleTaskSubmit(
+      {
+        type: 'task_submit',
+        task: 'pause recording',
+        source: 'voice',
+        commandIntent: { domain: 'screen_recording', action: 'pause' },
+      } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(recordingPauseCalled).toBe(true);
+    expect(classifierCalled).toBe(false);
+
+    const types = sent.map((m) => m.type);
+    expect(types).toContain('task_routed');
+    expect(types).toContain('assistant_text_delta');
+    expect(types).toContain('message_complete');
+  });
+
+  test('commandIntent resume → routes directly via handleRecordingResume, returns early', async () => {
+    mockIntentResult = { kind: 'none' };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleTaskSubmit } = await import('../daemon/handlers/misc.js');
+    await handleTaskSubmit(
+      {
+        type: 'task_submit',
+        task: 'resume recording',
+        source: 'voice',
+        commandIntent: { domain: 'screen_recording', action: 'resume' },
+      } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(recordingResumeCalled).toBe(true);
+    expect(classifierCalled).toBe(false);
+
+    const types = sent.map((m) => m.type);
+    expect(types).toContain('task_routed');
+    expect(types).toContain('assistant_text_delta');
+    expect(types).toContain('message_complete');
   });
 });
 
 describe('recording intent handler integration — handleUserMessage', () => {
-  beforeEach(() => {
-    mockClassifyResult = 'none';
-    mockAssistantName = null;
-    recordingStartCalled = false;
-    recordingStopCalled = false;
-    classifierCalled = false;
-  });
+  beforeEach(resetMockState);
 
-  test('start_only → calls handleRecordingStart, sends text_delta + message_complete, returns early', async () => {
-    mockClassifyResult = 'start_only';
+  test('start_only → executeRecordingIntent called, sends text_delta + message_complete, returns early', async () => {
+    mockIntentResult = { kind: 'start_only' };
+    mockExecuteResult = { handled: true, responseText: 'Starting screen recording.', recordingStarted: true };
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } = await import('../daemon/handlers/sessions.js');
@@ -376,22 +608,20 @@ describe('recording intent handler integration — handleUserMessage', () => {
       ctx,
     );
 
-    expect(recordingStartCalled).toBe(true);
-    expect(recordingStopCalled).toBe(false);
+    expect(executorCalled).toBe(true);
 
     const types = sent.map((m) => m.type);
     expect(types).toContain('assistant_text_delta');
     expect(types).toContain('message_complete');
 
-    // Should not proceed to enqueueMessage — the message_complete means it returned early
-    // The absence of enqueueMessage side effects is hard to test directly,
-    // but we verify message_complete was the last message sent.
+    // message_complete should be the last message sent (recording returned early)
     const lastMsg = sent[sent.length - 1];
     expect(lastMsg.type).toBe('message_complete');
   });
 
-  test('stop_only → calls handleRecordingStop, sends text_delta + message_complete, returns early', async () => {
-    mockClassifyResult = 'stop_only';
+  test('stop_only → executeRecordingIntent called, sends text_delta + message_complete, returns early', async () => {
+    mockIntentResult = { kind: 'stop_only' };
+    mockExecuteResult = { handled: true, responseText: 'Stopping the recording.' };
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } = await import('../daemon/handlers/sessions.js');
@@ -406,8 +636,7 @@ describe('recording intent handler integration — handleUserMessage', () => {
       ctx,
     );
 
-    expect(recordingStopCalled).toBe(true);
-    expect(recordingStartCalled).toBe(false);
+    expect(executorCalled).toBe(true);
 
     const types = sent.map((m) => m.type);
     expect(types).toContain('assistant_text_delta');
@@ -417,8 +646,9 @@ describe('recording intent handler integration — handleUserMessage', () => {
     expect(lastMsg.type).toBe('message_complete');
   });
 
-  test('mixed → does NOT intercept, proceeds to normal message processing', async () => {
-    mockClassifyResult = 'mixed';
+  test('start_with_remainder → does NOT return early, proceeds to normal message processing', async () => {
+    mockIntentResult = { kind: 'start_with_remainder', remainder: 'open Safari' };
+    mockExecuteResult = { handled: false, remainderText: 'open Safari', pendingStart: true };
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } = await import('../daemon/handlers/sessions.js');
@@ -433,10 +663,10 @@ describe('recording intent handler integration — handleUserMessage', () => {
       ctx,
     );
 
-    expect(recordingStartCalled).toBe(false);
-    expect(recordingStopCalled).toBe(false);
+    // Should deferred recording start and proceed to normal processing
+    expect(recordingStartCalled).toBe(true);
 
-    // Should NOT have recording-specific messages
+    // Should NOT have recording-specific intercept messages
     const recordingSpecific = sent.filter(
       (m) => m.type === 'assistant_text_delta' && typeof m.text === 'string' &&
         (m.text.includes('Starting screen recording') || m.text.includes('Stopping the recording')),
@@ -445,7 +675,7 @@ describe('recording intent handler integration — handleUserMessage', () => {
   });
 
   test('none → does NOT intercept, proceeds to normal message processing', async () => {
-    mockClassifyResult = 'none';
+    mockIntentResult = { kind: 'none' };
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } = await import('../daemon/handlers/sessions.js');
@@ -460,8 +690,7 @@ describe('recording intent handler integration — handleUserMessage', () => {
       ctx,
     );
 
-    expect(recordingStartCalled).toBe(false);
-    expect(recordingStopCalled).toBe(false);
+    expect(executorCalled).toBe(false);
 
     // Should NOT have recording-specific messages
     const recordingSpecific = sent.filter(
@@ -469,5 +698,189 @@ describe('recording intent handler integration — handleUserMessage', () => {
         (m.text.includes('Starting screen recording') || m.text.includes('Stopping the recording')),
     );
     expect(recordingSpecific).toHaveLength(0);
+  });
+
+  test('restart_only → executeRecordingIntent called, sends text_delta + message_complete, returns early', async () => {
+    mockIntentResult = { kind: 'restart_only' };
+    mockExecuteResult = { handled: true, responseText: 'Restarting screen recording.' };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleUserMessage } = await import('../daemon/handlers/sessions.js');
+    await handleUserMessage(
+      {
+        type: 'user_message',
+        sessionId: 'test-session',
+        content: 'restart the recording',
+        interface: 'vellum',
+      } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(executorCalled).toBe(true);
+
+    const types = sent.map((m) => m.type);
+    expect(types).toContain('assistant_text_delta');
+    expect(types).toContain('message_complete');
+
+    const lastMsg = sent[sent.length - 1];
+    expect(lastMsg.type).toBe('message_complete');
+  });
+
+  test('pause_only → executeRecordingIntent called, sends text_delta + message_complete, returns early', async () => {
+    mockIntentResult = { kind: 'pause_only' };
+    mockExecuteResult = { handled: true, responseText: 'Pausing the recording.' };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleUserMessage } = await import('../daemon/handlers/sessions.js');
+    await handleUserMessage(
+      {
+        type: 'user_message',
+        sessionId: 'test-session',
+        content: 'pause the recording',
+        interface: 'vellum',
+      } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(executorCalled).toBe(true);
+
+    const types = sent.map((m) => m.type);
+    expect(types).toContain('assistant_text_delta');
+    expect(types).toContain('message_complete');
+
+    const lastMsg = sent[sent.length - 1];
+    expect(lastMsg.type).toBe('message_complete');
+  });
+
+  test('resume_only → executeRecordingIntent called, sends text_delta + message_complete, returns early', async () => {
+    mockIntentResult = { kind: 'resume_only' };
+    mockExecuteResult = { handled: true, responseText: 'Resuming the recording.' };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleUserMessage } = await import('../daemon/handlers/sessions.js');
+    await handleUserMessage(
+      {
+        type: 'user_message',
+        sessionId: 'test-session',
+        content: 'resume the recording',
+        interface: 'vellum',
+      } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(executorCalled).toBe(true);
+
+    const types = sent.map((m) => m.type);
+    expect(types).toContain('assistant_text_delta');
+    expect(types).toContain('message_complete');
+
+    const lastMsg = sent[sent.length - 1];
+    expect(lastMsg.type).toBe('message_complete');
+  });
+
+  test('restart_with_remainder → defers restart, continues with remaining text', async () => {
+    mockIntentResult = { kind: 'restart_with_remainder', remainder: 'open Safari' };
+    mockExecuteResult = { handled: false, remainderText: 'open Safari', pendingRestart: true };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleUserMessage } = await import('../daemon/handlers/sessions.js');
+    await handleUserMessage(
+      {
+        type: 'user_message',
+        sessionId: 'test-session',
+        content: 'restart the recording and open Safari',
+        interface: 'vellum',
+      } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    // Deferred restart should have been executed
+    expect(recordingRestartCalled).toBe(true);
+
+    // Should NOT have restart-specific intercept messages
+    const recordingSpecific = sent.filter(
+      (m) => m.type === 'assistant_text_delta' && typeof m.text === 'string' &&
+        m.text.includes('Restarting screen recording'),
+    );
+    expect(recordingSpecific).toHaveLength(0);
+  });
+
+  test('commandIntent restart → routes directly via handleRecordingRestart, returns early', async () => {
+    mockIntentResult = { kind: 'none' };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleUserMessage } = await import('../daemon/handlers/sessions.js');
+    await handleUserMessage(
+      {
+        type: 'user_message',
+        sessionId: 'test-session',
+        content: 'restart recording',
+        interface: 'vellum',
+        commandIntent: { domain: 'screen_recording', action: 'restart' },
+      } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(recordingRestartCalled).toBe(true);
+
+    const types = sent.map((m) => m.type);
+    expect(types).toContain('assistant_text_delta');
+    expect(types).toContain('message_complete');
+
+    const lastMsg = sent[sent.length - 1];
+    expect(lastMsg.type).toBe('message_complete');
+  });
+
+  test('commandIntent pause → routes directly via handleRecordingPause, returns early', async () => {
+    mockIntentResult = { kind: 'none' };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleUserMessage } = await import('../daemon/handlers/sessions.js');
+    await handleUserMessage(
+      {
+        type: 'user_message',
+        sessionId: 'test-session',
+        content: 'pause recording',
+        interface: 'vellum',
+        commandIntent: { domain: 'screen_recording', action: 'pause' },
+      } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(recordingPauseCalled).toBe(true);
+
+    const types = sent.map((m) => m.type);
+    expect(types).toContain('assistant_text_delta');
+    expect(types).toContain('message_complete');
+  });
+
+  test('commandIntent resume → routes directly via handleRecordingResume, returns early', async () => {
+    mockIntentResult = { kind: 'none' };
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const { handleUserMessage } = await import('../daemon/handlers/sessions.js');
+    await handleUserMessage(
+      {
+        type: 'user_message',
+        sessionId: 'test-session',
+        content: 'resume recording',
+        interface: 'vellum',
+        commandIntent: { domain: 'screen_recording', action: 'resume' },
+      } as any,
+      fakeSocket,
+      ctx,
+    );
+
+    expect(recordingResumeCalled).toBe(true);
+
+    const types = sent.map((m) => m.type);
+    expect(types).toContain('assistant_text_delta');
+    expect(types).toContain('message_complete');
   });
 });
