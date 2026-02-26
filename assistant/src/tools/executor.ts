@@ -6,7 +6,6 @@ import { PermissionPrompter } from '../permissions/prompter.js';
 import { RiskLevel } from '../permissions/types.js';
 import { isToolBlocked } from '../security/parental-control-store.js';
 import { redactSensitiveFields } from '../security/redaction.js';
-import { compileCustomPatterns,redactSecrets,scanText } from '../security/secret-scanner.js';
 import { TokenExpiredError } from '../security/token-manager.js';
 import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 import { PermissionDeniedError,ToolError } from '../util/errors.js';
@@ -17,6 +16,7 @@ import { executeWithTimeout,safeTimeoutMs } from './execution-timeout.js';
 import { enforceGuardianOnlyPolicy } from './guardian-control-plane-policy.js';
 import { PermissionChecker } from './permission-checker.js';
 import { getAllTools,getTool } from './registry.js';
+import { SecretDetectionHandler } from './secret-detection-handler.js';
 import { applyEdit } from './shared/filesystem/edit-engine.js';
 import { sandboxPolicy } from './shared/filesystem/path-policy.js';
 import { MAX_FILE_SIZE_BYTES } from './shared/filesystem/size-guard.js';
@@ -27,10 +27,12 @@ const log = getLogger('tool-executor');
 export class ToolExecutor {
   private prompter: PermissionPrompter;
   private permissionChecker: PermissionChecker;
+  private secretDetectionHandler: SecretDetectionHandler;
 
   constructor(prompter: PermissionPrompter) {
     this.prompter = prompter;
     this.permissionChecker = new PermissionChecker(prompter);
+    this.secretDetectionHandler = new SecretDetectionHandler(prompter);
   }
 
   async execute(
@@ -322,200 +324,14 @@ export class ToolExecutor {
       }
 
       // Secret detection on tool output
-      const sdConfig = getConfig().secretDetection;
-      if (sdConfig.enabled && !execResult.isError) {
-        const entropyConfig = { enabled: true, base64Threshold: sdConfig.entropyThreshold };
-        const compiledCustom = sdConfig.customPatterns?.length
-          ? compileCustomPatterns(sdConfig.customPatterns)
-          : undefined;
-        const contentMatches = scanText(execResult.content, entropyConfig, compiledCustom);
-        const diffMatches = execResult.diff
-          ? scanText(execResult.diff.newContent, entropyConfig, compiledCustom)
-          : [];
-        const blockMatches = (execResult.contentBlocks ?? []).flatMap((block) => {
-          if (block.type === 'text') return scanText(block.text, entropyConfig, compiledCustom);
-          if (block.type === 'file' && block.extracted_text) return scanText(block.extracted_text, entropyConfig, compiledCustom);
-          return [];
-        });
-        const allMatches = [...contentMatches, ...diffMatches, ...blockMatches];
-
-        if (allMatches.length > 0) {
-          const matchSummary = allMatches.map((m) => ({
-            type: m.type,
-            redactedValue: m.redactedValue,
-          }));
-
-          emitLifecycleEvent(context, {
-            type: 'secret_detected',
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
-            sessionId: context.sessionId,
-            conversationId: context.conversationId,
-            requestId: context.requestId,
-            matches: matchSummary,
-            action: sdConfig.action,
-            detectedAtMs: Date.now(),
-          });
-
-          if (sdConfig.action === 'redact') {
-            execResult.content = redactSecrets(execResult.content, entropyConfig, compiledCustom);
-            if (execResult.diff) {
-              execResult.diff = {
-                ...execResult.diff,
-                newContent: redactSecrets(execResult.diff.newContent, entropyConfig, compiledCustom),
-              };
-            }
-            if (execResult.contentBlocks) {
-              execResult.contentBlocks = execResult.contentBlocks.map((block) => {
-                if (block.type === 'text') {
-                  return { ...block, text: redactSecrets(block.text, entropyConfig, compiledCustom) };
-                }
-                if (block.type === 'file' && block.extracted_text) {
-                  return { ...block, extracted_text: redactSecrets(block.extracted_text, entropyConfig, compiledCustom) };
-                }
-                return block;
-              });
-            }
-          } else if (sdConfig.action === 'block') {
-            const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
-            const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Configure secretDetection.action to "redact" or "prompt" to allow output.`;
-            const durationMs = Date.now() - startTime;
-            const blockedResult = {
-              content: blockedContent,
-              isError: true,
-            };
-            emitLifecycleEvent(context, {
-              type: 'executed',
-              toolName: name,
-              executionTarget,
-              input,
-              workingDir: context.workingDir,
-              sessionId: context.sessionId,
-              conversationId: context.conversationId,
-              requestId: context.requestId,
-              riskLevel,
-              decision,
-              durationMs,
-              result: blockedResult,
-            });
-
-            void getHookManager().trigger('post-tool-execute', {
-              toolName: name,
-              input: sanitizeToolInput(name, input),
-              riskLevel,
-              isError: true,
-              durationMs,
-              sessionId: context.sessionId,
-            });
-
-            return blockedResult;
-          } else if (sdConfig.action === 'prompt') {
-            // Ask the user whether to allow tool output containing secrets
-            const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
-
-            // Non-interactive sessions: auto-block secret output instead of waiting for prompt
-            if (context.isInteractive === false) {
-              const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). No interactive client available to approve.`;
-              const durationMs = Date.now() - startTime;
-              log.info({ toolName: name }, 'Auto-blocking secret output for non-interactive session');
-              emitLifecycleEvent(context, {
-                type: 'permission_denied',
-                toolName: name,
-                executionTarget,
-                input,
-                workingDir: context.workingDir,
-                sessionId: context.sessionId,
-                conversationId: context.conversationId,
-                requestId: context.requestId,
-                riskLevel: RiskLevel.High,
-                decision: 'deny',
-                reason: 'Non-interactive session: auto-blocked secret output',
-                durationMs,
-              });
-
-              void getHookManager().trigger('post-tool-execute', {
-                toolName: name,
-                input: sanitizeToolInput(name, input),
-                riskLevel,
-                isError: true,
-                durationMs,
-                sessionId: context.sessionId,
-              });
-
-              return { content: blockedContent, isError: true };
-            }
-
-            const promptInput = {
-              _secretDetection: true,
-              summary: `Tool output contains ${allMatches.length} potential secret(s): ${types}`,
-              tool: name,
-            };
-
-            emitLifecycleEvent(context, {
-              type: 'permission_prompt',
-              toolName: name,
-              executionTarget,
-              input: promptInput,
-              workingDir: context.workingDir,
-              sessionId: context.sessionId,
-              conversationId: context.conversationId,
-              requestId: context.requestId,
-              riskLevel: RiskLevel.High,
-              reason: `Secret detected in tool output: ${types}`,
-              allowlistOptions: [],
-              scopeOptions: [],
-              persistentDecisionsAllowed: false,
-            });
-
-            const response = await this.prompter.prompt(
-              name,
-              promptInput,
-              RiskLevel.High,
-              [],   // no allowlist options
-              [],   // no scope options
-              undefined, // no diff
-              undefined, // not sandboxed
-              context.conversationId,
-              executionTarget,
-              false, // no persistent decisions
-              context.signal,
-            );
-
-            if (response.decision === 'deny' || response.decision === 'always_deny') {
-              const blockedContent = `Tool output blocked: user denied output containing ${allMatches.length} potential secret(s) (${types}).`;
-              const durationMs = Date.now() - startTime;
-              emitLifecycleEvent(context, {
-                type: 'permission_denied',
-                toolName: name,
-                executionTarget,
-                input,
-                workingDir: context.workingDir,
-                sessionId: context.sessionId,
-                conversationId: context.conversationId,
-                requestId: context.requestId,
-                riskLevel: RiskLevel.High,
-                decision: response.decision === 'always_deny' ? 'always_deny' : 'deny',
-                reason: `User denied output containing secrets: ${types}`,
-                durationMs,
-              });
-
-              void getHookManager().trigger('post-tool-execute', {
-                toolName: name,
-                input: sanitizeToolInput(name, input),
-                riskLevel,
-                isError: true,
-                durationMs,
-                sessionId: context.sessionId,
-              });
-
-              return { content: blockedContent, isError: true };
-            }
-            // User allowed — pass content through unchanged
-          }
-        }
+      const secretResult = await this.secretDetectionHandler.handle(
+        execResult, name, input, context, executionTarget,
+        riskLevel, decision, startTime, emitLifecycleEvent, sanitizeToolInput,
+      );
+      if (secretResult.earlyReturn) {
+        return secretResult.result;
       }
+      execResult = secretResult.result;
 
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent(context, {
