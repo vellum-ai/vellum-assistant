@@ -76,7 +76,7 @@ function pruneOldSegments(): void {
  * transcript context when this returns a non-null value.
  */
 export function getLiveTranscriptText(): string | null {
-  if (!listening && segments.length === 0) return null;
+  if (!listening) return null;
 
   pruneOldSegments();
 

@@ -125,6 +125,7 @@ final class LiveTranscriptManager: ObservableObject {
                 // If stopListening() was called while we were awaiting, bail out
                 guard self.status == .starting, self.startGeneration == currentGeneration else {
                     self.audioCapture.stop()
+                    self.sendIPCStop()
                     return
                 }
 
@@ -132,6 +133,7 @@ final class LiveTranscriptManager: ObservableObject {
                     log.error("Transcription engine failed to start")
                     status = .error("Speech recognition unavailable")
                     audioCapture.stop()
+                    sendIPCStop()
                     resumeWakeWordIfNeeded()
                     return
                 }
@@ -220,6 +222,7 @@ final class LiveTranscriptManager: ObservableObject {
                 log.error("Audio capture stream error: \(error.localizedDescription, privacy: .public)")
                 self.status = .error(error.localizedDescription)
                 self.transcriptionEngine.stop()
+                self.sendIPCStop()
                 self.resumeWakeWordIfNeeded()
             }
         }
