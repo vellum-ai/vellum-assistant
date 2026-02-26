@@ -18,6 +18,7 @@ import { type BroadcastFn, VellumAdapter } from './adapters/macos.js';
 import { TelegramAdapter } from './adapters/telegram.js';
 import { NotificationBroadcaster,type ThreadCreatedInfo } from './broadcaster.js';
 import { enforceRoutingIntent, evaluateSignal } from './decision-engine.js';
+import { updateDecision } from './decisions-store.js';
 import { type DeterministicCheckContext, runDeterministicChecks } from './deterministic-checks.js';
 import { createEvent, updateEventDedupeKey } from './events-store.js';
 import { dispatchDecision } from './runtime-dispatch.js';
@@ -204,7 +205,26 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
     let decision = await evaluateSignal(signal, connectedChannels);
 
     // Step 2.5: Enforce routing intent policy (fire-time guard)
+    const preEnforcementDecision = decision;
     decision = enforceRoutingIntent(decision, signal.routingIntent, connectedChannels);
+
+    // Re-persist the decision if routing intent enforcement changed it,
+    // so the stored decision row matches what is actually dispatched.
+    if (decision !== preEnforcementDecision && decision.persistedDecisionId) {
+      try {
+        updateDecision(decision.persistedDecisionId, {
+          selectedChannels: decision.selectedChannels,
+          reasoningSummary: decision.reasoningSummary,
+          validationResults: {
+            dedupeKey: decision.dedupeKey,
+            channelCount: decision.selectedChannels.length,
+            hasCopy: Object.keys(decision.renderedCopy).length > 0,
+          },
+        });
+      } catch (err) {
+        log.warn({ err, signalId }, 'Failed to re-persist decision after routing intent enforcement');
+      }
+    }
 
     // Persist model-generated dedupeKey back to the event row so future
     // signals can deduplicate against it (the event was created with
