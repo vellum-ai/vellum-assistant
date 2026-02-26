@@ -51,7 +51,7 @@ Report the exact next action based on the channel:
 
 - **SMS**: "I've sent a 6-digit verification code to [number]. Reply with the code from that SMS conversation (not here) to complete verification — the code can only be consumed through the SMS channel."
 - **Voice**: The response includes a `secret` field with the verification code. Tell the user the code BEFORE the call connects: "I'm calling [number] now. Your verification code is [secret]. When you answer the call, enter this code using your phone's keypad."
-- **Telegram with chat ID** (no `telegramBootstrapUrl` in response): "I've sent a verification code to your Telegram. Send the code back to me in the Telegram bot chat to complete verification."
+- **Telegram with chat ID** (no `telegramBootstrapUrl` in response): The response includes a `secret` field. Show it in the current chat: "Your verification code is **[secret]**. I've also sent it to your Telegram. Open the Telegram bot chat and send `/guardian_verify [secret]` (or just reply with the code) to complete verification." If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3 or resend (Step 4).
 - **Telegram with handle** (`telegramBootstrapUrl` present in response): "Tap this deep-link first: [telegramBootstrapUrl]. After Telegram binds your identity, I'll send your verification code."
 
 After reporting the bootstrap URL for Telegram handle flows, wait for the user to confirm they clicked the link. Then check guardian status (Step 6) to see if the bootstrap completed and a code was sent.
@@ -85,7 +85,7 @@ On success, report the next action based on the channel:
 
 - **SMS**: "I've sent a new verification code to [number]. Reply with the code from that SMS conversation to complete verification."
 - **Voice**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects — just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad."
-- **Telegram**: "I've sent a new verification code to your Telegram. Send the code back to me in the Telegram bot chat to complete verification."
+- **Telegram**: The resend response includes a fresh `secret` field. Show the new code in the current chat: "Your new verification code is **[secret]**. I've also sent it to your Telegram. Open the Telegram bot chat and send `/guardian_verify [secret]` (or just reply with the code) to complete verification." If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3.
 
 ### Resend errors
 
