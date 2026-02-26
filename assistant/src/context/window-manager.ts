@@ -271,7 +271,17 @@ export class ContextWindowManager {
     // remain accessible to the assistant in subsequent turns. Tool-result
     // screenshots are NOT preserved — only top-level image blocks in user
     // messages, which represent intentional user uploads.
+    // Also carry forward any images already preserved in the existing summary
+    // message so they survive multiple compaction cycles.
     const preservedImageBlocks: ContentBlock[] = [];
+    if (existingSummary != null) {
+      const summaryMsg = messages[0];
+      for (const block of summaryMsg.content) {
+        if (block.type === 'image') {
+          preservedImageBlocks.push(block);
+        }
+      }
+    }
     for (const msg of compactableMessages) {
       if (msg.role !== 'user') continue;
       for (const block of msg.content) {
@@ -438,8 +448,9 @@ export function getSummaryFromContextMessage(message: Message | undefined): stri
 
 function stripContextSummaryTags(text: string): string {
   let inner = text.slice(CONTEXT_SUMMARY_MARKER.length);
-  if (inner.endsWith('</context_summary>')) {
-    inner = inner.slice(0, -'</context_summary>'.length);
+  const closeIdx = inner.indexOf('</context_summary>');
+  if (closeIdx !== -1) {
+    inner = inner.slice(0, closeIdx);
   }
   return inner.trim();
 }
