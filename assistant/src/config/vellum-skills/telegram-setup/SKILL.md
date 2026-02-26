@@ -73,7 +73,7 @@ Now link the user's Telegram account as the trusted guardian for this bot. Tell 
 }
 ```
 
-2. The daemon returns a `guardian_verification_response` with `success: true`, `secret`, and `instruction`. Display the 6-digit `secret` code to the user. Tell them: "You'll receive a message from your Telegram bot asking for a verification code. Reply to that message with this 6-digit code."
+2. The daemon returns a `guardian_verification_response` with `success: true`, `secret`, and `instruction`. Display the 6-digit `secret` code to the user. Tell them: "Open your chat with the Telegram bot and send this 6-digit code as a message."
 
 3. Wait for the user to confirm they have replied with the code. The verification happens automatically when the bot receives the code — the channel inbound handler validates it and creates the guardian binding.
 

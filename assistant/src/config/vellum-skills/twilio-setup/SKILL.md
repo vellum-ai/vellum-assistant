@@ -214,7 +214,7 @@ Now link the user's phone number as the trusted SMS guardian for this assistant.
 }
 ```
 
-2. The daemon returns a `guardian_verification_response` with `success: true`, `secret`, and `instruction`. Display the 6-digit `secret` code to the user. Tell them: "You'll receive an SMS asking for a verification code. Reply to that SMS with this 6-digit code."
+2. The daemon returns a `guardian_verification_response` with `success: true`, `secret`, and `instruction`. Display the 6-digit `secret` code to the user. Tell them: "Send this 6-digit code by SMS to your assistant's phone number."
 
 3. Wait for the user to confirm they have replied with the verification code via SMS to the assistant's phone number.
 

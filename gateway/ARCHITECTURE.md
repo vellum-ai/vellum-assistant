@@ -176,7 +176,7 @@ All channel ingress paths canonicalize the `assistantId` via `normalizeAssistant
 
 The inbound message handler (`inbound-message-handler.ts`) accepts verification codes in two formats:
 
-- **Bare code**: A 6-digit numeric code sent as the entire message body. This is the primary flow — the user receives a channel message asking them to reply with the code they were given, and simply replies with the code.
+- **Bare code**: A 6-digit numeric code sent as the entire message body. This is the primary flow — the user is shown a verification code in setup UI and sends that code in-channel as a plain message.
 - **Legacy command**: `/guardian_verify <code>` (or `/guardian_verify@BotName <code>` for Telegram group chats). This format is still accepted for backward compatibility but is no longer the recommended flow.
 
 #### Explicit Rebind Policy
@@ -216,7 +216,7 @@ sequenceDiagram
     GW->>TG: sendMessage: "You are now the guardian"
 ```
 
-The raw secret is shown only once in the desktop UI and delivered to the channel in an outbound message prompting the user to reply with it. Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused. Rate limiting (5 invalid attempts per 15-minute window, 30-minute lockout) protects against brute-force attacks.
+The raw secret is shown only once in the desktop UI and must be sent by the user in-channel to complete verification. (Outbound `start_outbound` verification flows separately send template messages/calls with the code.) Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused. Rate limiting (5 invalid attempts per 15-minute window, 30-minute lockout) protects against brute-force attacks.
 
 #### Inbound Message Decision Chain
 
