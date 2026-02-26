@@ -497,6 +497,10 @@ struct MainWindowView: View {
                             )
                         }
                         Spacer()
+                        PTTKeyIndicator {
+                            windowState.selection = .panel(.settings)
+                            NotificationCenter.default.post(name: .navigateToSettingsTab, object: SettingsTab.wakeWord)
+                        }
                         if windowState.isShowingChat || isChatBubbleActive {
                             // Copy Thread button — only visible when there's content to copy
                             if threadManager.activeViewModel?.messages.contains(where: {

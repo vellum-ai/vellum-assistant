@@ -135,6 +135,11 @@ struct SettingsPanel: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
+            if let tab = notification.object as? SettingsTab {
+                selectedTab = tab
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Primary mechanism: Check permissions when app becomes active.
             // This handles the common case where the user grants permission in

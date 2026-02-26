@@ -211,7 +211,26 @@ extension AppDelegate {
         return true
     }
 
+    /// Builds the status item tooltip, appending PTT key info when enabled.
+    private func menuBarTooltip() -> String {
+        let activationKey = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
+        let keyName: String? = {
+            switch activationKey {
+            case "fn": return "Fn"
+            case "ctrl": return "Ctrl"
+            case "fn_shift": return "Fn+Shift"
+            case "none": return nil
+            default: return nil
+            }
+        }()
+        if let keyName {
+            return "Vellum — hold \(keyName) to talk"
+        }
+        return "Vellum"
+    }
+
     func configureMenuBarIcon(_ button: NSStatusBarButton) {
+        button.toolTip = menuBarTooltip()
         let iconSize: CGFloat = 18
         let dotSize: CGFloat = 6
         let dotPadding: CGFloat = 0.5
