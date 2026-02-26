@@ -323,6 +323,21 @@ export function getMessages(conversationId: string): MessageRow[] {
     .map(parseMessage);
 }
 
+/** Fetch a single message by ID, optionally scoped to a specific conversation. */
+export function getMessageById(messageId: string, conversationId?: string): MessageRow | null {
+  const db = getDb();
+  const conditions = [eq(messages.id, messageId)];
+  if (conversationId) {
+    conditions.push(eq(messages.conversationId, conversationId));
+  }
+  const row = db
+    .select()
+    .from(messages)
+    .where(and(...conditions))
+    .get();
+  return row ? parseMessage(row) : null;
+}
+
 export interface PaginatedMessagesResult {
   messages: MessageRow[];
   /** Whether older messages exist beyond the returned page. */
