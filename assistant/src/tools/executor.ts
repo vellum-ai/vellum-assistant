@@ -6,7 +6,7 @@ import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } f
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { addRule } from '../permissions/trust-store.js';
 import { RiskLevel } from '../permissions/types.js';
-import { consumeApproveOnce, isToolApprovedAlways } from '../security/parental-approval-store.js';
+import { consumeApproveOnce, hasApproveOnce, isToolApprovedAlways } from '../security/parental-approval-store.js';
 import { isToolBlocked } from '../security/parental-control-store.js';
 import { redactSensitiveFields } from '../security/redaction.js';
 import { redactSecrets,scanText } from '../security/secret-scanner.js';
@@ -86,9 +86,15 @@ export class ToolExecutor {
     // Reject tools blocked by parental control settings before any permission check.
     // A parent-granted approval (approve_always or an unconsumed approve_once)
     // takes precedence and allows the tool to proceed despite category-level blocking.
+    //
+    // For approve_once we only CHECK for the grant here (without consuming it) so
+    // that subsequent rejection paths (guardian policy, task preflight, permission
+    // deny/prompt-deny, hook block) do not inadvertently burn the grant on a request
+    // that never actually executes. The grant is consumed just before execution below.
+    let pendingConsumeApproveOnce = false;
     if (isToolBlocked(name)) {
       const approvedAlways = isToolApprovedAlways(name);
-      const approvedOnce = !approvedAlways && consumeApproveOnce(name);
+      const approvedOnce = !approvedAlways && hasApproveOnce(name);
       if (!approvedAlways && !approvedOnce) {
         log.warn(
           {
@@ -116,6 +122,11 @@ export class ToolExecutor {
           durationMs,
         });
         return { content: 'This tool is blocked by parental control settings.', isError: true };
+      }
+      if (approvedOnce) {
+        // Defer actual consumption until execution is guaranteed (after all other
+        // rejection paths). The flag is read just before the tool runs.
+        pendingConsumeApproveOnce = true;
       }
       log.info(
         { toolName: name, approvedAlways, approvedOnce },
@@ -475,6 +486,12 @@ export class ToolExecutor {
           errorCategory: 'tool_failure',
         });
         return { content: msg, isError: true };
+      }
+
+      // Consume the deferred approve_once grant now that all rejection paths
+      // have been cleared and the tool is guaranteed to execute.
+      if (pendingConsumeApproveOnce) {
+        consumeApproveOnce(name);
       }
 
       // Execute the tool — proxy tools delegate to an external resolver

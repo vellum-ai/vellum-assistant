@@ -69,6 +69,18 @@ export function isToolApprovedAlways(toolName: string): boolean {
   return entries.some((e) => e.toolName === toolName && e.status === 'approve_always')
 }
 
+/**
+ * Returns true if there is an unconsumed one-time approval for the given tool,
+ * WITHOUT consuming it. Use this to decide whether a blocked tool should be
+ * allowed through, then call consumeApproveOnce only after all other rejection
+ * paths have been cleared (so the grant is not burned on a request that would
+ * have been denied for unrelated reasons).
+ */
+export function hasApproveOnce(toolName: string): boolean {
+  const entries = readStore()
+  return entries.some((e) => e.toolName === toolName && e.status === 'approve_once')
+}
+
 export function consumeApproveOnce(toolName: string): boolean {
   const entries = readStore()
   const idx = entries.findIndex((e) => e.toolName === toolName && e.status === 'approve_once')
