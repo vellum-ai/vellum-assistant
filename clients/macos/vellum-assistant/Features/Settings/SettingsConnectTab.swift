@@ -120,7 +120,7 @@ struct SettingsConnectTab: View {
                 regenerateHttpToken()
             }
         } message: {
-            Text("This will replace the current bearer token and restart the daemon. Any paired devices will need to reconnect.")
+            Text("This will generate a new security token and restart your assistant. Any paired devices will need to reconnect.")
         }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
