@@ -1,7 +1,7 @@
 import { wrapWithLogfire } from "../logfire.js";
 import { ConfigError } from "../util/errors.js";
 import { AnthropicProvider } from "./anthropic/client.js";
-import { FailoverProvider } from "./failover.js";
+import { FailoverProvider, type ProviderHealthStatus } from "./failover.js";
 import { FireworksProvider } from "./fireworks/client.js";
 import { GeminiProvider } from "./gemini/client.js";
 import { getProviderDefaultModel } from "./model-intents.js";
@@ -136,6 +136,51 @@ function resolveModel(config: ProvidersConfig, providerName: string): string {
     return config.model;
   }
   return getProviderDefaultModel(providerName);
+}
+
+export interface ProviderDebugStatus {
+  configuredPrimary: string;
+  activePrimary: string | null;
+  usedFallback: boolean;
+  registeredProviders: string[];
+  failoverHealth: ProviderHealthStatus[] | null;
+  overallHealth: 'healthy' | 'degraded' | 'down';
+}
+
+export function getProviderDebugStatus(
+  configuredProvider: string,
+  providerOrder: string[],
+): ProviderDebugStatus {
+  const registered = listProviders();
+  const selection = resolveProviderSelection(configuredProvider, providerOrder);
+
+  let failoverHealth: ProviderHealthStatus[] | null = null;
+  if (cachedFailoverProvider) {
+    failoverHealth = cachedFailoverProvider.getHealthStatus();
+  }
+
+  let overallHealth: 'healthy' | 'degraded' | 'down' = 'down';
+  if (registered.length > 0) {
+    if (!failoverHealth) {
+      overallHealth = 'healthy';
+    } else {
+      const healthyCount = failoverHealth.filter((h) => h.healthy).length;
+      if (healthyCount === failoverHealth.length) {
+        overallHealth = 'healthy';
+      } else if (healthyCount > 0) {
+        overallHealth = 'degraded';
+      }
+    }
+  }
+
+  return {
+    configuredPrimary: configuredProvider,
+    activePrimary: selection.selectedPrimary,
+    usedFallback: selection.usedFallbackPrimary,
+    registeredProviders: registered,
+    failoverHealth,
+    overallHealth,
+  };
 }
 
 export function initializeProviders(config: ProvidersConfig): void {
