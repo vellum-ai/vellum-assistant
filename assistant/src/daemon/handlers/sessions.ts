@@ -565,6 +565,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
       return {
         id: c.id,
         title: c.title ?? 'Untitled',
+        createdAt: c.createdAt,
         updatedAt: c.updatedAt,
         threadType: normalizeThreadType(c.threadType),
         source: c.source ?? 'user',

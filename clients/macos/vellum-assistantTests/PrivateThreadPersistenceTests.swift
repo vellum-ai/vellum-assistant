@@ -65,6 +65,7 @@ struct PrivateThreadPersistenceTests {
                 [
                     "id": "private-session-e2e",
                     "title": "Private Thread",
+                    "createdAt": 4000,
                     "updatedAt": 5000,
                     "threadType": "private"
                 ]
@@ -107,6 +108,7 @@ struct PrivateThreadPersistenceTests {
                 [
                     "id": "standard-session-e2e",
                     "title": "Standard Thread",
+                    "createdAt": 2000,
                     "updatedAt": 3000,
                     "threadType": "standard"
                 ]
@@ -139,9 +141,9 @@ struct PrivateThreadPersistenceTests {
         let sessionListJSON: [String: Any] = [
             "type": "session_list_response",
             "sessions": [
-                ["id": "s-private-1", "title": "Private A", "updatedAt": 5000, "threadType": "private"],
-                ["id": "s-standard-1", "title": "Standard B", "updatedAt": 4000, "threadType": "standard"],
-                ["id": "s-private-2", "title": "Private C", "updatedAt": 3000, "threadType": "private"],
+                ["id": "s-private-1", "title": "Private A", "createdAt": 4000, "updatedAt": 5000, "threadType": "private"],
+                ["id": "s-standard-1", "title": "Standard B", "createdAt": 3000, "updatedAt": 4000, "threadType": "standard"],
+                ["id": "s-private-2", "title": "Private C", "createdAt": 2000, "updatedAt": 3000, "threadType": "private"],
             ]
         ]
         let data = try! JSONSerialization.data(withJSONObject: sessionListJSON)
@@ -173,7 +175,7 @@ struct PrivateThreadPersistenceTests {
         let legacyJSON: [String: Any] = [
             "type": "session_list_response",
             "sessions": [
-                ["id": "legacy-1", "title": "Old Chat", "updatedAt": 2000],
+                ["id": "legacy-1", "title": "Old Chat", "createdAt": 1000, "updatedAt": 2000],
             ]
         ]
         let data = try! JSONSerialization.data(withJSONObject: legacyJSON)
@@ -200,8 +202,8 @@ struct PrivateThreadPersistenceTests {
 
         // Build sessions array manually: first has threadType, second doesn't
         let sessions: [[String: Any]] = [
-            ["id": "modern-1", "title": "Modern Private", "updatedAt": 5000, "threadType": "private"],
-            ["id": "legacy-1", "title": "Legacy Chat", "updatedAt": 4000],
+            ["id": "modern-1", "title": "Modern Private", "createdAt": 4000, "updatedAt": 5000, "threadType": "private"],
+            ["id": "legacy-1", "title": "Legacy Chat", "createdAt": 3000, "updatedAt": 4000],
         ]
         let dict: [String: Any] = ["type": "session_list_response", "sessions": sessions]
         let data = try! JSONSerialization.data(withJSONObject: dict)
