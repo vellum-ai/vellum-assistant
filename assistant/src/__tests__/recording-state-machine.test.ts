@@ -97,6 +97,7 @@ mock.module('../daemon/video-thumbnail.js', () => ({
 // ─── Imports (after mocks) ──────────────────────────────────────────────────
 
 import {
+  __injectRecordingOwner,
   __resetRecordingState,
   getActiveRestartToken,
   handleRecordingPause,
@@ -106,8 +107,6 @@ import {
   handleRecordingStop,
   isRecordingIdle,
   recordingHandlers,
-  __resetRecordingState,
-  __injectRecordingOwner,
 } from '../daemon/handlers/recording.js';
 import type { HandlerContext } from '../daemon/handlers/shared.js';
 import type { RecordingStatus } from '../daemon/ipc-contract/computer-use.js';
