@@ -6,7 +6,13 @@
 import type * as net from 'node:net';
 
 import type { HandlerContext } from './handlers/shared.js';
-import { handleRecordingStart, handleRecordingStop } from './handlers/recording.js';
+import {
+  handleRecordingPause,
+  handleRecordingRestart,
+  handleRecordingResume,
+  handleRecordingStart,
+  handleRecordingStop,
+} from './handlers/recording.js';
 import type { RecordingIntentResult } from './recording-intent.js';
 
 export interface RecordingExecutionContext {
@@ -105,13 +111,17 @@ export function executeRecordingIntent(
         pendingStop: true,
       };
 
-    // ── New intent kinds (M1 placeholders — actual handler wiring in M2) ──
-
-    case 'restart_only':
+    case 'restart_only': {
+      const restartResult = handleRecordingRestart(
+        context.conversationId,
+        context.socket,
+        context.ctx,
+      );
       return {
         handled: true,
-        responseText: 'Restarting screen recording.',
+        responseText: restartResult.responseText,
       };
+    }
 
     case 'restart_with_remainder':
       return {
@@ -120,16 +130,24 @@ export function executeRecordingIntent(
         pendingRestart: true,
       };
 
-    case 'pause_only':
+    case 'pause_only': {
+      const paused = handleRecordingPause(context.conversationId, context.ctx) !== undefined;
       return {
         handled: true,
-        responseText: 'Pausing the recording.',
+        responseText: paused
+          ? 'Pausing the recording.'
+          : 'No active recording to pause.',
       };
+    }
 
-    case 'resume_only':
+    case 'resume_only': {
+      const resumed = handleRecordingResume(context.conversationId, context.ctx) !== undefined;
       return {
         handled: true,
-        responseText: 'Resuming the recording.',
+        responseText: resumed
+          ? 'Resuming the recording.'
+          : 'No active recording to resume.',
       };
+    }
   }
 }

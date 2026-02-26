@@ -268,6 +268,10 @@ extension DaemonClient {
             onApprovedDevicesListResponse?(msg)
         case .approvedDeviceRemoveResponse(let msg):
             onApprovedDeviceRemoveResponse?(msg)
+        case .recordingPause(let msg):
+            onRecordingPause?(msg)
+        case .recordingResume(let msg):
+            onRecordingResume?(msg)
         case .recordingStart(let msg):
             onRecordingStart?(msg)
         case .recordingStop(let msg):
