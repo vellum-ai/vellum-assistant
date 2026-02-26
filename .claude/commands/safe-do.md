@@ -132,24 +132,29 @@ The `check-pr-reviews` script reports **cumulative** review status — it counts
 
 5. **Wait for fresh reviews**: After fixes are pushed, poll for **new** reviewer activity from Codex and Devin posted after `last_fix_push_time`. Do NOT use `check-pr-reviews` cumulative statuses to determine whether reviewers have responded — old reviews persist in the GitHub API and will make cumulative status checks pass immediately on subsequent cycles.
    - Poll every 60 seconds for up to **10 minutes**.
-   - On each poll, count how many of the two reviewer bots have posted new activity (reviews, inline comments, or issue comments) after `last_fix_push_time`:
+   - On each poll, collect the **login names** of reviewer bots that have posted new activity (reviews, inline comments, issue comments, or reactions) after `last_fix_push_time`:
      ```bash
-     # Count unique reviewer bots with new reviews after last_fix_push_time
-     new_review_bots=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews" \
-       --jq '[.[] | select(.submitted_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | length')
-     # Count unique reviewer bots with new inline comments after last_fix_push_time
-     new_comment_bots=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments" \
-       --jq '[.[] | select(.created_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | length')
-     # Count unique reviewer bots with new issue comments after last_fix_push_time
-     new_issue_comment_bots=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
-       --jq '[.[] | select(.created_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | length')
+     # Get reviewer bot logins with new reviews after last_fix_push_time
+     review_bot_logins=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews" \
+       --jq '[.[] | select(.submitted_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | .[]')
+     # Get reviewer bot logins with new inline comments after last_fix_push_time
+     comment_bot_logins=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments" \
+       --jq '[.[] | select(.created_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | .[]')
+     # Get reviewer bot logins with new issue comments after last_fix_push_time
+     issue_comment_bot_logins=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
+       --jq '[.[] | select(.created_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | .[]')
+     # Get reviewer bot logins with new reactions after last_fix_push_time (e.g., Codex +1 approval)
+     reaction_bot_logins=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/reactions" \
+       --jq '[.[] | select(.created_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | .[]')
+     # Union all logins across endpoints and count unique bots
+     all_responded_bots=$(echo -e "$review_bot_logins\n$comment_bot_logins\n$issue_comment_bot_logins\n$reaction_bot_logins" | sort -u | grep -c .)
      ```
-     Combine the results: a reviewer bot counts as "responded" if it appears in any of the three queries above. Both bots must have posted something new to consider the poll complete.
-   - If **both** reviewer bots have posted new activity after `last_fix_push_time`, run `.claude/check-pr-reviews $PR_NUMBER` and derive the aggregate status:
+     A reviewer bot counts as "responded" if its login appears in any of the four queries above. Both bots must have posted something new to consider the poll complete.
+   - If `all_responded_bots` is **>= 2** (both reviewer bots have posted new activity after `last_fix_push_time`), run `.claude/check-pr-reviews $PR_NUMBER` and derive the aggregate status:
      - If aggregate status is `approved`, proceed to Step 6.
      - If aggregate status is `changes_requested`, return to step 2 (which checks the cycle limit).
      - If aggregate status is `pending` or `rate_limited`, continue polling.
-   - If fewer than 2 reviewer bots have posted new activity, **continue polling** — do not exit the loop. Old cumulative statuses from `check-pr-reviews` are unreliable after fixes have been pushed.
+   - If `all_responded_bots` is **< 2**, **continue polling** — do not exit the loop. Old cumulative statuses from `check-pr-reviews` are unreliable after fixes have been pushed.
    - If **10 minutes** pass without both reviewer bots posting new activity, proceed to Step 6. Log: `"Timed out after 10 minutes waiting for reviewer responses. Proceeding with pending reviews."`
 
 Repeat steps 1-5 until the exit condition: either `approved` aggregate status, both reviewers have posted fresh activity, 10-minute timeout after a fix push, or the cycle counter has reached 3.
@@ -245,24 +250,29 @@ Since the rebase rewrites commits (and conflict resolution may change logic), pr
 
 3. Wait for fresh reviews: Poll for **new** reviewer activity from Codex and Devin posted after `last_fix_push_time`. Do NOT use `check-pr-reviews` cumulative statuses to determine whether reviewers have responded — old reviews persist in the GitHub API and will make cumulative status checks pass immediately on subsequent cycles.
    - Poll every 60 seconds for up to **10 minutes**.
-   - On each poll, count how many of the two reviewer bots have posted new activity (reviews, inline comments, or issue comments) after `last_fix_push_time`:
+   - On each poll, collect the **login names** of reviewer bots that have posted new activity (reviews, inline comments, issue comments, or reactions) after `last_fix_push_time`:
      ```bash
-     # Count unique reviewer bots with new reviews after last_fix_push_time
-     new_review_bots=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews" \
-       --jq '[.[] | select(.submitted_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | length')
-     # Count unique reviewer bots with new inline comments after last_fix_push_time
-     new_comment_bots=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments" \
-       --jq '[.[] | select(.created_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | length')
-     # Count unique reviewer bots with new issue comments after last_fix_push_time
-     new_issue_comment_bots=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
-       --jq '[.[] | select(.created_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | length')
+     # Get reviewer bot logins with new reviews after last_fix_push_time
+     review_bot_logins=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews" \
+       --jq '[.[] | select(.submitted_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | .[]')
+     # Get reviewer bot logins with new inline comments after last_fix_push_time
+     comment_bot_logins=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments" \
+       --jq '[.[] | select(.created_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | .[]')
+     # Get reviewer bot logins with new issue comments after last_fix_push_time
+     issue_comment_bot_logins=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
+       --jq '[.[] | select(.created_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | .[]')
+     # Get reviewer bot logins with new reactions after last_fix_push_time (e.g., Codex +1 approval)
+     reaction_bot_logins=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/reactions" \
+       --jq '[.[] | select(.created_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | .[]')
+     # Union all logins across endpoints and count unique bots
+     all_responded_bots=$(echo -e "$review_bot_logins\n$comment_bot_logins\n$issue_comment_bot_logins\n$reaction_bot_logins" | sort -u | grep -c .)
      ```
-     Combine the results: a reviewer bot counts as "responded" if it appears in any of the three queries above. Both bots must have posted something new to consider the poll complete.
-   - If **both** reviewer bots have posted new activity after `last_fix_push_time`, run `.claude/check-pr-reviews $PR_NUMBER` and derive the aggregate status:
+     A reviewer bot counts as "responded" if its login appears in any of the four queries above. Both bots must have posted something new to consider the poll complete.
+   - If `all_responded_bots` is **>= 2** (both reviewer bots have posted new activity after `last_fix_push_time`), run `.claude/check-pr-reviews $PR_NUMBER` and derive the aggregate status:
      - If aggregate status is `approved`, proceed to Step 6.
      - If aggregate status is `changes_requested`, return to the feedback loop (Step 5b, step 2 — which checks the cycle limit).
      - If aggregate status is `pending` or `rate_limited`, continue polling.
-   - If fewer than 2 reviewer bots have posted new activity, **continue polling** — do not exit the loop. Old cumulative statuses from `check-pr-reviews` are unreliable after fixes have been pushed.
+   - If `all_responded_bots` is **< 2**, **continue polling** — do not exit the loop. Old cumulative statuses from `check-pr-reviews` are unreliable after fixes have been pushed.
    - If **10 minutes** pass without both reviewer bots posting new activity, proceed to Step 6. Log: `"Timed out after 10 minutes waiting for post-rebase reviews. Proceeding with pending reviews."`
 
 Proceed to Step 6.
