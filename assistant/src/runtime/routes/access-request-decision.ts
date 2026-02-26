@@ -1,0 +1,178 @@
+/**
+ * Access request decision handler: processes guardian decisions on
+ * `ingress_access_request` approvals. Unlike escalated ingress messages,
+ * access requests don't have a pending interaction in the session tracker,
+ * so they need a separate decision path that creates a verification session
+ * instead of resuming an agent loop.
+ */
+import {
+  resolveApprovalRequest,
+  type GuardianApprovalRequest,
+} from '../../memory/channel-guardian-store.js';
+import { getLogger } from '../../util/logger.js';
+import { createOutboundSession } from '../channel-guardian-service.js';
+import { deliverChannelReply } from '../gateway-client.js';
+
+const log = getLogger('access-request-decision');
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type AccessRequestDecisionAction = 'approve' | 'deny';
+
+export interface AccessRequestDecisionResult {
+  handled: boolean;
+  type: 'approved' | 'denied' | 'stale' | 'idempotent';
+  verificationSessionId?: string;
+  verificationCode?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a guardian decision on an `ingress_access_request` approval.
+ *
+ * On approve: creates an identity-bound verification session with a 6-digit
+ * code and returns it. The caller is responsible for delivering the code to
+ * the guardian and notifying the requester.
+ *
+ * On deny: marks the approval as denied and returns. The caller is responsible
+ * for notifying the requester.
+ *
+ * Returns `{ handled: false }` for non-access-request approvals so the caller
+ * can fall through to the standard decision path.
+ */
+export function handleAccessRequestDecision(
+  approval: GuardianApprovalRequest,
+  action: AccessRequestDecisionAction,
+  decidedByExternalUserId: string,
+): AccessRequestDecisionResult {
+  // Resolve the approval atomically. resolveApprovalRequest is idempotent:
+  // if already resolved with the same decision, returns the existing record
+  // unchanged. Returns null when already resolved with a *different* decision
+  // or when the record doesn't exist.
+  const decision = action === 'approve' ? 'approved' : 'denied';
+  const resolved = resolveApprovalRequest(approval.id, decision, decidedByExternalUserId);
+
+  if (!resolved) {
+    // Already resolved with a different decision, or does not exist
+    return { handled: true, type: 'stale' };
+  }
+
+  // resolveApprovalRequest returns the existing record (unchanged) when the
+  // approval was already resolved with the same decision. In that case
+  // the approval's status was not 'pending' before our call. We detect
+  // this by checking if the original approval (passed in) was already
+  // non-pending, meaning the transition happened in a prior call.
+  if (approval.status !== 'pending') {
+    return { handled: true, type: 'idempotent' };
+  }
+
+  if (action === 'deny') {
+    return { handled: true, type: 'denied' };
+  }
+
+  // On approve: create an identity-bound outbound verification session.
+  // The session is bound to the requester's identity on the same channel
+  // so only the original requester can consume the code.
+  const session = createOutboundSession({
+    assistantId: approval.assistantId,
+    channel: approval.channel,
+    expectedExternalUserId: approval.requesterExternalUserId,
+    expectedChatId: approval.requesterChatId,
+    identityBindingStatus: 'bound',
+    destinationAddress: approval.requesterChatId,
+  });
+
+  return {
+    handled: true,
+    type: 'approved',
+    verificationSessionId: session.sessionId,
+    verificationCode: session.secret,
+  };
+}
+
+/**
+ * Deliver the verification code to the guardian after an access request
+ * approval. The guardian gives the code to the requester out-of-band.
+ */
+export async function deliverVerificationCodeToGuardian(params: {
+  replyCallbackUrl: string;
+  guardianChatId: string;
+  requesterIdentifier: string;
+  verificationCode: string;
+  assistantId: string;
+  bearerToken?: string;
+}): Promise<void> {
+  const text = `You approved access for ${params.requesterIdentifier}. `
+    + `Give them this verification code: ${params.verificationCode}. `
+    + `The code expires in 10 minutes.`;
+
+  try {
+    await deliverChannelReply(params.replyCallbackUrl, {
+      chatId: params.guardianChatId,
+      text,
+      assistantId: params.assistantId,
+    }, params.bearerToken);
+  } catch (err) {
+    log.error(
+      { err, guardianChatId: params.guardianChatId },
+      'Failed to deliver verification code to guardian',
+    );
+  }
+}
+
+/**
+ * Notify the requester that the guardian has approved their access request
+ * and they should enter the verification code they receive from the guardian.
+ */
+export async function notifyRequesterOfApproval(params: {
+  replyCallbackUrl: string;
+  requesterChatId: string;
+  assistantId: string;
+  bearerToken?: string;
+}): Promise<void> {
+  const text = 'Your access request has been approved! '
+    + 'Please enter the 6-digit verification code you receive from the guardian.';
+
+  try {
+    await deliverChannelReply(params.replyCallbackUrl, {
+      chatId: params.requesterChatId,
+      text,
+      assistantId: params.assistantId,
+    }, params.bearerToken);
+  } catch (err) {
+    log.error(
+      { err, requesterChatId: params.requesterChatId },
+      'Failed to notify requester of access request approval',
+    );
+  }
+}
+
+/**
+ * Notify the requester that the guardian has denied their access request.
+ */
+export async function notifyRequesterOfDenial(params: {
+  replyCallbackUrl: string;
+  requesterChatId: string;
+  assistantId: string;
+  bearerToken?: string;
+}): Promise<void> {
+  const text = 'Your access request has been denied by the guardian.';
+
+  try {
+    await deliverChannelReply(params.replyCallbackUrl, {
+      chatId: params.requesterChatId,
+      text,
+      assistantId: params.assistantId,
+    }, params.bearerToken);
+  } catch (err) {
+    log.error(
+      { err, requesterChatId: params.requesterChatId },
+      'Failed to notify requester of access request denial',
+    );
+  }
+}
