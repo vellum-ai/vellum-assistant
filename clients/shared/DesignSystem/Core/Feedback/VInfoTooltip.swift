@@ -2,9 +2,11 @@ import SwiftUI
 
 /// A small info-circle icon that reliably shows a tooltip on hover.
 ///
-/// On macOS, plain `Image` views with `.help()` have inconsistent tooltip
-/// tracking. Wrapping the icon in a `Button` ensures the system registers
-/// the hover area and shows the tooltip every time.
+/// Uses a non-interactive view with `.help()` so the tooltip appears on
+/// hover without introducing a focusable button to VoiceOver or keyboard
+/// navigation. The `.accessibilityHidden(true)` keeps it out of the
+/// accessibility tree entirely — the adjacent label already conveys the
+/// context, and the tooltip text is supplementary.
 ///
 /// Usage:
 /// ```swift
@@ -21,16 +23,13 @@ public struct VInfoTooltip: View {
     }
 
     public var body: some View {
-        Button {} label: {
-            Image(systemName: "info.circle")
-                .font(.system(size: 12))
-                .foregroundColor(VColor.textMuted)
-                .frame(width: 16, height: 16)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(tooltip)
-        .accessibilityLabel(tooltip)
+        Image(systemName: "info.circle")
+            .font(.system(size: 12))
+            .foregroundColor(VColor.textMuted)
+            .frame(width: 16, height: 16)
+            .contentShape(Rectangle())
+            .help(tooltip)
+            .accessibilityHidden(true)
     }
 }
 
