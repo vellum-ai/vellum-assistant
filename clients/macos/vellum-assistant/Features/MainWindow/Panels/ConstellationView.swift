@@ -91,7 +91,8 @@ private func inferCategory(_ skill: SkillInfo) -> SkillCategory {
     let text = (skill.name + " " + skill.description).lowercased()
 
     if text.contains("email") || text.contains("message") || text.contains("messaging")
-        || text.contains("chat") || text.contains("phone") || text.contains("call")
+        || text.contains("chat") || text.contains("phone") || text.contains("phone call")
+        || text.contains("voice call") || text.contains("video call")
         || text.contains("contact") || text.contains("notification") || text.contains("followup")
         || text.contains("sms") || text.contains("slack") || text.contains("telegram") {
         return .communication
@@ -110,15 +111,15 @@ private func inferCategory(_ skill: SkillInfo) -> SkillCategory {
         return .development
     }
 
+    if text.contains("browser") || text.contains("computer use") || text.contains("macos")
+        || text.contains("watcher") || text.contains("automat") {
+        return .automation
+    }
+
     if text.contains("image") || text.contains("screen") || text.contains("media")
         || text.contains("transcri") || text.contains("video") || text.contains("audio")
         || text.contains("recording") {
         return .media
-    }
-
-    if text.contains("browser") || text.contains("computer use") || text.contains("macos")
-        || text.contains("watcher") || text.contains("automat") {
-        return .automation
     }
 
     if text.contains("x.com") || text.contains("twitter") || text.contains("public ingress")
