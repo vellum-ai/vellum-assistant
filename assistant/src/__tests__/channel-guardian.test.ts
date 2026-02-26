@@ -3166,7 +3166,7 @@ describe('outbound Telegram verification', () => {
     expect(result.success).toBe(false);
   });
 
-  test('backward compat: inbound-only /guardian_verify Telegram flow still works', () => {
+  test('inbound-only Telegram verification flow still works with bare code', () => {
     // Create an inbound-only challenge (no outbound session, no expected identity)
     const challengeResult = createVerificationChallenge('self', 'telegram');
 
@@ -3280,7 +3280,7 @@ describe('outbound Telegram verification', () => {
       { code: 'abc123', expiresInMinutes: 10 },
     );
     expect(msg).not.toContain('abc123');
-    expect(msg).toContain('/guardian_verify <code>');
+    expect(msg).not.toContain('guardian_verify');
   });
 
   test('telegram resend template does not include code and includes (resent) suffix', () => {
@@ -3289,7 +3289,7 @@ describe('outbound Telegram verification', () => {
       { code: 'xyz789', expiresInMinutes: 5 },
     );
     expect(msg).not.toContain('xyz789');
-    expect(msg).toContain('/guardian_verify <code>');
+    expect(msg).not.toContain('guardian_verify');
     expect(msg).toContain('(resent)');
   });
 

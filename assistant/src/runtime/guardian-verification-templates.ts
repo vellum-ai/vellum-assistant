@@ -80,11 +80,11 @@ export interface ChannelVerifyReplyVars {
 
 const templates: Record<TextVerifyTemplateKey, (vars: GuardianVerifyTemplateVars) => string> = {
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST]: (_vars) => {
-    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given, or use /guardian_verify <code>.';
+    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given.';
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND]: (_vars) => {
-    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given, or use /guardian_verify <code>. (resent)';
+    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given. (resent)';
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED]: (_vars) => {
@@ -92,11 +92,11 @@ const templates: Record<TextVerifyTemplateKey, (vars: GuardianVerifyTemplateVars
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST]: (_vars) => {
-    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given, or use /guardian_verify <code>.';
+    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given.';
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND]: (_vars) => {
-    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given, or use /guardian_verify <code>. (resent)';
+    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given. (resent)';
   },
 };
 
