@@ -343,7 +343,7 @@ describe('stale completion guard (operation token)', () => {
     expect(getActiveRestartToken()).toBeNull();
   });
 
-  test('rejects recording_status without operation token during active restart', () => {
+  test('allows tokenless recording_status during active restart (old recording ack)', () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = 'conv-tokenless-1';
     ctx.socketToSession.set(fakeSocket, conversationId);
@@ -356,22 +356,23 @@ describe('stale completion guard (operation token)', () => {
     const startMsg = sent.filter((m) => m.type === 'recording_start').pop();
     sent.length = 0;
 
-    // Simulate a tokenless "started" status arriving during the restart
-    // (e.g. from a previous non-restart recording cycle)
+    // Simulate a tokenless "stopped" status arriving during the restart.
+    // This represents the OLD recording's stopped ack — it was started before
+    // the restart was initiated, so it has no operationToken. This MUST be
+    // allowed through for the deferred restart pattern to work.
     const tokenlessStatus: RecordingStatus = {
       type: 'recording_status',
       sessionId: startMsg!.recordingId as string,
-      status: 'started',
-      // No operationToken — should be rejected
+      status: 'stopped',
+      attachToConversationId: conversationId,
+      // No operationToken — from old recording, should be allowed
     };
     recordingHandlers.recording_status(tokenlessStatus, fakeSocket, ctx);
 
-    // Should have been rejected — no side effects
+    // Should have been allowed through — the stopped handler processes normally
+    // (emits text delta about recording stopped/no file)
     const textDeltas = sent.filter((m) => m.type === 'assistant_text_delta');
-    expect(textDeltas).toHaveLength(0);
-
-    // Active restart token should still be set (not cleared by tokenless status)
-    expect(getActiveRestartToken()).toBe(restartResult.operationToken);
+    expect(textDeltas.length).toBeGreaterThan(0);
   });
 
   test('no ghost state after restart stop/start handoff', () => {
