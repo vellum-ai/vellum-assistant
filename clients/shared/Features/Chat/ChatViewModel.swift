@@ -379,6 +379,11 @@ public final class ChatViewModel: ObservableObject {
     /// bump the thread's lastInteractedAt so it rises to the top of the list.
     public var onUserMessageSent: (() -> Void)?
 
+    /// Called when a notable child-profile action occurs (tool_use_start or user request).
+    /// `actionType` is one of "tool_call" or "request"; `description` is a human-readable summary.
+    /// The caller is responsible for checking the active profile and forwarding to the daemon.
+    public var onChildActivity: ((_ actionType: String, _ description: String) -> Void)?
+
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
 
@@ -751,6 +756,12 @@ public final class ChatViewModel: ObservableObject {
         if !rawText.isEmpty, !rawText.hasPrefix("/"), let callback = onFirstUserMessage {
             onFirstUserMessage = nil
             callback(rawText)
+        }
+
+        // Record the user request in the parental activity log when in child profile.
+        if !rawText.isEmpty, !rawText.hasPrefix("/") {
+            let preview = rawText.count > 80 ? String(rawText.prefix(80)) + "…" : rawText
+            onChildActivity?("request", "Request: \(preview)")
         }
 
         // Notify ThreadManager so the thread rises to the top of the list

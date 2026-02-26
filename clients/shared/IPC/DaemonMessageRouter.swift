@@ -276,6 +276,10 @@ extension DaemonClient {
             onParentalControlApprovalListResponse?(msg)
         case .parentalControlApprovalRespondResponse(let msg):
             onParentalControlApprovalRespondResponse?(msg)
+        case .parentalActivityLogListResponse(let msg):
+            onParentalActivityLogListResponse?(msg)
+        case .parentalActivityLogClearResponse(let msg):
+            onParentalActivityLogClearResponse?(msg)
         case .pairingApprovalRequest(let msg):
             onPairingApprovalRequest?(msg)
         case .approvedDevicesListResponse(let msg):

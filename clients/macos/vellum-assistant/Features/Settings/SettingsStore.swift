@@ -6,6 +6,19 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsStore")
 
+// MARK: - Activity Log Entry model
+
+/// A single recorded child-profile action surfaced in the parent's Activity Log view.
+public struct ActivityLogEntry: Codable, Identifiable {
+    public let id: String
+    /// ISO 8601 timestamp of when the action occurred.
+    public let timestamp: String
+    /// Broad category: "tool_call", "request", or "approval_request".
+    public let actionType: String
+    /// Human-readable description of what happened.
+    public let description: String
+}
+
 /// Single source of truth for settings state shared between `SettingsPanel`
 /// (main window side panel) and its extracted tab views.
 @MainActor
@@ -203,6 +216,9 @@ public final class SettingsStore: ObservableObject {
     @Published var allowedApps: [String] = []
     /// Allowlisted widget names for the child profile. Empty means all widgets are allowed.
     @Published var allowedWidgets: [String] = []
+
+    /// Activity log entries recorded while the child profile was active.
+    @Published var activityLog: [ActivityLogEntry] = []
 
     // MARK: - Dev Mode
 
@@ -1751,6 +1767,71 @@ public final class SettingsStore: ObservableObject {
             }
         } else {
             profileSwitchError = "No response from daemon."
+        }
+    }
+
+    // MARK: - Parental Activity Log Actions
+
+    /// Request the full activity log from the daemon and populate `activityLog`.
+    func loadActivityLog() {
+        guard let daemonClient else { return }
+        let stream = daemonClient.subscribe()
+        Task {
+            do {
+                try daemonClient.sendParentalActivityLogList()
+            } catch {
+                log.error("Failed to send parental_activity_log_list: \(error)")
+                return
+            }
+
+            let response: ParentalActivityLogListResponseMessage? = await withTaskGroup(
+                of: ParentalActivityLogListResponseMessage?.self
+            ) { group in
+                group.addTask {
+                    for await message in stream {
+                        if case .parentalActivityLogListResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            guard let r = response else { return }
+            let decoded = r.entries.map { entry in
+                ActivityLogEntry(
+                    id: entry.id,
+                    timestamp: entry.timestamp,
+                    actionType: entry.actionType,
+                    description: entry.description
+                )
+            }
+            await MainActor.run {
+                self.activityLog = decoded
+            }
+        }
+    }
+
+    /// Clear all activity log entries on both daemon and local state.
+    /// `pin` must be provided when parental controls are enabled and a PIN is set.
+    func clearActivityLogEntries(pin: String? = nil) {
+        guard let daemonClient else { return }
+        Task {
+            do {
+                try daemonClient.sendParentalActivityLogClear(pin: pin)
+            } catch {
+                log.error("Failed to send parental_activity_log_clear: \(error)")
+            }
+            // Optimistically clear local state; the daemon confirms via response
+            // but we don't need to block on it for the UX.
+            await MainActor.run {
+                self.activityLog = []
+            }
         }
     }
 

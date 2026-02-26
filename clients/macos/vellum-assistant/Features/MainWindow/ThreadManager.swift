@@ -67,6 +67,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private let daemonClient: DaemonClient
     private let sessionRestorer: ThreadSessionRestorer
     private let activityNotificationService: ActivityNotificationService?
+    /// Forwarded to each new ChatViewModel as `onChildActivity`. Called when a
+    /// notable action occurs while in the child profile. The closure should check
+    /// the current profile and send `parental_activity_log_append` if appropriate.
+    var onChildActivity: ((_ actionType: String, _ description: String) -> Void)?
     /// Flag to suppress lastActiveThreadIdString writes during initialization and session restoration.
     private var isRestoringThreads = false
     /// Subscription to activeViewModel's messages count changes.
@@ -622,6 +626,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 )
             }
         })
+        viewModel.onChildActivity = { [weak self] actionType, description in
+            self?.onChildActivity?(actionType, description)
+        }
         viewModel.shouldAcceptConfirmation = { [weak self, weak viewModel] in
             guard let self, let viewModel else { return false }
             return self.isLatestToolUseRecipient(viewModel)

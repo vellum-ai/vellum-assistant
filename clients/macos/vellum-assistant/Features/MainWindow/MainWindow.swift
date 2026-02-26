@@ -189,6 +189,14 @@ public final class MainWindow {
             self.avatarEvolutionState = nil
         }
         self.threadManager.ambientAgent = services.ambientAgent
+        // Wire parental activity log append: send to daemon only when the child
+        // profile is active. Using a weak reference to services avoids a retain cycle.
+        self.threadManager.onChildActivity = { [weak services] actionType, description in
+            guard let services else { return }
+            let store = services.settingsStore
+            guard store.isParentalEnabled && store.activeProfile == "child" else { return }
+            try? services.daemonClient.sendParentalActivityLogAppend(actionType: actionType, description: description)
+        }
         documentManager.daemonClient = daemonClient
         services.daemonClient.onTraceEvent = { [weak self] msg in
             Task { @MainActor in

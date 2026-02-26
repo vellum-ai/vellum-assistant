@@ -7,6 +7,11 @@ import {
   type ApprovalDecision,
 } from '../../security/parental-approval-store.js';
 import {
+  appendActivityLogEntry,
+  clearActivityLog,
+  listActivityLogEntries,
+} from '../../security/parental-activity-log.js';
+import {
   clearPIN,
   getActiveProfile,
   getParentalControlSettings,
@@ -18,6 +23,9 @@ import {
 } from '../../security/parental-control-store.js';
 import { getLogger } from '../../util/logger.js';
 import type {
+  ParentalActivityLogAppendRequest,
+  ParentalActivityLogClearRequest,
+  ParentalActivityLogListRequest,
   ParentalControlAllowlistGetRequest,
   ParentalControlAllowlistUpdateRequest,
   ParentalControlApprovalCreateRequest,
@@ -398,6 +406,74 @@ export function handleParentalControlApprovalRespond(
   })
 }
 
+// ---------------------------------------------------------------------------
+// Activity Log handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * One-way: append an entry to the child activity log.
+ * No response is sent back to the client.
+ */
+export function handleParentalActivityLogAppend(
+  msg: ParentalActivityLogAppendRequest,
+  _socket: net.Socket,
+  _ctx: HandlerContext,
+): void {
+  appendActivityLogEntry({
+    actionType: msg.actionType,
+    description: msg.description,
+    ...(msg.metadata !== undefined ? { metadata: msg.metadata } : {}),
+  });
+}
+
+export function handleParentalActivityLogList(
+  _msg: ParentalActivityLogListRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const entries = listActivityLogEntries();
+  ctx.send(socket, {
+    type: 'parental_activity_log_list_response',
+    entries,
+  });
+}
+
+export function handleParentalActivityLogClear(
+  msg: ParentalActivityLogClearRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const settings = getParentalControlSettings();
+  const pinExists = hasPIN();
+
+  // Require PIN verification when parental controls are enabled and a PIN is set,
+  // consistent with other mutating parental-control handlers.
+  if (settings.enabled && pinExists) {
+    if (!msg.pin || !verifyPIN(msg.pin)) {
+      ctx.send(socket, {
+        type: 'parental_activity_log_clear_response',
+        success: false,
+      });
+      return;
+    }
+  }
+
+  try {
+    clearActivityLog();
+    ctx.send(socket, {
+      type: 'parental_activity_log_clear_response',
+      success: true,
+    });
+  } catch (err) {
+    log.error({ err }, 'Failed to clear parental activity log');
+    ctx.send(socket, {
+      type: 'parental_activity_log_clear_response',
+      success: false,
+    });
+  }
+}
+
+
 export const parentalControlHandlers = defineHandlers({
   parental_control_get: handleParentalControlGet,
   parental_control_verify_pin: handleParentalControlVerifyPin,
@@ -410,4 +486,7 @@ export const parentalControlHandlers = defineHandlers({
   parental_control_approval_create: handleParentalControlApprovalCreate,
   parental_control_approval_list: handleParentalControlApprovalList,
   parental_control_approval_respond: handleParentalControlApprovalRespond,
+  parental_activity_log_append: handleParentalActivityLogAppend,
+  parental_activity_log_list: handleParentalActivityLogList,
+  parental_activity_log_clear: handleParentalActivityLogClear,
 });

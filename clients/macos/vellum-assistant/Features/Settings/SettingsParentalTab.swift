@@ -79,13 +79,18 @@ struct SettingsParentalTab: View {
                     if settingsStore.activeProfile == "parental" {
                         appAllowlistSection
                         widgetAllowlistSection
+                        // Activity log is only visible to the parent
+                        activityLogSection
                     }
                 } else {
                     lockedPlaceholder
                 }
             }
         }
-        .onAppear { loadSettings() }
+        .onAppear {
+            loadSettings()
+            settingsStore.loadActivityLog()
+        }
         .sheet(isPresented: $showingProfileSwitchSheet) {
             ProfileSwitchSheet(
                 onComplete: { result in
@@ -548,6 +553,43 @@ struct SettingsParentalTab: View {
                         }
                         .disabled(isLoading)
                     }
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Activity Log Section
+
+    private var activityLogSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack {
+                Text("Activity Log")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                VButton(label: "Clear Log", style: .danger) {
+                    settingsStore.clearActivityLogEntries(pin: unlockedPIN)
+                }
+                .accessibilityLabel("Clear activity log")
+                .disabled(settingsStore.activityLog.isEmpty)
+            }
+
+            Text("Actions taken while the child profile was active.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            if settingsStore.activityLog.isEmpty {
+                Text("No activity recorded yet.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .textSelection(.enabled)
+            } else {
+                ForEach(settingsStore.activityLog.reversed()) { entry in
+                    ActivityLogEntryRow(entry: entry)
                 }
             }
         }
@@ -1549,6 +1591,64 @@ private enum ToolCategory: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Activity Log Entry Row
+
+/// A single row in the activity log list.
+private struct ActivityLogEntryRow: View {
+    let entry: ActivityLogEntry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(actionTypeLabel)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Text(formattedTimestamp)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .textSelection(.enabled)
+            }
+            Text(entry.description)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, VSpacing.xxs)
+    }
+
+    private var actionTypeLabel: String {
+        switch entry.actionType {
+        case "tool_call": return "Tool Call"
+        case "request": return "Request"
+        case "approval_request": return "Approval Request"
+        default: return entry.actionType
+        }
+    }
+
+    private var formattedTimestamp: String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: entry.timestamp) {
+            let display = DateFormatter()
+            display.dateStyle = .short
+            display.timeStyle = .short
+            return display.string(from: date)
+        }
+        // Fallback: try without fractional seconds
+        let fallback = ISO8601DateFormatter()
+        fallback.formatOptions = [.withInternetDateTime]
+        if let date = fallback.date(from: entry.timestamp) {
+            let display = DateFormatter()
+            display.dateStyle = .short
+            display.timeStyle = .short
+            return display.string(from: date)
+        }
+        return entry.timestamp
+    }
+}
+
 // MARK: - Preview
 
 #Preview("Parental Tab") {
@@ -1560,4 +1660,28 @@ private enum ToolCategory: String, CaseIterable, Identifiable {
         }
     }
     .frame(width: 420, height: 600)
+}
+
+#Preview("Activity Log Entry Row") {
+    struct PreviewWrapper: View {
+        var body: some View {
+            VStack(spacing: VSpacing.sm) {
+                ActivityLogEntryRow(entry: ActivityLogEntry(
+                    id: "1",
+                    timestamp: "2026-02-26T10:00:00Z",
+                    actionType: "tool_call",
+                    description: "Called bash tool with command: ls -la"
+                ))
+                ActivityLogEntryRow(entry: ActivityLogEntry(
+                    id: "2",
+                    timestamp: "2026-02-26T10:05:00Z",
+                    actionType: "approval_request",
+                    description: "Requested approval to access file system"
+                ))
+            }
+            .padding(VSpacing.lg)
+            .background(VColor.background)
+        }
+    }
+    return PreviewWrapper()
 }
