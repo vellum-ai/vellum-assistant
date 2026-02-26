@@ -81,19 +81,22 @@ Each policy defines:
 
 The pairing function is resilient -- errors are caught and logged. A pairing failure never breaks the delivery pipeline.
 
-## Dual-Copy Architecture: Notification vs Thread Seed
+## Multi-Surface Copy Architecture
 
-The system produces **two distinct copy outputs** per notification:
+The system produces **three distinct copy outputs** per notification:
 
 | Output | Purpose | Verbosity |
 |--------|---------|-----------|
-| `title` + `body` | Native notification popup (macOS banner, Telegram message) | Short and glanceable |
+| `title` + `body` | Native notification popup (macOS/iOS banner) | Short and glanceable |
+| `deliveryText` | Channel-native chat message text (Telegram) | Natural chat phrasing |
 | Thread seed message | Opening message in the notification thread | Richer and context-aware |
 
 ### How It Works
 
-1. The **decision engine** can produce both `title`/`body` (concise popup copy) and `threadSeedMessage` (richer thread content) per channel.
-2. **Adapters** only use `copy.title` and `copy.body` for the native notification display. The `threadSeedMessage` field passes through the adapter payload but is not used for the popup.
+1. The **decision engine** can produce `title`/`body` (popup copy), `deliveryText` (chat copy), and `threadSeedMessage` (richer thread content) per channel.
+2. **Adapters** use the surface-appropriate field:
+   - Vellum/macOS notifications use `title` + `body`.
+   - Telegram delivery prefers `deliveryText` and falls back to `threadSeedMessage`, then `body`, then `title`.
 3. **Conversation pairing** uses the thread seed as the conversation's opening message:
    - If the LLM produced a valid `threadSeedMessage`, it is used directly (after a sanity check rejects empty, too-short, JSON dumps, or excessively long values).
    - Otherwise, the **runtime thread seed composer** (`thread-seed-composer.ts`) generates a deterministic, surface-aware seed.
@@ -114,20 +117,20 @@ Interface inference strategy:
 
 ### Example: Reminder Notification
 
-**Notification popup (both surfaces):**
+**Native popup (vellum/macos):**
 ```
 Title: Reminder
 Body:  Take out the trash
 ```
 
-**Thread seed on vellum/macos (rich):**
+**Telegram chat delivery (`deliveryText`):**
 ```
-Reminder: Take out the trash. This needs your attention.
+Take out the trash
 ```
 
-**Thread seed on telegram (compact):**
+**Thread seed on vellum/macos (rich):**
 ```
-Reminder: Take out the trash — action needed
+Reminder. Take out the trash. Action required.
 ```
 
 ## Thread Surfacing via `notification_thread_created` IPC
@@ -167,7 +170,7 @@ The macOS/iOS client posts a native `UNUserNotificationCenter` notification from
 
 ### Telegram (when guardian binding exists)
 
-HTTP POST to the gateway's `/deliver/telegram` endpoint. The `TelegramAdapter` formats the notification copy as plain text and sends it to the guardian's chat ID (resolved from the active guardian binding).
+HTTP POST to the gateway's `/deliver/telegram` endpoint. The `TelegramAdapter` sends channel-native text (`deliveryText` when present) to the guardian's chat ID (resolved from the active guardian binding), with deterministic fallbacks when model copy is unavailable.
 
 ### Channel Connectivity
 
