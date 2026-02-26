@@ -3,6 +3,7 @@
 // Follows the same sliding-window pattern as gateway/src/auth-rate-limiter.ts.
 
 import type { HttpErrorResponse } from '../http-errors.js';
+import { isPrivateAddress } from './auth.js';
 
 const DEFAULT_MAX_REQUESTS = 60;
 const DEFAULT_WINDOW_MS = 60_000; // 60 seconds
@@ -143,7 +144,7 @@ export function extractClientIp(
 ): string {
   const peerIp = server.requestIP(req)?.address ?? '0.0.0.0';
 
-  if (isTrustedPeer(peerIp)) {
+  if (isPrivateAddress(peerIp)) {
     const forwarded = req.headers.get('x-forwarded-for');
     if (forwarded) {
       const first = forwarded.split(',')[0].trim();
@@ -157,19 +158,3 @@ export function extractClientIp(
   return peerIp;
 }
 
-/** Returns true when the address is loopback or RFC-1918 private. */
-function isTrustedPeer(ip: string): boolean {
-  return (
-    ip === '127.0.0.1' ||
-    ip === '::1' ||
-    ip === '::ffff:127.0.0.1' ||
-    ip.startsWith('10.') ||
-    ip.startsWith('172.16.') || ip.startsWith('172.17.') || ip.startsWith('172.18.') ||
-    ip.startsWith('172.19.') || ip.startsWith('172.20.') || ip.startsWith('172.21.') ||
-    ip.startsWith('172.22.') || ip.startsWith('172.23.') || ip.startsWith('172.24.') ||
-    ip.startsWith('172.25.') || ip.startsWith('172.26.') || ip.startsWith('172.27.') ||
-    ip.startsWith('172.28.') || ip.startsWith('172.29.') || ip.startsWith('172.30.') ||
-    ip.startsWith('172.31.') ||
-    ip.startsWith('192.168.')
-  );
-}
