@@ -343,6 +343,8 @@ Guardian verification can also be initiated through normal desktop chat. When th
 
 These endpoints share the same business logic as the IPC-based verification flow via `guardian-outbound-actions.ts`.
 
+**Security constraint:** Guardian verification control-plane endpoints are restricted to guardian and desktop (trusted) actors only. Non-guardian and unverified-channel actors cannot invoke these endpoints conversationally via tools. Attempts are denied with a message explaining that guardian verification actions are restricted to guardian users.
+
 ## Channel Readiness
 
 The `channel_readiness` IPC contract provides a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. It runs local checks (credential presence, phone number assignment, ingress config) synchronously and optional remote checks (API reachability) asynchronously with a 5-minute TTL cache.
