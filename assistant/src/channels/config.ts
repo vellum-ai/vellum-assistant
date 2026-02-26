@@ -35,7 +35,7 @@ const CHANNEL_POLICIES = {
   },
   sms: {
     notification: {
-      deliveryEnabled: false,
+      deliveryEnabled: true,
       conversationStrategy: 'continue_existing_conversation',
     },
   },

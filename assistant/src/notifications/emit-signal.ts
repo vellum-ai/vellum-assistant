@@ -15,6 +15,7 @@ import { getDeliverableChannels } from '../channels/config.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import { getLogger } from '../util/logger.js';
 import { type BroadcastFn, VellumAdapter } from './adapters/macos.js';
+import { SmsAdapter } from './adapters/sms.js';
 import { TelegramAdapter } from './adapters/telegram.js';
 import { NotificationBroadcaster,type ThreadCreatedInfo } from './broadcaster.js';
 import { enforceRoutingIntent, evaluateSignal } from './decision-engine.js';
@@ -47,6 +48,7 @@ function getBroadcaster(): NotificationBroadcaster {
   if (!broadcasterInstance) {
     const adapters = [
       new TelegramAdapter(),
+      new SmsAdapter(),
     ];
     if (registeredBroadcastFn) {
       adapters.unshift(new VellumAdapter(registeredBroadcastFn));
@@ -91,6 +93,7 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         channels.push(channel);
         break;
       case 'telegram':
+      case 'sms':
         // Only report binding-based channels as connected when there is
         // an active guardian binding for this assistant. Without a
         // binding, the destination resolver will fail to resolve a

@@ -38,7 +38,8 @@ export function resolveDestinations(
         result.set('vellum', { channel: 'vellum' });
         break;
       }
-      case 'telegram': {
+      case 'telegram':
+      case 'sms': {
         const binding = getActiveBinding(assistantId, channel);
         if (binding) {
           result.set(channel as NotificationChannel, {
