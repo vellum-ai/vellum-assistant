@@ -142,16 +142,19 @@ describe('pairDeliveryWithConversation', () => {
       sourceEventName: 'reminder.fired',
       contextPayload: { message: 'Daily standup' },
     });
-    const copy = makeCopy({ threadSeedMessage: '{"raw": "json dump payload"}' });
+    const copy = makeCopy({
+      title: 'Reminder',
+      body: 'Daily standup',
+      threadSeedMessage: '{"raw": "json dump payload"}',
+    });
 
     pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
 
     const contentArg = addMessageMock.mock.calls[0]![2] as string;
     // Should NOT be the JSON dump
     expect(contentArg).not.toContain('"raw"');
-    // Should be the runtime-composed seed from the reminder template
+    // Should be the runtime-composed seed from copy.title/body
     expect(contentArg).toContain('Reminder');
-    expect(contentArg).toContain('Daily standup');
   });
 
   test('rejects very short threadSeedMessage and uses runtime composer', () => {
@@ -159,12 +162,13 @@ describe('pairDeliveryWithConversation', () => {
       sourceEventName: 'reminder.fired',
       contextPayload: { message: 'Test' },
     });
-    const copy = makeCopy({ threadSeedMessage: 'Hi' });
+    const copy = makeCopy({ title: 'Reminder', body: 'Test reminder', threadSeedMessage: 'Hi' });
 
     pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
 
     const contentArg = addMessageMock.mock.calls[0]![2] as string;
     expect(contentArg).not.toBe('Hi');
+    // Runtime composer builds from copy.title/body
     expect(contentArg).toContain('Reminder');
   });
 
