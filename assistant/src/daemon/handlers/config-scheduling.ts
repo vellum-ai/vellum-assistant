@@ -84,7 +84,7 @@ export async function handleScheduleRunNow(
       log.info({ jobId: schedule.id, name: schedule.name, taskId }, 'Executing scheduled task manually (run now)');
       const { runTask } = await import('../../tasks/task-runner.js');
       const result = await runTask(
-        { taskId, workingDir: process.cwd() },
+        { taskId, workingDir: process.cwd(), source: 'schedule' },
         async (conversationId, message, taskRunId) => {
           const session = await ctx.getOrCreateSession(conversationId, socket, true);
           (session as unknown as { taskRunId?: string }).taskRunId = taskRunId;

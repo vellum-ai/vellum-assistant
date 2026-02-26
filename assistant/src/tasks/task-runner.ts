@@ -14,6 +14,8 @@ export interface TaskRunOptions {
   workingDir: string;
   /** Pre-approved tools from the permission preflight flow. When set, only these tools get ephemeral allow rules. */
   approvedTools?: string[];
+  /** Conversation source to propagate to the created conversation (e.g. 'schedule' when triggered by a schedule). */
+  source?: string;
 }
 
 export interface TaskRunResult {
@@ -45,7 +47,7 @@ export async function runTask(
   }
 
   const run = createTaskRun(task.id);
-  const conversation = createConversation({ title: GENERATING_TITLE, threadType: 'background' });
+  const conversation = createConversation({ title: GENERATING_TITLE, threadType: 'background', source: opts.source });
   queueGenerateConversationTitle({
     conversationId: conversation.id,
     context: { origin: 'task', systemHint: `Task: ${task.title}` },

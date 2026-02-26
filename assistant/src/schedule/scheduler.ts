@@ -95,7 +95,7 @@ async function runScheduleOnce(
         log.info({ jobId: job.id, name: job.name, taskId, syntax: job.syntax, expression: job.expression, isRruleSet }, 'Executing scheduled task');
         const { runTask } = await import('../tasks/task-runner.js');
         const result = await runTask(
-          { taskId, workingDir: process.cwd() },
+          { taskId, workingDir: process.cwd(), source: 'schedule' },
           processMessage as (conversationId: string, message: string, taskRunId: string) => Promise<void>,
         );
 
