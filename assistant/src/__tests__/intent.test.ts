@@ -82,16 +82,18 @@ describe('classifyIntent', () => {
     ).toBe(ToolIntent.Read);
   });
 
-  test('file_write (workspace-scoped) → Read', () => {
+  test('file_write → Read (sandboxed)', () => {
     expect(
       classifyIntent('file_write', { file_path: `${WORKSPACE_DIR}/bar.txt` }, WORKSPACE_DIR, RiskLevel.Low),
     ).toBe(ToolIntent.Read);
   });
 
-  test('file_write (outside workspace) → Write', () => {
+  test('file_write (outside workspace) → Read (sandboxed)', () => {
+    // Sandboxed tools are always Read regardless of target path — the sandbox
+    // provides isolation so writes cannot affect the host filesystem.
     expect(
       classifyIntent('file_write', { file_path: '/etc/shadow' }, WORKSPACE_DIR, RiskLevel.Low),
-    ).toBe(ToolIntent.Write);
+    ).toBe(ToolIntent.Read);
   });
 
   test('bash (sandbox enabled) → Read', () => {

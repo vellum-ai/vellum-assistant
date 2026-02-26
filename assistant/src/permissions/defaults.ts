@@ -14,7 +14,7 @@ export interface DefaultRuleTemplate {
   allowHighRisk?: boolean;
 }
 
-const HOST_FILE_TOOLS = ['host_file_read', 'host_file_write', 'host_file_edit'] as const;
+const HOST_FILE_WRITE_TOOLS = ['host_file_write', 'host_file_edit'] as const;
 const COMPUTER_USE_TOOLS = [
   'computer_use_click',
   'computer_use_double_click',
@@ -44,7 +44,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     skills?: { load?: { extraDirs?: unknown } };
   };
 
-  const hostFileRules = HOST_FILE_TOOLS.map((tool) => ({
+  const hostFileWriteRules = HOST_FILE_WRITE_TOOLS.map((tool) => ({
     id: `default:ask-${tool}-global`,
     tool,
     pattern: `${tool}:/**`,
@@ -52,6 +52,15 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     decision: 'ask' as const,
     priority: 50,
   }));
+
+  const hostFileReadRule: DefaultRuleTemplate = {
+    id: 'default:allow-host_file_read-global',
+    tool: 'host_file_read',
+    pattern: 'host_file_read:/**',
+    scope: 'everywhere',
+    decision: 'allow',
+    priority: 50,
+  };
 
   // host_bash command candidates are raw commands ("ls", "npm test"), so the
   // global default ask rule uses "**" (globstar) instead of a "tool:*" prefix
@@ -260,7 +269,8 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   };
 
   return [
-    ...hostFileRules,
+    hostFileReadRule,
+    ...hostFileWriteRules,
     hostShellRule,
     ...(sandboxShellRule ? [sandboxShellRule] : []),
     ...computerUseRules,

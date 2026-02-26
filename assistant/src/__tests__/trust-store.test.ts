@@ -298,14 +298,14 @@ describe('Trust Store', () => {
 
     test('returns null when tool does not match', () => {
       addRule('file_write', 'file_write:/tmp/*', '/tmp');
-      // host_file_read default is 'ask' so findMatchingRule (allow-only) won't find it
-      const match = findMatchingRule('host_file_read', 'host_file_read:/etc/hosts', '/tmp');
+      // host_file_write default is 'ask' so findMatchingRule (allow-only) won't find it
+      const match = findMatchingRule('host_file_write', 'host_file_write:/etc/hosts', '/tmp');
       expect(match).toBeNull();
     });
 
     test('returns null when pattern does not match', () => {
-      addRule('host_file_read', 'host_file_read:/etc/hosts', '/tmp');
-      const match = findMatchingRule('host_file_read', 'host_file_read:/var/log/syslog', '/tmp');
+      addRule('host_file_write', 'host_file_write:/etc/hosts', '/tmp');
+      const match = findMatchingRule('host_file_write', 'host_file_write:/var/log/syslog', '/tmp');
       expect(match).toBeNull();
     });
 
@@ -324,8 +324,8 @@ describe('Trust Store', () => {
       });
 
       test('does not match when scope is outside rule scope', () => {
-        addRule('host_file_read', 'host_file_read:/home/user/project/*', '/home/user/project');
-        const match = findMatchingRule('host_file_read', 'host_file_read:/home/user/project/file.txt', '/home/other');
+        addRule('host_file_write', 'host_file_write:/home/user/project/*', '/home/user/project');
+        const match = findMatchingRule('host_file_write', 'host_file_write:/home/user/project/file.txt', '/home/other');
         expect(match).toBeNull();
       });
 
@@ -342,8 +342,8 @@ describe('Trust Store', () => {
       });
 
       test('does not match sibling path with shared prefix', () => {
-        addRule('host_file_read', 'host_file_read:/home/user/project/*', '/home/user/project');
-        const match = findMatchingRule('host_file_read', 'host_file_read:/home/user/project/file.txt', '/home/user/project-evil');
+        addRule('host_file_write', 'host_file_write:/home/user/project/*', '/home/user/project');
+        const match = findMatchingRule('host_file_write', 'host_file_write:/home/user/project/file.txt', '/home/user/project-evil');
         expect(match).toBeNull();
       });
 
@@ -360,8 +360,8 @@ describe('Trust Store', () => {
       });
 
       test('does not match sibling with glob-suffixed scope', () => {
-        addRule('host_file_read', 'host_file_read:/home/user/project/*', '/home/user/project*');
-        const match = findMatchingRule('host_file_read', 'host_file_read:/home/user/project/file.txt', '/home/user/project-evil');
+        addRule('host_file_write', 'host_file_write:/home/user/project/*', '/home/user/project*');
+        const match = findMatchingRule('host_file_write', 'host_file_write:/home/user/project/file.txt', '/home/user/project-evil');
         expect(match).toBeNull();
       });
     });
@@ -375,9 +375,9 @@ describe('Trust Store', () => {
       });
 
       test('matches exact string', () => {
-        addRule('host_file_read', 'host_file_read:/etc/hosts', '/tmp');
-        expect(findMatchingRule('host_file_read', 'host_file_read:/etc/hosts', '/tmp')).not.toBeNull();
-        expect(findMatchingRule('host_file_read', 'host_file_read:/etc/passwd', '/tmp')).toBeNull();
+        addRule('host_file_write', 'host_file_write:/etc/hosts', '/tmp');
+        expect(findMatchingRule('host_file_write', 'host_file_write:/etc/hosts', '/tmp')).not.toBeNull();
+        expect(findMatchingRule('host_file_write', 'host_file_write:/etc/passwd', '/tmp')).toBeNull();
       });
 
       test('matches file path pattern', () => {
@@ -545,9 +545,9 @@ describe('Trust Store', () => {
     });
 
     test('findMatchingRule ignores deny rules', () => {
-      // Use host_file_read — it has an 'ask' default so findMatchingRule (allow-only) won't find it.
-      addRule('host_file_read', 'host_file_read:/etc/*', '/tmp', 'deny');
-      const match = findMatchingRule('host_file_read', 'host_file_read:/etc/hosts', '/tmp');
+      // Use host_file_write — it has an 'ask' default so findMatchingRule (allow-only) won't find it.
+      addRule('host_file_write', 'host_file_write:/etc/*', '/tmp', 'deny');
+      const match = findMatchingRule('host_file_write', 'host_file_write:/etc/hosts', '/tmp');
       expect(match).toBeNull();
     });
 
@@ -774,20 +774,20 @@ describe('Trust Store', () => {
       // Remove one default rule by editing trust.json directly on disk
       // (removeRule() throws for default rules, so we simulate external editing)
       const raw = JSON.parse(readFileSync(trustPath, 'utf-8'));
-      raw.rules = raw.rules.filter((r: { id: string }) => r.id !== 'default:ask-host_file_read-global');
+      raw.rules = raw.rules.filter((r: { id: string }) => r.id !== 'default:allow-host_file_read-global');
       writeFileSync(trustPath, JSON.stringify(raw, null, 2));
       // After reload, the rule is re-backfilled (defaults are always present)
       clearCache();
       const rules = getAllRules();
-      expect(rules.find((r) => r.id === 'default:ask-host_file_read-global')).toBeDefined();
+      expect(rules.find((r) => r.id === 'default:allow-host_file_read-global')).toBeDefined();
     });
 
-    test('findHighestPriorityRule matches default ask for host_file_read', () => {
+    test('findHighestPriorityRule matches default allow for host_file_read', () => {
       const match = findHighestPriorityRule('host_file_read', ['host_file_read:/etc/hosts'], '/tmp');
       expect(match).not.toBeNull();
-      expect(match!.id).toBe('default:ask-host_file_read-global');
-      expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-host_file_read-global')!);
+      expect(match!.id).toBe('default:allow-host_file_read-global');
+      expect(match!.decision).toBe('allow');
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:allow-host_file_read-global')!);
     });
 
     test('findHighestPriorityRule matches default ask for host_file_write', () => {
