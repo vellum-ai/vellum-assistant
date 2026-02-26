@@ -90,8 +90,38 @@ struct SettingsParentalTab: View {
             loadSettings()
             settingsStore.loadActivityLog()
             if let pin = unlockedPIN {
+                // Already unlocked (e.g. view re-appears while PIN is cached)
                 settingsStore.loadAllowedIntegrations(pin: pin)
+            } else if !hasPIN {
+                // No PIN configured — integrations are accessible without a PIN
+                settingsStore.loadAllowedIntegrations(pin: "")
             }
+        }
+        .sheet(isPresented: $showingProfileSwitchSheet) {
+            ProfileSwitchSheet(
+                onComplete: { result in
+                    switch result {
+                    case .success(let pin):
+                        Task {
+                            await settingsStore.switchProfile(to: "parental", pin: pin)
+                            if settingsStore.profileSwitchError == nil {
+                                showingProfileSwitchSheet = false
+                                // Cache the PIN so the parental profile can immediately
+                                // respond to pending approval requests without a separate
+                                // unlock step.
+                                isUnlocked = true
+                                unlockedPIN = pin
+                                settingsStore.loadAllowedIntegrations(pin: pin)
+                            } else {
+                                profileSwitchError = settingsStore.profileSwitchError
+                            }
+                        }
+                    case .failure:
+                        profileSwitchError = "Incorrect PIN."
+                    }
+                },
+                daemonClient: daemonClient
+            )
         }
         .sheet(isPresented: $showingPINSheet) {
             PINSheet(
@@ -132,6 +162,7 @@ struct SettingsParentalTab: View {
                         isUnlocked = true
                         unlockedPIN = pin
                         errorMessage = nil
+                        settingsStore.loadAllowedIntegrations(pin: pin)
                     case .failure:
                         errorMessage = "Incorrect PIN."
                     }
@@ -571,7 +602,10 @@ struct SettingsParentalTab: View {
                 Toggle(integration.label, isOn: Binding(
                     get: { settingsStore.allowedIntegrations.contains(integration.id) },
                     set: { isOn in
-                        guard let pin = unlockedPIN else { return }
+                        // Use the cached PIN when set; fall back to "" when no PIN is configured
+                        let pin = unlockedPIN ?? (hasPIN ? nil : "") ?? ""
+                        // Guard: if a PIN is set but not yet unlocked, do nothing
+                        if hasPIN && unlockedPIN == nil { return }
                         let updated = isOn
                             ? settingsStore.allowedIntegrations + [integration.id]
                             : settingsStore.allowedIntegrations.filter { $0 != integration.id }
@@ -580,7 +614,8 @@ struct SettingsParentalTab: View {
                     }
                 ))
                 .accessibilityLabel(integration.label)
-                .disabled(isLoading || unlockedPIN == nil)
+                // Disable only when loading or when a PIN is required but not yet provided
+                .disabled(isLoading || (hasPIN && unlockedPIN == nil))
             }
         }
         .padding(VSpacing.lg)

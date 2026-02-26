@@ -6,6 +6,7 @@
 import { answerCall } from '../../calls/call-domain.js';
 import type { ChannelId, InterfaceId } from '../../channels/types.js';
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId, parseInterfaceId } from '../../channels/types.js';
+import { isIntegrationAllowed } from '../../security/parental-control-store.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { RESEND_COOLDOWN_MS } from '../../daemon/handlers/config-channels.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
@@ -145,6 +146,14 @@ export async function handleChannelInbound(
   }
 
   const sourceChannel = body.sourceChannel;
+
+  // Parental-control integration allowlist: deny inbound messages from channels
+  // that are not in the child profile's allowedIntegrations list.
+  // Guardian verification codes bypass this check so parents can always re-verify.
+  if (!isIntegrationAllowed(sourceChannel)) {
+    log.info({ sourceChannel }, 'Parental control: integration blocked for child profile');
+    return Response.json({ accepted: true, denied: true, reason: 'integration_not_allowed' });
+  }
 
   if (!body.interface || typeof body.interface !== 'string') {
     return Response.json({ error: 'interface is required' }, { status: 400 });
