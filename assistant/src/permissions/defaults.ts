@@ -37,6 +37,13 @@ const COMPUTER_USE_TOOLS = [
  * Computed at runtime so paths reflect the configured root directory.
  */
 export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
+  // Some test suites mock getConfig() with partial objects; treat missing
+  // branches as defaults so rule generation remains deterministic.
+  const config = getConfig() as {
+    sandbox?: { enabled?: boolean };
+    skills?: { load?: { extraDirs?: unknown } };
+  };
+
   const hostFileRules = HOST_FILE_TOOLS.map((tool) => ({
     id: `default:ask-${tool}-global`,
     tool,
@@ -62,7 +69,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   // them (including high-risk) so the user is never prompted for sandbox work.
   // Only emit this rule when the sandbox is actually enabled; otherwise bash
   // commands execute on the host and must go through normal permission checks.
-  const sandboxEnabled = getConfig().sandbox.enabled;
+  const sandboxEnabled = config.sandbox?.enabled === true;
   const sandboxShellRule: DefaultRuleTemplate | null = sandboxEnabled
     ? {
         id: 'default:allow-bash-global',
@@ -149,7 +156,10 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
 
   // Append any user-configured extra skill directories so they get the
   // same default ask rules as managed and bundled dirs.
-  const extraDirs = getConfig().skills.load.extraDirs;
+  const rawExtraDirs = config.skills?.load?.extraDirs;
+  const extraDirs = Array.isArray(rawExtraDirs)
+    ? rawExtraDirs.filter((dir): dir is string => typeof dir === 'string')
+    : [];
   for (let i = 0; i < extraDirs.length; i++) {
     skillDirs.push({ dir: extraDirs[i].replaceAll('\\', '/'), label: `extra-${i}` });
   }
