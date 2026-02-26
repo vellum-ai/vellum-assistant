@@ -105,9 +105,9 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
 const originalFetch = globalThis.fetch;
 
 import {
+  clearSlackChannelConfig,
   getSlackChannelConfig,
   setSlackChannelConfig,
-  clearSlackChannelConfig,
 } from '../daemon/handlers/config-slack-channel.js';
 
 afterAll(() => {
@@ -186,7 +186,7 @@ describe('Slack channel config handler', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const result = await setSlackChannelConfig('xoxb-valid-bot-token');
     expect(result.success).toBe(true);
@@ -204,7 +204,7 @@ describe('Slack channel config handler', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const result = await setSlackChannelConfig('xoxb-bad-token');
     expect(result.success).toBe(false);

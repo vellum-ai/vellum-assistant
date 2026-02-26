@@ -38,8 +38,8 @@ import { normalizeThreadType } from '../ipc-protocol.js';
 import { executeRecordingIntent } from '../recording-executor.js';
 import { resolveRecordingIntent } from '../recording-intent.js';
 import { classifyRecordingIntentFallback, containsRecordingKeywords } from '../recording-intent-fallback.js';
-import { resolveChannelCapabilities } from '../session-runtime-assembly.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
+import { resolveChannelCapabilities } from '../session-runtime-assembly.js';
 import { generateVideoThumbnail } from '../video-thumbnail.js';
 import { handleRecordingPause, handleRecordingRestart, handleRecordingResume, handleRecordingStart, handleRecordingStop } from './recording.js';
 import {

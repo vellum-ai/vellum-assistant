@@ -39,13 +39,13 @@ import {
   startFollowupFromExpiredRequest,
   updateDeliveryStatus,
 } from '../memory/guardian-action-store.js';
+import { conversations } from '../memory/schema.js';
 import { processGuardianFollowUpTurn } from '../runtime/guardian-action-conversation-turn.js';
 import type {
   GuardianFollowUpConversationContext,
   GuardianFollowUpConversationGenerator,
   GuardianFollowUpTurnResult,
 } from '../runtime/http-types.js';
-import { conversations } from '../memory/schema.js';
 
 initializeDb();
 

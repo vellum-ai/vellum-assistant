@@ -2743,7 +2743,9 @@ describe('outbound SMS verification', () => {
       // Guardian outbound sessions (no verificationPurpose override) create
       // guardian bindings on success
       expect(result.verificationType).toBe('guardian');
-      expect(result.bindingId).toBeDefined();
+      if (result.verificationType === 'guardian') {
+        expect(result.bindingId).toBeDefined();
+      }
     }
   });
 

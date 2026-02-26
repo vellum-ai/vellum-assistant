@@ -8,6 +8,7 @@
  * barge-in, state machine, guardian verification).
  */
 
+import { getGatewayInternalBaseUrl } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import {
@@ -16,6 +17,7 @@ import {
   markTimedOutWithReason,
 } from '../memory/guardian-action-store.js';
 import { getLogger } from '../util/logger.js';
+import { readHttpToken } from '../util/platform.js';
 import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
@@ -27,10 +29,8 @@ import {
   recordCallEvent,
   updateCallSession,
 } from './call-store.js';
-import { getGatewayInternalBaseUrl } from '../config/env.js';
-import { readHttpToken } from '../util/platform.js';
-import { dispatchGuardianQuestion } from './guardian-dispatch.js';
 import { sendGuardianExpiryNotices } from './guardian-action-sweep.js';
+import { dispatchGuardianQuestion } from './guardian-dispatch.js';
 import type { RelayConnection } from './relay-server.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
 import { startVoiceTurn, type VoiceTurnHandle } from './voice-session-bridge.js';

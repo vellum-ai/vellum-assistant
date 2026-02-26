@@ -84,7 +84,7 @@ import {
   createBinding,
   findPendingAccessRequestForRequester,
 } from '../memory/channel-guardian-store.js';
-import { initializeDb, resetDb } from '../memory/db.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { handleChannelInbound } from '../runtime/routes/channel-routes.js';
 
 initializeDb();
@@ -101,7 +101,6 @@ afterAll(() => {
 const TEST_BEARER_TOKEN = 'test-token';
 
 function resetState(): void {
-  const { getDb } = require('../memory/db.js');
   const db = getDb();
   db.run('DELETE FROM channel_guardian_approval_requests');
   db.run('DELETE FROM channel_guardian_bindings');
