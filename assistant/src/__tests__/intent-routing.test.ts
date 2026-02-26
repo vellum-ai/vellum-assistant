@@ -290,4 +290,26 @@ describe('Guardian verification routing section in system prompt', () => {
     expect(routingSection).toContain('voice');
     expect(routingSection).toContain('telegram');
   });
+
+  test('routing section contains exclusivity wording', () => {
+    const prompt = buildSystemPrompt();
+    const lower = prompt.toLowerCase();
+    // Must contain "exclusively" or "must only" to enforce exclusive handling
+    expect(lower.includes('exclusively') || lower.includes('must only')).toBe(true);
+  });
+
+  test('routing section prohibits loading phone-calls for guardian verification', () => {
+    const prompt = buildSystemPrompt();
+    const lower = prompt.toLowerCase();
+    // Must explicitly prohibit phone-calls for guardian verification intents
+    expect(lower).toContain('do not load');
+    expect(lower).toContain('phone-calls');
+  });
+
+  test('routing section includes channel-preservation guidance', () => {
+    const prompt = buildSystemPrompt();
+    const lower = prompt.toLowerCase();
+    // Must advise not to re-ask channel if already specified
+    expect(lower.includes('do not re-ask') || lower.includes('already specified')).toBe(true);
+  });
 });
