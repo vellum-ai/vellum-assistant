@@ -122,15 +122,19 @@ jobs:
           sed -i "s/^let appVersion = .*/let appVersion = \"$VERSION\"/" clients/Package.swift
 
           git add -A
-          git commit -m "Release v$VERSION"
-          git push origin "$BRANCH"
+          if git diff --cached --quiet; then
+            echo "Version files already at $VERSION — skipping bump PR"
+          else
+            git commit -m "Release v$VERSION"
+            git push origin "$BRANCH"
 
-          PR_URL=$(gh pr create \
-            --title "Release v$VERSION" \
-            --body "Automated version bump to $VERSION." \
-            --base main \
-            --head "$BRANCH")
-          gh pr merge "$PR_URL" --squash --admin
+            PR_URL=$(gh pr create \
+              --title "Release v$VERSION" \
+              --body "Automated version bump to $VERSION." \
+              --base main \
+              --head "$BRANCH")
+            gh pr merge "$PR_URL" --squash --admin
+          fi
 
       - name: Tag release
         env:
