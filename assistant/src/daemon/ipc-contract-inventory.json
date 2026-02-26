@@ -104,6 +104,8 @@
     "message_content_request",
     "model_get",
     "model_set",
+    "notification_conversation_viewed",
+    "notification_delivery_interaction",
     "notification_intent_result",
     "oauth_connect_start",
     "open_bundle",

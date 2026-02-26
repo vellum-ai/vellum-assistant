@@ -1462,4 +1462,42 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ApprovedDevicesClearMessage())
     }
 
+    // MARK: - Notification Interactions
+
+    /// Report a direct delivery interaction (view, dismiss, etc).
+    public func sendNotificationDeliveryInteraction(
+        deliveryId: String,
+        interactionType: String,
+        confidence: String,
+        source: String,
+        evidenceText: String? = nil,
+        occurredAt: Int? = nil
+    ) throws {
+        try send(IPCNotificationDeliveryInteraction(
+            type: "notification_delivery_interaction",
+            deliveryId: deliveryId,
+            interactionType: interactionType,
+            confidence: confidence,
+            source: source,
+            evidenceText: evidenceText,
+            occurredAt: occurredAt
+        ))
+    }
+
+    /// Report that a notification conversation was explicitly opened.
+    public func sendNotificationConversationViewed(
+        conversationId: String,
+        source: String,
+        evidenceText: String? = nil,
+        occurredAt: Int? = nil
+    ) throws {
+        try send(IPCNotificationConversationViewed(
+            type: "notification_conversation_viewed",
+            conversationId: conversationId,
+            source: source,
+            evidenceText: evidenceText,
+            occurredAt: occurredAt
+        ))
+    }
+
 }

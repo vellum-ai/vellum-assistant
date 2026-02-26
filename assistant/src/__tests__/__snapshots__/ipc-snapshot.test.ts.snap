@@ -1104,6 +1104,24 @@ exports[`IPC message snapshots ClientMessage types notification_intent_result se
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types notification_delivery_interaction serializes to expected JSON 1`] = `
+{
+  "confidence": "explicit",
+  "deliveryId": "delivery-001",
+  "interactionType": "viewed",
+  "source": "macos_notification_view_action",
+  "type": "notification_delivery_interaction",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types notification_conversation_viewed serializes to expected JSON 1`] = `
+{
+  "conversationId": "conv-notif-001",
+  "source": "macos_conversation_opened",
+  "type": "notification_conversation_viewed",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types recording_status serializes to expected JSON 1`] = `
 {
   "sessionId": "rec-001",

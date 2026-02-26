@@ -27,8 +27,31 @@ export interface NotificationIntentResult {
   errorCode?: string;
 }
 
+/** Client reports a direct delivery interaction (view, dismiss, etc). */
+export interface NotificationDeliveryInteraction {
+  type: 'notification_delivery_interaction';
+  deliveryId: string;
+  interactionType: string;
+  confidence: string;
+  source: string;
+  evidenceText?: string;
+  occurredAt?: number;
+}
+
+/** Client reports explicit conversation view (sidebar selection or deep-link). */
+export interface NotificationConversationViewed {
+  type: 'notification_conversation_viewed';
+  conversationId: string;
+  source: string;
+  evidenceText?: string;
+  occurredAt?: number;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _NotificationsClientMessages = NotificationIntentResult;
+export type _NotificationsClientMessages =
+  | NotificationIntentResult
+  | NotificationDeliveryInteraction
+  | NotificationConversationViewed;
 
 export type _NotificationsServerMessages = NotificationIntent | NotificationThreadCreated;
