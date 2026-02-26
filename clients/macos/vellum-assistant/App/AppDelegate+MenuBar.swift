@@ -64,20 +64,43 @@ extension AppDelegate {
 
     func setupViewMenu() {
         guard let mainMenu = NSApp.mainMenu else { return }
+        let managedZoomMenuTag = 9_401
 
-        // Avoid duplicate View menus on logout/re-login cycles
-        if mainMenu.indexOfItem(withTitle: "View") >= 0 { return }
+        let viewMenu: NSMenu
+        let existingIndex = mainMenu.indexOfItem(withTitle: "View")
+        if existingIndex >= 0,
+           let existingItem = mainMenu.item(at: existingIndex) {
+            if let existingMenu = existingItem.submenu {
+                viewMenu = existingMenu
+            } else {
+                let newMenu = NSMenu(title: "View")
+                existingItem.submenu = newMenu
+                viewMenu = newMenu
+            }
+        } else {
+            let newMenu = NSMenu(title: "View")
+            let viewMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
+            viewMenuItem.submenu = newMenu
+            mainMenu.addItem(viewMenuItem)
+            viewMenu = newMenu
+        }
 
-        let viewMenu = NSMenu(title: "View")
+        // Preserve non-managed items already provided by AppKit/SwiftUI,
+        // while making this setup idempotent across reconfiguration cycles.
+        let preservedItems = viewMenu.items.filter { item in
+            item.tag != managedZoomMenuTag
+        }
+        viewMenu.removeAllItems()
 
         // Conversation Text Zoom: Cmd +, Cmd -, Cmd 0
         let convZoomInItem = NSMenuItem(
             title: "Conversation Zoom In",
             action: #selector(handleConversationZoomIn),
-            keyEquivalent: "="
+            keyEquivalent: "+"
         )
         convZoomInItem.keyEquivalentModifierMask = .command
         convZoomInItem.target = self
+        convZoomInItem.tag = managedZoomMenuTag
         viewMenu.addItem(convZoomInItem)
 
         let convZoomOutItem = NSMenuItem(
@@ -87,6 +110,7 @@ extension AppDelegate {
         )
         convZoomOutItem.keyEquivalentModifierMask = .command
         convZoomOutItem.target = self
+        convZoomOutItem.tag = managedZoomMenuTag
         viewMenu.addItem(convZoomOutItem)
 
         let convResetItem = NSMenuItem(
@@ -96,18 +120,22 @@ extension AppDelegate {
         )
         convResetItem.keyEquivalentModifierMask = .command
         convResetItem.target = self
+        convResetItem.tag = managedZoomMenuTag
         viewMenu.addItem(convResetItem)
 
-        viewMenu.addItem(NSMenuItem.separator())
+        let zoomGroupSeparator = NSMenuItem.separator()
+        zoomGroupSeparator.tag = managedZoomMenuTag
+        viewMenu.addItem(zoomGroupSeparator)
 
         // Window Zoom: Option+Cmd +, Option+Cmd -, Option+Cmd 0
         let winZoomInItem = NSMenuItem(
             title: "Window Zoom In",
             action: #selector(handleWindowZoomIn),
-            keyEquivalent: "="
+            keyEquivalent: "+"
         )
         winZoomInItem.keyEquivalentModifierMask = [.command, .option]
         winZoomInItem.target = self
+        winZoomInItem.tag = managedZoomMenuTag
         viewMenu.addItem(winZoomInItem)
 
         let winZoomOutItem = NSMenuItem(
@@ -117,6 +145,7 @@ extension AppDelegate {
         )
         winZoomOutItem.keyEquivalentModifierMask = [.command, .option]
         winZoomOutItem.target = self
+        winZoomOutItem.tag = managedZoomMenuTag
         viewMenu.addItem(winZoomOutItem)
 
         let winResetItem = NSMenuItem(
@@ -126,11 +155,17 @@ extension AppDelegate {
         )
         winResetItem.keyEquivalentModifierMask = [.command, .option]
         winResetItem.target = self
+        winResetItem.tag = managedZoomMenuTag
         viewMenu.addItem(winResetItem)
 
-        let viewMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
-        viewMenuItem.submenu = viewMenu
-        mainMenu.addItem(viewMenuItem)
+        if !preservedItems.isEmpty {
+            let preservedSeparator = NSMenuItem.separator()
+            preservedSeparator.tag = managedZoomMenuTag
+            viewMenu.addItem(preservedSeparator)
+            for item in preservedItems {
+                viewMenu.addItem(item)
+            }
+        }
     }
 
     // MARK: - Zoom Intent Routing
@@ -430,19 +465,19 @@ extension AppDelegate {
     }
 
     @objc func openCurrentThread() {
-        guard !isAwaitingFirstLaunchReady else { return }
+        guard !isBootstrapping else { return }
         showMainWindow()
     }
 
     @objc func openNewChat() {
-        guard !isAwaitingFirstLaunchReady else { return }
+        guard !isBootstrapping else { return }
         showMainWindow()
         mainWindow?.threadManager.createThread()
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
 
     @objc func openAppCollection() {
-        guard !isAwaitingFirstLaunchReady else { return }
+        guard !isBootstrapping else { return }
         showMainWindow()
         mainWindow?.windowState.selection = .panel(.directory)
     }
@@ -499,7 +534,7 @@ extension AppDelegate {
     }
 
     @objc func openAppById(_ sender: NSMenuItem) {
-        guard !isAwaitingFirstLaunchReady else { return }
+        guard !isBootstrapping else { return }
         guard let info = sender.representedObject as? [String: String],
               let appId = info["id"] else { return }
         showMainWindow()

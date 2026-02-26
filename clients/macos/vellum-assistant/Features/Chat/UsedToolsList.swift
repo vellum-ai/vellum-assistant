@@ -82,10 +82,20 @@ private struct UsedToolsRow: View {
     @State private var isExpanded = false
     @State private var isHovered = false
     @State private var isImageHovered = false
+    /// Cached formatted input — computed once on first expand to avoid re-running
+    /// `formatAllToolInput` on every SwiftUI render pass.
+    @State private var cachedInputFull: String?
     @Environment(\.displayScale) private var displayScale
 
+    /// Lazily resolved full input text, using the cached value when available.
+    private var resolvedInputFull: String {
+        if let cached = cachedInputFull { return cached }
+        if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+        return ""
+    }
+
     private var hasDetails: Bool {
-        !toolCall.inputFull.isEmpty ||
+        !toolCall.inputFull.isEmpty || toolCall.inputRawDict != nil ||
         (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true)) ||
         toolCall.cachedImage != nil ||
         !toolCall.claudeCodeSteps.isEmpty
@@ -158,8 +168,8 @@ private struct UsedToolsRow: View {
                             Text(toolCall.friendlyName)
                                 .font(VFont.captionMedium)
                                 .foregroundColor(VColor.textSecondary)
-                            if !toolCall.inputFull.isEmpty {
-                                Text(toolCall.inputFull)
+                            if !resolvedInputFull.isEmpty {
+                                Text(resolvedInputFull)
                                     .font(VFont.monoSmall)
                                     .foregroundColor(VColor.textSecondary)
                                     .textSelection(.enabled)
@@ -267,6 +277,17 @@ private struct UsedToolsRow: View {
                 }
                 .padding(.bottom, VSpacing.sm)
                 .transition(.opacity.combined(with: .move(edge: .top)))
+                .onAppear {
+                    // Compute formatted input once when the user first expands,
+                    // rather than re-running formatAllToolInput on every render.
+                    if cachedInputFull == nil {
+                        if !toolCall.inputFull.isEmpty {
+                            cachedInputFull = toolCall.inputFull
+                        } else if let dict = toolCall.inputRawDict {
+                            cachedInputFull = ToolCallData.formatAllToolInput(dict)
+                        }
+                    }
+                }
             }
         }
         .animation(VAnimation.fast, value: isExpanded)

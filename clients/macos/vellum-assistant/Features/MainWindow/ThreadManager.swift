@@ -372,7 +372,16 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func selectThread(id: UUID) {
-        guard threads.contains(where: { $0.id == id }) else { return }
+        guard let thread = threads.first(where: { $0.id == id }) else { return }
+
+        // Re-create the ViewModel if it was LRU-evicted.
+        if chatViewModels[id] == nil {
+            let viewModel = makeViewModel()
+            viewModel.sessionId = thread.sessionId
+            chatViewModels[id] = viewModel
+            evictStaleCachedViewModels()
+        }
+
         touchVMAccessOrder(id)
         activeThreadId = id
         // Switching threads is a natural point to shed cached render
@@ -389,6 +398,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         ChatBubble.segmentCache.removeAll()
         ChatBubble.markdownCache.removeAll()
         ChatBubble.inlineMarkdownCache.removeAll()
+        ChatBubble.lastStreamingSegments = nil
+        ChatBubble.lastStreamingInlineMarkdown = nil
+        ChatBubble.lastStreamingMarkdown = nil
         MarkdownSegmentView.clearAttributedStringCache()
     }
 
@@ -499,6 +511,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard let vm = chatViewModels[threadId] else { return nil }
         touchVMAccessOrder(threadId)
         return vm
+    }
+
+    func existingChatViewModel(forSessionId sessionId: String) -> ChatViewModel? {
+        for (threadId, vm) in chatViewModels where vm.sessionId == sessionId {
+            touchVMAccessOrder(threadId)
+            return vm
+        }
+        return nil
     }
 
     func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID) {

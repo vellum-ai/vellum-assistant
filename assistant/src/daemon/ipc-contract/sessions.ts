@@ -88,6 +88,20 @@ export interface ImageGenModelSetRequest {
 export interface HistoryRequest {
   type: 'history_request';
   sessionId: string;
+  /** Max messages to return. When omitted, all messages are returned (unlimited). */
+  limit?: number;
+  /** Pagination cursor: return messages with timestamp before this value. */
+  beforeTimestamp?: number;
+  /** Pagination cursor tie-breaker: exclude this message ID when beforeTimestamp matches. */
+  beforeMessageId?: string;
+  /** Include attachment base64 data. Defaults to false in light mode. */
+  includeAttachments?: boolean;
+  /** Include tool screenshot base64 data. Defaults to false in light mode. */
+  includeToolImages?: boolean;
+  /** Include surface HTML payloads. Defaults to false in light mode. */
+  includeSurfaceData?: boolean;
+  /** Shorthand: 'light' = all include flags false (default), 'full' = all include flags true. */
+  mode?: 'light' | 'full';
 }
 
 export interface UndoRequest {
@@ -263,6 +277,12 @@ export interface HistoryResponse {
       conversationId?: string;
     };
   }>;
+  /** Whether older messages exist beyond the returned page. */
+  hasMore: boolean;
+  /** Timestamp of the oldest message in the response (client uses as next pagination cursor). */
+  oldestTimestamp?: number;
+  /** ID of the oldest message in the response (tie-breaker for same-millisecond cursors). */
+  oldestMessageId?: string;
 }
 
 export interface UndoComplete {

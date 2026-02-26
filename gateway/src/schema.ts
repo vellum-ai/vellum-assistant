@@ -1113,11 +1113,16 @@ export function buildSchema(): Record<string, unknown> {
           type: "object",
           required: ["chatId"],
           description:
-            "Request to deliver a message to a Telegram chat. At least one of `text` or `attachments` must be provided.",
+            "Request to deliver a message or chat action to a Telegram chat. At least one of `text`, `attachments`, or `chatAction` must be provided.",
           properties: {
             chatId: { type: "string", description: "Telegram chat ID to deliver the message to" },
             text: { type: "string", description: "Text content to send", minLength: 1 },
             assistantId: { type: "string", description: "Assistant ID (optional — attachments are downloaded via the assistant-less endpoint when omitted)" },
+            chatAction: {
+              type: "string",
+              enum: ["typing"],
+              description: "Optional Telegram chat action to emit (currently only `typing`)",
+            },
             attachments: {
               type: "array",
               description: "Attachments to deliver (images sent via sendPhoto, others via sendDocument)",
@@ -1128,6 +1133,7 @@ export function buildSchema(): Record<string, unknown> {
           anyOf: [
             { required: ["text"] },
             { required: ["attachments"] },
+            { required: ["chatAction"] },
           ],
         },
         RuntimeAttachmentMeta: {

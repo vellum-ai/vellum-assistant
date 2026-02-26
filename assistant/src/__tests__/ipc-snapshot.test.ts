@@ -681,6 +681,28 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     deliveryId: 'delivery-001',
     success: true,
   },
+  recording_status: {
+    type: 'recording_status',
+    sessionId: 'rec-001',
+    status: 'started',
+  },
+  heartbeat_config: {
+    type: 'heartbeat_config',
+    action: 'get',
+  },
+  heartbeat_runs_list: {
+    type: 'heartbeat_runs_list',
+  },
+  heartbeat_run_now: {
+    type: 'heartbeat_run_now',
+  },
+  heartbeat_checklist_read: {
+    type: 'heartbeat_checklist_read',
+  },
+  heartbeat_checklist_write: {
+    type: 'heartbeat_checklist_write',
+    content: '- [ ] Check email\n- [ ] Review PRs',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -851,6 +873,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   history_response: {
     type: 'history_response',
     sessionId: 'sess-history-001',
+    hasMore: false,
     messages: [
       { role: 'user', text: 'Hello', timestamp: 1700000000 },
       {
@@ -1883,6 +1906,45 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   approved_device_remove_response: {
     type: 'approved_device_remove_response',
+    success: true,
+  },
+  recording_start: {
+    type: 'recording_start',
+    recordingId: 'rec-001',
+  },
+  recording_stop: {
+    type: 'recording_stop',
+    recordingId: 'rec-001',
+  },
+  heartbeat_config_response: {
+    type: 'heartbeat_config_response',
+    enabled: true,
+    intervalMs: 3600000,
+    activeHoursStart: 9,
+    activeHoursEnd: 17,
+    nextRunAt: 1700003600000,
+    success: true,
+  },
+  heartbeat_runs_list_response: {
+    type: 'heartbeat_runs_list_response',
+    runs: [{
+      id: 'hb-run-001',
+      title: 'Morning heartbeat',
+      createdAt: 1700000000000,
+      result: 'All systems nominal',
+    }],
+  },
+  heartbeat_run_now_response: {
+    type: 'heartbeat_run_now_response',
+    success: true,
+  },
+  heartbeat_checklist_response: {
+    type: 'heartbeat_checklist_response',
+    content: '- [ ] Check email\n- [ ] Review PRs',
+    isDefault: false,
+  },
+  heartbeat_checklist_write_response: {
+    type: 'heartbeat_checklist_write_response',
     success: true,
   },
 };

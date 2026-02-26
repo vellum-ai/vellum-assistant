@@ -961,8 +961,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Request message history for a specific session.
-    public func sendHistoryRequest(sessionId: String) throws {
-        try send(HistoryRequestMessage(sessionId: sessionId))
+    /// - Parameters:
+    ///   - sessionId: The session to fetch history for.
+    ///   - limit: Max messages to return per page.
+    ///   - beforeTimestamp: Pagination cursor — only return messages before this timestamp (ms since epoch).
+    ///   - mode: `"light"` omits heavy payloads (attachments, tool images, surface data); `"full"` includes everything.
+    public func sendHistoryRequest(sessionId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil) throws {
+        try send(HistoryRequestMessage(sessionId: sessionId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode))
     }
 
     // MARK: - Apps

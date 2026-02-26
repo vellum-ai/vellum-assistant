@@ -10,9 +10,19 @@ public struct ToolCallChip: View {
         self.toolCall = toolCall
     }
     @State private var isExpanded = false
+    /// Cached formatted input — computed once on first expand to avoid re-running
+    /// `formatAllToolInput` on every SwiftUI render pass.
+    @State private var cachedInputFull: String?
 
     private var hasExpandableContent: Bool {
         toolCall.result != nil || toolCall.cachedImage != nil
+    }
+
+    /// Lazily resolved full input text, using the cached value when available.
+    private var resolvedInputFull: String {
+        if let cached = cachedInputFull { return cached }
+        if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+        return ""
     }
 
     public var body: some View {
@@ -71,8 +81,8 @@ public struct ToolCallChip: View {
                             Text(toolCall.friendlyName)
                                 .font(VFont.captionMedium)
                                 .foregroundColor(VColor.textSecondary)
-                            if !toolCall.inputFull.isEmpty {
-                                Text(toolCall.inputFull)
+                            if !resolvedInputFull.isEmpty {
+                                Text(resolvedInputFull)
                                     .font(VFont.monoSmall)
                                     .foregroundColor(VColor.textSecondary)
                                     .textSelection(.enabled)
@@ -139,6 +149,17 @@ public struct ToolCallChip: View {
                     }
                 }
                 .padding(.bottom, VSpacing.sm)
+                .onAppear {
+                    // Compute formatted input once when the user first expands,
+                    // rather than re-running formatAllToolInput on every render.
+                    if cachedInputFull == nil {
+                        if !toolCall.inputFull.isEmpty {
+                            cachedInputFull = toolCall.inputFull
+                        } else if let dict = toolCall.inputRawDict {
+                            cachedInputFull = ToolCallData.formatAllToolInput(dict)
+                        }
+                    }
+                }
             }
         }
         .background(

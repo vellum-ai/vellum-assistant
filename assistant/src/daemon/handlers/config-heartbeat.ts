@@ -120,13 +120,41 @@ export function handleHeartbeatRunsList(
     const runs = bgConversations.map((conv) => {
       // Try to determine result from the last message
       let result = 'unknown';
+      let summary = '';
       try {
         const messages = conversationStore.getMessages(conv.id);
         const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
         if (lastAssistant) {
-          const content = typeof lastAssistant.content === 'string' ? lastAssistant.content : '';
-          if (content.includes('HEARTBEAT_OK')) result = 'ok';
-          else if (content.includes('HEARTBEAT_ALERT')) result = 'alert';
+          const raw = lastAssistant.content;
+          // Content may be a plain string or a JSON-stringified array of content blocks
+          let fullText = '';
+          let lastText = '';
+          if (typeof raw === 'string') {
+            try {
+              const blocks = JSON.parse(raw) as Array<{ type: string; text?: string }>;
+              if (Array.isArray(blocks)) {
+                for (const block of blocks) {
+                  if (block.type === 'text' && block.text) {
+                    fullText += block.text;
+                    lastText = block.text;
+                  }
+                }
+              } else {
+                fullText = raw;
+                lastText = raw;
+              }
+            } catch {
+              fullText = raw;
+              lastText = raw;
+            }
+          }
+          if (fullText.includes('HEARTBEAT_OK')) result = 'ok';
+          else if (fullText.includes('HEARTBEAT_ALERT')) result = 'alert';
+          // Use only the last text block, stripped of the status marker
+          summary = lastText
+            .replace(/HEARTBEAT_OK\s*/g, '')
+            .replace(/HEARTBEAT_ALERT\s*/g, '')
+            .trim();
         }
       } catch {
         // Ignore message read errors
@@ -136,6 +164,7 @@ export function handleHeartbeatRunsList(
         title: conv.title ?? 'Heartbeat',
         createdAt: conv.createdAt,
         result,
+        summary,
       };
     });
 

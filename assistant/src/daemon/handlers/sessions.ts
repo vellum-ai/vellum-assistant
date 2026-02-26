@@ -549,7 +549,24 @@ export function handleHistoryRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const dbMessages = conversationStore.getMessages(msg.sessionId);
+  // Default to unlimited when callers don't specify a limit, preserving
+  // backward-compatible behavior of returning full conversation history.
+  const limit = msg.limit;
+
+  // Resolve include flags: explicit flags override mode, mode provides defaults.
+  // Default mode is 'light' when no mode and no include flags are specified.
+  const isFullMode = msg.mode === 'full';
+  const includeAttachments = msg.includeAttachments ?? isFullMode;
+  const includeToolImages = msg.includeToolImages ?? isFullMode;
+  const includeSurfaceData = msg.includeSurfaceData ?? isFullMode;
+
+  const { messages: dbMessages, hasMore } = conversationStore.getMessagesPaginated(
+    msg.sessionId,
+    limit,
+    msg.beforeTimestamp,
+    msg.beforeMessageId,
+  );
+
   const parsed: ParsedHistoryMessage[] = dbMessages.map((m) => {
     let text = '';
     let toolCalls: HistoryToolCall[] = [];
@@ -597,52 +614,101 @@ export function handleHistoryRequest(
     if (m.role === 'assistant' && m.id) {
       const linked = getAttachmentsForMessage(m.id);
       if (linked.length > 0) {
-        // Skip embedding base64 data for large video attachments to keep the
-        // history_response payload small. Only videos have a lazy-fetch path on
-        // the client, so non-video attachments always keep their inline data.
-        const MAX_INLINE_B64_SIZE = 512 * 1024;
-        attachments = linked.map((a) => {
-          const isFileBacked = !a.dataBase64; // empty string = file-backed attachment
-          const omit = isFileBacked || (a.mimeType.startsWith('video/') && a.dataBase64.length > MAX_INLINE_B64_SIZE);
+        if (includeAttachments) {
+          // Full attachment data: same behavior as before
+          const MAX_INLINE_B64_SIZE = 512 * 1024;
+          attachments = linked.map((a) => {
+            const isFileBacked = !a.dataBase64;
+            const omit = isFileBacked || (a.mimeType.startsWith('video/') && a.dataBase64.length > MAX_INLINE_B64_SIZE);
 
-          // Lazily generate thumbnails for existing video attachments on first history load.
-          // Skip for file-backed attachments — there is no in-memory base64 to generate from.
-          if (a.mimeType.startsWith('video/') && !a.thumbnailBase64 && a.dataBase64) {
-            const attachmentId = a.id;
-            const base64 = a.dataBase64;
-            silentlyWithLog(
-              generateVideoThumbnail(base64).then((thumb) => {
-                if (thumb) setAttachmentThumbnail(attachmentId, thumb);
-              }),
-              'video thumbnail generation',
-            );
-          }
+            if (a.mimeType.startsWith('video/') && !a.thumbnailBase64 && a.dataBase64) {
+              const attachmentId = a.id;
+              const base64 = a.dataBase64;
+              silentlyWithLog(
+                generateVideoThumbnail(base64).then((thumb) => {
+                  if (thumb) setAttachmentThumbnail(attachmentId, thumb);
+                }),
+                'video thumbnail generation',
+              );
+            }
 
-          return {
+            return {
+              id: a.id,
+              filename: a.originalFilename,
+              mimeType: a.mimeType,
+              data: omit ? '' : a.dataBase64,
+              ...(omit ? { sizeBytes: a.sizeBytes } : {}),
+              ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
+            };
+          });
+        } else {
+          // Light mode: metadata only, strip base64 data
+          attachments = linked.map((a) => ({
             id: a.id,
             filename: a.originalFilename,
             mimeType: a.mimeType,
-            data: omit ? '' : a.dataBase64,
-            ...(omit ? { sizeBytes: a.sizeBytes } : {}),
+            data: '',
+            sizeBytes: a.sizeBytes,
             ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
-          };
-        });
+          }));
+        }
       }
     }
+
+    // In light mode, strip imageData from tool calls
+    const filteredToolCalls = m.toolCalls.length > 0
+      ? (includeToolImages
+        ? m.toolCalls
+        : m.toolCalls.map((tc) => {
+          if (tc.imageData) {
+            const { imageData: _, ...rest } = tc;
+            return rest;
+          }
+          return tc;
+        }))
+      : m.toolCalls;
+
+    // In light mode, strip full data from surfaces (keep metadata)
+    const filteredSurfaces = m.surfaces.length > 0
+      ? (includeSurfaceData
+        ? m.surfaces
+        : m.surfaces.map((s) => ({
+          surfaceId: s.surfaceId,
+          surfaceType: s.surfaceType,
+          title: s.title,
+          data: {} as Record<string, unknown>,
+          ...(s.actions ? { actions: s.actions } : {}),
+          ...(s.display ? { display: s.display } : {}),
+        })))
+      : m.surfaces;
+
     return {
       ...(m.id ? { id: m.id } : {}),
       role: m.role,
       text: m.text,
       timestamp: m.timestamp,
-      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls, toolCallsBeforeText: m.toolCallsBeforeText } : {}),
+      ...(filteredToolCalls.length > 0 ? { toolCalls: filteredToolCalls, toolCallsBeforeText: m.toolCallsBeforeText } : {}),
       ...(attachments ? { attachments } : {}),
       ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
       ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
-      ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
+      ...(filteredSurfaces.length > 0 ? { surfaces: filteredSurfaces } : {}),
       ...(m.subagentNotification ? { subagentNotification: m.subagentNotification } : {}),
     };
   });
-  ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });
+
+  const oldestTimestamp = historyMessages.length > 0 ? historyMessages[0].timestamp : undefined;
+  // Provide the oldest message ID as a tie-breaker cursor so clients can
+  // paginate without skipping same-millisecond messages at page boundaries.
+  const oldestMessageId = historyMessages.length > 0 ? historyMessages[0].id : undefined;
+
+  ctx.send(socket, {
+    type: 'history_response',
+    sessionId: msg.sessionId,
+    messages: historyMessages,
+    hasMore,
+    ...(oldestTimestamp !== undefined ? { oldestTimestamp } : {}),
+    ...(oldestMessageId ? { oldestMessageId } : {}),
+  });
 
   // Surfaces are now included directly in the history_response message (in the surfaces array),
   // so we no longer emit separate ui_surface_show messages during history loading.

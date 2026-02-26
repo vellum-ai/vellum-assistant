@@ -593,6 +593,10 @@ public struct ToolCallData: Identifiable, Equatable {
     public var result: String?
     public var isError: Bool
     public var isComplete: Bool
+    /// Raw decoded tool input dictionary, stored for lazy formatting of `inputFull`.
+    /// When non-nil and `inputFull` is empty, the formatted string has not yet been
+    /// computed — call `ToolCallData.formatAllToolInput(_:)` on demand.
+    public var inputRawDict: [String: AnyCodable]?
     /// Whether this tool call arrived before any text content in the message.
     /// Used to render pre-text tool calls above and post-text tool calls below the bubble.
     public var arrivedBeforeText: Bool
@@ -967,6 +971,123 @@ public struct ToolCallData: Identifiable, Equatable {
 
     private func truncated(_ s: String, to length: Int) -> String {
         s.count > length ? String(s.prefix(length - 1)) + "…" : s
+    }
+
+    // MARK: - Lazy tool input formatting
+
+    /// Priority list of input keys whose values are most useful as a tool call summary.
+    private static let toolInputPriorityKeys = [
+        "command", "file_path", "path", "query", "url", "pattern", "glob"
+    ]
+
+    /// Argument keys whose values may contain credentials and must be redacted.
+    private static let sensitiveKeys: Set<String> = [
+        "value", "secret", "password", "token", "client_secret", "api_key",
+        "authorization", "access_token", "refresh_token", "api_secret",
+        "accesstoken", "refreshtoken", "apikey", "apisecret", "clientsecret",
+        "x-api-key"
+    ]
+
+    private static func isSensitiveKey(_ key: String) -> Bool {
+        sensitiveKeys.contains(key.lowercased())
+    }
+
+    /// Format all tool input arguments for display in expanded details.
+    /// This is a self-contained static method so views can call it without
+    /// needing a ChatViewModel reference (used for lazy formatting on expand).
+    public static func formatAllToolInput(_ input: [String: AnyCodable]) -> String {
+        guard !input.isEmpty else { return "" }
+
+        let primaryKey = toolInputPriorityKeys.first(where: { input[$0] != nil })
+            ?? input.keys.sorted().first
+
+        let orderedKeys: [String]
+        if let pk = primaryKey {
+            orderedKeys = [pk] + input.keys.filter { $0 != pk }.sorted()
+        } else {
+            orderedKeys = input.keys.sorted()
+        }
+
+        var lines: [String] = []
+        for key in orderedKeys {
+            guard let value = input[key] else { continue }
+            if isSensitiveKey(key) {
+                lines.append("\(key): [redacted]")
+            } else {
+                lines.append("\(key): \(redactingStringifyValue(value))")
+            }
+        }
+
+        var result = lines.joined(separator: "\n")
+        if result.count > 10_000 { result = String(result.prefix(10_000)) + "... [truncated]" }
+        return result
+    }
+
+    private static func stringifyValue(_ value: AnyCodable) -> String {
+        if let s = value.value as? String { return s }
+        if let b = value.value as? Bool { return b ? "true" : "false" }
+        if let n = value.value as? Int { return String(n) }
+        if let n = value.value as? Double { return String(n) }
+        if let encoder = try? JSONEncoder().encode(value),
+           let json = String(data: encoder, encoding: .utf8) {
+            return json
+        }
+        return String(describing: value.value ?? "")
+    }
+
+    private static func redactingStringifyValue(_ value: AnyCodable) -> String {
+        if let dict = value.value as? [String: Any] {
+            return redactDictionary(dict)
+        }
+        if let array = value.value as? [Any] {
+            return redactArray(array)
+        }
+        return stringifyValue(value)
+    }
+
+    private static func redactDictionary(_ dict: [String: Any]) -> String {
+        let redacted = redactDictionaryAsObject(dict)
+        if let data = try? JSONSerialization.data(withJSONObject: redacted, options: [.sortedKeys]),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return String(describing: redacted)
+    }
+
+    private static func redactArray(_ array: [Any]) -> String {
+        let redacted = redactArrayAsObject(array)
+        if let data = try? JSONSerialization.data(withJSONObject: redacted, options: [.sortedKeys]),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return String(describing: redacted)
+    }
+
+    private static func redactDictionaryAsObject(_ dict: [String: Any]) -> [String: Any] {
+        var redacted: [String: Any] = [:]
+        for (key, val) in dict {
+            if isSensitiveKey(key) {
+                redacted[key] = "[redacted]"
+            } else if let nested = val as? [String: Any] {
+                redacted[key] = redactDictionaryAsObject(nested)
+            } else if let nested = val as? [Any] {
+                redacted[key] = redactArrayAsObject(nested)
+            } else {
+                redacted[key] = val
+            }
+        }
+        return redacted
+    }
+
+    private static func redactArrayAsObject(_ array: [Any]) -> [Any] {
+        return array.map { element -> Any in
+            if let dict = element as? [String: Any] {
+                return redactDictionaryAsObject(dict)
+            } else if let nested = element as? [Any] {
+                return redactArrayAsObject(nested)
+            }
+            return element
+        }
     }
 }
 

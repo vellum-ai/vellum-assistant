@@ -656,6 +656,11 @@ struct ActiveChatViewWrapper: View {
     var isTemporaryChat: Bool = false
     var threadId: UUID?
 
+    /// Reads the persisted bootstrap state so the chat view can suppress
+    /// the empty state during first-launch bootstrap.
+    @AppStorage("bootstrapState") private var bootstrapStateRaw: String = "complete"
+    private var isBootstrapping: Bool { bootstrapStateRaw != "complete" }
+
     var body: some View {
         ChatView(
             messages: viewModel.messages,
@@ -761,7 +766,8 @@ struct ActiveChatViewWrapper: View {
             displayedMessageCount: viewModel.displayedMessageCount,
             hasMoreMessages: viewModel.hasMoreMessages,
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
-            loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() }
+            loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
+            isBootstrapping: isBootstrapping
         )
     }
 }

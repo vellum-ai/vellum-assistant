@@ -30,6 +30,13 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
         viewModels[threadId]
     }
 
+    func existingChatViewModel(forSessionId sessionId: String) -> ChatViewModel? {
+        for (_, vm) in viewModels where vm.sessionId == sessionId {
+            return vm
+        }
+        return nil
+    }
+
     func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID) {
         viewModels[threadId] = vm
     }

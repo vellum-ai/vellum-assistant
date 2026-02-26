@@ -75,11 +75,60 @@ Each policy defines:
 
 **Every notification delivery gets a conversation.** Before the adapter sends a notification, `pairDeliveryWithConversation()` (in `conversation-pairing.ts`) materializes a conversation and seed message based on the channel's conversation strategy:
 
-- **`start_new_conversation`**: Creates a new conversation with `threadType: 'standard'` and `source: 'notification'`, plus an assistant message containing the notification copy. Memory indexing is skipped on the seed message to prevent notification copy from polluting conversational recall.
+- **`start_new_conversation`**: Creates a new conversation with `threadType: 'standard'` and `source: 'notification'`, plus an assistant message containing the thread seed. Memory indexing is skipped on the seed message to prevent notification copy from polluting conversational recall.
 - **`continue_existing_conversation`**: Currently materializes a background audit conversation per delivery (true continuation via binding key lookup is planned for a future PR). The audit trail records the intended strategy without adding visible sidebar threads.
 - **`not_deliverable`**: Returns `{ conversationId: null, messageId: null }`.
 
 The pairing function is resilient -- errors are caught and logged. A pairing failure never breaks the delivery pipeline.
+
+## Dual-Copy Architecture: Notification vs Thread Seed
+
+The system produces **two distinct copy outputs** per notification:
+
+| Output | Purpose | Verbosity |
+|--------|---------|-----------|
+| `title` + `body` | Native notification popup (macOS banner, Telegram message) | Short and glanceable |
+| Thread seed message | Opening message in the notification thread | Richer and context-aware |
+
+### How It Works
+
+1. The **decision engine** can produce both `title`/`body` (concise popup copy) and `threadSeedMessage` (richer thread content) per channel.
+2. **Adapters** only use `copy.title` and `copy.body` for the native notification display. The `threadSeedMessage` field passes through the adapter payload but is not used for the popup.
+3. **Conversation pairing** uses the thread seed as the conversation's opening message:
+   - If the LLM produced a valid `threadSeedMessage`, it is used directly (after a sanity check rejects empty, too-short, JSON dumps, or excessively long values).
+   - Otherwise, the **runtime thread seed composer** (`thread-seed-composer.ts`) generates a deterministic, surface-aware seed.
+
+### Surface-Aware Verbosity
+
+The thread seed composer adapts verbosity to the delivery surface:
+
+| Channel | Default Interface | Verbosity | Style |
+|---------|-------------------|-----------|-------|
+| `vellum` | `macos` | Rich | 2-4 short sentences with context and next step |
+| `telegram` | `telegram` | Compact | 1-2 concise sentences |
+
+Interface inference strategy:
+1. Explicit `interfaceHint` in the signal's `contextPayload` (if valid `InterfaceId`).
+2. `sourceInterface` from the originating conversation (if valid `InterfaceId`).
+3. Channel default mapping (`vellum` → `macos` → rich, `telegram` → `telegram` → compact).
+
+### Example: Reminder Notification
+
+**Notification popup (both surfaces):**
+```
+Title: Reminder
+Body:  Take out the trash
+```
+
+**Thread seed on vellum/macos (rich):**
+```
+Reminder: Take out the trash. This needs your attention.
+```
+
+**Thread seed on telegram (compact):**
+```
+Reminder: Take out the trash — action needed
+```
 
 ## Thread Surfacing via `notification_thread_created` IPC
 
@@ -154,7 +203,8 @@ For notification flows that create conversations, the conversation must be creat
 | `deterministic-checks.ts` | Pre-send gate checks (dedupe, source-active, channel availability) |
 | `runtime-dispatch.ts` | Dispatch gating (no-op decisions, empty channels) |
 | `broadcaster.ts` | Fan-out to channel adapters with delivery audit trail; emits `notification_thread_created` IPC |
-| `copy-composer.ts` | Template-based fallback copy when LLM copy is unavailable |
+| `copy-composer.ts` | Template-based fallback notification copy when LLM copy is unavailable |
+| `thread-seed-composer.ts` | Surface-aware thread seed generation (richer than notification copy) |
 | `destination-resolver.ts` | Resolves per-channel endpoints (vellum IPC, Telegram chat ID) |
 | `adapters/macos.ts` | Vellum adapter -- broadcasts `notification_intent` via IPC with deep-link metadata |
 | `adapters/telegram.ts` | Telegram adapter -- POSTs to gateway `/deliver/telegram` |

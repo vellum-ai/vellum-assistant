@@ -43,7 +43,7 @@ struct ChatBubble: View {
         hasCopyableText || canReportMessage
     }
     private var showOverflowMenu: Bool {
-        hasOverflowActions && (isHovered || showCopyConfirmation)
+        hasOverflowActions && !message.isStreaming && (isHovered || showCopyConfirmation)
     }
 
     /// Composite identity for the `.task` modifier so it re-runs when either
@@ -77,7 +77,6 @@ struct ChatBubble: View {
 
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
-        let overflowOffset: CGFloat = message.isError ? -(24 + VSpacing.sm) : (24 + VSpacing.sm)
         return content()
             .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
             .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
@@ -88,14 +87,6 @@ struct ChatBubble: View {
             )
             .overlay {
                 bubbleBorderOverlay
-            }
-            .overlay(alignment: isUser ? .topLeading : .topTrailing) {
-                if hasOverflowActions {
-                    overflowMenuButton
-                        .opacity(showOverflowMenu ? 1 : 0)
-                        .animation(VAnimation.fast, value: showOverflowMenu)
-                        .offset(x: isUser ? -(24 + VSpacing.sm) : overflowOffset)
-                }
             }
             .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
     }
@@ -184,19 +175,17 @@ struct ChatBubble: View {
                     if !isUser {
                         trailingStatus
                     }
+
+                    if hasOverflowActions {
+                        overflowMenuButton
+                            .opacity(showOverflowMenu ? 1 : 0)
+                            .animation(VAnimation.fast, value: showOverflowMenu)
+                    }
                 }
                 // Prevent LazyVStack from compressing the bubble height, which causes the
                 // trailing tool-chip to overlap long text content.
                 .fixedSize(horizontal: false, vertical: true)
                 .contextMenu {}
-                .overlay(alignment: .topTrailing) {
-                    if !isUser && !shouldShowBubble && !hasInterleavedContent && hasOverflowActions {
-                        overflowMenuButton
-                            .opacity(showOverflowMenu ? 1 : 0)
-                            .animation(VAnimation.fast, value: showOverflowMenu)
-                            .offset(x: 24 + VSpacing.sm)
-                    }
-                }
                 .overlay(alignment: .topLeading) {
                     if !isUser && showAvatar {
                         Image(nsImage: appearance.chatAvatarImage)
@@ -241,30 +230,35 @@ struct ChatBubble: View {
     }
 
     private var overflowMenuButton: some View {
-        Menu {
+        HStack(spacing: 2) {
             if hasCopyableText {
-                Button("Copy message") {
+                Button {
                     copyMessageText()
+                } label: {
+                    Image(systemName: showCopyConfirmation ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(showCopyConfirmation ? VColor.success : VColor.textMuted)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(showCopyConfirmation ? "Copied" : "Copy message")
+                .animation(VAnimation.fast, value: showCopyConfirmation)
             }
             if let onReportMessage, !isUser {
-                Button("Export response for diagnostics") {
+                Button {
                     onReportMessage(message.daemonMessageId)
+                } label: {
+                    Image(systemName: "ladybug")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Report message")
             }
-        } label: {
-            Image(systemName: showCopyConfirmation ? "checkmark" : "ellipsis")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(showCopyConfirmation ? VColor.success : VColor.textMuted)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .tint(showCopyConfirmation ? VColor.success : VColor.textMuted)
-        .frame(width: 24, height: 24)
-        .accessibilityLabel("Message actions")
-        .animation(VAnimation.fast, value: showCopyConfirmation)
     }
 
     // MARK: - Bubble Content
@@ -398,4 +392,16 @@ struct ChatBubble: View {
     /// inline results (and vice versa) if they shared a dictionary.
     @MainActor static var inlineMarkdownCache = [String: (value: AttributedString, accessTime: Int)]()
     static let maxCacheSize = 100
+
+    // MARK: - Streaming Dedup Caches
+    //
+    // During streaming, the LRU caches above skip storing results to avoid
+    // filling up with intermediate text states. However SwiftUI reevaluates
+    // view bodies multiple times per token, often with identical text.
+    // These single-entry caches hold the last-parsed streaming result so
+    // redundant reevaluations return instantly without re-parsing.
+
+    @MainActor static var lastStreamingSegments: (text: String, value: [MarkdownSegment])?
+    @MainActor static var lastStreamingInlineMarkdown: (text: String, value: AttributedString)?
+    @MainActor static var lastStreamingMarkdown: (text: String, value: AttributedString)?
 }

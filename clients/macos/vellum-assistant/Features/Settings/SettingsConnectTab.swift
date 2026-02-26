@@ -65,7 +65,6 @@ struct SettingsConnectTab: View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             vellumSection
             gatewaySection
-            advancedSection
             connectionsSection
         }
         .onAppear {
@@ -82,6 +81,8 @@ struct SettingsConnectTab: View {
             store.refreshChannelGuardianStatus(channel: "sms")
             store.refreshChannelGuardianStatus(channel: "voice")
             gatewayExpanded = store.ingressPublicBaseUrl.isEmpty
+            Task { await store.testGatewayOnly() }
+            Task { await store.testTunnelOnly() }
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
             if !isGatewayUrlFocused {
@@ -330,10 +331,10 @@ struct SettingsConnectTab: View {
     // MARK: - Bearer Token Content
 
     private var bearerTokenContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Bearer Token")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+                .font(VFont.bodyMedium)
+                .foregroundColor(VColor.textSecondary)
 
             if bearerToken.isEmpty {
                 HStack(spacing: VSpacing.sm) {
@@ -411,10 +412,6 @@ struct SettingsConnectTab: View {
 
     private var connectionsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Connections")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
             mobileCard
             telegramCard
             twilioCard
@@ -476,48 +473,7 @@ struct SettingsConnectTab: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    // MARK: - Advanced Section
-
-    private var advancedSection: some View {
-        VDisclosureSection(
-            title: "Advanced",
-            icon: "gearshape",
-            subtitle: "Bearer token, overrides",
-            isExpanded: $advancedExpanded
-        ) {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                bearerTokenContent
-
-                Divider().background(VColor.surfaceBorder)
-
-                // Developer local pairing content removed in v4 — LAN pairing is automatic via localLanUrl in QR payload.
-
-                // Simple override fields for power users / debugging
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("URL Override (optional)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    TextField("Custom gateway URL", text: $iosPairingGatewayOverride)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                }
-
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Token Override (optional)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    SecureField("Custom bearer token", text: $iosPairingTokenOverride)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                }
-            }
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }
@@ -708,19 +664,14 @@ struct SettingsConnectTab: View {
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    // MARK: - Voice (Phone Calls) Card
+    // MARK: - Phone Calling Card
 
     private var voiceCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "phone.fill")
-                        .foregroundColor(VColor.textPrimary)
-                        .font(.system(size: 12))
-                    Text("Voice (Phone Calls)")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                }
+                Text("Phone Calling")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
                 Text("Receive and make phone calls via Twilio")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
@@ -941,15 +892,12 @@ struct SettingsConnectTab: View {
 
     private var guardianLabel: some View {
         HStack(spacing: VSpacing.xs) {
-            Text("Verification")
-            Image(systemName: "info.circle")
-                .font(.system(size: 10))
-                .foregroundColor(VColor.textMuted)
-                .help("Guardian verification links your account identity for this channel.")
+            Text("Guardian Verification")
+            VInfoTooltip("Guardian verification links your account identity for this channel.")
         }
         .font(VFont.caption)
         .foregroundColor(VColor.textSecondary)
-        .frame(width: 90, alignment: .leading)
+        .frame(width: 140, alignment: .leading)
     }
 
     private func guardianPrimaryIdentity(channel: String, identity: String?) -> String? {
@@ -1090,9 +1038,6 @@ struct SettingsConnectTab: View {
             if verified {
                 HStack(spacing: VSpacing.sm) {
                     guardianLabel
-                    Image(systemName: "checkmark.shield.fill")
-                        .foregroundColor(VColor.success)
-                        .font(.system(size: 12))
                     VStack(alignment: .leading, spacing: 2) {
                         if let telegramProfileURL {
                             Link(primaryIdentity ?? "Verified", destination: telegramProfileURL)
@@ -1163,7 +1108,7 @@ struct SettingsConnectTab: View {
                         }
                     }
                 }
-                .padding(.leading, 90 + VSpacing.sm)
+                .padding(.leading, 140 + VSpacing.sm)
             }
         }
     }
@@ -1185,58 +1130,46 @@ struct SettingsConnectTab: View {
             }
         }()
 
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.sm) {
                 guardianLabel
-                Image(systemName: "shield.slash")
-                    .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 12))
-                Text("Not verified")
+
+                TextField(placeholder, text: destinationBinding)
                     .font(VFont.body)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 200)
+
+                VButton(label: "Send verification", style: .secondary) {
+                    store.startOutboundGuardianVerification(channel: channel, destination: destination)
+                }
+                .disabled(destination.isEmpty)
+
+                Spacer()
+            }
+
+            if channel == "telegram" {
+                Text("Enter a Telegram @username (e.g. @janedoe) or numeric chat ID for the guardian.")
+                    .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
-                    .lineLimit(1)
-            }
 
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack(spacing: VSpacing.sm) {
-                    TextField(placeholder, text: destinationBinding)
-                        .font(VFont.body)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 200)
-
-                    VButton(label: "Send verification", style: .secondary) {
-                        store.startOutboundGuardianVerification(channel: channel, destination: destination)
+                Button {
+                    if let url = URL(string: "https://web.telegram.org/k/#@userinfobot") {
+                        NSWorkspace.shared.open(url)
                     }
-                    .disabled(destination.isEmpty)
-
-                    Spacer()
+                } label: {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "questionmark.circle")
+                            .font(.system(size: 11))
+                        Text("Find your Telegram username or chat ID")
+                            .font(VFont.caption)
+                    }
+                    .foregroundColor(VColor.accent)
                 }
-
-                if channel == "telegram" {
-                    Text("Enter a Telegram @username (e.g. @janedoe) or numeric chat ID for the guardian.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-
-                    Button {
-                        if let url = URL(string: "https://web.telegram.org/k/#@userinfobot") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "questionmark.circle")
-                                .font(.system(size: 11))
-                            Text("Find your Telegram username or chat ID")
-                                .font(VFont.caption)
-                        }
-                        .foregroundColor(VColor.accent)
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hovering in
-                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                    }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                 }
             }
-            .padding(.leading, 90 + VSpacing.sm)
         }
     }
 
@@ -1256,9 +1189,6 @@ struct SettingsConnectTab: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 guardianLabel
-                Image(systemName: "shield.lefthalf.filled")
-                    .foregroundColor(VColor.warning)
-                    .font(.system(size: 12))
                 Text("Verification sent")
                     .font(VFont.body)
                     .foregroundColor(VColor.warning)
@@ -1387,7 +1317,7 @@ struct SettingsConnectTab: View {
                     }
                 }
             }
-            .padding(.leading, 90 + VSpacing.sm)
+            .padding(.leading, 140 + VSpacing.sm)
         }
         .onAppear { startCountdownTimer() }
         .onDisappear { stopCountdownTimer() }
@@ -1461,9 +1391,6 @@ struct SettingsConnectTab: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 guardianLabel
-                Image(systemName: "shield.lefthalf.filled")
-                    .foregroundColor(VColor.warning)
-                    .font(.system(size: 12))
                 Text("Verification pending")
                     .font(VFont.body)
                     .foregroundColor(VColor.warning)
@@ -1477,7 +1404,7 @@ struct SettingsConnectTab: View {
                 Text(guardianInstructionSubtext(channel: channel))
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
-                    .padding(.leading, 90 + VSpacing.sm)
+                    .padding(.leading, 140 + VSpacing.sm)
 
                 HStack(spacing: VSpacing.sm) {
                     Text(command)
@@ -1521,7 +1448,7 @@ struct SettingsConnectTab: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                 )
-                .padding(.leading, 90 + VSpacing.sm)
+                .padding(.leading, 140 + VSpacing.sm)
             } else {
                 // Fallback: show raw instruction if command can't be parsed
                 Text(instruction)
@@ -1536,7 +1463,7 @@ struct SettingsConnectTab: View {
                             .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                     )
                     .textSelection(.enabled)
-                    .padding(.leading, 90 + VSpacing.sm)
+                    .padding(.leading, 140 + VSpacing.sm)
             }
         }
     }
@@ -1565,7 +1492,6 @@ struct SettingsConnectTab: View {
             let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
             let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
             let hasToken = !bearerToken.isEmpty || !trimmedOverrideToken.isEmpty
-            let tokenFromDaemon = !bearerToken.isEmpty && trimmedOverrideToken.isEmpty
 
             if isRegeneratingToken {
                 HStack(spacing: VSpacing.sm) {
@@ -1574,25 +1500,6 @@ struct SettingsConnectTab: View {
                     Text("Restarting daemon with new token\u{2026}")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
-                }
-            } else if hasGateway && hasToken {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                        .font(.system(size: 14))
-                    Text("Ready to pair")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.success)
-                    if tokenFromDaemon {
-                        Spacer()
-                        Button("Regenerate Token") {
-                            showingRegenerateConfirmation = true
-                        }
-                        .buttonStyle(.plain)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .help("Replace the current token. Paired devices will need to reconnect.")
-                    }
                 }
             } else if !hasGateway {
                 HStack(spacing: VSpacing.sm) {
@@ -1603,7 +1510,7 @@ struct SettingsConnectTab: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.warning)
                 }
-            } else {
+            } else if !hasToken {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     HStack(spacing: VSpacing.sm) {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -1616,6 +1523,59 @@ struct SettingsConnectTab: View {
                     VButton(label: "Generate Token", leftIcon: "key", style: .secondary) {
                         regenerateHttpToken()
                     }
+                }
+            }
+
+            // Compact advanced disclosure for power users
+            Divider().background(VColor.surfaceBorder)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        advancedExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Advanced")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(VColor.textMuted)
+                            .rotationEffect(.degrees(advancedExpanded ? 90 : 0))
+                            .animation(VAnimation.fast, value: advancedExpanded)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if advancedExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        bearerTokenContent
+
+                        Divider().background(VColor.surfaceBorder)
+
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("URL Override (optional)")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                            TextField("Custom gateway URL", text: $iosPairingGatewayOverride)
+                                .vInputStyle()
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textPrimary)
+                        }
+
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Token Override (optional)")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                            SecureField("Custom bearer token", text: $iosPairingTokenOverride)
+                                .vInputStyle()
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textPrimary)
+                        }
+                    }
+                    .padding(.top, VSpacing.sm)
                 }
             }
 
@@ -1643,13 +1603,6 @@ struct SettingsConnectTab: View {
                     }
                     .padding(.vertical, VSpacing.xs)
                 }
-
-                Button("Clear All") {
-                    store.clearAllApprovedDevices()
-                }
-                .font(VFont.caption)
-                .foregroundColor(VColor.error)
-                .buttonStyle(.borderless)
             }
         }
         .padding(VSpacing.lg)

@@ -13,7 +13,6 @@ struct HeartbeatSettingsTab: View {
     @State private var activeHoursStart: Double? = nil
     @State private var activeHoursEnd: Double? = nil
     @State private var nextRunAt: Int? = nil
-    @State private var useActiveHours: Bool = false
 
     // -- Checklist state --
     @State private var checklistContent: String = ""
@@ -24,17 +23,11 @@ struct HeartbeatSettingsTab: View {
     @State private var isRunning: Bool = false
     @State private var runError: String?
 
+    // -- Expansion state --
+    @State private var expandedRunId: String?
+
     // -- Loading --
     @State private var isLoading: Bool = true
-    @State private var isUpdatingFromServer: Bool = false
-
-    private static let intervalOptions: [(label: String, ms: Double)] = [
-        ("5 min", 300_000),
-        ("15 min", 900_000),
-        ("30 min", 1_800_000),
-        ("1 hour", 3_600_000),
-        ("2 hours", 7_200_000),
-    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -46,7 +39,7 @@ struct HeartbeatSettingsTab: View {
         .onDisappear { clearCallbacks() }
     }
 
-    // MARK: - Configuration Card
+    // MARK: - Configuration Card (read-only)
 
     private var configCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -54,109 +47,42 @@ struct HeartbeatSettingsTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            // Enable toggle
+            // Status
             HStack {
-                Text("Enable Heartbeat")
+                Text("Status")
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
                 Spacer()
-                Toggle("", isOn: $isEnabled)
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .onChange(of: isEnabled) { _, newValue in
-                        guard !isUpdatingFromServer else { return }
-                        try? daemonClient?.sendHeartbeatConfigSet(enabled: newValue)
-                    }
+                Text(isEnabled ? "Enabled" : "Disabled")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(isEnabled ? VColor.success : VColor.textMuted)
             }
 
             if isEnabled {
                 Divider().background(VColor.surfaceBorder)
 
-                // Interval picker
+                // Interval
                 HStack {
                     Text("Check every")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
-                    Picker("", selection: $intervalMs) {
-                        ForEach(Self.intervalOptions, id: \.ms) { option in
-                            Text(option.label).tag(option.ms)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .onChange(of: intervalMs) { _, newValue in
-                        guard !isUpdatingFromServer else { return }
-                        try? daemonClient?.sendHeartbeatConfigSet(intervalMs: newValue)
-                    }
+                    Text(formatInterval(intervalMs))
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.textPrimary)
                 }
-
-                Divider().background(VColor.surfaceBorder)
 
                 // Active hours
-                HStack {
-                    Text("Active hours only")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Spacer()
-                    Toggle("", isOn: $useActiveHours)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                        .onChange(of: useActiveHours) { _, newValue in
-                            guard !isUpdatingFromServer else { return }
-                            if newValue {
-                                let start = activeHoursStart ?? 8
-                                let end = activeHoursEnd ?? 22
-                                activeHoursStart = start
-                                activeHoursEnd = end
-                                try? daemonClient?.sendHeartbeatConfigSet(activeHoursStart: start, activeHoursEnd: end)
-                            } else {
-                                activeHoursStart = nil
-                                activeHoursEnd = nil
-                                // Send -1 sentinel to clear — Swift JSONEncoder omits nil optionals
-                                try? daemonClient?.sendHeartbeatConfigSet(
-                                    activeHoursStart: -1,
-                                    activeHoursEnd: -1
-                                )
-                            }
-                        }
-                }
-
-                if useActiveHours {
+                if let start = activeHoursStart, let end = activeHoursEnd {
+                    Divider().background(VColor.surfaceBorder)
                     HStack {
-                        Text("From")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Picker("", selection: Binding(
-                            get: { Int(activeHoursStart ?? 8) },
-                            set: { newVal in
-                                activeHoursStart = Double(newVal)
-                                try? daemonClient?.sendHeartbeatConfigSet(activeHoursStart: Double(newVal))
-                            }
-                        )) {
-                            ForEach(0..<24, id: \.self) { hour in
-                                Text(formatHour(hour)).tag(hour)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-
-                        Text("to")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Picker("", selection: Binding(
-                            get: { Int(activeHoursEnd ?? 22) },
-                            set: { newVal in
-                                activeHoursEnd = Double(newVal)
-                                try? daemonClient?.sendHeartbeatConfigSet(activeHoursEnd: Double(newVal))
-                            }
-                        )) {
-                            ForEach(0..<24, id: \.self) { hour in
-                                Text(formatHour(hour)).tag(hour)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
+                        Text("Active hours")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        Text("\(formatHour(Int(start))) – \(formatHour(Int(end)))")
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.textPrimary)
                     }
                 }
 
@@ -173,6 +99,12 @@ struct HeartbeatSettingsTab: View {
                     }
                 }
             }
+
+            Divider().background(VColor.surfaceBorder)
+
+            Text("Ask the assistant to change heartbeat settings.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
@@ -237,8 +169,13 @@ struct HeartbeatSettingsTab: View {
                     VButton(label: "Run Now", style: .primary) {
                         isRunning = true
                         runError = nil
+                        guard let client = daemonClient else {
+                            isRunning = false
+                            runError = "Daemon not available"
+                            return
+                        }
                         do {
-                            try daemonClient?.sendHeartbeatRunNow()
+                            try client.sendHeartbeatRunNow()
                         } catch {
                             isRunning = false
                             runError = "Failed to send run request"
@@ -261,20 +198,49 @@ struct HeartbeatSettingsTab: View {
                     .padding(.vertical, VSpacing.lg)
             } else {
                 ForEach(runs, id: \.id) { run in
-                    HStack(spacing: VSpacing.md) {
-                        resultBadge(run.result)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(run.title)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                                .lineLimit(1)
-                            Text(formatTimestamp(run.createdAt))
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                    Button {
+                        withAnimation(VAnimation.fast) {
+                            expandedRunId = expandedRunId == run.id ? nil : run.id
                         }
-                        Spacer()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 0) {
+                            HStack(spacing: VSpacing.md) {
+                                resultBadge(run.result)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(run.title)
+                                        .font(VFont.body)
+                                        .foregroundColor(VColor.textPrimary)
+                                        .lineLimit(1)
+                                    Text(formatTimestamp(run.createdAt))
+                                        .font(VFont.caption)
+                                        .foregroundColor(VColor.textMuted)
+                                }
+                                Spacer()
+                                Image(systemName: expandedRunId == run.id ? "chevron.down" : "chevron.right")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            .padding(VSpacing.sm)
+
+                            if expandedRunId == run.id {
+                                Text(run.summary?.isEmpty == false ? run.summary! : "No summary available")
+                                    .font(VFont.mono)
+                                    .foregroundColor(VColor.textSecondary)
+                                    .textSelection(.enabled)
+                                    .padding(VSpacing.sm)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(VColor.surface)
+                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: VRadius.md)
+                                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                    )
+                                    .padding(.horizontal, VSpacing.sm)
+                                    .padding(.bottom, VSpacing.sm)
+                            }
+                        }
                     }
-                    .padding(VSpacing.sm)
+                    .buttonStyle(.plain)
 
                     if run.id != runs.last?.id {
                         Divider().background(VColor.surfaceBorder)
@@ -320,6 +286,19 @@ struct HeartbeatSettingsTab: View {
         .frame(width: 70, alignment: .leading)
     }
 
+    private func formatInterval(_ ms: Double) -> String {
+        let minutes = Int(ms / 60_000)
+        if minutes < 60 {
+            return "\(minutes) min"
+        }
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+        if remainingMinutes == 0 {
+            return hours == 1 ? "1 hour" : "\(hours) hours"
+        }
+        return "\(hours)h \(remainingMinutes)m"
+    }
+
     private func formatHour(_ hour: Int) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "h a"
@@ -347,15 +326,12 @@ struct HeartbeatSettingsTab: View {
     private func setupCallbacks() {
         daemonClient?.onHeartbeatConfigResponse = { response in
             Task { @MainActor in
-                self.isUpdatingFromServer = true
                 self.isEnabled = response.enabled
                 self.intervalMs = response.intervalMs
                 self.activeHoursStart = response.activeHoursStart
                 self.activeHoursEnd = response.activeHoursEnd
-                self.useActiveHours = response.activeHoursStart != nil && response.activeHoursEnd != nil
                 self.nextRunAt = response.nextRunAt
                 self.isLoading = false
-                self.isUpdatingFromServer = false
             }
         }
         daemonClient?.onHeartbeatChecklistResponse = { response in

@@ -619,6 +619,27 @@ extension ChatViewModel {
                     onVoiceResponseComplete?(responseText)
                 }
             }
+            // Fire first-reply callback once when the first complete
+            // assistant message arrives (used for bootstrap gate).
+            // Guard: only fire if an actual assistant message with content
+            // exists, so cancellation-acknowledgement completions that
+            // carry no assistant text don't prematurely close the gate.
+            if let callback = onFirstAssistantReply {
+                if let firstAssistant = messages.first(where: { $0.role == .assistant && !$0.text.isEmpty }) {
+                    let replyText = firstAssistant.text
+                    onFirstAssistantReply = nil
+                    callback(replyText)
+
+                    // Check naming intent and fire the lacks-naming callback
+                    // once. The didSendNamingNudge flag prevents looping if
+                    // the corrective follow-up also lacks naming keywords.
+                    if !didSendNamingNudge && !ChatViewModel.replyContainsNamingIntent(replyText) {
+                        didSendNamingNudge = true
+                        onFirstReplyLacksNamingIntent?()
+                        onFirstReplyLacksNamingIntent = nil
+                    }
+                }
+            }
             var completedToolCalls: [ToolCallData]?
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {

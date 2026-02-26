@@ -488,7 +488,8 @@ final class HTTPTransport {
                     let historyPayload: [String: Any] = [
                         "type": "history_response",
                         "sessionId": sessionId,
-                        "messages": transformed
+                        "messages": transformed,
+                        "hasMore": false
                     ]
 
                     let historyData = try JSONSerialization.data(withJSONObject: historyPayload)

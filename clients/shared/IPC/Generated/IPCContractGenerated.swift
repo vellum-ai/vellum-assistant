@@ -1928,22 +1928,45 @@ public struct IPCHeartbeatRunsListResponseRun: Codable, Sendable {
     public let title: String
     public let createdAt: Int
     public let result: String
+    public let summary: String?
 
-    public init(id: String, title: String, createdAt: Int, result: String) {
+    public init(id: String, title: String, createdAt: Int, result: String, summary: String? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.result = result
+        self.summary = summary
     }
 }
 
 public struct IPCHistoryRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
+    /// Max messages to return. When omitted, all messages are returned (unlimited).
+    public let limit: Double?
+    /// Pagination cursor: return messages with timestamp before this value.
+    public let beforeTimestamp: Double?
+    /// Pagination cursor tie-breaker: exclude this message ID when beforeTimestamp matches.
+    public let beforeMessageId: String?
+    /// Include attachment base64 data. Defaults to false in light mode.
+    public let includeAttachments: Bool?
+    /// Include tool screenshot base64 data. Defaults to false in light mode.
+    public let includeToolImages: Bool?
+    /// Include surface HTML payloads. Defaults to false in light mode.
+    public let includeSurfaceData: Bool?
+    /// Shorthand: 'light' = all include flags false (default), 'full' = all include flags true.
+    public let mode: String?
 
-    public init(type: String, sessionId: String) {
+    public init(type: String, sessionId: String, limit: Double? = nil, beforeTimestamp: Double? = nil, beforeMessageId: String? = nil, includeAttachments: Bool? = nil, includeToolImages: Bool? = nil, includeSurfaceData: Bool? = nil, mode: String? = nil) {
         self.type = type
         self.sessionId = sessionId
+        self.limit = limit
+        self.beforeTimestamp = beforeTimestamp
+        self.beforeMessageId = beforeMessageId
+        self.includeAttachments = includeAttachments
+        self.includeToolImages = includeToolImages
+        self.includeSurfaceData = includeSurfaceData
+        self.mode = mode
     }
 }
 
@@ -1951,11 +1974,20 @@ public struct IPCHistoryResponse: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let messages: [IPCHistoryResponseMessage]
+    /// Whether older messages exist beyond the returned page.
+    public let hasMore: Bool
+    /// Timestamp of the oldest message in the response (client uses as next pagination cursor).
+    public let oldestTimestamp: Double?
+    /// ID of the oldest message in the response (tie-breaker for same-millisecond cursors).
+    public let oldestMessageId: String?
 
-    public init(type: String, sessionId: String, messages: [IPCHistoryResponseMessage]) {
+    public init(type: String, sessionId: String, messages: [IPCHistoryResponseMessage], hasMore: Bool, oldestTimestamp: Double? = nil, oldestMessageId: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.messages = messages
+        self.hasMore = hasMore
+        self.oldestTimestamp = oldestTimestamp
+        self.oldestMessageId = oldestMessageId
     }
 }
 

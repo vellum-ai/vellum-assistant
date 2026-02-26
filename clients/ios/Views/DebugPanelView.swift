@@ -44,6 +44,8 @@ struct DebugPanelView: View {
                 }
             }
         }
+        .onAppear { traceStore.isObserved = true }
+        .onDisappear { traceStore.isObserved = false }
     }
 
     // MARK: - Metrics Strip

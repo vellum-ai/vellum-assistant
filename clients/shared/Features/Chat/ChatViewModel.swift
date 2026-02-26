@@ -242,6 +242,17 @@ public final class ChatViewModel: ObservableObject {
     public var onVoiceResponseComplete: ((String) -> Void)?
     /// Called when any assistant response completes, with a summary of the response text.
     public var onResponseComplete: ((String) -> Void)?
+    /// Called once when the first complete assistant message arrives during bootstrap.
+    /// Passes the reply text so callers can inspect content (e.g. naming intent).
+    /// Cleared after firing to ensure it only triggers once.
+    public var onFirstAssistantReply: ((String) -> Void)?
+    /// Called when the first assistant reply lacks naming intent (no mention of
+    /// name, identity, or naming questions). Fires at most once; used to trigger
+    /// a single corrective follow-up nudge during bootstrap.
+    public var onFirstReplyLacksNamingIntent: (() -> Void)?
+    /// Guards against looping: once a corrective naming nudge has been sent,
+    /// no further nudges are dispatched regardless of subsequent replies.
+    var didSendNamingNudge = false
     /// Called with each streaming text delta during a voice-triggered response, for real-time TTS.
     public var onVoiceTextDelta: ((String) -> Void)?
     /// When true, messages are prefixed with a concise-response instruction for voice conversations.
@@ -390,37 +401,83 @@ public final class ChatViewModel: ObservableObject {
     /// True while a previous-page load is in progress (brief async delay for UX).
     @Published public var isLoadingMoreMessages: Bool = false
 
+    /// Timeout task that resets `isLoadingMoreMessages` if the daemon never responds.
+    private var loadMoreTimeoutTask: Task<Void, Never>?
+
     /// The subset of messages that are actually displayed (excludes subagent notifications
     /// and other UI-only messages that the view filters before rendering).
     public var displayedMessages: [ChatMessage] { messages.filter { !$0.isSubagentNotification } }
 
+    // MARK: - Daemon History Pagination
+
+    /// Timestamp of the oldest loaded message (ms since epoch). Used as the
+    /// `beforeTimestamp` cursor when fetching the next older page from the daemon.
+    public var historyCursor: Double?
+
+    /// Whether the daemon has indicated that older messages exist beyond the
+    /// currently loaded page. Falls back to `false` for older daemons that don't
+    /// send `hasMore` in the history response.
+    @Published public var hasMoreHistory: Bool = false
+
     /// Whether there are more messages above the current display window.
-    /// Compares against the filtered (displayed) count so the "load more" sentinel
-    /// appears only when there are genuinely more visible messages to reveal.
-    /// When `displayedMessageCount == Int.max` (show-all mode), this is always false.
-    public var hasMoreMessages: Bool { displayedMessageCount < displayedMessages.count }
+    /// True when either:
+    ///   1. There are locally loaded messages outside the current display suffix, OR
+    ///   2. The daemon has older pages available to fetch.
+    /// When `displayedMessageCount == Int.max` (show-all mode), only daemon pages apply.
+    public var hasMoreMessages: Bool {
+        (displayedMessageCount < displayedMessages.count) || hasMoreHistory
+    }
+
+    /// Called when `loadPreviousMessagePage` needs to fetch an older page from the
+    /// daemon. The session restorer sets this so the daemon client request is
+    /// routed through the same pending-history tracking used for initial loads.
+    public var onLoadMoreHistory: ((_ sessionId: String, _ beforeTimestamp: Double) -> Void)?
 
     /// Load the previous page of messages by expanding the display window.
-    /// Returns `true` if there were additional messages to reveal.
+    /// When all locally loaded messages are already visible and the daemon has
+    /// more history available, requests the next older page from the daemon.
+    /// Returns `true` if there were additional messages to reveal or a fetch was started.
     @discardableResult
     public func loadPreviousMessagePage() async -> Bool {
         guard hasMoreMessages, !isLoadingMoreMessages else { return false }
+
+        // If the local display window can still grow, expand it first.
+        let locallyHasMore = displayedMessageCount < displayedMessages.count
+        if locallyHasMore {
+            isLoadingMoreMessages = true
+            // Brief delay so the loading indicator is visible before the list shifts.
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            let next = displayedMessageCount + Self.messagePageSize
+            let total = displayedMessages.count
+            // When all messages fit within the expanded window, switch to show-all mode
+            // (Int.max) so future incoming messages don't shrink the visible history back
+            // to a suffix window — the regression described in the parent PR.
+            displayedMessageCount = next >= total ? Int.max : next
+            isLoadingMoreMessages = false
+            return true
+        }
+
+        // All local messages are visible — fetch the next page from the daemon.
+        guard hasMoreHistory, let cursor = historyCursor, let sessionId else { return false }
         isLoadingMoreMessages = true
-        // Brief delay so the loading indicator is visible before the list shifts.
-        try? await Task.sleep(nanoseconds: 150_000_000)
-        let next = displayedMessageCount + Self.messagePageSize
-        let total = displayedMessages.count
-        // When all messages fit within the expanded window, switch to show-all mode
-        // (Int.max) so future incoming messages don't shrink the visible history back
-        // to a suffix window — the regression described in the parent PR.
-        displayedMessageCount = next >= total ? Int.max : next
-        isLoadingMoreMessages = false
+        // Safety timeout: if the daemon drops the connection or never responds,
+        // reset the flag so the user can retry.
+        loadMoreTimeoutTask?.cancel()
+        loadMoreTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000) // 15 seconds
+            guard let self, self.isLoadingMoreMessages else { return }
+            self.isLoadingMoreMessages = false
+        }
+        onLoadMoreHistory?(sessionId, cursor)
+        // The loading indicator is cleared by populateFromHistory when the response arrives.
         return true
     }
 
     /// Reset pagination when the thread switches or history is reloaded.
     public func resetMessagePagination() {
         displayedMessageCount = Self.messagePageSize
+        historyCursor = nil
+        hasMoreHistory = false
     }
 
     // MARK: - Message Trimming
@@ -979,6 +1036,37 @@ public final class ChatViewModel: ObservableObject {
             self.threadType = threadType
         }
         bootstrapSession(userMessage: nil, attachments: nil)
+    }
+
+    // MARK: - Naming Intent Detection
+
+    /// Lightweight heuristic that checks whether a reply includes naming intent.
+    /// Returns true when the text contains common naming-related keywords or
+    /// phrases (e.g. "call me", "my name", "who are you", name questions).
+    /// This is a safety net, not full NLP -- simple keyword matching suffices.
+    static func replyContainsNamingIntent(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let namingPatterns: [String] = [
+            "call me",
+            "call myself",
+            "my name",
+            "name is",
+            "name me",
+            "who am i",
+            "who are you",
+            "what should i call",
+            "what should we call",
+            "what would you like to call",
+            "what do you want to be called",
+            "what's my name",
+            "pick a name",
+            "choose a name",
+            "give me a name",
+            "no name",
+            "don't have a name",
+            "no idea who i am",
+        ]
+        return namingPatterns.contains { lower.contains($0) }
     }
 
     // MARK: - Model
@@ -1666,7 +1754,22 @@ public final class ChatViewModel: ObservableObject {
     /// If the user hasn't sent any messages yet, replaces messages entirely.
     /// If the user already sent messages (late history_response), prepends
     /// history before the existing messages so the user sees full context.
-    public func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
+    ///
+    /// - Parameters:
+    ///   - historyMessages: The message items from the daemon's history response.
+    ///   - hasMore: Whether the daemon has older pages available. Defaults to `false`
+    ///     for backward compatibility with older daemons that don't send this field.
+    ///   - oldestTimestamp: The timestamp of the oldest message in the response (ms since epoch).
+    ///     Used as the cursor for the next pagination request.
+    ///   - isPaginationLoad: When `true`, messages are prepended to the existing list
+    ///     (older page fetched on demand). When `false`, the standard initial-load
+    ///     or reconnect-catch-up logic applies.
+    public func populateFromHistory(
+        _ historyMessages: [HistoryResponseMessage.HistoryMessageItem],
+        hasMore: Bool = false,
+        oldestTimestamp: Double? = nil,
+        isPaginationLoad: Bool = false
+    ) {
         var chatMessages: [ChatMessage] = []
         var reconstructedSubagents: [SubagentInfo] = []
         var spawnParentMap: [String: UUID] = [:]  // subagentId → spawning assistant message UUID
@@ -1676,10 +1779,10 @@ public final class ChatViewModel: ObservableObject {
             let toolsBeforeText = item.toolCallsBeforeText ?? true
             if let historyToolCalls = item.toolCalls {
                 toolCalls = historyToolCalls.map { tc in
-                    ToolCallData(
+                    var toolCall = ToolCallData(
                         toolName: tc.name,
                         inputSummary: summarizeToolInput(tc.input),
-                        inputFull: formatAllToolInput(tc.input),
+                        inputFull: "",
                         inputRawValue: extractToolInput(tc.input),
                         result: tc.result,
                         isError: tc.isError ?? false,
@@ -1687,6 +1790,25 @@ public final class ChatViewModel: ObservableObject {
                         arrivedBeforeText: toolsBeforeText,
                         imageData: tc.imageData
                     )
+                    // Defer expensive formatting — store the raw dict for lazy computation
+                    // when the user expands the tool call chip. Cap the raw dict size
+                    // to prevent unbounded memory from large tool inputs (mirrors the
+                    // 10k-char cap applied in formatAllToolInput).
+                    let input = tc.input
+                    let estimatedSize: Int
+                    if let data = try? JSONSerialization.data(withJSONObject: input.mapValues { $0.value ?? NSNull() }) {
+                        estimatedSize = data.count
+                    } else {
+                        estimatedSize = 0
+                    }
+                    if estimatedSize > 10_000 {
+                        // Too large — format eagerly (with truncation) rather than
+                        // retaining the full raw dictionary in memory.
+                        toolCall.inputFull = ToolCallData.formatAllToolInput(input)
+                    } else {
+                        toolCall.inputRawDict = input
+                    }
+                    return toolCall
                 }
             }
             let attachments: [ChatAttachment] = mapIPCAttachments(item.attachments ?? [])
@@ -1862,6 +1984,31 @@ public final class ChatViewModel: ObservableObject {
             } catch {
                 log.error("Failed to send ModelGetRequest: \(error)")
             }
+        }
+
+        // Update daemon pagination cursor from the response metadata.
+        self.hasMoreHistory = hasMore
+        self.historyCursor = oldestTimestamp
+
+        if isPaginationLoad {
+            // Older page fetched on demand — prepend before existing messages
+            // and expand the display window so the newly loaded messages are
+            // visible. The loading indicator is cleared here.
+            self.messages = chatMessages + self.messages
+            // Expand the display window by the number of messages prepended so
+            // the user sees them immediately. Use Int.max if no more pages exist.
+            if hasMore {
+                displayedMessageCount = displayedMessageCount == Int.max
+                    ? Int.max
+                    : displayedMessageCount + chatMessages.count
+            } else {
+                displayedMessageCount = Int.max
+            }
+            self.loadMoreTimeoutTask?.cancel()
+            self.loadMoreTimeoutTask = nil
+            self.isLoadingMoreMessages = false
+            trimOldMessagesIfNeeded()
+            return
         }
 
         self.isLoadingHistory = true

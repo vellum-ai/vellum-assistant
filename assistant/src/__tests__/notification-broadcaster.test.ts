@@ -214,6 +214,31 @@ describe('notification broadcaster', () => {
     expect(vellumAdapter.sent[0].copy.body).toBeDefined();
   });
 
+  test('adapter receives concise copy (title/body), not the thread seed message', async () => {
+    const vellumAdapter = new MockAdapter('vellum');
+    const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+
+    const signal = makeSignal();
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: 'Reminder',
+          body: 'Take out the trash',
+          threadSeedMessage: 'This is a much richer seed message with more context about the reminder and what you should do about it.',
+        },
+      },
+    });
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    expect(vellumAdapter.sent).toHaveLength(1);
+    // The adapter payload uses the full copy object — title/body are what
+    // the native notification displays. threadSeedMessage is only consumed
+    // by conversation pairing, not by the adapter's display logic.
+    expect(vellumAdapter.sent[0].copy.title).toBe('Reminder');
+    expect(vellumAdapter.sent[0].copy.body).toBe('Take out the trash');
+  });
+
   test('empty selectedChannels produces no deliveries', async () => {
     const vellumAdapter = new MockAdapter('vellum');
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);

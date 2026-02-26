@@ -26,6 +26,8 @@ protocol ThreadRestorerDelegate: AnyObject {
     func isSessionArchived(_ sessionId: String) -> Bool
     func restoreLastActiveThread()
     func appendThreads(from response: SessionListResponseMessage)
+    /// Returns an existing ChatViewModel matching the given session ID, if any.
+    func existingChatViewModel(forSessionId sessionId: String) -> ChatViewModel?
 }
 
 /// Handles daemon session restoration: fetching the session list on connect,
@@ -93,8 +95,14 @@ final class ThreadSessionRestorer {
 
         pendingHistoryBySessionId[sessionId] = threadId
 
+        // Wire up the "load more" callback so the view model can request
+        // older pages through the same pending-history tracking mechanism.
+        viewModel.onLoadMoreHistory = { [weak self] sessionId, beforeTimestamp in
+            self?.requestPaginatedHistory(sessionId: sessionId, beforeTimestamp: beforeTimestamp)
+        }
+
         do {
-            try daemonClient.sendHistoryRequest(sessionId: sessionId)
+            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light")
         } catch {
             log.error("Failed to send history_request: \(error.localizedDescription)")
             pendingHistoryBySessionId.removeValue(forKey: sessionId)
@@ -109,10 +117,33 @@ final class ThreadSessionRestorer {
         guard let thread = delegate.threads.first(where: { $0.sessionId == sessionId }) else { return }
         pendingHistoryBySessionId[sessionId] = thread.id
         do {
-            try daemonClient.sendHistoryRequest(sessionId: sessionId)
+            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light")
         } catch {
             log.error("Failed to send reconnect history_request: \(error.localizedDescription)")
             pendingHistoryBySessionId.removeValue(forKey: sessionId)
+        }
+    }
+
+    /// Request an older page of history for a session. Used by the "Load more"
+    /// trigger in the message list when all locally loaded messages are visible.
+    func requestPaginatedHistory(sessionId: String, beforeTimestamp: Double) {
+        guard let delegate else { return }
+        guard let thread = delegate.threads.first(where: { $0.sessionId == sessionId }) else {
+            // Thread removed from the list during a concurrent reconnect/refresh.
+            // Reset loading state so the user isn't stuck with a permanent spinner.
+            delegate.existingChatViewModel(forSessionId: sessionId)?.isLoadingMoreMessages = false
+            return
+        }
+        pendingHistoryBySessionId[sessionId] = thread.id
+        do {
+            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light")
+        } catch {
+            log.error("Failed to send paginated history_request: \(error.localizedDescription)")
+            pendingHistoryBySessionId.removeValue(forKey: sessionId)
+            // Clear the loading indicator on the view model since the request failed.
+            if let vm = delegate.existingChatViewModel(for: thread.id) {
+                vm.isLoadingMoreMessages = false
+            }
         }
     }
 
@@ -200,8 +231,28 @@ final class ThreadSessionRestorer {
     func handleHistoryResponse(_ response: HistoryResponseMessage) {
         guard let threadId = pendingHistoryBySessionId.removeValue(forKey: response.sessionId) else { return }
         guard let viewModel = delegate?.chatViewModel(for: threadId) else { return }
-        viewModel.populateFromHistory(response.messages)
-        log.info("Loaded \(response.messages.count) history messages for thread \(threadId)")
+
+        // Determine whether this is a pagination load (older page) vs an initial
+        // or reconnect load. If the view model already has history loaded and
+        // isLoadingMoreMessages is true, the response is for a "Load more" request.
+        let isPaginationLoad = viewModel.isHistoryLoaded && viewModel.isLoadingMoreMessages
+
+        viewModel.populateFromHistory(
+            response.messages,
+            hasMore: response.hasMore,
+            oldestTimestamp: response.oldestTimestamp,
+            isPaginationLoad: isPaginationLoad
+        )
+
+        // Wire up the onLoadMoreHistory callback if not already set (e.g. for
+        // reconnect-restored threads that didn't go through loadHistoryIfNeeded).
+        if viewModel.onLoadMoreHistory == nil {
+            viewModel.onLoadMoreHistory = { [weak self] sessionId, beforeTimestamp in
+                self?.requestPaginatedHistory(sessionId: sessionId, beforeTimestamp: beforeTimestamp)
+            }
+        }
+
+        log.info("Loaded \(response.messages.count) history messages for thread \(threadId) (hasMore: \(response.hasMore), isPagination: \(isPaginationLoad))")
     }
 
     func handleSessionTitleUpdated(_ response: SessionTitleUpdatedMessage) {
