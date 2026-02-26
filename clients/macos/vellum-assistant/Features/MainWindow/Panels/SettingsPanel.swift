@@ -203,7 +203,7 @@ struct SettingsPanel: View {
                 daemonClient: daemonClient
             )
         case .parental:
-            SettingsParentalTab(daemonClient: daemonClient)
+            SettingsParentalTab(daemonClient: daemonClient, settingsStore: store)
         }
     }
 
