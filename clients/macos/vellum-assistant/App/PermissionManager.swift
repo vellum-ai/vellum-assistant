@@ -137,7 +137,9 @@ enum PermissionManager {
             switch settings.authorizationStatus {
             case .notDetermined:
                 UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
-            case .authorized, .provisional, .ephemeral, .denied:
+            case .authorized, .provisional, .ephemeral:
+                return
+            case .denied:
                 _ = openNotificationSettings()
             @unknown default:
                 _ = openNotificationSettings()
