@@ -40,6 +40,8 @@ final class VoiceModeManager: ObservableObject {
     private var pendingPermissionIds: [String] = []
     /// Combine subscription to detect new confirmations in chat messages.
     private var messageCancellable: AnyCancellable?
+    /// Combine subscription to pause/resume conversation timeout during tool execution.
+    private var isThinkingCancellable: AnyCancellable?
 
     nonisolated init() {
         self.voiceService = OpenAIVoiceService()
@@ -112,6 +114,19 @@ final class VoiceModeManager: ObservableObject {
                 self?.checkForConfirmations(in: messages)
             }
 
+        // Pause the conversation timeout while the agent is executing tools,
+        // preventing auto-deactivation during multi-step tool sequences.
+        isThinkingCancellable = chatViewModel.messageManager.$isThinking
+            .removeDuplicates()
+            .sink { [weak self] thinking in
+                guard let self, self.state == .idle else { return }
+                if thinking {
+                    self.cancelConversationTimeout()
+                } else {
+                    self.startConversationTimeout()
+                }
+            }
+
         // Pre-warm audio engine so first recording starts instantly
         voiceService.prewarmEngine()
 
@@ -164,6 +179,8 @@ final class VoiceModeManager: ObservableObject {
         previousOnVoiceTextDelta = nil
         messageCancellable?.cancel()
         messageCancellable = nil
+        isThinkingCancellable?.cancel()
+        isThinkingCancellable = nil
         pendingPermissionIds = []
 
         chatViewModel = nil
@@ -485,7 +502,11 @@ final class VoiceModeManager: ObservableObject {
         guard oldState != newState else { return }
 
         if newState == .idle {
-            startConversationTimeout()
+            // Don't start the timeout if the agent is currently executing tools —
+            // the isThinking observer will restart it when thinking completes.
+            if chatViewModel?.isThinking != true {
+                startConversationTimeout()
+            }
         } else {
             cancelConversationTimeout()
         }
