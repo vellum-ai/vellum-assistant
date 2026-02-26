@@ -413,7 +413,7 @@ export async function handleTaskSubmit(
     const slashCandidate = parseSlashCandidate(msg.task);
     const interactionType = slashCandidate.kind === 'candidate'
       ? 'text_qa' as const
-      : await classifyInteraction(msg.task);
+      : await classifyInteraction(msg.task, msg.source);
     rlog.info({ interactionType, slashBypass: slashCandidate.kind === 'candidate', taskLength: msg.task.length }, 'Task classified');
 
     if (interactionType === 'computer_use') {
