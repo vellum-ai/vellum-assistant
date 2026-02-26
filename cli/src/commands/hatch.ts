@@ -1,11 +1,6 @@
-import { createHash, randomBytes, randomUUID } from "crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync } from "fs";
-import jsQR from "jsqr";
-import { hostname as osHostname, networkInterfaces, homedir, tmpdir, userInfo } from "os";
+import { homedir, userInfo } from "os";
 import { join } from "path";
-import { PNG } from "pngjs";
-import QRCode from "qrcode";
-import qrcodeTerminal from "qrcode-terminal";
 
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
 import cliPkg from "../../package.json";
@@ -15,7 +10,6 @@ import { loadAllAssistants, saveAssistantEntry } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { hatchAws } from "../lib/aws";
 import {
-  GATEWAY_PORT,
   SPECIES_CONFIG,
   VALID_REMOTE_HOSTS,
   VALID_SPECIES,
@@ -398,191 +392,6 @@ function watchHatchingDesktop(
   });
 }
 
-
-function getLocalLanIp(): string {
-  const nets = networkInterfaces();
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name] ?? []) {
-      if (net.family === "IPv4" && !net.internal) {
-        return net.address;
-      }
-    }
-  }
-  return "127.0.0.1";
-}
-
-function getMachineIdHash(): string {
-  const raw = osHostname() + userInfo().username;
-  return createHash("sha256").update(raw).digest("hex").substring(0, 12);
-}
-
-interface QRPairingPayload {
-  type: string;
-  v: number;
-  id?: string;
-  g: string;
-  pairingRequestId: string;
-  pairingSecret: string;
-}
-
-function decodeQRCodeFromPng(pngPath: string): string {
-  const fileData = readFileSync(pngPath);
-  const png = PNG.sync.read(fileData);
-  const code = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
-  if (!code) {
-    throw new Error("Could not decode QR code from the provided PNG image.");
-  }
-  return code.data;
-}
-
-async function hatchCustom(
-  species: Species,
-  _detached: boolean,
-  name: string | null,
-): Promise<void> {
-  const qrCodePath = process.env.VELLUM_CUSTOM_QR_CODE_PATH;
-
-  // Mode 1: Desktop app provided a QR code PNG — decode it and pair with the remote assistant
-  if (qrCodePath) {
-    try {
-      console.log("🔍 Reading QR code from provided image...");
-      const qrData = decodeQRCodeFromPng(qrCodePath);
-
-      let payload: QRPairingPayload;
-      try {
-        payload = JSON.parse(qrData) as QRPairingPayload;
-      } catch {
-        throw new Error("QR code does not contain valid pairing data.");
-      }
-
-      if (payload.type !== "vellum-daemon" || !payload.g || !payload.pairingRequestId || !payload.pairingSecret) {
-        throw new Error("QR code does not contain valid Vellum pairing data.");
-      }
-
-      const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
-      const runtimeUrl = payload.g;
-
-      console.log(`🔗 Pairing with remote assistant at ${runtimeUrl}...`);
-
-      // Approve the pairing request on the remote assistant
-      const approveUrl = `${runtimeUrl}/v1/pairing/approve`;
-      const approveRes = await fetch(approveUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pairingRequestId: payload.pairingRequestId,
-          pairingSecret: payload.pairingSecret,
-        }),
-      });
-
-      if (!approveRes.ok) {
-        const body = await approveRes.text().catch(() => "");
-        throw new Error(`Failed to pair with remote assistant: HTTP ${approveRes.status}: ${body || approveRes.statusText}`);
-      }
-
-      const customEntry: AssistantEntry = {
-        assistantId: instanceName,
-        runtimeUrl,
-        cloud: "custom",
-        species,
-        hatchedAt: new Date().toISOString(),
-      };
-      saveAssistantEntry(customEntry);
-
-      console.log("");
-      console.log("✅ Successfully paired with remote assistant!");
-      console.log("Instance details:");
-      console.log(`  Name: ${instanceName}`);
-      console.log(`  Runtime URL: ${runtimeUrl}`);
-      console.log("");
-    } catch (error) {
-      console.error("❌ Error:", error instanceof Error ? error.message : error);
-      process.exit(1);
-    }
-    return;
-  }
-
-  // Mode 2: Running on the Mac mini — do a local hatch and generate a pairing QR code
-  try {
-    const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
-
-    console.log(`🥚 Hatching custom assistant: ${instanceName}`);
-    console.log(`   Species: ${species}`);
-    console.log(`   Cloud: Custom`);
-    console.log("");
-
-    // Run a local hatch (daemon + gateway)
-    await hatchLocal(species, instanceName);
-
-    // Read the bearer token from the local data dir
-    const baseDataDir = join(
-      process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir),
-      ".vellum",
-    );
-    let bearerToken: string | undefined;
-    try {
-      const token = readFileSync(join(baseDataDir, "http-token"), "utf-8").trim();
-      if (token) bearerToken = token;
-    } catch {
-      // Token file may not exist
-    }
-
-    const lanIp = getLocalLanIp();
-    const gatewayUrl = `http://${lanIp}:${GATEWAY_PORT}`;
-
-    // Register a pairing request with the local runtime
-    const pairingRequestId = randomUUID();
-    const pairingSecret = randomBytes(32).toString("hex");
-
-    const registerUrl = `http://127.0.0.1:${GATEWAY_PORT}/v1/pairing/register`;
-    const registerRes = await fetch(registerUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-      },
-      body: JSON.stringify({ pairingRequestId, pairingSecret, gatewayUrl }),
-    });
-
-    if (!registerRes.ok) {
-      const body = await registerRes.text().catch(() => "");
-      throw new Error(`Failed to register pairing: HTTP ${registerRes.status}: ${body || registerRes.statusText}`);
-    }
-
-    const payload = JSON.stringify({
-      type: "vellum-daemon",
-      v: 4,
-      id: getMachineIdHash(),
-      g: gatewayUrl,
-      pairingRequestId,
-      pairingSecret,
-    });
-
-    // Generate QR code in terminal
-    const qrString = await new Promise<string>((resolve) => {
-      qrcodeTerminal.generate(payload, { small: true }, (code: string) => {
-        resolve(code);
-      });
-    });
-
-    console.log("");
-    console.log("📱 Scan this QR code with the Vellum app to pair:\n");
-    console.log(qrString);
-    console.log("");
-
-    // Save QR code as PNG to tmp file
-    const qrPngPath = join(tmpdir(), `vellum-pairing-qr-${instanceName}.png`);
-    await QRCode.toFile(qrPngPath, payload, { type: "png", width: 400 });
-    console.log(`📄 QR code saved to: ${qrPngPath}`);
-    console.log("");
-    console.log("This pairing request expires in 5 minutes. Run 'vellum hatch --remote custom' again to generate a new one.");
-    console.log("");
-  } catch (error) {
-    console.error("❌ Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
-  }
-}
-
 function installCLISymlink(): void {
   const cliBinary = process.execPath;
   if (!cliBinary || !existsSync(cliBinary)) return;
@@ -710,11 +519,6 @@ export async function hatch(): Promise<void> {
 
   if (remote === "gcp") {
     await hatchGcp(species, detached, name, buildStartupScript, watchHatching);
-    return;
-  }
-
-  if (remote === "custom") {
-    await hatchCustom(species, detached, name);
     return;
   }
 

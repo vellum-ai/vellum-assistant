@@ -251,6 +251,7 @@ struct HatchingStepView: View {
         let apiKey = APIKeyManager.getKey() ?? ""
         let selectedModel = state.selectedModel
 
+        let isCustom = state.cloudProvider == "customHardware"
         let config = AssistantCli.RemoteHatchConfig(
             remote: state.cloudProvider,
             gcpProjectId: state.gcpProjectId,
@@ -260,13 +261,13 @@ struct HatchingStepView: View {
             sshHost: state.sshHost,
             sshUser: state.sshUser,
             sshPrivateKey: state.sshPrivateKey,
-            anthropicApiKey: apiKey,
-            customQRCodeImageData: state.customQRCodeImageData
+            anthropicApiKey: apiKey
         )
+        let qrData = state.customQRCodeImageData
 
-        Task.detached { [config, selectedModel] in
+        Task.detached { [config, selectedModel, isCustom, qrData] in
             do {
-                try await assistantCli.runRemoteHatch(config: config) { line in
+                let outputHandler: @Sendable (String) -> Void = { line in
                     Task { @MainActor in
                         state.hatchLogLines.append(line)
                         if !eggCracked && state.hatchLogLines.count > 3 {
@@ -275,6 +276,12 @@ struct HatchingStepView: View {
                             }
                         }
                     }
+                }
+
+                if isCustom {
+                    try await assistantCli.runPair(qrCodeImageData: qrData, onOutput: outputHandler)
+                } else {
+                    try await assistantCli.runRemoteHatch(config: config, onOutput: outputHandler)
                 }
 
                 if let json = LockfilePaths.read(),

@@ -337,7 +337,6 @@ final class AssistantCli {
         var sshUser: String = ""
         var sshPrivateKey: String = ""
         var anthropicApiKey: String = ""
-        var customQRCodeImageData: Data = Data()
     }
 
     func runRemoteHatch(
@@ -414,14 +413,6 @@ final class AssistantCli {
             if !config.awsRoleArn.isEmpty {
                 env["VELLUM_AWS_ROLE_ARN"] = config.awsRoleArn
             }
-        } else if cliRemote == "custom" {
-            if !config.customQRCodeImageData.isEmpty {
-                let tmpQRPath = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("vellum-qr-code-\(ProcessInfo.processInfo.processIdentifier).png")
-                try config.customQRCodeImageData.write(to: tmpQRPath)
-                tmpFilesToCleanup.append(tmpQRPath)
-                env["VELLUM_CUSTOM_QR_CODE_PATH"] = tmpQRPath.path
-            }
         }
 
         proc.environment = env
@@ -466,6 +457,72 @@ final class AssistantCli {
         }
 
         log.info("CLI remote hatch completed successfully")
+    }
+
+    // MARK: - Pair (custom hardware)
+
+    func runPair(
+        qrCodeImageData: Data,
+        onOutput: @escaping @Sendable (String) -> Void
+    ) async throws {
+        guard let binaryURL = cliBinaryURL else {
+            log.info("No bundled CLI binary found — skipping pair (dev mode)")
+            throw CLIError.binaryNotFound
+        }
+
+        let tmpQRPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vellum-qr-code-\(ProcessInfo.processInfo.processIdentifier).png")
+        try qrCodeImageData.write(to: tmpQRPath)
+        defer { try? FileManager.default.removeItem(at: tmpQRPath) }
+
+        log.info("Running pair via CLI at \(binaryURL.path, privacy: .private)")
+
+        let proc = Process()
+        proc.executableURL = binaryURL
+        proc.arguments = ["pair", tmpQRPath.path]
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        proc.standardOutput = stdoutPipe
+        proc.standardError = stderrPipe
+
+        var env = ProcessInfo.processInfo.environment
+        env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        env["VELLUM_DESKTOP_APP"] = "1"
+        proc.environment = env
+
+        try proc.run()
+        log.info("CLI pair launched with pid \(proc.processIdentifier)")
+
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+
+        stdoutHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { onOutput(trimmed) }
+        }
+
+        stderrHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { onOutput(trimmed) }
+        }
+
+        proc.waitUntilExit()
+
+        stdoutHandle.readabilityHandler = nil
+        stderrHandle.readabilityHandler = nil
+
+        let status = proc.terminationStatus
+        if status != 0 {
+            log.error("CLI pair failed with exit code \(status)")
+            throw CLIError.executionFailed("Pair process exited with code \(status)")
+        }
+
+        log.info("CLI pair completed successfully")
     }
 
     // MARK: - Private Helpers

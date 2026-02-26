@@ -421,7 +421,7 @@ struct CloudCredentialsStepView: View {
 
     private var continueButton: some View {
         Button(action: { saveAndContinue() }) {
-            Text("Hatch!")
+            Text(isCustomHardware ? "Pair!" : "Hatch!")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(adaptiveColor(light: .white, dark: .white))
                 .frame(maxWidth: .infinity)
@@ -464,7 +464,7 @@ struct CloudCredentialsStepView: View {
 
     private var titleText: String {
         if isCustomHardware {
-            return "Pair your Mac mini"
+            return "Connect your hardware"
         } else if isAws {
             return "Connect your AWS account"
         } else {
