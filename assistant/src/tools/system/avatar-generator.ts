@@ -109,8 +109,7 @@ export const setAvatarTool: Tool = {
 
       log.info({ avatarPath }, 'Avatar saved successfully');
 
-      // Notify connected clients that the avatar has changed
-      context.sendToClient?.({ type: 'avatar_updated', avatarPath });
+      // Side-effect hook in tool-side-effects.ts broadcasts avatar_updated to all clients.
 
       return {
         content: 'Avatar updated! Your new avatar will appear shortly.',
