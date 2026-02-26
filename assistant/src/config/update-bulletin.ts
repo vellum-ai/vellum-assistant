@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { stripCommentLines } from './system-prompt.js';
@@ -21,7 +21,11 @@ function atomicWriteFileSync(filePath: string, content: string): void {
   const tmpPath = `${filePath}.tmp.${process.pid}`;
   try {
     writeFileSync(tmpPath, content, 'utf-8');
-    renameSync(tmpPath, filePath);
+    // Resolve symlinks so we rename to the real target, preserving the link
+    const targetPath = lstatSync(filePath, { throwIfNoEntry: false })?.isSymbolicLink()
+      ? realpathSync(filePath)
+      : filePath;
+    renameSync(tmpPath, targetPath);
   } catch (err) {
     try {
       unlinkSync(tmpPath);
