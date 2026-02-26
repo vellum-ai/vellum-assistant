@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 // MARK: - Skill Category
 
-private enum SkillCategory: String, CaseIterable {
+enum SkillCategory: String, CaseIterable {
     case communication
     case productivity
     case development
@@ -87,7 +87,7 @@ private struct CategoryGroup: Identifiable {
 
 // MARK: - Category Inference
 
-private func inferCategory(_ skill: SkillInfo) -> SkillCategory {
+func inferCategory(_ skill: SkillInfo) -> SkillCategory {
     let text = (skill.name + " " + skill.description).lowercased()
 
     if text.contains("email") || text.contains("message") || text.contains("messaging")

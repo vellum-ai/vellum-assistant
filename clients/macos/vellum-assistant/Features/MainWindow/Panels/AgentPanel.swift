@@ -29,6 +29,8 @@ struct AgentPanelContent: View {
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
     @State private var showNewSkillSheet = false
+    @State private var selectedCategory: SkillCategory?
+    @State private var expandedDetailSkillId: String?
 
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient, visibleTab: SkillsTab? = nil) {
         self.onInvokeSkill = onInvokeSkill
@@ -721,6 +723,17 @@ struct AgentPanelContent: View {
         }
     }
 
+    /// Installed skills further filtered by the selected category.
+    private var categoryFilteredSkills: [SkillInfo] {
+        guard let category = selectedCategory else { return filteredUserSkills }
+        return filteredUserSkills.filter { inferCategory($0) == category }
+    }
+
+    /// Count of installed skills per category (based on search-filtered list).
+    private func skillCount(for category: SkillCategory) -> Int {
+        filteredUserSkills.filter { inferCategory($0) == category }.count
+    }
+
     private var installedTabTitle: String {
         hasActiveSearch ? "Installed (\(filteredUserSkills.count))" : "Installed"
     }
@@ -728,6 +741,83 @@ struct AgentPanelContent: View {
     private var availableTabTitle: String {
         hasActiveSearch ? "Available (\(availableClawhubSkills.count))" : "Available"
     }
+
+    // MARK: - Category Sidebar
+
+    @ViewBuilder
+    private var categorySidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // "All" row
+            Button {
+                withAnimation(VAnimation.fast) { selectedCategory = nil }
+            } label: {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "square.grid.2x2")
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 20)
+
+                    Text("All")
+                        .font(VFont.body)
+                        .foregroundColor(selectedCategory == nil ? VColor.textPrimary : VColor.textMuted)
+
+                    Spacer()
+
+                    Text("\(filteredUserSkills.count)")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(selectedCategory == nil ? VColor.surfaceSubtle : Color.clear)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            ForEach(SkillCategory.allCases, id: \.rawValue) { category in
+                let count = skillCount(for: category)
+                Button {
+                    withAnimation(VAnimation.fast) { selectedCategory = category }
+                } label: {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: category.icon)
+                            .font(.system(size: 12))
+                            .foregroundColor(category.color)
+                            .frame(width: 20)
+
+                        Text(category.displayName)
+                            .font(VFont.body)
+                            .foregroundColor(selectedCategory == category ? VColor.textPrimary : VColor.textMuted)
+
+                        Spacer()
+
+                        Text("\(count)")
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .fill(selectedCategory == category ? VColor.surfaceSubtle : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+        }
+        .frame(width: 200)
+        .padding(.vertical, VSpacing.md)
+        .background(VColor.backgroundSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+    }
+
+    // MARK: - Installed Skills Content
 
     @ViewBuilder
     private var skillsContent: some View {
@@ -785,10 +875,24 @@ struct AgentPanelContent: View {
                 .padding(.vertical, VSpacing.sm)
             }
         } else {
-            VStack(spacing: VSpacing.md) {
-                ForEach(filteredUserSkills) { skill in
-                    skillCard(skill)
+            HStack(alignment: .top, spacing: VSpacing.lg) {
+                categorySidebar
+
+                VStack(spacing: VSpacing.md) {
+                    if categoryFilteredSkills.isEmpty {
+                        VEmptyState(
+                            title: "No skills in this category",
+                            subtitle: selectedCategory.map { "No installed skills matched \($0.displayName)" } ?? "",
+                            icon: "tray"
+                        )
+                        .frame(minHeight: 100)
+                    } else {
+                        ForEach(categoryFilteredSkills) { skill in
+                            skillCard(skill)
+                        }
+                    }
                 }
+                .frame(maxWidth: .infinity)
             }
         }
     }
@@ -796,64 +900,93 @@ struct AgentPanelContent: View {
     private func skillCard(_ skill: SkillInfo) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(alignment: .top, spacing: VSpacing.md) {
-                HStack(spacing: VSpacing.md) {
-                    skillIcon(skill.emoji)
+                skillIcon(skill.emoji)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: VSpacing.sm) {
-                            Text(skill.name)
-                                .font(VFont.bodyBold)
-                                .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: VSpacing.sm) {
+                        Text(skill.name)
+                            .font(VFont.bodyBold)
+                            .foregroundColor(VColor.textPrimary)
 
-                            if skill.updateAvailable {
-                                Text("UPDATE")
-                                    .font(VFont.small)
-                                    .foregroundColor(Amber._500)
-                            }
+                        // Source badge capsule
+                        Text(sourceLabel(skill.source))
+                            .font(VFont.small)
+                            .foregroundColor(sourceBadgeColor(skill.source))
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(sourceBadgeColor(skill.source).opacity(0.15))
+                            )
+
+                        if skill.updateAvailable {
+                            Text("UPDATE")
+                                .font(VFont.small)
+                                .foregroundColor(Amber._500)
                         }
-
-                        Text(skill.description)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                            .lineLimit(2)
                     }
+
+                    Text(skill.description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .lineLimit(2)
                 }
 
                 Spacer(minLength: VSpacing.lg)
 
-                VButton(label: "Use", icon: "bolt.fill", style: .primary) {
-                    onInvokeSkill?(skill)
+                // Remove button for managed skills only
+                if skill.source == "managed" {
+                    Button {
+                        skillToDelete = skill
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11))
+                            Text("Remove")
+                                .font(VFont.caption)
+                        }
+                        .foregroundColor(Danger._500)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .fill(Danger._500.opacity(0.1))
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
-            HStack(spacing: VSpacing.lg) {
-                skillMetaItem(icon: "checkmark.circle.fill", value: "Installed", color: VColor.success)
-                skillMetaItem(icon: "shippingbox", value: sourceLabel(skill.source))
-
-                if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
-                    skillMetaItem(icon: "tag", value: "v\(installedVersion)")
-                }
-
-                if skill.updateAvailable {
-                    if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
-                        skillMetaItem(icon: "arrow.up.circle", value: "v\(latestVersion) available", color: Amber._500)
-                    } else {
-                        skillMetaItem(icon: "arrow.up.circle", value: "Update available", color: Amber._500)
+            // Expandable details disclosure
+            DisclosureGroup(
+                isExpanded: Binding(
+                    get: { expandedDetailSkillId == skill.id },
+                    set: { isExpanded in
+                        withAnimation(VAnimation.fast) {
+                            if isExpanded {
+                                expandedDetailSkillId = skill.id
+                                skillsManager.fetchSkillBody(skillId: skill.id)
+                            } else {
+                                expandedDetailSkillId = nil
+                            }
+                        }
                     }
+                )
+            ) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    skillBody(for: skill.id)
                 }
-
-                Spacer(minLength: 0)
+                .padding(.top, VSpacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } label: {
+                Text("Details")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
             }
             .padding(.leading, 24 + VSpacing.md)
         }
         .padding(VSpacing.lg)
         .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(VAnimation.standard) {
-                selectedInstalledSkillId = skill.id
-                skillsManager.fetchSkillBody(skillId: skill.id)
-            }
-        }
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -892,17 +1025,22 @@ struct AgentPanelContent: View {
                         .foregroundColor(Amber._500)
                 }
 
+                // Source badge
+                Text(sourceLabel(skill.source))
+                    .font(VFont.small)
+                    .foregroundColor(sourceBadgeColor(skill.source))
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule()
+                            .fill(sourceBadgeColor(skill.source).opacity(0.15))
+                    )
+
                 Spacer()
 
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Use", icon: "bolt.fill", style: .primary, size: .small) {
-                        onInvokeSkill?(skill)
-                    }
-
-                    if skill.source == "managed" {
-                        VButton(label: "Delete", icon: "trash", style: .danger, size: .small) {
-                            skillToDelete = skill
-                        }
+                if skill.source == "managed" {
+                    VButton(label: "Remove", icon: "trash", style: .danger, size: .small) {
+                        skillToDelete = skill
                     }
                 }
             }
@@ -917,9 +1055,6 @@ struct AgentPanelContent: View {
 
             // Meta info
             HStack(spacing: VSpacing.lg) {
-                skillMetaItem(icon: "checkmark.circle.fill", value: "Installed", color: VColor.success)
-                skillMetaItem(icon: "shippingbox", value: sourceLabel(skill.source))
-
                 if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
                     skillMetaItem(icon: "tag", value: "v\(installedVersion)")
                 }
@@ -955,17 +1090,28 @@ struct AgentPanelContent: View {
     private func sourceLabel(_ source: String) -> String {
         switch source {
         case "bundled":
-            return "Bundled"
-        case "managed":
-            return "Custom"
+            return "Core"
+        case "managed", "clawhub":
+            return "Installed"
         case "workspace":
-            return "Workspace"
-        case "clawhub":
-            return "ClawHub"
+            return "Created"
         case "extra":
             return "Extra"
         default:
             return source.replacingOccurrences(of: "-", with: " ").capitalized
+        }
+    }
+
+    private func sourceBadgeColor(_ source: String) -> Color {
+        switch source {
+        case "bundled":
+            return VColor.accent
+        case "managed", "clawhub":
+            return VColor.success
+        case "workspace":
+            return Amber._500
+        default:
+            return VColor.textMuted
         }
     }
 
