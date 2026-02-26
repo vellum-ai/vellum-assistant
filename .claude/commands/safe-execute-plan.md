@@ -117,11 +117,13 @@ Repeat the following until the exit condition is met:
 
 **Determining aggregate review status from `check-pr-reviews` output:**
 
-The `check-pr-reviews` script returns **per-reviewer** statuses at `codex.status` and `devin.status` — there is no top-level `status` field. Derive an aggregate status as follows:
+The `check-pr-reviews` script returns **per-reviewer** statuses at `codex.status` and `devin.status` — there is no top-level `status` field. Derive an aggregate status as follows (higher entries take priority):
+- **changes_requested**: Either reviewer has `changes_requested`.
+- **pending**: Either reviewer is `pending` (and neither has `changes_requested`).
+- **rate_limited**: Either reviewer is `rate_limited` (and neither has `changes_requested` or `pending`).
 - **approved**: Both `codex.status` and `devin.status` are `approved` (or `skipped` for Devin).
-- **pending**: Either reviewer is `pending`.
-- **rate_limited**: Either reviewer is `rate_limited` (and the other is not `changes_requested`).
-- **changes_requested**: Either reviewer has `changes_requested` (and neither is `pending`).
+
+`changes_requested` always takes priority so that actionable feedback is never masked by a slow/pending reviewer.
 
 Use this aggregate status in the feedback loop below.
 
