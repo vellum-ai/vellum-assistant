@@ -25,6 +25,10 @@ export interface ChannelCapabilities {
   supportsDynamicUi: boolean;
   /** Whether the channel supports voice/microphone input. */
   supportsVoiceInput: boolean;
+  /** Push-to-talk activation key (e.g. 'fn', 'ctrl', 'fn_shift', 'none'). Only present on desktop clients. */
+  pttActivationKey?: string;
+  /** Whether the client has been granted microphone permission by the OS. */
+  microphonePermissionGranted?: boolean;
 }
 
 /** Guardian identity/trust context for external chat channels. */
@@ -39,10 +43,17 @@ export interface GuardianRuntimeContext {
   denialReason?: 'no_binding' | 'no_identity';
 }
 
+/** Optional PTT metadata provided by the client alongside each message. */
+export interface PttMetadata {
+  pttActivationKey?: string;
+  microphonePermissionGranted?: boolean;
+}
+
 /** Derive channel capabilities from source channel + interface identifiers. */
 export function resolveChannelCapabilities(
   sourceChannel?: string | null,
   sourceInterface?: string | null,
+  pttMetadata?: PttMetadata | null,
 ): ChannelCapabilities {
   // Normalise legacy pseudo-channel IDs to canonical ChannelId values.
   let channel: string;
@@ -85,6 +96,8 @@ export function resolveChannelCapabilities(
         dashboardCapable: supportsDesktopUi,
         supportsDynamicUi: supportsDesktopUi,
         supportsVoiceInput: supportsDesktopUi,
+        pttActivationKey: pttMetadata?.pttActivationKey,
+        microphonePermissionGranted: pttMetadata?.microphonePermissionGranted,
       };
     }
     case 'telegram':
@@ -332,6 +345,23 @@ export function injectChannelCapabilityContext(message: Message, caps: ChannelCa
 
   if (!caps.supportsVoiceInput) {
     lines.push('- Do NOT ask the user to use voice or microphone input.');
+  }
+
+  // PTT state — only relevant on channels that support voice input
+  if (caps.supportsVoiceInput) {
+    if (caps.pttActivationKey && caps.pttActivationKey !== 'none') {
+      const keyLabel = caps.pttActivationKey === 'fn_shift' ? 'Fn+Shift' : caps.pttActivationKey === 'fn' ? 'Fn (Globe)' : caps.pttActivationKey;
+      lines.push(`ptt_activation_key: ${caps.pttActivationKey}`);
+      lines.push(`ptt_enabled: true`);
+      lines.push(`Push-to-talk is configured with the ${keyLabel} key. The user can hold ${keyLabel} to dictate text or start a voice conversation.`);
+    } else if (caps.pttActivationKey === 'none') {
+      lines.push(`ptt_activation_key: none`);
+      lines.push(`ptt_enabled: false`);
+      lines.push('Push-to-talk is disabled. You can offer to enable it for the user.');
+    }
+    if (caps.microphonePermissionGranted !== undefined) {
+      lines.push(`microphone_permission_granted: ${caps.microphonePermissionGranted}`);
+    }
   }
 
   lines.push('</channel_capabilities>');
