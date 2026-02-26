@@ -402,23 +402,30 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             $0.threadType != "private" && $0.channelBinding?.sourceChannel == nil
         }
 
+        // Compute the next pinnedOrder based on existing pinned threads so
+        // appended pinned threads don't collide with already-loaded ones.
+        var nextPinnedOrder = (threads.compactMap(\.pinnedOrder).max() ?? -1) + 1
+
         for session in recentSessions {
             // Skip sessions that already have a thread
             guard !threads.contains(where: { $0.sessionId == session.id }) else { continue }
 
+            let isPinned = session.isPinned ?? false
             let effectiveCreatedAt = session.createdAt ?? session.updatedAt
             let thread = ThreadModel(
                 title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 sessionId: session.id,
                 isArchived: isSessionArchived(session.id),
-                isPinned: session.isPinned ?? false,
+                isPinned: isPinned,
+                pinnedOrder: isPinned ? nextPinnedOrder : nil,
                 displayOrder: session.displayOrder.map { Int($0) },
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 kind: session.threadType == "private" ? .private : .standard,
                 source: session.source,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
             )
+            if isPinned { nextPinnedOrder += 1 }
             // VM creation is lazy — getOrCreateViewModel() will instantiate
             // when the thread is first accessed (e.g. selected by the user).
             threads.append(thread)
@@ -611,14 +618,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Send the current thread ordering to the daemon so it persists across restarts.
+    /// Only sends explicit displayOrder for threads that have been user-reordered
+    /// (non-nil displayOrder) or are pinned. Threads without explicit ordering get
+    /// displayOrder: nil so the daemon clears any previously stored value, preserving
+    /// the default "new threads sort to top by recency" behavior.
     private func sendReorderThreads() {
         let visible = visibleThreads
         var updates: [IPCReorderThreadsRequestUpdate] = []
-        for (index, thread) in visible.enumerated() {
+        for thread in visible {
             guard let sessionId = thread.sessionId else { continue }
             updates.append(IPCReorderThreadsRequestUpdate(
                 sessionId: sessionId,
-                displayOrder: Double(index),
+                displayOrder: thread.displayOrder.map { Double($0) },
                 isPinned: thread.isPinned
             ))
         }
