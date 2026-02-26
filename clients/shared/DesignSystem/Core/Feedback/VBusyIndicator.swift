@@ -6,14 +6,13 @@ import SwiftUI
 public struct VBusyIndicator: View {
     public var size: CGFloat = 10
     public var color: Color = VColor.accent
-    public var reduceMotion: Bool = false
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
 
-    public init(size: CGFloat = 10, color: Color = VColor.accent, reduceMotion: Bool = false) {
+    public init(size: CGFloat = 10, color: Color = VColor.accent) {
         self.size = size
         self.color = color
-        self.reduceMotion = reduceMotion
     }
 
     public var body: some View {
@@ -36,6 +35,9 @@ public struct VBusyIndicator: View {
             .onDisappear {
                 isPulsing = false
             }
+            .onChange(of: reduceMotion) {
+                isPulsing = !reduceMotion
+            }
     }
 }
 
@@ -52,10 +54,12 @@ public struct VBusyIndicator: View {
             HStack(spacing: 24) {
                 Text("Reduced motion:")
                     .foregroundColor(VColor.textPrimary)
-                VBusyIndicator(reduceMotion: true)
+                Text("(reads @Environment automatically)")
+                    .foregroundColor(VColor.textSecondary)
+                    .font(VFont.caption)
             }
         }
         .padding()
     }
-    .frame(width: 350, height: 150)
+    .frame(width: 450, height: 150)
 }

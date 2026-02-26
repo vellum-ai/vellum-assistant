@@ -79,7 +79,7 @@ struct MainWindowView: View {
     let daemonClient: DaemonClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let settingsStore: SettingsStore
     let authManager: AuthManager
     @ObservedObject var documentManager: DocumentManager
@@ -807,7 +807,7 @@ struct MainWindowView: View {
                 // to avoid nesting a Button inside this outer Button's label.
                 // When hovered, the amber dot swaps to the pin icon (and back on hover-out).
                 if isBusy {
-                    VBusyIndicator(reduceMotion: reduceMotion)
+                    VBusyIndicator()
                         .frame(width: 20, height: 20)
                 } else if thread.hasUnseenLatestAssistantMessage && !isHovered {
                     Circle()
