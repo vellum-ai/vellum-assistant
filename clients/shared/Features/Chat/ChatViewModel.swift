@@ -30,6 +30,40 @@ public final class ChatViewModel: ObservableObject {
 
     private var cancellables: Set<AnyCancellable> = []
 
+    // MARK: - Debug publish-rate counters
+
+    #if DEBUG
+    private static let perfLog = OSLog(subsystem: "com.vellum.assistant", category: "PerfCounters")
+    private var publishCount = 0
+    private var messageManagerPublishCount = 0
+    private var attachmentManagerPublishCount = 0
+    private var errorManagerPublishCount = 0
+    private var lastRateLogTime = Date()
+
+    private func trackPublish(source: String) {
+        publishCount += 1
+        switch source {
+        case "messageManager": messageManagerPublishCount += 1
+        case "attachmentManager": attachmentManagerPublishCount += 1
+        case "errorManager": errorManagerPublishCount += 1
+        default: break
+        }
+        let now = Date()
+        if now.timeIntervalSince(lastRateLogTime) >= 5 {
+            os_log(
+                .debug, log: Self.perfLog,
+                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d)",
+                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount
+            )
+            publishCount = 0
+            messageManagerPublishCount = 0
+            attachmentManagerPublishCount = 0
+            errorManagerPublishCount = 0
+            lastRateLogTime = now
+        }
+    }
+    #endif
+
     // MARK: - Forwarding properties — ChatMessageManager
 
     public var messages: [ChatMessage] {
@@ -625,13 +659,28 @@ public final class ChatViewModel: ObservableObject {
         // SwiftUI views observing ChatViewModel are notified whenever any
         // sub-manager @Published property changes.
         messageManager.objectWillChange
-            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+                #if DEBUG
+                self?.trackPublish(source: "messageManager")
+                #endif
+            }
             .store(in: &cancellables)
         attachmentManager.objectWillChange
-            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+                #if DEBUG
+                self?.trackPublish(source: "attachmentManager")
+                #endif
+            }
             .store(in: &cancellables)
         errorManager.objectWillChange
-            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+                #if DEBUG
+                self?.trackPublish(source: "errorManager")
+                #endif
+            }
             .store(in: &cancellables)
 
         // Surface attachment validation errors in the error manager so the UI

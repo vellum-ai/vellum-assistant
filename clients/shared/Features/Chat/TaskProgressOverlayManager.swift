@@ -1,4 +1,5 @@
 #if os(macOS)
+import Combine
 import SwiftUI
 import AppKit
 import os
@@ -19,7 +20,32 @@ public final class TaskProgressOverlayManager: ObservableObject {
     private var panel: NSPanel?
     private var dismissTask: Task<Void, Never>?
 
-    private init() {}
+    // MARK: - Debug publish-rate counters
+
+    #if DEBUG
+    private static let perfLog = OSLog(subsystem: "com.vellum.assistant", category: "PerfCounters")
+    private var publishCount = 0
+    private var lastRateLogTime = Date()
+    private var debugCancellable: AnyCancellable?
+
+    private func trackPublish() {
+        publishCount += 1
+        let now = Date()
+        if now.timeIntervalSince(lastRateLogTime) >= 5 {
+            os_log(.debug, log: Self.perfLog, "TaskProgressOverlayManager publish rate: %d/5s", publishCount)
+            publishCount = 0
+            lastRateLogTime = now
+        }
+    }
+    #endif
+
+    private init() {
+        #if DEBUG
+        // Observe own objectWillChange to track publish frequency.
+        debugCancellable = self.objectWillChange
+            .sink { [weak self] _ in self?.trackPublish() }
+        #endif
+    }
 
     // MARK: - Public API
 
