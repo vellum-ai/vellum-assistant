@@ -523,11 +523,29 @@ export async function processMessage(
   // expired deliveries exist, require request-code prefix for disambiguation.
   const expiredDeliveries = getExpiredDeliveriesByConversation(session.conversationId);
   if (expiredDeliveries.length > 0) {
-    let matchedExpired = expiredDeliveries.length === 1 ? expiredDeliveries[0] : null;
+    // Cross-state disambiguation: check total deliveries across all states
+    // (pending + expired + follow-up). When the total exceeds 1, require
+    // request-code disambiguation even for a lone expired delivery — otherwise
+    // a reply targeting a different state's delivery gets silently misrouted.
+    const expCrossStatePending = getPendingDeliveriesByConversation(session.conversationId);
+    const expCrossStateFollowup = getFollowupDeliveriesByConversation(session.conversationId);
+    const expTotalCrossStateCount = expiredDeliveries.length + expCrossStatePending.length + expCrossStateFollowup.length;
+    let matchedExpired = (expiredDeliveries.length === 1 && expTotalCrossStateCount === 1) ? expiredDeliveries[0] : null;
     let expiredAnswerText = content;
 
-    // Multiple expired deliveries: require request code prefix for disambiguation
-    if (expiredDeliveries.length > 1) {
+    // Strip the request code prefix from the answer text when the single
+    // expired delivery is auto-matched (content may include a code prefix
+    // if the pending section fell through via matchesOtherState).
+    if (matchedExpired) {
+      const req = getGuardianActionRequest(matchedExpired.requestId);
+      if (req && content.toUpperCase().startsWith(req.requestCode)) {
+        expiredAnswerText = content.slice(req.requestCode.length).trim();
+      }
+    }
+
+    // Multiple expired deliveries (or cross-state disambiguation needed):
+    // require request code prefix for disambiguation
+    if (!matchedExpired && expiredDeliveries.length >= 1) {
       for (const d of expiredDeliveries) {
         const req = getGuardianActionRequest(d.requestId);
         if (req && content.toUpperCase().startsWith(req.requestCode)) {
@@ -549,7 +567,9 @@ export async function processMessage(
         );
         session.messages.push(userMsg);
 
-        const codes = expiredDeliveries
+        // Include codes from all states so the guardian sees all options
+        const allExpiredDeliveries = [...expiredDeliveries, ...expCrossStatePending, ...expCrossStateFollowup];
+        const codes = allExpiredDeliveries
           .map((d) => { const req = getGuardianActionRequest(d.requestId); return req ? req.requestCode : null; })
           .filter((code): code is string => typeof code === 'string' && code.length > 0);
         const disambiguationText = await composeGuardianActionMessageGenerative(
@@ -635,11 +655,28 @@ export async function processMessage(
   // follow-up deliveries exist, require request-code prefix for disambiguation.
   const followupDeliveries = getFollowupDeliveriesByConversation(session.conversationId);
   if (followupDeliveries.length > 0) {
-    let matchedFollowup = followupDeliveries.length === 1 ? followupDeliveries[0] : null;
+    // Cross-state disambiguation: check total deliveries across all states
+    // (pending + expired + follow-up). When the total exceeds 1, require
+    // request-code disambiguation even for a lone follow-up delivery.
+    const fuCrossStatePending = getPendingDeliveriesByConversation(session.conversationId);
+    const fuCrossStateExpired = getExpiredDeliveriesByConversation(session.conversationId);
+    const fuTotalCrossStateCount = followupDeliveries.length + fuCrossStatePending.length + fuCrossStateExpired.length;
+    let matchedFollowup = (followupDeliveries.length === 1 && fuTotalCrossStateCount === 1) ? followupDeliveries[0] : null;
     let followupReplyText = content;
 
-    // Multiple follow-up deliveries: require request code prefix for disambiguation
-    if (followupDeliveries.length > 1) {
+    // Strip the request code prefix from the reply text when the single
+    // follow-up delivery is auto-matched (content may include a code prefix
+    // if the pending section fell through via matchesOtherState).
+    if (matchedFollowup) {
+      const req = getGuardianActionRequest(matchedFollowup.requestId);
+      if (req && content.toUpperCase().startsWith(req.requestCode)) {
+        followupReplyText = content.slice(req.requestCode.length).trim();
+      }
+    }
+
+    // Multiple follow-up deliveries (or cross-state disambiguation needed):
+    // require request code prefix for disambiguation
+    if (!matchedFollowup && followupDeliveries.length >= 1) {
       for (const d of followupDeliveries) {
         const req = getGuardianActionRequest(d.requestId);
         if (req && content.toUpperCase().startsWith(req.requestCode)) {
@@ -661,7 +698,9 @@ export async function processMessage(
         );
         session.messages.push(userMsg);
 
-        const codes = followupDeliveries
+        // Include codes from all states so the guardian sees all options
+        const allFollowupDeliveries = [...followupDeliveries, ...fuCrossStatePending, ...fuCrossStateExpired];
+        const codes = allFollowupDeliveries
           .map((d) => { const req = getGuardianActionRequest(d.requestId); return req ? req.requestCode : null; })
           .filter((code): code is string => typeof code === 'string' && code.length > 0);
         const disambiguationText = await composeGuardianActionMessageGenerative(
