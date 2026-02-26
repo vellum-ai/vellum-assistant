@@ -74,7 +74,10 @@ const SKILLS_SH_RISK_RANK: Record<SkillsShRisk, number> = {
 
 function normalizeSkillsShRisk(audit: SkillsShAuditState | null | undefined): SkillsShRisk {
   const risk = audit?.risk;
-  return risk ?? 'unknown';
+  if (risk == null) return 'unknown';
+  // Coerce unrecognized risk labels to 'unknown' so we fail closed.
+  if (!(risk in SKILLS_SH_RISK_RANK)) return 'unknown';
+  return risk;
 }
 
 function exceedsSkillsShRiskThreshold(
@@ -99,10 +102,7 @@ export function evaluateRemoteSkillInstall(
     return { ok: true };
   }
 
-  if (
-    policy.blockSuspicious &&
-    exceedsSkillsShRiskThreshold(candidate.audit, policy.maxSkillsShRisk)
-  ) {
+  if (exceedsSkillsShRiskThreshold(candidate.audit, policy.maxSkillsShRisk)) {
     return { ok: false, reason: 'skillssh_risk_exceeds_threshold' };
   }
 

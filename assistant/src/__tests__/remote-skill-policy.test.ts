@@ -110,4 +110,37 @@ describe('remote skill policy — skills.sh', () => {
 
     expect(decision).toEqual({ ok: false, reason: 'skillssh_risk_exceeds_threshold' });
   });
+
+  test('risk threshold is enforced even when blockSuspicious is false', () => {
+    const permissivePolicy: RemoteSkillPolicy = {
+      blockSuspicious: false,
+      blockMalware: false,
+      maxSkillsShRisk: 'medium',
+    };
+
+    const decision = evaluateRemoteSkillInstall(
+      {
+        provider: 'skillssh',
+        slug: 'high-risk-skill',
+        audit: { risk: 'high' },
+      },
+      permissivePolicy,
+    );
+
+    expect(decision).toEqual({ ok: false, reason: 'skillssh_risk_exceeds_threshold' });
+  });
+
+  test('unrecognized risk string is coerced to unknown and blocked', () => {
+    const decision = evaluateRemoteSkillInstall(
+      {
+        provider: 'skillssh',
+        slug: 'bogus-risk-skill',
+        // Cast to bypass type checking — simulates a provider returning a novel risk label
+        audit: { risk: 'super-duper-risky' as never },
+      },
+      policy,
+    );
+
+    expect(decision).toEqual({ ok: false, reason: 'skillssh_risk_exceeds_threshold' });
+  });
 });
