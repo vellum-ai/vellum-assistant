@@ -196,7 +196,7 @@ export function createCli(): Command {
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 // Only run when executed directly (not when imported for testing)
-const isDirectExecution = import.meta.url === Bun.main || process.argv[1]?.endsWith('skillssh-cli.ts');
+const isDirectExecution = import.meta.main || process.argv[1]?.endsWith('skillssh-cli.ts');
 if (isDirectExecution) {
   const program = createCli();
   program.parseAsync(process.argv).catch((err) => {
