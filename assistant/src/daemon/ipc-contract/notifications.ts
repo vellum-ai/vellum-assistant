@@ -27,8 +27,21 @@ export interface NotificationIntentResult {
   errorCode?: string;
 }
 
+/** Client signal indicating the user has seen a conversation (e.g. opened it or clicked a notification). */
+export interface ConversationSeenSignal {
+  type: 'conversation_seen_signal';
+  conversationId: string;
+  sourceChannel: string;
+  signalType: string;
+  confidence: string;
+  source: string;
+  evidenceText?: string;
+  observedAt?: number;
+  metadata?: Record<string, unknown>;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _NotificationsClientMessages = NotificationIntentResult;
+export type _NotificationsClientMessages = NotificationIntentResult | ConversationSeenSignal;
 
 export type _NotificationsServerMessages = NotificationIntent | NotificationThreadCreated;

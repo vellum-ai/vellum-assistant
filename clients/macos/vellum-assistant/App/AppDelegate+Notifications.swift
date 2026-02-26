@@ -394,6 +394,28 @@ extension AppDelegate {
         }
     }
 
+    /// Send a `conversation_seen_signal` IPC message to the daemon.
+    func sendConversationSeenSignal(
+        conversationId: String,
+        signalType: String,
+        source: String,
+        evidenceText: String? = nil
+    ) {
+        let signal = IPCConversationSeenSignal(
+            conversationId: conversationId,
+            sourceChannel: "vellum",
+            signalType: signalType,
+            confidence: "explicit",
+            source: source,
+            evidenceText: evidenceText
+        )
+        do {
+            try daemonClient.send(signal)
+        } catch {
+            log.warning("Failed to send conversation_seen_signal for \(conversationId): \(error.localizedDescription)")
+        }
+    }
+
     func registerBundledFonts() {
         for name in ["Silkscreen-Regular", "Silkscreen-Bold", "DMMono-Regular", "DMMono-Medium", "Inter-Regular", "Inter-Medium", "Inter-SemiBold", "CrimsonPro-Variable", "Fraunces-Variable"] {
             guard let url = ResourceBundle.bundle.url(forResource: name, withExtension: "ttf") else {
@@ -475,6 +497,12 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 guard !self.isBootstrapping else { return }
                 if let conversationId {
                     self.openConversationThread(conversationId: conversationId)
+                    self.sendConversationSeenSignal(
+                        conversationId: conversationId,
+                        signalType: "macos_notification_view",
+                        source: "notification-action",
+                        evidenceText: "User clicked View on notification"
+                    )
                 } else {
                     self.showMainWindow()
                 }

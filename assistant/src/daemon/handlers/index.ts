@@ -1,5 +1,6 @@
 import * as net from 'node:net';
 
+import { recordConversationSeenSignal, type Confidence, type SignalType } from '../../memory/conversation-attention-store.js';
 import { updateDeliveryClientOutcome } from '../../notifications/deliveries-store.js';
 import type { ClientMessage } from '../ipc-protocol.js';
 import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';
@@ -95,6 +96,25 @@ const inlineHandlers = defineHandlers({
     });
   },
   integration_disconnect: () => { /* no-op — integration registry removed */ },
+
+  // Client signal: user has seen a conversation (notification click, conversation open, etc.)
+  conversation_seen_signal: (msg) => {
+    try {
+      recordConversationSeenSignal({
+        conversationId: msg.conversationId,
+        assistantId: 'self',
+        sourceChannel: msg.sourceChannel,
+        signalType: msg.signalType as SignalType,
+        confidence: msg.confidence as Confidence,
+        source: msg.source,
+        evidenceText: msg.evidenceText,
+        metadata: msg.metadata,
+        observedAt: msg.observedAt,
+      });
+    } catch (err) {
+      log.error({ err, conversationId: msg.conversationId }, 'conversation_seen_signal: failed to record seen signal');
+    }
+  },
 
   // Client ack for notification delivery outcome (UNUserNotificationCenter.add result).
   notification_intent_result: (msg) => {
