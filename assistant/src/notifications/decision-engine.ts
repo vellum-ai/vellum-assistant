@@ -19,18 +19,20 @@ import { getLogger } from '../util/logger.js';
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal, RoutingIntent } from './signal.js';
-import type { NotificationChannel, NotificationDecision, RenderedChannelCopy } from './types.js';
+import { type ThreadCandidateSet, buildThreadCandidates, serializeCandidatesForPrompt } from './thread-candidates.js';
+import type { NotificationChannel, NotificationDecision, RenderedChannelCopy, ThreadAction } from './types.js';
 
 const log = getLogger('notification-decision-engine');
 
 const DECISION_TIMEOUT_MS = 15_000;
-const PROMPT_VERSION = 'v3';
+const PROMPT_VERSION = 'v4';
 
 // ── System prompt ──────────────────────────────────────────────────────
 
 function buildSystemPrompt(
   availableChannels: NotificationChannel[],
   preferenceContext?: string,
+  candidateContext?: string,
 ): string {
   const sections: string[] = [
     `You are a notification routing engine. Given a signal describing an event, decide whether the user should be notified, on which channel(s), and compose the notification copy.`,
@@ -73,6 +75,26 @@ function buildSystemPrompt(
     `- \`threadSeedMessage\` is the opening message in the internal notification thread — it can be richer and more contextual.`,
     `  - For vellum (desktop): 2-4 short sentences with useful context and clear next step if action is required.`,
     `  - Never dump raw JSON. Include only human-readable context.`,
+    ``,
+    `Thread reuse guidelines:`,
+    `- For each selected channel, decide whether to start a new conversation thread or reuse an existing one.`,
+    `- Set \`threadActions\` keyed by channel name with \`action\` = "start_new" or "reuse_existing" (with \`conversationId\` from the candidates).`,
+    `- Prefer \`reuse_existing\` when the signal is clearly a continuation or update of an existing notification thread (same event type, related context).`,
+    `- Prefer \`start_new\` when the signal is a distinct event that deserves its own thread.`,
+    `- You may ONLY reuse a conversationId that appears in the provided candidate list. Any other ID will be rejected and downgraded to start_new.`,
+    `- When no candidates are available for a channel, always use start_new.`,
+  );
+
+  if (candidateContext) {
+    sections.push(
+      ``,
+      `<thread-candidates>`,
+      candidateContext,
+      `</thread-candidates>`,
+    );
+  }
+
+  sections.push(
     ``,
     `You MUST respond using the \`record_notification_decision\` tool. Do not respond with text.`,
   );
@@ -158,6 +180,30 @@ function buildDecisionTool(availableChannels: NotificationChannel[]) {
             ]),
           ),
         },
+        threadActions: {
+          type: 'object',
+          description: 'Per-channel thread action: start a new thread or reuse an existing candidate. Keyed by channel name.',
+          properties: Object.fromEntries(
+            availableChannels.map((ch) => [
+              ch,
+              {
+                type: 'object',
+                properties: {
+                  action: {
+                    type: 'string',
+                    enum: ['start_new', 'reuse_existing'],
+                    description: 'Whether to start a new thread or reuse an existing one.',
+                  },
+                  conversationId: {
+                    type: 'string',
+                    description: 'Required when action is reuse_existing. Must be a conversationId from the provided thread candidates.',
+                  },
+                },
+                required: ['action'],
+              },
+            ]),
+          ),
+        },
         deepLinkTarget: {
           type: 'object',
           description: 'Optional deep link metadata for navigating to the source context',
@@ -237,6 +283,7 @@ const VALID_CHANNELS = new Set<string>(getDeliverableChannels());
 function validateDecisionOutput(
   input: Record<string, unknown>,
   availableChannels: NotificationChannel[],
+  candidateSet?: ThreadCandidateSet,
 ): NotificationDecision | null {
   if (typeof input.shouldNotify !== 'boolean') return null;
   if (typeof input.reasoningSummary !== 'string') return null;
@@ -277,6 +324,9 @@ function validateDecisionOutput(
     }
   }
 
+  // Validate threadActions — strictly against the provided candidate set
+  const threadActions = validateThreadActions(input.threadActions, validChannels, candidateSet);
+
   const deepLinkTarget = input.deepLinkTarget && typeof input.deepLinkTarget === 'object'
     ? input.deepLinkTarget as Record<string, unknown>
     : undefined;
@@ -286,11 +336,80 @@ function validateDecisionOutput(
     selectedChannels: validChannels,
     reasoningSummary: input.reasoningSummary,
     renderedCopy,
+    threadActions: Object.keys(threadActions).length > 0 ? threadActions : undefined,
     deepLinkTarget,
     dedupeKey: input.dedupeKey,
     confidence,
     fallbackUsed: false,
   };
+}
+
+// ── Thread action validation ───────────────────────────────────────────
+
+/**
+ * Validate and sanitize thread actions from LLM output.
+ *
+ * - reuse_existing targets are checked against the candidate set; invalid
+ *   targets are downgraded to start_new with a warning.
+ * - Channels not in the selected set are ignored.
+ * - Missing actions for selected channels default to start_new (handled
+ *   downstream, not materialized here to keep the output compact).
+ */
+export function validateThreadActions(
+  raw: unknown,
+  validChannels: NotificationChannel[],
+  candidateSet?: ThreadCandidateSet,
+): Partial<Record<NotificationChannel, ThreadAction>> {
+  const result: Partial<Record<NotificationChannel, ThreadAction>> = {};
+
+  if (!raw || typeof raw !== 'object') return result;
+
+  const actionsObj = raw as Record<string, unknown>;
+  const channelSet = new Set(validChannels);
+
+  // Build a lookup of valid candidate conversationIds per channel
+  const validCandidateIds = new Map<NotificationChannel, Set<string>>();
+  if (candidateSet) {
+    for (const [ch, candidates] of Object.entries(candidateSet) as [NotificationChannel, { conversationId: string }[]][]) {
+      validCandidateIds.set(ch, new Set(candidates.map((c) => c.conversationId)));
+    }
+  }
+
+  for (const [ch, actionRaw] of Object.entries(actionsObj)) {
+    if (!channelSet.has(ch as NotificationChannel)) continue;
+    if (!actionRaw || typeof actionRaw !== 'object') continue;
+
+    const channel = ch as NotificationChannel;
+    const action = actionRaw as Record<string, unknown>;
+
+    if (action.action === 'start_new') {
+      result[channel] = { action: 'start_new' };
+    } else if (action.action === 'reuse_existing') {
+      const conversationId = action.conversationId;
+      if (typeof conversationId !== 'string' || !conversationId.trim()) {
+        log.warn({ channel }, 'LLM returned reuse_existing without conversationId — downgrading to start_new');
+        result[channel] = { action: 'start_new' };
+        continue;
+      }
+
+      // Strict validation: the conversationId must exist in the candidate set
+      const candidateIds = validCandidateIds.get(channel);
+      if (!candidateIds || !candidateIds.has(conversationId)) {
+        log.warn(
+          { channel, conversationId },
+          'LLM returned reuse_existing with conversationId not in candidate set — downgrading to start_new',
+        );
+        result[channel] = { action: 'start_new' };
+        continue;
+      }
+
+      result[channel] = { action: 'reuse_existing', conversationId };
+    }
+    // Unknown action values are silently ignored — the channel will default
+    // to start_new downstream.
+  }
+
+  return result;
 }
 
 // ── Core evaluation function ───────────────────────────────────────────
@@ -317,6 +436,16 @@ export async function evaluateSignal(
     }
   }
 
+  // Build thread candidate set for reuse decisions. Wrapped in try/catch
+  // so candidate lookup failures do not block the decision path.
+  let candidateSet: ThreadCandidateSet | undefined;
+  try {
+    candidateSet = buildThreadCandidates(availableChannels, signal.assistantId);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log.warn({ err: errMsg }, 'Failed to build thread candidates, proceeding without candidates');
+  }
+
   const provider = getConfiguredProvider();
   if (!provider) {
     log.warn('Configured provider unavailable for notification decision, using fallback');
@@ -327,7 +456,7 @@ export async function evaluateSignal(
 
   let decision: NotificationDecision;
   try {
-    decision = await classifyWithLLM(signal, availableChannels, resolvedPreferenceContext, decisionModelIntent);
+    decision = await classifyWithLLM(signal, availableChannels, resolvedPreferenceContext, decisionModelIntent, candidateSet);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.warn({ err: errMsg }, 'Notification decision LLM call failed, using fallback');
@@ -346,11 +475,13 @@ async function classifyWithLLM(
   availableChannels: NotificationChannel[],
   preferenceContext: string | undefined,
   modelIntent: ModelIntent,
+  candidateSet?: ThreadCandidateSet,
 ): Promise<NotificationDecision> {
   const provider = getConfiguredProvider()!;
   const { signal: abortSignal, cleanup } = createTimeout(DECISION_TIMEOUT_MS);
 
-  const systemPrompt = buildSystemPrompt(availableChannels, preferenceContext);
+  const candidateContext = candidateSet ? serializeCandidatesForPrompt(candidateSet) ?? undefined : undefined;
+  const systemPrompt = buildSystemPrompt(availableChannels, preferenceContext, candidateContext);
   const prompt = buildUserPrompt(signal);
   const tool = buildDecisionTool(availableChannels);
 
@@ -379,6 +510,7 @@ async function classifyWithLLM(
     const validated = validateDecisionOutput(
       toolBlock.input as Record<string, unknown>,
       availableChannels,
+      candidateSet,
     );
     if (!validated) {
       log.warn('Invalid notification decision output from LLM, using fallback');
@@ -470,6 +602,19 @@ export function enforceRoutingIntent(
 function persistDecision(signal: NotificationSignal, decision: NotificationDecision): string | undefined {
   try {
     const decisionId = uuid();
+
+    // Summarize thread actions for the audit trail
+    const threadActionSummary: Record<string, string> = {};
+    if (decision.threadActions) {
+      for (const [ch, ta] of Object.entries(decision.threadActions)) {
+        if (ta.action === 'reuse_existing') {
+          threadActionSummary[ch] = `reuse:${ta.conversationId}`;
+        } else {
+          threadActionSummary[ch] = 'start_new';
+        }
+      }
+    }
+
     createDecision({
       id: decisionId,
       notificationEventId: signal.signalId,
@@ -483,6 +628,7 @@ function persistDecision(signal: NotificationSignal, decision: NotificationDecis
         dedupeKey: decision.dedupeKey,
         channelCount: decision.selectedChannels.length,
         hasCopy: Object.keys(decision.renderedCopy).length > 0,
+        ...(Object.keys(threadActionSummary).length > 0 ? { threadActions: threadActionSummary } : {}),
       },
     });
     return decisionId;
