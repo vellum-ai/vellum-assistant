@@ -55,6 +55,7 @@ import {
   rateLimitHeaders,
   rateLimitResponse,
 } from './middleware/rate-limiter.js';
+import { withRequestLogging } from './middleware/request-logger.js';
 import {
   cloneRequestWithBody,
   GATEWAY_ONLY_BLOCKED_SUBPATHS,
@@ -338,6 +339,10 @@ export class RuntimeHttpServer {
   }
 
   private async handleRequest(req: Request, server: ReturnType<typeof Bun.serve>): Promise<Response> {
+    return withRequestLogging(req, () => this.routeRequest(req, server));
+  }
+
+  private async routeRequest(req: Request, server: ReturnType<typeof Bun.serve>): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
 
