@@ -4,19 +4,21 @@ import { getLogger } from '../util/logger.js';
 import { getDb, rawAll } from './db.js';
 import { parseConversation, parseMessage } from './conversation-crud.js';
 import type { ConversationRow, MessageRow } from './conversation-crud.js';
+import { ensureDisplayOrderMigration } from './conversation-display-order-migration.js';
 import { conversations, messages } from './schema.js';
 import { buildFtsMatchQuery } from './search/lexical.js';
 
 const log = getLogger('conversation-store');
 
 export function listConversations(limit?: number, includeBackground = false, offset = 0): ConversationRow[] {
+  ensureDisplayOrderMigration();
   const db = getDb();
   const where = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
   const query = db
     .select()
     .from(conversations)
     .where(where)
-    .orderBy(desc(conversations.updatedAt))
+    .orderBy(sql`display_order ASC NULLS LAST`, desc(conversations.updatedAt))
     .limit(limit ?? 100)
     .offset(offset);
   return query.all().map(parseConversation);

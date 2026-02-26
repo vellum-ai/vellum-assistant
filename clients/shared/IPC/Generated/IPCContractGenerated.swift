@@ -3802,8 +3802,10 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let conversationOriginInterface: String?
     /// Attention state metadata for a conversation's latest assistant message.
     public let assistantAttention: IPCAssistantAttention?
+    public let displayOrder: Double?
+    public let isPinned: Bool?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: IPCAssistantAttention? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: IPCAssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -3814,6 +3816,8 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
         self.conversationOriginChannel = conversationOriginChannel
         self.conversationOriginInterface = conversationOriginInterface
         self.assistantAttention = assistantAttention
+        self.displayOrder = displayOrder
+        self.isPinned = isPinned
     }
 }
 

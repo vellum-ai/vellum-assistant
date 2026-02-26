@@ -213,7 +213,7 @@ export interface AssistantAttention {
 
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; createdAt?: number; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId; assistantAttention?: AssistantAttention }>;
+  sessions: Array<{ id: string; title: string; createdAt?: number; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId; assistantAttention?: AssistantAttention; displayOrder?: number; isPinned?: boolean }>;
   /** Whether more sessions exist beyond the returned page. */
   hasMore?: boolean;
 }
