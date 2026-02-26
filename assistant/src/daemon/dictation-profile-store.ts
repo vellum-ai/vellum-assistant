@@ -5,10 +5,11 @@
  * atomic-write pattern (write .tmp → rename → chmod).
  */
 
-import { existsSync, readFileSync, writeFileSync, renameSync, chmodSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { getRootDir } from '../util/platform.js';
+import { chmodSync, existsSync, mkdirSync,readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname,join } from 'node:path';
+
 import { getLogger } from '../util/logger.js';
+import { getRootDir } from '../util/platform.js';
 
 const log = getLogger('dictation-profile-store');
 
@@ -107,7 +108,7 @@ function validateAndClampConfig(raw: unknown): DictationProfilesConfig {
   }
 
   // Clamp profiles
-  let profiles = (obj.profiles as unknown[]).slice(0, MAX_PROFILES);
+  const profiles = (obj.profiles as unknown[]).slice(0, MAX_PROFILES);
   const validProfiles: DictationProfile[] = [];
 
   for (const p of profiles) {

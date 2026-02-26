@@ -23,7 +23,7 @@
 import type { TokenEndpointAuthMethod } from '../security/oauth2.js';
 import { prepareOAuth2Flow, startOAuth2Flow } from '../security/oauth2.js';
 import { getLogger } from '../util/logger.js';
-import type { OAuthConnectResult, OAuthProviderProfile } from './connect-types.js';
+import type { OAuthConnectResult } from './connect-types.js';
 import { getProviderProfile, resolveService } from './provider-profiles.js';
 import { resolveScopes } from './scope-policy.js';
 import { storeOAuth2Tokens } from './token-persistence.js';

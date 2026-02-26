@@ -13,11 +13,11 @@
  * GET    /v1/integrations/guardian/status    — check guardian binding status
  */
 
+import type { ChannelId } from '../../channels/types.js';
 import {
   createGuardianChallenge,
   getGuardianStatus,
 } from '../../daemon/handlers/config-channels.js';
-import type { ChannelId } from '../../channels/types.js';
 import {
   clearTelegramConfig,
   getTelegramConfig,

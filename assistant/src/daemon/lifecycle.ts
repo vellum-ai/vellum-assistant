@@ -296,7 +296,7 @@ export async function runDaemon(): Promise<void> {
   // Inject voice bridge deps BEFORE attempting to start the HTTP server.
   // The bridge must be available even when the HTTP server fails to bind.
   setVoiceBridgeDeps({
-    getOrCreateSession: (conversationId, transport) =>
+    getOrCreateSession: (conversationId, _transport) =>
       server.getSessionForMessages(conversationId),
     resolveAttachments: (attachmentIds) =>
       attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({

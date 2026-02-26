@@ -5,6 +5,8 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
+import cliPkg from "../package.json";
 import { autonomy } from "./commands/autonomy";
 import { client } from "./commands/client";
 import { config } from "./commands/config";
@@ -70,6 +72,11 @@ function resolveAssistantEntry(): string | undefined {
 async function main() {
   const args = process.argv.slice(2);
   const commandName = args[0];
+
+  if (commandName === "--version" || commandName === "-v") {
+    console.log(`@vellumai/cli v${cliPkg.version}`);
+    process.exit(0);
+  }
 
   if (!commandName || commandName === "--help" || commandName === "-h") {
     console.log("Usage: vellum <command> [options]");

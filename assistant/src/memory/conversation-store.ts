@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 
@@ -391,7 +391,7 @@ export function getMessagesPaginated(
       conditions.push(or(
         lt(messages.createdAt, beforeTimestamp),
         and(eq(messages.createdAt, beforeTimestamp), lt(messages.id, beforeMessageId)),
-      ));
+      )!);
     } else {
       // Legacy callers without a message ID tie-breaker: use strict lt.
       // This may skip same-millisecond messages at boundaries, but avoids

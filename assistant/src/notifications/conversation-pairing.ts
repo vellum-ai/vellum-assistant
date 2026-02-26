@@ -7,15 +7,15 @@
  * deep-link directly into the notification thread.
  */
 
-import { getLogger } from '../util/logger.js';
+import type { ConversationStrategy } from '../channels/config.js';
 import { getConversationStrategy } from '../channels/config.js';
-import { createConversation, addMessage } from '../memory/conversation-store.js';
+import type { ChannelId } from '../channels/types.js';
+import { addMessage,createConversation } from '../memory/conversation-store.js';
+import { getLogger } from '../util/logger.js';
+import type { NotificationSignal } from './signal.js';
 import { composeThreadSeed, isThreadSeedSane } from './thread-seed-composer.js';
 import type { NotificationChannel } from './types.js';
-import type { NotificationSignal } from './signal.js';
 import type { RenderedChannelCopy } from './types.js';
-import type { ConversationStrategy } from '../channels/config.js';
-import type { ChannelId } from '../channels/types.js';
 
 const log = getLogger('notification-conversation-pairing');
 

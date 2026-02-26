@@ -5,8 +5,9 @@
  * data. Provides upload, delete, and message-linkage operations.
  */
 
-import { eq } from 'drizzle-orm';
 import { unlinkSync } from 'node:fs';
+
+import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getDb, rawAll, rawGet, rawRun } from './db.js';

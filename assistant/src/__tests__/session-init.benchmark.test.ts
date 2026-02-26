@@ -174,6 +174,7 @@ mock.module('../memory/conversation-store.js', () => ({
   deleteLastExchange: () => 0,
   deleteMessageById: () => ({ memoryItemIds: [], memoryEntityIds: [] }),
   getConversationOriginChannel: () => null,
+  getConversationOriginInterface: () => null,
   getConversationThreadType: () => 'standard',
   getConversationMemoryScopeId: () => 'default',
   isLastUserMessageToolResult: () => false,

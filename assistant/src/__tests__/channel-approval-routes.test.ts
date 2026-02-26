@@ -66,20 +66,17 @@ mock.module('../memory/ingress-member-store.js', () => ({
   }),
   updateLastSeen: () => {},
 }));
+import type { Session } from '../daemon/session.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import {
   createApprovalRequest,
   createBinding,
   getAllPendingApprovalsByGuardianChat,
-  getPendingApprovalForRequest,
-  getUnresolvedApprovalForRequest,
 } from '../memory/channel-guardian-store.js';
-import { setConversationKeyIfAbsent } from '../memory/conversation-key-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { conversations, externalConversationBindings } from '../memory/schema.js';
-import * as pendingInteractions from '../runtime/pending-interactions.js';
-import type { Session } from '../daemon/session.js';
 import * as gatewayClient from '../runtime/gateway-client.js';
+import * as pendingInteractions from '../runtime/pending-interactions.js';
 import {
   _setTestPollMaxWait,
   handleChannelInbound,
@@ -174,7 +171,7 @@ function registerPendingInteraction(
 const TEST_BEARER_TOKEN = 'token';
 
 function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
-  const body = {
+  const body: Record<string, unknown> = {
     sourceChannel: 'telegram',
     externalChatId: 'chat-123',
     senderExternalUserId: 'telegram-user-default',
@@ -183,6 +180,9 @@ function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
     replyCallbackUrl: 'https://gateway.test/deliver',
     ...overrides,
   };
+  if (!Object.hasOwn(overrides, 'interface')) {
+    body.interface = typeof body.sourceChannel === 'string' ? body.sourceChannel : 'telegram';
+  }
   return new Request('http://localhost/channels/inbound', {
     method: 'POST',
     headers: {
@@ -500,13 +500,14 @@ describe('empty content with callbackData bypasses validation', () => {
     const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    const sessionMock = registerPendingInteraction('req-empty-2', conversationId!, 'shell');
+    const _sessionMock = registerPendingInteraction('req-empty-2', conversationId!, 'shell');
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     // Send with no content field at all, just callbackData
     const reqBody = {
       sourceChannel: 'telegram',
+      interface: 'telegram',
       externalChatId: 'chat-123',
       externalMessageId: `msg-${Date.now()}-${Math.random()}`,
       callbackData: 'apr:req-empty-2:approve_once',
@@ -770,6 +771,7 @@ describe('SMS channel approval decisions', () => {
   function makeSmsInboundRequest(overrides: Record<string, unknown> = {}): Request {
     const body = {
       sourceChannel: 'sms',
+      interface: 'sms',
       externalChatId: 'sms-chat-123',
       senderExternalUserId: 'sms-user-default',
       externalMessageId: `msg-${Date.now()}-${Math.random()}`,
@@ -893,6 +895,7 @@ describe('SMS guardian verify intercept', () => {
       },
       body: JSON.stringify({
         sourceChannel: 'sms',
+        interface: 'sms',
         externalChatId: 'sms-chat-verify',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: `/guardian_verify ${secret}`,
@@ -929,6 +932,7 @@ describe('SMS guardian verify intercept', () => {
       },
       body: JSON.stringify({
         sourceChannel: 'sms',
+        interface: 'sms',
         externalChatId: 'sms-chat-verify-fail',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: '/guardian_verify invalid-token-here',
@@ -948,7 +952,7 @@ describe('SMS guardian verify intercept', () => {
     const replyPayload = replyArgs[1] as { chatId: string; text: string };
     expect(typeof replyPayload.text).toBe('string');
     expect(replyPayload.text.toLowerCase()).toContain('verif');
-    expect(replyPayload.text.toLowerCase()).toContain('failed');
+    expect(replyPayload.text.toLowerCase()).toContain('invalid');
 
     deliverSpy.mockRestore();
   });
@@ -1403,6 +1407,7 @@ describe('handleChannelInbound gatewayOriginSecret integration', () => {
       },
       body: JSON.stringify({
         sourceChannel: 'telegram',
+        interface: 'telegram',
         externalChatId: 'chat-gw-secret-test',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: 'hello',
@@ -1429,6 +1434,7 @@ describe('handleChannelInbound gatewayOriginSecret integration', () => {
       },
       body: JSON.stringify({
         sourceChannel: 'telegram',
+        interface: 'telegram',
         externalChatId: 'chat-gw-secret-pass',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: 'hello',
@@ -1455,6 +1461,7 @@ describe('handleChannelInbound gatewayOriginSecret integration', () => {
       },
       body: JSON.stringify({
         sourceChannel: 'telegram',
+        interface: 'telegram',
         externalChatId: 'chat-gw-fallback',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: 'hello',
@@ -2491,5 +2498,55 @@ describe('non-decision status reply for different channels', () => {
     expect(statusPayload.text).toContain('pending approval request');
 
     replySpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Background prompt delivery for channel-triggered tool approvals
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('background channel processing approval prompts', () => {
+  test('marks channel turns interactive and delivers approval prompt when confirmation is pending', async () => {
+    const deliverPromptSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+    const processCalls: Array<{ options?: Record<string, unknown> }> = [];
+
+    const processMessage = mock(async (
+      conversationId: string,
+      _content: string,
+      _attachmentIds?: string[],
+      options?: Record<string, unknown>,
+    ) => {
+      processCalls.push({ options });
+
+      registerPendingInteraction('req-bg-1', conversationId, 'host_bash', {
+        input: { command: 'ls -la' },
+        riskLevel: 'medium',
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      return { messageId: 'msg-bg-1' };
+    });
+
+    const req = makeInboundRequest({
+      content: 'run ls',
+      sourceChannel: 'telegram',
+      replyCallbackUrl: 'https://gateway.test/deliver/telegram',
+      externalMessageId: 'msg-bg-1',
+    });
+
+    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage, 'token');
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    expect(processCalls.length).toBeGreaterThan(0);
+    expect(processCalls[0].options?.isInteractive).toBe(true);
+
+    expect(deliverPromptSpy).toHaveBeenCalled();
+    const approvalMeta = deliverPromptSpy.mock.calls[0]?.[3] as { requestId?: string } | undefined;
+    expect(approvalMeta?.requestId).toBe('req-bg-1');
+
+    deliverPromptSpy.mockRestore();
   });
 });

@@ -16,7 +16,6 @@ import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
-import { cleanupRecordingsOnDisconnect } from './handlers/recording.js';
 import { getSubagentManager } from '../subagent/index.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
@@ -27,6 +26,7 @@ import { AuthManager } from './auth-manager.js';
 import { ComputerUseSession } from './computer-use-session.js';
 import { ConfigWatcher } from './config-watcher.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
+import { cleanupRecordingsOnDisconnect } from './handlers/recording.js';
 import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 import { IpcSender } from './ipc-handler.js';
 import {
@@ -815,7 +815,7 @@ export class DaemonServer {
     // find the session by requestId when confirmation/secret events fire.
     const onEvent = makePendingInteractionRegistrar(session, conversationId);
 
-    session.runAgentLoop(content, messageId, onEvent, { isInteractive: false }).catch((err) => {
+    session.runAgentLoop(content, messageId, onEvent, { isInteractive: options?.isInteractive ?? false }).catch((err) => {
       log.error({ err, conversationId }, 'Background agent loop failed');
     });
 
@@ -903,7 +903,12 @@ export class DaemonServer {
     // find the session by requestId when confirmation/secret events fire.
     const onEvent = makePendingInteractionRegistrar(session, conversationId);
 
-    await session.runAgentLoop(resolvedContent, messageId, onEvent, { isInteractive: false });
+    await session.runAgentLoop(
+      resolvedContent,
+      messageId,
+      onEvent,
+      { isInteractive: options?.isInteractive ?? false },
+    );
 
     return { messageId };
   }

@@ -1,32 +1,32 @@
-import { randomBytes, createHash } from 'node:crypto';
+import { createHash,randomBytes } from 'node:crypto';
 import * as net from 'node:net';
 
+import { startGuardianVerificationCall } from '../../calls/call-domain.js';
+import type { ChannelId } from '../../channels/types.js';
+import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
+import { sendMessage as sendSms } from '../../messaging/providers/sms/client.js';
 import {
-  createVerificationChallenge,
   countRecentSendsToDestination,
+  createOutboundSession,
+  createVerificationChallenge,
+  findActiveSession,
   getGuardianBinding,
   getPendingChallenge,
   revokeBinding as revokeGuardianBinding,
   revokePendingChallenges,
-  createOutboundSession,
-  findActiveSession,
-  updateSessionStatus,
   updateSessionDelivery,
+  updateSessionStatus,
 } from '../../runtime/channel-guardian-service.js';
-import { createReadinessService, type ChannelReadinessService } from '../../runtime/channel-readiness-service.js';
+import { type ChannelReadinessService,createReadinessService } from '../../runtime/channel-readiness-service.js';
 import {
   composeVerificationSms,
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from '../../runtime/guardian-verification-templates.js';
-import { startGuardianVerificationCall } from '../../calls/call-domain.js';
-import { sendMessage as sendSms } from '../../messaging/providers/sms/client.js';
-import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { normalizePhoneNumber } from '../../util/phone.js';
 import { normalizeAssistantId, readHttpToken } from '../../util/platform.js';
-import type { ChannelId } from '../../channels/types.js';
 import type {
   ChannelReadinessRequest,
   GuardianVerificationRequest,

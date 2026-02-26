@@ -13,8 +13,8 @@
  * the decision engine's LLM produced one.
  */
 
-import { isInterfaceId } from '../channels/types.js';
 import type { InterfaceId } from '../channels/types.js';
+import { isInterfaceId } from '../channels/types.js';
 import type { NotificationSignal } from './signal.js';
 import type { NotificationChannel, RenderedChannelCopy } from './types.js';
 

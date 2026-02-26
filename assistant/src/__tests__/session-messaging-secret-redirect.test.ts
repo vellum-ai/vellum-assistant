@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
+import { type RedirectedSecretRecord,redirectToSecurePrompt } from '../daemon/session-messaging.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
-import { redirectToSecurePrompt, type RedirectedSecretRecord } from '../daemon/session-messaging.js';
 
 const setSecureKeyMock = mock((_key?: string, _value?: string) => true);
 const upsertCredentialMetadataMock = mock((_service?: string, _field?: string, _metadata?: unknown) => {});

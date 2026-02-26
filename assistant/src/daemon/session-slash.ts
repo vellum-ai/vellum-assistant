@@ -7,7 +7,6 @@ import {
   resolveSlashSkillCommand,
   rewriteKnownSlashCommandPrompt,
 } from '../skills/slash-commands.js';
-
 import { getAssistantName } from './identity-helpers.js';
 
 export type SlashResolution =

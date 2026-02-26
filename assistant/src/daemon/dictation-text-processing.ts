@@ -5,7 +5,7 @@
  * - applyDictionary: post-LLM, dictation + command modes (including fallback paths)
  */
 
-import type { DictationSnippet, DictationDictionaryEntry } from './dictation-profile-store.js';
+import type { DictationDictionaryEntry,DictationSnippet } from './dictation-profile-store.js';
 
 /** Escape a string for safe use inside a RegExp. */
 function escapeRegExp(s: string): string {

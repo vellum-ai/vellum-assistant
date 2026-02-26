@@ -50,12 +50,12 @@ mock.module('../config/env.js', () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { generateTwiML } from '../calls/twilio-routes.js';
 import { initializeDb } from '../memory/db-init.js';
 import {
   composeChannelVerifyReply,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from '../runtime/guardian-verification-templates.js';
-import { generateTwiML } from '../calls/twilio-routes.js';
 
 // ---------------------------------------------------------------------------
 // DB initialization
@@ -157,10 +157,10 @@ describe('TwiML parameter propagation', () => {
 // ---------------------------------------------------------------------------
 
 describe('Call session mode metadata', () => {
-  test('createCallSession persists callMode and guardianVerificationSessionId', () => {
+  test('createCallSession persists callMode and guardianVerificationSessionId', async () => {
     // Dynamic import to avoid circular dependency issues
-    const { createCallSession, getCallSession } = require('../calls/call-store.js');
-    const { getOrCreateConversation } = require('../memory/conversation-key-store.js');
+    const { createCallSession, getCallSession } = await import('../calls/call-store.js');
+    const { getOrCreateConversation } = await import('../memory/conversation-key-store.js');
 
     const { conversationId } = getOrCreateConversation('test-conv-mode');
     const session = createCallSession({
@@ -182,9 +182,9 @@ describe('Call session mode metadata', () => {
     expect(loaded!.guardianVerificationSessionId).toBe('gv-session-test');
   });
 
-  test('createCallSession defaults callMode to null when not provided', () => {
-    const { createCallSession, getCallSession } = require('../calls/call-store.js');
-    const { getOrCreateConversation } = require('../memory/conversation-key-store.js');
+  test('createCallSession defaults callMode to null when not provided', async () => {
+    const { createCallSession, getCallSession } = await import('../calls/call-store.js');
+    const { getOrCreateConversation } = await import('../memory/conversation-key-store.js');
 
     const { conversationId } = getOrCreateConversation('test-conv-mode-default');
     const session = createCallSession({
@@ -238,7 +238,7 @@ describe('Verification commands are deterministic (guard)', () => {
     const deliveredReplies: Array<{ chatId: string; text: string }> = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const _url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (init?.method === 'POST' && init.body) {
         try {
           const body = JSON.parse(init.body as string);
@@ -311,7 +311,7 @@ describe('Verification commands are deterministic (guard)', () => {
     const deliveredReplies: Array<{ chatId: string; text: string }> = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const _url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (init?.method === 'POST' && init.body) {
         try {
           const body = JSON.parse(init.body as string);

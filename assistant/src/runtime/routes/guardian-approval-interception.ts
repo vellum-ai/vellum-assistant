@@ -4,8 +4,8 @@
  */
 import type { ChannelId } from '../../channels/types.js';
 import {
-  getPendingApprovalByRequestAndGuardianChat,
   getAllPendingApprovalsByGuardianChat,
+  getPendingApprovalByRequestAndGuardianChat,
   getPendingApprovalForRequest,
   getUnresolvedApprovalForRequest,
   updateApprovalDecision,
@@ -18,8 +18,8 @@ import type {
   ApprovalDecisionResult,
 } from '../channel-approval-types.js';
 import {
-  getChannelApprovalPrompt,
   getApprovalInfoByConversation,
+  getChannelApprovalPrompt,
   handleChannelDecision,
 } from '../channel-approvals.js';
 import { deliverChannelReply } from '../gateway-client.js';

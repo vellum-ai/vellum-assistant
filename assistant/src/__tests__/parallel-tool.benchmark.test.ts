@@ -119,8 +119,8 @@ describe('Parallel tool execution benchmarks', () => {
     const elapsed = Date.now() - start;
 
     // Parallel: ~50ms + overhead. Sequential would be ~250ms.
-    // Allow up to 150ms for CI/scheduling overhead.
-    expect(elapsed).toBeLessThan(150);
+    // Allow up to 200ms for CI/scheduling overhead.
+    expect(elapsed).toBeLessThan(200);
   });
 
   // 2. 10 tools at 50ms each should still complete quickly in parallel

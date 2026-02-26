@@ -17,13 +17,13 @@ import {
   validateAndConsumeChallenge,
 } from '../runtime/channel-guardian-service.js';
 import {
-  composeVerificationVoice,
-  GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from '../runtime/guardian-verification-templates.js';
-import {
   resolveGuardianContext,
   toGuardianRuntimeContext,
 } from '../runtime/guardian-context-resolver.js';
+import {
+  composeVerificationVoice,
+  GUARDIAN_VERIFY_TEMPLATE_KEYS,
+} from '../runtime/guardian-verification-templates.js';
 import { parseJsonSafe } from '../util/json.js';
 import { getLogger } from '../util/logger.js';
 import { normalizeAssistantId } from '../util/platform.js';

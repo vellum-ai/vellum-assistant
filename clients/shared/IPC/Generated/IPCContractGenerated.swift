@@ -373,6 +373,85 @@ public struct IPCAppUpdatePreviewResponse: Codable, Sendable {
     }
 }
 
+public struct IPCAssistantInboxEscalationRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    /// Filter by assistant ID (list only).
+    public let assistantId: String?
+    /// Filter by status (list only).
+    public let status: String?
+    /// Approval request ID (required for decide).
+    public let approvalRequestId: String?
+    /// Decision (required for decide).
+    public let decision: String?
+    /// Reason for the decision (decide only).
+    public let reason: String?
+
+    public init(type: String, action: String, assistantId: String? = nil, status: String? = nil, approvalRequestId: String? = nil, decision: String? = nil, reason: String? = nil) {
+        self.type = type
+        self.action = action
+        self.assistantId = assistantId
+        self.status = status
+        self.approvalRequestId = approvalRequestId
+        self.decision = decision
+        self.reason = reason
+    }
+}
+
+public struct IPCAssistantInboxEscalationResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+    /// List of escalations (returned on list).
+    public let escalations: [IPCAssistantInboxEscalationResponseEscalation]?
+    /// Decision result (returned on decide).
+    public let decision: IPCAssistantInboxEscalationResponseDecision?
+
+    public init(type: String, success: Bool, error: String? = nil, escalations: [IPCAssistantInboxEscalationResponseEscalation]? = nil, decision: IPCAssistantInboxEscalationResponseDecision? = nil) {
+        self.type = type
+        self.success = success
+        self.error = error
+        self.escalations = escalations
+        self.decision = decision
+    }
+}
+
+public struct IPCAssistantInboxEscalationResponseDecision: Codable, Sendable {
+    public let id: String
+    public let status: String
+    public let decidedAt: Int
+
+    public init(id: String, status: String, decidedAt: Int) {
+        self.id = id
+        self.status = status
+        self.decidedAt = decidedAt
+    }
+}
+
+public struct IPCAssistantInboxEscalationResponseEscalation: Codable, Sendable {
+    public let id: String
+    public let runId: String
+    public let conversationId: String
+    public let channel: String
+    public let requesterExternalUserId: String
+    public let requesterChatId: String
+    public let status: String
+    public let requestSummary: String?
+    public let createdAt: Int
+
+    public init(id: String, runId: String, conversationId: String, channel: String, requesterExternalUserId: String, requesterChatId: String, status: String, requestSummary: String? = nil, createdAt: Int) {
+        self.id = id
+        self.runId = runId
+        self.conversationId = conversationId
+        self.channel = channel
+        self.requesterExternalUserId = requesterExternalUserId
+        self.requesterChatId = requesterChatId
+        self.status = status
+        self.requestSummary = requestSummary
+        self.createdAt = createdAt
+    }
+}
+
 public struct IPCAssistantTextDelta: Codable, Sendable {
     public let type: String
     public let text: String

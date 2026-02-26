@@ -1,9 +1,9 @@
 import * as net from 'node:net';
 
 import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../../providers/provider-send-message.js';
-import type { DictationRequest } from '../ipc-protocol.js';
 import { resolveProfile } from '../dictation-profile-store.js';
 import { applyDictionary, expandSnippets } from '../dictation-text-processing.js';
+import type { DictationRequest } from '../ipc-protocol.js';
 import { defineHandlers, type HandlerContext, log } from './shared.js';
 
 // Action verbs for fast heuristic fallback (used when LLM classifier is unavailable)
