@@ -7,6 +7,41 @@ const log = getLogger("browser-relay-ws");
 // Cap buffered messages to prevent unbounded memory growth if upstream stalls
 const MAX_PENDING_MESSAGES = 100;
 
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === "127.0.0.1" || hostname === "::1" || hostname === "localhost";
+}
+
+function isPrivateAddress(addr: string): boolean {
+  const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  const normalized = v4Mapped ? v4Mapped[1] : addr;
+
+  if (normalized.includes(".")) {
+    const parts = normalized.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((p) => Number.isNaN(p) || p < 0 || p > 255)) return false;
+
+    if (parts[0] === 127) return true;
+    if (parts[0] === 10) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+
+    return false;
+  }
+
+  const lower = normalized.toLowerCase();
+  if (lower === "::1") return true;
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+  if (lower.startsWith("fe80")) return true;
+
+  return false;
+}
+
+function isPrivateNetworkPeer(server: import("bun").Server<unknown>, req: Request): boolean {
+  const ip = server.requestIP(req);
+  if (!ip) return false;
+  return isPrivateAddress(ip.address);
+}
+
 export type BrowserRelaySocketData = {
   wsType: "browser-relay";
   config: GatewayConfig;
@@ -29,6 +64,11 @@ export function createBrowserRelayWebsocketHandler(config: GatewayConfig) {
     }
 
     const url = new URL(req.url);
+
+    // Match runtime policy: browser relay is local/private-network only.
+    if (!isLoopbackHost(url.hostname) && !isPrivateNetworkPeer(server, req)) {
+      return new Response("Browser relay only accepts connections from localhost", { status: 403 });
+    }
 
     const authResponse = checkBrowserRelayAuth(req, url, config);
     if (authResponse) return authResponse;

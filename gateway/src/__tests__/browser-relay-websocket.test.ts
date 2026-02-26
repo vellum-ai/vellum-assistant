@@ -140,6 +140,43 @@ describe("createBrowserRelayWebsocketHandler", () => {
     expect(res).toBeUndefined();
     expect(fakeServer.upgrade).toHaveBeenCalledTimes(1);
   });
+
+  test("returns 403 when non-loopback host is requested from a public peer", () => {
+    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const handler = createBrowserRelayWebsocketHandler(config);
+    const req = new Request(
+      `http://gateway.example.com:7830/v1/browser-relay?token=${TEST_TOKEN}`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const fakeServer = {
+      requestIP: mock(() => ({ address: "8.8.8.8", family: "IPv4", port: 54000 })),
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
+
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(403);
+    expect(fakeServer.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("allows non-loopback host when peer is private network", () => {
+    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const handler = createBrowserRelayWebsocketHandler(config);
+    const req = new Request(
+      `http://gateway.example.com:7830/v1/browser-relay?token=${TEST_TOKEN}`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const fakeServer = {
+      requestIP: mock(() => ({ address: "10.42.0.8", family: "IPv4", port: 54000 })),
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
+
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeUndefined();
+    expect(fakeServer.upgrade).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("getBrowserRelayWebsocketHandlers", () => {
