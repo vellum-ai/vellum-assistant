@@ -1,0 +1,44 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { stripCommentLines } from './system-prompt.js';
+import { appendReleaseBlock, hasReleaseBlock } from './update-bulletin-format.js';
+import { addActiveRelease, isReleaseCompleted } from './update-bulletin-state.js';
+import { APP_VERSION } from '../version.js';
+import { getWorkspacePromptPath } from '../util/platform.js';
+
+/**
+ * Materializes the current release's update bulletin on startup.
+ *
+ * Reads the bundled UPDATES.md template, strips comment lines, and
+ * appends a release block to the workspace UPDATES.md if one doesn't
+ * already exist for this version. Skips completed releases entirely.
+ */
+export function syncUpdateBulletinOnStartup(): void {
+  const currentReleaseId = APP_VERSION;
+
+  const templatePath = join(import.meta.dirname ?? __dirname, 'templates', 'UPDATES.md');
+  if (!existsSync(templatePath)) return;
+
+  const rawTemplate = readFileSync(templatePath, 'utf-8');
+  const templateContent = stripCommentLines(rawTemplate);
+
+  if (!templateContent || templateContent.trim().length === 0) return;
+
+  if (isReleaseCompleted(currentReleaseId)) return;
+
+  const workspacePath = getWorkspacePromptPath('UPDATES.md');
+
+  if (!existsSync(workspacePath)) {
+    const content = appendReleaseBlock('', currentReleaseId, templateContent);
+    writeFileSync(workspacePath, content, 'utf-8');
+  } else {
+    const existing = readFileSync(workspacePath, 'utf-8');
+    if (!hasReleaseBlock(existing, currentReleaseId)) {
+      const updated = appendReleaseBlock(existing, currentReleaseId, templateContent);
+      writeFileSync(workspacePath, updated, 'utf-8');
+    }
+  }
+
+  addActiveRelease(currentReleaseId);
+}
