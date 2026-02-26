@@ -20,7 +20,7 @@ const ALLOWLIST = new Set([
   // --- Test files are always allowed (matched by directory/suffix below) ---
 
   // --- Gateway internals (gateway calls runtime directly) ---
-  // Matched by prefix check below: gateway/src/
+  // Matched by prefix check below: gateway/
 
   // --- Intentional local daemon-control paths ---
   'clients/shared/IPC/DaemonClient.swift',
@@ -30,7 +30,6 @@ const ALLOWLIST = new Set([
 
   // --- Documentation and comments that mention the port for explanatory purposes ---
   'AGENTS.md', // documents the gateway-only rule itself
-  'gateway/ARCHITECTURE.md', // gateway architecture docs referencing runtime proxy target
   'assistant/src/runtime/middleware/twilio-validation.ts', // comment explaining proxy URL rewriting
 ]);
 
@@ -51,7 +50,7 @@ function isTestFile(filePath: string): boolean {
 }
 
 function isGatewayInternal(filePath: string): boolean {
-  return filePath.startsWith('gateway/src/');
+  return filePath.startsWith('gateway/');
 }
 
 describe('gateway-only API consumption guard', () => {
