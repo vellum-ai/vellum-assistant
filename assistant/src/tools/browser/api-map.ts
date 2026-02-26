@@ -7,8 +7,11 @@
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
+import { getCliLogger } from '../../util/logger.js';
 import { getDataDir } from '../../util/platform.js';
 import type { NetworkRecordedEntry } from './network-recording-types.js';
+
+const log = getCliLogger('api-map');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -254,7 +257,7 @@ export function printApiMapTable(result: ApiMapResult): void {
   const dataEndpoints = result.endpoints.filter(ep => ep.count <= 15);
   const boilerplate = result.endpoints.filter(ep => ep.count > 15);
 
-  console.log(`\nAPI Map for ${result.domain} — ${result.endpoints.length} endpoints discovered\n`);
+  log.info(`\nAPI Map for ${result.domain} — ${result.endpoints.length} endpoints discovered\n`);
 
   const stripDomain = (pattern: string) => {
     const idx = pattern.indexOf('/');
@@ -263,7 +266,7 @@ export function printApiMapTable(result: ApiMapResult): void {
 
   const printSection = (title: string, eps: ApiEndpoint[]) => {
     if (eps.length === 0) return;
-    console.log(`  ${title} (${eps.length})\n`);
+    log.info(`  ${title} (${eps.length})\n`);
 
     const header = ['Method', 'Endpoint', 'Hits', 'Response Keys'];
     const rows = eps.map((ep) => [
@@ -281,12 +284,12 @@ export function printApiMapTable(result: ApiMapResult): void {
     const fmt = (row: string[]) =>
       row.map((cell, i) => cell.slice(0, widths[i]).padEnd(widths[i])).join(' | ');
 
-    console.log(`  ${fmt(header)}`);
-    console.log(`  ${sep}`);
+    log.info(`  ${fmt(header)}`);
+    log.info(`  ${sep}`);
     for (const row of rows) {
-      console.log(`  ${fmt(row)}`);
+      log.info(`  ${fmt(row)}`);
     }
-    console.log();
+    log.info('');
   };
 
   printSection('DATA ENDPOINTS', dataEndpoints);
