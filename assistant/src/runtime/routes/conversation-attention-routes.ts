@@ -47,6 +47,17 @@ export function handleListConversationAttention(url: URL): Response {
     }
   }
 
+  // Batch-fetch latest assistant message snippets
+  const snippetMap = new Map<string, string>();
+  for (const attn of pageStates) {
+    if (attn.latestAssistantMessageId) {
+      const msg = conversationStore.getMessageById(attn.latestAssistantMessageId);
+      if (msg?.content) {
+        snippetMap.set(attn.latestAssistantMessageId, truncate(msg.content, 200, ''));
+      }
+    }
+  }
+
   const results = pageStates.map((attn) => {
     const conv = conversationMap.get(attn.conversationId);
     const convSource = conv?.source ?? 'user';
@@ -56,14 +67,19 @@ export function handleListConversationAttention(url: URL): Response {
       ? 'no_assistant_message'
       : hasUnseen ? 'unseen' : 'seen';
 
+    const snippet = attn.latestAssistantMessageId
+      ? snippetMap.get(attn.latestAssistantMessageId) ?? null
+      : null;
+
     return {
       conversationId: attn.conversationId,
       title: conv?.title ?? null,
       source: convSource,
       state,
       latestAssistantMessageAt: attn.latestAssistantMessageAt,
-      latestAssistantSnippet: null as string | null,
+      latestAssistantSnippet: snippet,
       lastSeenAssistantMessageAt: attn.lastSeenAssistantMessageAt,
+      lastSeenEventAt: attn.lastSeenEventAt,
       lastSeenConfidence: attn.lastSeenConfidence,
       lastSeenSignalType: attn.lastSeenSignalType,
       lastSeenSourceChannel: attn.lastSeenSourceChannel,

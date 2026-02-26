@@ -1113,6 +1113,22 @@ exports[`IPC message snapshots ClientMessage types notification_intent_result se
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types conversation_seen_signal serializes to expected JSON 1`] = `
+{
+  "confidence": "explicit",
+  "conversationId": "conv-001",
+  "evidenceText": "User clicked View on notification",
+  "metadata": {
+    "notificationCategory": "NOTIFICATION_INTENT",
+  },
+  "observedAt": 1700000000000,
+  "signalType": "macos_notification_view",
+  "source": "notification-action",
+  "sourceChannel": "vellum",
+  "type": "conversation_seen_signal",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types recording_status serializes to expected JSON 1`] = `
 {
   "sessionId": "rec-001",
@@ -1329,6 +1345,12 @@ exports[`IPC message snapshots ServerMessage types session_list_response seriali
       "updatedAt": 1700000000,
     },
     {
+      "assistantAttention": {
+        "hasUnseenLatestAssistantMessage": true,
+        "lastSeenConfidence": "explicit",
+        "lastSeenSignalType": "macos_notification_view",
+        "latestAssistantMessageAt": 1700001000,
+      },
       "id": "sess-002",
       "threadType": "standard",
       "title": "Second session",

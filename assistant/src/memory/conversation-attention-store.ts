@@ -402,10 +402,11 @@ export function listConversationAttention(
 
   // Join with conversations table when filtering by source or sourceChannel
   if (source || sourceChannel) {
-    query = query.innerJoin(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    query = (query as any).innerJoin(
       conversations,
       eq(conversationAssistantAttentionState.conversationId, conversations.id),
-    ) as typeof query;
+    );
   }
 
   const rows = query

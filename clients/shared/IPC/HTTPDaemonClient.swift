@@ -300,6 +300,8 @@ final class HTTPTransport {
             Task { await self.fetchSessionList(offset: Int(msg.offset ?? 0), limit: Int(msg.limit ?? 50)) }
         } else if let msg = message as? HistoryRequestMessage {
             Task { await self.fetchHistory(sessionId: msg.sessionId) }
+        } else if let msg = message as? IPCConversationSeenSignal {
+            Task { await self.sendConversationSeen(msg) }
         } else if message is PingMessage {
             // No-op for HTTP transport — SSE keepalive is handled by the connection
         } else {
@@ -403,6 +405,40 @@ final class HTTPTransport {
             }
         } catch {
             log.error("Secret response error: \(error.localizedDescription)")
+        }
+    }
+
+    private func sendConversationSeen(_ signal: IPCConversationSeenSignal) async {
+        guard let url = URL(string: "\(baseURL)/v1/conversations/seen") else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [
+            "conversationId": signal.conversationId,
+            "sourceChannel": signal.sourceChannel,
+            "signalType": signal.signalType,
+            "confidence": signal.confidence,
+            "source": signal.source
+        ]
+        if let evidenceText = signal.evidenceText {
+            body["evidenceText"] = evidenceText
+        }
+        if let observedAt = signal.observedAt {
+            body["observedAt"] = observedAt
+        }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                log.error("Conversation seen signal failed (\(http.statusCode))")
+            }
+        } catch {
+            log.error("Conversation seen signal error: \(error.localizedDescription)")
         }
     }
 
