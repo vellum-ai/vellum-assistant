@@ -2823,20 +2823,51 @@ describe('outbound SMS verification', () => {
     expect(resp!.error).toBe('missing_destination');
   });
 
-  test('start_outbound rejects invalid E.164 number', () => {
+  test('start_outbound rejects unparseable phone number', () => {
     const { ctx, lastResponse } = createMockCtx();
     handleGuardianVerification({
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
       assistantId: 'self',
-      destination: '5551234567', // missing + prefix
+      destination: 'not-a-phone',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe('invalid_destination');
+  });
+
+  test('start_outbound normalizes formatted phone number for SMS', async () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+      destination: '(555) 123-4567',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.verificationSessionId).toBeDefined();
+    expect(resp!.secret).toBeDefined();
+
+    // Verify the session was created with the normalized E.164 number
+    const session = serviceFindActiveSession('self', 'sms');
+    expect(session).not.toBeNull();
+    expect(session!.expectedPhoneE164).toBe('+15551234567');
+    expect(session!.destinationAddress).toBe('+15551234567');
+
+    // Allow fire-and-forget SMS delivery to complete
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Verify SMS was sent to the normalized number
+    expect(smsSendCalls.length).toBeGreaterThanOrEqual(1);
+    const lastSms = smsSendCalls[smsSendCalls.length - 1];
+    expect(lastSms.to).toBe('+15551234567');
   });
 
   test('template composer includes assistantName when provided', () => {
@@ -3393,7 +3424,7 @@ describe('outbound voice verification', () => {
     expect(lastCall.guardianVerificationSessionId).toBe(resp!.verificationSessionId!);
   });
 
-  test('start_outbound for voice rejects invalid E.164', () => {
+  test('start_outbound for voice rejects unparseable phone number', () => {
     const { ctx, lastResponse } = createMockCtx();
     handleGuardianVerification({
       type: 'guardian_verification',
@@ -3407,6 +3438,39 @@ describe('outbound voice verification', () => {
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe('invalid_destination');
+  });
+
+  test('start_outbound for voice normalizes formatted phone number', async () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'voice',
+      assistantId: 'self',
+      destination: '555-123-4567',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.verificationSessionId).toBeDefined();
+    expect(resp!.secret).toBeDefined();
+    // Voice codes are 6 digits
+    expect(resp!.secret!.length).toBe(6);
+
+    // Verify the session was created with the normalized E.164 number
+    const session = serviceFindActiveSession('self', 'voice');
+    expect(session).not.toBeNull();
+    expect(session!.expectedPhoneE164).toBe('+15551234567');
+    expect(session!.destinationAddress).toBe('+15551234567');
+
+    // Allow fire-and-forget call initiation to complete
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Verify the call was initiated with the normalized number
+    expect(voiceCallInitCalls.length).toBeGreaterThanOrEqual(1);
+    const lastCall = voiceCallInitCalls[voiceCallInitCalls.length - 1];
+    expect(lastCall.phoneNumber).toBe('+15551234567');
   });
 
   test('start_outbound for voice rejects when binding exists (rebind=false)', () => {
