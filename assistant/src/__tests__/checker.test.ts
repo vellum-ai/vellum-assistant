@@ -417,8 +417,8 @@ describe('Permission Checker', () => {
 
     test('plain rm (without -rf) is high risk and prompts despite default allow rule', async () => {
       // Validates that ALL rm commands are escalated to High risk, not just rm -rf.
-      // The default allow rule for host_bash auto-approves Low/Medium risk but
-      // High risk always prompts.
+      // The default allow rule for host_bash auto-approves Low risk (Read intent) but
+      // High risk always prompts and Medium risk Write intent is gated.
       const result = await check('host_bash', { command: 'rm single-file.txt' }, '/tmp');
       expect(result.decision).toBe('prompt');
       expect(result.reason).toContain('High risk');
@@ -482,11 +482,10 @@ describe('Permission Checker', () => {
       expect(result.matchedRule?.pattern).toBe('npm *');
     });
 
-    test('host_file_read prompts by default via host ask rule', async () => {
+    test('host_file_read auto-allows by default via host allow rule', async () => {
       const result = await check('host_file_read', { path: '/etc/hosts' }, '/tmp');
-      expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('ask rule');
-      expect(result.matchedRule?.id).toBe('default:ask-host_file_read-global');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.id).toBe('default:allow-host_file_read-global');
     });
 
     test('host_file_write prompts by default via host ask rule', async () => {
@@ -508,6 +507,20 @@ describe('Permission Checker', () => {
       expect(result.decision).toBe('allow');
       expect(result.reason).toContain('Matched trust rule');
       expect(result.matchedRule?.id).toBe('default:allow-host_bash-global');
+    });
+
+    test('intent gate: default allow + Write intent → prompt (host_bash curl)', async () => {
+      // curl is medium risk, Write intent — default allow rule should be gated
+      const result = await check('host_bash', { command: 'curl https://example.com' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Write operation');
+    });
+
+    test('intent gate: user-created allow + Write intent → still allows', async () => {
+      // User explicitly created an allow rule — intent gate should NOT apply
+      addRule('host_bash', '**', 'everywhere', 'allow', 2000);
+      const result = await check('host_bash', { command: 'curl https://example.com' }, '/tmp');
+      expect(result.decision).toBe('allow');
     });
 
     test('scaffold_managed_skill prompts by default via managed skill ask rule', async () => {
@@ -2503,10 +2516,10 @@ describe('Permission Checker', () => {
         expect(result.matchedRule?.id).toBe('default:allow-host_bash-global');
       });
 
-      test('host_file_read prompts by default (no implicit allow)', async () => {
+      test('host_file_read auto-allows by default (Read intent)', async () => {
         const result = await check('host_file_read', { path: '/etc/hosts' }, '/tmp');
-        expect(result.decision).toBe('prompt');
-        expect(result.matchedRule?.id).toBe('default:ask-host_file_read-global');
+        expect(result.decision).toBe('allow');
+        expect(result.matchedRule?.id).toBe('default:allow-host_file_read-global');
       });
 
       test('host_file_write prompts by default (no implicit allow)', async () => {
@@ -2547,11 +2560,13 @@ describe('Permission Checker', () => {
         expect(matchResult.matchedRule?.id).toBe('inv4-target-scoped');
 
         // Different target — the target-scoped rule should NOT match;
-        // falls back to the default host_bash allow rule (auto-allows medium risk)
+        // falls back to default host_bash allow rule, but intent gate prompts
+        // for Write operations (unknown program = medium risk = Write intent)
         const noMatchResult = await check('host_bash', { command: 'run script.js' }, '/tmp', {
           executionTarget: '/usr/local/bin/bun',
         });
-        expect(noMatchResult.decision).toBe('allow');
+        expect(noMatchResult.decision).toBe('prompt');
+        expect(noMatchResult.reason).toContain('Write operation');
         expect(noMatchResult.matchedRule?.id).not.toBe('inv4-target-scoped');
       });
     });
@@ -3270,10 +3285,9 @@ describe('workspace mode — auto-allow workspace-scoped operations', () => {
 
   // ── host tools — default ask rules prompt ──
 
-  test('host_file_read → prompt (default ask rule matches)', async () => {
+  test('host_file_read → allow (default allow rule + Read intent)', async () => {
     const result = await check('host_file_read', { file_path: '/home/user/my-project/file.txt' }, workspaceDir);
-    expect(result.decision).toBe('prompt');
-    expect(result.reason).toContain('ask rule');
+    expect(result.decision).toBe('allow');
   });
 
   test('host_bash → allow (default allow rule matches)', async () => {

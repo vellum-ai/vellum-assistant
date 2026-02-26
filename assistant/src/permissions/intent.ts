@@ -1,4 +1,3 @@
-import { isWorkspaceScopedInvocation } from '../permissions/workspace-policy.js';
 import { isSideEffectTool } from '../tools/side-effects.js';
 import { RiskLevel } from '../permissions/types.js';
 
@@ -24,11 +23,12 @@ export function classifyIntent(
   workingDir: string,
   risk: RiskLevel,
 ): ToolIntent {
-  // 1. Workspace-scoped tools: sandbox provides isolation, so reads are safe.
+  // 1. Sandboxed tools: the sandbox provides isolation so all operations
+  //    (including writes) cannot affect the host filesystem.
   if (
     toolName === 'file_read' ||
-    (toolName === 'file_write' && isWorkspaceScopedInvocation(toolName, input, workingDir)) ||
-    (toolName === 'file_edit' && isWorkspaceScopedInvocation(toolName, input, workingDir)) ||
+    toolName === 'file_write' ||
+    toolName === 'file_edit' ||
     toolName === 'bash'
   ) {
     return ToolIntent.Read;

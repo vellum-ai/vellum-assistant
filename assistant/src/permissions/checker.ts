@@ -10,6 +10,7 @@ import type { ManifestOverride } from '../tools/execution-target.js';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
 import { getTool } from '../tools/registry.js';
 import { getLogger } from '../util/logger.js';
+import { classifyIntent, ToolIntent } from './intent.js';
 import { buildShellAllowlistOptions, buildShellCommandCandidates, cachedParse, type ParsedCommand } from './shell-identity.js';
 import { findHighestPriorityRule, onRulesChanged } from './trust-store.js';
 import { type AllowlistOption, type PermissionCheckResult, type PolicyContext,RiskLevel, type ScopeOption } from './types.js';
@@ -497,6 +498,17 @@ export async function check(
     if (matchedRule.decision === 'ask') {
       // Ask rules always prompt — never auto-allow or auto-deny
       return { decision: 'prompt', reason: `Matched ask rule: ${matchedRule.pattern}`, matchedRule };
+    }
+
+    // Intent gate — default/starter allow rules only auto-allow Read operations.
+    // User-created allow rules are always honored (they explicitly chose to allow).
+    const isExplicitUserRule = !matchedRule.id.startsWith('default:')
+                            && !matchedRule.id.startsWith('starter:');
+    if (!isExplicitUserRule && risk !== RiskLevel.High) {
+      const intent = classifyIntent(toolName, input, workingDir, risk);
+      if (intent === ToolIntent.Write) {
+        return { decision: 'prompt', reason: 'Write operation requires approval', matchedRule };
+      }
     }
 
     // Allow rule: auto-allow for non-High risk
