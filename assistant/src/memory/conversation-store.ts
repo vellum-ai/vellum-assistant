@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 
@@ -334,6 +334,25 @@ export function getMessageById(messageId: string, conversationId?: string): Mess
     .select()
     .from(messages)
     .where(and(...conditions))
+    .get();
+  return row ? parseMessage(row) : null;
+}
+
+/**
+ * Get the next message in a conversation after a given message (by timestamp).
+ * Used for legacy tool_result merging in the rehydrate endpoint.
+ */
+export function getNextMessage(conversationId: string, afterTimestamp: number): MessageRow | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(messages)
+    .where(and(
+      eq(messages.conversationId, conversationId),
+      gt(messages.createdAt, afterTimestamp),
+    ))
+    .orderBy(asc(messages.createdAt))
+    .limit(1)
     .get();
   return row ? parseMessage(row) : null;
 }
