@@ -394,6 +394,58 @@ struct ChatBubble: View {
     @MainActor static var inlineMarkdownCache = [String: (value: AttributedString, accessTime: Int)]()
     static let maxCacheSize = 100
 
+    // MARK: - Cache Guardrails
+    //
+    // Prevents a single huge message from consuming disproportionate cache
+    // space.  Text over `maxCacheableTextLength` is parsed but never stored.
+    // `estimatedCacheBytes` tracks a rough byte budget across all three
+    // caches; when it exceeds `maxCacheBytes` the oldest entries are evicted.
+
+    static let maxCacheableTextLength = 10_000
+    static let maxCacheBytes = 5_000_000
+    /// Rough byte estimate of all entries across segmentCache, markdownCache,
+    /// and inlineMarkdownCache.  Updated on insert/evict.
+    @MainActor static var estimatedCacheBytes: Int = 0
+
+    /// Estimate the in-memory cost of caching the given text's parsed result.
+    /// Uses `utf8.count * 3` as a rough AttributedString/segment overhead.
+    static func estimatedBytes(for text: String) -> Int {
+        text.utf8.count * 3
+    }
+
+    /// Evicts the oldest entries across all three caches until
+    /// `estimatedCacheBytes` drops below `maxCacheBytes`.
+    @MainActor static func evictIfOverBudget() {
+        while estimatedCacheBytes > maxCacheBytes {
+            // Find the LRU entry across all three caches.
+            var oldestKey: String?
+            var oldestTime = Int.max
+            var oldestCache: CacheKind?
+
+            for (key, entry) in markdownCache where entry.accessTime < oldestTime {
+                oldestKey = key; oldestTime = entry.accessTime; oldestCache = .markdown
+            }
+            for (key, entry) in segmentCache where entry.accessTime < oldestTime {
+                oldestKey = key; oldestTime = entry.accessTime; oldestCache = .segment
+            }
+            for (key, entry) in inlineMarkdownCache where entry.accessTime < oldestTime {
+                oldestKey = key; oldestTime = entry.accessTime; oldestCache = .inlineMarkdown
+            }
+
+            guard let key = oldestKey, let cache = oldestCache else { break }
+
+            let cost = estimatedBytes(for: key)
+            switch cache {
+            case .markdown:       markdownCache.removeValue(forKey: key)
+            case .segment:        segmentCache.removeValue(forKey: key)
+            case .inlineMarkdown: inlineMarkdownCache.removeValue(forKey: key)
+            }
+            estimatedCacheBytes -= cost
+        }
+    }
+
+    private enum CacheKind { case markdown, segment, inlineMarkdown }
+
     // MARK: - Streaming Dedup Caches
     //
     // During streaming, the LRU caches above skip storing results to avoid
