@@ -165,7 +165,6 @@ Increment the cycle counter by 1.
    git fetch origin $PR_BRANCH
    LATEST_COMMIT=$(git rev-parse origin/$PR_BRANCH)
    ```
-6. Record the current UTC time as `last_fix_push_time` (e.g., `date -u +%Y-%m-%dT%H:%M:%SZ`).
 
 #### Step 5: Re-request reviews and wait
 
@@ -175,6 +174,8 @@ After fixes are pushed, explicitly tag both reviewers by posting two separate co
 gh pr comment <pr-number> --body "@codex review this PR again — the previous issues have been fixed in commit $LATEST_COMMIT"
 gh pr comment <pr-number> --body "@devin review this PR again — the previous issues have been fixed in commit $LATEST_COMMIT"
 ```
+
+Record the current UTC time as `last_fix_push_time` **after** posting the re-review comments (e.g., `date -u +%Y-%m-%dT%H:%M:%SZ`). This ensures the agent's own comment activity is excluded from the "new activity" check during polling.
 
 Log: `"Re-requested reviews from Codex and Devin on PR #<pr-number> (cycle <cycle-counter>/3, commit $LATEST_COMMIT)."`
 
