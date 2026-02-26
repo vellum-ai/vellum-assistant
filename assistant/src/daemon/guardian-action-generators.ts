@@ -1,5 +1,5 @@
 import { loadConfig } from '../config/loader.js';
-import { getFailoverProvider, listProviders } from '../providers/registry.js';
+import { getFailoverProvider } from '../providers/registry.js';
 import {
   buildGuardianActionGenerationPrompt,
   getGuardianActionFallbackMessage,
@@ -123,9 +123,6 @@ const VALID_FOLLOWUP_DISPOSITIONS: ReadonlySet<string> = new Set([
 export function createGuardianFollowUpConversationGenerator(): GuardianFollowUpConversationGenerator {
   return async (context) => {
     const config = loadConfig();
-    if (!listProviders().includes(config.provider)) {
-      throw new Error('No provider available for guardian follow-up conversation');
-    }
     const provider = getFailoverProvider(config.provider, config.providerOrder);
 
     const userPrompt = [

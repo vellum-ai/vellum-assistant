@@ -406,7 +406,7 @@ export async function processMessage(
         const resolved = resolveGuardianActionRequest(guardianRequest.id, content, 'vellum');
         const replyText = resolved
           ? 'Your answer has been relayed to the call.'
-          : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_answered' });
+          : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_answered' }, {}, _guardianActionCopyGenerator);
         const replyMsg = createAssistantMessage(replyText);
         conversationStore.addMessage(
           session.conversationId,
@@ -459,15 +459,14 @@ export async function processMessage(
 
       const followupResult = startFollowupFromExpiredRequest(expiredRequest.id, content);
       if (followupResult) {
-        // Use the composer without a generator — the daemon's mac path may not
-        // have direct access to the provider-backed generator, so deterministic
-        // fallback text is used.
         const followupText = await composeGuardianActionMessageGenerative(
           {
             scenario: 'guardian_late_answer_followup',
             questionText: expiredRequest.questionText,
             lateAnswerText: content,
           },
+          {},
+          _guardianActionCopyGenerator,
         );
         const replyMsg = createAssistantMessage(followupText);
         conversationStore.addMessage(
