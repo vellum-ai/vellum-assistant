@@ -8,6 +8,8 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 struct ThumbnailResult {
     let image: NSImage?
     let status: PreviewStatus
+    /// Whether the result was served from the in-memory cache (no fresh capture).
+    let fromCache: Bool
 }
 
 /// Captures, normalizes, and caches source preview thumbnails.
@@ -95,16 +97,16 @@ actor ThumbnailProvider {
         let cacheKey = "display-\(display.id)"
 
         if let cached = cachedThumbnail(for: cacheKey) {
-            return ThumbnailResult(image: cached, status: .loaded)
+            return ThumbnailResult(image: cached, status: .loaded, fromCache: true)
         }
 
         guard let scDisplay = display.scDisplay else {
             log.warning("No SCDisplay reference for display \(display.id)")
-            return ThumbnailResult(image: nil, status: .failed(.sourceGone))
+            return ThumbnailResult(image: nil, status: .failed(.sourceGone), fromCache: false)
         }
 
         guard #available(macOS 14, *) else {
-            return ThumbnailResult(image: nil, status: .failed(.captureFailed))
+            return ThumbnailResult(image: nil, status: .failed(.captureFailed), fromCache: false)
         }
 
         await acquireSlot()
@@ -138,19 +140,19 @@ actor ThumbnailProvider {
             // Check for blank frame (all pixels the same or empty)
             if isBlankImage(cgImage) {
                 log.debug("Blank frame captured for display \(display.id)")
-                result = ThumbnailResult(image: nil, status: .failed(.blankFrame))
+                result = ThumbnailResult(image: nil, status: .failed(.blankFrame), fromCache: false)
             } else {
                 let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
                 if let normalized = normalizeToThumbnail(nsImage) {
                     cache(normalized, for: cacheKey)
-                    result = ThumbnailResult(image: normalized, status: .loaded)
+                    result = ThumbnailResult(image: normalized, status: .loaded, fromCache: false)
                 } else {
-                    result = ThumbnailResult(image: nil, status: .failed(.captureFailed))
+                    result = ThumbnailResult(image: nil, status: .failed(.captureFailed), fromCache: false)
                 }
             }
         } catch {
             log.error("Failed to capture display \(display.id) thumbnail: \(error.localizedDescription)")
-            result = ThumbnailResult(image: nil, status: .failed(.captureFailed))
+            result = ThumbnailResult(image: nil, status: .failed(.captureFailed), fromCache: false)
         }
         releaseSlot()
         return result
@@ -163,16 +165,16 @@ actor ThumbnailProvider {
         let cacheKey = "window-\(window.id)"
 
         if let cached = cachedThumbnail(for: cacheKey) {
-            return ThumbnailResult(image: cached, status: .loaded)
+            return ThumbnailResult(image: cached, status: .loaded, fromCache: true)
         }
 
         guard let scWindow = window.scWindow else {
             log.warning("No SCWindow reference for window \(window.id)")
-            return ThumbnailResult(image: nil, status: .failed(.sourceGone))
+            return ThumbnailResult(image: nil, status: .failed(.sourceGone), fromCache: false)
         }
 
         guard #available(macOS 14, *) else {
-            return ThumbnailResult(image: nil, status: .failed(.captureFailed))
+            return ThumbnailResult(image: nil, status: .failed(.captureFailed), fromCache: false)
         }
 
         await acquireSlot()
@@ -197,19 +199,19 @@ actor ThumbnailProvider {
 
             if isBlankImage(cgImage) {
                 log.debug("Blank frame captured for window \(window.id)")
-                result = ThumbnailResult(image: nil, status: .failed(.blankFrame))
+                result = ThumbnailResult(image: nil, status: .failed(.blankFrame), fromCache: false)
             } else {
                 let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
                 if let normalized = normalizeToThumbnail(nsImage) {
                     cache(normalized, for: cacheKey)
-                    result = ThumbnailResult(image: normalized, status: .loaded)
+                    result = ThumbnailResult(image: normalized, status: .loaded, fromCache: false)
                 } else {
-                    result = ThumbnailResult(image: nil, status: .failed(.captureFailed))
+                    result = ThumbnailResult(image: nil, status: .failed(.captureFailed), fromCache: false)
                 }
             }
         } catch {
             log.error("Failed to capture window \(window.id) thumbnail: \(error.localizedDescription)")
-            result = ThumbnailResult(image: nil, status: .failed(.captureFailed))
+            result = ThumbnailResult(image: nil, status: .failed(.captureFailed), fromCache: false)
         }
         releaseSlot()
         return result

@@ -380,6 +380,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                 for i in self.displays.indices {
                     self.displays[i].previewStatus = .loading
                 }
+                let totalDisplaySources = self.displays.count
                 await withTaskGroup(of: (UInt32, NSImage?, PreviewStatus, Int, Bool).self) { group in
                     for display in self.displays {
                         group.addTask { [thumbnailProvider] in
@@ -390,22 +391,32 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                             let start = Date()
                             let result = await thumbnailProvider.captureThumbnail(for: display)
                             let latencyMs = Int(Date().timeIntervalSince(start) * 1000)
-                            // Cache hits return almost instantly (< 1ms)
-                            let fromCache = latencyMs < 2 && result.status == .loaded
-                            return (display.id, result.image, result.status, latencyMs, fromCache)
+                            return (display.id, result.image, result.status, latencyMs, result.fromCache)
                         }
                     }
+                    var processedCount = 0
                     for await (displayId, image, status, latencyMs, fromCache) in group {
                         // Discard stale results from a previous generation;
                         // cancel remaining children so they release semaphore slots promptly
                         guard self.previewGeneration == generation else {
+                            let remaining = totalDisplaySources - processedCount
+                            if remaining > 0 {
+                                self.previewCancelCount += remaining
+                                RecordingTelemetry.logPreviewCancelled(sourceType: "display", sourceId: "batch", reason: "generation_mismatch_\(remaining)_sources")
+                            }
                             group.cancelAll()
                             return
                         }
                         guard !Task.isCancelled else {
+                            let remaining = totalDisplaySources - processedCount
+                            if remaining > 0 {
+                                self.previewCancelCount += remaining
+                                RecordingTelemetry.logPreviewCancelled(sourceType: "display", sourceId: "batch", reason: "task_cancelled_\(remaining)_sources")
+                            }
                             group.cancelAll()
                             return
                         }
+                        processedCount += 1
                         if let idx = self.displays.firstIndex(where: { $0.id == displayId }) {
                             self.displays[idx].thumbnail = image
                             self.displays[idx].previewStatus = status
@@ -438,6 +449,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                 for i in self.windows.indices {
                     self.windows[i].previewStatus = .loading
                 }
+                let totalWindowSources = self.windows.count
                 await withTaskGroup(of: (Int, NSImage?, PreviewStatus, Int, Bool).self) { group in
                     for window in self.windows {
                         group.addTask { [thumbnailProvider] in
@@ -447,19 +459,30 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                             let start = Date()
                             let result = await thumbnailProvider.captureThumbnail(for: window)
                             let latencyMs = Int(Date().timeIntervalSince(start) * 1000)
-                            let fromCache = latencyMs < 2 && result.status == .loaded
-                            return (window.id, result.image, result.status, latencyMs, fromCache)
+                            return (window.id, result.image, result.status, latencyMs, result.fromCache)
                         }
                     }
+                    var processedCount = 0
                     for await (windowId, image, status, latencyMs, fromCache) in group {
                         guard self.previewGeneration == generation else {
+                            let remaining = totalWindowSources - processedCount
+                            if remaining > 0 {
+                                self.previewCancelCount += remaining
+                                RecordingTelemetry.logPreviewCancelled(sourceType: "window", sourceId: "batch", reason: "generation_mismatch_\(remaining)_sources")
+                            }
                             group.cancelAll()
                             return
                         }
                         guard !Task.isCancelled else {
+                            let remaining = totalWindowSources - processedCount
+                            if remaining > 0 {
+                                self.previewCancelCount += remaining
+                                RecordingTelemetry.logPreviewCancelled(sourceType: "window", sourceId: "batch", reason: "task_cancelled_\(remaining)_sources")
+                            }
                             group.cancelAll()
                             return
                         }
+                        processedCount += 1
                         if let idx = self.windows.firstIndex(where: { $0.id == windowId }) {
                             self.windows[idx].thumbnail = image
                             self.windows[idx].previewStatus = status
