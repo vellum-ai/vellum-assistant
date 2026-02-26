@@ -639,6 +639,25 @@ export async function handleChannelInbound(
           text: replyText,
           assistantId,
         });
+
+        // Self-retry after a short delay. The gateway deduplicates
+        // inbound webhooks after a successful forward, so duplicate
+        // retries may never arrive. This fire-and-forget retry ensures
+        // delivery is re-attempted even without a gateway duplicate.
+        setTimeout(async () => {
+          try {
+            await deliverChannelReply(replyCallbackUrl, {
+              chatId: externalChatId,
+              text: replyText,
+              assistantId,
+            }, bearerToken);
+            log.info({ eventId: result.eventId }, 'Verification reply delivered on self-retry');
+            channelDeliveryStore.clearPendingVerificationReply(result.eventId);
+          } catch (retryErr) {
+            log.error({ err: retryErr, eventId: result.eventId }, 'Verification reply self-retry also failed; pending reply remains as fallback');
+          }
+        }, 3000);
+
         return Response.json({
           accepted: true,
           duplicate: false,
@@ -1046,38 +1065,63 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
 
 /**
  * Deliver a verification Telegram message during bootstrap.
- * Fire-and-forget with error logging.
+ * Fire-and-forget with error logging and a single self-retry on failure.
  */
 function deliverBootstrapVerificationTelegram(
   chatId: string,
   text: string,
   assistantId: string,
 ): void {
+  const attemptDelivery = async (): Promise<boolean> => {
+    const gatewayUrl = getGatewayInternalBaseUrl();
+    const bearerToken = readHttpToken();
+    if (!bearerToken) {
+      log.error('Cannot deliver bootstrap verification Telegram message: no runtime HTTP token available');
+      return false;
+    }
+    const url = `${gatewayUrl}/deliver/telegram`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bearerToken}`,
+      },
+      body: JSON.stringify({ chatId, text, assistantId }),
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '<unreadable>');
+      log.error({ chatId, assistantId, status: resp.status, body }, 'Gateway /deliver/telegram failed for bootstrap verification');
+      return false;
+    }
+    return true;
+  };
+
   (async () => {
     try {
-      const gatewayUrl = getGatewayInternalBaseUrl();
-      const bearerToken = readHttpToken();
-      if (!bearerToken) {
-        log.error('Cannot deliver bootstrap verification Telegram message: no runtime HTTP token available');
-        return;
-      }
-      const url = `${gatewayUrl}/deliver/telegram`;
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${bearerToken}`,
-        },
-        body: JSON.stringify({ chatId, text, assistantId }),
-      });
-      if (!resp.ok) {
-        const body = await resp.text().catch(() => '<unreadable>');
-        log.error({ chatId, assistantId, status: resp.status, body }, 'Gateway /deliver/telegram failed for bootstrap verification');
-      } else {
+      const delivered = await attemptDelivery();
+      if (delivered) {
         log.info({ chatId, assistantId }, 'Bootstrap verification Telegram message delivered');
+        return;
       }
     } catch (err) {
       log.error({ err, chatId, assistantId }, 'Failed to deliver bootstrap verification Telegram message');
     }
+
+    // Self-retry after a short delay. The gateway deduplicates inbound
+    // webhooks after a successful forward, so duplicate retries from the
+    // user re-clicking the deep link may never arrive. This ensures
+    // delivery is re-attempted even without a gateway duplicate.
+    setTimeout(async () => {
+      try {
+        const delivered = await attemptDelivery();
+        if (delivered) {
+          log.info({ chatId, assistantId }, 'Bootstrap verification Telegram message delivered on self-retry');
+        } else {
+          log.error({ chatId, assistantId }, 'Bootstrap verification Telegram self-retry also failed');
+        }
+      } catch (retryErr) {
+        log.error({ err: retryErr, chatId, assistantId }, 'Bootstrap verification Telegram self-retry threw; giving up');
+      }
+    }, 3000);
   })();
 }
