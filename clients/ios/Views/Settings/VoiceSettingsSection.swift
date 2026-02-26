@@ -128,7 +128,7 @@ private struct ElevenLabsKeySection: View {
                     Text("API key saved")
                     Spacer()
                     Button("Remove", role: .destructive) {
-                        APIKeyManager.shared.deleteAPIKey(provider: "elevenlabs")
+                        _ = APIKeyManager.shared.deleteAPIKey(provider: "elevenlabs")
                         hasExistingKey = false
                         keyText = ""
                     }
