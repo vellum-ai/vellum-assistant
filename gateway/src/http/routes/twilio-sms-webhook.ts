@@ -50,7 +50,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
   // longer window hardens replay prevention beyond the default 5 minutes.
   const dedupCache = new StringDedupCache(24 * 60 * 60_000);
 
-  return async (req: Request): Promise<Response> => {
+  const handler = async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
     const tlog = traceId ? log.child({ traceId }) : log;
 
@@ -230,4 +230,6 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
 
     return Response.json({ ok: true });
   };
+
+  return { handler, dedupCache };
 }

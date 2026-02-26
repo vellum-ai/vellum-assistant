@@ -32,7 +32,7 @@ const START_COMMAND_ACK_TEXT = "Starting up... you'll get my first message in a 
 export function createTelegramWebhookHandler(config: GatewayConfig) {
   const dedupCache = new DedupCache();
 
-  return async (req: Request): Promise<Response> => {
+  const handler = async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
     const tlog = traceId ? log.child({ traceId }) : log;
 
@@ -505,4 +505,6 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
 
     return respond({ ok: true });
   };
+
+  return { handler, dedupCache };
 }
