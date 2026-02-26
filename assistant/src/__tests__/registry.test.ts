@@ -334,14 +334,18 @@ describe('dynamic skill tool registry', () => {
     expect(getTool('sk_tool_b')?.origin).toBe('skill');
   });
 
-  test('rejects skill tool that collides with a core tool', async () => {
+  test('skips skill tool that collides with a core tool without throwing', async () => {
     await initializeTools();
 
     // host_file_read is a core tool registered during init
     const colliding = makeSkillTool('host_file_read', 'rogue-skill');
-    expect(() => registerSkillTools([colliding])).toThrow(
-      'collides with core tool',
-    );
+    const accepted = registerSkillTools([colliding]);
+
+    // The colliding tool should be silently skipped
+    expect(accepted).toHaveLength(0);
+    // The core tool should still be in place (not overwritten)
+    const retrieved = getTool('host_file_read');
+    expect(retrieved?.origin).toBeUndefined(); // core tools have no origin
   });
 
   test('allows replacement within the same owning skill', () => {
@@ -410,7 +414,7 @@ describe('dynamic skill tool registry', () => {
     expect(skillNames).not.toContain('bash');
   });
 
-  test('registerSkillTools is atomic — no partial registration on collision', async () => {
+  test('registerSkillTools skips core-colliding tools but registers the rest', async () => {
     await initializeTools();
 
     const tools = [
@@ -418,9 +422,14 @@ describe('dynamic skill tool registry', () => {
       makeSkillTool('host_file_read', 'atomic-skill'), // collides with core
     ];
 
-    expect(() => registerSkillTools(tools)).toThrow('collides with core tool');
-    // The first tool should NOT have been registered either
-    expect(getTool('sk_atomic_ok')).toBeUndefined();
+    const accepted = registerSkillTools(tools);
+    // Only the non-colliding tool should be accepted
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0].name).toBe('sk_atomic_ok');
+    // The non-colliding tool should be registered
+    expect(getTool('sk_atomic_ok')).toBeDefined();
+    // The core tool should be untouched
+    expect(getTool('host_file_read')?.origin).toBeUndefined();
   });
 });
 

@@ -109,20 +109,25 @@ export function getAllTools(): Tool[] {
 
 /**
  * Register multiple skill-origin tools at once.
- * Throws if any tool name collides with a core tool (origin !== 'skill' or undefined origin).
+ * Skips any tool whose name collides with a core tool (logs a warning instead
+ * of throwing so the remaining tools in the batch still get registered).
+ * Throws if a tool name collides with a skill tool owned by a different skill.
  * Allows replacement when the incoming tool has the same ownerSkillId as the existing one,
  * which supports hot-reloading a skill without tearing down first.
  */
-export function registerSkillTools(newTools: Tool[]): void {
-  // Validate all tools before mutating the registry so we get atomic-or-nothing behavior.
+export function registerSkillTools(newTools: Tool[]): Tool[] {
+  // Filter out tools that collide with core tools, and validate the rest.
+  const accepted: Tool[] = [];
   for (const tool of newTools) {
     const existing = tools.get(tool.name);
     if (existing) {
       const existingIsCore = existing.origin !== 'skill';
       if (existingIsCore) {
-        throw new Error(
-          `Skill tool "${tool.name}" collides with core tool of the same name`,
+        log.warn(
+          { toolName: tool.name, skillId: tool.ownerSkillId },
+          `Skill "${tool.ownerSkillId}" tried to register tool "${tool.name}" which conflicts with a core tool. Skipping.`,
         );
+        continue;
       }
       // Existing is also a skill tool — only allow replacement from the same owner.
       if (existing.ownerSkillId !== tool.ownerSkillId) {
@@ -131,11 +136,12 @@ export function registerSkillTools(newTools: Tool[]): void {
         );
       }
     }
+    accepted.push(tool);
   }
 
   // Collect unique skill IDs from the batch to bump ref counts
   const skillIds = new Set<string>();
-  for (const tool of newTools) {
+  for (const tool of accepted) {
     tools.set(tool.name, tool);
     if (tool.ownerSkillId) skillIds.add(tool.ownerSkillId);
     log.info({ name: tool.name, ownerSkillId: tool.ownerSkillId }, 'Skill tool registered');
@@ -144,6 +150,8 @@ export function registerSkillTools(newTools: Tool[]): void {
   for (const id of skillIds) {
     skillRefCount.set(id, (skillRefCount.get(id) ?? 0) + 1);
   }
+
+  return accepted;
 }
 
 /**
