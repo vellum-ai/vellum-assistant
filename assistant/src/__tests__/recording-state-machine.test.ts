@@ -353,7 +353,8 @@ describe('stale completion guard (operation token)', () => {
     const restartResult = handleRecordingRestart(conversationId, fakeSocket, ctx);
     expect(restartResult.initiated).toBe(true);
 
-    const startMsg = sent.filter((m) => m.type === 'recording_start').pop();
+    const startMsgs = sent.filter((m) => m.type === 'recording_start');
+    const oldStartMsg = startMsgs[0]; // first recording_start = original/old recording
     sent.length = 0;
 
     // Simulate a tokenless "stopped" status arriving during the restart.
@@ -362,7 +363,7 @@ describe('stale completion guard (operation token)', () => {
     // allowed through for the deferred restart pattern to work.
     const tokenlessStatus: RecordingStatus = {
       type: 'recording_status',
-      sessionId: startMsg!.recordingId as string,
+      sessionId: oldStartMsg!.recordingId as string,
       status: 'stopped',
       attachToConversationId: conversationId,
       // No operationToken — from old recording, should be allowed
