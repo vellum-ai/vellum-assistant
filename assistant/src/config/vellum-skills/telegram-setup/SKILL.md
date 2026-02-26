@@ -46,15 +46,14 @@ If the webhook secret changes (e.g., secret rotation), the gateway's credential 
 
 ### Step 4: Register Bot Commands
 
-Send the `telegram_config` IPC message with `action: "set_commands"` to register the `/new` and `/guardian_verify` commands:
+Send the `telegram_config` IPC message with `action: "set_commands"` to register the `/new` command:
 
 ```json
 {
   "type": "telegram_config",
   "action": "set_commands",
   "commands": [
-    { "command": "new", "description": "Start a new conversation" },
-    { "command": "guardian_verify", "description": "Verify your guardian identity" }
+    { "command": "new", "description": "Start a new conversation" }
   ]
 }
 ```
@@ -74,9 +73,9 @@ Now link the user's Telegram account as the trusted guardian for this bot. Tell 
 }
 ```
 
-2. The daemon returns a `guardian_verification_response` with `success: true`, `secret`, and `instruction`. Display the instruction to the user. It will look like: "Send `/guardian_verify <secret>` to your bot from your Telegram account within 10 minutes."
+2. The daemon returns a `guardian_verification_response` with `success: true`, `secret`, and `instruction`. Display the `secret` code to the user. Tell them: "You'll receive a message from your Telegram bot asking for a verification code. Reply to that message with the code shown here."
 
-3. Wait for the user to confirm they have sent the command. The verification happens automatically when the bot receives the `/guardian_verify` message — the channel inbound handler validates the token and creates the guardian binding.
+3. Wait for the user to confirm they have replied with the code. The verification happens automatically when the bot receives the code — the channel inbound handler validates it and creates the guardian binding.
 
 4. If the user confirms success: "Guardian verified! Your Telegram account is now the trusted guardian for this bot."
 
@@ -109,7 +108,7 @@ Summarize what was done:
 - Bot identity: @{botUsername}
 - Bot verified and credentials stored securely via daemon
 - Webhook registration: handled automatically by the gateway
-- Bot commands registered: /new, /guardian_verify
+- Bot commands registered: /new
 - Guardian identity: {verified | not configured}
 - Guardian verification status: {verified via challenge | skipped}
 - Routing configuration validated
@@ -144,5 +143,5 @@ The following steps still require **manual** action:
 |------|---------|
 | Bot token from @BotFather | User must create a bot and provide the token via secure prompt |
 | Bot command registration | Registered via the setup skill (Step 4 above) |
-| Guardian verification | User sends `/guardian_verify <secret>` to the bot (Step 5 above) |
+| Guardian verification | User replies with the verification code in the bot's Telegram chat (Step 5 above) |
 | Multi-assistant routing | Requires manual `GATEWAY_ASSISTANT_ROUTING_JSON` configuration |
