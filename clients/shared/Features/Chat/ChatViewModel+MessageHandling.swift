@@ -820,6 +820,16 @@ extension ChatViewModel {
                let index = messages.firstIndex(where: { $0.id == messageId }) {
                 messages[index].status = .processing
                 currentTurnUserText = messages[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Clear attachment binary payloads now that the daemon has persisted them.
+                // Keep thumbnailImage for display; the full data can be re-fetched via HTTP if needed.
+                // Only clear for lazy-loadable attachments (sizeBytes != nil); locally-created
+                // attachments (sizeBytes == nil) can't be re-fetched and need their data preserved.
+                for a in messages[index].attachments.indices {
+                    if !messages[index].attachments[a].data.isEmpty && messages[index].attachments[a].sizeBytes != nil {
+                        messages[index].attachments[a].data = ""
+                        messages[index].attachments[a].dataLength = 0
+                    }
+                }
             }
             // Recompute positions for remaining queued messages
             for i in messages.indices {
@@ -850,10 +860,18 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
-            // Reset processing messages to sent
+            // Reset processing messages to sent and clear attachment binary payloads.
+            // Only clear for lazy-loadable attachments (sizeBytes != nil); locally-created
+            // attachments (sizeBytes == nil) can't be re-fetched and need their data preserved.
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent
+                    for a in messages[i].attachments.indices {
+                        if !messages[i].attachments[a].data.isEmpty && messages[i].attachments[a].sizeBytes != nil {
+                            messages[i].attachments[a].data = ""
+                            messages[i].attachments[a].dataLength = 0
+                        }
+                    }
                 }
             }
 
