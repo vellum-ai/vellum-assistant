@@ -9,11 +9,8 @@
 import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getLogger } from '../util/logger.js';
 import { getDb } from './db.js';
 import { conversationAssistantAttentionState, conversationAttentionEvents, conversations, messages } from './schema.js';
-
-const _log = getLogger('conversation-attention-store');
 
 // ── Types ────────────────────────────────────────────────────────────
 

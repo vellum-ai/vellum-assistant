@@ -42,6 +42,11 @@ const pendingStopTimeouts = new Map<string, NodeJS.Timeout>();
  *  cycle with a mismatched token are rejected. */
 let activeRestartToken: string | null = null;
 
+/** Idempotency guard: tracks recording IDs that have already been finalized
+ *  to prevent double-finalization (e.g. during restart races). Entries are
+ *  auto-cleaned after 60 seconds to avoid unbounded growth. */
+const finalizedRecordingIds = new Set<string>();
+
 /** Tracks which conversationId has a pending restart so "no active recording"
  *  is only returned when the state is truly idle (not mid-restart). */
 const pendingRestartByConversation = new Map<string, string>();
@@ -404,6 +409,177 @@ function cleanupMaps(recordingId: string, conversationId: string | undefined): v
   }
 }
 
+// ─── Finalization helper ──────────────────────────────────────────────────────
+
+/**
+ * Finalize a recording: validate the file path, create an attachment, generate
+ * a thumbnail, create a conversation message, and notify the client.
+ *
+ * This is the shared finalization flow used by the normal stop path and
+ * by the restart path to save the previous recording before starting a new one.
+ *
+ * Includes an idempotency guard so the same recording cannot be finalized
+ * twice (prevents double-finalization during restart races).
+ */
+export async function finalizeAndPublishRecording(params: {
+  recordingId: string;
+  conversationId: string;
+  filePath?: string;
+  durationMs?: number;
+  notifySocket: net.Socket;
+  ctx: HandlerContext;
+}): Promise<{ success: boolean; messageId?: string }> {
+  const { recordingId, conversationId, filePath, notifySocket, ctx } = params;
+
+  // Idempotency guard: prevent double-finalization.
+  // Mark as finalized eagerly (before any async work) so concurrent calls
+  // for the same recordingId are rejected immediately.
+  if (finalizedRecordingIds.has(recordingId)) {
+    log.warn({ recordingId, conversationId }, 'Recording already finalized — skipping duplicate finalization');
+    return { success: false };
+  }
+  finalizedRecordingIds.add(recordingId);
+  setTimeout(() => finalizedRecordingIds.delete(recordingId), 60_000);
+
+  if (!filePath) {
+    // No file path — recording stopped without producing a file
+    log.warn({ recordingId, conversationId }, 'Recording stopped without file path');
+    ctx.send(notifySocket, {
+      type: 'assistant_text_delta',
+      text: 'Recording stopped but no file was produced.',
+      sessionId: conversationId,
+    });
+    ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+    return { success: false };
+  }
+
+  // Restrict accepted file paths to the app's recordings directory to
+  // prevent attachment of arbitrary files via crafted IPC messages.
+  let resolvedPath: string;
+  try {
+    resolvedPath = realpathSync(filePath);
+  } catch {
+    // File doesn't exist (broken symlink or missing) — use path.resolve
+    // as fallback; the existsSync check below will handle the missing file.
+    resolvedPath = path.resolve(filePath);
+  }
+  const allowedDir = path.join(
+    process.env.HOME ?? '',
+    'Library/Application Support/vellum-assistant/recordings',
+  );
+  let resolvedAllowedDir: string;
+  try {
+    resolvedAllowedDir = realpathSync(allowedDir);
+  } catch {
+    resolvedAllowedDir = allowedDir;
+  }
+  if (!resolvedPath.startsWith(resolvedAllowedDir + path.sep) && resolvedPath !== resolvedAllowedDir) {
+    log.warn({ recordingId, filePath, allowedDir, resolvedAllowedDir }, 'Recording file path outside allowed directory — rejecting');
+    ctx.send(notifySocket, {
+      type: 'assistant_text_delta',
+      text: 'Recording file is unavailable or expired.',
+      sessionId: conversationId,
+    });
+    ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+    return { success: false };
+  }
+
+  try {
+    if (!existsSync(resolvedPath)) {
+      log.error({ recordingId, filePath }, 'Recording file does not exist');
+      ctx.send(notifySocket, {
+        type: 'assistant_text_delta',
+        text: 'Recording failed to save.',
+        sessionId: conversationId,
+      });
+      ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+      return { success: false };
+    }
+
+    const stat = statSync(resolvedPath);
+    const sizeBytes = stat.size;
+
+    if (sizeBytes === 0) {
+      log.error({ recordingId, filePath }, 'Recording file is zero-length — treating as failed');
+      ctx.send(notifySocket, {
+        type: 'assistant_text_delta',
+        text: 'Recording failed to save.',
+        sessionId: conversationId,
+      });
+      ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+      return { success: false };
+    }
+
+    const filename = path.basename(resolvedPath);
+
+    // Infer MIME type from extension
+    const ext = filename.split('.').pop()?.toLowerCase();
+    const mimeType = (ext && RECORDING_MIME_TYPES.get(ext)) || 'video/mp4';
+
+    // Store as file-backed attachment (avoids reading large files into memory)
+    const attachment = uploadFileBackedAttachment(filename, mimeType, resolvedPath, sizeBytes);
+    log.info({ recordingId, attachmentId: attachment.id, sizeBytes, filePath: resolvedPath }, 'Created attachment for standalone recording');
+
+    // Always create a new assistant message for the recording attachment.
+    // Reusing the last assistant message would attach the recording to an
+    // unrelated older message after reload.
+    const newMsg = conversationStore.addMessage(
+      conversationId,
+      'assistant',
+      JSON.stringify([{ type: 'text', text: 'Screen recording attached.' }]),
+    );
+    const messageId = newMsg.id;
+    log.info({ recordingId, conversationId, messageId }, 'Created assistant message for recording attachment');
+
+    linkAttachmentToMessage(messageId, attachment.id, 0);
+    log.info({ recordingId, messageId, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
+
+    // Generate thumbnail before notifying the client so it's included
+    // in the message_complete payload (fire-and-forget would race).
+    let thumbnailData: string | undefined;
+    try {
+      const thumb = await generateVideoThumbnailFromPath(resolvedPath);
+      if (thumb) {
+        setAttachmentThumbnail(attachment.id, thumb);
+        thumbnailData = thumb;
+        log.info({ recordingId, attachmentId: attachment.id }, 'Thumbnail generated for recording');
+      }
+    } catch (err) {
+      log.warn({ err, recordingId }, 'Thumbnail generation failed — continuing without thumbnail');
+    }
+
+    // Notify the client via the reporting socket
+    ctx.send(notifySocket, {
+      type: 'assistant_text_delta',
+      text: 'Screen recording complete. Your recording has been saved.',
+      sessionId: conversationId,
+    });
+    ctx.send(notifySocket, {
+      type: 'message_complete',
+      sessionId: conversationId,
+      attachments: [{
+        id: attachment.id,
+        filename: attachment.originalFilename,
+        mimeType: attachment.mimeType,
+        data: '',  // empty for file-backed; client uses content endpoint
+        sizeBytes: attachment.sizeBytes,
+        thumbnailData,
+      }],
+    });
+
+    return { success: true, messageId };
+  } catch (err) {
+    log.error({ err, recordingId, filePath }, 'Failed to create attachment for standalone recording');
+    ctx.send(notifySocket, {
+      type: 'assistant_text_delta',
+      text: 'Recording saved but failed to attach to conversation.',
+      sessionId: conversationId,
+    });
+    ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+    return { success: false };
+  }
+}
+
 // ─── Status (client → server lifecycle updates) ─────────────────────────────
 
 async function handleRecordingStatus(
@@ -584,155 +760,53 @@ async function handleRecordingStatus(
           }, 30_000);
         }
 
-        // Skip normal file-attachment flow for the old recording during
-        // a restart — the user initiated a stop+start cycle, not a
-        // deliberate "stop and save".
+        // Finalize the old recording: create attachment, generate thumbnail,
+        // and notify the client. The deferred start fires first so the user
+        // sees immediate activity (new recording starting) before the old
+        // recording's completion message appears.
+        if (notifySocket) {
+          const finResult = await finalizeAndPublishRecording({
+            recordingId,
+            conversationId,
+            filePath: msg.filePath,
+            durationMs: msg.durationMs,
+            notifySocket,
+            ctx,
+          });
+
+          // Handle old-success + new-start-failure: the old recording saved
+          // but the new one couldn't start. Send explicit follow-up text so
+          // the user knows the state.
+          if (!newRecordingId && finResult.success) {
+            ctx.send(freshSocket, {
+              type: 'assistant_text_delta',
+              text: 'Previous recording saved. New recording failed to start.',
+              sessionId: deferred.conversationId,
+            });
+            ctx.send(freshSocket, { type: 'message_complete', sessionId: deferred.conversationId });
+          }
+          // Other failure combos:
+          // - new-start-failure + old-finalize-failure: finalizeAndPublishRecording
+          //   already sent error messages, restart state already cleaned up above.
+          // - new-start-success + old-finalize-failure: finalization already sent
+          //   error messages, new recording is running — no extra message needed.
+        }
+
+        // Prevent fall-through to the normal finalization path below since
+        // we already called finalizeAndPublishRecording explicitly above.
         break;
       }
 
       // Finalize: attach the recording file to the conversation
-      if (msg.filePath) {
-        // Restrict accepted file paths to the app's recordings directory to
-        // prevent attachment of arbitrary files via crafted IPC messages.
-        let resolvedPath: string;
-        try {
-          resolvedPath = realpathSync(msg.filePath);
-        } catch {
-          // File doesn't exist (broken symlink or missing) — use path.resolve
-          // as fallback; the existsSync check below will handle the missing file.
-          resolvedPath = path.resolve(msg.filePath);
-        }
-        const allowedDir = path.join(
-          process.env.HOME ?? '',
-          'Library/Application Support/vellum-assistant/recordings',
-        );
-        let resolvedAllowedDir: string;
-        try {
-          resolvedAllowedDir = realpathSync(allowedDir);
-        } catch {
-          resolvedAllowedDir = allowedDir;
-        }
-        if (!resolvedPath.startsWith(resolvedAllowedDir + path.sep) && resolvedPath !== resolvedAllowedDir) {
-          log.warn({ recordingId, filePath: msg.filePath, allowedDir, resolvedAllowedDir }, 'Recording file path outside allowed directory — rejecting');
-          if (notifySocket) {
-            ctx.send(notifySocket, {
-              type: 'assistant_text_delta',
-              text: 'Recording file is unavailable or expired.',
-              sessionId: conversationId,
-            });
-            ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
-          }
-          break;
-        }
-
-        try {
-          if (!existsSync(resolvedPath)) {
-            log.error({ recordingId, filePath: msg.filePath }, 'Recording file does not exist');
-            if (notifySocket) {
-              ctx.send(notifySocket, {
-                type: 'assistant_text_delta',
-                text: 'Recording failed to save.',
-                sessionId: conversationId,
-              });
-              ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
-            }
-          } else {
-            const stat = statSync(resolvedPath);
-            const sizeBytes = stat.size;
-
-            if (sizeBytes === 0) {
-              log.error({ recordingId, filePath: msg.filePath }, 'Recording file is zero-length — treating as failed');
-              if (notifySocket) {
-                ctx.send(notifySocket, {
-                  type: 'assistant_text_delta',
-                  text: 'Recording failed to save.',
-                  sessionId: conversationId,
-                });
-                ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
-              }
-              break;
-            }
-            const filename = path.basename(resolvedPath);
-
-            // Infer MIME type from extension
-            const ext = filename.split('.').pop()?.toLowerCase();
-            const mimeType = (ext && RECORDING_MIME_TYPES.get(ext)) || 'video/mp4';
-
-            // Store as file-backed attachment (avoids reading large files into memory)
-            const attachment = uploadFileBackedAttachment(filename, mimeType, resolvedPath, sizeBytes);
-            log.info({ recordingId, attachmentId: attachment.id, sizeBytes, filePath: resolvedPath }, 'Created attachment for standalone recording');
-
-            // Always create a new assistant message for the recording attachment.
-            // Reusing the last assistant message would attach the recording to an
-            // unrelated older message after reload.
-            const newMsg = conversationStore.addMessage(
-              conversationId,
-              'assistant',
-              JSON.stringify([{ type: 'text', text: 'Screen recording attached.' }]),
-            );
-            const messageId = newMsg.id;
-            log.info({ recordingId, conversationId, messageId }, 'Created assistant message for recording attachment');
-
-            linkAttachmentToMessage(messageId, attachment.id, 0);
-            log.info({ recordingId, messageId, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
-
-            // Generate thumbnail before notifying the client so it's included
-            // in the message_complete payload (fire-and-forget would race).
-            let thumbnailData: string | undefined;
-            try {
-              const thumb = await generateVideoThumbnailFromPath(resolvedPath);
-              if (thumb) {
-                setAttachmentThumbnail(attachment.id, thumb);
-                thumbnailData = thumb;
-                log.info({ recordingId, attachmentId: attachment.id }, 'Thumbnail generated for recording');
-              }
-            } catch (err) {
-              log.warn({ err, recordingId }, 'Thumbnail generation failed — continuing without thumbnail');
-            }
-
-            // Notify the client via the reporting socket
-            if (notifySocket) {
-              ctx.send(notifySocket, {
-                type: 'assistant_text_delta',
-                text: 'Screen recording complete. Your recording has been saved.',
-                sessionId: conversationId,
-              });
-              ctx.send(notifySocket, {
-                type: 'message_complete',
-                sessionId: conversationId,
-                attachments: [{
-                  id: attachment.id,
-                  filename: attachment.originalFilename,
-                  mimeType: attachment.mimeType,
-                  data: '',  // empty for file-backed; client uses content endpoint
-                  sizeBytes: attachment.sizeBytes,
-                  thumbnailData,
-                }],
-              });
-            }
-          }
-        } catch (err) {
-          log.error({ err, recordingId, filePath: msg.filePath }, 'Failed to create attachment for standalone recording');
-          if (notifySocket) {
-            ctx.send(notifySocket, {
-              type: 'assistant_text_delta',
-              text: 'Recording saved but failed to attach to conversation.',
-              sessionId: conversationId,
-            });
-            ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
-          }
-        }
-      } else {
-        // No file path — recording stopped without producing a file
-        log.warn({ recordingId, conversationId }, 'Recording stopped without file path');
-        if (notifySocket) {
-          ctx.send(notifySocket, {
-            type: 'assistant_text_delta',
-            text: 'Recording stopped but no file was produced.',
-            sessionId: conversationId,
-          });
-          ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
-        }
+      if (notifySocket) {
+        await finalizeAndPublishRecording({
+          recordingId,
+          conversationId,
+          filePath: msg.filePath,
+          durationMs: msg.durationMs,
+          notifySocket,
+          ctx,
+        });
       }
 
       break;
@@ -807,6 +881,15 @@ export function cleanupRecordingsOnDisconnect(
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
+/**
+ * Inject a recording owner entry. Only for use in tests.
+ * This allows tests to simulate a second active recording that blocks
+ * handleRecordingStart's global single-active guard.
+ */
+export function __injectRecordingOwner(conversationId: string, recordingId: string): void {
+  recordingOwnerByConversation.set(conversationId, recordingId);
+}
+
 /** Reset module-level state. Only for use in tests. */
 export function __resetRecordingState(): void {
   for (const handle of pendingStopTimeouts.values()) {
@@ -817,6 +900,7 @@ export function __resetRecordingState(): void {
   recordingOwnerByConversation.clear();
   pendingRestartByConversation.clear();
   deferredRestartByConversation.clear();
+  finalizedRecordingIds.clear();
   activeRestartToken = null;
 }
 

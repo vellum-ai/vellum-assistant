@@ -2075,6 +2075,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         if let existing = mainWindow {
             existing.show()
+            refreshDockConversationBadge()
             return
         }
         let main = ensureMainWindowExists(isFirstLaunch: isFirstLaunch)
@@ -2091,6 +2092,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         }
         main.show()
+        refreshDockConversationBadge()
     }
 
     private func observeAssistantStatus() {
@@ -2141,6 +2143,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     private func applyDockConversationBadge(count: Int) {
         NSApp.dockTile.badgeLabel = formatDockConversationBadge(count: count)
+        // Activation-policy transitions can recreate Dock tile presentation;
+        // force a redraw so badge updates are immediately reflected.
+        NSApp.dockTile.display()
+    }
+
+    private func refreshDockConversationBadge() {
+        applyDockConversationBadge(count: mainWindow?.threadManager.unseenVisibleConversationCount ?? 0)
     }
 
     // MARK: - About Panel
@@ -2201,6 +2210,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             tasksWindow = window
         }
         tasksWindow?.show()
+        refreshDockConversationBadge()
     }
 
     // MARK: - Application Lifecycle
