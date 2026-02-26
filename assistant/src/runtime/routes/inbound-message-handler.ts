@@ -778,9 +778,14 @@ export async function handleChannelInbound(
               const errorMsg = 'error' in answerResult ? answerResult.error : 'Unknown error';
               log.warn({ callSessionId: request.callSessionId, error: errorMsg }, 'answerCall failed for guardian answer');
               try {
+                const failureText = await composeGuardianActionMessageGenerative(
+                  { scenario: 'guardian_answer_delivery_failed' },
+                  {},
+                  guardianActionCopyGenerator,
+                );
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: externalChatId,
-                  text: 'Failed to deliver your answer to the call. Please try again.',
+                  text: failureText,
                   assistantId,
                 }, bearerToken);
               } catch (deliverErr) {

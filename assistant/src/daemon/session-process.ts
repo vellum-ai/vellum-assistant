@@ -419,7 +419,12 @@ export async function processMessage(
       } else {
         const errorDetail = 'error' in answerResult ? answerResult.error : 'Unknown error';
         log.warn({ callSessionId: guardianRequest.callSessionId, error: errorDetail }, 'answerCall failed for mac guardian answer');
-        const failMsg = createAssistantMessage('Failed to deliver your answer to the call. Please try again.');
+        const failureText = await composeGuardianActionMessageGenerative(
+          { scenario: 'guardian_answer_delivery_failed' },
+          {},
+          _guardianActionCopyGenerator,
+        );
+        const failMsg = createAssistantMessage(failureText);
         conversationStore.addMessage(
           session.conversationId,
           'assistant',
@@ -427,7 +432,7 @@ export async function processMessage(
           guardianChannelMeta,
         );
         session.messages.push(failMsg);
-        onEvent({ type: 'assistant_text_delta', text: 'Failed to deliver your answer to the call. Please try again.' });
+        onEvent({ type: 'assistant_text_delta', text: failureText });
       }
       onEvent({ type: 'message_complete', sessionId: session.conversationId });
       return persisted.id;

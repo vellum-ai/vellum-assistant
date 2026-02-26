@@ -31,7 +31,8 @@ export type GuardianActionMessageScenario =
   | 'outbound_message_copy'
   | 'followup_message_sent'
   | 'followup_call_started'
-  | 'followup_action_failed';
+  | 'followup_action_failed'
+  | 'guardian_answer_delivery_failed';
 
 export interface GuardianActionMessageContext {
   scenario: GuardianActionMessageScenario;
@@ -207,6 +208,9 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
       return context.failureReason
         ? `I'm sorry, I wasn't able to complete that. ${context.failureReason}`
         : "I'm sorry, something went wrong and I couldn't complete that action. Please try again later.";
+
+    case 'guardian_answer_delivery_failed':
+      return "I wasn't able to deliver your answer to the call. The call may have ended. Please try again or follow up directly.";
 
     default: {
       const _exhaustive: never = context.scenario;

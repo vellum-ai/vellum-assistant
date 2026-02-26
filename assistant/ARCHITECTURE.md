@@ -65,6 +65,57 @@ The policy is implemented in `src/tools/guardian-control-plane-policy.ts`, which
 
 The `guardian-verify-setup` skill is the exclusive handler for guardian verification intents in the system prompt. Other skills (e.g., `phone-calls`) hand off to `guardian-verify-setup` rather than orchestrating verification directly.
 
+### Guardian Action Timeout-to-Follow-Up Lifecycle
+
+When a voice call's ASK_GUARDIAN consultation times out before the guardian responds, the system enters a follow-up lifecycle that allows the guardian to act on their late answer after the call has moved on. The entire flow uses LLM-generated copy (never hardcoded user-facing strings) to maintain a natural, conversational tone across voice and text channels.
+
+**Lifecycle stages:**
+
+```
+ ASK_GUARDIAN fires on call
+         |
+         v
+ [pending] -- guardian answers in time --> [answered] (normal flow)
+         |
+         | (timeout expires)
+         v
+ [expired, followup_state=none]
+         |
+         | (guardian replies late)
+         v
+ [expired, followup_state=awaiting_guardian_choice]
+         |
+         | (conversation engine classifies intent)
+         v
+ call_back / message_back / decline
+         |                        |
+         v                        v
+ [dispatching]              [declined] (terminal)
+         |
+         | (executor runs action)
+         v
+ [completed] or [failed] (terminal)
+```
+
+**Generated messaging requirement:** All user-facing copy in the guardian timeout/follow-up path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files (call-controller, inbound-message-handler, session-process) outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
+
+**Callback/message-back branch:** When the conversation engine classifies the guardian's intent as `call_back`, the executor starts an outbound call to the counterparty with context about the guardian's answer. When classified as `message_back`, the executor sends an SMS to the counterparty via the gateway's `/deliver/sms` endpoint. The counterparty phone number is resolved from the original call session by call direction (inbound: `fromNumber`; outbound: `toNumber`).
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/memory/guardian-action-store.ts` | Follow-up state machine with atomic transitions (`startFollowupFromExpiredRequest`, `progressFollowupState`, `finalizeFollowup`) and query helpers for pending/expired/follow-up deliveries |
+| `src/runtime/guardian-action-message-composer.ts` | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates. Covers all scenarios from timeout acknowledgment through follow-up completion |
+| `src/runtime/guardian-action-conversation-turn.ts` | Follow-up decision engine: classifies guardian replies into `call_back`, `message_back`, `decline`, or `keep_pending` dispositions using LLM tool calling |
+| `src/runtime/guardian-action-followup-executor.ts` | Action dispatch: resolves counterparty from call session, executes `message_back` (SMS via gateway) or `call_back` (outbound call via `startCall`), finalizes follow-up state |
+| `src/daemon/guardian-action-generators.ts` | Daemon-injected generator factories: `createGuardianActionCopyGenerator` (latency-optimized text rewriting) and `createGuardianFollowUpConversationGenerator` (tool-calling intent classification) |
+| `src/calls/call-controller.ts` | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response |
+| `src/runtime/routes/inbound-message-handler.ts` | Late reply interception for Telegram/SMS channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions |
+| `src/daemon/session-process.ts` | Late reply interception for mac/IPC channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup |
+| `src/calls/guardian-action-sweep.ts` | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations |
+| `src/memory/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`) |
+
 ### SMS Channel (Twilio)
 
 The SMS channel provides text-only messaging via Twilio, sharing the same telephony provider as voice calls. It follows the same ingress/egress pattern as Telegram but uses Twilio's HMAC-SHA1 signature validation instead of a secret header.
