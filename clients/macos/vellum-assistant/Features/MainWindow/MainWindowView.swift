@@ -1593,7 +1593,7 @@ private struct DrawerThemeToggle: View {
                                     ? VColor.hoverOverlay.opacity(0.1)
                                     : Color.clear
                             )
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     }
                     .buttonStyle(.plain)
                     .help(option.tooltip)
