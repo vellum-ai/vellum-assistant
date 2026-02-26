@@ -65,6 +65,9 @@ struct SettingsConnectTab: View {
     // Refresh button minimum-spin state (keyed by row label)
     @State private var refreshSpinning: Set<String> = []
 
+    // Shared label column width for channelStatusRow and guardianLabel alignment
+    private let labelColumnWidth: CGFloat = 140
+
     // Token regeneration state
     @State private var isRegeneratingToken: Bool = false
 
@@ -1009,7 +1012,7 @@ struct SettingsConnectTab: View {
             Text(label)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
-                .frame(width: 90, alignment: .leading)
+                .frame(width: labelColumnWidth, alignment: .leading)
 
             Image(systemName: icon)
                 .foregroundColor(iconColor)
@@ -1047,7 +1050,7 @@ struct SettingsConnectTab: View {
         }
         .font(VFont.caption)
         .foregroundColor(VColor.textSecondary)
-        .frame(width: 140, alignment: .leading)
+        .frame(width: labelColumnWidth, alignment: .leading)
     }
 
     private func guardianPrimaryIdentity(channel: String, identity: String?) -> String? {
@@ -1258,7 +1261,7 @@ struct SettingsConnectTab: View {
                         }
                     }
                 }
-                .padding(.leading, 140 + VSpacing.sm)
+                .padding(.leading, labelColumnWidth + VSpacing.sm)
             }
         }
     }
@@ -1465,7 +1468,7 @@ struct SettingsConnectTab: View {
                     }
                 }
             }
-            .padding(.leading, 140 + VSpacing.sm)
+            .padding(.leading, labelColumnWidth + VSpacing.sm)
         }
         .onAppear { startCountdownTimer() }
         .onDisappear { stopCountdownTimer() }
@@ -1552,7 +1555,7 @@ struct SettingsConnectTab: View {
                 Text(guardianInstructionSubtext(channel: channel))
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
-                    .padding(.leading, 140 + VSpacing.sm)
+                    .padding(.leading, labelColumnWidth + VSpacing.sm)
 
                 HStack(spacing: VSpacing.sm) {
                     Text(command)
@@ -1596,7 +1599,7 @@ struct SettingsConnectTab: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                 )
-                .padding(.leading, 140 + VSpacing.sm)
+                .padding(.leading, labelColumnWidth + VSpacing.sm)
             } else {
                 // Fallback: show raw instruction if command can't be parsed
                 Text(instruction)
@@ -1611,7 +1614,7 @@ struct SettingsConnectTab: View {
                             .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                     )
                     .textSelection(.enabled)
-                    .padding(.leading, 140 + VSpacing.sm)
+                    .padding(.leading, labelColumnWidth + VSpacing.sm)
             }
         }
     }
@@ -1625,7 +1628,7 @@ struct SettingsConnectTab: View {
         }
         .font(VFont.caption)
         .foregroundColor(VColor.textSecondary)
-        .frame(width: 140, alignment: .leading)
+        .frame(width: labelColumnWidth, alignment: .leading)
     }
 
     private var mobileCard: some View {
