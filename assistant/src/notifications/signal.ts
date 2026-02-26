@@ -12,6 +12,8 @@ export interface AttentionHints {
   visibleInSourceNow: boolean;
 }
 
+export type RoutingIntent = 'single_channel' | 'multi_channel' | 'all_channels';
+
 export interface NotificationSignal {
   signalId: string;
   assistantId: string;
@@ -21,4 +23,8 @@ export interface NotificationSignal {
   sourceEventName: string; // free-form: 'reminder_fired', 'schedule_complete', 'guardian_question', etc.
   contextPayload: Record<string, unknown>;
   attentionHints: AttentionHints;
+  /** Routing intent from the source (e.g. reminder). Controls post-decision channel enforcement. */
+  routingIntent?: RoutingIntent;
+  /** Free-form hints from the source for the decision engine (e.g. preferred channels). */
+  routingHints?: Record<string, unknown>;
 }
