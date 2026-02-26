@@ -65,31 +65,32 @@ mock.module('../memory/attachments-store.js', () => ({
   setAttachmentThumbnail: noop,
 }));
 
+// Capture real modules BEFORE mocking to avoid circular resolution
+// (mock.module('node:fs') + require('fs') inside factory = deadlock)
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realFs = require('fs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPath = require('path');
+
 // Mock node:fs
-mock.module('node:fs', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const realFs = require('fs');
-  return {
-    ...realFs,
-    existsSync: (p: string) => {
-      if (p.includes('recording') || p.includes('/tmp/')) return true;
-      return realFs.existsSync(p);
-    },
-    statSync: (p: string, opts?: any) => {
-      if (p.includes('recording') || p.includes('/tmp/')) return { size: 1024 };
-      return realFs.statSync(p, opts);
-    },
-    realpathSync: (p: string) => {
-      // Use path.resolve() to canonicalize `..` segments so traversal
-      // attacks like `${ALLOWED_DIR}/../outside.mov` are normalized,
-      // preserving the same semantics as the real realpathSync without
-      // hitting the filesystem (which would throw ENOENT for test paths).
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { resolve } = require('path');
-      return resolve(p);
-    },
-  };
-});
+mock.module('node:fs', () => ({
+  ...realFs,
+  existsSync: (p: string) => {
+    if (p.includes('recording') || p.includes('/tmp/')) return true;
+    return realFs.existsSync(p);
+  },
+  statSync: (p: string, opts?: any) => {
+    if (p.includes('recording') || p.includes('/tmp/')) return { size: 1024 };
+    return realFs.statSync(p, opts);
+  },
+  realpathSync: (p: string) => {
+    // Use path.resolve() to canonicalize `..` segments so traversal
+    // attacks like `${ALLOWED_DIR}/../outside.mov` are normalized,
+    // preserving the same semantics as the real realpathSync without
+    // hitting the filesystem (which would throw ENOENT for test paths).
+    return realPath.resolve(p);
+  },
+}));
 
 // Mock video thumbnail
 mock.module('../daemon/video-thumbnail.js', () => ({
