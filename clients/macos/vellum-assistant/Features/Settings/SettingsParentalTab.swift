@@ -78,6 +78,7 @@ struct SettingsParentalTab: View {
                     // Allowlist and activity log are only visible to the parent
                     if settingsStore.activeProfile == "parental" {
                         appsAndWidgetsSection
+                        integrationsSection
                         activityLogSection
                     }
                 } else {
@@ -88,6 +89,39 @@ struct SettingsParentalTab: View {
         .onAppear {
             loadSettings()
             settingsStore.loadActivityLog()
+            if let pin = unlockedPIN {
+                // Already unlocked (e.g. view re-appears while PIN is cached)
+                settingsStore.loadAllowedIntegrations(pin: pin)
+            } else if !hasPIN {
+                // No PIN configured — integrations are accessible without a PIN
+                settingsStore.loadAllowedIntegrations(pin: "")
+            }
+        }
+        .sheet(isPresented: $showingProfileSwitchSheet) {
+            ProfileSwitchSheet(
+                onComplete: { result in
+                    switch result {
+                    case .success(let pin):
+                        Task {
+                            await settingsStore.switchProfile(to: "parental", pin: pin)
+                            if settingsStore.profileSwitchError == nil {
+                                showingProfileSwitchSheet = false
+                                // Cache the PIN so the parental profile can immediately
+                                // respond to pending approval requests without a separate
+                                // unlock step.
+                                isUnlocked = true
+                                unlockedPIN = pin
+                                settingsStore.loadAllowedIntegrations(pin: pin)
+                            } else {
+                                profileSwitchError = settingsStore.profileSwitchError
+                            }
+                        }
+                    case .failure:
+                        profileSwitchError = "Incorrect PIN."
+                    }
+                },
+                daemonClient: daemonClient
+            )
         }
         .sheet(isPresented: $showingPINSheet) {
             PINSheet(
@@ -128,6 +162,7 @@ struct SettingsParentalTab: View {
                         isUnlocked = true
                         unlockedPIN = pin
                         errorMessage = nil
+                        settingsStore.loadAllowedIntegrations(pin: pin)
                     case .failure:
                         errorMessage = "Incorrect PIN."
                     }
@@ -536,6 +571,53 @@ struct SettingsParentalTab: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Integrations Section
+
+    /// The canonical list of integrations that can be enabled for the child profile.
+    private let availableIntegrations: [(id: String, label: String, icon: String)] = [
+        ("telegram", "Telegram", "paperplane.fill"),
+        ("sms", "SMS", "message.fill"),
+        ("voice", "Voice", "phone.fill"),
+        ("email", "Email", "envelope.fill"),
+        ("mobile", "Mobile (iOS)", "iphone"),
+    ]
+
+    private var integrationsSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Integrations")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Child profile can only use enabled integrations.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            ForEach(availableIntegrations, id: \.id) { integration in
+                Toggle(integration.label, isOn: Binding(
+                    get: { settingsStore.allowedIntegrations.contains(integration.id) },
+                    set: { isOn in
+                        // Use the cached PIN when set; fall back to "" when no PIN is configured
+                        let pin = unlockedPIN ?? (hasPIN ? nil : "") ?? ""
+                        // Guard: if a PIN is set but not yet unlocked, do nothing
+                        if hasPIN && unlockedPIN == nil { return }
+                        let updated = isOn
+                            ? settingsStore.allowedIntegrations + [integration.id]
+                            : settingsStore.allowedIntegrations.filter { $0 != integration.id }
+                        settingsStore.allowedIntegrations = updated
+                        settingsStore.updateAllowedIntegrations(pin: pin, integrations: updated)
+                    }
+                ))
+                .accessibilityLabel(integration.label)
+                // Disable only when loading or when a PIN is required but not yet provided
+                .disabled(isLoading || (hasPIN && unlockedPIN == nil))
+            }
+        }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }

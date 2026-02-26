@@ -371,6 +371,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `parental_control_allowlist_update_response` message.
     public var onParentalControlAllowlistUpdateResponse: ((ParentalControlAllowlistUpdateResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `parental_integration_allowlist_get_response` message.
+    public var onParentalIntegrationAllowlistGetResponse: ((ParentalIntegrationAllowlistGetResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `parental_integration_allowlist_update_response` message.
+    public var onParentalIntegrationAllowlistUpdateResponse: ((ParentalIntegrationAllowlistUpdateResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `parental_control_approval_create_response` message.
     public var onParentalControlApprovalCreateResponse: ((ParentalControlApprovalCreateResponseMessage) -> Void)?
 
@@ -1474,6 +1480,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Update the app and/or widget allowlist. PIN is required when parental controls are enabled.
     public func sendParentalControlAllowlistUpdate(pin: String? = nil, allowedApps: [String]? = nil, allowedWidgets: [String]? = nil) throws {
         try send(ParentalControlAllowlistUpdateRequestMessage(pin: pin, allowedApps: allowedApps, allowedWidgets: allowedWidgets))
+    }
+
+    /// Request the current integration allowlist. PIN is required when parental controls are enabled.
+    public func sendParentalIntegrationAllowlistGet(pin: String) throws {
+        try send(ParentalIntegrationAllowlistGetRequestMessage(pin: pin))
+    }
+
+    /// Update the integration allowlist. PIN is required when parental controls are enabled.
+    public func sendParentalIntegrationAllowlistUpdate(pin: String, allowedIntegrations: [String]) throws {
+        try send(ParentalIntegrationAllowlistUpdateRequestMessage(pin: pin, allowedIntegrations: allowedIntegrations))
     }
 
     /// Create an approval request from the child profile (e.g., request permission to use a blocked tool).

@@ -41,6 +41,7 @@ export interface ParentalControlSettings {
   initialized: boolean;
   allowedApps: string[];
   allowedWidgets: string[];
+  allowedIntegrations: string[];
 }
 
 const DEFAULT_SETTINGS: ParentalControlSettings = {
@@ -51,6 +52,7 @@ const DEFAULT_SETTINGS: ParentalControlSettings = {
   initialized: false,
   allowedApps: [],
   allowedWidgets: [],
+  allowedIntegrations: [],
 };
 
 function getSettingsPath(): string {
@@ -81,6 +83,7 @@ export function getParentalControlSettings(): ParentalControlSettings {
         : (typeof parsed.enabled === 'boolean' && parsed.enabled),
       allowedApps: Array.isArray(parsed.allowedApps) ? parsed.allowedApps : [],
       allowedWidgets: Array.isArray(parsed.allowedWidgets) ? parsed.allowedWidgets : [],
+      allowedIntegrations: Array.isArray(parsed.allowedIntegrations) ? parsed.allowedIntegrations : [],
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -109,6 +112,7 @@ export function updateParentalControlSettings(
     initialized: patch.initialized !== undefined ? patch.initialized : current.initialized,
     allowedApps: patch.allowedApps !== undefined ? patch.allowedApps : current.allowedApps,
     allowedWidgets: patch.allowedWidgets !== undefined ? patch.allowedWidgets : current.allowedWidgets,
+    allowedIntegrations: patch.allowedIntegrations !== undefined ? patch.allowedIntegrations : current.allowedIntegrations,
   };
   saveSettings(next);
   return next;
@@ -216,6 +220,18 @@ export function isWidgetAllowed(widgetName: string): boolean {
   const { enabled, activeProfile, allowedWidgets } = getParentalControlSettings();
   if (!enabled || activeProfile !== 'child') return true;
   return allowedWidgets.includes(widgetName);
+}
+
+/**
+ * Returns true if the given integration name is in the allowlist.
+ * Deny-by-default: an empty allowlist blocks all integrations for the child profile.
+ * Always returns true when parental controls are disabled or the parental
+ * profile is active, consistent with isAppAllowed and isWidgetAllowed.
+ */
+export function isIntegrationAllowed(integration: string): boolean {
+  const { enabled, activeProfile, allowedIntegrations } = getParentalControlSettings();
+  if (!enabled || activeProfile !== 'child') return true;
+  return allowedIntegrations.includes(integration);
 }
 
 // ---------------------------------------------------------------------------

@@ -216,6 +216,8 @@ public final class SettingsStore: ObservableObject {
     @Published var allowedApps: [String] = []
     /// Allowlisted widget names for the child profile. Empty means all widgets are allowed.
     @Published var allowedWidgets: [String] = []
+    /// Allowlisted integration names for the child profile. Empty means all integrations are blocked.
+    @Published var allowedIntegrations: [String] = []
 
     /// Activity log entries recorded while the child profile was active.
     @Published var activityLog: [ActivityLogEntry] = []
@@ -1831,6 +1833,83 @@ public final class SettingsStore: ObservableObject {
             // but we don't need to block on it for the UX.
             await MainActor.run {
                 self.activityLog = []
+            }
+        }
+    }
+
+    // MARK: - Integration Allowlist Actions
+
+    /// Load the current integration allowlist from the daemon. PIN is required when parental controls are enabled.
+    func loadAllowedIntegrations(pin: String) {
+        guard let daemonClient else { return }
+        let stream = daemonClient.subscribe()
+        Task {
+            do {
+                try daemonClient.sendParentalIntegrationAllowlistGet(pin: pin)
+            } catch {
+                log.error("Failed to send parental_integration_allowlist_get: \(error)")
+                return
+            }
+
+            let response: ParentalIntegrationAllowlistGetResponseMessage? = await withTaskGroup(
+                of: ParentalIntegrationAllowlistGetResponseMessage?.self
+            ) { group in
+                group.addTask {
+                    for await message in stream {
+                        if case .parentalIntegrationAllowlistGetResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            guard let r = response, r.success else { return }
+            await MainActor.run {
+                self.allowedIntegrations = r.allowedIntegrations
+            }
+        }
+    }
+
+    /// Update the integration allowlist on the daemon and sync local state.
+    /// `pin` is required when parental controls are enabled and a PIN is set.
+    func updateAllowedIntegrations(pin: String, integrations: [String]) {
+        guard let daemonClient else { return }
+        let stream = daemonClient.subscribe()
+        Task {
+            do {
+                try daemonClient.sendParentalIntegrationAllowlistUpdate(pin: pin, allowedIntegrations: integrations)
+            } catch {
+                log.error("Failed to send parental_integration_allowlist_update: \(error)")
+                return
+            }
+
+            let response: ParentalIntegrationAllowlistUpdateResponseMessage? = await withTaskGroup(
+                of: ParentalIntegrationAllowlistUpdateResponseMessage?.self
+            ) { group in
+                group.addTask {
+                    for await message in stream {
+                        if case .parentalIntegrationAllowlistUpdateResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            guard let r = response, r.success else { return }
+            await MainActor.run {
+                self.allowedIntegrations = integrations
             }
         }
     }

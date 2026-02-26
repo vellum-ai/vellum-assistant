@@ -3507,6 +3507,56 @@ public struct IPCParentalControlVerifyPinResponse: Codable, Sendable {
     }
 }
 
+/// Retrieve the current integration allowlist. PIN required when parental controls are enabled.
+public struct IPCParentalIntegrationAllowlistGetRequest: Codable, Sendable {
+    public let type: String
+    public let pin: String
+
+    public init(type: String, pin: String) {
+        self.type = type
+        self.pin = pin
+    }
+}
+
+public struct IPCParentalIntegrationAllowlistGetResponse: Codable, Sendable {
+    public let type: String
+    public let allowedIntegrations: [String]
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, allowedIntegrations: [String], success: Bool, error: String? = nil) {
+        self.type = type
+        self.allowedIntegrations = allowedIntegrations
+        self.success = success
+        self.error = error
+    }
+}
+
+/// Update the integration allowlist. PIN required when parental controls are enabled.
+public struct IPCParentalIntegrationAllowlistUpdateRequest: Codable, Sendable {
+    public let type: String
+    public let pin: String
+    public let allowedIntegrations: [String]
+
+    public init(type: String, pin: String, allowedIntegrations: [String]) {
+        self.type = type
+        self.pin = pin
+        self.allowedIntegrations = allowedIntegrations
+    }
+}
+
+public struct IPCParentalIntegrationAllowlistUpdateResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, success: Bool, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.error = error
+    }
+}
+
 public struct IPCPingMessage: Codable, Sendable {
     public let type: String
 
