@@ -12,6 +12,7 @@ struct TaskInputView: View {
     @State private var hasAPIKey = APIKeyManager.hasAnyKey()
     @State private var attachments: [TaskAttachment] = []
     @State private var attachmentError: String?
+    @State private var assistantName: String = IdentityInfo.load()?.name ?? "Vellum"
     @State private var isDropTargeted = false
     @FocusState private var isTextFieldFocused: Bool
     // Use NSApp action instead of @Environment(\.openSettings) for Xcode 16.2 compatibility
@@ -27,7 +28,7 @@ struct TaskInputView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             HStack {
-                Text(IdentityInfo.load()?.name ?? "Vellum")
+                Text(assistantName)
                     .font(VFont.headline)
                     .foregroundStyle(.primary)
                 Spacer()
