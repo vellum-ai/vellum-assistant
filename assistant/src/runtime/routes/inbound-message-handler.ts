@@ -6,11 +6,12 @@
 import { answerCall } from '../../calls/call-domain.js';
 import type { ChannelId, InterfaceId } from '../../channels/types.js';
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId, parseInterfaceId } from '../../channels/types.js';
+import { getGatewayInternalBaseUrl } from '../../config/env.js';
+import { RESEND_COOLDOWN_MS } from '../../daemon/handlers/config-channels.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import {
   createApprovalRequest,
-  updateApprovalDecision,
 } from '../../memory/channel-guardian-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
@@ -22,30 +23,32 @@ import {
 import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
-import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import { readHttpToken } from '../../util/platform.js';
-import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import {
+  buildApprovalUIMetadata,
+  getApprovalInfoByConversation,
+  getChannelApprovalPrompt,
+} from '../channel-approvals.js';
+import {
+  bindSessionIdentity,
   createOutboundSession,
   findActiveSession,
   getGuardianBinding,
   getPendingChallenge,
-  validateAndConsumeChallenge,
   resolveBootstrapToken,
-  bindSessionIdentity,
-  updateSessionStatus,
   updateSessionDelivery,
+  updateSessionStatus,
+  validateAndConsumeChallenge,
 } from '../channel-guardian-service.js';
-import { RESEND_COOLDOWN_MS } from '../../daemon/handlers/config-channels.js';
 import { deliverChannelReply } from '../gateway-client.js';
+import { resolveGuardianContext } from '../guardian-context-resolver.js';
 import {
   composeChannelVerifyReply,
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from '../guardian-verification-templates.js';
-import { resolveGuardianContext } from '../guardian-context-resolver.js';
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -54,15 +57,14 @@ import type {
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import {
   canonicalChannelAssistantId,
-  getEffectivePollMaxWait,
   GUARDIAN_APPROVAL_TTL_MS,
   type GuardianContext,
-  RUN_POLL_INTERVAL_MS,
   stripVerificationFailurePrefix,
   toGuardianRuntimeContext,
   verifyGatewayOrigin,
 } from './channel-route-shared.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
+import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
 
 const log = getLogger('runtime-http');
 
@@ -71,17 +73,25 @@ const log = getLogger('runtime-http');
  * Accepts three formats:
  *   1. `/guardian_verify <code>` (legacy command format)
  *   2. `/guardian_verify@BotName <code>` (Telegram group format)
- *   3. A bare 6-digit numeric code as the entire message
- * Returns the verification code if recognized, or undefined otherwise.
+ *   3. A bare code as the entire message: 6-digit numeric OR 64-char hex
+ *      (hex is retained for backward compatibility with in-flight inbound
+ *      challenges that still use high-entropy secrets)
+ * Returns `{ code, isExplicitCommand }` if recognized, or undefined otherwise.
+ * `isExplicitCommand` is true for legacy /guardian_verify commands (explicit
+ * intent) and false for bare codes (which need additional gating to avoid
+ * intercepting normal 6-digit messages like zip codes or PINs).
  */
-function parseGuardianVerifyCommand(content: string): string | undefined {
+function parseGuardianVerifyCommand(content: string): { code: string; isExplicitCommand: boolean } | undefined {
   // Legacy /guardian_verify command format
   const commandMatch = content.match(/^\/guardian_verify(?:@\S+)?\s+(\S+)/);
-  if (commandMatch) return commandMatch[1];
+  if (commandMatch) return { code: commandMatch[1], isExplicitCommand: true };
 
-  // Bare 6-digit numeric code
-  const bareMatch = content.match(/^\d{6}$/);
-  return bareMatch?.[0];
+  // Bare code: 6-digit numeric (identity-bound outbound sessions) or
+  // 64-char hex (unbound inbound challenges)
+  const bareMatch = content.match(/^([0-9a-fA-F]{64}|\d{6})$/);
+  if (bareMatch) return { code: bareMatch[1], isExplicitCommand: false };
+
+  return undefined;
 }
 
 export async function handleChannelInbound(
@@ -190,8 +200,8 @@ export async function handleChannelInbound(
 
   // /guardian_verify must bypass the ACL membership check — users without a
   // member record need to verify before they can be recognized as members.
-  const guardianVerifyCode = parseGuardianVerifyCommand(trimmedContent);
-  const isGuardianVerifyCommand = guardianVerifyCode !== undefined;
+  const guardianVerifyParsed = parseGuardianVerifyCommand(trimmedContent);
+  const isGuardianVerifyCommand = guardianVerifyParsed !== undefined;
 
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
   // hasn't been verified yet and needs to complete the bootstrap handshake.
@@ -515,7 +525,7 @@ export async function handleChannelInbound(
 
   // Extract channel command intent (e.g. /start from Telegram)
   const rawCommandIntent = sourceMetadata?.commandIntent;
-  let commandIntent = rawCommandIntent && typeof rawCommandIntent === 'object' && !Array.isArray(rawCommandIntent)
+  const commandIntent = rawCommandIntent && typeof rawCommandIntent === 'object' && !Array.isArray(rawCommandIntent)
     ? rawCommandIntent as Record<string, unknown>
     : undefined;
 
@@ -590,15 +600,28 @@ export async function handleChannelInbound(
   // delivered via template-driven deterministic messages and the command
   // is short-circuited — it NEVER enters the agent pipeline. This
   // prevents verification commands from producing agent-generated copy.
+  //
+  // Bare 6-digit codes are only intercepted when there is actually a
+  // pending challenge or active outbound session for this channel.
+  // Without this guard, normal 6-digit messages (zip codes, PINs, etc.)
+  // would be swallowed by the verification handler and never reach the
+  // agent pipeline.  Legacy /guardian_verify commands are always
+  // intercepted because the explicit command prefix signals clear intent.
+  const shouldInterceptVerification = guardianVerifyParsed !== undefined &&
+    (guardianVerifyParsed.isExplicitCommand ||
+     !!getPendingChallenge(canonicalAssistantId, sourceChannel) ||
+     !!findActiveSession(canonicalAssistantId, sourceChannel));
+
   if (
     !result.duplicate &&
-    guardianVerifyCode !== undefined &&
+    shouldInterceptVerification &&
+    guardianVerifyParsed !== undefined &&
     body.senderExternalUserId
   ) {
     const verifyResult = validateAndConsumeChallenge(
       canonicalAssistantId,
       sourceChannel,
-      guardianVerifyCode,
+      guardianVerifyParsed.code,
       body.senderExternalUserId,
       externalChatId,
       body.senderUsername,
@@ -915,6 +938,7 @@ export async function handleChannelInbound(
       replyCallbackUrl,
       bearerToken,
       assistantId: canonicalAssistantId,
+      approvalCopyGenerator,
     });
   }
 
@@ -944,11 +968,17 @@ interface BackgroundProcessingParams {
   replyCallbackUrl?: string;
   bearerToken?: string;
   assistantId?: string;
+  approvalCopyGenerator?: ApprovalCopyGenerator;
   commandIntent?: Record<string, unknown>;
   sourceLanguageCode?: string;
 }
 
 const TELEGRAM_TYPING_INTERVAL_MS = 4_000;
+const PENDING_APPROVAL_POLL_INTERVAL_MS = 300;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function shouldEmitTelegramTyping(
   sourceChannel: ChannelId,
@@ -996,6 +1026,70 @@ function startTelegramTypingHeartbeat(
   };
 }
 
+function startPendingApprovalPromptWatcher(params: {
+  conversationId: string;
+  sourceChannel: ChannelId;
+  externalChatId: string;
+  replyCallbackUrl: string;
+  bearerToken?: string;
+  assistantId?: string;
+  approvalCopyGenerator?: ApprovalCopyGenerator;
+}): () => void {
+  const {
+    conversationId,
+    sourceChannel,
+    externalChatId,
+    replyCallbackUrl,
+    bearerToken,
+    assistantId,
+    approvalCopyGenerator,
+  } = params;
+
+  let active = true;
+  const deliveredRequestIds = new Set<string>();
+
+  const poll = async (): Promise<void> => {
+    while (active) {
+      try {
+        const prompt = getChannelApprovalPrompt(conversationId);
+        const pending = getApprovalInfoByConversation(conversationId);
+        const info = pending[0];
+        if (prompt && info && !deliveredRequestIds.has(info.requestId)) {
+          deliveredRequestIds.add(info.requestId);
+          const delivered = await deliverGeneratedApprovalPrompt({
+            replyCallbackUrl,
+            chatId: externalChatId,
+            sourceChannel,
+            assistantId: assistantId ?? 'self',
+            bearerToken,
+            prompt,
+            uiMetadata: buildApprovalUIMetadata(prompt, info),
+            messageContext: {
+              scenario: 'standard_prompt',
+              toolName: info.toolName,
+              channel: sourceChannel,
+            },
+            approvalCopyGenerator,
+          });
+          if (!delivered) {
+            // Delivery can fail transiently (network or gateway outage).
+            // Keep polling and retry prompt delivery for the same request.
+            deliveredRequestIds.delete(info.requestId);
+          }
+        }
+      } catch (err) {
+        log.warn({ err, conversationId }, 'Pending approval prompt watcher failed');
+      }
+      await delay(PENDING_APPROVAL_POLL_INTERVAL_MS);
+    }
+  };
+
+  void poll();
+  return () => {
+    active = false;
+  };
+}
+
 function processChannelMessageInBackground(params: BackgroundProcessingParams): void {
   const {
     processMessage,
@@ -1012,6 +1106,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     replyCallbackUrl,
     bearerToken,
     assistantId,
+    approvalCopyGenerator,
     commandIntent,
     sourceLanguageCode,
   } = params;
@@ -1022,6 +1117,17 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
       : undefined;
     const stopTypingHeartbeat = typingCallbackUrl
       ? startTelegramTypingHeartbeat(typingCallbackUrl, externalChatId, bearerToken, assistantId)
+      : undefined;
+    const stopApprovalWatcher = replyCallbackUrl
+      ? startPendingApprovalPromptWatcher({
+        conversationId,
+        sourceChannel,
+        externalChatId,
+        replyCallbackUrl,
+        bearerToken,
+        assistantId,
+        approvalCopyGenerator,
+      })
       : undefined;
 
     try {
@@ -1040,6 +1146,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           },
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
+          isInteractive: true,
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,
@@ -1055,6 +1162,10 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           replyCallbackUrl,
           bearerToken,
           assistantId,
+          {
+            onSegmentDelivered: (count) =>
+              channelDeliveryStore.updateDeliveredSegmentCount(eventId, count),
+          },
         );
       }
     } catch (err) {
@@ -1062,6 +1173,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
       channelDeliveryStore.recordProcessingFailure(eventId, err);
     } finally {
       stopTypingHeartbeat?.();
+      stopApprovalWatcher?.();
     }
   })();
 }

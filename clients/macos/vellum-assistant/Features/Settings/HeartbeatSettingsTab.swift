@@ -126,7 +126,7 @@ struct HeartbeatSettingsTab: View {
                 }
             }
 
-            Text("Items the heartbeat checks on each run (HEARTBEAT.md)")
+            Text("Items the heartbeat checks on each run")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
 

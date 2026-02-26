@@ -83,9 +83,9 @@ mock.module('../memory/conversation-title-service.js', () => ({
 }));
 
 import { startGuardianVerificationCall } from '../calls/call-domain.js';
-import { getBindingByConversation } from '../memory/external-conversation-store.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import { initializeDb, resetDb } from '../memory/db.js';
+import { getBindingByConversation } from '../memory/external-conversation-store.js';
 
 initializeDb();
 

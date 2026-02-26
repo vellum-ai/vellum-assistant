@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 
-import type { ClientMessage } from '../ipc-protocol.js';
 import { updateDeliveryClientOutcome } from '../../notifications/deliveries-store.js';
+import type { ClientMessage } from '../ipc-protocol.js';
 import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
 import { appHandlers } from './apps.js';
@@ -30,6 +30,10 @@ import { workItemHandlers } from './work-items.js';
 import { workspaceFileHandlers } from './workspace-files.js';
 
 // Re-export types and utilities for backwards compatibility
+export {
+  handleRecordingStart,
+  handleRecordingStop,
+} from './recording.js';
 export type {
   HandlerContext,
   HistorySurface,
@@ -42,11 +46,6 @@ export {
   mergeToolResults,
   renderHistoryContent,
 } from './shared.js';
-
-export {
-  handleRecordingStart,
-  handleRecordingStop,
-} from './recording.js';
 
 // ─── Typed dispatch ──────────────────────────────────────────────────────────
 

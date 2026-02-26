@@ -65,6 +65,9 @@ struct SettingsConnectTab: View {
     // Refresh button minimum-spin state (keyed by row label)
     @State private var refreshSpinning: Set<String> = []
 
+    // Shared label column width for channelStatusRow and guardianLabel alignment
+    private let labelColumnWidth: CGFloat = 140
+
     // Token regeneration state
     @State private var isRegeneratingToken: Bool = false
 
@@ -89,8 +92,6 @@ struct SettingsConnectTab: View {
             store.refreshChannelGuardianStatus(channel: "sms")
             store.refreshChannelGuardianStatus(channel: "voice")
             gatewayExpanded = store.ingressPublicBaseUrl.isEmpty
-            Task { await store.testGatewayOnly() }
-            Task { await store.testTunnelOnly() }
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
             if !isGatewayUrlFocused {
@@ -119,6 +120,11 @@ struct SettingsConnectTab: View {
                 voiceSetupExpanded = false
                 voiceNumberPickerExpanded = false
             }
+        }
+        .onChange(of: store.ingressConfigLoaded) { _, loaded in
+            guard loaded else { return }
+            Task { await store.testGatewayOnly() }
+            Task { await store.testTunnelOnly() }
         }
         .alert("Regenerate Bearer Token", isPresented: $showingRegenerateConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -749,8 +755,9 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.error)
             }
 
-            // Guardian row (only when credentials exist)
-            if store.twilioHasCredentials {
+            // Guardian row (only when credentials and a phone number are assigned —
+            // voice verification initiates an outbound call which requires a valid caller number)
+            if store.twilioHasCredentials && store.twilioPhoneNumber != nil {
                 Divider().background(VColor.surfaceBorder)
                 guardianStatusRow(channel: "voice")
             }
@@ -1009,7 +1016,7 @@ struct SettingsConnectTab: View {
             Text(label)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
-                .frame(width: 90, alignment: .leading)
+                .frame(width: labelColumnWidth, alignment: .leading)
 
             Image(systemName: icon)
                 .foregroundColor(iconColor)
@@ -1047,7 +1054,7 @@ struct SettingsConnectTab: View {
         }
         .font(VFont.caption)
         .foregroundColor(VColor.textSecondary)
-        .frame(width: 140, alignment: .leading)
+        .frame(width: labelColumnWidth, alignment: .leading)
     }
 
     private func guardianPrimaryIdentity(channel: String, identity: String?) -> String? {
@@ -1258,7 +1265,7 @@ struct SettingsConnectTab: View {
                         }
                     }
                 }
-                .padding(.leading, 140 + VSpacing.sm)
+                .padding(.leading, labelColumnWidth + VSpacing.sm)
             }
         }
     }
@@ -1465,7 +1472,7 @@ struct SettingsConnectTab: View {
                     }
                 }
             }
-            .padding(.leading, 140 + VSpacing.sm)
+            .padding(.leading, labelColumnWidth + VSpacing.sm)
         }
         .onAppear { startCountdownTimer() }
         .onDisappear { stopCountdownTimer() }
@@ -1494,46 +1501,60 @@ struct SettingsConnectTab: View {
     private func guardianInstructionSubtext(channel: String) -> String {
         if channel == "telegram" {
             let handle = store.telegramBotUsername.map { "@\($0)" } ?? "your bot"
-            return "Message \(handle) with the below command within the next 10 minutes"
+            return "Message \(handle) with the below code within the next 10 minutes"
         } else if channel == "voice" {
             let number = store.twilioPhoneNumber ?? "your assistant"
             return "Call \(number) and say the six-digit code below within the next 10 minutes"
         } else {
             let number = store.twilioPhoneNumber ?? "your assistant"
-            return "Text \(number) with the below command within the next 10 minutes"
+            return "Text \(number) with the below code within the next 10 minutes"
         }
     }
 
-    /// Extracts the `/guardian_verify <hex>` command from a raw instruction string.
+    /// Extracts a guardian verification code from a raw instruction string.
+    /// Supports three formats:
+    ///   1. Legacy `/guardian_verify <hex>` command
+    ///   2. "N-digit code: <digits>" (numeric codes, e.g. "6-digit code: 123456")
+    ///   3. "the code: <hex>" (high-entropy hex codes for inbound challenges)
     private func extractGuardianCommand(from instruction: String) -> String? {
-        guard let range = instruction.range(of: #"`?/guardian_verify\s+[0-9a-fA-F]+`?"#, options: .regularExpression) else {
-            return nil
+        // Try legacy /guardian_verify command format first
+        if let range = instruction.range(of: #"`?/guardian_verify\s+[0-9a-fA-F]+`?"#, options: .regularExpression) {
+            return String(instruction[range]).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
         }
-        return String(instruction[range]).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
+        // Try N-digit code format (e.g., "6-digit code: 123456")
+        if let code = extractNumericCode(from: instruction) {
+            return code
+        }
+        // Try generic "the code: <hex>" format for high-entropy codes
+        if let range = instruction.range(of: #"the code:\s*([0-9a-fA-F]+)"#, options: .regularExpression) {
+            let match = String(instruction[range])
+            if let hexRange = match.range(of: #"[0-9a-fA-F]{6,}"#, options: .regularExpression) {
+                return String(match[hexRange])
+            }
+        }
+        return nil
     }
 
-    /// Extracts a six-digit verification code from voice-style instruction text.
-    /// Voice instructions use a format like "...six-digit code: 123456..." instead of the
-    /// `/guardian_verify <hex>` command used by Telegram and SMS channels.
-    private func extractVoiceGuardianCode(from instruction: String) -> String? {
-        guard let range = instruction.range(of: #"six-digit code:\s*(\d{6})"#, options: .regularExpression) else {
+    /// Extracts a numeric verification code from instruction text.
+    /// Matches the format "N-digit code: <digits>" used for identity-bound codes.
+    private func extractNumericCode(from instruction: String) -> String? {
+        guard let range = instruction.range(of: #"\d+-digit code:\s*(\d+)"#, options: .regularExpression) else {
             return nil
         }
         let match = String(instruction[range])
-        // Extract just the digits from "six-digit code: 123456"
-        guard let digitRange = match.range(of: #"\d{6}"#, options: .regularExpression) else {
+        // Extract just the digits after "N-digit code: "
+        guard let colonRange = match.range(of: #":\s*"#, options: .regularExpression) else {
             return nil
         }
-        return String(match[digitRange])
+        return String(match[colonRange.upperBound...])
     }
 
     @ViewBuilder
     private func guardianInstructionView(channel: String, instruction: String) -> some View {
-        // Voice uses a different instruction format ("six-digit code: 123456") vs
-        // Telegram/SMS which use "/guardian_verify <hex>".
-        let command: String? = channel == "voice"
-            ? extractVoiceGuardianCode(from: instruction)
-            : extractGuardianCommand(from: instruction)
+        // All channels now use 6-digit numeric codes. extractGuardianCommand
+        // handles both the legacy /guardian_verify format and the new
+        // "six-digit code: 123456" format.
+        let command: String? = extractGuardianCommand(from: instruction)
         let isCopied = guardianCommandCopiedChannel == channel
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -1552,7 +1573,7 @@ struct SettingsConnectTab: View {
                 Text(guardianInstructionSubtext(channel: channel))
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
-                    .padding(.leading, 140 + VSpacing.sm)
+                    .padding(.leading, labelColumnWidth + VSpacing.sm)
 
                 HStack(spacing: VSpacing.sm) {
                     Text(command)
@@ -1596,7 +1617,7 @@ struct SettingsConnectTab: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                 )
-                .padding(.leading, 140 + VSpacing.sm)
+                .padding(.leading, labelColumnWidth + VSpacing.sm)
             } else {
                 // Fallback: show raw instruction if command can't be parsed
                 Text(instruction)
@@ -1611,7 +1632,7 @@ struct SettingsConnectTab: View {
                             .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                     )
                     .textSelection(.enabled)
-                    .padding(.leading, 140 + VSpacing.sm)
+                    .padding(.leading, labelColumnWidth + VSpacing.sm)
             }
         }
     }
@@ -1625,7 +1646,7 @@ struct SettingsConnectTab: View {
         }
         .font(VFont.caption)
         .foregroundColor(VColor.textSecondary)
-        .frame(width: 140, alignment: .leading)
+        .frame(width: labelColumnWidth, alignment: .leading)
     }
 
     private var mobileCard: some View {
@@ -1660,6 +1681,13 @@ struct SettingsConnectTab: View {
                         }
                     )
                 }
+
+                Button("Clear All") {
+                    store.clearAllApprovedDevices()
+                }
+                .font(VFont.caption)
+                .foregroundColor(VColor.error)
+                .buttonStyle(.borderless)
             }
 
             Divider().background(VColor.surfaceBorder)
@@ -1860,7 +1888,7 @@ struct SettingsConnectTab: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(spinning ? VColor.accent : VColor.textMuted)
                         .rotationEffect(.degrees(spinning ? 360 : 0))
-                        .animation(spinning ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: spinning)
+                        .animation(spinning ? .linear(duration: 1).repeatForever(autoreverses: false) : nil, value: spinning)
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }

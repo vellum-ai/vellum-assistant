@@ -11,17 +11,16 @@
  */
 
 import type { ChannelId } from '../channels/types.js';
-import { parseChannelId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
+import { buildAssistantEvent } from '../runtime/assistant-event.js';
+import { assistantEventHub } from '../runtime/assistant-event-hub.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
-import { buildAssistantEvent } from '../runtime/assistant-event.js';
-import { assistantEventHub } from '../runtime/assistant-event-hub.js';
 
 /**
  * Matches the exact `[CALL_OPENING]` marker that call-controller sends for

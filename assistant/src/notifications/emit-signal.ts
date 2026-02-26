@@ -16,7 +16,7 @@ import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import { getLogger } from '../util/logger.js';
 import { type BroadcastFn, VellumAdapter } from './adapters/macos.js';
 import { TelegramAdapter } from './adapters/telegram.js';
-import { type ThreadCreatedInfo, NotificationBroadcaster } from './broadcaster.js';
+import { NotificationBroadcaster,type ThreadCreatedInfo } from './broadcaster.js';
 import { evaluateSignal } from './decision-engine.js';
 import { type DeterministicCheckContext, runDeterministicChecks } from './deterministic-checks.js';
 import { createEvent, updateEventDedupeKey } from './events-store.js';

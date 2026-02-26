@@ -103,13 +103,6 @@ import {
 } from './routes/conversation-routes.js';
 import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
 import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
-import type { PairingHandlerContext } from './routes/pairing-routes.js';
-// Extracted route handlers
-import {
-  handlePairingRegister,
-  handlePairingRequest,
-  handlePairingStatus,
-} from './routes/pairing-routes.js';
 import {
   handleCancelOutbound,
   handleClearTelegramConfig,
@@ -122,6 +115,13 @@ import {
   handleSetupTelegram,
   handleStartOutbound,
 } from './routes/integration-routes.js';
+import type { PairingHandlerContext } from './routes/pairing-routes.js';
+// Extracted route handlers
+import {
+  handlePairingRegister,
+  handlePairingRequest,
+  handlePairingStatus,
+} from './routes/pairing-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
 
 // Re-export for consumers

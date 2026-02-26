@@ -5,8 +5,8 @@
  * depend on, plus the decision engine output contract.
  */
 
-import type { ChannelId } from '../channels/types.js';
 import type { ChannelPolicies } from '../channels/config.js';
+import type { ChannelId } from '../channels/types.js';
 
 /**
  * Derived from the channel policy registry: only channels whose
@@ -70,6 +70,8 @@ export interface ChannelAdapter {
 export interface RenderedChannelCopy {
   title: string;
   body: string;
+  /** Channel-native delivery text (e.g. Telegram chat message body). */
+  deliveryText?: string;
   threadTitle?: string;
   threadSeedMessage?: string;
 }

@@ -16,6 +16,7 @@
  * POST   /v1/integrations/guardian/outbound/cancel   — cancel outbound verification
  */
 
+import type { ChannelId } from '../../channels/types.js';
 import {
   createGuardianChallenge,
   getGuardianStatus,
@@ -25,7 +26,6 @@ import {
   resendOutbound,
   cancelOutbound,
 } from '../guardian-outbound-actions.js';
-import type { ChannelId } from '../../channels/types.js';
 import {
   clearTelegramConfig,
   getTelegramConfig,

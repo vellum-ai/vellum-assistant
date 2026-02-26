@@ -105,6 +105,8 @@ export interface SessionCreateOptions {
   transport?: SessionTransportMetadata;
   assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
+  /** Whether this turn can block on interactive approval prompts. */
+  isInteractive?: boolean;
   memoryScopeId?: string;
   isPrivateThread?: boolean;
   strictPrivateSideEffects?: boolean;

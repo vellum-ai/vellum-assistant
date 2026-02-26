@@ -835,6 +835,11 @@ struct MainWindowView: View {
             return false
         }()
         let isHovered = sidebar.isHoveredThread == thread.id
+        let isBusy = threadManager.isThreadBusy(thread.id)
+        // Reserve trailing space for overlay icons so text doesn't jitter on state changes.
+        // Hovered: pin(20) + xs(4) + archive(20) + xs(4) padding on each side = 52
+        // Busy or pinned (not hovered): same as hovered to keep layout stable
+        let hasTrailingIcons = isHovered || isBusy || thread.isPinned
         Button(action: {
             if case .appEditing(let appId, _) = windowState.selection {
                 // Stay in editing mode, just switch the thread
@@ -861,7 +866,7 @@ struct MainWindowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.md)
-            .padding(.trailing, isHovered ? (VSpacing.xs + 20 + VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
+            .padding(.trailing, hasTrailingIcons ? (VSpacing.xs + 20 + VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .background {
                 if isSelected {
@@ -933,6 +938,11 @@ struct MainWindowView: View {
                     }
                 }
                 .padding(.trailing, VSpacing.xs)
+            } else if isBusy {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 20, height: 20)
+                    .padding(.trailing, VSpacing.xs + 20 + VSpacing.xs)
             } else if thread.isPinned {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 10, weight: .medium))

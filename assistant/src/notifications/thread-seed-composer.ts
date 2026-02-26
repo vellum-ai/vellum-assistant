@@ -13,8 +13,8 @@
  * the decision engine's LLM produced one.
  */
 
-import { isInterfaceId } from '../channels/types.js';
 import type { InterfaceId } from '../channels/types.js';
+import { isInterfaceId } from '../channels/types.js';
 import type { NotificationSignal } from './signal.js';
 import type { NotificationChannel, RenderedChannelCopy } from './types.js';
 
@@ -71,11 +71,58 @@ export function isThreadSeedSane(value: unknown): value is string {
 }
 
 /**
+ * Build a human-readable label from a dot-delimited event name.
+ *
+ * e.g. "reminder.fired" → "Reminder fired", "guardian.question" → "Guardian question"
+ */
+function humanizeEventName(eventName: string): string {
+  const words = eventName.replace(/[._]/g, ' ').trim();
+  if (words.length === 0) return 'Notification';
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * Derive a fallback seed from signal metadata when rendered copy is blank.
+ *
+ * Extracts the most useful fields from `contextPayload` (common keys like
+ * message, summary, body, preview, title, label, questionText) and combines
+ * them with a humanized event name. This ensures notification threads retain
+ * usable audit context even when the decision engine produces empty copy.
+ */
+function buildContextFallback(signal: NotificationSignal): string {
+  const label = humanizeEventName(signal.sourceEventName);
+  const payload = signal.contextPayload;
+
+  // Try common payload keys in priority order
+  const candidateKeys = ['message', 'summary', 'body', 'preview', 'title', 'label', 'questionText', 'name'];
+  for (const key of candidateKeys) {
+    const val = payload[key];
+    if (typeof val === 'string' && val.trim().length > 0) {
+      return `${label}: ${val.trim()}`;
+    }
+  }
+
+  return label;
+}
+
+/**
+ * Check whether rendered copy has usable content in title or body.
+ */
+function hasCopyContent(copy: RenderedChannelCopy): boolean {
+  const hasTitle = Boolean(copy.title && copy.title.trim() && copy.title !== 'Notification');
+  const hasBody = Boolean(copy.body && copy.body.trim());
+  return hasTitle || hasBody;
+}
+
+/**
  * Compose a thread seed message from signal context.
  *
  * Builds from `copy.title` and `copy.body` so that LLM-localized content
  * is preserved. Surface-aware formatting makes the seed richer on
  * desktop (flowing prose) and compact on mobile (title + body separated).
+ *
+ * When rendered copy is blank, falls back to signal metadata (event name
+ * and context payload) so notification threads always have usable content.
  */
 export function composeThreadSeed(
   signal: NotificationSignal,
@@ -83,6 +130,11 @@ export function composeThreadSeed(
   copy: RenderedChannelCopy,
 ): string {
   const verbosity = resolveVerbosity(channel, signal.contextPayload);
+
+  // When copy is blank, fall back to context-based seed from signal metadata.
+  if (!hasCopyContent(copy)) {
+    return buildContextFallback(signal);
+  }
 
   if (verbosity === 'rich') {
     const parts: string[] = [];

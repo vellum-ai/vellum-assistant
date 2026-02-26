@@ -16,6 +16,7 @@ import {
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
   migrateCallSessionMode,
+  migrateChannelInboundDeliveredSegments,
   migrateGuardianBootstrapToken,
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
@@ -77,6 +78,9 @@ export function initializeDb(): void {
 
   // 14. Late-stage migrations (guardian actions, FTS backfill, index migrations)
   runLateMigrations(database);
+
+  // 14b. Track per-segment delivery progress for split channel replies
+  migrateChannelInboundDeliveredSegments(database);
 
   // 15. Notification system
   createNotificationTables(database);

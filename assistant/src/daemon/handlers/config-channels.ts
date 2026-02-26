@@ -9,7 +9,7 @@ import {
   revokePendingChallenges,
   findActiveSession,
 } from '../../runtime/channel-guardian-service.js';
-import { createReadinessService, type ChannelReadinessService } from '../../runtime/channel-readiness-service.js';
+import { type ChannelReadinessService, createReadinessService } from '../../runtime/channel-readiness-service.js';
 import {
   startOutbound,
   resendOutbound,

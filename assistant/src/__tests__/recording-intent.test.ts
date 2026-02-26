@@ -1,13 +1,14 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import {
+  classifyRecordingIntent,
   detectRecordingIntent,
-  isRecordingOnly,
   detectStopRecordingIntent,
+  isInterrogative,
+  isRecordingOnly,
+  isStopRecordingOnly,
   stripRecordingIntent,
   stripStopRecordingIntent,
-  isStopRecordingOnly,
-  classifyRecordingIntent,
-  isInterrogative,
 } from '../daemon/recording-intent.js';
 
 // ─── detectRecordingIntent ──────────────────────────────────────────────────

@@ -11,6 +11,7 @@
 
 import { v4 as uuid } from 'uuid';
 
+import { getDeliverableChannels } from '../channels/config.js';
 import { getConfig } from '../config/loader.js';
 import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import type { ModelIntent } from '../providers/types.js';
@@ -18,13 +19,12 @@ import { getLogger } from '../util/logger.js';
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal } from './signal.js';
-import { getDeliverableChannels } from '../channels/config.js';
 import type { NotificationChannel, NotificationDecision, RenderedChannelCopy } from './types.js';
 
 const log = getLogger('notification-decision-engine');
 
 const DECISION_TIMEOUT_MS = 15_000;
-const PROMPT_VERSION = 'v1';
+const PROMPT_VERSION = 'v2';
 
 // ── System prompt ──────────────────────────────────────────────────────
 
@@ -56,11 +56,14 @@ function buildSystemPrompt(
     `- For low-urgency background events, suppress unless they match user preferences.`,
     `- Generate a stable dedupeKey derived from the signal context so duplicate signals can be suppressed.`,
     ``,
-    `Copy guidelines (two distinct outputs):`,
-    `- \`title\` and \`body\` are for native notification popups — keep them short and glanceable (title ≤ 8 words, body ≤ 2 sentences).`,
-    `- \`threadSeedMessage\` is the opening message in the notification thread — it can be richer and more contextual.`,
-    `  - For vellum (desktop): 2-4 short sentences with useful context and clear next step if action is required.`,
+    `Copy guidelines (three distinct outputs):`,
+    `- \`title\` and \`body\` are for native notification popups (e.g. vellum desktop/mobile) — keep them short and glanceable (title ≤ 8 words, body ≤ 2 sentences).`,
+    `- \`deliveryText\` is the channel-native message for chat channels (e.g. telegram). It must read naturally as a standalone message.`,
+    `  - Do not prepend mechanical labels like "Thread:".`,
+    `  - Do not repeat title/body verbatim unless that repetition is truly necessary.`,
     `  - For telegram: 1-2 concise sentences.`,
+    `- \`threadSeedMessage\` is the opening message in the internal notification thread — it can be richer and more contextual.`,
+    `  - For vellum (desktop): 2-4 short sentences with useful context and clear next step if action is required.`,
     `  - Never dump raw JSON. Include only human-readable context.`,
     ``,
     `You MUST respond using the \`record_notification_decision\` tool. Do not respond with text.`,
@@ -130,6 +133,7 @@ function buildDecisionTool(availableChannels: NotificationChannel[]) {
                 properties: {
                   title: { type: 'string', description: 'Short notification popup title (≤ 8 words)' },
                   body: { type: 'string', description: 'Concise notification popup body (≤ 2 sentences)' },
+                  deliveryText: { type: 'string', description: 'Channel-native chat message text (for example Telegram). Must stand alone naturally.' },
                   threadTitle: { type: 'string', description: 'Optional thread title for grouped notifications' },
                   threadSeedMessage: { type: 'string', description: 'Richer opening message for the notification thread. More contextual than title/body. For vellum: 2-4 sentences. For telegram: 1-2 sentences. Never raw JSON.' },
                 },
@@ -187,11 +191,13 @@ function buildFallbackDecision(
 
   const copy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {};
   for (const ch of selectedChannels) {
+    const fallbackBody = isHighUrgencyAction
+      ? `Action required: ${signal.sourceEventName}`
+      : signal.sourceEventName;
     copy[ch] = {
       title: signal.sourceEventName,
-      body: isHighUrgencyAction
-        ? `Action required: ${signal.sourceEventName}`
-        : signal.sourceEventName,
+      body: fallbackBody,
+      deliveryText: fallbackBody,
     };
   }
 
@@ -243,6 +249,7 @@ function validateDecisionOutput(
           renderedCopy[ch] = {
             title: c.title,
             body: c.body,
+            deliveryText: typeof c.deliveryText === 'string' ? c.deliveryText : undefined,
             threadTitle: typeof c.threadTitle === 'string' ? c.threadTitle : undefined,
             threadSeedMessage: typeof c.threadSeedMessage === 'string' ? c.threadSeedMessage : undefined,
           };
