@@ -245,23 +245,36 @@ export function handleRecordingRestart(
     };
   }
 
+  // Resolve the actual owner conversation ID. When conversation B requests
+  // a restart but the recording is owned by conversation A (cross-conversation
+  // restart via global fallback), the deferred restart must be keyed by A's
+  // conversationId because the stopped callback resolves the conversationId
+  // from standaloneRecordingConversationId (which maps to A, the owner).
+  // This lookup must happen BEFORE cleanupMaps removes the entry.
+  const ownerConversationId = standaloneRecordingConversationId.get(stoppedRecordingId) ?? conversationId;
+  if (ownerConversationId !== conversationId) {
+    log.info({ conversationId, ownerConversationId, stoppedRecordingId }, 'Cross-conversation restart: keying deferred restart by owner conversation');
+  }
+
   // Atomically set the restart token and pending state so that:
   // 1. Stale completions from a previous cycle are rejected
   // 2. "no active recording" checks know we're mid-restart
   activeRestartToken = operationToken;
-  pendingRestartByConversation.set(conversationId, operationToken);
+  pendingRestartByConversation.set(ownerConversationId, operationToken);
 
   // Store the deferred restart parameters. The actual recording_start will
   // be sent when the 'stopped' status callback arrives in handleRecordingStatus,
   // ensuring the client has fully completed the async stop before we start.
-  deferredRestartByConversation.set(conversationId, {
+  // Keyed by ownerConversationId so the stopped handler (which resolves
+  // conversationId from the recording's owner) can find this entry.
+  deferredRestartByConversation.set(ownerConversationId, {
     conversationId,
     socket,
     ctx,
     operationToken,
   });
 
-  log.info({ conversationId, operationToken, stoppedRecordingId }, 'Recording restart initiated — start deferred until stop-ack');
+  log.info({ conversationId, ownerConversationId, operationToken, stoppedRecordingId }, 'Recording restart initiated — start deferred until stop-ack');
 
   return {
     initiated: true,

@@ -1008,6 +1008,43 @@ describe('deferred restart prevents race condition', () => {
     expect(getActiveRestartToken()).not.toBeNull();
   });
 
+  test('cross-conversation restart: conversation B restarts recording owned by A', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+    const convA = 'conv-owner-A';
+    const convB = 'conv-requester-B';
+    ctx.socketToSession.set(fakeSocket, convA);
+
+    // Conversation A starts a recording
+    const originalId = handleRecordingStart(convA, undefined, fakeSocket, ctx);
+    expect(originalId).not.toBeNull();
+    sent.length = 0;
+
+    // Conversation B requests a restart (cross-conversation via global fallback)
+    const result = handleRecordingRestart(convB, fakeSocket, ctx);
+    expect(result.initiated).toBe(true);
+    expect(result.operationToken).toBeTruthy();
+
+    // Should have sent recording_stop (start is deferred)
+    expect(sent.filter((m) => m.type === 'recording_stop')).toHaveLength(1);
+    expect(sent.filter((m) => m.type === 'recording_start')).toHaveLength(0);
+
+    // Simulate the client acknowledging the stop. The stopped status resolves
+    // conversationId from standaloneRecordingConversationId which maps to A.
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: convA,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
+
+    // The deferred recording_start MUST have been triggered even though the
+    // stopped callback resolved to conversation A (owner), not B (requester).
+    const startMsgs = sent.filter((m) => m.type === 'recording_start');
+    expect(startMsgs).toHaveLength(1);
+    expect(startMsgs[0].operationToken).toBe(result.operationToken);
+  });
+
   test('normal stop (non-restart) does not trigger deferred start', () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = 'conv-normal-stop';
