@@ -9,6 +9,13 @@ export interface VoiceConfigUpdateRequest {
   activationKey: string;
 }
 
+/** Request from the client to generate a custom avatar via DALL-E. */
+export interface GenerateAvatarRequest {
+  type: 'generate_avatar';
+  /** Text description of the desired avatar appearance. */
+  description: string;
+}
+
 // === Server → Client ===
 
 /** Sent by the daemon to update a client-side setting (e.g. activation key). */
@@ -27,7 +34,16 @@ export interface AvatarUpdated {
   avatarPath: string;
 }
 
+/** Response to a generate_avatar request indicating success or failure. */
+export interface GenerateAvatarResponse {
+  type: 'generate_avatar_response';
+  /** Whether the avatar was generated successfully. */
+  success: boolean;
+  /** Error message when success is false. */
+  error?: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _SettingsClientMessages = VoiceConfigUpdateRequest;
-export type _SettingsServerMessages = ClientSettingsUpdate | AvatarUpdated;
+export type _SettingsClientMessages = VoiceConfigUpdateRequest | GenerateAvatarRequest;
+export type _SettingsServerMessages = ClientSettingsUpdate | AvatarUpdated | GenerateAvatarResponse;

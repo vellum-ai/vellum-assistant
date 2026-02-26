@@ -6,6 +6,7 @@ import type { ClientMessage } from '../ipc-protocol.js';
 import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
 import { appHandlers } from './apps.js';
+import { avatarHandlers } from './avatar.js';
 import { browserHandlers } from './browser.js';
 import { computerUseHandlers } from './computer-use.js';
 import { configHandlers } from './config.js';
@@ -140,6 +141,7 @@ const handlers = {
   ...sessionHandlers,
   ...skillHandlers,
   ...appHandlers,
+  ...avatarHandlers,
   ...configHandlers,
   ...computerUseHandlers,
   ...publishHandlers,

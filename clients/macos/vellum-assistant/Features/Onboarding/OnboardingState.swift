@@ -58,6 +58,8 @@ final class OnboardingState {
     var hatchLogLines: [String] = []
     var hatchCompleted: Bool = false
     var hatchFailed: Bool = false
+    var showAvatarReveal: Bool = false
+    var avatarRevealCompleted: Bool = false
 
     // First-meeting-specific state
     var firstMeetingCrackProgress: CGFloat = 0.0
