@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 struct IdentityPanel: View {
     let onClose: () -> Void
-    let onCustomizeAvatar: () -> Void
+    let onEditAvatar: () -> Void
     let daemonClient: DaemonClient
     @State private var appearance = AvatarAppearanceManager.shared
 
@@ -42,8 +42,8 @@ struct IdentityPanel: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, VSpacing.lg)
 
-                        // Customize Avatar CTA — directly under avatar
-                        VButton(label: "Customize Avatar", style: .secondary, isFullWidth: true, action: onCustomizeAvatar)
+                        // Edit Avatar CTA — switches to chat and pre-fills composer
+                        VButton(label: "Edit Avatar", style: .secondary, isFullWidth: true, action: onEditAvatar)
                             .padding(.top, VSpacing.sm)
                             .padding(.horizontal, VSpacing.lg)
                             .padding(.bottom, VSpacing.lg)
