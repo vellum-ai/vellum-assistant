@@ -419,6 +419,18 @@ function main() {
         log.info("WhatsApp credentials cleared");
       }
     }
+
+    if (event.slackChannelChanged) {
+      if (event.slackChannelCredentials) {
+        config.slackChannelBotToken = event.slackChannelCredentials.botToken;
+        config.slackChannelAppToken = event.slackChannelCredentials.appToken;
+        log.info("Slack channel credentials loaded from credential vault");
+      } else {
+        config.slackChannelBotToken = undefined;
+        config.slackChannelAppToken = undefined;
+        log.info("Slack channel credentials cleared");
+      }
+    }
   });
 
   credentialWatcher.start();
