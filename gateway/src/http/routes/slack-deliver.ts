@@ -38,6 +38,10 @@ export function createSlackDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
+    if (typeof body !== 'object' || body === null) {
+      return Response.json({ ok: false, error: "Invalid request body" }, { status: 400 });
+    }
+
     if (body.attachments && Array.isArray(body.attachments) && body.attachments.length > 0) {
       return Response.json(
         { error: "Slack attachments not supported in MVP" },
