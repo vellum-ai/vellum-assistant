@@ -919,8 +919,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                     self.latestAssistantActivitySnapshots.removeValue(forKey: threadId)
                 }
                 guard previousSnapshot != latestSnapshot,
-                      latestSnapshot != nil else { return }
-                self.handleAssistantMessageArrival(threadId: threadId)
+                      let latestSnapshot else { return }
+                self.handleAssistantMessageArrival(threadId: threadId, previousSnapshot: previousSnapshot, currentSnapshot: latestSnapshot)
             }
     }
 
@@ -968,13 +968,31 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     /// Mark assistant activity on a thread as seen/unseen depending on whether
     /// that thread is currently active.
-    private func handleAssistantMessageArrival(threadId: UUID) {
+    ///
+    /// For the active thread, the seen signal is only emitted on meaningful
+    /// transitions — when a new assistant message first appears (new messageId)
+    /// or when streaming completes (isStreaming goes from true to false). This
+    /// avoids O(n) IPC calls per streaming response (one per text delta) while
+    /// still advancing the server-side seen cursor.
+    private func handleAssistantMessageArrival(threadId: UUID, previousSnapshot: AssistantActivitySnapshot?, currentSnapshot: AssistantActivitySnapshot) {
+        // Skip during thread restoration — loadHistoryIfNeeded populates
+        // messages which triggers the Combine publisher, but those are
+        // historical messages, not fresh assistant replies. Without this
+        // guard the handler would clear real unread state on app launch.
+        guard !isRestoringThreads else { return }
         guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
         updateLastInteracted(threadId: threadId)
         if threadId == activeThreadId {
             threads[index].hasUnseenLatestAssistantMessage = false
-            if let sessionId = threads[index].sessionId {
-                emitConversationSeenSignal(conversationId: sessionId)
+            // Only emit the IPC seen signal on meaningful transitions:
+            // 1. A new assistant message appeared (different messageId)
+            // 2. Streaming just completed (isStreaming went true -> false)
+            let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
+            let streamingJustCompleted = previousSnapshot?.isStreaming == true && !currentSnapshot.isStreaming
+            if isNewMessage || streamingJustCompleted {
+                if let sessionId = threads[index].sessionId {
+                    emitConversationSeenSignal(conversationId: sessionId)
+                }
             }
         } else {
             threads[index].hasUnseenLatestAssistantMessage = true

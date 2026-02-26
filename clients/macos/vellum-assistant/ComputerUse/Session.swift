@@ -23,6 +23,8 @@ final class ComputerUseSession: ObservableObject {
     @Published var state: SessionState = .idle
     @Published var undoCount = 0
     @Published var autoApproveTools = false
+    /// Free-form guidance from the user, consumed on the next observation.
+    @Published var pendingUserGuidance: String?
 
     let task: String
     let id: String
@@ -298,6 +300,16 @@ final class ComputerUseSession: ObservableObject {
             verifier.resetBlockCount()
 
         case .needsConfirmation(let reason):
+            // Auto-approve only low-risk confirmations (AppleScript).
+            // Destructive keys and form submissions (Enter) always prompt.
+            let isLowRisk = agentAction.type == .runAppleScript
+            if autoApproveTools && isLowRisk {
+                log.info("[\(action.stepNumber)] Auto-approved: \(reason)")
+                verifier.recordConfirmedAction(agentAction)
+                verifier.resetBlockCount()
+                break
+            }
+
             // Capture the PID before showing confirmation UI
             if let result = enumerator.enumerateCurrentWindow() {
                 primaryPID = result.pid
@@ -584,6 +596,10 @@ final class ComputerUseSession: ObservableObject {
             }
         }
 
+        // Drain any pending user guidance so it's included in this observation
+        let guidance = pendingUserGuidance
+        pendingUserGuidance = nil
+
         let observation = CuObservationMessage(
             sessionId: id,
             axTree: axTreeInline,
@@ -599,7 +615,8 @@ final class ComputerUseSession: ObservableObject {
             executionResult: executionResult,
             executionError: executionError,
             axTreeBlob: axTreeBlobRef,
-            screenshotBlob: screenshotBlobRef
+            screenshotBlob: screenshotBlobRef,
+            userGuidance: guidance
         )
 
         let screenshotRawBytes = screenshotData?.count ?? 0

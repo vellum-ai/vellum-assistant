@@ -46,9 +46,11 @@ struct IdentityPanel: View {
                             .padding(.bottom, VSpacing.lg)
 
                         // ID card fields
-                        idCardSection(identity: identity, remoteIdentity: remoteIdentity)
-                            .padding(.horizontal, VSpacing.lg)
-                            .padding(.bottom, VSpacing.lg)
+                        ScrollView {
+                            idCardSection(identity: identity, remoteIdentity: remoteIdentity)
+                                .padding(.horizontal, VSpacing.lg)
+                                .padding(.bottom, VSpacing.lg)
+                        }
                     }
                     .background(VColor.backgroundSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))

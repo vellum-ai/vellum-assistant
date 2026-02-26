@@ -3,7 +3,13 @@ import { v4 as uuid } from 'uuid';
 
 import { getDb } from '../../memory/db.js';
 import { reminders } from '../../memory/schema.js';
-import { cast,createRowMapper } from '../../util/row-mapper.js';
+import { cast,createRowMapper, parseJson } from '../../util/row-mapper.js';
+
+export type RoutingIntent = 'single_channel' | 'multi_channel' | 'all_channels';
+
+export interface RoutingHints {
+  [key: string]: unknown;
+}
 
 export interface ReminderRow {
   id: string;
@@ -14,6 +20,8 @@ export interface ReminderRow {
   status: 'pending' | 'firing' | 'fired' | 'cancelled';
   firedAt: number | null;
   conversationId: string | null;
+  routingIntent: RoutingIntent;
+  routingHints: RoutingHints;
   createdAt: number;
   updatedAt: number;
 }
@@ -27,6 +35,8 @@ const parseRow = createRowMapper<typeof reminders.$inferSelect, ReminderRow>({
   status: { from: 'status', transform: cast<ReminderRow['status']>() },
   firedAt: 'firedAt',
   conversationId: 'conversationId',
+  routingIntent: { from: 'routingIntent', transform: cast<RoutingIntent>() },
+  routingHints: { from: 'routingHintsJson', transform: parseJson<RoutingHints>({}) },
   createdAt: 'createdAt',
   updatedAt: 'updatedAt',
 });
@@ -36,11 +46,30 @@ export function insertReminder(params: {
   message: string;
   fireAt: number;
   mode: 'notify' | 'execute';
+  routingIntent?: RoutingIntent;
+  routingHints?: RoutingHints;
 }): ReminderRow {
   const db = getDb();
   const id = uuid();
   const now = Date.now();
-  const row: ReminderRow = {
+  const routingIntent = params.routingIntent ?? 'single_channel';
+  const routingHints = params.routingHints ?? {};
+  const row = {
+    id,
+    label: params.label,
+    message: params.message,
+    fireAt: params.fireAt,
+    mode: params.mode,
+    status: 'pending' as const,
+    firedAt: null,
+    conversationId: null,
+    routingIntent,
+    routingHintsJson: JSON.stringify(routingHints),
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert(reminders).values(row).run();
+  return {
     id,
     label: params.label,
     message: params.message,
@@ -49,11 +78,11 @@ export function insertReminder(params: {
     status: 'pending',
     firedAt: null,
     conversationId: null,
+    routingIntent,
+    routingHints,
     createdAt: now,
     updatedAt: now,
   };
-  db.insert(reminders).values(row).run();
-  return row;
 }
 
 export function getReminder(id: string): ReminderRow | null {

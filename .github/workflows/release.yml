@@ -3,16 +3,47 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Release version (e.g., 0.3.1)'
+      bump:
+        description: 'Version bump type'
         required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
+  compute-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version from bump type
+        id: compute
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          LATEST_VERSION=${LATEST_TAG#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+
+          case "${{ inputs.bump }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
   notify-start:
+    needs: compute-version
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -28,11 +59,11 @@ jobs:
               - type: header
                 text:
                   type: plain_text
-                  text: "\U0001F680 Release v${{ inputs.version }} Started"
+                  text: "\U0001F680 Release v${{ needs.compute-version.outputs.version }} Started"
               - type: section
                 text:
                   type: mrkdwn
-                  text: "*Workflow:* Unified Release\n*Version:* `${{ inputs.version }}`\n*Triggered by:* ${{ github.actor }}"
+                  text: "*Workflow:* Unified Release\n*Version:* `${{ needs.compute-version.outputs.version }}`\n*Bump:* `${{ inputs.bump }}`\n*Triggered by:* ${{ github.actor }}"
               - type: actions
                 elements:
                   - type: button
@@ -42,6 +73,7 @@ jobs:
                     url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   bump-and-tag:
+    needs: compute-version
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App token
@@ -54,12 +86,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Set version output
+        id: version
+        run: echo "version=${{ needs.compute-version.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Bump versions via PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          VERSION="${{ inputs.version }}"
+          VERSION="${{ needs.compute-version.outputs.version }}"
           BRANCH="release/v$VERSION"
 
           git config user.name "github-actions[bot]"
@@ -96,13 +133,13 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          VERSION="${{ inputs.version }}"
+          VERSION="${{ needs.compute-version.outputs.version }}"
           git fetch origin main
           git tag "v$VERSION" origin/main
           git push origin "v$VERSION"
 
     outputs:
-      version: ${{ inputs.version }}
+      version: ${{ steps.version.outputs.version }}
 
   push-assistant-image:
     needs: bump-and-tag
@@ -857,7 +894,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          VERSION="${{ inputs.version }}"
+          VERSION="${{ needs.bump-and-tag.outputs.version }}"
           VERSION_TAG="v${VERSION}"
 
           # Determine release status from core jobs

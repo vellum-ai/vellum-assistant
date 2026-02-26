@@ -103,7 +103,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         XCTAssertTrue(updated.hasUnseenLatestAssistantMessage)
     }
 
-    func testActiveThreadEmitsSeenSignalEvenWhenAlreadySeen() {
+    func testActiveThreadEmitsSeenSignalOnNewMessageAndStreamCompletion() {
         guard let threadId = threadManager.activeThreadId,
               let index = threadManager.threads.firstIndex(where: { $0.id == threadId }),
               let vm = threadManager.chatViewModel(for: threadId) else {
@@ -123,7 +123,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         XCTAssertFalse(threadManager.threads[index].hasUnseenLatestAssistantMessage)
 
         let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
-        XCTAssertFalse(seenSignals.isEmpty, "Seen signal should be emitted even when thread was already marked as seen")
+        XCTAssertFalse(seenSignals.isEmpty, "Seen signal should be emitted on new message arrival and stream completion")
         XCTAssertEqual(seenSignals.last?.conversationId, "session-realtime")
     }
 
@@ -262,6 +262,47 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
         XCTAssertFalse(seenSignals.isEmpty, "markConversationSeen should emit a seen signal to the daemon")
         XCTAssertEqual(seenSignals.last?.conversationId, "session-mark-seen")
+    }
+
+    func testActiveThreadDoesNotEmitSeenSignalOnEveryStreamingDelta() {
+        guard let threadId = threadManager.activeThreadId,
+              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }),
+              let vm = threadManager.chatViewModel(for: threadId) else {
+            XCTFail("Expected active thread and view model")
+            return
+        }
+
+        threadManager.threads[index].sessionId = "session-streaming"
+        threadManager.threads[index].hasUnseenLatestAssistantMessage = false
+        vm.sessionId = "session-streaming"
+
+        // First delta creates a new message — should emit one seen signal
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "chunk1", sessionId: "session-streaming")))
+        waitForPropagation()
+
+        let signalsAfterFirstDelta = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+            .filter { $0.conversationId == "session-streaming" }
+        let countAfterFirst = signalsAfterFirstDelta.count
+
+        // Subsequent deltas on the same message should NOT emit additional seen signals
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk2", sessionId: "session-streaming")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk3", sessionId: "session-streaming")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk4", sessionId: "session-streaming")))
+        waitForPropagation()
+
+        let signalsAfterMoreDeltas = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+            .filter { $0.conversationId == "session-streaming" }
+        XCTAssertEqual(signalsAfterMoreDeltas.count, countAfterFirst,
+                       "Mid-stream text deltas should not emit additional seen signals (was O(n), should be O(1))")
+
+        // Stream completion should emit one more seen signal
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "session-streaming")))
+        waitForPropagation()
+
+        let signalsAfterComplete = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+            .filter { $0.conversationId == "session-streaming" }
+        XCTAssertEqual(signalsAfterComplete.count, countAfterFirst + 1,
+                       "Stream completion should emit exactly one additional seen signal")
     }
 
     func testActiveThreadAssistantReplyClearsUnseenAndEmitsSeenSignal() {

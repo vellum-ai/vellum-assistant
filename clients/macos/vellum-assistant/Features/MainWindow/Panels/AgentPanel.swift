@@ -3,12 +3,24 @@ import VellumAssistantShared
 
 // MARK: - Agent Panel Content (embeddable)
 
+/// Which skills tab to display.
+enum SkillsTab {
+    case installed, available
+}
+
 /// The skills management content, usable standalone (e.g. inside IdentityPanel)
 /// or wrapped in a VSidePanel via AgentPanel.
+///
+/// When `visibleTab` is set, the internal tab bar is hidden and only
+/// the specified tab's content is shown. When nil (default), the full
+/// tab bar is displayed — preserving backward compatibility.
 struct AgentPanelContent: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
     var onSkillsChanged: (() -> Void)?
     let daemonClient: DaemonClient
+
+    /// When non-nil, locks the view to a single tab and hides the tab bar.
+    var visibleTab: SkillsTab?
 
     @StateObject private var skillsManager: SkillsManager
     @State private var selectedTab: SkillsTab = .installed
@@ -18,15 +30,15 @@ struct AgentPanelContent: View {
     @State private var skillToDelete: SkillInfo?
     @State private var showNewSkillSheet = false
 
-    private enum SkillsTab {
-        case installed, available
-    }
-
-    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient) {
+    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient, visibleTab: SkillsTab? = nil) {
         self.onInvokeSkill = onInvokeSkill
         self.onSkillsChanged = onSkillsChanged
         self.daemonClient = daemonClient
+        self.visibleTab = visibleTab
         _skillsManager = StateObject(wrappedValue: SkillsManager(daemonClient: daemonClient))
+        if let visibleTab {
+            _selectedTab = State(initialValue: visibleTab)
+        }
     }
 
     var body: some View {
@@ -56,32 +68,34 @@ struct AgentPanelContent: View {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .padding(.bottom, VSpacing.lg)
 
-            // Tab bar
-            VStack(spacing: 0) {
-                HStack(spacing: VSpacing.xl) {
-                    tabButton(installedTabTitle, tab: .installed)
-                    tabButton(availableTabTitle, tab: .available)
-                    Spacer()
-                    Button {
-                        showNewSkillSheet = true
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "plus")
-                            Text("New Skill")
+            // Tab bar — hidden when locked to a single tab via visibleTab
+            if visibleTab == nil {
+                VStack(spacing: 0) {
+                    HStack(spacing: VSpacing.xl) {
+                        tabButton(installedTabTitle, tab: .installed)
+                        tabButton(availableTabTitle, tab: .available)
+                        Spacer()
+                        Button {
+                            showNewSkillSheet = true
+                        } label: {
+                            HStack(spacing: VSpacing.xs) {
+                                Image(systemName: "plus")
+                                Text("New Skill")
+                            }
+                            .font(VFont.body)
+                            .foregroundColor(VColor.accent)
                         }
-                        .font(VFont.body)
-                        .foregroundColor(VColor.accent)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("New Skill")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("New Skill")
+
+                    Divider().background(VColor.surfaceBorder)
                 }
-
-                Divider().background(VColor.surfaceBorder)
+                .padding(.bottom, VSpacing.lg)
             }
-            .padding(.bottom, VSpacing.lg)
 
-            // Tab content
-            switch selectedTab {
+            // Tab content — use visibleTab when locked, otherwise selectedTab
+            switch visibleTab ?? selectedTab {
             case .installed:
                 skillsContent
             case .available:
@@ -226,7 +240,7 @@ struct AgentPanelContent: View {
                         icon: "magnifyingglass"
                     )
 
-                    if !filteredUserSkills.isEmpty {
+                    if visibleTab == nil, !filteredUserSkills.isEmpty {
                         Button {
                             withAnimation(VAnimation.fast) { selectedTab = .installed }
                         } label: {
@@ -737,7 +751,7 @@ struct AgentPanelContent: View {
                         icon: "magnifyingglass"
                     )
 
-                    if !availableClawhubSkills.isEmpty {
+                    if visibleTab == nil, !availableClawhubSkills.isEmpty {
                         Button {
                             withAnimation(VAnimation.fast) { selectedTab = .available }
                         } label: {

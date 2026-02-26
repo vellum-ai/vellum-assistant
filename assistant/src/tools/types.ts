@@ -136,6 +136,8 @@ export interface ToolContext {
   proxyApprovalCallback?: import('./network/script-proxy/types.js').ProxyApprovalCallback;
   /** Optional principal identifier propagated to sub-tool confirmation flows. */
   principal?: string;
+  /** Guardian actor role for the session — used by the guardian control-plane policy gate. */
+  guardianActorRole?: 'guardian' | 'non-guardian' | 'unverified_channel';
 }
 
 export interface DiffInfo {

@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/cli",
-  "version": "0.3.11",
+  "version": "0.3.13",
   "description": "CLI tools for vellum-assistant",
   "type": "module",
   "exports": {
@@ -22,11 +22,13 @@
   "license": "MIT",
   "dependencies": {
     "ink": "^6.7.0",
+    "qrcode-terminal": "^0.12.0",
     "react": "^19.2.4",
     "react-devtools-core": "^6.1.2"
   },
   "devDependencies": {
     "@types/bun": "^1.2.4",
+    "@types/qrcode-terminal": "^0.12.2",
     "@types/react": "^19.2.14",
     "eslint": "^10.0.0",
     "typescript": "^5.9.3",
