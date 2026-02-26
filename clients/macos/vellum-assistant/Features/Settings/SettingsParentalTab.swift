@@ -1083,6 +1083,11 @@ private struct PINSheet: View {
     let onComplete: (PINSheetResult) -> Void
     var daemonClient: DaemonClient?
 
+    private enum Step: Hashable {
+        case enterCurrent, enterNew, confirmNew
+    }
+
+    @State private var step: Step = .enterCurrent
     @State private var currentPIN: String = ""
     @State private var newPIN: String = ""
     @State private var confirmPIN: String = ""
@@ -1093,93 +1098,121 @@ private struct PINSheet: View {
 
     private var title: String {
         switch mode {
-        case .set: return "Set PIN"
-        case .change: return "Change PIN"
-        case .clear: return "Remove PIN"
+        case .set: return "Set Passcode"
+        case .change: return "Change Passcode"
+        case .clear: return "Remove Passcode"
+        }
+    }
+
+    private var stepSubtitle: String {
+        switch step {
+        case .enterCurrent:
+            return mode == .clear ? "Enter your current passcode to confirm removal." : "Enter your current passcode."
+        case .enterNew:
+            return "Enter your new passcode."
+        case .confirmNew:
+            return "Re-enter your new passcode."
+        }
+    }
+
+    private var activeBinding: Binding<String> {
+        switch step {
+        case .enterCurrent: return $currentPIN
+        case .enterNew:     return $newPIN
+        case .confirmNew:   return $confirmPIN
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            Text(title)
-                .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
-
-            if mode == .change || mode == .clear {
-                SecureField("Current PIN (6 digits)", text: $currentPIN)
-                    .textFieldStyle(.roundedBorder)
-                    .font(VFont.body)
+        VStack(spacing: VSpacing.xl) {
+            // Header
+            VStack(spacing: VSpacing.xs) {
+                Text(title)
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
+                Text(stepSubtitle)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .center)
 
-            if mode == .set || mode == .change {
-                SecureField("New PIN (6 digits)", text: $newPIN)
-                    .textFieldStyle(.roundedBorder)
-                    .font(VFont.body)
+            // PIN circles — recreated (and auto-focused) on each step change
+            PINCircleField(text: activeBinding)
+                .id(step)
+                .onChange(of: currentPIN) { _, v in if step == .enterCurrent && v.count == 6 { advance() } }
+                .onChange(of: newPIN)     { _, v in if step == .enterNew     && v.count == 6 { advance() } }
+                .onChange(of: confirmPIN) { _, v in if step == .confirmNew   && v.count == 6 { advance() } }
 
-                SecureField("Confirm new PIN", text: $confirmPIN)
-                    .textFieldStyle(.roundedBorder)
-                    .font(VFont.body)
-            }
-
+            // Error / placeholder to keep height stable
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
+                    .multilineTextAlignment(.center)
+            } else {
+                Text(" ").font(VFont.caption)
             }
 
-            HStack {
-                Spacer()
-                VButton(label: "Cancel", style: .secondary) {
-                    dismiss()
-                }
-                VButton(label: "Confirm", style: .primary) {
-                    submit()
-                }
-                .disabled(isLoading || !canSubmit)
+            // Footer
+            if isLoading {
+                ProgressView().scaleEffect(0.8)
+            } else {
+                VButton(label: "Cancel", style: .secondary) { dismiss() }
             }
         }
         .padding(VSpacing.xl)
         .frame(width: 320)
         .background(VColor.background)
+        .onAppear {
+            step = (mode == .set) ? .enterNew : .enterCurrent
+        }
     }
 
-    private var canSubmit: Bool {
+    private func advance() {
+        errorMessage = nil
         switch mode {
         case .set:
-            return newPIN.count == 6 && confirmPIN == newPIN
+            if step == .enterNew {
+                confirmPIN = ""
+                withAnimation(VAnimation.standard) { step = .confirmNew }
+            } else if step == .confirmNew {
+                if confirmPIN == newPIN { submit() }
+                else { mismatch() }
+            }
         case .change:
-            return currentPIN.count == 6 && newPIN.count == 6 && confirmPIN == newPIN
+            if step == .enterCurrent {
+                newPIN = ""
+                withAnimation(VAnimation.standard) { step = .enterNew }
+            } else if step == .enterNew {
+                confirmPIN = ""
+                withAnimation(VAnimation.standard) { step = .confirmNew }
+            } else if step == .confirmNew {
+                if confirmPIN == newPIN { submit() }
+                else { mismatch() }
+            }
         case .clear:
-            return currentPIN.count == 6
+            submit()
         }
+    }
+
+    private func mismatch() {
+        errorMessage = "Passcodes don't match. Try again."
+        newPIN = ""
+        confirmPIN = ""
+        withAnimation(VAnimation.standard) { step = .enterNew }
     }
 
     private func submit() {
-        guard canSubmit else { return }
-        errorMessage = nil
-
-        if mode == .set || mode == .change {
-            guard newPIN.count == 6, newPIN.allSatisfy({ $0.isNumber }) else {
-                errorMessage = "PIN must be exactly 6 digits."
-                return
-            }
-            guard newPIN == confirmPIN else {
-                errorMessage = "PINs do not match."
-                return
-            }
-        }
-
         isLoading = true
         let stream = daemonClient?.subscribe()
         Task {
             do {
                 switch mode {
-                case .set:
-                    try daemonClient?.sendParentalControlSetPin(newPin: newPIN)
-                case .change:
-                    try daemonClient?.sendParentalControlChangePin(currentPin: currentPIN, newPin: newPIN)
-                case .clear:
-                    try daemonClient?.sendParentalControlClearPin(currentPin: currentPIN)
+                case .set:    try daemonClient?.sendParentalControlSetPin(newPin: newPIN)
+                case .change: try daemonClient?.sendParentalControlChangePin(currentPin: currentPIN, newPin: newPIN)
+                case .clear:  try daemonClient?.sendParentalControlClearPin(currentPin: currentPIN)
                 }
             } catch {
                 await MainActor.run {
@@ -1212,7 +1245,14 @@ private struct PINSheet: View {
                     if r.success {
                         onComplete(.success(mode))
                     } else {
+                        // Wrong current passcode — restart from step 1
                         errorMessage = r.error ?? "Operation failed."
+                        currentPIN = ""
+                        newPIN = ""
+                        confirmPIN = ""
+                        withAnimation(VAnimation.standard) {
+                            step = (mode == .set) ? .enterNew : .enterCurrent
+                        }
                     }
                 } else {
                     errorMessage = "No response from daemon."
@@ -1237,6 +1277,9 @@ private struct SetPINForEnableSheet: View {
     let onComplete: (SetPINForEnableResult) -> Void
     var daemonClient: DaemonClient?
 
+    private enum Step: Hashable { case enterNew, confirmNew }
+
+    @State private var step: Step = .enterNew
     @State private var pin: String = ""
     @State private var confirmPIN: String = ""
     @State private var isLoading: Bool = false
@@ -1244,44 +1287,44 @@ private struct SetPINForEnableSheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    private var canEnable: Bool {
-        pin.count == 6 && pin.allSatisfy({ $0.isNumber }) && pin == confirmPIN
+    private var stepSubtitle: String {
+        step == .enterNew
+            ? "Create a 6-digit passcode to protect parental settings."
+            : "Re-enter your new passcode to confirm."
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            Text("Set Parental PIN")
-                .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
+        VStack(spacing: VSpacing.xl) {
+            VStack(spacing: VSpacing.xs) {
+                Text("Set Parental Passcode")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
+                Text(stepSubtitle)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
 
-            Text("Create a PIN to protect parental settings. You'll need this to switch back to Parental profile.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            SecureField("PIN (6 digits)", text: $pin)
-                .textFieldStyle(.roundedBorder)
-                .font(VFont.body)
-
-            SecureField("Confirm PIN", text: $confirmPIN)
-                .textFieldStyle(.roundedBorder)
-                .font(VFont.body)
+            PINCircleField(text: step == .enterNew ? $pin : $confirmPIN)
+                .id(step)
+                .onChange(of: pin)       { _, v in if step == .enterNew   && v.count == 6 { advance() } }
+                .onChange(of: confirmPIN) { _, v in if step == .confirmNew && v.count == 6 { advance() } }
 
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
+                    .multilineTextAlignment(.center)
+            } else {
+                Text(" ").font(VFont.caption)
             }
 
-            HStack {
-                Spacer()
-                VButton(label: "Cancel", style: .secondary) {
-                    dismiss()
-                }
-                VButton(label: "Enable", style: .primary) {
-                    submit()
-                }
-                .disabled(isLoading || !canEnable)
+            if isLoading {
+                ProgressView().scaleEffect(0.8)
+            } else {
+                VButton(label: "Cancel", style: .secondary) { dismiss() }
             }
         }
         .padding(VSpacing.xl)
@@ -1289,19 +1332,24 @@ private struct SetPINForEnableSheet: View {
         .background(VColor.background)
     }
 
-    private func submit() {
-        guard canEnable else { return }
+    private func advance() {
         errorMessage = nil
-
-        guard pin.count == 6, pin.allSatisfy({ $0.isNumber }) else {
-            errorMessage = "PIN must be exactly 6 digits."
-            return
+        if step == .enterNew {
+            confirmPIN = ""
+            withAnimation(VAnimation.standard) { step = .confirmNew }
+        } else {
+            guard confirmPIN == pin else {
+                errorMessage = "Passcodes don't match. Try again."
+                pin = ""
+                confirmPIN = ""
+                withAnimation(VAnimation.standard) { step = .enterNew }
+                return
+            }
+            submit()
         }
-        guard pin == confirmPIN else {
-            errorMessage = "PINs do not match."
-            return
-        }
+    }
 
+    private func submit() {
         isLoading = true
         let stream = daemonClient?.subscribe()
         Task {
@@ -1338,7 +1386,10 @@ private struct SetPINForEnableSheet: View {
                     if r.success {
                         onComplete(.success(pin: pin))
                     } else {
-                        errorMessage = r.error ?? "Failed to set PIN."
+                        errorMessage = r.error ?? "Failed to set passcode."
+                        pin = ""
+                        confirmPIN = ""
+                        withAnimation(VAnimation.standard) { step = .enterNew }
                     }
                 } else {
                     errorMessage = "No response from daemon."
