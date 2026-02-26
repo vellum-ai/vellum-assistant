@@ -824,7 +824,9 @@ export class DaemonServer {
 
     session.runAgentLoop(content, messageId, onEvent, { isInteractive: options?.isInteractive ?? false })
       .finally(() => {
-        if (options?.isInteractive === true) {
+        // Only reset if no other caller (e.g. a real IPC client) has rebound
+        // the session's sender while the agent loop was running.
+        if (options?.isInteractive === true && session.getCurrentSender() === onEvent) {
           session.updateClient(() => {}, true);
         }
       })
@@ -931,7 +933,9 @@ export class DaemonServer {
         { isInteractive: options?.isInteractive ?? false },
       );
     } finally {
-      if (options?.isInteractive === true) {
+      // Only reset if no other caller (e.g. a real IPC client) has rebound
+      // the session's sender while the agent loop was running.
+      if (options?.isInteractive === true && session.getCurrentSender() === onEvent) {
         session.updateClient(() => {}, true);
       }
     }
