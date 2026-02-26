@@ -417,14 +417,17 @@ async function handleRecordingStatus(
   }
 
   // ── Operation token validation for restart race hardening ──
-  // If a restart is in progress and the status callback carries a token,
-  // reject it if the token doesn't match the active restart token.
-  if (msg.operationToken && activeRestartToken && msg.operationToken !== activeRestartToken) {
-    log.warn(
-      { recordingId, expectedToken: activeRestartToken, receivedToken: msg.operationToken },
-      'Rejecting stale recording_status — operation token mismatch (previous restart cycle)',
-    );
-    return;
+  // During an active restart, reject statuses that either have no token
+  // (stale/unscoped events from a previous non-restart recording) or have
+  // a mismatched token (from a previous restart cycle).
+  if (activeRestartToken) {
+    if (!msg.operationToken || msg.operationToken !== activeRestartToken) {
+      log.warn(
+        { recordingId, expectedToken: activeRestartToken, receivedToken: msg.operationToken ?? '(none)' },
+        'Rejecting recording_status during active restart — token missing or mismatched',
+      );
+      return;
+    }
   }
 
   // The client acknowledged this recording — cancel any pending stop timeout.
