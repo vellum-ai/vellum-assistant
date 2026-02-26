@@ -109,6 +109,7 @@ export class ConfigWatcher {
       'IDENTITY.md': () => onSessionEvict(),
       'USER.md': () => onSessionEvict(),
       'LOOKS.md': () => onSessionEvict(),
+      'UPDATES.md': () => onSessionEvict(),
     };
 
     const protectedHandlers: Record<string, () => void> = {
