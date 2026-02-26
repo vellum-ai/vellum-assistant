@@ -37,6 +37,7 @@ struct ComposerView: View {
     @Binding var inputText: String
     let hasAPIKey: Bool
     let isSending: Bool
+    let hasPendingConfirmation: Bool
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
@@ -261,7 +262,7 @@ struct ComposerView: View {
     @ViewBuilder
     private var composerActionButtons: some View {
         HStack(spacing: 2) {
-            if isSending {
+            if isSending && !hasPendingConfirmation {
                 Button(action: onStop) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 10)
