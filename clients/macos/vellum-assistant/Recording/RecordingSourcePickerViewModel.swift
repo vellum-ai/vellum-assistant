@@ -363,6 +363,28 @@ final class RecordingSourcePickerViewModel: ObservableObject {
         }
     }
 
+    /// Record telemetry for a single preview result.
+    private func recordResultTelemetry(sourceType: String, sourceId: String, status: PreviewStatus, latencyMs: Int, fromCache: Bool) {
+        previewAttemptCount += 1
+        previewTotalLatencyMs += latencyMs
+        switch status {
+        case .loaded:
+            previewSuccessCount += 1
+            if fromCache { previewCacheHitCount += 1 }
+            RecordingTelemetry.logPreviewGenerated(sourceType: sourceType, sourceId: sourceId, latencyMs: latencyMs, fromCache: fromCache)
+        case .failed(let reason):
+            if reason == .cancelled {
+                previewCancelCount += 1
+                RecordingTelemetry.logPreviewCancelled(sourceType: sourceType, sourceId: sourceId, reason: "task_cancelled")
+            } else {
+                previewFailureCount += 1
+                RecordingTelemetry.logPreviewFailed(sourceType: sourceType, sourceId: sourceId, category: Self.errorCategory(from: reason), latencyMs: latencyMs)
+            }
+        case .idle, .loading:
+            break
+        }
+    }
+
     /// Load preview thumbnails for all currently visible sources.
     /// Must be called after `loadSources()` completes. Does not block
     /// source loading — previews arrive asynchronously and update the UI.
@@ -399,10 +421,13 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                     }
                     var processedCount = 0
                     for await (displayId, image, status, latencyMs, fromCache) in group {
+                        let currentSourceId = String(displayId)
+
                         // Discard stale results from a previous generation;
                         // cancel remaining children so they release semaphore slots promptly.
-                        // Subtract 1 because the current result was already dequeued and completed.
+                        // Record telemetry for the current (already-completed) result before exiting.
                         guard self.previewGeneration == generation else {
+                            self.recordResultTelemetry(sourceType: "display", sourceId: currentSourceId, status: status, latencyMs: latencyMs, fromCache: fromCache)
                             let remaining = totalDisplaySources - processedCount - 1
                             if remaining > 0 {
                                 self.previewAttemptCount += remaining
@@ -413,6 +438,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                             return
                         }
                         guard !Task.isCancelled else {
+                            self.recordResultTelemetry(sourceType: "display", sourceId: currentSourceId, status: status, latencyMs: latencyMs, fromCache: fromCache)
                             let remaining = totalDisplaySources - processedCount - 1
                             if remaining > 0 {
                                 self.previewAttemptCount += remaining
@@ -428,26 +454,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                             self.displays[idx].previewStatus = status
                         }
 
-                        // Telemetry
-                        let sourceId = String(displayId)
-                        self.previewAttemptCount += 1
-                        self.previewTotalLatencyMs += latencyMs
-                        switch status {
-                        case .loaded:
-                            self.previewSuccessCount += 1
-                            if fromCache { self.previewCacheHitCount += 1 }
-                            RecordingTelemetry.logPreviewGenerated(sourceType: "display", sourceId: sourceId, latencyMs: latencyMs, fromCache: fromCache)
-                        case .failed(let reason):
-                            if reason == .cancelled {
-                                self.previewCancelCount += 1
-                                RecordingTelemetry.logPreviewCancelled(sourceType: "display", sourceId: sourceId, reason: "task_cancelled")
-                            } else {
-                                self.previewFailureCount += 1
-                                RecordingTelemetry.logPreviewFailed(sourceType: "display", sourceId: sourceId, category: Self.errorCategory(from: reason), latencyMs: latencyMs)
-                            }
-                        case .idle, .loading:
-                            break
-                        }
+                        self.recordResultTelemetry(sourceType: "display", sourceId: currentSourceId, status: status, latencyMs: latencyMs, fromCache: fromCache)
                     }
                 }
 
@@ -470,8 +477,11 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                     }
                     var processedCount = 0
                     for await (windowId, image, status, latencyMs, fromCache) in group {
-                        // Subtract 1 because the current result was already dequeued and completed.
+                        let currentSourceId = String(windowId)
+
+                        // Record telemetry for the current (already-completed) result before exiting.
                         guard self.previewGeneration == generation else {
+                            self.recordResultTelemetry(sourceType: "window", sourceId: currentSourceId, status: status, latencyMs: latencyMs, fromCache: fromCache)
                             let remaining = totalWindowSources - processedCount - 1
                             if remaining > 0 {
                                 self.previewAttemptCount += remaining
@@ -482,6 +492,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                             return
                         }
                         guard !Task.isCancelled else {
+                            self.recordResultTelemetry(sourceType: "window", sourceId: currentSourceId, status: status, latencyMs: latencyMs, fromCache: fromCache)
                             let remaining = totalWindowSources - processedCount - 1
                             if remaining > 0 {
                                 self.previewAttemptCount += remaining
@@ -497,26 +508,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                             self.windows[idx].previewStatus = status
                         }
 
-                        // Telemetry
-                        let sourceId = String(windowId)
-                        self.previewAttemptCount += 1
-                        self.previewTotalLatencyMs += latencyMs
-                        switch status {
-                        case .loaded:
-                            self.previewSuccessCount += 1
-                            if fromCache { self.previewCacheHitCount += 1 }
-                            RecordingTelemetry.logPreviewGenerated(sourceType: "window", sourceId: sourceId, latencyMs: latencyMs, fromCache: fromCache)
-                        case .failed(let reason):
-                            if reason == .cancelled {
-                                self.previewCancelCount += 1
-                                RecordingTelemetry.logPreviewCancelled(sourceType: "window", sourceId: sourceId, reason: "task_cancelled")
-                            } else {
-                                self.previewFailureCount += 1
-                                RecordingTelemetry.logPreviewFailed(sourceType: "window", sourceId: sourceId, category: Self.errorCategory(from: reason), latencyMs: latencyMs)
-                            }
-                        case .idle, .loading:
-                            break
-                        }
+                        self.recordResultTelemetry(sourceType: "window", sourceId: currentSourceId, status: status, latencyMs: latencyMs, fromCache: fromCache)
                     }
                 }
             }
