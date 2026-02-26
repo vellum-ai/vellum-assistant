@@ -85,7 +85,7 @@ function humanizeEventName(eventName: string): string {
  * Derive a fallback seed from signal metadata when rendered copy is blank.
  *
  * Extracts the most useful fields from `contextPayload` (common keys like
- * message, summary, body, preview, title, label, questionText) and combines
+ * message, summary, body, preview, senderIdentifier, title, label, questionText) and combines
  * them with a humanized event name. This ensures notification threads retain
  * usable audit context even when the decision engine produces empty copy.
  */
@@ -94,7 +94,7 @@ function buildContextFallback(signal: NotificationSignal): string {
   const payload = signal.contextPayload;
 
   // Try common payload keys in priority order
-  const candidateKeys = ['message', 'summary', 'body', 'preview', 'title', 'label', 'questionText', 'name'];
+  const candidateKeys = ['message', 'summary', 'body', 'preview', 'senderIdentifier', 'title', 'label', 'questionText', 'name'];
   for (const key of candidateKeys) {
     const val = payload[key];
     if (typeof val === 'string' && val.trim().length > 0) {
