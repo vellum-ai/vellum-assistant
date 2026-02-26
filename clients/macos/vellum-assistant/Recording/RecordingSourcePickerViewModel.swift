@@ -130,11 +130,6 @@ final class RecordingSourcePickerViewModel: ObservableObject {
         }
     }
 
-    /// Whether source preview UI should be shown.
-    var sourcePreviewEnabled: Bool {
-        FeatureFlagManager.shared.isEnabled(.sourcePreviewEnabled)
-    }
-
     /// The currently selected source's thumbnail, if any.
     var selectedThumbnail: NSImage? {
         switch captureScope {
@@ -392,8 +387,6 @@ final class RecordingSourcePickerViewModel: ObservableObject {
     /// Must be called after `loadSources()` completes. Does not block
     /// source loading — previews arrive asynchronously and update the UI.
     func loadPreviews() async {
-        guard FeatureFlagManager.shared.isEnabled(.sourcePreviewEnabled) else { return }
-
         // Cancel any in-flight preview work from a previous scope or refresh
         previewTask?.cancel()
 

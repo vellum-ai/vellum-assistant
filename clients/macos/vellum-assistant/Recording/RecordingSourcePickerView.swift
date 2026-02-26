@@ -4,8 +4,7 @@ import VellumAssistantShared
 /// Source picker view for selecting what to record (display or window).
 ///
 /// Uses design system tokens (VColor, VFont, VSpacing, VRadius) for consistent styling.
-/// When `sourcePreviewEnabled` is true, displays per-row thumbnails and a
-/// larger preview pane above the source list.
+/// Displays per-row thumbnails and a larger preview pane above the source list.
 struct RecordingSourcePickerView: View {
     @ObservedObject var viewModel: RecordingSourcePickerViewModel
     var onStart: (IPCRecordingOptions) -> Void
@@ -35,12 +34,10 @@ struct RecordingSourcePickerView: View {
             .padding(.horizontal, VSpacing.xl)
             .padding(.bottom, VSpacing.lg)
 
-            // Preview pane (only when feature flag is on)
-            if viewModel.sourcePreviewEnabled {
-                previewPane
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.bottom, VSpacing.md)
-            }
+            // Preview pane
+            previewPane
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.bottom, VSpacing.md)
 
             // Source list
             if viewModel.isLoading {
@@ -61,7 +58,7 @@ struct RecordingSourcePickerView: View {
         }
         .frame(
             width: 420,
-            height: viewModel.sourcePreviewEnabled ? 640 : 440
+            height: 640
         )
         .background(VColor.background)
         .task {
@@ -143,13 +140,11 @@ struct RecordingSourcePickerView: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: VSpacing.md) {
-                if viewModel.sourcePreviewEnabled {
-                    ThumbnailView(
-                        thumbnail: window.thumbnail,
-                        previewStatus: window.previewStatus,
-                        size: rowThumbnailSize
-                    )
-                }
+                ThumbnailView(
+                    thumbnail: window.thumbnail,
+                    previewStatus: window.previewStatus,
+                    size: rowThumbnailSize
+                )
 
                 Image(systemName: "macwindow")
                     .font(.system(size: 16))
@@ -199,13 +194,11 @@ struct RecordingSourcePickerView: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: VSpacing.md) {
-                if viewModel.sourcePreviewEnabled {
-                    ThumbnailView(
-                        thumbnail: display.thumbnail,
-                        previewStatus: display.previewStatus,
-                        size: rowThumbnailSize
-                    )
-                }
+                ThumbnailView(
+                    thumbnail: display.thumbnail,
+                    previewStatus: display.previewStatus,
+                    size: rowThumbnailSize
+                )
 
                 Image(systemName: "display")
                     .font(.system(size: 16))
