@@ -37,6 +37,8 @@ import type {
   ParentalControlSetPinRequest,
   ParentalControlUpdateRequest,
   ParentalControlVerifyPinRequest,
+  ParentalIntegrationAllowlistGetRequest,
+  ParentalIntegrationAllowlistUpdateRequest,
 } from '../ipc-protocol.js';
 import { defineHandlers, type HandlerContext } from './shared.js';
 
@@ -422,6 +424,68 @@ export function handleParentalControlApprovalRespond(
 }
 
 // ---------------------------------------------------------------------------
+// Integration Allowlist handlers
+// ---------------------------------------------------------------------------
+
+export function handleParentalIntegrationAllowlistGet(
+  msg: ParentalIntegrationAllowlistGetRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const settings = getParentalControlSettings();
+  const pinExists = hasPIN();
+
+  // Require PIN verification when parental mode is already enabled
+  if (settings.enabled && pinExists) {
+    if (!verifyPIN(msg.pin)) {
+      ctx.send(socket, {
+        type: 'parental_integration_allowlist_get_response',
+        allowedIntegrations: [],
+        success: false,
+        error: 'PIN required to view integration allowlist',
+      });
+      return;
+    }
+  }
+
+  ctx.send(socket, {
+    type: 'parental_integration_allowlist_get_response',
+    allowedIntegrations: settings.allowedIntegrations,
+    success: true,
+  });
+}
+
+export function handleParentalIntegrationAllowlistUpdate(
+  msg: ParentalIntegrationAllowlistUpdateRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const settings = getParentalControlSettings();
+  const pinExists = hasPIN();
+
+  // Require PIN verification when parental mode is already enabled
+  if (settings.enabled && pinExists) {
+    if (!verifyPIN(msg.pin)) {
+      ctx.send(socket, {
+        type: 'parental_integration_allowlist_update_response',
+        success: false,
+        error: 'PIN required to change integration allowlist',
+      });
+      return;
+    }
+  }
+
+  updateParentalControlSettings({ allowedIntegrations: msg.allowedIntegrations });
+
+  log.info({ count: msg.allowedIntegrations.length }, 'Parental integration allowlist updated');
+
+  ctx.send(socket, {
+    type: 'parental_integration_allowlist_update_response',
+    success: true,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Activity Log handlers
 // ---------------------------------------------------------------------------
 
@@ -498,6 +562,8 @@ export const parentalControlHandlers = defineHandlers({
   parental_control_profile_switch: handleParentalControlProfileSwitch,
   parental_control_allowlist_get: handleParentalControlAllowlistGet,
   parental_control_allowlist_update: handleParentalControlAllowlistUpdate,
+  parental_integration_allowlist_get: handleParentalIntegrationAllowlistGet,
+  parental_integration_allowlist_update: handleParentalIntegrationAllowlistUpdate,
   parental_control_approval_create: handleParentalControlApprovalCreate,
   parental_control_approval_list: handleParentalControlApprovalList,
   parental_control_approval_respond: handleParentalControlApprovalRespond,

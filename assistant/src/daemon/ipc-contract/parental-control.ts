@@ -154,6 +154,36 @@ export interface ParentalControlAllowlistUpdateResponse {
   error?: string;
 }
 
+// === Integration Allowlist (Client → Server) ===
+
+/** Retrieve the current integration allowlist. PIN required when parental controls are enabled. */
+export interface ParentalIntegrationAllowlistGetRequest {
+  type: 'parental_integration_allowlist_get';
+  pin: string;
+}
+
+/** Update the integration allowlist. PIN required when parental controls are enabled. */
+export interface ParentalIntegrationAllowlistUpdateRequest {
+  type: 'parental_integration_allowlist_update';
+  pin: string;
+  allowedIntegrations: string[];
+}
+
+// === Integration Allowlist (Server → Client) ===
+
+export interface ParentalIntegrationAllowlistGetResponse {
+  type: 'parental_integration_allowlist_get_response';
+  allowedIntegrations: string[];
+  success: boolean;
+  error?: string;
+}
+
+export interface ParentalIntegrationAllowlistUpdateResponse {
+  type: 'parental_integration_allowlist_update_response';
+  success: boolean;
+  error?: string;
+}
+
 // Create approval request (called from child profile context)
 export interface ParentalControlApprovalCreateRequest {
   type: 'parental_control_approval_create'
@@ -253,6 +283,8 @@ export type _ParentalControlClientMessages =
   | ParentalControlProfileSwitchRequest
   | ParentalControlAllowlistGetRequest
   | ParentalControlAllowlistUpdateRequest
+  | ParentalIntegrationAllowlistGetRequest
+  | ParentalIntegrationAllowlistUpdateRequest
   | ParentalControlApprovalCreateRequest
   | ParentalControlApprovalListRequest
   | ParentalControlApprovalRespondRequest
@@ -269,6 +301,8 @@ export type _ParentalControlServerMessages =
   | ParentalControlProfileSwitchResponse
   | ParentalControlAllowlistGetResponse
   | ParentalControlAllowlistUpdateResponse
+  | ParentalIntegrationAllowlistGetResponse
+  | ParentalIntegrationAllowlistUpdateResponse
   | ParentalControlApprovalCreateResponse
   | ParentalControlApprovalListResponse
   | ParentalControlApprovalRespondResponse

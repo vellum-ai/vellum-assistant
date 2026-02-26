@@ -78,6 +78,7 @@ struct SettingsParentalTab: View {
                     // Allowlist and activity log are only visible to the parent
                     if settingsStore.activeProfile == "parental" {
                         appsAndWidgetsSection
+                        integrationsSection
                         activityLogSection
                     }
                 } else {
@@ -88,6 +89,9 @@ struct SettingsParentalTab: View {
         .onAppear {
             loadSettings()
             settingsStore.loadActivityLog()
+            if let pin = unlockedPIN {
+                settingsStore.loadAllowedIntegrations(pin: pin)
+            }
         }
         .sheet(isPresented: $showingPINSheet) {
             PINSheet(
@@ -536,6 +540,49 @@ struct SettingsParentalTab: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Integrations Section
+
+    /// The canonical list of integrations that can be enabled for the child profile.
+    private let availableIntegrations: [(id: String, label: String, icon: String)] = [
+        ("telegram", "Telegram", "paperplane.fill"),
+        ("sms", "SMS", "message.fill"),
+        ("voice", "Voice", "phone.fill"),
+        ("email", "Email", "envelope.fill"),
+        ("mobile", "Mobile (iOS)", "iphone"),
+    ]
+
+    private var integrationsSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Integrations")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Child profile can only use enabled integrations.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            ForEach(availableIntegrations, id: \.id) { integration in
+                Toggle(integration.label, isOn: Binding(
+                    get: { settingsStore.allowedIntegrations.contains(integration.id) },
+                    set: { isOn in
+                        guard let pin = unlockedPIN else { return }
+                        let updated = isOn
+                            ? settingsStore.allowedIntegrations + [integration.id]
+                            : settingsStore.allowedIntegrations.filter { $0 != integration.id }
+                        settingsStore.allowedIntegrations = updated
+                        settingsStore.updateAllowedIntegrations(pin: pin, integrations: updated)
+                    }
+                ))
+                .accessibilityLabel(integration.label)
+                .disabled(isLoading || unlockedPIN == nil)
+            }
+        }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }

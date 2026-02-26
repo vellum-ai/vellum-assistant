@@ -2326,6 +2326,8 @@ public enum ServerMessage: Decodable, Sendable {
     case parentalControlProfileSwitchResponse(ParentalControlProfileSwitchResponseMessage)
     case parentalControlAllowlistGetResponse(ParentalControlAllowlistGetResponseMessage)
     case parentalControlAllowlistUpdateResponse(ParentalControlAllowlistUpdateResponseMessage)
+    case parentalIntegrationAllowlistGetResponse(ParentalIntegrationAllowlistGetResponseMessage)
+    case parentalIntegrationAllowlistUpdateResponse(ParentalIntegrationAllowlistUpdateResponseMessage)
     case parentalControlApprovalCreateResponse(ParentalControlApprovalCreateResponseMessage)
     case parentalControlApprovalListResponse(ParentalControlApprovalListResponseMessage)
     case parentalControlApprovalRespondResponse(ParentalControlApprovalRespondResponseMessage)
@@ -2747,6 +2749,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "parental_control_allowlist_update_response":
             let message = try ParentalControlAllowlistUpdateResponseMessage(from: decoder)
             self = .parentalControlAllowlistUpdateResponse(message)
+        case "parental_integration_allowlist_get_response":
+            let message = try ParentalIntegrationAllowlistGetResponseMessage(from: decoder)
+            self = .parentalIntegrationAllowlistGetResponse(message)
+        case "parental_integration_allowlist_update_response":
+            let message = try ParentalIntegrationAllowlistUpdateResponseMessage(from: decoder)
+            self = .parentalIntegrationAllowlistUpdateResponse(message)
         case "parental_control_approval_create_response":
             let message = try ParentalControlApprovalCreateResponseMessage(from: decoder)
             self = .parentalControlApprovalCreateResponse(message)
@@ -2967,6 +2975,34 @@ extension IPCParentalControlAllowlistUpdateRequest {
 /// Result of an allowlist update operation.
 /// Backed by generated `IPCParentalControlAllowlistUpdateResponse`.
 public typealias ParentalControlAllowlistUpdateResponseMessage = IPCParentalControlAllowlistUpdateResponse
+
+/// Retrieve the current integration allowlist.
+/// Backed by generated `IPCParentalIntegrationAllowlistGetRequest`.
+public typealias ParentalIntegrationAllowlistGetRequestMessage = IPCParentalIntegrationAllowlistGetRequest
+
+extension IPCParentalIntegrationAllowlistGetRequest {
+    public init(pin: String) {
+        self.init(type: "parental_integration_allowlist_get", pin: pin)
+    }
+}
+
+/// Integration allowlist response.
+/// Backed by generated `IPCParentalIntegrationAllowlistGetResponse`.
+public typealias ParentalIntegrationAllowlistGetResponseMessage = IPCParentalIntegrationAllowlistGetResponse
+
+/// Update the integration allowlist.
+/// Backed by generated `IPCParentalIntegrationAllowlistUpdateRequest`.
+public typealias ParentalIntegrationAllowlistUpdateRequestMessage = IPCParentalIntegrationAllowlistUpdateRequest
+
+extension IPCParentalIntegrationAllowlistUpdateRequest {
+    public init(pin: String, allowedIntegrations: [String]) {
+        self.init(type: "parental_integration_allowlist_update", pin: pin, allowedIntegrations: allowedIntegrations)
+    }
+}
+
+/// Result of an integration allowlist update operation.
+/// Backed by generated `IPCParentalIntegrationAllowlistUpdateResponse`.
+public typealias ParentalIntegrationAllowlistUpdateResponseMessage = IPCParentalIntegrationAllowlistUpdateResponse
 
 /// Create an approval request (called from child profile context).
 /// Backed by generated `IPCParentalControlApprovalCreateRequest`.
