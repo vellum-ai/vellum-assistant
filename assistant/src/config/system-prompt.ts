@@ -640,6 +640,7 @@ function buildConfigSection(): string {
     '- `LOOKS.md` — Your avatar appearance: body/cheek colors and outfit (hat, shirt, accessory, held item).',
     '- `HEARTBEAT.md` — Checklist for periodic heartbeat runs. When heartbeat is enabled, the assistant runs this checklist on a timer and flags anything that needs attention. Edit this file to control what gets checked each run.',
     '- `BOOTSTRAP.md` — First-run ritual script (only present during onboarding; you delete it when done).',
+    '- `UPDATES.md` — Release update notes (created automatically on new releases; delete when updates are actioned).',
     '- `skills/` — Directory of installed skills (loaded automatically at startup).',
     '',
     '### Heartbeat',
