@@ -717,16 +717,17 @@ A three-command workflow for executing plans one PR at a time with human review 
 
 | Command | Purpose |
 |---------|---------|
-| `/safe-execute-plan <file>` | Start a plan from `.private/plans/` — implements the first PR, creates it (without merging), and stops to wait for review. |
+| `/safe-execute-plan <file>` | Start a plan from `.private/plans/` — implements the next PR, creates it (without merging), automatically runs an **automated review feedback loop** (up to 3 fix cycles with Codex/Devin), and stops to await human merge approval. |
 | `/safe-check-review [file]` | Check the active plan PR for feedback from codex/devin/humans. Addresses requested changes by pushing fixes. Waits if reviews are still pending — only recommends merging once all reviewers have responded. Auto-detects the plan if only one is active. |
 | `/resume-plan [file]` | Merge the current PR, implement the next one, create it, and stop again. Repeats until the plan is complete. Auto-detects the plan if only one is active. |
 
 **Typical flow:**
 
-1. **`/safe-execute-plan MY_PLAN.md`** — starts the plan, creates PR 1, stops
-2. **`/safe-check-review MY_PLAN.md`** — run periodically; waits for pending reviews, addresses feedback, or gives the all-clear to merge
-3. **`/resume-plan MY_PLAN.md`** — merge PR 1, create PR 2, stop (only after `/safe-check-review` confirms all reviews are in)
-4. Repeat steps 2–3 until the plan is complete
+1. **`/safe-execute-plan MY_PLAN.md`** — starts the plan, creates PR 1, automatically handles Codex/Devin review feedback (up to 3 cycles), then stops
+2. **`/resume-plan MY_PLAN.md`** — merge PR 1 (automated reviews already complete), create PR 2, stop
+3. Repeat step 2 until the plan is complete
+
+The automated review loop in `/safe-execute-plan` triggers Codex and Devin reviews, waits for their feedback (up to 15 minutes for initial reviews, 10 minutes for subsequent cycles), addresses any `changes_requested` feedback by pushing fixes directly to the PR branch, and re-requests reviews — repeating up to 3 cycles before handing off to you.
 
 Multiple plans can run in parallel — just specify the plan name to disambiguate.
 
@@ -754,7 +755,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 
 Or for a focused feature: **`/blitz <feature>`** handles all of the above in one shot (plan, issues, swarm, sweep, report). Use **`/safe-blitz <feature>`** for the same workflow but with a feature branch and a final PR for manual review, then **`/safe-blitz-done`** to merge it when ready.
 
-For controlled, sequential plan execution with human review at every step: **`/safe-execute-plan <file>`** → **`/safe-check-review`** → **`/resume-plan`** → repeat.
+For controlled, sequential plan execution with automated bot reviews and human merge approval: **`/safe-execute-plan <file>`** (creates PR + auto-handles Codex/Devin feedback) → **`/resume-plan`** → repeat.
 
 All workflows use squash-merge (no merge commits), worktree isolation for parallel work, and track state in `.private/TODO.md` and `.private/UNREVIEWED_PRS.md`.
 

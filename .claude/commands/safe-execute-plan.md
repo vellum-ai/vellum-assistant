@@ -130,6 +130,9 @@ Use this aggregate status in the feedback loop below.
 The `check-pr-reviews` script reports **cumulative** review status — it counts all reviews ever posted, not just unresolved ones. After fixes are pushed and threads are resolved, old reviews still exist in the GitHub API, so `check-pr-reviews` may still return `changes_requested` even though the feedback has been addressed. To avoid infinite loops, use the `last_fix_push_time` timestamp and the `gh api` to check whether any reviews were posted **after** that timestamp before treating `changes_requested` as actionable.
 
 1. **Check for reviews**: Poll `.claude/check-pr-reviews $PR_NUMBER` to get per-reviewer statuses. Derive the aggregate status (see above).
+
+   Before the first fix cycle, this initial poll loop is bounded: if reviewers do not respond within **15 minutes**, stop polling, log `"Timed out after 15 minutes waiting for initial reviews on PR #$PR_NUMBER. Proceeding."`, and proceed to Step 7.
+
    - If aggregate status is `pending`, wait 60 seconds and poll again.
    - If aggregate status is `rate_limited`, wait 120 seconds and poll again.
    - If aggregate status is `approved`, proceed to Step 7 (done).
@@ -181,12 +184,12 @@ The `check-pr-reviews` script reports **cumulative** review status — it counts
      # Union all logins across endpoints and count unique bots
      all_responded_bots=$(echo -e "$review_bot_logins\n$comment_bot_logins\n$issue_comment_bot_logins\n$reaction_bot_logins" | sort -u | grep -c .)
      ```
-     A reviewer bot counts as "responded" if its login appears in any of the four queries above. Both bots must have posted something new to consider the poll complete.
-   - If `all_responded_bots` is **>= 2** (both reviewer bots have posted new activity after `last_fix_push_time`), run `.claude/check-pr-reviews $PR_NUMBER` and derive the aggregate status:
+     A reviewer bot counts as "responded" if its login appears in any of the four queries above.
+   - If `all_responded_bots` is **>= 1** (at least one reviewer bot has posted new activity after `last_fix_push_time`), run `.claude/check-pr-reviews $PR_NUMBER` and derive the aggregate status:
      - If aggregate status is `approved`, proceed to Step 7.
      - If aggregate status is `changes_requested`, return to step 2 (which checks the cycle limit).
      - If aggregate status is `pending` or `rate_limited`, continue polling.
-   - If `all_responded_bots` is **< 2**, **continue polling** — do not exit the loop. Old cumulative statuses from `check-pr-reviews` are unreliable after fixes have been pushed.
+   - If `all_responded_bots` is **< 1**, **continue polling** — do not exit the loop. Old cumulative statuses from `check-pr-reviews` are unreliable after fixes have been pushed.
    - If **10 minutes** pass without both reviewer bots posting new activity, proceed to Step 7. Log: `"Timed out after 10 minutes waiting for reviewer responses. Proceeding with pending reviews."`
 
 Repeat steps 1-5 until the exit condition: either `approved` aggregate status, both reviewers have posted fresh activity, 10-minute timeout after a fix push, or the cycle counter has reached 3.
