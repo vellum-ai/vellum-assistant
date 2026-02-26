@@ -8,6 +8,7 @@ import {
   createConversationAttentionTables,
   createCoreIndexes,
   createCoreTables,
+  createScopedApprovalGrantsTable,
   createExternalConversationBindingsTables,
   createFollowupsTables,
   createMediaAssetsTables,
@@ -128,6 +129,9 @@ export function initializeDb(): void {
 
   // 21. Rebuild tables to add ON DELETE CASCADE to FK constraints
   migrateFkCascadeRebuilds(database);
+
+  // 22. Scoped approval grants (channel-agnostic one-time-use grants)
+  createScopedApprovalGrantsTable(database);
 
   validateMigrationState(database);
 }
