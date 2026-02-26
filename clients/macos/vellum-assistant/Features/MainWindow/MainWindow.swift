@@ -129,13 +129,13 @@ private class NonDraggableContainerView: NSView {
 }
 
 @MainActor
-final class MainWindow {
+public final class MainWindow {
     private let services: AppServices
     private var window: NSWindow?
     let threadManager: ThreadManager
     let appListManager = AppListManager()
     let traceStore = TraceStore()
-    let windowState = MainWindowState()
+    public let windowState = MainWindowState()
     let documentManager = DocumentManager()
     let avatarEvolutionState: AvatarEvolutionState?
     var onMicrophoneToggle: (() -> Void)?

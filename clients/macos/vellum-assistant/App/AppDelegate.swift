@@ -147,7 +147,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboardingWindow: OnboardingWindow?
     private var authWindow: NSWindow?
     var authManager: AuthManager { services.authManager }
-    var mainWindow: MainWindow?
+    public var mainWindow: MainWindow?
     var bundleConfirmationWindow: BundleConfirmationWindow?
     private var tasksWindow: TasksWindow?
     private var pairingApprovalWindow: PairingApprovalWindow?
