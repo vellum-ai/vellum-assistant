@@ -93,7 +93,13 @@ function generateNumericSecret(digits: number = 6): string {
 /**
  * Create a new verification challenge for a guardian candidate.
  *
- * Generates a six-digit numeric secret for all channels.
+ * Inbound challenges are not identity-bound: `validateAndConsumeChallenge`
+ * skips the identity check when no expected-identity fields are set, so
+ * code secrecy is the only protection against brute-force guessing during
+ * the TTL window. A 32-byte hex secret provides ~2^128 entropy, making
+ * enumeration infeasible. Identity-bound outbound sessions (created via
+ * `createOutboundSession`) use shorter 6-digit numeric codes because the
+ * identity check adds a second layer of protection.
  *
  * Hashes the secret (SHA-256) and stores the challenge record with a
  * 10-minute TTL. The raw secret is returned so it can be displayed to
@@ -104,7 +110,9 @@ export function createVerificationChallenge(
   channel: string,
   sessionId?: string,
 ): CreateChallengeResult {
-  const secret = generateNumericSecret();
+  // High-entropy hex for unbound inbound challenges — 6-digit numeric
+  // codes are only safe when identity binding provides a second factor.
+  const secret = randomBytes(32).toString('hex');
   const challengeHash = hashSecret(secret);
   const challengeId = uuid();
   const expiresAt = Date.now() + CHALLENGE_TTL_MS;

@@ -390,7 +390,8 @@ describe('guardian service challenge validation', () => {
 
     expect(result.challengeId).toBeDefined();
     expect(result.secret).toBeDefined();
-    expect(result.secret.length).toBe(6); // 6-digit numeric code
+    expect(result.secret.length).toBe(64); // 32-byte hex — high-entropy for unbound inbound challenges
+    expect(result.secret).toMatch(/^[0-9a-f]{64}$/);
     expect(result.verifyCommand).toBe(result.secret);
     expect(result.ttlSeconds).toBe(600);
     expect(result.instruction).toBeDefined();
@@ -1547,24 +1548,23 @@ describe('voice guardian challenge generation', () => {
     resetTables();
   });
 
-  test('createVerificationChallenge for voice returns a six-digit numeric secret', () => {
+  test('createVerificationChallenge for voice returns a high-entropy hex secret', () => {
     const result = createVerificationChallenge('asst-1', 'voice');
 
     expect(result.challengeId).toBeDefined();
     expect(result.secret).toBeDefined();
-    expect(result.secret).toMatch(/^\d{6}$/);
-    // Zero-padded: "079316" is valid, so check string length not numeric range
-    expect(result.secret.length).toBe(6);
+    expect(result.secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.secret.length).toBe(64);
   });
 
-  test('createVerificationChallenge for non-voice returns 6-digit numeric secret', () => {
+  test('createVerificationChallenge for non-voice returns high-entropy hex secret', () => {
     const result = createVerificationChallenge('asst-1', 'telegram');
 
-    expect(result.secret.length).toBe(6);
-    expect(result.secret).toMatch(/^\d{6}$/);
+    expect(result.secret.length).toBe(64);
+    expect(result.secret).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  test('voice challenge verifyCommand contains the six-digit secret', () => {
+  test('voice challenge verifyCommand contains the hex secret', () => {
     const result = createVerificationChallenge('asst-1', 'voice');
 
     expect(result.verifyCommand).toBe(result.secret);
@@ -1573,7 +1573,9 @@ describe('voice guardian challenge generation', () => {
   test('voice challenge instruction contains voice-specific copy', () => {
     const result = createVerificationChallenge('asst-1', 'voice');
 
-    expect(result.instruction).toContain('six-digit code');
+    // Inbound challenges use high-entropy hex, so the voice template says
+    // "enter the code" rather than "six-digit code".
+    expect(result.instruction).toContain('enter the code');
     expect(result.instruction).toContain(result.secret);
   });
 
@@ -1581,10 +1583,9 @@ describe('voice guardian challenge generation', () => {
     const result1 = createVerificationChallenge('asst-1', 'voice');
     const result2 = createVerificationChallenge('asst-2', 'voice');
 
-    // While technically they could collide, the probability is ~1/900000
-    // so this is a reasonable smoke test for randomness
-    expect(result1.secret).toMatch(/^\d{6}$/);
-    expect(result2.secret).toMatch(/^\d{6}$/);
+    // High-entropy hex secrets: collision probability is negligible
+    expect(result1.secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(result2.secret).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test('voice ttlSeconds is 600 (10 minutes)', () => {
@@ -1935,7 +1936,7 @@ describe('IPC handler voice guardian verification', () => {
     resetTables();
   });
 
-  test('create_challenge for voice returns a six-digit secret', () => {
+  test('create_challenge for voice returns a high-entropy hex secret', () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: 'guardian_verification',
@@ -1950,9 +1951,9 @@ describe('IPC handler voice guardian verification', () => {
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.secret).toBeDefined();
-    expect(resp!.secret).toMatch(/^\d{6}$/);
+    expect(resp!.secret).toMatch(/^[0-9a-f]{64}$/);
     expect(resp!.instruction).toBeDefined();
-    expect(resp!.instruction).toContain('six-digit code');
+    expect(resp!.instruction).toContain('enter the code');
     expect(resp!.channel).toBe('voice');
   });
 

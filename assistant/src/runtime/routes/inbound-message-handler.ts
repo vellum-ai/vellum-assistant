@@ -73,7 +73,9 @@ const log = getLogger('runtime-http');
  * Accepts three formats:
  *   1. `/guardian_verify <code>` (legacy command format)
  *   2. `/guardian_verify@BotName <code>` (Telegram group format)
- *   3. A bare 6-digit numeric code as the entire message
+ *   3. A bare code as the entire message: 6-digit numeric OR 64-char hex
+ *      (hex is retained for backward compatibility with in-flight inbound
+ *      challenges that still use high-entropy secrets)
  * Returns the verification code if recognized, or undefined otherwise.
  */
 function parseGuardianVerifyCommand(content: string): string | undefined {
@@ -81,9 +83,10 @@ function parseGuardianVerifyCommand(content: string): string | undefined {
   const commandMatch = content.match(/^\/guardian_verify(?:@\S+)?\s+(\S+)/);
   if (commandMatch) return commandMatch[1];
 
-  // Bare 6-digit numeric code
-  const bareMatch = content.match(/^\d{6}$/);
-  return bareMatch?.[0];
+  // Bare code: 6-digit numeric (identity-bound outbound sessions) or
+  // 64-char hex (unbound inbound challenges)
+  const bareMatch = content.match(/^([0-9a-fA-F]{64}|\d{6})$/);
+  return bareMatch?.[1];
 }
 
 export async function handleChannelInbound(

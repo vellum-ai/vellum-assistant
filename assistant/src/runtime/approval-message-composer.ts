@@ -218,9 +218,14 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
 
     case 'guardian_verify_challenge_setup':
       if (context.channel === 'voice') {
-        // Voice challenges use a six-digit numeric code that can be spoken aloud
         const code = context.verifyCommand ?? 'the verification code';
-        return `To complete guardian verification, speak or enter the six-digit code: ${code}.`;
+        // Detect whether the code is a short numeric (identity-bound outbound)
+        // or a high-entropy hex (inbound challenge) and adjust wording.
+        const isNumeric = /^\d{4,8}$/.test(code);
+        if (isNumeric) {
+          return `To complete guardian verification, speak or enter the ${code.length}-digit code: ${code}.`;
+        }
+        return `To complete guardian verification, enter the code: ${code}.`;
       }
       return `To complete guardian verification, reply in the channel with the code you were given.`;
 
