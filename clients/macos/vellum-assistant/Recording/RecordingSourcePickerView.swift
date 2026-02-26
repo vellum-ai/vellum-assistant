@@ -138,6 +138,7 @@ struct RecordingSourcePickerView: View {
             .padding(.vertical, VSpacing.sm)
         }
         .fixedSize(horizontal: false, vertical: true)
+        .frame(maxHeight: 280)
     }
 
     /// Row for a window source. When preview is enabled, shows a thumbnail
