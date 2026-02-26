@@ -19,6 +19,7 @@ export const conversations = sqliteTable('conversations', {
   isAutoTitle: integer('is_auto_title').notNull().default(1),
 }, (table) => [
   index('idx_conversations_updated_at').on(table.updatedAt),
+  index('idx_conversations_thread_type').on(table.threadType),
 ]);
 
 export const messages = sqliteTable('messages', {
