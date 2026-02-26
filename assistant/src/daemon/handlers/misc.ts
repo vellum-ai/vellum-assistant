@@ -318,6 +318,12 @@ export async function handleTaskSubmit(
                 sessionId: activeSessionId,
               });
               ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+
+              // If recording was rejected (e.g. already active), unbind the
+              // socket so it doesn't stay bound to an orphaned conversation.
+              if (execResult.recordingStarted === false) {
+                ctx.socketToSession.delete(socket);
+              }
               return;
             }
           }
