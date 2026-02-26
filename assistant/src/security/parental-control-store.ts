@@ -236,11 +236,15 @@ export const TOOL_CATEGORY_PREFIXES: Record<ParentalToolCategory, string[]> = {
 
 /**
  * Returns true if the given tool name falls within any of the currently
- * blocked tool categories.
+ * blocked tool categories AND the active profile is "child".
+ *
+ * When the active profile is "parental", tool blocking is suppressed so that
+ * the administrator retains unrestricted access — consistent with how
+ * isAppAllowed and isWidgetAllowed handle the profile check.
  */
 export function isToolBlocked(toolName: string): boolean {
-  const { enabled, blockedToolCategories } = getParentalControlSettings();
-  if (!enabled || blockedToolCategories.length === 0) return false;
+  const { enabled, activeProfile, blockedToolCategories } = getParentalControlSettings();
+  if (!enabled || activeProfile !== 'child' || blockedToolCategories.length === 0) return false;
 
   for (const category of blockedToolCategories) {
     const prefixes = TOOL_CATEGORY_PREFIXES[category];

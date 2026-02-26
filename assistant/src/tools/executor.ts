@@ -6,6 +6,7 @@ import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } f
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { addRule } from '../permissions/trust-store.js';
 import { RiskLevel } from '../permissions/types.js';
+import { consumeApproveOnce, isToolApprovedAlways } from '../security/parental-approval-store.js';
 import { isToolBlocked } from '../security/parental-control-store.js';
 import { redactSensitiveFields } from '../security/redaction.js';
 import { redactSecrets,scanText } from '../security/secret-scanner.js';
@@ -83,33 +84,43 @@ export class ToolExecutor {
     }
 
     // Reject tools blocked by parental control settings before any permission check.
+    // A parent-granted approval (approve_always or an unconsumed approve_once)
+    // takes precedence and allows the tool to proceed despite category-level blocking.
     if (isToolBlocked(name)) {
-      log.warn(
-        {
+      const approvedAlways = isToolApprovedAlways(name);
+      const approvedOnce = !approvedAlways && consumeApproveOnce(name);
+      if (!approvedAlways && !approvedOnce) {
+        log.warn(
+          {
+            toolName: name,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            principal: context.principal,
+            reason: 'blocked_by_parental_controls',
+          },
+          'Parental control blocked tool invocation',
+        );
+        const durationMs = Date.now() - startTime;
+        emitLifecycleEvent(context, {
+          type: 'permission_denied',
           toolName: name,
+          executionTarget,
+          input,
+          workingDir: context.workingDir,
           sessionId: context.sessionId,
           conversationId: context.conversationId,
-          principal: context.principal,
-          reason: 'blocked_by_parental_controls',
-        },
-        'Parental control blocked tool invocation',
+          requestId: context.requestId,
+          riskLevel,
+          decision: 'deny',
+          reason: 'Blocked by parental control settings',
+          durationMs,
+        });
+        return { content: 'This tool is blocked by parental control settings.', isError: true };
+      }
+      log.info(
+        { toolName: name, approvedAlways, approvedOnce },
+        'Parental control: blocked tool allowed by parent approval',
       );
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent(context, {
-        type: 'permission_denied',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'deny',
-        reason: 'Blocked by parental control settings',
-        durationMs,
-      });
-      return { content: 'This tool is blocked by parental control settings.', isError: true };
     }
 
     // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.

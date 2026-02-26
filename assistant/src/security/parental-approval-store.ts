@@ -4,7 +4,7 @@ import { join } from 'path'
 
 import { getRootDir } from '../util/platform.js'
 
-export type ApprovalDecision = 'approve_always' | 'approve_once' | 'reject' | 'pending'
+export type ApprovalDecision = 'approve_always' | 'approve_once' | 'reject' | 'pending' | 'consumed'
 
 export interface ApprovalRequest {
   id: string
@@ -73,7 +73,9 @@ export function consumeApproveOnce(toolName: string): boolean {
   const entries = readStore()
   const idx = entries.findIndex((e) => e.toolName === toolName && e.status === 'approve_once')
   if (idx === -1) return false
-  entries[idx] = { ...entries[idx], status: 'reject', resolvedAt: new Date().toISOString() }
+  // Mark as 'consumed' rather than 'reject' so the parent's approval list UI
+  // correctly distinguishes a used one-time approval from an explicit rejection.
+  entries[idx] = { ...entries[idx], status: 'consumed', resolvedAt: new Date().toISOString() }
   writeStore(entries)
   return true
 }
