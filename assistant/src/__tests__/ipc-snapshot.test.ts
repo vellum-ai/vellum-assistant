@@ -666,6 +666,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     policy: 'allow',
     status: 'active',
   },
+  assistant_inbox_escalation: {
+    type: 'assistant_inbox_escalation',
+    action: 'list',
+    assistantId: 'asst-001',
+    status: 'pending',
+  },
   pairing_approval_response: {
     type: 'pairing_approval_response',
     pairingRequestId: 'pair-001',
@@ -1901,6 +1907,21 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       lastSeenAt: 1700000000,
       createdAt: 1700000000,
     },
+  },
+  assistant_inbox_escalation_response: {
+    type: 'assistant_inbox_escalation_response',
+    success: true,
+    escalations: [{
+      id: 'esc-001',
+      runId: 'run-001',
+      conversationId: 'conv-001',
+      channel: 'telegram',
+      requesterExternalUserId: 'user-123',
+      requesterChatId: 'chat-456',
+      status: 'pending',
+      requestSummary: 'Access request from new user',
+      createdAt: 1700000000,
+    }],
   },
   pairing_approval_request: {
     type: 'pairing_approval_request',

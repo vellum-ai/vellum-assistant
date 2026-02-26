@@ -1069,6 +1069,15 @@ exports[`IPC message snapshots ClientMessage types ingress_member serializes to 
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types assistant_inbox_escalation serializes to expected JSON 1`] = `
+{
+  "action": "list",
+  "assistantId": "asst-001",
+  "status": "pending",
+  "type": "assistant_inbox_escalation",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types pairing_approval_response serializes to expected JSON 1`] = `
 {
   "decision": "approve_once",
@@ -2973,6 +2982,26 @@ exports[`IPC message snapshots ServerMessage types ingress_member_response seria
   },
   "success": true,
   "type": "ingress_member_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types assistant_inbox_escalation_response serializes to expected JSON 1`] = `
+{
+  "escalations": [
+    {
+      "channel": "telegram",
+      "conversationId": "conv-001",
+      "createdAt": 1700000000,
+      "id": "esc-001",
+      "requestSummary": "Access request from new user",
+      "requesterChatId": "chat-456",
+      "requesterExternalUserId": "user-123",
+      "runId": "run-001",
+      "status": "pending",
+    },
+  ],
+  "success": true,
+  "type": "assistant_inbox_escalation_response",
 }
 `;
 
