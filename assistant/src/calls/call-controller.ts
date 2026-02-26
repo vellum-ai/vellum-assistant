@@ -42,8 +42,85 @@ type ControllerState = 'idle' | 'processing' | 'waiting_on_user' | 'speaking';
 
 const ASK_GUARDIAN_CAPTURE_REGEX = /\[ASK_GUARDIAN:\s*(.+?)\]/;
 const ASK_GUARDIAN_MARKER_REGEX = /\[ASK_GUARDIAN:\s*.+?\]/g;
-const ASK_GUARDIAN_APPROVAL_CAPTURE_REGEX = /\[ASK_GUARDIAN_APPROVAL:\s*(\{.+?\})\]/;
-const ASK_GUARDIAN_APPROVAL_MARKER_REGEX = /\[ASK_GUARDIAN_APPROVAL:\s*\{.+?\}\]/g;
+/**
+ * Extract a balanced JSON object from text that starts with a known prefix
+ * (e.g. "[ASK_GUARDIAN_APPROVAL: "). Uses brace counting with string-literal
+ * awareness so that `}` or `}]` inside JSON string values does not terminate
+ * the match prematurely.
+ *
+ * Returns the extracted JSON string, the full marker text (prefix + JSON + "]"),
+ * and the start index within the input text — or null if no balanced match exists.
+ */
+function extractBalancedJson(
+  text: string,
+  prefix: string,
+): { json: string; fullMatch: string; startIndex: number } | null {
+  const prefixIdx = text.indexOf(prefix);
+  if (prefixIdx === -1) return null;
+
+  const jsonStart = prefixIdx + prefix.length;
+  if (jsonStart >= text.length || text[jsonStart] !== '{') return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = jsonStart; i < text.length; i++) {
+    const ch = text[i];
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        const jsonEnd = i + 1;
+        const json = text.slice(jsonStart, jsonEnd);
+        // Expect a closing ']' after the JSON object
+        const closingBracketIdx = jsonEnd;
+        const fullMatchEnd = closingBracketIdx < text.length && text[closingBracketIdx] === ']'
+          ? closingBracketIdx + 1
+          : jsonEnd;
+        const fullMatch = text.slice(prefixIdx, fullMatchEnd);
+        return { json, fullMatch, startIndex: prefixIdx };
+      }
+    }
+  }
+
+  return null; // Unbalanced braces
+}
+
+/**
+ * Strip all balanced ASK_GUARDIAN_APPROVAL markers from text, handling nested
+ * braces and string literals correctly.
+ */
+function stripGuardianApprovalMarkers(text: string): string {
+  const prefix = '[ASK_GUARDIAN_APPROVAL: ';
+  let result = text;
+  // Iterate to remove all occurrences (the string shrinks each time)
+  for (;;) {
+    const match = extractBalancedJson(result, prefix);
+    if (!match) break;
+    result = result.slice(0, match.startIndex) + result.slice(match.startIndex + match.fullMatch.length);
+  }
+  return result;
+}
 const USER_ANSWERED_MARKER_REGEX = /\[USER_ANSWERED:\s*.+?\]/g;
 const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
 const CALL_OPENING_MARKER_REGEX = /\[CALL_OPENING\]/g;
@@ -56,8 +133,8 @@ const CALL_OPENING_ACK_MARKER = '[CALL_OPENING_ACK]';
 const END_CALL_MARKER = '[END_CALL]';
 
 function stripInternalSpeechMarkers(text: string): string {
-  return text
-    .replace(ASK_GUARDIAN_APPROVAL_MARKER_REGEX, '')
+  let result = stripGuardianApprovalMarkers(text);
+  result = result
     .replace(ASK_GUARDIAN_MARKER_REGEX, '')
     .replace(USER_ANSWERED_MARKER_REGEX, '')
     .replace(USER_INSTRUCTION_MARKER_REGEX, '')
@@ -66,6 +143,7 @@ function stripInternalSpeechMarkers(text: string): string {
     .replace(END_CALL_MARKER_REGEX, '')
     .replace(GUARDIAN_TIMEOUT_MARKER_REGEX, '')
     .replace(GUARDIAN_UNAVAILABLE_MARKER_REGEX, '');
+  return result;
 }
 
 export class CallController {
@@ -534,12 +612,14 @@ export class CallController {
         }
       }
 
-      // Check for structured tool-approval ASK_GUARDIAN_APPROVAL first, then informational ASK_GUARDIAN
-      const approvalMatch = responseText.match(ASK_GUARDIAN_APPROVAL_CAPTURE_REGEX);
+      // Check for structured tool-approval ASK_GUARDIAN_APPROVAL first, then informational ASK_GUARDIAN.
+      // Uses brace-balanced extraction so `}]` inside JSON string values does not
+      // truncate the payload or leak partial JSON into TTS output.
+      const approvalMatch = extractBalancedJson(responseText, '[ASK_GUARDIAN_APPROVAL: ');
       let toolApprovalMeta: { question: string; toolName: string; inputDigest: string } | null = null;
       if (approvalMatch) {
         try {
-          const parsed = JSON.parse(approvalMatch[1]) as { question?: string; toolName?: string; input?: Record<string, unknown> };
+          const parsed = JSON.parse(approvalMatch.json) as { question?: string; toolName?: string; input?: Record<string, unknown> };
           if (parsed.question && parsed.toolName && parsed.input) {
             const digest = computeToolApprovalDigest(parsed.toolName, parsed.input);
             toolApprovalMeta = { question: parsed.question, toolName: parsed.toolName, inputDigest: digest };

@@ -1305,6 +1305,46 @@ describe('call-controller', () => {
     controller.destroy();
   });
 
+  test('ASK_GUARDIAN_APPROVAL: handles JSON payloads containing }] in string values', async () => {
+    // The `}]` sequence inside a JSON string value previously caused the
+    // non-greedy regex to terminate early, truncating the JSON and leaking
+    // partial data into TTS output.
+    const approvalPayload = JSON.stringify({
+      question: 'Allow send_message?',
+      toolName: 'send_message',
+      input: { msg: 'test}]more', nested: { key: 'value with }] braces' } },
+    });
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      [`Let me check. [ASK_GUARDIAN_APPROVAL: ${approvalPayload}]`],
+    ));
+    const { session, relay, controller } = setupController('Send a message');
+
+    await controller.handleCallerUtterance('Send it');
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Verify controller entered waiting_on_user with the correct question
+    expect(controller.getState()).toBe('waiting_on_user');
+    const question = getPendingQuestion(session.id);
+    expect(question).not.toBeNull();
+    expect(question!.questionText).toBe('Allow send_message?');
+
+    // Verify tool metadata was parsed correctly
+    const pendingRequest = getPendingRequestByCallSessionId(session.id);
+    expect(pendingRequest).not.toBeNull();
+    expect(pendingRequest!.toolName).toBe('send_message');
+    expect(pendingRequest!.inputDigest).not.toBeNull();
+
+    // No partial JSON or marker text should leak into TTS output
+    const allText = relay.sentTokens.map((t) => t.token).join('');
+    expect(allText).not.toContain('[ASK_GUARDIAN_APPROVAL:');
+    expect(allText).not.toContain('send_message');
+    expect(allText).not.toContain('}]');
+    expect(allText).not.toContain('test}]more');
+    expect(allText).toContain('Let me check.');
+
+    controller.destroy();
+  });
+
   test('ASK_GUARDIAN_APPROVAL with malformed JSON: falls through to informational ASK_GUARDIAN', async () => {
     // Malformed JSON in the approval marker — should be ignored, and if there's
     // also an informational ASK_GUARDIAN marker, it should be used instead
