@@ -444,8 +444,18 @@ async function handleRecordingStatus(
     return;
   }
 
-  // The client acknowledged this recording — cancel any pending stop timeout.
-  cancelStopTimeout(recordingId);
+  // Cancel the stop timeout for most statuses, but NOT for a 'started' that
+  // won't complete the restart cycle. During restart, the stop timeout is the
+  // safety net that ensures deferred restart fires even if the client never
+  // sends 'stopped'. A stale tokenless 'started' from the old recording must
+  // not cancel it — otherwise restart state can leak indefinitely if the real
+  // 'stopped' callback is dropped.
+  const completesRestart = activeRestartToken
+    && msg.operationToken === activeRestartToken
+    && pendingRestartByConversation.get(conversationId) === activeRestartToken;
+  if (msg.status !== 'started' || completesRestart || !activeRestartToken) {
+    cancelStopTimeout(recordingId);
+  }
 
   // Use the reporting socket (which delivered this message) as the primary
   // recipient. Fall back to session-based lookup if the user switched sessions.
@@ -459,7 +469,7 @@ async function handleRecordingStatus(
       // now that the new recording has successfully started. Gate on matching
       // operationToken to prevent a stale tokenless 'started' from an old
       // recording from prematurely clearing the restart state.
-      if (activeRestartToken && msg.operationToken === activeRestartToken && pendingRestartByConversation.get(conversationId) === activeRestartToken) {
+      if (completesRestart) {
         pendingRestartByConversation.delete(conversationId);
         activeRestartToken = null;
         log.info({ recordingId, conversationId }, 'Restart cycle complete — new recording started');

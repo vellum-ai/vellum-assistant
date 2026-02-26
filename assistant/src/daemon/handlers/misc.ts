@@ -164,7 +164,7 @@ export async function handleTaskSubmit(
     // ── Standalone recording intent interception ──────────────────────────
     let pendingRecordingStart = false;
     let pendingRecordingStop = false;
-    let pendingRecordingRestart = false;
+    let pendingRecordingRestart: 'restart_with_remainder' | 'start_and_stop_with_remainder' | false = false;
     if (config.daemon.standaloneRecording) {
       const name = getAssistantName();
       const dynamicNames = [name].filter(Boolean) as string[];
@@ -270,11 +270,11 @@ export async function handleTaskSubmit(
           if (isRecordingIdle()) {
             pendingRecordingStart = true;
           } else {
-            pendingRecordingRestart = true;
+            pendingRecordingRestart = 'start_and_stop_with_remainder';
           }
         } else {
           pendingRecordingStart = intentResult.kind === 'start_with_remainder';
-          pendingRecordingRestart = intentResult.kind === 'restart_with_remainder';
+          pendingRecordingRestart = intentResult.kind === 'restart_with_remainder' ? 'restart_with_remainder' : false;
         }
         (msg as { task: string }).task = intentResult.remainder;
         rlog.info({ remaining: intentResult.remainder }, 'Recording intent deferred, continuing with remaining text');
@@ -358,7 +358,16 @@ export async function handleTaskSubmit(
         const recConversation = conversationStore.createConversation('Screen Recording');
         if (pendingRecordingStop) handleRecordingStop(recConversation.id, ctx);
         if (pendingRecordingStart) handleRecordingStart(recConversation.id, { promptForSource: true }, socket, ctx);
-        if (pendingRecordingRestart) handleRecordingRestart(recConversation.id, socket, ctx);
+        if (pendingRecordingRestart) {
+          const restartResult = handleRecordingRestart(recConversation.id, socket, ctx);
+          // TOCTOU: recording may have stopped between intent resolution and
+          // deferred execution. Fall back to plain start for stop-and-start
+          // intents (user wants a new recording), but not for pure restart.
+          if (!restartResult.initiated && restartResult.reason === 'no_active_recording'
+              && pendingRecordingRestart === 'start_and_stop_with_remainder') {
+            handleRecordingStart(recConversation.id, { promptForSource: true }, socket, ctx);
+          }
+        }
       }
 
       ctx.send(socket, {
@@ -383,7 +392,13 @@ export async function handleTaskSubmit(
       // Start deferred recording from mixed intent, now using the real conversation
       if (pendingRecordingStop) handleRecordingStop(conversation.id, ctx);
       if (pendingRecordingStart) handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
-      if (pendingRecordingRestart) handleRecordingRestart(conversation.id, socket, ctx);
+      if (pendingRecordingRestart) {
+        const restartResult = handleRecordingRestart(conversation.id, socket, ctx);
+        if (!restartResult.initiated && restartResult.reason === 'no_active_recording'
+            && pendingRecordingRestart === 'start_and_stop_with_remainder') {
+          handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
+        }
+      }
 
       ctx.send(socket, {
         type: 'task_routed',
