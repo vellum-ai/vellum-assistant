@@ -188,7 +188,7 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
   let selfieId: string;
   let selfieAttachment: ReturnType<typeof uploadAttachment>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     resetTables();
     // Clear sandbox so stale files from prior tests don't mask regressions
     rmSync(sandboxDir, { recursive: true, force: true });
@@ -216,7 +216,7 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
     selfieAttachment = uploadAttachment('selfie.png', 'image/png', TINY_PNG_BASE64);
     selfieId = selfieAttachment.id;
 
-    const msgA = addMessage(threadA.id, 'user', 'Here is my selfie from yesterday');
+    const msgA = await addMessage(threadA.id, 'user', 'Here is my selfie from yesterday');
     linkAttachmentToMessage(msgA.id, selfieId, 0);
 
     // Backdate the selfie to "yesterday" for realism

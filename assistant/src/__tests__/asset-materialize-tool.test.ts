@@ -311,7 +311,7 @@ describe('AssetMaterializeTool visibility policy', () => {
     const standardConv = createConversation({ title: 'standard-conv' });
     const base64Content = Buffer.from('standard content').toString('base64');
     const attachment = uploadAttachment('public.txt', 'text/plain', base64Content);
-    const msg = addMessage(standardConv.id, 'user', 'standard message');
+    const msg = await addMessage(standardConv.id, 'user', 'standard message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // Materialize from a different standard conversation
@@ -334,7 +334,7 @@ describe('AssetMaterializeTool visibility policy', () => {
     const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
     const base64Content = Buffer.from('private content').toString('base64');
     const attachment = uploadAttachment('secret.txt', 'text/plain', base64Content);
-    const msg = addMessage(privateConv.id, 'user', 'private message');
+    const msg = await addMessage(privateConv.id, 'user', 'private message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // Materialize from the same private conversation
@@ -356,7 +356,7 @@ describe('AssetMaterializeTool visibility policy', () => {
     const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
     const base64Content = Buffer.from('private content').toString('base64');
     const attachment = uploadAttachment('secret.txt', 'text/plain', base64Content);
-    const msg = addMessage(privateConv.id, 'user', 'private message');
+    const msg = await addMessage(privateConv.id, 'user', 'private message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // Attempt to materialize from a different conversation
@@ -380,7 +380,7 @@ describe('AssetMaterializeTool visibility policy', () => {
     const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
     const base64Content = Buffer.from('private content').toString('base64');
     const attachment = uploadAttachment('confidential.pdf', 'application/pdf', base64Content);
-    const msg = addMessage(privateConv.id, 'user', 'private message');
+    const msg = await addMessage(privateConv.id, 'user', 'private message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // From a standard conversation
@@ -406,7 +406,7 @@ describe('AssetMaterializeTool visibility policy', () => {
     const privateConv1 = createConversation({ title: 'private-conv-1', threadType: 'private' });
     const base64Content = Buffer.from('private content').toString('base64');
     const attachment = uploadAttachment('secret.txt', 'text/plain', base64Content);
-    const msg = addMessage(privateConv1.id, 'user', 'private message');
+    const msg = await addMessage(privateConv1.id, 'user', 'private message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // Attempt from a different private conversation
@@ -431,8 +431,8 @@ describe('AssetMaterializeTool visibility policy', () => {
     const base64Content = Buffer.from('shared content').toString('base64');
     const attachment = uploadAttachment('shared.txt', 'text/plain', base64Content);
 
-    const msg1 = addMessage(privateConv.id, 'user', 'private message');
-    const msg2 = addMessage(standardConv.id, 'user', 'standard message');
+    const msg1 = await addMessage(privateConv.id, 'user', 'private message');
+    const msg2 = await addMessage(standardConv.id, 'user', 'standard message');
     linkAttachmentToMessage(msg1.id, attachment.id, 0);
     linkAttachmentToMessage(msg2.id, attachment.id, 0);
 

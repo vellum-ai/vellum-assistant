@@ -111,7 +111,7 @@ describe('call-conversation-messages', () => {
     expect(buildCallCompletionMessage(session.id)).toBe('**Call cancelled** (3s). 2 event(s) recorded.');
   });
 
-  test('persistCallCompletionMessage keeps completed label when status is completed', () => {
+  test('persistCallCompletionMessage keeps completed label when status is completed', async () => {
     const conversationId = 'conv-call-msg-completed';
     ensureConversation(conversationId);
     const session = createCallSession({
@@ -124,7 +124,7 @@ describe('call-conversation-messages', () => {
     updateCallSession(session.id, { status: 'completed' });
     recordCallEvent(session.id, 'call_ended');
 
-    const summary = persistCallCompletionMessage(conversationId, session.id);
+    const summary = await persistCallCompletionMessage(conversationId, session.id);
     expect(summary).toBe('**Call completed**. 1 event(s) recorded.');
     expect(getLatestAssistantText(conversationId)).toBe('**Call completed**. 1 event(s) recorded.');
   });

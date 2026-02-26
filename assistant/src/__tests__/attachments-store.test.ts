@@ -206,10 +206,10 @@ describe('deleteAttachment', () => {
     expect(result).toBe('not_found');
   });
 
-  test('returns still_referenced when messages reference the attachment', () => {
+  test('returns still_referenced when messages reference the attachment', async () => {
     const conv = createConversation();
-    const msg1 = addMessage(conv.id, 'user', 'First upload');
-    const msg2 = addMessage(conv.id, 'user', 'Duplicate upload');
+    const msg1 = await addMessage(conv.id, 'user', 'First upload');
+    const msg2 = await addMessage(conv.id, 'user', 'Duplicate upload');
 
     // Dedup: both uploads return the same attachment row
     const first = uploadAttachment('photo.png', 'image/png', 'SHAREDCONTENT1');
@@ -304,9 +304,9 @@ describe('getAttachmentById', () => {
 describe('linkAttachmentToMessage + getAttachmentsForMessage', () => {
   beforeEach(resetTables);
 
-  test('links attachment and retrieves it by message', () => {
+  test('links attachment and retrieves it by message', async () => {
     const conv = createConversation();
-    const msg = addMessage(conv.id, 'assistant', 'Here is a chart');
+    const msg = await addMessage(conv.id, 'assistant', 'Here is a chart');
     const stored = uploadAttachment('chart.png', 'image/png', 'iVBORw0K');
 
     linkAttachmentToMessage(msg.id, stored.id, 0);
@@ -318,9 +318,9 @@ describe('linkAttachmentToMessage + getAttachmentsForMessage', () => {
     expect(linked[0].dataBase64).toBe('iVBORw0K');
   });
 
-  test('returns attachments in position order', () => {
+  test('returns attachments in position order', async () => {
     const conv = createConversation();
-    const msg = addMessage(conv.id, 'assistant', 'Multiple files');
+    const msg = await addMessage(conv.id, 'assistant', 'Multiple files');
     const a = uploadAttachment('first.txt', 'text/plain', 'AAAA');
     const b = uploadAttachment('second.txt', 'text/plain', 'BBBB');
 
@@ -334,9 +334,9 @@ describe('linkAttachmentToMessage + getAttachmentsForMessage', () => {
     expect(linked[1].originalFilename).toBe('second.txt');
   });
 
-  test('returns empty for message with no attachments', () => {
+  test('returns empty for message with no attachments', async () => {
     const conv = createConversation();
-    const msg = addMessage(conv.id, 'assistant', 'No attachments');
+    const msg = await addMessage(conv.id, 'assistant', 'No attachments');
 
     const linked = getAttachmentsForMessage(msg.id);
     expect(linked).toHaveLength(0);
@@ -357,9 +357,9 @@ describe('deleteOrphanAttachments', () => {
     expect(removed).toBe(1);
   });
 
-  test('preserves attachments that are still linked', () => {
+  test('preserves attachments that are still linked', async () => {
     const conv = createConversation();
-    const msg = addMessage(conv.id, 'assistant', 'With attachment');
+    const msg = await addMessage(conv.id, 'assistant', 'With attachment');
     const stored = uploadAttachment('linked.txt', 'text/plain', 'ZGF0YQ==');
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
@@ -370,9 +370,9 @@ describe('deleteOrphanAttachments', () => {
     expect(fetched).not.toBeNull();
   });
 
-  test('removes only orphans when mixed candidates provided', () => {
+  test('removes only orphans when mixed candidates provided', async () => {
     const conv = createConversation();
-    const msg = addMessage(conv.id, 'assistant', 'Mixed');
+    const msg = await addMessage(conv.id, 'assistant', 'Mixed');
     const linked = uploadAttachment('linked.txt', 'text/plain', 'AAAA');
     const orphan = uploadAttachment('orphan.txt', 'text/plain', 'BBBB');
     linkAttachmentToMessage(msg.id, linked.id, 0);

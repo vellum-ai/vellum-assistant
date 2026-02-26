@@ -90,11 +90,11 @@ describe('pairDeliveryWithConversation', () => {
 
   // ── start_new_conversation (vellum) ─────────────────────────────────
 
-  test('creates a conversation and message for start_new_conversation strategy', () => {
+  test('creates a conversation and message for start_new_conversation strategy', async () => {
     const signal = makeSignal();
     const copy = makeCopy({ threadTitle: 'Alert Thread' });
 
-    const result = pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
+    const result = await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
 
     expect(result.conversationId).toBe('conv-001');
     expect(result.messageId).toBe('msg-001');
@@ -105,39 +105,39 @@ describe('pairDeliveryWithConversation', () => {
     expect(callArgs.threadType).toBe('standard');
   });
 
-  test('uses threadTitle for conversation title when available', () => {
+  test('uses threadTitle for conversation title when available', async () => {
     const signal = makeSignal();
     const copy = makeCopy({ threadTitle: 'Custom Thread Title' });
 
-    pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
+    await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
 
     // Verify createConversation was called with the thread title
     const callArgs = createConversationMock.mock.calls[0]![0] as Record<string, unknown>;
     expect(callArgs.title).toBe('Custom Thread Title');
   });
 
-  test('falls back to copy title when threadTitle is absent', () => {
+  test('falls back to copy title when threadTitle is absent', async () => {
     const signal = makeSignal();
     const copy = makeCopy({ title: 'Notification Title' });
 
-    pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
+    await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
 
     const callArgs = createConversationMock.mock.calls[0]![0] as Record<string, unknown>;
     expect(callArgs.title).toBe('Notification Title');
   });
 
-  test('uses threadSeedMessage for message content when present and sane', () => {
+  test('uses threadSeedMessage for message content when present and sane', async () => {
     const signal = makeSignal();
     const copy = makeCopy({ threadSeedMessage: 'Custom seed message with enough length' });
 
-    pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
+    await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
 
     // addMessage second arg is role, third is content
     const contentArg = addMessageMock.mock.calls[0]![2];
     expect(contentArg).toBe('Custom seed message with enough length');
   });
 
-  test('rejects threadSeedMessage that is a JSON dump and uses runtime composer', () => {
+  test('rejects threadSeedMessage that is a JSON dump and uses runtime composer', async () => {
     const signal = makeSignal({
       sourceEventName: 'reminder.fired',
       contextPayload: { message: 'Daily standup' },
@@ -148,7 +148,7 @@ describe('pairDeliveryWithConversation', () => {
       threadSeedMessage: '{"raw": "json dump payload"}',
     });
 
-    pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
+    await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
 
     const contentArg = addMessageMock.mock.calls[0]![2] as string;
     // Should NOT be the JSON dump
@@ -157,14 +157,14 @@ describe('pairDeliveryWithConversation', () => {
     expect(contentArg).toContain('Reminder');
   });
 
-  test('rejects very short threadSeedMessage and uses runtime composer', () => {
+  test('rejects very short threadSeedMessage and uses runtime composer', async () => {
     const signal = makeSignal({
       sourceEventName: 'reminder.fired',
       contextPayload: { message: 'Test' },
     });
     const copy = makeCopy({ title: 'Reminder', body: 'Test reminder', threadSeedMessage: 'Hi' });
 
-    pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
+    await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
 
     const contentArg = addMessageMock.mock.calls[0]![2] as string;
     expect(contentArg).not.toBe('Hi');
@@ -172,11 +172,11 @@ describe('pairDeliveryWithConversation', () => {
     expect(contentArg).toContain('Reminder');
   });
 
-  test('passes skipIndexing option to addMessage', () => {
+  test('passes skipIndexing option to addMessage', async () => {
     const signal = makeSignal();
     const copy = makeCopy();
 
-    pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
+    await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
 
     const optsArg = addMessageMock.mock.calls[0]![4] as Record<string, unknown>;
     expect(optsArg.skipIndexing).toBe(true);
@@ -184,11 +184,11 @@ describe('pairDeliveryWithConversation', () => {
 
   // ── continue_existing_conversation (telegram) ─────────────────────
 
-  test('creates a conversation for continue_existing_conversation strategy', () => {
+  test('creates a conversation for continue_existing_conversation strategy', async () => {
     const signal = makeSignal();
     const copy = makeCopy();
 
-    const result = pairDeliveryWithConversation(signal, 'telegram' as NotificationChannel, copy);
+    const result = await pairDeliveryWithConversation(signal, 'telegram' as NotificationChannel, copy);
 
     // Currently creates a new conversation even for continue_existing_conversation
     // (true continuation is planned for a future PR)
@@ -202,14 +202,14 @@ describe('pairDeliveryWithConversation', () => {
 
   // ── not_deliverable (voice) ───────────────────────────────────────
 
-  test('returns null conversationId and messageId for not_deliverable strategy', () => {
+  test('returns null conversationId and messageId for not_deliverable strategy', async () => {
     const signal = makeSignal();
     const copy = makeCopy();
 
     // voice has not_deliverable strategy — need to cast since voice is
     // not a NotificationChannel (deliveryEnabled: false), but the function
     // accepts NotificationChannel which is then cast internally to ChannelId.
-    const result = pairDeliveryWithConversation(
+    const result = await pairDeliveryWithConversation(
       signal,
       'voice' as NotificationChannel,
       copy,
@@ -224,13 +224,13 @@ describe('pairDeliveryWithConversation', () => {
 
   // ── Error resilience ──────────────────────────────────────────────
 
-  test('catches createConversation errors and returns null IDs without throwing', () => {
+  test('catches createConversation errors and returns null IDs without throwing', async () => {
     createConversationShouldThrow = true;
     const signal = makeSignal();
     const copy = makeCopy();
 
     // Should not throw
-    const result = pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
+    const result = await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
 
     expect(result.conversationId).toBeNull();
     expect(result.messageId).toBeNull();
@@ -238,24 +238,24 @@ describe('pairDeliveryWithConversation', () => {
     expect(result.strategy).toBe('start_new_conversation');
   });
 
-  test('catches addMessage errors and returns null IDs without throwing', () => {
+  test('catches addMessage errors and returns null IDs without throwing', async () => {
     addMessageShouldThrow = true;
     const signal = makeSignal();
     const copy = makeCopy();
 
-    const result = pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
+    const result = await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
 
     expect(result.conversationId).toBeNull();
     expect(result.messageId).toBeNull();
     expect(result.strategy).toBe('start_new_conversation');
   });
 
-  test('error in pairing does not break the pipeline (no throw)', () => {
+  test('error in pairing does not break the pipeline (no throw)', async () => {
     createConversationShouldThrow = true;
 
     // Calling multiple times should all succeed without throwing
     for (let i = 0; i < 3; i++) {
-      const result = pairDeliveryWithConversation(
+      const result = await pairDeliveryWithConversation(
         makeSignal({ signalId: `sig-${i}` }),
         'vellum' as NotificationChannel,
         makeCopy(),
