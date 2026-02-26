@@ -30,12 +30,12 @@ import { extractPreferences } from '../notifications/preference-extractor.js';
 import { createPreference } from '../notifications/preferences-store.js';
 import type { Message } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
+import { resolveGuardianVerificationIntent } from './guardian-verification-intent.js';
 import type { UsageStats } from './ipc-contract.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import type { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
 import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
-import { resolveGuardianVerificationIntent } from './guardian-verification-intent.js';
 import { resolveSlash, type SlashContext } from './session-slash.js';
 import type { TraceEmitter } from './trace-emitter.js';
 

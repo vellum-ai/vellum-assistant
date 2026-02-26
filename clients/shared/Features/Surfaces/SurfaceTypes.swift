@@ -453,6 +453,9 @@ public enum SurfaceData: Sendable, Equatable {
     case fileUpload(FileUploadSurfaceData)
     case browserView(BrowserViewSurfaceData)
     case documentPreview(DocumentPreviewSurfaceData)
+    /// Placeholder for data that was cleared during memory compaction.
+    /// The surface can be re-fetched from the daemon if the user scrolls back.
+    case stripped
 }
 
 public struct SurfaceActionButton: Identifiable, Equatable, Sendable {
@@ -619,6 +622,8 @@ public extension Surface {
             return .browserView(mergeBrowserViewData(existing: bv, update: update))
         case .documentPreview(let dp):
             return .documentPreview(dp)
+        case .stripped:
+            return .stripped
         }
     }
 

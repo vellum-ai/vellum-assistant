@@ -11,6 +11,12 @@ export interface TemporalContextOptions {
   nowMs?: number;
   /** IANA timezone (e.g. "America/New_York"). Defaults to host timezone. */
   timeZone?: string;
+  /** IANA timezone for the assistant host clock (defaults to process local timezone). */
+  hostTimeZone?: string;
+  /** IANA timezone configured in user settings (if available). */
+  configuredUserTimeZone?: string | null;
+  /** IANA timezone inferred from user profile/memory (if available). */
+  userTimeZone?: string | null;
   /** Number of future days to list (default 14, hard-capped at 14). */
   horizonDays?: number;
 }
@@ -19,6 +25,117 @@ const MAX_OUTPUT_CHARS = 1500;
 const MAX_HORIZON_ENTRIES = 14;
 
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+const TIMEZONE_SUBJECT_LINE_RE = /^\s*-\s*time\s*zone\s*:\s*(.+)$/i;
+const TIMEZONE_SUBJECT_COMPACT_RE = /^\s*-\s*timezone\s*:\s*(.+)$/i;
+const TIMEZONE_TOKEN_RE = /\b(?:[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)+|(?:UTC|GMT)(?:[+-]\d{1,2}(?::?\d{2})?)?)\b/gi;
+const UTC_GMT_OFFSET_TOKEN_RE = /^(?:UTC|GMT)([+-])(\d{1,2})(?::?(\d{2}))?$/i;
+
+function normalizeOffsetToken(offsetToken: string): string {
+  if (offsetToken === 'GMT' || offsetToken === 'UTC') {
+    return '+00:00';
+  }
+  const match = /^(?:GMT|UTC)([+-])(\d{1,2})(?::?(\d{2}))?$/i.exec(offsetToken);
+  if (!match) {
+    return '+00:00';
+  }
+  const [, sign, hours, minutes] = match;
+  return `${sign}${hours.padStart(2, '0')}:${(minutes ?? '00').padStart(2, '0')}`;
+}
+
+function canonicalizeUtcGmtOffsetToken(offsetToken: string): string | null {
+  if (/^(?:UTC|GMT)$/i.test(offsetToken)) {
+    return 'UTC';
+  }
+  const match = offsetToken.match(UTC_GMT_OFFSET_TOKEN_RE);
+  if (!match) {
+    return null;
+  }
+  const [, sign, hoursRaw, minutesRaw] = match;
+  const hours = Number.parseInt(hoursRaw, 10);
+  const minutes = Number.parseInt(minutesRaw ?? '0', 10);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) {
+    return null;
+  }
+  if (hours > 14 || minutes > 59) {
+    return null;
+  }
+  const totalMinutes = (hours * 60 + minutes) * (sign === '+' ? 1 : -1);
+  if (Math.abs(totalMinutes) > 14 * 60) {
+    return null;
+  }
+  if (totalMinutes === 0) {
+    return 'UTC';
+  }
+  const absTotalMinutes = Math.abs(totalMinutes);
+  const absHours = Math.floor(absTotalMinutes / 60);
+  const absMinutes = absTotalMinutes % 60;
+  const offsetSign = totalMinutes > 0 ? '+' : '-';
+
+  // For whole-hour offsets, prefer `Etc/GMT` for stable canonicalization.
+  if (absMinutes === 0) {
+    // `Etc/GMT` uses POSIX sign semantics: east-of-UTC offsets use a minus sign.
+    const etcSign = totalMinutes > 0 ? '-' : '+';
+    return `Etc/GMT${etcSign}${absHours}`;
+  }
+
+  // Bun/Intl accepts fixed-offset IDs in ±HH:MM format.
+  return `${offsetSign}${String(absHours).padStart(2, '0')}:${String(absMinutes).padStart(2, '0')}`;
+}
+
+function canonicalizeTimeZone(timeZone: string): string | null {
+  const trimmed = timeZone.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const canonicalOffset = canonicalizeUtcGmtOffsetToken(trimmed);
+  if (canonicalOffset) {
+    try {
+      return new Intl.DateTimeFormat('en-US', { timeZone: canonicalOffset }).resolvedOptions().timeZone;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone: trimmed }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
+
+function extractTimeZoneCandidates(text: string): string[] {
+  const matches = (text.match(TIMEZONE_TOKEN_RE) ?? []).map((token) => token.trim()).filter((token) => token.length > 0);
+  const ianaTokens = matches.filter((token) => token.includes('/'));
+  const offsetTokens = matches.filter((token) => !token.includes('/'));
+  return [...ianaTokens, ...offsetTokens];
+}
+
+/**
+ * Extract a valid user timezone from compiled `<dynamic-user-profile>` text.
+ *
+ * Prefers explicit `timezone:` profile lines, then falls back to scanning the
+ * full profile body for valid IANA timezone identifiers.
+ */
+export function extractUserTimeZoneFromDynamicProfile(profileText: string): string | null {
+  const trimmed = profileText.trim();
+  if (trimmed.length === 0) return null;
+
+  const candidateTexts: string[] = [];
+  for (const line of trimmed.split('\n')) {
+    const match = line.match(TIMEZONE_SUBJECT_LINE_RE) ?? line.match(TIMEZONE_SUBJECT_COMPACT_RE);
+    if (match) {
+      candidateTexts.push(match[1]);
+    }
+  }
+  candidateTexts.push(trimmed);
+
+  for (const text of candidateTexts) {
+    for (const token of extractTimeZoneCandidates(text)) {
+      const canonical = canonicalizeTimeZone(token);
+      if (canonical) return canonical;
+    }
+  }
+  return null;
+}
 
 /**
  * Get the local date parts for a given instant in the specified timezone.
@@ -53,6 +170,33 @@ function formatLocalDate(date: Date, timeZone: string): string {
 }
 
 /**
+ * Format a Date as local ISO 8601 with timezone offset in the given timezone.
+ */
+function formatLocalIsoWithOffset(date: Date, timeZone: string): string {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+    timeZoneName: 'shortOffset',
+  });
+  const parts = fmt.formatToParts(date);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  const offset = normalizeOffsetToken(get('timeZoneName'));
+  const year = get('year');
+  const month = get('month');
+  const day = get('day');
+  const hour = get('hour');
+  const minute = get('minute');
+  const second = get('second');
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}${offset}`;
+}
+
+/**
  * Advance a date by `days` calendar days in the given timezone.
  *
  * Computes the local date, adds days to the day component, then anchors
@@ -84,7 +228,30 @@ function addDays(date: Date, days: number, timeZone: string): Date {
  */
 export function buildTemporalContext(options: TemporalContextOptions = {}): string {
   const now = new Date(options.nowMs ?? Date.now());
-  const timeZone = options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const resolvedHostTimeZone = canonicalizeTimeZone(
+    options.hostTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+  ) ?? 'UTC';
+  const resolvedConfiguredUserTimeZone = options.configuredUserTimeZone
+    ? canonicalizeTimeZone(options.configuredUserTimeZone)
+    : null;
+  const resolvedUserTimeZone = options.userTimeZone
+    ? canonicalizeTimeZone(options.userTimeZone)
+    : null;
+  const resolvedTimeZone = options.timeZone
+    ? canonicalizeTimeZone(options.timeZone)
+    : null;
+  const timeZone = resolvedTimeZone
+    ?? resolvedConfiguredUserTimeZone
+    ?? resolvedUserTimeZone
+    ?? resolvedHostTimeZone;
+  const userTimeZone = resolvedConfiguredUserTimeZone ?? resolvedUserTimeZone;
+  const timeZoneSource = resolvedTimeZone
+    ? 'explicit_override'
+    : resolvedConfiguredUserTimeZone
+      ? 'user_settings'
+      : resolvedUserTimeZone
+        ? 'user_profile_memory'
+        : 'assistant_host_fallback';
   const horizonDays = Math.min(options.horizonDays ?? MAX_HORIZON_ENTRIES, MAX_HORIZON_ENTRIES);
 
   const todayParts = localDateParts(now, timeZone);
@@ -114,6 +281,12 @@ export function buildTemporalContext(options: TemporalContextOptions = {}): stri
     `<temporal_context>`,
     `Today: ${todayStr} (${todayWeekday})`,
     `Timezone: ${timeZone}`,
+    `Current local time: ${formatLocalIsoWithOffset(now, timeZone)}`,
+    `Current UTC time: ${now.toISOString()}`,
+    `Clock source: assistant host machine`,
+    `Assistant host timezone: ${resolvedHostTimeZone}`,
+    `User timezone: ${userTimeZone ?? 'unknown'}`,
+    `Timezone source: ${timeZoneSource}`,
     ``,
     `Week definitions: work week = Monday–Friday, weekend = Saturday–Sunday`,
     ``,

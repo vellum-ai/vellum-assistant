@@ -63,6 +63,28 @@ struct ButtonsGallerySection: View {
                 }
             }
 
+            // All Sizes
+            Text("All Sizes")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
+
+            VCard {
+                HStack(spacing: VSpacing.xl) {
+                    ForEach([VButton.Size.small, .medium, .large], id: \.self) { size in
+                        VStack(spacing: VSpacing.md) {
+                            Text(sizeName(size))
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            VButton(label: sizeName(size), style: .primary, size: size) {}
+                            VButton(label: sizeName(size), style: .secondary, size: size) {}
+                            VButton(label: sizeName(size), style: .tertiary, size: size) {}
+                            VButton(label: sizeName(size), style: .danger, size: size) {}
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
             // MARK: - VIconButton
@@ -151,6 +173,14 @@ struct ButtonsGallerySection: View {
         case .tertiary: return "Tertiary"
         case .secondary: return "Secondary"
         case .danger: return "Danger"
+        }
+    }
+
+    private func sizeName(_ size: VButton.Size) -> String {
+        switch size {
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
         }
     }
 }

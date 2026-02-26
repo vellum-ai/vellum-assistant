@@ -26,6 +26,12 @@ final class AppListManager: ObservableObject {
 
     private let fileURL: URL
 
+    /// Only pinned apps, sorted by pinnedOrder ascending.
+    var pinnedApps: [AppItem] {
+        apps.filter(\.isPinned)
+            .sorted { ($0.pinnedOrder ?? 0) < ($1.pinnedOrder ?? 0) }
+    }
+
     /// Apps sorted for display: pinned first (by pinnedOrder ascending), then unpinned by lastOpenedAt descending.
     var displayApps: [AppItem] {
         apps.sorted { a, b in

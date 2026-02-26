@@ -960,6 +960,51 @@ describe('SMS guardian verify intercept', () => {
 
     deliverSpy.mockRestore();
   });
+
+  test('64-char hex verification codes are intercepted when a pending challenge exists', async () => {
+    const { createHash, randomBytes } = await import('node:crypto');
+    const { createChallenge } = await import('../memory/channel-guardian-store.js');
+
+    const secret = randomBytes(32).toString('hex');
+    const challengeHash = createHash('sha256').update(secret).digest('hex');
+    createChallenge({
+      id: `challenge-hex-${Date.now()}`,
+      assistantId: 'self',
+      channel: 'sms',
+      challengeHash,
+      expiresAt: Date.now() + 600_000,
+    });
+
+    let processMessageCalled = false;
+    const processMessage = async () => {
+      processMessageCalled = true;
+      return { messageId: 'msg-hex-not-verify' };
+    };
+
+    const req = new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gateway-Origin': TEST_BEARER_TOKEN,
+      },
+      body: JSON.stringify({
+        sourceChannel: 'sms',
+        interface: 'sms',
+        externalChatId: 'sms-chat-hex-message',
+        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
+        content: secret,
+        senderExternalUserId: 'sms-user-hex',
+        replyCallbackUrl: 'https://gateway.test/deliver',
+      }),
+    });
+
+    const res = await handleChannelInbound(req, processMessage, TEST_BEARER_TOKEN);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.guardianVerification).toBe('verified');
+    expect(processMessageCalled).toBe(false);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2510,7 +2555,15 @@ describe('non-decision status reply for different channels', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('background channel processing approval prompts', () => {
-  test('marks channel turns interactive and delivers approval prompt when confirmation is pending', async () => {
+  test('marks guardian channel turns interactive and delivers approval prompt when confirmation is pending', async () => {
+    // Set up a guardian binding so the sender is recognized as a guardian
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
+
     const deliverPromptSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
     const processCalls: Array<{ options?: Record<string, unknown> }> = [];
 
@@ -2552,5 +2605,44 @@ describe('background channel processing approval prompts', () => {
     expect(approvalMeta?.requestId).toBe('req-bg-1');
 
     deliverPromptSpy.mockRestore();
+  });
+
+  test('non-guardian channel turns are not interactive to prevent self-approval', async () => {
+    // Set up a guardian binding for a DIFFERENT user so the sender is non-guardian
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-other',
+      guardianDeliveryChatId: 'guardian-chat-other',
+    });
+
+    const processCalls: Array<{ options?: Record<string, unknown> }> = [];
+
+    const processMessage = mock(async (
+      _conversationId: string,
+      _content: string,
+      _attachmentIds?: string[],
+      options?: Record<string, unknown>,
+    ) => {
+      processCalls.push({ options });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { messageId: 'msg-ng-1' };
+    });
+
+    const req = makeInboundRequest({
+      content: 'run something',
+      sourceChannel: 'telegram',
+      replyCallbackUrl: 'https://gateway.test/deliver/telegram',
+      externalMessageId: 'msg-ng-1',
+    });
+
+    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage, 'token');
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(processCalls.length).toBeGreaterThan(0);
+    expect(processCalls[0].options?.isInteractive).toBe(false);
   });
 });

@@ -5,11 +5,11 @@ user-invocable: true
 metadata: {"vellum": {"emoji": "\ud83d\udd10"}}
 ---
 
-You are helping your user set up guardian verification for a messaging channel (SMS, voice, or Telegram). This links their identity as the trusted guardian for the chosen channel. All API calls go through the runtime HTTP API using `curl` with bearer auth.
+You are helping your user set up guardian verification for a messaging channel (SMS, voice, or Telegram). This links their identity as the trusted guardian for the chosen channel. All API calls go through the gateway HTTP API using `curl` with bearer auth.
 
 ## Prerequisites
 
-- The runtime HTTP API is available at `http://localhost:7821` (or the configured `RUNTIME_HTTP_PORT`).
+- The gateway API is available at `http://localhost:7830` (or the configured gateway port).
 - The bearer token is stored at `~/.vellum/http-token`. Read it with: `TOKEN=$(cat ~/.vellum/http-token)`.
 - Run shell commands for this skill with `host_bash` (not sandbox `bash`) so host auth/token and localhost routing are reliable.
 - Keep narration minimal: execute required calls first, then provide a concise status update. Do not narrate internal install/check/load chatter unless something fails.
@@ -39,7 +39,7 @@ Execute the outbound start request:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST http://localhost:7821/v1/integrations/guardian/outbound/start \
+curl -s -X POST http://localhost:7830/v1/integrations/guardian/outbound/start \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"channel": "<channel>", "destination": "<destination>"}'
@@ -77,7 +77,7 @@ If the user says they did not receive the code or asks to resend:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST http://localhost:7821/v1/integrations/guardian/outbound/resend \
+curl -s -X POST http://localhost:7830/v1/integrations/guardian/outbound/resend \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"channel": "<channel>"}'
@@ -107,7 +107,7 @@ If the user wants to cancel the verification:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST http://localhost:7821/v1/integrations/guardian/outbound/cancel \
+curl -s -X POST http://localhost:7830/v1/integrations/guardian/outbound/cancel \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"channel": "<channel>"}'
@@ -126,7 +126,7 @@ For **voice** verification only: after telling the user their code and instructi
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s http://localhost:7821/v1/integrations/guardian/status?channel=voice \
+curl -s http://localhost:7830/v1/integrations/guardian/status?channel=voice \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -153,7 +153,7 @@ After the user reports entering the code, verify the binding was created:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s http://localhost:7821/v1/integrations/guardian/status?channel=<channel> \
+curl -s http://localhost:7830/v1/integrations/guardian/status?channel=<channel> \
   -H "Authorization: Bearer $TOKEN"
 ```
 

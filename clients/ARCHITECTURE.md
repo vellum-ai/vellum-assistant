@@ -511,11 +511,12 @@ The video webview applies three hardening layers:
 
 ### Settings Persistence
 
-Media embed preferences live in the workspace config file (`~/.vellum/workspace/config.json`) under `ui.mediaEmbeds`:
+Appearance-related preferences that must be shared with the daemon live in the workspace config file (`~/.vellum/workspace/config.json`) under `ui`:
 
 ```json
 {
   "ui": {
+    "userTimezone": "America/New_York",
     "mediaEmbeds": {
       "enabled": true,
       "enabledSince": "2026-02-15T12:00:00Z",
@@ -525,7 +526,7 @@ Media embed preferences live in the workspace config file (`~/.vellum/workspace/
 }
 ```
 
-`SettingsStore` loads these values on init via `WorkspaceConfigIO.read` and writes them back via `WorkspaceConfigIO.merge` on toggle or allowlist update. The `enabledSince` timestamp ensures only messages created after the user enabled embeds are eligible, so toggling the feature on doesn't retroactively embed every historical link.
+`SettingsStore` loads these values on init via `WorkspaceConfigIO.read` and writes them back via `WorkspaceConfigIO.merge`. `ui.userTimezone` provides an explicit user-local timezone hint for daemon-side temporal grounding when profile memory is unavailable. The `enabledSince` timestamp ensures only messages created after the user enabled embeds are eligible, so toggling the feature on doesn't retroactively embed every historical link.
 
 ### Key Source Files
 
@@ -545,7 +546,7 @@ Media embed preferences live in the workspace config file (`~/.vellum/workspace/
 | `clients/macos/.../MediaEmbeds/InlineVideoWebView.swift` | Privacy-hardened WKWebView wrapper |
 | `clients/macos/.../MediaEmbeds/InlineVideoEmbedState.swift` | Video embed lifecycle state + manager |
 | `clients/macos/.../Features/Settings/MediaEmbedSettings.swift` | Centralized defaults and domain normalization |
-| `clients/macos/.../Features/Settings/SettingsStore.swift` | Settings persistence (reads/writes `ui.mediaEmbeds` in workspace config) |
+| `clients/macos/.../Features/Settings/SettingsStore.swift` | Settings persistence (reads/writes `ui.userTimezone` and `ui.mediaEmbeds` in workspace config) |
 
 ---
 
@@ -666,4 +667,3 @@ When the daemon is unreachable, outgoing user messages are buffered in `OfflineM
 Storage key: `offline_message_queue_v1` (UserDefaults).
 
 ---
-

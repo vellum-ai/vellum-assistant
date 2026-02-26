@@ -90,14 +90,6 @@ extension MainWindowView {
                 onOpenApp: { appId in
                     try? daemonClient.sendAppOpen(appId: appId)
                     windowState.selection = .app(appId)
-                },
-                onOpenHomeBase: {
-                    if let homeBase = appListManager.displayApps.first(where: { $0.name.caseInsensitiveCompare("Home Base") == .orderedSame }) {
-                        try? daemonClient.sendAppOpen(appId: homeBase.id)
-                        windowState.selection = .app(homeBase.id)
-                    } else {
-                        windowState.selection = .panel(.directory)
-                    }
                 }
             )
         case .intelligence:
@@ -336,9 +328,6 @@ extension MainWindowView {
                                 onOpenApp: { appId in
                                     try? daemonClient.sendAppOpen(appId: appId)
                                     windowState.selection = .app(appId)
-                                },
-                                onOpenHomeBase: {
-                                    windowState.selection = .panel(.directory)
                                 }
                             )
                             .background(adaptiveColor(light: Moss._100, dark: Moss._900))
@@ -361,9 +350,6 @@ extension MainWindowView {
                         onOpenApp: { appId in
                             try? daemonClient.sendAppOpen(appId: appId)
                             windowState.selection = .app(appId)
-                        },
-                        onOpenHomeBase: {
-                            windowState.selection = .panel(.directory)
                         }
                     )
                     .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -527,14 +513,6 @@ extension MainWindowView {
                 onOpenApp: { appId in
                     try? daemonClient.sendAppOpen(appId: appId)
                     windowState.selection = .app(appId)
-                },
-                onOpenHomeBase: {
-                    if let homeBase = appListManager.displayApps.first(where: { $0.name.caseInsensitiveCompare("Home Base") == .orderedSame }) {
-                        try? daemonClient.sendAppOpen(appId: homeBase.id)
-                        windowState.selection = .app(homeBase.id)
-                    } else {
-                        windowState.selection = .panel(.directory)
-                    }
                 }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }

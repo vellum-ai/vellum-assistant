@@ -1,4 +1,6 @@
+import Combine
 import Foundation
+import os
 
 /// Represents a single event in a subagent's activity stream.
 public struct SubagentEventItem: Identifiable {
@@ -55,11 +57,60 @@ public final class SubagentDetailStore: ObservableObject {
     /// Maximum UTF-8 byte count for accumulated text content before truncation.
     static let textByteCap = 50_000
 
-    @Published public var eventsBySubagent: [String: [SubagentEventItem]] = [:]
-    @Published public var objectives: [String: String] = [:]
-    @Published public var usageStats: [String: SubagentUsageStats] = [:]
+    /// Event, objective, and usage data are mutated immediately but SwiftUI
+    /// notifications are coalesced to a single `objectWillChange` per 50ms
+    /// window, matching the streaming text flush interval.
+    public var eventsBySubagent: [String: [SubagentEventItem]] = [:]
+    public var objectives: [String: String] = [:]
+    public var usageStats: [String: SubagentUsageStats] = [:]
 
-    public init() {}
+    /// Coalescing task: fires objectWillChange once per 50ms burst window.
+    private var publishTask: Task<Void, Never>?
+
+    // MARK: - Debug publish-rate counters
+
+    #if DEBUG
+    private static let perfLog = OSLog(subsystem: "com.vellum.assistant", category: "PerfCounters")
+    private var publishCount = 0
+    private var lastRateLogTime = Date()
+    private var debugCancellable: AnyCancellable?
+
+    private func trackPublish() {
+        publishCount += 1
+        let now = Date()
+        if now.timeIntervalSince(lastRateLogTime) >= 5 {
+            os_log(.debug, log: Self.perfLog, "SubagentDetailStore publish rate: %d/5s", publishCount)
+            publishCount = 0
+            lastRateLogTime = now
+        }
+    }
+    #endif
+
+    public init() {
+        #if DEBUG
+        // Observe own objectWillChange to track publish frequency.
+        debugCancellable = self.objectWillChange
+            .sink { [weak self] _ in self?.trackPublish() }
+        #endif
+    }
+
+    deinit {
+        publishTask?.cancel()
+        publishTask = nil
+    }
+
+    /// Schedule a single coalesced `objectWillChange` notification.
+    /// The first mutation in a burst schedules the publish; subsequent mutations
+    /// within the 50ms window piggyback on the same notification.
+    private func schedulePublish() {
+        guard publishTask == nil else { return }
+        publishTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+            guard !Task.isCancelled else { return }
+            self?.objectWillChange.send()
+            self?.publishTask = nil
+        }
+    }
 
     /// Record that a subagent was spawned with an objective.
     public func recordSpawned(subagentId: String, objective: String) {
@@ -67,6 +118,7 @@ public final class SubagentDetailStore: ObservableObject {
         if eventsBySubagent[subagentId] == nil {
             eventsBySubagent[subagentId] = []
         }
+        schedulePublish()
     }
 
     /// Record a status change with optional usage stats.
@@ -77,6 +129,7 @@ public final class SubagentDetailStore: ObservableObject {
                 outputTokens: usage.outputTokens,
                 estimatedCost: usage.estimatedCost
             )
+            schedulePublish()
         }
     }
 
@@ -107,6 +160,7 @@ public final class SubagentDetailStore: ObservableObject {
                 eventsBySubagent[subagentId, default: []].append(item)
                 trimEvents(for: subagentId)
             }
+            schedulePublish()
 
         case .toolUseStart(let msg):
             let item = SubagentEventItem(
@@ -116,6 +170,7 @@ public final class SubagentDetailStore: ObservableObject {
             )
             eventsBySubagent[subagentId, default: []].append(item)
             trimEvents(for: subagentId)
+            schedulePublish()
 
         case .toolResult(let msg):
             let truncated = msg.result.count > 500 ? String(msg.result.prefix(497)) + "..." : msg.result
@@ -126,6 +181,7 @@ public final class SubagentDetailStore: ObservableObject {
             )
             eventsBySubagent[subagentId, default: []].append(item)
             trimEvents(for: subagentId)
+            schedulePublish()
 
         case .error(let err):
             let item = SubagentEventItem(
@@ -135,6 +191,7 @@ public final class SubagentDetailStore: ObservableObject {
             )
             eventsBySubagent[subagentId, default: []].append(item)
             trimEvents(for: subagentId)
+            schedulePublish()
 
         default:
             break
@@ -154,6 +211,7 @@ public final class SubagentDetailStore: ObservableObject {
         let subagentId = response.subagentId
         if let objective = response.objective {
             objectives[subagentId] = objective
+            schedulePublish()
         }
         // Only populate if we don't already have events (avoid duplicates on re-open)
         guard (eventsBySubagent[subagentId] ?? []).isEmpty else { return }

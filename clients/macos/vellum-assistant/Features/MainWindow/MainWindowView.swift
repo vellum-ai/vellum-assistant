@@ -62,7 +62,6 @@ struct MainWindowView: View {
     @State var sharing = SharingState()
     @State private var sidebar = SidebarInteractionState()
     @State private var copyThread = CopyThreadState()
-    @State private var requestedHomeBaseAtLaunch = false
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
     /// Stores the thread ID the user was on before entering temporary chat,
@@ -77,8 +76,6 @@ struct MainWindowView: View {
     private let sidebarCollapsedWidth: CGFloat = 52
     @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 400
     @AppStorage("appPanelWidth") var appPanelWidth: Double = -1
-    @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = false
-    @AppStorage("homeBaseDashboardAutoEnabled") private var homeBaseDashboardAutoEnabled: Bool = false
     let daemonClient: DaemonClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
@@ -132,8 +129,8 @@ struct MainWindowView: View {
     }
 
     private func pageURL(for appId: String) -> URL? {
-        guard let port = daemonClient.httpPort else { return nil }
-        return URL(string: "http://localhost:\(port)/pages/\(appId)")
+        let gatewayBaseUrl = settingsStore.localGatewayTarget
+        return URL(string: "\(gatewayBaseUrl)/pages/\(appId)")
     }
 
     func publishPage(html: String, title: String?, appId: String? = nil) {
@@ -292,44 +289,6 @@ struct MainWindowView: View {
         }
     }
 
-    private func requestHomeBaseDashboardIfNeeded() {
-        guard !isBootstrapOnboardingActive else { return }
-        // Auto-enable the dashboard once after bootstrap completes.
-        // Uses a one-time sentinel so users can later disable it without
-        // having it force-re-enabled on every launch.
-        if !homeBaseDashboardAutoEnabled {
-            homeBaseDashboardAutoEnabled = true
-            homeBaseDashboardDefaultEnabled = true
-        }
-        guard homeBaseDashboardDefaultEnabled else { return }
-        guard daemonClient.isConnected else { return }
-        guard !requestedHomeBaseAtLaunch else { return }
-        guard !windowState.isDynamicExpanded else {
-            requestedHomeBaseAtLaunch = true
-            return
-        }
-
-        daemonClient.onHomeBaseGetResponse = { response in
-            guard let homeBase = response.homeBase else { return }
-            if self.windowState.isDynamicExpanded { return }
-            if let activePanel = self.windowState.activePanel, activePanel != .generated {
-                return
-            }
-            self.appListManager.recordAppOpen(
-                id: homeBase.appId,
-                name: homeBase.preview.title,
-                icon: homeBase.preview.icon
-            )
-            try? self.daemonClient.sendAppOpen(appId: homeBase.appId)
-        }
-
-        do {
-            try daemonClient.sendHomeBaseGet(ensureLinked: true)
-            requestedHomeBaseAtLaunch = true
-        } catch {
-            // Leave false so reconnect can retry.
-        }
-    }
 
     /// Resolve display names for thread export.
     private func resolveParticipantNames() -> ChatTranscriptFormatter.ParticipantNames {
@@ -385,9 +344,6 @@ struct MainWindowView: View {
         }
         if turnCount >= 8 {
             DeterministicEvolutionEngine.applyMilestone(.soulDiscussed, to: evoState)
-        }
-        if turnCount >= 10 {
-            DeterministicEvolutionEngine.applyMilestone(.homeBaseCreated, to: evoState)
         }
 
         // Resolve updated traits into appearance
@@ -513,19 +469,6 @@ struct MainWindowView: View {
                         applyBootstrapMilestones(turnCount: turnCount, messages: viewModel.messages, evoState: evoState)
                         lastAppliedBootstrapTurn = turnCount
                     }
-                }
-                requestHomeBaseDashboardIfNeeded()
-            }
-            // Poll for bootstrap completion so the dashboard is enabled even when
-            // BOOTSTRAP.md is deleted via tool execution that only mutates
-            // existing messages in place (no message-ID change to trigger
-            // the .onChange above). The task exits once the auto-enable flag
-            // is set, ensuring zero overhead after first-launch bootstrap.
-            .task {
-                while !homeBaseDashboardAutoEnabled {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    guard !Task.isCancelled else { return }
-                    requestHomeBaseDashboardIfNeeded()
                 }
             }
             .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
@@ -701,7 +644,6 @@ struct MainWindowView: View {
             if let activeId = threadManager.activeThreadId {
                 windowState.persistentThreadId = activeId
             }
-            requestHomeBaseDashboardIfNeeded()
             daemonClient.startSSE()
         }
         .onDisappear {
@@ -713,7 +655,6 @@ struct MainWindowView: View {
         }
         .onReceive(daemonClient.$isConnected) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
-            requestHomeBaseDashboardIfNeeded()
         }
         .onChange(of: selectedThreadId) { _, newId in
             if let newId = newId {
@@ -851,26 +792,29 @@ struct MainWindowView: View {
             }
         }) {
             HStack(spacing: VSpacing.xs) {
-                // Leading icon: spinner (busy) > pin indicator (pinned) > unseen dot > spacer
+                // Leading icon: spinner (busy) > amber unread dot > pin icon > spacer
                 // The interactive pin button is in .overlay(alignment: .leading) below
                 // to avoid nesting a Button inside this outer Button's label.
+                // When hovered, the amber dot swaps to the pin icon (and back on hover-out).
                 if isBusy {
                     ProgressView()
                         .controlSize(.small)
                         .frame(width: 20, height: 20)
-                } else if thread.isPinned && !isHovered {
-                    Image(systemName: "pin.fill")
+                } else if thread.hasUnseenLatestAssistantMessage && !isHovered {
+                    Circle()
+                        .fill(Color(hex: 0xE86B40))
+                        .frame(width: 6, height: 6)
+                        .frame(width: 20, height: 20)
+                        .transition(.opacity)
+                } else if isHovered || thread.isPinned {
+                    Image(systemName: thread.isPinned ? "pin.fill" : "pin")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(VColor.textMuted)
                         .rotationEffect(.degrees(-45))
                         .frame(width: 20, height: 20)
                         .background(VColor.backgroundSubtle)
                         .clipShape(Circle())
-                } else if thread.hasUnseenLatestAssistantMessage {
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: 8, height: 8)
-                        .frame(width: 20, height: 20)
+                        .transition(.opacity)
                 } else {
                     Color.clear
                         .frame(width: 20, height: 20)
@@ -904,6 +848,7 @@ struct MainWindowView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
+            .animation(VAnimation.fast, value: isHovered)
         }
         .buttonStyle(.plain)
         .overlay(alignment: .leading) {
@@ -1074,24 +1019,121 @@ struct MainWindowView: View {
         }
     }
 
-    // MARK: - Home Base Helpers
+    // MARK: - Pinned App Helpers
 
-    /// Whether the Home Base nav item should appear active.
-    private var homeBaseIsActive: Bool {
-        if case .app(let appId) = windowState.selection {
-            return appListManager.displayApps.first(where: { $0.id == appId })?.name.caseInsensitiveCompare("Home Base") == .orderedSame
+    /// A pinned app row for the expanded sidebar — small icon + app name.
+    @ViewBuilder
+    private func sidebarPinnedAppRow(_ app: AppListManager.AppItem) -> some View {
+        Button(action: {
+            windowState.selection = .app(app.id)
+            openAppInWorkspace(app: app)
+        }) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: app.sfSymbol ?? "square.grid.2x2")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
+                    .frame(width: VSpacing.xl)
+                Text(app.name)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer()
+            }
+            .padding(.leading, VSpacing.md)
+            .padding(.trailing, VSpacing.sm)
+            .padding(.vertical, VSpacing.sm)
+            .background(
+                isAppSurfaceActive(appId: app.id)
+                    ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700)
+                    : sidebar.isHoveredApp == app.id
+                        ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700).opacity(0.5)
+                        : Color.clear
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
         }
-        return windowState.activePanel == .directory
+        .buttonStyle(.plain)
+        .padding(.horizontal, VSpacing.sm)
+        .onHover { hovering in
+            if hovering {
+                sidebar.isHoveredApp = app.id
+                NSCursor.pointingHand.push()
+            } else {
+                if sidebar.isHoveredApp == app.id { sidebar.isHoveredApp = nil }
+                NSCursor.pop()
+            }
+        }
+        .contextMenu {
+            Button(app.isPinned ? "Unpin" : "Pin to Top") {
+                if app.isPinned {
+                    appListManager.unpinApp(id: app.id)
+                } else {
+                    appListManager.pinApp(id: app.id)
+                }
+            }
+            Button("Open") {
+                openAppInWorkspace(app: app)
+            }
+            Divider()
+            Button("Remove from Recents", role: .destructive) {
+                appListManager.removeApp(id: app.id)
+            }
+        }
+        .draggable(app.id)
     }
 
-    /// Open the Home Base app directly, or show the directory as fallback.
-    private func openHomeBaseApp() {
-        if let homeBase = appListManager.displayApps.first(where: { $0.name.caseInsensitiveCompare("Home Base") == .orderedSame }) {
-            try? daemonClient.sendAppOpen(appId: homeBase.id)
-            windowState.selection = .app(homeBase.id)
-        } else {
-            // No Home Base app exists — fall back to directory
-            windowState.togglePanel(.directory)
+    /// A pinned app icon button for the collapsed sidebar.
+    @ViewBuilder
+    private func sidebarPinnedAppIcon(_ app: AppListManager.AppItem) -> some View {
+        Button(action: {
+            windowState.selection = .app(app.id)
+            openAppInWorkspace(app: app)
+        }) {
+            Image(systemName: app.sfSymbol ?? "square.grid.2x2")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
+                .frame(width: 18)
+                .padding(.vertical, VSpacing.sm)
+                .frame(maxWidth: .infinity)
+                .background(
+                    isAppSurfaceActive(appId: app.id)
+                        ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700)
+                        : sidebar.isHoveredApp == app.id
+                            ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700).opacity(0.5)
+                            : Color.clear
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, VSpacing.xs)
+        .help(app.name)
+        .accessibilityLabel(app.name)
+        .onHover { hovering in
+            if hovering {
+                sidebar.isHoveredApp = app.id
+                NSCursor.pointingHand.push()
+            } else {
+                if sidebar.isHoveredApp == app.id { sidebar.isHoveredApp = nil }
+                NSCursor.pop()
+            }
+        }
+        .contextMenu {
+            Button(app.isPinned ? "Unpin" : "Pin to Top") {
+                if app.isPinned {
+                    appListManager.unpinApp(id: app.id)
+                } else {
+                    appListManager.pinApp(id: app.id)
+                }
+            }
+            Button("Open") {
+                openAppInWorkspace(app: app)
+            }
+            Divider()
+            Button("Remove from Recents", role: .destructive) {
+                appListManager.removeApp(id: app.id)
+            }
         }
     }
 
@@ -1100,14 +1142,25 @@ struct MainWindowView: View {
         VStack(spacing: VSpacing.sm) {
             Spacer().frame(height: 0)
 
-            // MARK: Nav Items (fixed)
-            SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: homeBaseIsActive) {
-                openHomeBaseApp()
+            // MARK: Pinned Apps (above nav items)
+            if !appListManager.pinnedApps.isEmpty {
+                VStack(spacing: VSpacing.sm) {
+                    ForEach(appListManager.pinnedApps) { app in
+                        sidebarPinnedAppRow(app)
+                    }
+                }
+
+                VColor.divider
+                    .frame(height: 1)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
             }
+
+            // MARK: Nav Items (fixed)
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence) {
                 windowState.togglePanel(.intelligence)
             }
-            SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps) {
+            SidebarNavRow(icon: "square.grid.2x2", label: "Things", isActive: windowState.activePanel == .apps) {
                 windowState.togglePanel(.apps)
             }
 
@@ -1212,13 +1265,23 @@ struct MainWindowView: View {
         VStack(spacing: VSpacing.sm) {
             Spacer().frame(height: 0)
 
-            SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: homeBaseIsActive, isExpanded: false) {
-                openHomeBaseApp()
+            // MARK: Pinned Apps (collapsed)
+            if !appListManager.pinnedApps.isEmpty {
+                VStack(spacing: VSpacing.sm) {
+                    ForEach(appListManager.pinnedApps) { app in
+                        sidebarPinnedAppIcon(app)
+                    }
+                }
+
+                VColor.divider
+                    .frame(height: 1)
+                    .padding(.horizontal, VSpacing.xs)
             }
+
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
                 windowState.togglePanel(.intelligence)
             }
-            SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps, isExpanded: false) {
+            SidebarNavRow(icon: "square.grid.2x2", label: "Things", isActive: windowState.activePanel == .apps, isExpanded: false) {
                 windowState.togglePanel(.apps)
             }
 
@@ -1390,7 +1453,7 @@ private struct SidebarNavRow: View {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
-                    .frame(width: 18)
+                    .frame(width: VSpacing.xl)
                 Text(label)
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
@@ -1461,6 +1524,13 @@ private struct DrawerMenuView: View {
     let onDebug: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            DrawerThemeToggle()
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.sm)
+
+            VColor.surfaceBorder.frame(height: 1)
+                .padding(.vertical, VSpacing.xs)
+
             DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
 
             VColor.surfaceBorder.frame(height: 1)
@@ -1476,6 +1546,63 @@ private struct DrawerMenuView: View {
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.15), radius: 6, y: -2)
+    }
+}
+
+/// Compact three-way theme toggle (System / Light / Dark) for the control center drawer.
+private struct DrawerThemeToggle: View {
+    @AppStorage("themePreference") private var themePreference: String = "system"
+
+    private struct ThemeOption {
+        let value: String
+        let icon: String
+        let tooltip: String
+    }
+
+    private let options: [ThemeOption] = [
+        ThemeOption(value: "system", icon: "circle.lefthalf.filled", tooltip: "System"),
+        ThemeOption(value: "light", icon: "sun.max.fill", tooltip: "Light"),
+        ThemeOption(value: "dark", icon: "moon.fill", tooltip: "Dark"),
+    ]
+
+    var body: some View {
+        HStack(spacing: VSpacing.xs) {
+            Text("Theme")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+            Spacer()
+            HStack(spacing: 2) {
+                ForEach(options, id: \.value) { option in
+                    let isSelected = themePreference == option.value
+                    Button {
+                        themePreference = option.value
+                        AppDelegate.shared?.applyThemePreference()
+                    } label: {
+                        Image(systemName: option.icon)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(isSelected ? VColor.textPrimary : VColor.textMuted)
+                            .frame(width: 28, height: 22)
+                            .background(
+                                isSelected
+                                    ? VColor.hoverOverlay.opacity(0.1)
+                                    : Color.clear
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    }
+                    .buttonStyle(.plain)
+                    .help(option.tooltip)
+                    .accessibilityLabel("\(option.tooltip) theme")
+                    .accessibilityValue(isSelected ? "Selected" : "")
+                }
+            }
+            .padding(2)
+            .background(VColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
+        }
     }
 }
 
