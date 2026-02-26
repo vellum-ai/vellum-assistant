@@ -2,15 +2,10 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Full-screen apps grid view showing all apps as an icon grid with search and pinned/recent sections.
-/// Home Base always appears as the first item in the Pinned section.
 struct AppsGridView: View {
     @ObservedObject var appListManager: AppListManager
     let daemonClient: DaemonClient
     let onOpenApp: (String) -> Void
-    var onOpenHomeBase: (() -> Void)?
-    /// The daemon-assigned app ID for Home Base, used to exclude it from regular sections
-    /// (since it's shown as a dedicated synthetic first item).
-    var homeBaseAppId: String?
 
     @State private var searchText = ""
     @State private var hoveredAppId: String?
@@ -19,21 +14,13 @@ struct AppsGridView: View {
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 5)
 
-    /// Whether "Home Base" matches the current search query.
-    private var homeBaseMatchesSearch: Bool {
-        guard !searchText.isEmpty else { return true }
-        return "Home Base".localizedCaseInsensitiveContains(searchText)
-    }
-
     var body: some View {
         ScrollView {
             VStack(spacing: VSpacing.xxl) {
                 searchBar
                     .padding(.top, VSpacing.xxl)
 
-                // Pinned section: Home Base is always the first item
-                let showPinned = homeBaseMatchesSearch || !filteredPinnedApps.isEmpty
-                if showPinned {
+                if !filteredPinnedApps.isEmpty {
                     pinnedSectionView
                 }
 
@@ -41,7 +28,7 @@ struct AppsGridView: View {
                     recentSectionView
                 }
 
-                if !showPinned && filteredRecentApps.isEmpty && !searchText.isEmpty {
+                if filteredPinnedApps.isEmpty && filteredRecentApps.isEmpty && !searchText.isEmpty {
                     VEmptyState(
                         title: "No apps matched",
                         subtitle: "No apps matched \"\(searchText)\"",
@@ -112,7 +99,6 @@ struct AppsGridView: View {
 
     // MARK: - Sections
 
-    /// Pinned section with Home Base as the first item followed by user-pinned apps.
     private var pinnedSectionView: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             Text("PINNED")
@@ -122,9 +108,6 @@ struct AppsGridView: View {
                 .padding(.leading, VSpacing.xs)
 
             LazyVGrid(columns: columns, spacing: VSpacing.xl) {
-                if homeBaseMatchesSearch {
-                    homeBaseGridItem
-                }
                 ForEach(filteredPinnedApps) { app in
                     appGridItem(app)
                 }
@@ -242,53 +225,6 @@ struct AppsGridView: View {
         .accessibilityLabel(app.name)
     }
 
-    // MARK: - Home Base Item
-
-    private static let homeBaseId = "__home_base__"
-
-    private var homeBaseGridItem: some View {
-        let isHovered = hoveredAppId == Self.homeBaseId
-
-        return Button {
-            onOpenHomeBase?()
-        } label: {
-            VStack(spacing: VSpacing.sm) {
-                VAppIcon(
-                    sfSymbol: "house.fill",
-                    gradientColors: ["#7C3AED", "#4F46E5"],
-                    size: .medium
-                )
-                .overlay(alignment: .topTrailing) {
-                    // Small home badge in the top-right corner
-                    ZStack {
-                        Circle()
-                            .fill(Color(hexString: "#4F46E5"))
-                            .frame(width: 18, height: 18)
-                        Image(systemName: "house.fill")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.white)
-                    }
-                    .offset(x: 4, y: -4)
-                }
-
-                Text("Home Base")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .buttonStyle(.plain)
-        .scaleEffect(isHovered ? 1.05 : 1.0)
-        .animation(VAnimation.fast, value: isHovered)
-        .onHover { hovering in
-            hoveredAppId = hovering ? Self.homeBaseId : nil
-        }
-        .accessibilityLabel("Home Base")
-    }
-
     // MARK: - Helpers
 
     private func resolvedIcon(for app: AppListManager.AppItem) -> (sfSymbol: String, colors: [String]) {
@@ -298,24 +234,14 @@ struct AppsGridView: View {
         return VAppIconGenerator.generate(from: app.name, type: app.appType)
     }
 
-    /// Exclude any app that is the Home Base from the regular sections
-    /// (since Home Base is always shown as a dedicated synthetic first item).
-    /// Uses stable app ID when available, falls back to exact name match.
-    private func isHomeBaseApp(_ app: AppListManager.AppItem) -> Bool {
-        if let homeBaseId = homeBaseAppId {
-            return app.id == homeBaseId
-        }
-        return app.name.caseInsensitiveCompare("Home Base") == .orderedSame
-    }
-
     private var filteredPinnedApps: [AppListManager.AppItem] {
-        let pinned = appListManager.displayApps.filter { $0.isPinned && !isHomeBaseApp($0) }
+        let pinned = appListManager.displayApps.filter { $0.isPinned }
         guard !searchText.isEmpty else { return pinned }
         return pinned.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
     private var filteredRecentApps: [AppListManager.AppItem] {
-        let unpinned = appListManager.displayApps.filter { !$0.isPinned && !isHomeBaseApp($0) }
+        let unpinned = appListManager.displayApps.filter { !$0.isPinned }
             .sorted { ($0.lastOpenedAt) > ($1.lastOpenedAt) }
         guard !searchText.isEmpty else { return unpinned }
         return unpinned.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
@@ -332,8 +258,7 @@ struct AppsGridView_Previews: PreviewProvider {
             AppsGridView(
                 appListManager: appListManager,
                 daemonClient: DaemonClient(),
-                onOpenApp: { _ in },
-                onOpenHomeBase: {}
+                onOpenApp: { _ in }
             )
             .onAppear {
                 appListManager.recordAppOpen(id: "1", name: "Weather", icon: nil, appType: "app")
