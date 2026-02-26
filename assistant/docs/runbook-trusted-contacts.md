@@ -1,6 +1,6 @@
 # Trusted Contacts — Operator Runbook
 
-Operational procedures for inspecting, managing, and debugging the trusted contact access flow. All HTTP commands use the runtime API (default `http://localhost:7821`) with bearer authentication.
+Operational procedures for inspecting, managing, and debugging the trusted contact access flow. All HTTP commands use the gateway API (default `http://localhost:7830`) with bearer authentication.
 
 ## Prerequisites
 
@@ -9,7 +9,7 @@ Operational procedures for inspecting, managing, and debugging the trusted conta
 TOKEN=$(cat ~/.vellum/http-token)
 
 # Base URL (adjust if using a non-default port)
-BASE=http://localhost:7821
+BASE=http://localhost:7830
 ```
 
 ## 1. Inspect Trusted Contacts (Members)
