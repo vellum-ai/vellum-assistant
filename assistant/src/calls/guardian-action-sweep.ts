@@ -17,7 +17,8 @@ import {
   getExpiredGuardianActionRequests,
 } from '../memory/guardian-action-store.js';
 import { deliverChannelReply } from '../runtime/gateway-client.js';
-import { getGuardianActionFallbackMessage } from '../runtime/guardian-action-message-composer.js';
+import type { GuardianActionCopyGenerator } from '../runtime/http-types.js';
+import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
 import { getLogger } from '../util/logger.js';
 import { expirePendingQuestions } from './call-store.js';
 
@@ -35,42 +36,52 @@ let sweepTimer: ReturnType<typeof setInterval> | null = null;
  * Deliveries must be captured *before* their status is changed to 'expired'
  * so the sent/pending filter still matches.
  */
-export function sendGuardianExpiryNotices(
+export async function sendGuardianExpiryNotices(
   deliveries: GuardianActionDelivery[],
   assistantId: string,
   gatewayBaseUrl: string,
   bearerToken?: string,
-): void {
+  guardianActionCopyGenerator?: GuardianActionCopyGenerator,
+): Promise<void> {
   for (const delivery of deliveries) {
     if (delivery.status !== 'sent' && delivery.status !== 'pending') continue;
 
+    const expiryText = await composeGuardianActionMessageGenerative(
+      {
+        scenario: 'guardian_stale_expired',
+        channel: delivery.destinationChannel,
+      },
+      {},
+      guardianActionCopyGenerator,
+    );
+
     if ((delivery.destinationChannel === 'vellum' || delivery.destinationChannel === 'macos' || delivery.destinationChannel === 'mac') && delivery.destinationConversationId) {
-      // Add expiry message to vellum guardian thread
-      const expiryText = getGuardianActionFallbackMessage({ scenario: 'guardian_stale_expired' });
-      void addMessage(
-        delivery.destinationConversationId,
-        'assistant',
-        JSON.stringify([{ type: 'text', text: expiryText }]),
-        { userMessageChannel: 'voice', assistantMessageChannel: 'vellum', userMessageInterface: 'voice', assistantMessageInterface: 'vellum' },
-      ).catch((err) => log.error({ err, deliveryId: delivery.id }, 'Failed to add expiry message to guardian thread'));
+      // Add expiry message to vellum guardian thread.
+      try {
+        await addMessage(
+          delivery.destinationConversationId,
+          'assistant',
+          JSON.stringify([{ type: 'text', text: expiryText }]),
+          { userMessageChannel: 'voice', assistantMessageChannel: 'vellum', userMessageInterface: 'voice', assistantMessageInterface: 'vellum' },
+        );
+      } catch (err) {
+        log.error({ err, deliveryId: delivery.id }, 'Failed to add expiry message to guardian thread');
+      }
     } else if (delivery.destinationChatId) {
       // External channel — send expiry notice
       const deliverUrl = `${gatewayBaseUrl}/deliver/${delivery.destinationChannel}`;
-      void (async () => {
-        try {
-          const channelExpiryText = getGuardianActionFallbackMessage({ scenario: 'guardian_stale_expired' });
-          await deliverChannelReply(deliverUrl, {
-            chatId: delivery.destinationChatId!,
-            text: channelExpiryText,
-            assistantId,
-          }, bearerToken);
-        } catch (err) {
-          log.error(
-            { err, deliveryId: delivery.id, channel: delivery.destinationChannel },
-            'Failed to deliver guardian action expiry notice',
-          );
-        }
-      })();
+      try {
+        await deliverChannelReply(deliverUrl, {
+          chatId: delivery.destinationChatId,
+          text: expiryText,
+          assistantId,
+        }, bearerToken);
+      } catch (err) {
+        log.error(
+          { err, deliveryId: delivery.id, channel: delivery.destinationChannel },
+          'Failed to deliver guardian action expiry notice',
+        );
+      }
     }
   }
 }
@@ -81,6 +92,7 @@ export function sendGuardianExpiryNotices(
 export async function sweepExpiredGuardianActions(
   gatewayBaseUrl: string,
   bearerToken?: string,
+  guardianActionCopyGenerator?: GuardianActionCopyGenerator,
 ): Promise<void> {
   const expired = getExpiredGuardianActionRequests();
 
@@ -99,18 +111,25 @@ export async function sweepExpiredGuardianActions(
       'Expired guardian action request',
     );
 
-    sendGuardianExpiryNotices(deliveries, request.assistantId, gatewayBaseUrl, bearerToken);
+    await sendGuardianExpiryNotices(
+      deliveries,
+      request.assistantId,
+      gatewayBaseUrl,
+      bearerToken,
+      guardianActionCopyGenerator,
+    );
   }
 }
 
 export function startGuardianActionSweep(
   gatewayBaseUrl: string,
   bearerToken?: string,
+  guardianActionCopyGenerator?: GuardianActionCopyGenerator,
 ): void {
   if (sweepTimer) return;
   sweepTimer = setInterval(async () => {
     try {
-      await sweepExpiredGuardianActions(gatewayBaseUrl, bearerToken);
+      await sweepExpiredGuardianActions(gatewayBaseUrl, bearerToken, guardianActionCopyGenerator);
     } catch (err) {
       log.error({ err }, 'Guardian action sweep failed');
     }

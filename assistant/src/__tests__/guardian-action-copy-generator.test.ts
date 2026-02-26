@@ -23,6 +23,8 @@ const ALL_SCENARIOS: GuardianActionMessageScenario[] = [
   'guardian_followup_failed',
   'guardian_followup_declined_ack',
   'guardian_followup_clarification',
+  'guardian_expired_disambiguation',
+  'guardian_followup_disambiguation',
   'guardian_stale_answered',
   'guardian_stale_expired',
   'guardian_stale_followup',
@@ -85,6 +87,23 @@ describe('guardian-action-copy-generator', () => {
         failureReason: 'The phone number is not valid.',
       });
       expect(msg).toContain('The phone number is not valid.');
+    });
+
+    test('guardian_expired_disambiguation includes request codes when provided', () => {
+      const msg = getGuardianActionFallbackMessage({
+        scenario: 'guardian_expired_disambiguation',
+        requestCodes: ['Q1A2B3', 'Q9Z8Y7'],
+      });
+      expect(msg).toContain('Q1A2B3');
+      expect(msg).toContain('Q9Z8Y7');
+    });
+
+    test('guardian_followup_disambiguation includes request codes when provided', () => {
+      const msg = getGuardianActionFallbackMessage({
+        scenario: 'guardian_followup_disambiguation',
+        requestCodes: ['QFOO12'],
+      });
+      expect(msg).toContain('QFOO12');
     });
 
     test('outbound_message_copy includes lateAnswerText and questionText', () => {

@@ -943,11 +943,20 @@ export async function handleChannelInbound(
                 const req = getGuardianActionRequest(d.requestId);
                 return req ? req.requestCode : null;
               })
-              .filter(Boolean);
+              .filter((code): code is string => typeof code === 'string' && code.length > 0);
+            const disambiguationText = await composeGuardianActionMessageGenerative(
+              {
+                scenario: 'guardian_expired_disambiguation',
+                requestCodes: codes,
+                channel: sourceChannel,
+              },
+              {},
+              guardianActionCopyGenerator,
+            );
             try {
               await deliverChannelReply(replyCallbackUrl, {
                 chatId: externalChatId,
-                text: `You have multiple expired guardian questions. Please prefix your reply with the reference code (${codes.join(', ')}) to indicate which question you are answering.`,
+                text: disambiguationText,
                 assistantId,
               }, bearerToken);
             } catch (err) {
@@ -1063,11 +1072,20 @@ export async function handleChannelInbound(
                 const req = getGuardianActionRequest(d.requestId);
                 return req ? req.requestCode : null;
               })
-              .filter(Boolean);
+              .filter((code): code is string => typeof code === 'string' && code.length > 0);
+            const disambiguationText = await composeGuardianActionMessageGenerative(
+              {
+                scenario: 'guardian_followup_disambiguation',
+                requestCodes: codes,
+                channel: sourceChannel,
+              },
+              {},
+              guardianActionCopyGenerator,
+            );
             try {
               await deliverChannelReply(replyCallbackUrl, {
                 chatId: externalChatId,
-                text: `You have multiple pending follow-up questions. Please prefix your reply with the reference code (${codes.join(', ')}) to indicate which question you are responding to.`,
+                text: disambiguationText,
                 assistantId,
               }, bearerToken);
             } catch (err) {

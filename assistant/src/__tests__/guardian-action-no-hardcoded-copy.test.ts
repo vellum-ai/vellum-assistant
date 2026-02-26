@@ -48,6 +48,14 @@ const BANNED_PATTERNS: { pattern: RegExp; description: string }[] = [
     pattern: /['"`]Would you like to call them back or send/i,
     description: 'follow-up prompt must go through composer (string literal)',
   },
+  {
+    pattern: /['"`]You have multiple expired guardian questions\./i,
+    description: 'expired disambiguation must go through composer (string literal)',
+  },
+  {
+    pattern: /['"`]You have multiple pending follow-up questions\./i,
+    description: 'follow-up disambiguation must go through composer (string literal)',
+  },
 ];
 
 describe('guardian action no-hardcoded-copy guard', () => {

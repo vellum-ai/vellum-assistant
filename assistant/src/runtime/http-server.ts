@@ -316,7 +316,7 @@ export class RuntimeHttpServer {
     startGuardianExpirySweep(getGatewayInternalBaseUrl(), this.bearerToken, this.approvalCopyGenerator);
     log.info('Guardian approval expiry sweep started');
 
-    startGuardianActionSweep(getGatewayInternalBaseUrl(), this.bearerToken);
+    startGuardianActionSweep(getGatewayInternalBaseUrl(), this.bearerToken, this.guardianActionCopyGenerator);
     log.info('Guardian action expiry sweep started');
 
     log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
