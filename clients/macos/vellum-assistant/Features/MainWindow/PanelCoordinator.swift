@@ -95,9 +95,14 @@ extension MainWindowView {
         case .intelligence:
             IntelligencePanel(
                 onClose: { windowState.selection = nil },
-                onCustomizeAvatar: {
-                    windowState.avatarCustomizationReturnPanel = .intelligence
-                    windowState.selection = .panel(.avatarCustomization)
+                onEditAvatar: {
+                    if threadManager.activeViewModel == nil {
+                        threadManager.createThread()
+                    }
+                    if let viewModel = threadManager.activeViewModel {
+                        viewModel.inputText = "I want to edit my avatar's looks"
+                    }
+                    windowState.selection = nil
                 },
                 onInvokeSkill: { skill in
                     if threadManager.activeViewModel == nil {
@@ -526,9 +531,14 @@ extension MainWindowView {
         case .intelligence:
             IntelligencePanel(
                 onClose: { windowState.dismissOverlay() },
-                onCustomizeAvatar: {
-                    windowState.avatarCustomizationReturnPanel = .intelligence
-                    windowState.selection = .panel(.avatarCustomization)
+                onEditAvatar: {
+                    if threadManager.activeViewModel == nil {
+                        threadManager.createThread()
+                    }
+                    if let viewModel = threadManager.activeViewModel {
+                        viewModel.inputText = "I want to edit my avatar's looks"
+                    }
+                    windowState.dismissOverlay()
                 },
                 onInvokeSkill: { skill in
                     if threadManager.activeViewModel == nil {
