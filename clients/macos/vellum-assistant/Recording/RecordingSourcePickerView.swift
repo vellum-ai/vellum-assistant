@@ -51,6 +51,9 @@ struct RecordingSourcePickerView: View {
             await viewModel.loadSources()
             await viewModel.loadPreviews()
         }
+        .onChange(of: viewModel.captureScope) { _, _ in
+            Task { await viewModel.loadPreviews() }
+        }
     }
 
     // MARK: - Source List

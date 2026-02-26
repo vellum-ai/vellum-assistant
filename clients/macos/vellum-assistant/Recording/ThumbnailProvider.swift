@@ -74,15 +74,17 @@ actor ThumbnailProvider {
         await withCheckedContinuation { continuation in
             waitingContinuations.append(continuation)
         }
-        activeCaptureCount += 1
+        // Slot was transferred by releaseSlot — no increment needed
     }
 
     /// Release a capture slot, resuming the next waiter if any.
     private func releaseSlot() {
-        activeCaptureCount -= 1
         if !waitingContinuations.isEmpty {
             let next = waitingContinuations.removeFirst()
+            // Transfer the slot directly — don't decrement
             next.resume()
+        } else {
+            activeCaptureCount -= 1
         }
     }
 
@@ -139,9 +141,12 @@ actor ThumbnailProvider {
                 result = ThumbnailResult(image: nil, status: .failed(.blankFrame))
             } else {
                 let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                let normalized = normalizeToThumbnail(nsImage)
-                cache(normalized, for: cacheKey)
-                result = ThumbnailResult(image: normalized, status: .loaded)
+                if let normalized = normalizeToThumbnail(nsImage) {
+                    cache(normalized, for: cacheKey)
+                    result = ThumbnailResult(image: normalized, status: .loaded)
+                } else {
+                    result = ThumbnailResult(image: nil, status: .failed(.captureFailed))
+                }
             }
         } catch {
             log.error("Failed to capture display \(display.id) thumbnail: \(error.localizedDescription)")
@@ -195,9 +200,12 @@ actor ThumbnailProvider {
                 result = ThumbnailResult(image: nil, status: .failed(.blankFrame))
             } else {
                 let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                let normalized = normalizeToThumbnail(nsImage)
-                cache(normalized, for: cacheKey)
-                result = ThumbnailResult(image: normalized, status: .loaded)
+                if let normalized = normalizeToThumbnail(nsImage) {
+                    cache(normalized, for: cacheKey)
+                    result = ThumbnailResult(image: normalized, status: .loaded)
+                } else {
+                    result = ThumbnailResult(image: nil, status: .failed(.captureFailed))
+                }
             }
         } catch {
             log.error("Failed to capture window \(window.id) thumbnail: \(error.localizedDescription)")
@@ -210,32 +218,48 @@ actor ThumbnailProvider {
     // MARK: - Image Processing
 
     /// Scale image to fit within max thumbnail dimensions, preserving aspect ratio.
-    private func normalizeToThumbnail(_ image: NSImage) -> NSImage {
+    /// Uses NSBitmapImageRep + NSGraphicsContext instead of lockFocus/unlockFocus
+    /// so it is safe to call off the main thread.
+    private func normalizeToThumbnail(_ image: NSImage) -> NSImage? {
         let originalSize = image.size
-        guard originalSize.width > 0, originalSize.height > 0 else { return image }
+        guard originalSize.width > 0, originalSize.height > 0 else { return nil }
 
-        let widthScale = Self.maxThumbnailWidth / originalSize.width
-        let heightScale = Self.maxThumbnailHeight / originalSize.height
-        let scale = min(widthScale, heightScale, 1.0) // Don't upscale
-
-        if scale >= 1.0 { return image }
-
-        let newSize = NSSize(
+        let scale = min(
+            Self.maxThumbnailWidth / originalSize.width,
+            Self.maxThumbnailHeight / originalSize.height,
+            1.0
+        )
+        let targetSize = NSSize(
             width: round(originalSize.width * scale),
             height: round(originalSize.height * scale)
         )
 
-        let resized = NSImage(size: newSize)
-        resized.lockFocus()
-        NSGraphicsContext.current?.imageInterpolation = .high
+        guard let bitmapRep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(targetSize.width),
+            pixelsHigh: Int(targetSize.height),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else { return nil }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmapRep)
         image.draw(
-            in: NSRect(origin: .zero, size: newSize),
+            in: NSRect(origin: .zero, size: targetSize),
             from: NSRect(origin: .zero, size: originalSize),
             operation: .copy,
             fraction: 1.0
         )
-        resized.unlockFocus()
-        return resized
+        NSGraphicsContext.restoreGraphicsState()
+
+        let thumbnail = NSImage(size: targetSize)
+        thumbnail.addRepresentation(bitmapRep)
+        return thumbnail
     }
 
     /// Heuristic check for blank/empty captures by sampling corner pixels.
