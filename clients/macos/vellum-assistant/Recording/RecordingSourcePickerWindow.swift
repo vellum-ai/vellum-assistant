@@ -50,8 +50,9 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
         )
 
         let hostingController = NSHostingController(rootView: pickerView)
+        let windowHeight: CGFloat = FeatureFlagManager.shared.isEnabled(.sourcePreviewEnabled) ? 640 : 440
         let newWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 440),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: windowHeight),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false

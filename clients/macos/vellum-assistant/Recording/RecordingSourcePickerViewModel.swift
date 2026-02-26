@@ -130,6 +130,35 @@ final class RecordingSourcePickerViewModel: ObservableObject {
         }
     }
 
+    /// Whether source preview UI should be shown.
+    var sourcePreviewEnabled: Bool {
+        FeatureFlagManager.shared.isEnabled(.sourcePreviewEnabled)
+    }
+
+    /// The currently selected source's thumbnail, if any.
+    var selectedThumbnail: NSImage? {
+        switch captureScope {
+        case .display:
+            guard let id = selectedDisplayId else { return nil }
+            return displays.first(where: { $0.id == id })?.thumbnail
+        case .window:
+            guard let id = selectedWindowId else { return nil }
+            return windows.first(where: { $0.id == id })?.thumbnail
+        }
+    }
+
+    /// The preview status of the currently selected source.
+    var selectedPreviewStatus: PreviewStatus {
+        switch captureScope {
+        case .display:
+            guard let id = selectedDisplayId else { return .idle }
+            return displays.first(where: { $0.id == id })?.previewStatus ?? .idle
+        case .window:
+            guard let id = selectedWindowId else { return .idle }
+            return windows.first(where: { $0.id == id })?.previewStatus ?? .idle
+        }
+    }
+
     // MARK: - Load Sources
 
     /// Enumerate available displays and windows.

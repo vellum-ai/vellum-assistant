@@ -4,10 +4,17 @@ import VellumAssistantShared
 /// Source picker view for selecting what to record (display or window).
 ///
 /// Uses design system tokens (VColor, VFont, VSpacing, VRadius) for consistent styling.
+/// When `sourcePreviewEnabled` is true, displays per-row thumbnails and a
+/// larger preview pane above the source list.
 struct RecordingSourcePickerView: View {
     @ObservedObject var viewModel: RecordingSourcePickerViewModel
     var onStart: (IPCRecordingOptions) -> Void
     var onCancel: () -> Void
+
+    /// Row thumbnail size (80x50pt).
+    private let rowThumbnailSize = CGSize(width: 80, height: 50)
+    /// Preview pane height.
+    private static let previewPaneHeight: CGFloat = 160
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,6 +35,13 @@ struct RecordingSourcePickerView: View {
             .padding(.horizontal, VSpacing.xl)
             .padding(.bottom, VSpacing.lg)
 
+            // Preview pane (only when feature flag is on)
+            if viewModel.sourcePreviewEnabled {
+                previewPane
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.md)
+            }
+
             // Source list
             if viewModel.isLoading {
                 Spacer()
@@ -45,7 +59,10 @@ struct RecordingSourcePickerView: View {
             // Audio toggle + buttons
             bottomBar
         }
-        .frame(width: 420, height: 440)
+        .frame(
+            width: 420,
+            height: viewModel.sourcePreviewEnabled ? 640 : 440
+        )
         .background(VColor.background)
         .task {
             await viewModel.loadSources()
@@ -54,6 +71,28 @@ struct RecordingSourcePickerView: View {
         .onChange(of: viewModel.captureScope) { _, _ in
             Task { await viewModel.loadPreviews() }
         }
+    }
+
+    // MARK: - Preview Pane
+
+    /// Shows the currently selected source's thumbnail at a larger size
+    /// above the source list.
+    @ViewBuilder
+    private var previewPane: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.backgroundSubtle)
+
+            ThumbnailView(
+                thumbnail: viewModel.selectedThumbnail,
+                previewStatus: viewModel.selectedPreviewStatus,
+                size: CGSize(
+                    width: 420 - VSpacing.lg * 2 - VSpacing.lg * 2,
+                    height: Self.previewPaneHeight - VSpacing.md * 2
+                )
+            )
+        }
+        .frame(height: Self.previewPaneHeight)
     }
 
     // MARK: - Source List
@@ -78,10 +117,8 @@ struct RecordingSourcePickerView: View {
 
                 case .window:
                     ForEach(viewModel.windows) { window in
-                        sourceRow(
-                            title: window.title,
-                            subtitle: window.appName,
-                            icon: "macwindow",
+                        windowRow(
+                            window: window,
                             isSelected: viewModel.selectedWindowId == window.id
                         ) {
                             viewModel.selectedWindowId = window.id
@@ -97,26 +134,34 @@ struct RecordingSourcePickerView: View {
         }
     }
 
-    private func sourceRow(
-        title: String,
-        subtitle: String,
-        icon: String,
+    /// Row for a window source. When preview is enabled, shows a thumbnail
+    /// to the left of the text content.
+    private func windowRow(
+        window: WindowSource,
         isSelected: Bool,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             HStack(spacing: VSpacing.md) {
-                Image(systemName: icon)
+                if viewModel.sourcePreviewEnabled {
+                    ThumbnailView(
+                        thumbnail: window.thumbnail,
+                        previewStatus: window.previewStatus,
+                        size: rowThumbnailSize
+                    )
+                }
+
+                Image(systemName: "macwindow")
                     .font(.system(size: 16))
                     .foregroundColor(isSelected ? VColor.accent : VColor.textSecondary)
                     .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
+                    Text(window.title)
                         .font(VFont.bodyMedium)
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1)
-                    Text(subtitle)
+                    Text(window.appName)
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                         .lineLimit(1)
@@ -145,7 +190,8 @@ struct RecordingSourcePickerView: View {
     }
 
     /// Row for a display source showing name, resolution + scale, and a badge
-    /// when this is the display the picker window is on.
+    /// when this is the display the picker window is on. When preview is
+    /// enabled, shows a thumbnail to the left of the text content.
     private func displayRow(
         display: DisplaySource,
         isSelected: Bool,
@@ -153,6 +199,14 @@ struct RecordingSourcePickerView: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: VSpacing.md) {
+                if viewModel.sourcePreviewEnabled {
+                    ThumbnailView(
+                        thumbnail: display.thumbnail,
+                        previewStatus: display.previewStatus,
+                        size: rowThumbnailSize
+                    )
+                }
+
                 Image(systemName: "display")
                     .font(.system(size: 16))
                     .foregroundColor(isSelected ? VColor.accent : VColor.textSecondary)
