@@ -541,9 +541,7 @@ struct SettingsParentalTab: View {
                                     get: { appTimeLimits[app] ?? 0 },
                                     set: { newValue in
                                         appTimeLimits[app] = newValue
-                                        if let pin = unlockedPIN {
-                                            settingsStore.setAppTimeLimit(appName: app, minutes: newValue, pin: pin)
-                                        }
+                                        settingsStore.setAppTimeLimit(appName: app, minutes: newValue, pin: unlockedPIN ?? "")
                                     }
                                 )
                             ) {
@@ -613,9 +611,7 @@ struct SettingsParentalTab: View {
             }
         }
         .onAppear {
-            if let pin = unlockedPIN {
-                settingsStore.loadAppTimeLimits(pin: pin)
-            }
+            settingsStore.loadAppTimeLimits(pin: unlockedPIN ?? "")
         }
         .onChange(of: settingsStore.appTimeLimits) { _, newLimits in
             appTimeLimits = newLimits
@@ -1037,10 +1033,10 @@ struct SettingsParentalTab: View {
                     allowedWidgets = r.allowedWidgets
                     settingsStore.allowedApps = r.allowedApps
                     settingsStore.allowedWidgets = r.allowedWidgets
-                    // Load time limits now that we have the allowlist
-                    if let pin = unlockedPIN {
-                        settingsStore.loadAppTimeLimits(pin: pin)
-                    }
+                    // Load time limits now that we have the allowlist. Pass an
+                    // empty string when no PIN is configured — the daemon skips
+                    // PIN verification in that case.
+                    settingsStore.loadAppTimeLimits(pin: unlockedPIN ?? "")
                 }
             }
         }
