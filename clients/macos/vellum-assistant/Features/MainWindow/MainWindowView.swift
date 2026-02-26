@@ -1164,6 +1164,7 @@ struct MainWindowView: View {
         .buttonStyle(.plain)
         .padding(.horizontal, VSpacing.xs)
         .help(app.name)
+        .accessibilityLabel(app.name)
         .onHover { hovering in
             if hovering {
                 sidebar.isHoveredApp = app.id
@@ -1198,9 +1199,14 @@ struct MainWindowView: View {
 
             // MARK: Pinned Apps (above nav items)
             if !appListManager.pinnedApps.isEmpty {
-                ForEach(appListManager.pinnedApps) { app in
-                    sidebarPinnedAppRow(app)
+                ScrollView {
+                    VStack(spacing: VSpacing.sm) {
+                        ForEach(appListManager.pinnedApps) { app in
+                            sidebarPinnedAppRow(app)
+                        }
+                    }
                 }
+                .frame(maxHeight: 200)
 
                 VColor.divider
                     .frame(height: 1)
@@ -1319,9 +1325,14 @@ struct MainWindowView: View {
 
             // MARK: Pinned Apps (collapsed)
             if !appListManager.pinnedApps.isEmpty {
-                ForEach(appListManager.pinnedApps) { app in
-                    sidebarPinnedAppIcon(app)
+                ScrollView {
+                    VStack(spacing: VSpacing.sm) {
+                        ForEach(appListManager.pinnedApps) { app in
+                            sidebarPinnedAppIcon(app)
+                        }
+                    }
                 }
+                .frame(maxHeight: 200)
 
                 VColor.divider
                     .frame(height: 1)
