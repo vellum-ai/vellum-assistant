@@ -2026,7 +2026,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         case 5..<12:
             return "Good morning, \(name). Time to wake up."
         case 12..<18:
-            return "Hey \(name), I'm here."
+            return "Wake up, my friend."
         case 18..<22:
             return "Evening, \(name). Ready when you are."
         default:
