@@ -909,10 +909,12 @@ struct MainWindowView: View {
         .overlay(alignment: .leading) {
             if isHovered {
                 Button {
-                    if thread.isPinned {
-                        threadManager.unpinThread(id: thread.id)
-                    } else {
-                        threadManager.pinThread(id: thread.id)
+                    withAnimation(VAnimation.standard) {
+                        if thread.isPinned {
+                            threadManager.unpinThread(id: thread.id)
+                        } else {
+                            threadManager.pinThread(id: thread.id)
+                        }
                     }
                 } label: {
                     Image(systemName: thread.isPinned ? "pin.fill" : "pin")
@@ -966,10 +968,12 @@ struct MainWindowView: View {
         .padding(.horizontal, VSpacing.sm)
         .contextMenu {
             Button {
-                if thread.isPinned {
-                    threadManager.unpinThread(id: thread.id)
-                } else {
-                    threadManager.pinThread(id: thread.id)
+                withAnimation(VAnimation.standard) {
+                    if thread.isPinned {
+                        threadManager.unpinThread(id: thread.id)
+                    } else {
+                        threadManager.pinThread(id: thread.id)
+                    }
                 }
             } label: {
                 Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
