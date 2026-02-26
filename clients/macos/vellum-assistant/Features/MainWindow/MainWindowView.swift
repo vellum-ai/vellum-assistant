@@ -494,7 +494,7 @@ struct MainWindowView: View {
             }
             Spacer()
             PTTKeyIndicator {
-                settingsStore.pendingSettingsTab = .wakeWord
+                settingsStore.pendingSettingsTab = .voice
                 windowState.selection = .panel(.settings)
             }
             if windowState.isShowingChat || isChatBubbleActive {
