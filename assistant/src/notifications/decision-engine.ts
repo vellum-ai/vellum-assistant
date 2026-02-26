@@ -165,31 +165,43 @@ function buildFallbackDecision(
   const isHighUrgencyAction =
     signal.attentionHints.urgency === 'high' && signal.attentionHints.requiresAction;
 
-  if (isHighUrgencyAction) {
-    const copy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {};
-    for (const ch of availableChannels) {
-      copy[ch] = {
-        title: signal.sourceEventName,
-        body: `Action required: ${signal.sourceEventName}`,
-      };
-    }
+  // Always include the vellum channel in the fallback — it's a local IPC
+  // broadcast with no cost, so desktop notifications should never be lost
+  // when the LLM is unavailable. External channels (e.g. Telegram) are
+  // only included for high-urgency actionable signals.
+  const selectedChannels: NotificationChannel[] = isHighUrgencyAction
+    ? [...availableChannels]
+    : availableChannels.filter((ch) => ch === 'vellum');
 
+  if (selectedChannels.length === 0) {
     return {
-      shouldNotify: true,
-      selectedChannels: [...availableChannels],
-      reasoningSummary: 'Fallback: high urgency + requires action',
-      renderedCopy: copy,
+      shouldNotify: false,
+      selectedChannels: [],
+      reasoningSummary: 'Fallback: suppressed (vellum channel not available)',
+      renderedCopy: {},
       dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}:${signal.createdAt}`,
       confidence: 0.3,
       fallbackUsed: true,
     };
   }
 
+  const copy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {};
+  for (const ch of selectedChannels) {
+    copy[ch] = {
+      title: signal.sourceEventName,
+      body: isHighUrgencyAction
+        ? `Action required: ${signal.sourceEventName}`
+        : signal.sourceEventName,
+    };
+  }
+
   return {
-    shouldNotify: false,
-    selectedChannels: [],
-    reasoningSummary: 'Fallback: suppressed (not high urgency + requires action)',
-    renderedCopy: {},
+    shouldNotify: true,
+    selectedChannels,
+    reasoningSummary: isHighUrgencyAction
+      ? 'Fallback: high urgency + requires action — all channels'
+      : 'Fallback: vellum-only (local IPC, always delivered)',
+    renderedCopy: copy,
     dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}:${signal.createdAt}`,
     confidence: 0.3,
     fallbackUsed: true,
