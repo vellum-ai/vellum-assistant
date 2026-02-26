@@ -74,6 +74,17 @@ describe('Skill mirror parity — embedded ↔ top-level', () => {
     expect(sharedSkills.length).toBeGreaterThan(0);
   });
 
+  // ── Every top-level skill must have an embedded source ──────────────────
+
+  test('every top-level skill directory has a corresponding embedded directory', () => {
+    const embedded = new Set(listSkillDirs(EMBEDDED_SKILLS_DIR));
+    const toplevel = listSkillDirs(TOPLEVEL_SKILLS_DIR);
+
+    const missingFromEmbedded = toplevel.filter((id) => !embedded.has(id));
+
+    expect(missingFromEmbedded).toEqual([]);
+  });
+
   // ── SKILL.md content parity ─────────────────────────────────────────────
 
   for (const skillId of sharedSkills) {
@@ -102,6 +113,23 @@ describe('Skill mirror parity — embedded ↔ top-level', () => {
       expect(embeddedContent).toBe(toplevelContent);
     });
   }
+
+  // ── Every top-level catalog entry must have an embedded source ──────────
+
+  test('every top-level catalog entry exists in the embedded catalog', () => {
+    expect(existsSync(EMBEDDED_CATALOG)).toBe(true);
+    expect(existsSync(TOPLEVEL_CATALOG)).toBe(true);
+
+    const embeddedCatalog: Catalog = JSON.parse(readFileSync(EMBEDDED_CATALOG, 'utf-8'));
+    const toplevelCatalog: Catalog = JSON.parse(readFileSync(TOPLEVEL_CATALOG, 'utf-8'));
+
+    const embeddedIds = new Set(embeddedCatalog.skills.map((s) => s.id));
+    const toplevelIds = toplevelCatalog.skills.map((s) => s.id);
+
+    const missingFromEmbedded = toplevelIds.filter((id) => !embeddedIds.has(id));
+
+    expect(missingFromEmbedded).toEqual([]);
+  });
 
   // ── Catalog entry parity for shared skills ──────────────────────────────
 
