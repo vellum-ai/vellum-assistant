@@ -85,9 +85,9 @@ export async function validateTwilioWebhook(
   }
 
   // Reconstruct the public-facing URL that Twilio signed against.
-  // Behind proxies/gateways, req.url is the local server URL (e.g.
-  // http://127.0.0.1:7821/...) which differs from the public URL Twilio
-  // used to compute the HMAC-SHA1 signature.
+  // Behind proxies/gateways, req.url is the local runtime URL which
+  // differs from the public URL Twilio used to compute the HMAC-SHA1
+  // signature.
   let publicBaseUrl: string | undefined;
   try {
     publicBaseUrl = getPublicBaseUrl(loadConfig());
