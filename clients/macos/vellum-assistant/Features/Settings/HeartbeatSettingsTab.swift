@@ -199,29 +199,31 @@ struct HeartbeatSettingsTab: View {
             } else {
                 ForEach(runs, id: \.id) { run in
                     VStack(alignment: .leading, spacing: 0) {
-                        HStack(spacing: VSpacing.md) {
-                            resultBadge(run.result)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(run.title)
-                                    .font(VFont.body)
-                                    .foregroundColor(VColor.textPrimary)
-                                    .lineLimit(1)
-                                Text(formatTimestamp(run.createdAt))
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                            }
-                            Spacer()
-                            Image(systemName: expandedRunId == run.id ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        .padding(VSpacing.sm)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
+                        Button {
                             withAnimation(VAnimation.fast) {
                                 expandedRunId = expandedRunId == run.id ? nil : run.id
                             }
+                        } label: {
+                            HStack(spacing: VSpacing.md) {
+                                resultBadge(run.result)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(run.title)
+                                        .font(VFont.body)
+                                        .foregroundColor(VColor.textPrimary)
+                                        .lineLimit(1)
+                                    Text(formatTimestamp(run.createdAt))
+                                        .font(VFont.caption)
+                                        .foregroundColor(VColor.textMuted)
+                                }
+                                Spacer()
+                                Image(systemName: expandedRunId == run.id ? "chevron.down" : "chevron.right")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            .padding(VSpacing.sm)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
 
                         if expandedRunId == run.id {
                             Text(run.summary?.isEmpty == false ? run.summary! : "No summary available")
