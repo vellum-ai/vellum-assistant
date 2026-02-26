@@ -35,16 +35,19 @@ struct VellumAssistantApp: App {
                     appDelegate.handleConversationZoomIn()
                 }
                 .keyboardShortcut("+", modifiers: .command)
+                .disabled(!(appDelegate.mainWindow?.windowState.isConversationVisible ?? false))
 
                 Button("Conversation Zoom Out") {
                     appDelegate.handleConversationZoomOut()
                 }
                 .keyboardShortcut("-", modifiers: .command)
+                .disabled(!(appDelegate.mainWindow?.windowState.isConversationVisible ?? false))
 
                 Button("Conversation Actual Size") {
                     appDelegate.handleConversationZoomReset()
                 }
                 .keyboardShortcut("0", modifiers: .command)
+                .disabled(!(appDelegate.mainWindow?.windowState.isConversationVisible ?? false))
 
                 Divider()
 
