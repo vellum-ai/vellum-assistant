@@ -24,7 +24,6 @@ import { type DeterministicCheckContext, runDeterministicChecks } from './determ
 import { createEvent, updateEventDedupeKey } from './events-store.js';
 import { dispatchDecision } from './runtime-dispatch.js';
 import type { AttentionHints, NotificationSignal, RoutingIntent } from './signal.js';
-import { buildCandidatesForChannels } from './thread-candidates.js';
 import type { NotificationChannel, NotificationDeliveryResult } from './types.js';
 
 const log = getLogger('emit-signal');
@@ -206,18 +205,6 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
 
     // Step 2: Evaluate the signal through the decision engine
     const connectedChannels = getConnectedChannels(assistantId);
-
-    // Build candidate thread context per connected channel so the decision
-    // engine can choose between starting a new thread or reusing an existing one.
-    try {
-      const candidates = buildCandidatesForChannels(connectedChannels, assistantId);
-      if (Object.keys(candidates).length > 0) {
-        signal.threadCandidates = candidates;
-      }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      log.warn({ err: errMsg, signalId }, 'Failed to build thread candidates — proceeding without');
-    }
 
     let decision = await evaluateSignal(signal, connectedChannels);
 

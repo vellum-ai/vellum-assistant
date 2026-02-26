@@ -927,6 +927,30 @@ describe('Permission Checker', () => {
       expect(result.matchedRule!.id).toBe('default:allow-file_write-bootstrap');
     });
 
+    test('file_read of workspace UPDATES.md is auto-allowed', async () => {
+      const updatesPath = join(checkerTestDir, 'workspace', 'UPDATES.md');
+      const result = await check('file_read', { path: updatesPath }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe('default:allow-file_read-updates');
+    });
+
+    test('file_write of workspace UPDATES.md is auto-allowed', async () => {
+      const updatesPath = join(checkerTestDir, 'workspace', 'UPDATES.md');
+      const result = await check('file_write', { path: updatesPath }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe('default:allow-file_write-updates');
+    });
+
+    test('file_edit of workspace UPDATES.md is auto-allowed', async () => {
+      const updatesPath = join(checkerTestDir, 'workspace', 'UPDATES.md');
+      const result = await check('file_edit', { path: updatesPath }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe('default:allow-file_edit-updates');
+    });
+
     test('file_write of non-workspace file is not auto-allowed', async () => {
       const otherPath = join(checkerTestDir, 'workspace', 'OTHER.md');
       const result = await check('file_write', { path: otherPath }, '/tmp');

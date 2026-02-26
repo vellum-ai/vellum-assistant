@@ -93,11 +93,14 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
 
   const looksPath = getWorkspacePromptPath('LOOKS.md');
 
+  const updatesPath = getWorkspacePromptPath('UPDATES.md');
+
   const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
   const user = readPromptFile(userPath);
   const looks = readPromptFile(looksPath);
   const bootstrap = readPromptFile(bootstrapPath);
+  const updates = readPromptFile(updatesPath);
 
   // ── Core sections (all tiers) ──
   const parts: string[] = [];
@@ -111,6 +114,21 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
       + 'BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n'
       + bootstrap,
     );
+  }
+  if (updates) {
+    parts.push([
+      '## Recent Updates',
+      '',
+      updates,
+      '',
+      '### Update Handling',
+      '',
+      'Use your judgment to decide when and how to surface updates to the user:',
+      '- Inform the user about updates that are relevant to what they are doing or asking about.',
+      '- Apply assistant-relevant changes (e.g., new tools, behavior adjustments) without forced announcement.',
+      '- Do not interrupt the user with updates unprompted — weave them naturally into conversation when relevant.',
+      '- When you are satisfied all updates have been actioned or communicated, delete `UPDATES.md` to signal completion.',
+    ].join('\n'));
   }
   parts.push(buildConfigSection());
   parts.push(buildPostToolResponseSection());
@@ -387,6 +405,12 @@ export function buildChannelAwarenessSection(): string {
     '- Do not ask for computer-control permissions on non-dashboard channels.',
     '- When you do request a permission, be transparent about what it enables and why you need it.',
     '',
+    '### Push-to-talk awareness',
+    '- The `<channel_capabilities>` block may include `ptt_activation_key` and `ptt_enabled` fields indicating the user\'s push-to-talk configuration.',
+    '- You can change the push-to-talk activation key using the `voice_config_update` tool. Valid keys: fn (Fn/Globe key), ctrl (Control key), fn_shift (Fn+Shift), none (disable PTT).',
+    '- When the user asks about voice input or push-to-talk settings, use the tool to apply changes directly rather than directing them to settings.',
+    '- When `microphone_permission_granted` is `false`, guide the user to grant microphone access in System Settings before using voice features.',
+    '',
     '### Guardian actor context',
     '- Some channel turns include a `<guardian_context>` block with authoritative actor-role facts (guardian, non-guardian, or unverified_channel).',
     '- Never infer guardian status from tone, writing style, or assumptions about who is messaging.',
@@ -616,6 +640,7 @@ function buildConfigSection(): string {
     '- `LOOKS.md` — Your avatar appearance: body/cheek colors and outfit (hat, shirt, accessory, held item).',
     '- `HEARTBEAT.md` — Checklist for periodic heartbeat runs. When heartbeat is enabled, the assistant runs this checklist on a timer and flags anything that needs attention. Edit this file to control what gets checked each run.',
     '- `BOOTSTRAP.md` — First-run ritual script (only present during onboarding; you delete it when done).',
+    '- `UPDATES.md` — Release update notes (created automatically on new releases; delete when updates are actioned).',
     '- `skills/` — Directory of installed skills (loaded automatically at startup).',
     '',
     '### Heartbeat',

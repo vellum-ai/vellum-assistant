@@ -9,11 +9,19 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Pe
 final class PermissionPromptOverlay {
     private var panel: NSPanel?
 
+    /// Which permission(s) are currently denied, so the overlay can show the correct
+    /// guidance and open the right System Settings pane.
+    enum DeniedPermission {
+        case microphone
+        case speechRecognition
+        case both
+    }
+
     enum PromptKind {
         /// Permission has never been requested — show explanation and "Grant Access" button.
         case notDetermined(keyName: String)
         /// Permission was denied — show guidance to System Settings.
-        case denied(keyName: String)
+        case denied(keyName: String, deniedPermission: DeniedPermission)
     }
 
     /// Show the permission prompt overlay centered near the top of the screen.
@@ -132,7 +140,7 @@ final class PermissionPromptOverlay {
         for kind: PromptKind,
         onGrantAccess: @escaping () -> Void,
         onDismiss: @escaping () -> Void
-    ) -> (title: String, body: String, primaryTitle: String, primaryAction: @escaping () -> Void, secondaryTitle: String, secondaryAction: @escaping () -> Void) {
+    ) -> (title: String, body: String, primaryTitle: String, primaryAction: () -> Void, secondaryTitle: String, secondaryAction: () -> Void) {
         switch kind {
         case .notDetermined(let keyName):
             return (
@@ -149,14 +157,35 @@ final class PermissionPromptOverlay {
                     onDismiss()
                 }
             )
-        case .denied(let keyName):
+        case .denied(let keyName, let deniedPermission):
+            let title: String
+            let body: String
+            let openSettings: () -> Void
+
+            switch deniedPermission {
+            case .microphone:
+                title = "Microphone Access Required"
+                body = "Push-to-talk requires microphone access. You can grant access in System Settings. (Triggered by \(keyName) key)"
+                openSettings = { PermissionManager.openMicrophoneSettings() }
+            case .speechRecognition:
+                title = "Speech Recognition Required"
+                body = "Push-to-talk requires speech recognition access. You can grant access in System Settings. (Triggered by \(keyName) key)"
+                openSettings = { PermissionManager.openSpeechRecognitionSettings() }
+            case .both:
+                title = "Permissions Required"
+                body = "Push-to-talk requires microphone and speech recognition access. You can grant access in System Settings. (Triggered by \(keyName) key)"
+                openSettings = {
+                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")!)
+                }
+            }
+
             return (
-                title: "Microphone Access Required",
-                body: "Push-to-talk requires microphone access. You can grant access in System Settings. (Triggered by \(keyName) key)",
+                title: title,
+                body: body,
                 primaryTitle: "Open System Settings",
                 primaryAction: { [weak self] in
                     self?.dismiss()
-                    PermissionManager.openMicrophoneSettings()
+                    openSettings()
                     onDismiss()
                 },
                 secondaryTitle: "Dismiss",
@@ -171,18 +200,30 @@ final class PermissionPromptOverlay {
     private func makeIconView(for kind: PromptKind) -> NSView {
         let symbolName: String
         let color: NSColor
+        let accessibilityLabel: String
 
         switch kind {
         case .notDetermined:
             symbolName = "mic.circle"
             color = .systemBlue
-        case .denied:
-            symbolName = "mic.slash.circle"
+            accessibilityLabel = "Microphone"
+        case .denied(_, let deniedPermission):
             color = .systemOrange
+            switch deniedPermission {
+            case .microphone:
+                symbolName = "mic.slash.circle"
+                accessibilityLabel = "Microphone denied"
+            case .speechRecognition:
+                symbolName = "waveform.circle"
+                accessibilityLabel = "Speech recognition denied"
+            case .both:
+                symbolName = "mic.slash.circle"
+                accessibilityLabel = "Permissions denied"
+            }
         }
 
         let imageView = NSImageView()
-        if let img = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Microphone") {
+        if let img = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityLabel) {
             let config = NSImage.SymbolConfiguration(pointSize: 28, weight: .regular)
             imageView.image = img.withSymbolConfiguration(config)
             imageView.contentTintColor = color

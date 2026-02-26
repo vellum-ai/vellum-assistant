@@ -17,6 +17,7 @@ import {
 } from '../config/env.js';
 import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
+import { syncUpdateBulletinOnStartup } from '../config/update-bulletin.js';
 import { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
@@ -103,6 +104,26 @@ export async function runDaemon(): Promise<void> {
     migrateToWorkspaceLayout();
     ensureDataDir();
 
+    // Resolve and write the bearer token as early as possible so the CLI
+    // (which polls for this file during gateway startup) doesn't time out
+    // waiting for Qdrant or other slow init steps to finish.
+    const httpTokenPath = getHttpTokenPath();
+    let bearerToken = getRuntimeProxyBearerToken();
+    if (!bearerToken) {
+      try {
+        const existing = readFileSync(httpTokenPath, 'utf-8').trim();
+        if (existing) bearerToken = existing;
+      } catch {
+        // File doesn't exist or can't be read — will generate below
+      }
+    }
+    if (!bearerToken) {
+      bearerToken = randomBytes(32).toString('hex');
+    }
+    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+    chmodSync(httpTokenPath, 0o600);
+    log.info('Daemon startup: bearer token written');
+
     log.info('Daemon startup: migrations complete');
 
     seedInterfaceFiles();
@@ -118,6 +139,12 @@ export async function runDaemon(): Promise<void> {
     }
     initializeDb();
     log.info('Daemon startup: DB initialized');
+
+    try {
+      syncUpdateBulletinOnStartup();
+    } catch (err) {
+      log.warn({ err }, 'Bulletin sync failed — continuing startup');
+    }
 
     // Recover orphaned work items that were left in 'running' state when the
     // daemon previously crashed or was killed mid-task.
@@ -266,26 +293,6 @@ export async function runDaemon(): Promise<void> {
     let runtimeHttp: RuntimeHttpServer | null = null;
     const httpPort = getRuntimeHttpPort();
     log.info({ httpPort }, 'Daemon startup: starting runtime HTTP server');
-
-    // Resolve the bearer token in priority order:
-    //   1. Explicit env var (e.g. cloud deploys)
-    //   2. Existing token file on disk (preserves QR-paired iOS devices across restarts)
-    //   3. Fresh random token (first-time startup)
-    const httpTokenPath = getHttpTokenPath();
-    let bearerToken = getRuntimeProxyBearerToken();
-    if (!bearerToken) {
-      try {
-        const existing = readFileSync(httpTokenPath, 'utf-8').trim();
-        if (existing) bearerToken = existing;
-      } catch {
-        // File doesn't exist or can't be read — will generate below
-      }
-    }
-    if (!bearerToken) {
-      bearerToken = randomBytes(32).toString('hex');
-    }
-    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
-    chmodSync(httpTokenPath, 0o600);
 
     const hostname = getRuntimeHttpHost();
 

@@ -276,6 +276,8 @@ extension DaemonClient {
             onRecordingStart?(msg)
         case .recordingStop(let msg):
             onRecordingStop?(msg)
+        case .clientSettingsUpdate(let msg):
+            onClientSettingsUpdate?(msg)
         default:
             break
         }

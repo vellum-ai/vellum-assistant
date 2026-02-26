@@ -71,9 +71,9 @@ sequenceDiagram
     participant Client as iOS / Chrome Client
 
     Trigger->>Daemon: Rotate token (revoke: true)
-    Daemon->>Daemon: Generate new token, write to ~/.vellum/http-token
-    Daemon->>Daemon: Immediately invalidate old token
+    Daemon->>Daemon: Generate new token, immediately invalidate old token
     Daemon->>SSE: Terminate all old-token connections
+    Daemon->>Daemon: Write new token to ~/.vellum/http-token
     Note over SSE: No token_rotated event emitted
     Client->>Daemon: Next request with old token → 401
     Client->>Client: Trigger fallback recovery (re-pair / re-read / re-paste)
@@ -121,9 +121,9 @@ Request body (optional): `{ "revoke": boolean }` (default: `false`).
 
 **Revocation mode** (`revoke: true`):
 1. Generates a new random token.
-2. Writes it to `~/.vellum/http-token`.
-3. Immediately invalidates the old token (no grace period).
-4. Terminates all SSE connections authenticated with the old token.
+2. Immediately invalidates the old token in memory (no grace period).
+3. Terminates all SSE connections authenticated with the old token.
+4. Writes the new token to `~/.vellum/http-token`.
 5. Does **not** emit `token_rotated` -- the new token is never sent to old-token sessions.
 6. Clients must recover via their platform-specific fallback (re-read from disk, re-pair, or re-paste).
 
@@ -148,24 +148,26 @@ private isValidToken(provided: string): boolean {
   return false;
 }
 
-// Persist token to disk before updating in-memory auth state.
-// If disk write fails, in-memory state is unchanged — clients
-// keep using the old token and are never locked out.
+// Rotation has two ordering strategies depending on revoke mode:
+//   - Revocation: invalidate in-memory FIRST (security-critical), then persist.
+//     A disk write failure must never leave a compromised token valid.
+//   - Routine: persist to disk FIRST, then update in-memory state.
+//     A disk write failure aborts rotation — clients keep the old token
+//     rather than being locked out by an in-memory-only switch.
 private rotateToken(revoke: boolean): string {
   const newToken = generateToken();
 
-  // Step 1: persist to disk first — if this throws, auth state is untouched
-  writeTokenToDisk(newToken);
-
-  // Step 2: update in-memory auth state (only after disk success)
   if (revoke) {
-    // Revocation: immediate invalidation, no SSE push
+    // Revocation: invalidate the compromised token immediately.
+    // Even if the disk write below fails, the old token is gone from memory.
     this.currentToken = newToken;
     this.previousToken = null;
     this.graceDeadline = null;
     this.terminateOldTokenSSEConnections();
+    writeTokenToDisk(newToken);
   } else {
-    // Routine: grace period + SSE notification
+    // Routine: persist to disk first — if this throws, auth state is untouched
+    writeTokenToDisk(newToken);
     this.previousToken = this.currentToken;
     this.currentToken = newToken;
     this.graceDeadline = Date.now() + GRACE_PERIOD_MS;

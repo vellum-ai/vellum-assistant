@@ -85,7 +85,7 @@ describe('guardian-action-sweep', () => {
     try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
   });
 
-  test('sweepExpiredGuardianActions expires requests past their expiresAt', () => {
+  test('sweepExpiredGuardianActions expires requests past their expiresAt', async () => {
     const convId = 'conv-sweep-1';
     ensureConversation(convId);
 
@@ -119,7 +119,7 @@ describe('guardian-action-sweep', () => {
       'sent',
     );
 
-    sweepExpiredGuardianActions('http://localhost:3000');
+    await sweepExpiredGuardianActions('http://localhost:3000');
 
     const updatedRequest = getGuardianActionRequest(request.id);
     expect(updatedRequest).not.toBeNull();
@@ -130,7 +130,7 @@ describe('guardian-action-sweep', () => {
     expect(deliveries[0].status).toBe('expired');
   });
 
-  test('sweepExpiredGuardianActions expires pending questions', () => {
+  test('sweepExpiredGuardianActions expires pending questions', async () => {
     const convId = 'conv-sweep-2';
     ensureConversation(convId);
 
@@ -155,13 +155,13 @@ describe('guardian-action-sweep', () => {
     // Verify the question is still pending before sweep
     expect(getPendingQuestion(session.id)).not.toBeNull();
 
-    sweepExpiredGuardianActions('http://localhost:3000');
+    await sweepExpiredGuardianActions('http://localhost:3000');
 
     // Pending question should be expired
     expect(getPendingQuestion(session.id)).toBeNull();
   });
 
-  test('sweepExpiredGuardianActions does nothing when no expired requests exist', () => {
+  test('sweepExpiredGuardianActions does nothing when no expired requests exist', async () => {
     const convId = 'conv-sweep-3';
     ensureConversation(convId);
 
@@ -184,7 +184,7 @@ describe('guardian-action-sweep', () => {
       expiresAt: Date.now() + 60_000, // expires in 60s
     });
 
-    sweepExpiredGuardianActions('http://localhost:3000');
+    await sweepExpiredGuardianActions('http://localhost:3000');
 
     const updatedRequest = getGuardianActionRequest(request.id);
     expect(updatedRequest!.status).toBe('pending');
@@ -220,7 +220,7 @@ describe('guardian-action-sweep', () => {
     });
     updateDeliveryStatus(delivery.id, 'sent');
 
-    sweepExpiredGuardianActions('http://localhost:3000');
+    await sweepExpiredGuardianActions('http://localhost:3000');
 
     // Wait for the fire-and-forget async delivery to complete
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -229,7 +229,7 @@ describe('guardian-action-sweep', () => {
     expect(deliveredMessages.length).toBeGreaterThanOrEqual(1);
   });
 
-  test('sweepExpiredGuardianActions skips failed deliveries', () => {
+  test('sweepExpiredGuardianActions skips failed deliveries', async () => {
     const convId = 'conv-sweep-5';
     ensureConversation(convId);
 
@@ -260,7 +260,7 @@ describe('guardian-action-sweep', () => {
 
     deliveredMessages.length = 0;
 
-    sweepExpiredGuardianActions('http://localhost:3000');
+    await sweepExpiredGuardianActions('http://localhost:3000');
 
     // Should NOT have sent an expiry notice for a failed delivery
     expect(deliveredMessages).toHaveLength(0);

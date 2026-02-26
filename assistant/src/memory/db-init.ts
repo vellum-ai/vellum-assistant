@@ -21,6 +21,7 @@ import {
   migrateChannelInboundDeliveredSegments,
   migrateConversationsThreadTypeIndex,
   migrateGuardianActionFollowup,
+  migrateGuardianDeliveryConversationIndex,
   migrateGuardianBootstrapToken,
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
@@ -102,6 +103,9 @@ export function initializeDb(): void {
 
   // 14d. Index on conversations.thread_type for frequent WHERE filters
   migrateConversationsThreadTypeIndex(database);
+
+  // 14e. Index on guardian_action_deliveries.destination_conversation_id for conversation-based lookups
+  migrateGuardianDeliveryConversationIndex(database);
 
   // 15. Notification system
   createNotificationTables(database);

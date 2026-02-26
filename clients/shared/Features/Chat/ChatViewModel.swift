@@ -5,6 +5,7 @@ import os
 import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
+import AVFoundation
 #elseif os(iOS)
 import UIKit
 #else
@@ -827,10 +828,10 @@ public final class ChatViewModel: ObservableObject {
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
-        // If there's a pending tool confirmation, mark it as denied in the UI.
-        // The daemon auto-denies it server-side when it receives this message.
-        if let pendingIndex = messages.firstIndex(where: { $0.confirmation?.state == .pending }) {
-            messages[pendingIndex].confirmation?.state = .denied
+        // If there are pending tool confirmations, mark them all as denied in the UI.
+        // The daemon auto-denies them all server-side when it receives this message.
+        for i in messages.indices where messages[i].confirmation?.state == .pending {
+            messages[i].confirmation?.state = .denied
         }
 
         // When "/model" or "/models" is sent, refresh model state so the picker/table has fresh data
@@ -1080,12 +1081,15 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
+            let pttMeta = Self.currentPttMetadata()
             try daemonClient.send(UserMessageMessage(
                 sessionId: sessionId,
                 content: text,
                 attachments: attachments,
                 activeSurfaceId: activeSurfaceId,
-                currentPage: activeSurfaceId != nil ? currentPage : nil
+                currentPage: activeSurfaceId != nil ? currentPage : nil,
+                pttActivationKey: pttMeta.activationKey,
+                microphonePermissionGranted: pttMeta.microphonePermissionGranted
             ))
         } catch {
             log.error("Failed to send user_message: \(error.localizedDescription)")
@@ -1744,13 +1748,16 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
+            let pttMeta = Self.currentPttMetadata()
             try daemonClient.send(UserMessageMessage(
                 sessionId: sessionId,
                 content: text,
                 attachments: attachments,
                 activeSurfaceId: surfaceId,
                 currentPage: surfaceId != nil ? page : nil,
-                bypassSecretCheck: true
+                bypassSecretCheck: true,
+                pttActivationKey: pttMeta.activationKey,
+                microphonePermissionGranted: pttMeta.microphonePermissionGranted
             ))
         } catch {
             log.error("Failed to send bypassed message: \(error.localizedDescription)")
@@ -2310,5 +2317,26 @@ public final class ChatViewModel: ObservableObject {
     /// Delegates to ChatErrorManager so the logic lives in one place.
     static func connectionDiagnosticHint(for error: Error) -> String? {
         ChatErrorManager.connectionDiagnosticHint(for: error)
+    }
+
+    // MARK: - PTT metadata
+
+    /// Snapshot of the current push-to-talk state, sent with each user message
+    /// so the daemon can include it in channel capabilities.
+    struct PttMetadata {
+        let activationKey: String?
+        let microphonePermissionGranted: Bool?
+    }
+
+    /// Read the current PTT activation key and microphone permission from the
+    /// platform. On non-macOS platforms, returns nil fields (PTT is desktop-only).
+    static func currentPttMetadata() -> PttMetadata {
+        #if os(macOS)
+        let key = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
+        let micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        return PttMetadata(activationKey: key, microphonePermissionGranted: micGranted)
+        #else
+        return PttMetadata(activationKey: nil, microphonePermissionGranted: nil)
+        #endif
     }
 }

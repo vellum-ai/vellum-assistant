@@ -92,8 +92,8 @@ export function registerDaemonCommand(program: Command): void {
   daemon
     .command('status')
     .description('Show daemon status')
-    .action(() => {
-      const status = getDaemonStatus();
+    .action(async () => {
+      const status = await getDaemonStatus();
       if (status.running) {
         log.info(`Daemon is running (pid ${status.pid})`);
       } else {
@@ -109,7 +109,7 @@ export function registerDevCommand(program: Command): void {
     .command('dev')
     .description('Run the daemon in dev mode with auto-restart on file changes')
     .action(async () => {
-      const status = getDaemonStatus();
+      const status = await getDaemonStatus();
       if (status.running) {
         log.info('Stopping existing daemon...');
         const stopResult = await stopDaemon();

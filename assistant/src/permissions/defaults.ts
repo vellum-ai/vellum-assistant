@@ -105,7 +105,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   // and write these without prompting.  Also allow `rm BOOTSTRAP.md` so the
   // agent can delete it at the end of the onboarding ritual.
   const workspaceDir = join(getRootDir(), 'workspace').replaceAll('\\', '/');
-  const WORKSPACE_PROMPT_FILES = ['IDENTITY.md', 'USER.md', 'SOUL.md', 'BOOTSTRAP.md'] as const;
+  const WORKSPACE_PROMPT_FILES = ['IDENTITY.md', 'USER.md', 'SOUL.md', 'BOOTSTRAP.md', 'UPDATES.md'] as const;
   const WORKSPACE_FILE_TOOLS = ['file_read', 'file_write', 'file_edit'] as const;
   const workspacePromptRules = WORKSPACE_FILE_TOOLS.flatMap((tool) =>
     WORKSPACE_PROMPT_FILES.map((file) => ({
@@ -122,6 +122,15 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: 'default:allow-bash-rm-bootstrap',
     tool: 'bash',
     pattern: 'rm BOOTSTRAP.md',
+    scope: workspaceDir,
+    decision: 'allow',
+    priority: 100,
+  };
+
+  const updatesDeleteRule: DefaultRuleTemplate = {
+    id: 'default:allow-bash-rm-updates',
+    tool: 'bash',
+    pattern: 'rm UPDATES.md',
     scope: workspaceDir,
     decision: 'allow',
     priority: 100,
@@ -248,6 +257,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     ...managedSkillRules,
     ...workspacePromptRules,
     bootstrapDeleteRule,
+    updatesDeleteRule,
     ...skillSourceMutationRules,
     skillLoadRule,
     browserNavigateRule,

@@ -1347,6 +1347,7 @@ exports[`IPC message snapshots ServerMessage types session_list_response seriali
 {
   "sessions": [
     {
+      "createdAt": 1699999000,
       "id": "sess-001",
       "threadType": "standard",
       "title": "First session",
@@ -1359,6 +1360,7 @@ exports[`IPC message snapshots ServerMessage types session_list_response seriali
         "lastSeenSignalType": "macos_notification_view",
         "latestAssistantMessageAt": 1700001000,
       },
+      "createdAt": 1700000000,
       "id": "sess-002",
       "threadType": "standard",
       "title": "Second session",

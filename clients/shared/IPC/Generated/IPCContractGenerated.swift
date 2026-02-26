@@ -914,6 +914,21 @@ public struct IPCChannelReadinessResponseSnapshotRemoteCheck: Codable, Sendable 
     }
 }
 
+/// Sent by the daemon to update a client-side setting (e.g. activation key).
+public struct IPCClientSettingsUpdate: Codable, Sendable {
+    public let type: String
+    /// The setting key to update (e.g. "activationKey").
+    public let key: String
+    /// The new value for the setting.
+    public let value: String
+
+    public init(type: String, key: String, value: String) {
+        self.type = type
+        self.key = key
+        self.value = value
+    }
+}
+
 /// Structured command intent — bypasses text parsing when present.
 public struct IPCCommandIntent: Codable, Sendable {
     public let domain: String
@@ -3777,6 +3792,7 @@ public struct IPCSessionListResponse: Codable, Sendable {
 public struct IPCSessionListResponseSession: Codable, Sendable {
     public let id: String
     public let title: String
+    public let createdAt: Int?
     public let updatedAt: Int
     public let threadType: String?
     public let source: String?
@@ -3787,9 +3803,10 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     /// Attention state metadata for a conversation's latest assistant message.
     public let assistantAttention: IPCAssistantAttention?
 
-    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: IPCAssistantAttention? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: IPCAssistantAttention? = nil) {
         self.id = id
         self.title = title
+        self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.threadType = threadType
         self.source = source
@@ -5722,10 +5739,14 @@ public struct IPCUserMessage: Codable, Sendable {
     public let channel: String?
     /// Originating interface identifier (e.g. 'macos').
     public let interface: String
+    /// Push-to-talk activation key configured on the client (e.g. 'fn', 'ctrl', 'fn_shift', 'none').
+    public let pttActivationKey: String?
+    /// Whether the client has been granted microphone permission by the OS.
+    public let microphonePermissionGranted: Bool?
     /// Structured command intent — bypasses text parsing when present.
     public let commandIntent: IPCCommandIntent?
 
-    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, commandIntent: IPCCommandIntent? = nil) {
+    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil, commandIntent: IPCCommandIntent? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.content = content
@@ -5735,6 +5756,8 @@ public struct IPCUserMessage: Codable, Sendable {
         self.bypassSecretCheck = bypassSecretCheck
         self.channel = channel
         self.interface = interface
+        self.pttActivationKey = pttActivationKey
+        self.microphonePermissionGranted = microphonePermissionGranted
         self.commandIntent = commandIntent
     }
 }
@@ -5799,6 +5822,18 @@ public struct IPCVercelApiConfigResponse: Codable, Sendable {
         self.hasToken = hasToken
         self.success = success
         self.error = error
+    }
+}
+
+/// Request from a session or IPC client to change the voice activation key.
+public struct IPCVoiceConfigUpdateRequest: Codable, Sendable {
+    public let type: String
+    /// The desired activation key (enum value or natural-language name).
+    public let activationKey: String
+
+    public init(type: String, activationKey: String) {
+        self.type = type
+        self.activationKey = activationKey
     }
 }
 

@@ -1103,6 +1103,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             self.handleRecordingResume(msg)
         }
 
+        // Handle client_settings_update from daemon: write to UserDefaults and post notification
+        daemonClient.onClientSettingsUpdate = { msg in
+            UserDefaults.standard.set(msg.value, forKey: msg.key)
+            if msg.key == "activationKey" {
+                NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
+            }
+        }
+
         // Restart DaemonClient connection when the health monitor relaunches
         // the daemon process so we don't wait for the backoff timer to expire.
         assistantCli.onDaemonRestarted = { [weak self] in
@@ -1879,6 +1887,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         }
         voiceInput?.start()
+
+        // Restart key monitors when the activation key is changed remotely via IPC
+        NotificationCenter.default.addObserver(
+            forName: .activationKeyChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.voiceInput?.restartKeyMonitors()
+        }
     }
 
     // MARK: - Wake Word Coordinator
@@ -1998,23 +2015,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Wake-Up Greeting
 
-    /// Generates a time-aware, name-aware greeting for the assistant's first message.
+    /// Generates a time-aware greeting for the assistant's first message.
+    /// Intentionally unnamed — the assistant has no identity yet at hatch.
     private func wakeUpGreeting() -> String {
-        let name = IdentityInfo.load()?.name
-            ?? UserDefaults.standard.string(forKey: "assistantName")
-            ?? "friend"
-
         let hour = Calendar.current.component(.hour, from: Date())
         switch hour {
         case 5..<12:
-            return "Good morning, \(name). Time to wake up."
+            return "Good morning. Time to wake up."
         case 12..<18:
-            return "Hey \(name), I'm here."
+            return "Wake up, my friend."
         case 18..<22:
-            return "Evening, \(name). Ready when you are."
+            return "Evening. Ready when you are."
         default:
             // 22–4 (late night)
-            return "Burning the midnight oil? Let's go, \(name)."
+            return "Burning the midnight oil? Let's go."
         }
     }
 

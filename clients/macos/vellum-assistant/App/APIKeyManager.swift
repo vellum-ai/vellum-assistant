@@ -8,6 +8,7 @@ extension Notification.Name {
     static let dismissDynamicWorkspace = Notification.Name("MainWindow.dismissDynamicWorkspace")
     static let openDocumentEditor = Notification.Name("MainWindow.openDocumentEditor")
     static let navigateToSettingsTab = Notification.Name("MainWindow.navigateToSettingsTab")
+    static let activationKeyChanged = Notification.Name("activationKeyChanged")
 }
 
 /// Manages API keys in the macOS login keychain.

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { closeSync,existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 
 import { DaemonError } from '../util/errors.js';
@@ -19,6 +20,9 @@ const DAEMON_TIMEOUT_DEFAULTS = {
   stopTimeoutMs: 5000,
   sigkillGracePeriodMs: 2000,
 };
+
+const SOCKET_HEALTH_TIMEOUT_MS = 1500;
+const STARTUP_LOCK_STALE_MS = 30_000;
 
 function isPositiveInteger(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v > 0;
@@ -87,6 +91,33 @@ function isProcessRunning(pid: number): boolean {
   }
 }
 
+/** Try a TCP connect to the Unix socket. Returns true if the connection
+ *  handshake completes within the timeout — false on connection refused,
+ *  timeout, or missing socket file. */
+function isSocketResponsive(): Promise<boolean> {
+  const socketPath = getSocketPath();
+  if (!existsSync(socketPath)) return Promise.resolve(false);
+
+  return new Promise((resolve) => {
+    const socket = createConnection(socketPath);
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve(false);
+    }, SOCKET_HEALTH_TIMEOUT_MS);
+
+    socket.on('connect', () => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on('error', () => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
 function readPid(): number | null {
   const pidPath = getPidPath();
   if (!existsSync(pidPath)) return null;
@@ -128,25 +159,107 @@ export function isDaemonRunning(): boolean {
   return true;
 }
 
-export function getDaemonStatus(): { running: boolean; pid?: number } {
+export async function getDaemonStatus(): Promise<{ running: boolean; pid?: number }> {
   const pid = readPid();
   if (pid == null) return { running: false };
   if (!isProcessRunning(pid)) {
     cleanupPidFile();
     return { running: false };
   }
+  // Process is alive — verify the socket is responsive. A deadlocked or
+  // wedged daemon will pass the PID liveness check but fail to accept
+  // connections, and should be treated as not running so killStaleDaemon()
+  // can clean it up.
+  const responsive = await isSocketResponsive();
+  if (!responsive) {
+    log.warn({ pid }, 'Daemon process alive but socket unresponsive');
+    return { running: false, pid };
+  }
   return { running: true, pid };
+}
+
+function getStartupLockPath(): string {
+  return join(getRootDir(), 'daemon-startup.lock');
+}
+
+/** Attempt to acquire a startup lock. Returns true on success. Stale locks
+ *  (older than STARTUP_LOCK_STALE_MS) are forcibly removed to prevent
+ *  permanent deadlocks from a crashed caller. */
+function acquireStartupLock(): boolean {
+  const lockPath = getStartupLockPath();
+  try {
+    // O_CREAT | O_EXCL — fails atomically if the file already exists.
+    writeFileSync(lockPath, String(Date.now()), { flag: 'wx' });
+    return true;
+  } catch {
+    // Lock file exists — check for staleness.
+    try {
+      const ts = parseInt(readFileSync(lockPath, 'utf-8').trim(), 10);
+      if (!isNaN(ts) && Date.now() - ts > STARTUP_LOCK_STALE_MS) {
+        unlinkSync(lockPath);
+        return acquireStartupLock();
+      }
+    } catch {
+      // Can't read the lock — another process may be manipulating it.
+    }
+    return false;
+  }
+}
+
+function releaseStartupLock(): void {
+  try { unlinkSync(getStartupLockPath()); } catch { /* already removed */ }
 }
 
 export async function startDaemon(): Promise<{
   pid: number;
   alreadyRunning: boolean;
 }> {
-  const status = getDaemonStatus();
+  const status = await getDaemonStatus();
   if (status.running && status.pid) {
     return { pid: status.pid, alreadyRunning: true };
   }
 
+  // Serialize concurrent startup attempts. If another caller already holds
+  // the lock, wait for it to finish and then re-check daemon status.
+  if (!acquireStartupLock()) {
+    log.info('Another startup in progress, waiting for lock');
+    const lockWaitMs = 10_000;
+    const lockInterval = 200;
+    let lockWaited = 0;
+    while (lockWaited < lockWaitMs) {
+      await new Promise((r) => setTimeout(r, lockInterval));
+      lockWaited += lockInterval;
+      if (acquireStartupLock()) break;
+    }
+    if (lockWaited >= lockWaitMs) {
+      // Timed out waiting for the lock — re-check status in case the
+      // other caller succeeded.
+      const recheck = await getDaemonStatus();
+      if (recheck.running && recheck.pid) {
+        return { pid: recheck.pid, alreadyRunning: true };
+      }
+      throw new DaemonError('Timed out waiting for concurrent daemon startup to finish');
+    }
+    // Acquired the lock after waiting — re-check in case the other caller
+    // already started the daemon successfully.
+    const recheck = await getDaemonStatus();
+    if (recheck.running && recheck.pid) {
+      releaseStartupLock();
+      return { pid: recheck.pid, alreadyRunning: true };
+    }
+  }
+
+  try {
+    return await startDaemonLocked();
+  } finally {
+    releaseStartupLock();
+  }
+}
+
+async function startDaemonLocked(): Promise<{
+  pid: number;
+  alreadyRunning: boolean;
+}> {
   // Kill a stale daemon recorded in this workspace's PID file (e.g., after
   // a crash where the process is alive but non-responsive).
   killStaleDaemon();
@@ -294,6 +407,7 @@ export async function stopDaemon(): Promise<StopResult> {
 }
 
 export async function ensureDaemonRunning(): Promise<void> {
-  if (isDaemonRunning()) return;
+  const status = await getDaemonStatus();
+  if (status.running) return;
   await startDaemon();
 }

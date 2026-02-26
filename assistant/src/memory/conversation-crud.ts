@@ -373,6 +373,7 @@ export function clearAll(): { conversations: number; messages: number } {
   // triggers so that the subsequent base-table DELETEs don't also fail
   // (SQLite triggers are atomic with the triggering statement, so a
   // corrupted FTS table would roll back every base-table DELETE).
+  let segmentFtsCorrupted = false;
   try {
     rawExec('DELETE FROM memory_segment_fts');
   } catch (err) {
@@ -380,11 +381,7 @@ export function clearAll(): { conversations: number; messages: number } {
     rawExec('DROP TRIGGER IF EXISTS memory_segments_ai');
     rawExec('DROP TRIGGER IF EXISTS memory_segments_ad');
     rawExec('DROP TRIGGER IF EXISTS memory_segments_au');
-    // Recreate triggers immediately so subsequent writes maintain FTS consistency
-    // without requiring a daemon restart. Uses IF NOT EXISTS so this is idempotent.
-    rawExec(`CREATE TRIGGER IF NOT EXISTS memory_segments_ai AFTER INSERT ON memory_segments BEGIN INSERT INTO memory_segment_fts(segment_id, text) VALUES (new.id, new.text); END`);
-    rawExec(`CREATE TRIGGER IF NOT EXISTS memory_segments_ad AFTER DELETE ON memory_segments BEGIN DELETE FROM memory_segment_fts WHERE segment_id = old.id; END`);
-    rawExec(`CREATE TRIGGER IF NOT EXISTS memory_segments_au AFTER UPDATE ON memory_segments BEGIN DELETE FROM memory_segment_fts WHERE segment_id = old.id; INSERT INTO memory_segment_fts(segment_id, text) VALUES (new.id, new.text); END`);
+    segmentFtsCorrupted = true;
   }
   rawExec('DELETE FROM memory_item_sources');
   rawExec('DELETE FROM memory_segments');
@@ -398,6 +395,7 @@ export function clearAll(): { conversations: number; messages: number } {
   rawExec('DELETE FROM message_attachments');
   rawExec('DELETE FROM attachments');
   rawExec('DELETE FROM tool_invocations');
+  let messagesFtsCorrupted = false;
   try {
     rawExec('DELETE FROM messages_fts');
   } catch (err) {
@@ -405,14 +403,29 @@ export function clearAll(): { conversations: number; messages: number } {
     rawExec('DROP TRIGGER IF EXISTS messages_fts_ai');
     rawExec('DROP TRIGGER IF EXISTS messages_fts_ad');
     rawExec('DROP TRIGGER IF EXISTS messages_fts_au');
-    // Recreate triggers immediately so subsequent writes maintain FTS consistency
-    // without requiring a daemon restart. Uses IF NOT EXISTS so this is idempotent.
+    messagesFtsCorrupted = true;
+  }
+  rawExec('DELETE FROM messages');
+  rawExec('DELETE FROM conversations');
+
+  // Rebuild corrupted FTS tables and restore triggers after all base-table
+  // DELETEs have completed. Dropping the virtual table clears the corruption,
+  // and recreating it + triggers means subsequent writes maintain FTS
+  // consistency without requiring a daemon restart.
+  if (segmentFtsCorrupted) {
+    rawExec('DROP TABLE IF EXISTS memory_segment_fts');
+    rawExec(`CREATE VIRTUAL TABLE IF NOT EXISTS memory_segment_fts USING fts5(segment_id UNINDEXED, text)`);
+    rawExec(`CREATE TRIGGER IF NOT EXISTS memory_segments_ai AFTER INSERT ON memory_segments BEGIN INSERT INTO memory_segment_fts(segment_id, text) VALUES (new.id, new.text); END`);
+    rawExec(`CREATE TRIGGER IF NOT EXISTS memory_segments_ad AFTER DELETE ON memory_segments BEGIN DELETE FROM memory_segment_fts WHERE segment_id = old.id; END`);
+    rawExec(`CREATE TRIGGER IF NOT EXISTS memory_segments_au AFTER UPDATE ON memory_segments BEGIN DELETE FROM memory_segment_fts WHERE segment_id = old.id; INSERT INTO memory_segment_fts(segment_id, text) VALUES (new.id, new.text); END`);
+  }
+  if (messagesFtsCorrupted) {
+    rawExec('DROP TABLE IF EXISTS messages_fts');
+    rawExec(`CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, content)`);
     rawExec(`CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`);
     rawExec(`CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; END`);
     rawExec(`CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`);
   }
-  rawExec('DELETE FROM messages');
-  rawExec('DELETE FROM conversations');
 
   return { conversations: convCount, messages: msgCount };
 }

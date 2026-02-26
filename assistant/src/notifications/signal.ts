@@ -4,8 +4,6 @@
  * decision engine route contextually.
  */
 
-import type { NotificationChannel, ThreadCandidate } from './types.js';
-
 export interface AttentionHints {
   requiresAction: boolean;
   urgency: 'low' | 'medium' | 'high';
@@ -29,10 +27,4 @@ export interface NotificationSignal {
   routingIntent?: RoutingIntent;
   /** Free-form hints from the source for the decision engine (e.g. preferred channels). */
   routingHints?: Record<string, unknown>;
-  /**
-   * Per-channel candidate threads that the decision engine may select for reuse.
-   * Built by the thread-candidates module and injected before the decision call.
-   * Absent or empty means no reuse candidates are available (start_new only).
-   */
-  threadCandidates?: Partial<Record<NotificationChannel, ThreadCandidate[]>>;
 }

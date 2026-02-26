@@ -307,9 +307,11 @@ class IOSThreadStore: ObservableObject {
 
         var restoredThreads: [IOSThread] = []
         for session in filteredSessions {
+            let effectiveCreatedAt = session.createdAt ?? session.updatedAt
             let thread = IOSThread(
                 title: session.title,
-                createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
+                createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
+                lastActivityAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 sessionId: session.id
             )
             let vm = ChatViewModel(daemonClient: daemonClient)

@@ -4,16 +4,18 @@
  * - Valid reuse targets pass validation
  * - Invalid reuse targets are rejected and downgraded to start_new
  * - Candidate context is structurally correct and auditable
- * - The isValidCandidateId guard works as expected
  */
 
 import { describe, expect, test } from 'bun:test';
 
-import { isValidCandidateId } from '../notifications/thread-candidates.js';
+import { validateThreadActions } from '../notifications/decision-engine.js';
+import type {
+  ThreadCandidate,
+  ThreadCandidateSet,
+} from '../notifications/thread-candidates.js';
 import type {
   NotificationChannel,
   ThreadAction,
-  ThreadCandidate,
 } from '../notifications/types.js';
 
 // -- Helpers -----------------------------------------------------------------
@@ -29,18 +31,26 @@ function makeCandidate(overrides?: Partial<ThreadCandidate>): ThreadCandidate {
   };
 }
 
+/**
+ * Simple candidate ID check equivalent to the removed isValidCandidateId.
+ * Used in tests to verify candidate matching semantics.
+ */
+function isCandidateIdPresent(id: string, candidates: ThreadCandidate[]): boolean {
+  return candidates.some((c) => c.conversationId === id);
+}
+
 // -- Tests -------------------------------------------------------------------
 
 describe('thread candidate validation', () => {
-  describe('isValidCandidateId', () => {
+  describe('candidate ID matching', () => {
     test('returns true when conversationId matches a candidate', () => {
       const candidates = [
         makeCandidate({ conversationId: 'conv-001' }),
         makeCandidate({ conversationId: 'conv-002' }),
       ];
 
-      expect(isValidCandidateId('conv-001', candidates)).toBe(true);
-      expect(isValidCandidateId('conv-002', candidates)).toBe(true);
+      expect(isCandidateIdPresent('conv-001', candidates)).toBe(true);
+      expect(isCandidateIdPresent('conv-002', candidates)).toBe(true);
     });
 
     test('returns false when conversationId does not match any candidate', () => {
@@ -48,11 +58,11 @@ describe('thread candidate validation', () => {
         makeCandidate({ conversationId: 'conv-001' }),
       ];
 
-      expect(isValidCandidateId('conv-999', candidates)).toBe(false);
+      expect(isCandidateIdPresent('conv-999', candidates)).toBe(false);
     });
 
     test('returns false for empty candidate list', () => {
-      expect(isValidCandidateId('conv-001', [])).toBe(false);
+      expect(isCandidateIdPresent('conv-001', [])).toBe(false);
     });
 
     test('returns false for empty string conversationId', () => {
@@ -60,7 +70,7 @@ describe('thread candidate validation', () => {
         makeCandidate({ conversationId: 'conv-001' }),
       ];
 
-      expect(isValidCandidateId('', candidates)).toBe(false);
+      expect(isCandidateIdPresent('', candidates)).toBe(false);
     });
 
     test('matching is exact (no substring or prefix matching)', () => {
@@ -68,9 +78,9 @@ describe('thread candidate validation', () => {
         makeCandidate({ conversationId: 'conv-001' }),
       ];
 
-      expect(isValidCandidateId('conv-00', candidates)).toBe(false);
-      expect(isValidCandidateId('conv-0011', candidates)).toBe(false);
-      expect(isValidCandidateId('CONV-001', candidates)).toBe(false);
+      expect(isCandidateIdPresent('conv-00', candidates)).toBe(false);
+      expect(isCandidateIdPresent('conv-0011', candidates)).toBe(false);
+      expect(isCandidateIdPresent('CONV-001', candidates)).toBe(false);
     });
   });
 
@@ -78,18 +88,15 @@ describe('thread candidate validation', () => {
     test('candidate without guardian context has no optional fields', () => {
       const candidate = makeCandidate();
 
-      expect(candidate.pendingGuardianRequestCount).toBeUndefined();
-      expect(candidate.recentCallSessionId).toBeUndefined();
+      expect(candidate.guardianContext).toBeUndefined();
     });
 
-    test('candidate with guardian context includes counts and session IDs', () => {
+    test('candidate with guardian context includes pending counts', () => {
       const candidate = makeCandidate({
-        pendingGuardianRequestCount: 3,
-        recentCallSessionId: 'call-123',
+        guardianContext: { pendingUnresolvedRequestCount: 3 },
       });
 
-      expect(candidate.pendingGuardianRequestCount).toBe(3);
-      expect(candidate.recentCallSessionId).toBe('call-123');
+      expect(candidate.guardianContext?.pendingUnresolvedRequestCount).toBe(3);
     });
 
     test('candidate with null title is valid', () => {
@@ -110,60 +117,57 @@ describe('thread candidate validation', () => {
       expect('conversationId' in action).toBe(false);
     });
 
-    test('reuse_existing with valid candidate is accepted', () => {
-      const candidates = [
-        makeCandidate({ conversationId: 'conv-valid' }),
-      ];
-      const proposedId = 'conv-valid';
+    test('reuse_existing with valid candidate is accepted via validateThreadActions', () => {
+      const candidateSet: ThreadCandidateSet = {
+        vellum: [makeCandidate({ conversationId: 'conv-valid' })],
+      };
 
-      // Simulate what the engine does: validate, then build the action
-      const isValid = isValidCandidateId(proposedId, candidates);
-      const action: ThreadAction = isValid
-        ? { action: 'reuse_existing', conversationId: proposedId }
-        : { action: 'start_new' };
+      const result = validateThreadActions(
+        { vellum: { action: 'reuse_existing', conversationId: 'conv-valid' } },
+        ['vellum'] as NotificationChannel[],
+        candidateSet,
+      );
 
-      expect(action.action).toBe('reuse_existing');
-      if (action.action === 'reuse_existing') {
-        expect(action.conversationId).toBe('conv-valid');
+      expect(result.vellum?.action).toBe('reuse_existing');
+      if (result.vellum?.action === 'reuse_existing') {
+        expect(result.vellum.conversationId).toBe('conv-valid');
       }
     });
 
     test('reuse_existing with invalid candidate is downgraded to start_new', () => {
-      const candidates = [
-        makeCandidate({ conversationId: 'conv-valid' }),
-      ];
-      const proposedId = 'conv-hacked';
+      const candidateSet: ThreadCandidateSet = {
+        vellum: [makeCandidate({ conversationId: 'conv-valid' })],
+      };
 
-      const isValid = isValidCandidateId(proposedId, candidates);
-      const action: ThreadAction = isValid
-        ? { action: 'reuse_existing', conversationId: proposedId }
-        : { action: 'start_new' };
+      const result = validateThreadActions(
+        { vellum: { action: 'reuse_existing', conversationId: 'conv-hacked' } },
+        ['vellum'] as NotificationChannel[],
+        candidateSet,
+      );
 
-      expect(action.action).toBe('start_new');
+      expect(result.vellum?.action).toBe('start_new');
     });
 
     test('reuse_existing with empty candidate set is downgraded to start_new', () => {
-      const candidates: ThreadCandidate[] = [];
-      const proposedId = 'conv-any';
+      const result = validateThreadActions(
+        { vellum: { action: 'reuse_existing', conversationId: 'conv-any' } },
+        ['vellum'] as NotificationChannel[],
+        undefined,
+      );
 
-      const isValid = isValidCandidateId(proposedId, candidates);
-      const action: ThreadAction = isValid
-        ? { action: 'reuse_existing', conversationId: proposedId }
-        : { action: 'start_new' };
-
-      expect(action.action).toBe('start_new');
+      expect(result.vellum?.action).toBe('start_new');
     });
   });
 
   describe('candidate set per channel', () => {
-    test('channels without candidates result in empty arrays', () => {
-      const candidateMap: Partial<Record<NotificationChannel, ThreadCandidate[]>> = {};
+    test('channels without candidates result in empty map entries', () => {
+      const candidateMap: ThreadCandidateSet = {};
 
       // When no candidates exist for vellum, the map has no entry
       expect(candidateMap.vellum).toBeUndefined();
     });
 
-    test('candidate set preserves channel association', () => {
+    test('candidate set preserves channel association via validateThreadActions', () => {
       const vellumCandidates = [
         makeCandidate({ conversationId: 'conv-v1', channel: 'vellum' as NotificationChannel }),
       ];
@@ -171,16 +175,41 @@ describe('thread candidate validation', () => {
         makeCandidate({ conversationId: 'conv-t1', channel: 'telegram' as NotificationChannel }),
       ];
 
-      const candidateMap: Partial<Record<NotificationChannel, ThreadCandidate[]>> = {
+      const candidateSet: ThreadCandidateSet = {
         vellum: vellumCandidates,
         telegram: telegramCandidates,
       };
 
       // Vellum candidate should not be valid for telegram and vice versa
-      expect(isValidCandidateId('conv-v1', candidateMap.vellum ?? [])).toBe(true);
-      expect(isValidCandidateId('conv-v1', candidateMap.telegram ?? [])).toBe(false);
-      expect(isValidCandidateId('conv-t1', candidateMap.telegram ?? [])).toBe(true);
-      expect(isValidCandidateId('conv-t1', candidateMap.vellum ?? [])).toBe(false);
+      const validChannels: NotificationChannel[] = ['vellum', 'telegram'];
+
+      const result1 = validateThreadActions(
+        { vellum: { action: 'reuse_existing', conversationId: 'conv-v1' } },
+        validChannels,
+        candidateSet,
+      );
+      expect(result1.vellum?.action).toBe('reuse_existing');
+
+      const result2 = validateThreadActions(
+        { vellum: { action: 'reuse_existing', conversationId: 'conv-t1' } },
+        validChannels,
+        candidateSet,
+      );
+      expect(result2.vellum?.action).toBe('start_new');
+
+      const result3 = validateThreadActions(
+        { telegram: { action: 'reuse_existing', conversationId: 'conv-t1' } },
+        validChannels,
+        candidateSet,
+      );
+      expect(result3.telegram?.action).toBe('reuse_existing');
+
+      const result4 = validateThreadActions(
+        { telegram: { action: 'reuse_existing', conversationId: 'conv-v1' } },
+        validChannels,
+        candidateSet,
+      );
+      expect(result4.telegram?.action).toBe('start_new');
     });
   });
 });
