@@ -18,7 +18,7 @@ function getClawhubProjectRoot(): string {
 }
 
 // Validate slug format (alphanumeric, hyphens, dots, underscores; optional namespace with single slash)
-function validateSlug(slug: string): boolean {
+export function validateSlug(slug: string): boolean {
   return /^[a-zA-Z0-9]([a-zA-Z0-9._-]*(\/[a-zA-Z0-9][a-zA-Z0-9._-]*)?)?$/.test(slug);
 }
 
@@ -57,6 +57,10 @@ function collectFileContents(dir: string, prefix = ''): Array<{ relPath: string;
 
   const entries = readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
+    // Skip provenance metadata — it's written after hash recording and would
+    // cause false integrity mismatches on re-install.
+    if (entry.name === '.provenance.json') continue;
+
     const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
