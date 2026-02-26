@@ -951,6 +951,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Mark assistant activity on a thread as seen/unseen depending on whether
     /// that thread is currently active.
     private func handleAssistantMessageArrival(threadId: UUID) {
+        // Skip during thread restoration — loadHistoryIfNeeded populates
+        // messages which triggers the Combine publisher, but those are
+        // historical messages, not fresh assistant replies. Without this
+        // guard the handler would clear real unread state on app launch.
+        guard !isRestoringThreads else { return }
         guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
         updateLastInteracted(threadId: threadId)
         if threadId == activeThreadId {
