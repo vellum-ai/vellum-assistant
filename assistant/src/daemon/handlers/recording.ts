@@ -533,6 +533,15 @@ async function handleRecordingStatus(
           pendingRestartByConversation.delete(conversationId);
           log.warn({ conversationId }, 'Deferred restart start failed after stop-ack');
         } else {
+          // Cross-conversation restart: the pendingRestartByConversation entry
+          // is keyed by the old owner (conversationId), but the new recording
+          // is owned by the requester (deferred.conversationId). Migrate the
+          // entry so the 'started' handler can find it under the correct key.
+          if (conversationId !== deferred.conversationId) {
+            pendingRestartByConversation.delete(conversationId);
+            pendingRestartByConversation.set(deferred.conversationId, deferred.operationToken);
+            log.info({ oldKey: conversationId, newKey: deferred.conversationId }, 'Migrated pendingRestartByConversation key from owner to requester');
+          }
           log.info({ conversationId, newRecordingId, operationToken: deferred.operationToken }, 'Deferred restart recording started');
         }
 

@@ -1043,6 +1043,38 @@ describe('deferred restart prevents race condition', () => {
     const startMsgs = sent.filter((m) => m.type === 'recording_start');
     expect(startMsgs).toHaveLength(1);
     expect(startMsgs[0].operationToken).toBe(result.operationToken);
+
+    // The new recording is owned by B (the requester). Simulate the client
+    // confirming the new recording started. The 'started' status resolves
+    // conversationId to B, so pendingRestartByConversation must have been
+    // migrated from A to B for the restart cycle to complete.
+    const newRecordingId = startMsgs[0].recordingId as string;
+    const startedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: newRecordingId,
+      status: 'started',
+      operationToken: result.operationToken,
+      attachToConversationId: convB,
+    };
+    recordingHandlers.recording_status(startedStatus, fakeSocket, ctx);
+
+    // Restart cycle must be fully complete: activeRestartToken cleared
+    expect(getActiveRestartToken()).toBeNull();
+
+    // Not idle yet because the new recording is still running
+    expect(isRecordingIdle()).toBe(false);
+
+    // Stop the new recording and verify system returns to idle
+    handleRecordingStop(convB, ctx);
+    const newStoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: newRecordingId,
+      status: 'stopped',
+      attachToConversationId: convB,
+    };
+    recordingHandlers.recording_status(newStoppedStatus, fakeSocket, ctx);
+
+    expect(isRecordingIdle()).toBe(true);
   });
 
   test('normal stop (non-restart) does not trigger deferred start', () => {
