@@ -90,6 +90,23 @@ describe('guardian-verify-setup skill — voice auto-followup', () => {
     expect(pollingSection).toContain('resend');
   });
 
+  test('polling section includes rebind guard against false-success from pre-existing binding', () => {
+    const pollingSection =
+      skillContent.split('## Voice Auto-Check Polling')[1]?.split('## Step 6')[0] ?? '';
+    // Must mention rebind guard concept
+    expect(pollingSection).toContain('Rebind guard');
+    // Must instruct not to trust the first bound: true in a rebind flow
+    expect(pollingSection).toContain(
+      'do NOT treat the first `bound: true` poll result as success',
+    );
+    // Must reference bound_at timestamp comparison as the primary mechanism
+    expect(pollingSection).toContain('bound_at');
+    // Must have a fallback for when bound_at is unavailable
+    expect(pollingSection).toContain('second poll onward');
+    // Must clarify non-rebind flows are unaffected
+    expect(pollingSection).toContain('Non-rebind flows');
+  });
+
   test('polling is voice-only — does not apply to SMS or Telegram', () => {
     const pollingSection =
       skillContent.split('## Voice Auto-Check Polling')[1]?.split('## Step 6')[0] ?? '';

@@ -135,6 +135,13 @@ curl -s http://localhost:7821/v1/integrations/guardian/status?channel=voice \
 5. Continue polling for up to **2 minutes** (approximately 8 attempts).
 6. If the 2-minute timeout is reached without `bound: true`: proactively tell the user — "I've been checking for about 2 minutes but verification hasn't completed yet. The code may have expired or wasn't entered. Would you like me to resend a new code (Step 4) or start a new session (Step 3)?"
 
+**Rebind guard:**
+When in a **rebind flow** (i.e., the `start_outbound` request included `"rebind": true` because a binding already existed), do NOT treat the first `bound: true` poll result as success. The pre-existing binding will already show `bound: true` before the user has entered the new code, which would be a false positive. To guard against this:
+- Note the `bound_at` timestamp from the **first** poll response as a baseline.
+- Only report success when a subsequent poll shows `bound: true` with a `bound_at` timestamp **strictly newer** than the baseline. This proves the new outbound session was consumed.
+- If the status endpoint does not include `bound_at`, fall back to skipping the first poll result entirely and only start evaluating `bound: true` from the **second poll onward** (giving the user time to enter the new code).
+- Non-rebind flows (fresh verification with no prior binding) are unaffected — the first `bound: true` is trustworthy.
+
 **Important polling rules:**
 - This polling loop is voice-only. Do NOT poll for SMS or Telegram channels (SMS codes are entered through the SMS channel itself; Telegram has its own bot-driven flow).
 - Do NOT require the user to ask "did it work?" — the whole point is proactive confirmation.
