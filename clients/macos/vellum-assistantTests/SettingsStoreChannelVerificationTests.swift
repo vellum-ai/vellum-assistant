@@ -184,7 +184,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testUnverifiedStatusResponseDoesNotClearExistingTelegramInstruction() {
-        store.telegramGuardianInstruction = "Send /guardian_verify abc123 on Telegram"
+        store.telegramGuardianInstruction = "Send code abc123 on Telegram"
 
         daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
             type: "guardian_verification_response",
@@ -199,12 +199,12 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             error: nil
         ))
 
-        XCTAssertEqual(store.telegramGuardianInstruction, "Send /guardian_verify abc123 on Telegram")
+        XCTAssertEqual(store.telegramGuardianInstruction, "Send code abc123 on Telegram")
         XCTAssertFalse(store.telegramGuardianVerified)
     }
 
     func testVerifiedStatusResponseClearsExistingTelegramInstruction() {
-        store.telegramGuardianInstruction = "Send /guardian_verify abc123 on Telegram"
+        store.telegramGuardianInstruction = "Send code abc123 on Telegram"
 
         daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
             type: "guardian_verification_response",
@@ -324,7 +324,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             type: "guardian_verification_response",
             success: true,
             secret: "abc123",
-            instruction: "Send /guardian_verify abc123 on Telegram",
+            instruction: "Send code abc123 on Telegram",
             bound: false,
             guardianExternalUserId: nil,
             channel: nil,
@@ -337,7 +337,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         wait(for: [expectation], timeout: 2.0)
 
-        XCTAssertEqual(store.telegramGuardianInstruction, "Send /guardian_verify abc123 on Telegram")
+        XCTAssertEqual(store.telegramGuardianInstruction, "Send code abc123 on Telegram")
         XCTAssertFalse(store.telegramGuardianVerificationInProgress)
         XCTAssertNil(store.telegramGuardianError)
     }
@@ -359,7 +359,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             type: "guardian_verification_response",
             success: true,
             secret: "poll-me",
-            instruction: "Send /guardian_verify poll-me on Telegram",
+            instruction: "Send code poll-me on Telegram",
             bound: false,
             guardianExternalUserId: nil,
             channel: "telegram",
@@ -391,7 +391,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             type: "guardian_verification_response",
             success: true,
             secret: "poll-me",
-            instruction: "Send /guardian_verify poll-me on Telegram",
+            instruction: "Send code poll-me on Telegram",
             bound: false,
             guardianExternalUserId: nil,
             channel: "telegram",
@@ -572,7 +572,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             type: "guardian_verification_response",
             success: true,
             secret: "abc123",
-            instruction: "Send /guardian_verify abc123 on Telegram",
+            instruction: "Send code abc123 on Telegram",
             bound: false,
             guardianExternalUserId: nil,
             channel: "telegram",
@@ -581,7 +581,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             error: nil
         ))
 
-        XCTAssertEqual(store.telegramGuardianInstruction, "Send /guardian_verify abc123 on Telegram")
+        XCTAssertEqual(store.telegramGuardianInstruction, "Send code abc123 on Telegram")
         XCTAssertFalse(store.telegramGuardianVerificationInProgress)
     }
 
@@ -606,7 +606,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Revoke clears instruction
 
     func testRevokeTelegramGuardianClearsInstruction() {
-        store.telegramGuardianInstruction = "Send /guardian_verify abc123 on Telegram"
+        store.telegramGuardianInstruction = "Send code abc123 on Telegram"
 
         store.revokeChannelGuardian(channel: "telegram")
 
@@ -614,7 +614,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testRevokeSmsGuardianClearsInstruction() {
-        store.smsGuardianInstruction = "Send /guardian_verify abc123 via SMS"
+        store.smsGuardianInstruction = "Send code abc123 via SMS"
 
         store.revokeChannelGuardian(channel: "sms")
 
@@ -636,7 +636,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
         // Manually set instruction to simulate a previous challenge's stale text
         // that persists when a new challenge times out before the daemon responds.
-        shortTimeoutStore.telegramGuardianInstruction = "Send /guardian_verify stale on Telegram"
+        shortTimeoutStore.telegramGuardianInstruction = "Send code stale on Telegram"
 
         // Wait for the timeout to fire
         let predicate = NSPredicate { _, _ in
@@ -661,7 +661,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         shortTimeoutStore.startChannelGuardianVerification(channel: "sms")
 
         // Manually set instruction to simulate a previous challenge's stale text
-        shortTimeoutStore.smsGuardianInstruction = "Send /guardian_verify stale via SMS"
+        shortTimeoutStore.smsGuardianInstruction = "Send code stale via SMS"
 
         // Wait for the timeout to fire
         let predicate = NSPredicate { _, _ in

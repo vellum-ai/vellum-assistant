@@ -223,7 +223,7 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
       // consistency; wording adapts to channel and code type.
       const code = context.verifyCommand ?? 'the verification code';
       // Detect whether the code is a short numeric (identity-bound outbound)
-      // or a high-entropy hex (inbound challenge) and adjust wording.
+      // or a high-entropy hex (inbound challenge/bootstrap) and adjust wording.
       const isNumeric = /^\d{4,8}$/.test(code);
       if (context.channel === 'voice') {
         if (isNumeric) {

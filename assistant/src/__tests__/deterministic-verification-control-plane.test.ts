@@ -2,7 +2,7 @@
  * Tests for the deterministic verification control plane (M1).
  *
  * Verifies that:
- * 1. Verification commands (/guardian_verify, /start gv_<token>) never invoke
+ * 1. Verification control messages (code replies, /start gv_<token>) never invoke
  *    the normal message pipeline — they produce only template-driven copy.
  * 2. Call session mode metadata is persisted correctly for guardian verification calls.
  * 3. TwiML generation includes guardian verification parameters when relevant.
@@ -208,8 +208,8 @@ describe('Call session mode metadata', () => {
 // Guard test: verification commands must not reach processMessage
 // ---------------------------------------------------------------------------
 
-describe('Verification commands are deterministic (guard)', () => {
-  test('handleChannelInbound does not call processMessage for /guardian_verify commands', async () => {
+describe('Verification control messages are deterministic (guard)', () => {
+  test('handleChannelInbound does not call processMessage for verification code replies', async () => {
     const { createHash } = await import('node:crypto');
     const { handleChannelInbound } = await import('../runtime/routes/inbound-message-handler.js');
     const {
@@ -217,7 +217,7 @@ describe('Verification commands are deterministic (guard)', () => {
     } = await import('../memory/channel-guardian-store.js');
 
     // Set up a pending challenge
-    const secret = 'test-secret-abc';
+    const secret = '123456';
     const challengeHash = createHash('sha256').update(secret).digest('hex');
     createChallenge({
       id: 'challenge-guard-test',
@@ -260,7 +260,7 @@ describe('Verification commands are deterministic (guard)', () => {
           interface: 'telegram',
           externalChatId: 'chat-123',
           externalMessageId: `msg-guard-${Date.now()}`,
-          content: `/guardian_verify ${secret}`,
+          content: secret,
           senderExternalUserId: 'user-123',
           senderName: 'Test User',
           replyCallbackUrl: 'http://localhost/callback',

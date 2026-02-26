@@ -37,10 +37,20 @@ If you use `send_notification` for any of these, the notification fires immediat
 
 `task_list_add` creates a work queue item. It does **NOT** fire at a specific time. NEVER use it as a workaround for delayed notifications. If the user wants a timed alert, use `reminder_create`.
 
+## Time Grounding Source
+
+Use the injected `<temporal_context>` block as the authoritative clock source:
+- `Current UTC time` is the canonical current instant (from assistant host clock).
+- `Current local time` + `Timezone` are the active local-calendar interpretation.
+- `User timezone` + `Timezone source` tell you whether local-time interpretation is user-specific or host fallback.
+
+When `User timezone: unknown` and the request is locale-specific (e.g. "at 3pm", "tomorrow morning", "tonight"), ask once for their timezone and then proceed.
+If the user confirms a timezone, suggest saving it in Settings -> Appearance -> User timezone so future reminders resolve correctly without re-asking.
+
 ## Relative Time Parsing
 
 When the user says "in X minutes/hours", compute the ISO 8601 timestamp yourself:
-- Take the current time
+- Take `Current UTC time` (or `Current local time` in the active `Timezone`)
 - Add the offset
 - Format as ISO 8601 with timezone: `2025-03-15T09:05:00-05:00`
 - Pass to `reminder_create` as `fire_at`

@@ -161,12 +161,13 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
 /**
  * POST /v1/integrations/guardian/outbound/resend
  *
- * Body: { channel: ChannelId; assistantId?: string }
+ * Body: { channel: ChannelId; assistantId?: string; originConversationId?: string }
  */
 export async function handleResendOutbound(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     channel?: ChannelId;
     assistantId?: string;
+    originConversationId?: string;
   };
   if (!body.channel) {
     return Response.json(
@@ -177,6 +178,7 @@ export async function handleResendOutbound(req: Request): Promise<Response> {
   const result = resendOutbound({
     channel: body.channel,
     assistantId: body.assistantId,
+    originConversationId: body.originConversationId,
   });
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });

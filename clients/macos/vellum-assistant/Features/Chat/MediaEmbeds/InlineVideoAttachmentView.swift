@@ -399,10 +399,10 @@ struct InlineVideoAttachmentView: View {
         await playFromFile(fileURL)
     }
 
-    /// Fetch attachment content from the daemon HTTP API with retry logic.
+    /// Fetch attachment content via the gateway's runtime proxy with retry logic.
     ///
-    /// For `port_missing` failures, retries up to 3 times with 1s delays
-    /// because the daemon may be mid-restart and the port will appear shortly.
+    /// Retries up to 3 times with 1s delays because the gateway or daemon
+    /// may be mid-restart.
     private func fetchAndPlay() {
         guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
             failure = .invalid_media
@@ -411,7 +411,7 @@ struct InlineVideoAttachmentView: View {
 
         isLoading = true
         Task {
-            // Retry loop: resolve port at each attempt to pick up daemon restarts.
+            let gatewayBaseUrl = resolveGatewayBaseUrl()
             let maxRetries = 3
             var lastError: VideoPlaybackFailure?
 
@@ -420,14 +420,8 @@ struct InlineVideoAttachmentView: View {
                     try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s between retries
                 }
 
-                guard let port = resolveHttpPort() else {
-                    lastError = .port_missing
-                    log.info("Port missing on attempt \(attempt + 1)/\(maxRetries) for attachment \(attachmentId)")
-                    continue
-                }
-
                 do {
-                    let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
+                    let data = try await fetchAttachmentContent(gatewayBaseUrl: gatewayBaseUrl, attachmentId: attachmentId)
                     let fileURL = safeTempURL()
                     try data.write(to: fileURL)
                     await MainActor.run { isLoading = false }
@@ -436,15 +430,15 @@ struct InlineVideoAttachmentView: View {
                 } catch {
                     log.error("Fetch attempt \(attempt + 1)/\(maxRetries) failed for \(attachmentId): \(error.localizedDescription)")
                     lastError = .fetch_failed(error.localizedDescription)
-                    // Only retry on port_missing; fetch_failed errors are typically
-                    // not transient (4xx/5xx, auth issues) so retrying wastes time.
+                    // fetch_failed errors are typically not transient (4xx/5xx, auth issues)
+                    // so don't retry further.
                     break
                 }
             }
 
             await MainActor.run {
                 isLoading = false
-                failure = lastError ?? .port_missing
+                failure = lastError ?? .fetch_failed("Could not fetch video")
             }
         }
     }
@@ -476,13 +470,14 @@ struct InlineVideoAttachmentView: View {
                 await MainActor.run { isSaving = false }
             }
         } else if attachment.isLazyLoad {
-            guard let port = resolveHttpPort(), let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
+            guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
                 isSaving = false
                 return
             }
+            let gatewayBaseUrl = resolveGatewayBaseUrl()
             Task {
                 do {
-                    let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
+                    let data = try await fetchAttachmentContent(gatewayBaseUrl: gatewayBaseUrl, attachmentId: attachmentId)
                     try data.write(to: destURL)
                     await MainActor.run { isSaving = false }
                 } catch {
@@ -506,11 +501,12 @@ struct InlineVideoAttachmentView: View {
         if let fileURL = cachedFileURL {
             NSWorkspace.shared.open(fileURL)
         } else if attachment.isLazyLoad {
-            guard let port = resolveHttpPort(), let attachmentId = attachment.id.isEmpty ? nil : attachment.id else { return }
+            guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else { return }
+            let gatewayBaseUrl = resolveGatewayBaseUrl()
             isLoading = true
             Task {
                 do {
-                    let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
+                    let data = try await fetchAttachmentContent(gatewayBaseUrl: gatewayBaseUrl, attachmentId: attachmentId)
                     let fileURL = safeTempURL()
                     try data.write(to: fileURL)
                     await MainActor.run {
@@ -530,8 +526,16 @@ struct InlineVideoAttachmentView: View {
     }
 }
 
-/// Fetch raw attachment bytes from the daemon HTTP content endpoint.
-private func fetchAttachmentContent(port: Int, attachmentId: String) async throws -> Data {
+/// Resolve the local gateway base URL from the GATEWAY_PORT env var (default 7830).
+private func resolveGatewayBaseUrl() -> String {
+    let envPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+        ?? getenv("GATEWAY_PORT").flatMap({ String(cString: $0) })
+    let port = envPort.flatMap(Int.init) ?? 7830
+    return "http://127.0.0.1:\(port)"
+}
+
+/// Fetch raw attachment bytes via the gateway's runtime proxy.
+private func fetchAttachmentContent(gatewayBaseUrl: String, attachmentId: String) async throws -> Data {
     let tokenBase: String
     if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
        !baseDir.isEmpty {
@@ -545,7 +549,7 @@ private func fetchAttachmentContent(port: Int, attachmentId: String) async throw
           !token.isEmpty else {
         throw URLError(.userAuthenticationRequired)
     }
-    let url = URL(string: "http://localhost:\(port)/v1/attachments/\(attachmentId)/content")!
+    let url = URL(string: "\(gatewayBaseUrl)/v1/attachments/\(attachmentId)/content")!
     var request = URLRequest(url: url)
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 

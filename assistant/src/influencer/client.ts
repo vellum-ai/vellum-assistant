@@ -47,6 +47,7 @@
 
 import type { ExtensionCommand, ExtensionResponse } from '../browser-extension-relay/protocol.js';
 import { extensionRelayServer } from '../browser-extension-relay/server.js';
+import { getGatewayInternalBaseUrl } from '../config/env.js';
 import { readHttpToken } from '../util/platform.js';
 
 // ---------------------------------------------------------------------------
@@ -133,7 +134,7 @@ async function sendRelayCommand(command: Record<string, unknown>): Promise<Exten
     );
   }
 
-  const resp = await fetch('http://127.0.0.1:7821/v1/browser-relay/command', {
+  const resp = await fetch(`${getGatewayInternalBaseUrl()}/v1/browser-relay/command`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

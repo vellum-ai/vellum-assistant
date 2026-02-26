@@ -34,7 +34,7 @@ import {
   type AssistantAttachmentDraft,
   cleanAssistantContent,
 } from './assistant-attachments.js';
-import { buildTemporalContext } from './date-context.js';
+import { buildTemporalContext, extractUserTimeZoneFromDynamicProfile } from './date-context.js';
 import { deepRepairHistory,repairHistory } from './history-repair.js';
 import type { DynamicPageSurfaceData,ServerMessage, SurfaceData, SurfaceType, UsageStats } from './ipc-protocol.js';
 import {
@@ -325,8 +325,15 @@ export async function runAgentLoopImpl(
     ctx.refreshWorkspaceTopLevelContextIfNeeded();
 
     // Compute fresh temporal context each turn for date grounding.
+    // Absolute "now" is always anchored to assistant host clock, while local
+    // date semantics prefer configured user timezone, then profile memory.
+    const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const userTimeZone = extractUserTimeZoneFromDynamicProfile(dynamicProfile.text);
+    const configuredUserTimeZone = getConfig().ui.userTimezone ?? null;
     const temporalContext = buildTemporalContext({
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      hostTimeZone,
+      configuredUserTimeZone,
+      userTimeZone,
     });
 
     // Use the channel/interface context captured at the top of this function

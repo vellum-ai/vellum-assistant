@@ -3166,7 +3166,7 @@ describe('outbound Telegram verification', () => {
     expect(result.success).toBe(false);
   });
 
-  test('backward compat: inbound-only /guardian_verify Telegram flow still works', () => {
+  test('inbound-only Telegram verification flow still works with bare code', () => {
     // Create an inbound-only challenge (no outbound session, no expected identity)
     const challengeResult = createVerificationChallenge('self', 'telegram');
 
@@ -3280,7 +3280,7 @@ describe('outbound Telegram verification', () => {
       { code: 'abc123', expiresInMinutes: 10 },
     );
     expect(msg).not.toContain('abc123');
-    expect(msg).toContain('/guardian_verify <code>');
+    expect(msg).not.toContain('guardian_verify');
   });
 
   test('telegram resend template does not include code and includes (resent) suffix', () => {
@@ -3289,7 +3289,7 @@ describe('outbound Telegram verification', () => {
       { code: 'xyz789', expiresInMinutes: 5 },
     );
     expect(msg).not.toContain('xyz789');
-    expect(msg).toContain('/guardian_verify <code>');
+    expect(msg).not.toContain('guardian_verify');
     expect(msg).toContain('(resent)');
   });
 
@@ -3702,13 +3702,13 @@ describe('M1–M4 hardening coverage', () => {
   // ── M2: bootstrap sessions use high-entropy hex secrets ──
 
   test('bootstrap (pending_bootstrap) sessions use high-entropy hex secrets, identity-bound use 6-digit numeric', () => {
-    // Pending bootstrap: high-entropy hex (32 bytes = 64 hex chars)
     const bootstrapResult = createOutboundSession({
       assistantId: 'asst-entropy',
       channel: 'telegram',
       identityBindingStatus: 'pending_bootstrap',
       destinationAddress: '@testuser',
     });
+    // Pending bootstrap: high-entropy hex (32 bytes = 64 hex chars)
     expect(bootstrapResult.secret.length).toBe(64);
     expect(bootstrapResult.secret).toMatch(/^[a-f0-9]{64}$/);
 

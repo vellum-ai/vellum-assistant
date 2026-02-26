@@ -7,6 +7,7 @@ import VellumAssistantShared
 /// unified Text views so that text selection can span across paragraphs.
 struct MarkdownSegmentView: View {
     let segments: [MarkdownSegment]
+    var isStreaming: Bool = false
     var maxContentWidth: CGFloat? = 520
     var textColor: Color = VColor.textPrimary
     var secondaryTextColor: Color = VColor.textSecondary
@@ -31,7 +32,7 @@ struct MarkdownSegmentView: View {
                         .lineSpacing(4)
                         .foregroundColor(textColor)
                         .tint(tintColor)
-                        .textSelection(.enabled)
+                        .selectableText(!isStreaming)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
 
@@ -48,7 +49,7 @@ struct MarkdownSegmentView: View {
                             Text(code)
                                 .font(.custom("DMMono-Regular", size: 13 * zoomScale))
                                 .foregroundColor(textColor)
-                                .textSelection(.enabled)
+                                .selectableText(!isStreaming)
                                 .fixedSize(horizontal: true, vertical: true)
                                 .padding(VSpacing.sm)
                         }
@@ -58,7 +59,7 @@ struct MarkdownSegmentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
                 case .table(let headers, let rows):
-                    MarkdownTableView(headers: headers, rows: rows, maxWidth: maxContentWidth ?? .infinity)
+                    MarkdownTableView(headers: headers, rows: rows, maxWidth: maxContentWidth ?? .infinity, isStreaming: isStreaming)
 
                 case .image(let alt, let url):
                     AnimatedImageView(urlString: url)
@@ -289,6 +290,21 @@ struct MarkdownSegmentView: View {
         }
 
         return result
+    }
+}
+
+// MARK: - Conditional text selection
+
+extension View {
+    /// Wraps `.textSelection(.enabled)` / `.textSelection(.disabled)` behind a
+    /// `@ViewBuilder` branch so the compiler doesn't try to unify the two
+    /// distinct `TextSelectability` conformances in a single ternary expression.
+    @ViewBuilder func selectableText(_ enabled: Bool) -> some View {
+        if enabled {
+            self.textSelection(.enabled)
+        } else {
+            self.textSelection(.disabled)
+        }
     }
 }
 

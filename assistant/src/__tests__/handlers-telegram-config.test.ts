@@ -785,7 +785,6 @@ describe('Telegram config handler', () => {
     expect((setCommandsBody as { commands: Array<{ command: string; description: string }> }).commands).toEqual([
       { command: 'new', description: 'Start a new conversation' },
       { command: 'help', description: 'Show available commands' },
-      { command: 'guardian_verify', description: 'Verify your guardian identity' },
     ]);
   });
 
@@ -865,7 +864,7 @@ describe('Telegram config handler', () => {
     expect(res.error).toContain('Failed to set bot commands');
   });
 
-  test('default command registration includes /new, /help, and /guardian_verify', async () => {
+  test('default command registration includes /new and /help', async () => {
     secureKeyStore['credential:telegram:bot_token'] = 'test-bot-token';
     secureKeyStore['credential:telegram:webhook_secret'] = 'test-webhook-secret';
 
@@ -893,11 +892,10 @@ describe('Telegram config handler', () => {
     expect(res.success).toBe(true);
 
     const commands = (setCommandsBody as { commands: Array<{ command: string; description: string }> }).commands;
-    expect(commands).toHaveLength(3);
+    expect(commands).toHaveLength(2);
     expect(commands).toEqual([
       { command: 'new', description: 'Start a new conversation' },
       { command: 'help', description: 'Show available commands' },
-      { command: 'guardian_verify', description: 'Verify your guardian identity' },
     ]);
   });
 });
@@ -950,7 +948,8 @@ describe('Guardian verification IPC actions', () => {
     expect(res.success).toBe(true);
     expect(res.secret).toBeDefined();
     expect(res.instruction).toBeDefined();
-    expect(res.instruction).toContain('/guardian_verify');
+    expect(res.instruction).toContain('send');
+    expect(res.instruction).toContain('code');
   });
 
   test('unknown action returns error', () => {
@@ -985,7 +984,8 @@ describe('Guardian verification IPC actions', () => {
     const res = sent[0] as { type: string; success: boolean; secret?: string; instruction?: string };
     expect(res.success).toBe(true);
     expect(res.secret).toBeDefined();
-    expect(res.instruction).toContain('/guardian_verify');
+    expect(res.instruction).toContain('send');
+    expect(res.instruction).toContain('code');
   });
 
   test('status action with explicit assistantId checks binding for that assistant', () => {

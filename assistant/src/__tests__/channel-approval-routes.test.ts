@@ -881,7 +881,7 @@ describe('SMS channel approval decisions', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('SMS guardian verify intercept', () => {
-  test('/guardian_verify command works with sourceChannel sms', async () => {
+  test('verification code reply works with sourceChannel sms', async () => {
     const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
     const { secret } = createVerificationChallenge('self', 'sms');
 
@@ -898,7 +898,7 @@ describe('SMS guardian verify intercept', () => {
         interface: 'sms',
         externalChatId: 'sms-chat-verify',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
-        content: `/guardian_verify ${secret}`,
+        content: secret,
         senderExternalUserId: 'sms-user-42',
         replyCallbackUrl: 'https://gateway.test/deliver',
       }),
@@ -921,7 +921,11 @@ describe('SMS guardian verify intercept', () => {
     deliverSpy.mockRestore();
   });
 
-  test('/guardian_verify with invalid token returns failed via SMS', async () => {
+  test('invalid verification code returns failed via SMS', async () => {
+    const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
+    // Ensure there is a pending challenge so bare-code verification is intercepted.
+    createVerificationChallenge('self', 'sms');
+
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const req = new Request('http://localhost/channels/inbound', {
@@ -935,7 +939,7 @@ describe('SMS guardian verify intercept', () => {
         interface: 'sms',
         externalChatId: 'sms-chat-verify-fail',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
-        content: '/guardian_verify invalid-token-here',
+        content: '000000',
         senderExternalUserId: 'sms-user-43',
         replyCallbackUrl: 'https://gateway.test/deliver',
       }),
@@ -955,6 +959,51 @@ describe('SMS guardian verify intercept', () => {
     expect(replyPayload.text.toLowerCase()).toContain('invalid');
 
     deliverSpy.mockRestore();
+  });
+
+  test('64-char hex verification codes are intercepted when a pending challenge exists', async () => {
+    const { createHash, randomBytes } = await import('node:crypto');
+    const { createChallenge } = await import('../memory/channel-guardian-store.js');
+
+    const secret = randomBytes(32).toString('hex');
+    const challengeHash = createHash('sha256').update(secret).digest('hex');
+    createChallenge({
+      id: `challenge-hex-${Date.now()}`,
+      assistantId: 'self',
+      channel: 'sms',
+      challengeHash,
+      expiresAt: Date.now() + 600_000,
+    });
+
+    let processMessageCalled = false;
+    const processMessage = async () => {
+      processMessageCalled = true;
+      return { messageId: 'msg-hex-not-verify' };
+    };
+
+    const req = new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gateway-Origin': TEST_BEARER_TOKEN,
+      },
+      body: JSON.stringify({
+        sourceChannel: 'sms',
+        interface: 'sms',
+        externalChatId: 'sms-chat-hex-message',
+        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
+        content: secret,
+        senderExternalUserId: 'sms-user-hex',
+        replyCallbackUrl: 'https://gateway.test/deliver',
+      }),
+    });
+
+    const res = await handleChannelInbound(req, processMessage, TEST_BEARER_TOKEN);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.guardianVerification).toBe('verified');
+    expect(processMessageCalled).toBe(false);
   });
 });
 
@@ -1242,14 +1291,14 @@ describe('deliver-once idempotency guard', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('assistant-scoped guardian verification via handleChannelInbound', () => {
-  test('/guardian_verify uses the threaded assistantId (default: self)', async () => {
+  test('verification code uses the threaded assistantId (default: self)', async () => {
     const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
     const { secret } = createVerificationChallenge('self', 'telegram');
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const req = makeInboundRequest({
-      content: `/guardian_verify ${secret}`,
+      content: secret,
       senderExternalUserId: 'user-default-asst',
     });
 
@@ -1262,7 +1311,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     deliverSpy.mockRestore();
   });
 
-  test('/guardian_verify with explicit assistantId resolves against that assistant', async () => {
+  test('verification code with explicit assistantId resolves against that assistant', async () => {
     const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
     const { getGuardianBinding } = await import('../runtime/channel-guardian-service.js');
 
@@ -1271,7 +1320,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const req = makeInboundRequest({
-      content: `/guardian_verify ${secret}`,
+      content: secret,
       senderExternalUserId: 'user-for-asst-x',
     });
 
@@ -1288,7 +1337,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     deliverSpy.mockRestore();
   });
 
-  test('cross-assistant challenge verification fails', async () => {
+  test('cross-assistant challenge code does not verify against a different assistant scope', async () => {
     const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
 
     const { secret } = createVerificationChallenge('asst-A-cross', 'telegram');
@@ -1296,7 +1345,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const req = makeInboundRequest({
-      content: `/guardian_verify ${secret}`,
+      content: secret,
       senderExternalUserId: 'user-cross-test',
     });
 
@@ -1304,7 +1353,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe('failed');
+    expect(body.guardianVerification).toBeUndefined();
 
     deliverSpy.mockRestore();
   });
@@ -2506,7 +2555,15 @@ describe('non-decision status reply for different channels', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('background channel processing approval prompts', () => {
-  test('marks channel turns interactive and delivers approval prompt when confirmation is pending', async () => {
+  test('marks guardian channel turns interactive and delivers approval prompt when confirmation is pending', async () => {
+    // Set up a guardian binding so the sender is recognized as a guardian
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
+
     const deliverPromptSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
     const processCalls: Array<{ options?: Record<string, unknown> }> = [];
 
@@ -2548,5 +2605,44 @@ describe('background channel processing approval prompts', () => {
     expect(approvalMeta?.requestId).toBe('req-bg-1');
 
     deliverPromptSpy.mockRestore();
+  });
+
+  test('non-guardian channel turns are not interactive to prevent self-approval', async () => {
+    // Set up a guardian binding for a DIFFERENT user so the sender is non-guardian
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-other',
+      guardianDeliveryChatId: 'guardian-chat-other',
+    });
+
+    const processCalls: Array<{ options?: Record<string, unknown> }> = [];
+
+    const processMessage = mock(async (
+      _conversationId: string,
+      _content: string,
+      _attachmentIds?: string[],
+      options?: Record<string, unknown>,
+    ) => {
+      processCalls.push({ options });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { messageId: 'msg-ng-1' };
+    });
+
+    const req = makeInboundRequest({
+      content: 'run something',
+      sourceChannel: 'telegram',
+      replyCallbackUrl: 'https://gateway.test/deliver/telegram',
+      externalMessageId: 'msg-ng-1',
+    });
+
+    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage, 'token');
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(processCalls.length).toBeGreaterThan(0);
+    expect(processCalls[0].options?.isInteractive).toBe(false);
   });
 });

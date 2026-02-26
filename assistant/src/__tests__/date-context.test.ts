@@ -1,6 +1,6 @@
 import { describe, expect,test } from 'bun:test';
 
-import { buildTemporalContext } from '../daemon/date-context.js';
+import { buildTemporalContext, extractUserTimeZoneFromDynamicProfile } from '../daemon/date-context.js';
 
 // Fixed timestamps for deterministic assertions (all UTC midday to avoid DST edge cases).
 
@@ -40,10 +40,180 @@ describe('buildTemporalContext', () => {
     expect(result).toContain('Timezone: America/New_York');
   });
 
+  test('includes current local time as ISO 8601 with offset', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    expect(result).toContain('Current local time: 2026-02-18T12:00:00+00:00');
+  });
+
+  test('includes current UTC time from assistant host clock', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    expect(result).toContain('Current UTC time: 2026-02-18T12:00:00.000Z');
+  });
+
+  test('documents assistant host as the authoritative clock source', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    expect(result).toContain('Clock source: assistant host machine');
+  });
+
+  test('uses user timezone when provided and records source metadata', () => {
+    const result = buildTemporalContext({
+      nowMs: WED_FEB_18,
+      hostTimeZone: 'UTC',
+      userTimeZone: 'America/New_York',
+    });
+    expect(result).toContain('Timezone: America/New_York');
+    expect(result).toContain('Current local time: 2026-02-18T07:00:00-05:00');
+    expect(result).toContain('Assistant host timezone: UTC');
+    expect(result).toContain('User timezone: America/New_York');
+    expect(result).toContain('Timezone source: user_profile_memory');
+  });
+
+  test('uses configured user timezone when profile timezone is unavailable', () => {
+    const result = buildTemporalContext({
+      nowMs: WED_FEB_18,
+      hostTimeZone: 'UTC',
+      configuredUserTimeZone: 'America/Chicago',
+      userTimeZone: null,
+    });
+    expect(result).toContain('Timezone: America/Chicago');
+    expect(result).toContain('Current local time: 2026-02-18T06:00:00-06:00');
+    expect(result).toContain('User timezone: America/Chicago');
+    expect(result).toContain('Timezone source: user_settings');
+  });
+
+  test('configured user timezone takes precedence over profile timezone', () => {
+    const result = buildTemporalContext({
+      nowMs: WED_FEB_18,
+      hostTimeZone: 'UTC',
+      configuredUserTimeZone: 'America/Los_Angeles',
+      userTimeZone: 'America/New_York',
+    });
+    expect(result).toContain('Timezone: America/Los_Angeles');
+    expect(result).toContain('Current local time: 2026-02-18T04:00:00-08:00');
+    expect(result).toContain('User timezone: America/Los_Angeles');
+    expect(result).toContain('Timezone source: user_settings');
+  });
+
+  test('falls back to host timezone when user timezone is unavailable', () => {
+    const result = buildTemporalContext({
+      nowMs: WED_FEB_18,
+      hostTimeZone: 'UTC',
+      userTimeZone: null,
+    });
+    expect(result).toContain('Timezone: UTC');
+    expect(result).toContain('User timezone: unknown');
+    expect(result).toContain('Timezone source: assistant_host_fallback');
+  });
+
+  test('accepts UTC/GMT offset-style user timezone values', () => {
+    const result = buildTemporalContext({
+      nowMs: WED_FEB_18,
+      hostTimeZone: 'UTC',
+      userTimeZone: 'UTC+2',
+    });
+    expect(result).toContain('Timezone: Etc/GMT-2');
+    expect(result).toContain('Current local time: 2026-02-18T14:00:00+02:00');
+    expect(result).toContain('User timezone: Etc/GMT-2');
+    expect(result).toContain('Timezone source: user_profile_memory');
+  });
+
+  test('accepts fractional UTC/GMT offset-style user timezone values', () => {
+    const result = buildTemporalContext({
+      nowMs: WED_FEB_18,
+      hostTimeZone: 'UTC',
+      userTimeZone: 'UTC+5:30',
+    });
+    expect(result).toContain('Timezone: +05:30');
+    expect(result).toContain('Current local time: 2026-02-18T17:30:00+05:30');
+    expect(result).toContain('User timezone: +05:30');
+    expect(result).toContain('Timezone source: user_profile_memory');
+  });
+
   test('includes week definitions', () => {
     const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
     expect(result).toContain('work week = Monday–Friday');
     expect(result).toContain('weekend = Saturday–Sunday');
+  });
+
+  test('formats midnight hours as 00 (never 24) in local ISO output', () => {
+    const justAfterMidnight = Date.UTC(2026, 1, 19, 0, 5, 0);
+    const result = buildTemporalContext({ nowMs: justAfterMidnight, timeZone: 'UTC' });
+    expect(result).toContain('Current local time: 2026-02-19T00:05:00+00:00');
+    expect(result).not.toContain('T24:05:00');
+  });
+});
+
+describe('extractUserTimeZoneFromDynamicProfile', () => {
+  test('extracts canonical timezone from explicit timezone profile line', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- timezone: Timezone is America/New_York.',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('America/New_York');
+  });
+
+  test('extracts timezone token from generic profile text when explicit line is absent', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- location: Travels often between Europe and Asia (currently Europe/Paris).',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('Europe/Paris');
+  });
+
+  test('returns null when no valid timezone is present', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- timezone: Pacific time',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBeNull();
+  });
+
+  test('extracts UTC/GMT offset tokens from explicit timezone profile line', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- timezone: UTC+2',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('Etc/GMT-2');
+  });
+
+  test('extracts GMT negative offset tokens from generic profile text', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- preferences: schedule notifications in GMT-5 whenever possible.',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('Etc/GMT+5');
+  });
+
+  test('extracts fractional UTC offset tokens from explicit timezone profile line', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- timezone: UTC+5:30',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('+05:30');
+  });
+
+  test('extracts fractional GMT offset tokens from generic profile text', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- preferences: default reminders to GMT+5:45.',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('+05:45');
+  });
+
+  test('prefers IANA timezone tokens over UTC/GMT offsets in the same profile line', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- timezone: UTC+1 (Europe/Paris)',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('Europe/Paris');
   });
 });
 
@@ -186,6 +356,7 @@ describe('DST-safe timezone behavior', () => {
     // Feb 18 12:00 UTC = Feb 18 07:00 EST (same calendar date)
     const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'America/New_York' });
     expect(result).toContain('Today: 2026-02-18 (Wednesday)');
+    expect(result).toContain('Current local time: 2026-02-18T07:00:00-05:00');
   });
 
   test('date labels are correct in timezone ahead of UTC', () => {
@@ -233,6 +404,13 @@ describe('DST-safe timezone behavior', () => {
     expect(result).toContain('2026-02-20 Friday');
     expect(result).toContain('2026-02-21 Saturday');
     expect(result).toContain('2026-02-22 Sunday');
+  });
+
+  test('local offset tracks daylight saving changes', () => {
+    // Jul 1 12:00 UTC = Jul 1 08:00 EDT
+    const summer = Date.UTC(2026, 6, 1, 12, 0, 0);
+    const result = buildTemporalContext({ nowMs: summer, timeZone: 'America/New_York' });
+    expect(result).toContain('Current local time: 2026-07-01T08:00:00-04:00');
   });
 });
 

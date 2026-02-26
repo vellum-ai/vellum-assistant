@@ -3,15 +3,16 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { loadLatestAssistant } from "../lib/assistant-config";
+import { GATEWAY_PORT } from "../lib/constants.js";
 
 // ---------------------------------------------------------------------------
-// Runtime API client
+// Gateway API client
 // ---------------------------------------------------------------------------
 
-function getRuntimeUrl(): string {
+function getGatewayUrl(): string {
   const entry = loadLatestAssistant();
   if (entry?.runtimeUrl) return entry.runtimeUrl;
-  return "http://localhost:7821";
+  return `http://localhost:${GATEWAY_PORT}`;
 }
 
 function getBearerToken(): string | undefined {
@@ -45,7 +46,7 @@ function buildHeaders(): Record<string, string> {
 }
 
 async function apiGet(path: string): Promise<unknown> {
-  const url = `${getRuntimeUrl()}/v1/${path}`;
+  const url = `${getGatewayUrl()}/v1/${path}`;
   const response = await fetch(url, { headers: buildHeaders() });
   if (!response.ok) {
     const text = await response.text();
@@ -58,7 +59,7 @@ async function apiPost(
   path: string,
   body: unknown,
 ): Promise<unknown> {
-  const url = `${getRuntimeUrl()}/v1/${path}`;
+  const url = `${getGatewayUrl()}/v1/${path}`;
   const response = await fetch(url, {
     method: "POST",
     headers: buildHeaders(),

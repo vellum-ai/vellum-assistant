@@ -22,6 +22,11 @@ struct RecordingSourcePickerView: View {
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
                 .padding(.top, VSpacing.xl)
+                .padding(.bottom, VSpacing.sm)
+
+            Text("Choose what to record")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
                 .padding(.bottom, VSpacing.md)
 
             // Scope picker (Display / Window)
@@ -31,13 +36,15 @@ struct RecordingSourcePickerView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.large)
             .padding(.horizontal, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(.bottom, VSpacing.sm)
 
             // Preview pane
             previewPane
                 .padding(.horizontal, VSpacing.lg)
-                .padding(.bottom, VSpacing.md)
+                .padding(.bottom, VSpacing.xs)
 
             // Source list
             if viewModel.isLoading {
@@ -48,6 +55,7 @@ struct RecordingSourcePickerView: View {
                 Spacer()
             } else {
                 sourceList
+                    .padding(.bottom, VSpacing.xs)
             }
 
             Divider()
@@ -56,10 +64,7 @@ struct RecordingSourcePickerView: View {
             // Audio toggle + buttons
             bottomBar
         }
-        .frame(
-            width: 420,
-            height: 640
-        )
+        .frame(width: 420)
         .background(VColor.background)
         .task {
             await viewModel.loadSources()
@@ -67,6 +72,12 @@ struct RecordingSourcePickerView: View {
         }
         .onChange(of: viewModel.captureScope) { _, _ in
             Task { await viewModel.loadPreviews() }
+            viewModel.updateWindowSize()
+        }
+        .onChange(of: viewModel.isLoading) { _, newValue in
+            if !newValue {
+                viewModel.updateWindowSize()
+            }
         }
     }
 
@@ -94,40 +105,52 @@ struct RecordingSourcePickerView: View {
 
     // MARK: - Source List
 
+    /// The rows of source items (display or window) without a scroll wrapper.
     @ViewBuilder
-    private var sourceList: some View {
-        ScrollView {
-            VStack(spacing: VSpacing.xs) {
-                switch viewModel.captureScope {
-                case .display:
-                    ForEach(viewModel.displays) { display in
-                        displayRow(
-                            display: display,
-                            isSelected: viewModel.selectedDisplayId == display.id
-                        ) {
-                            viewModel.selectedDisplayId = display.id
-                        }
-                    }
-                    if viewModel.displays.isEmpty {
-                        emptyState("No displays available")
-                    }
-
-                case .window:
-                    ForEach(viewModel.windows) { window in
-                        windowRow(
-                            window: window,
-                            isSelected: viewModel.selectedWindowId == window.id
-                        ) {
-                            viewModel.selectedWindowId = window.id
-                        }
-                    }
-                    if viewModel.windows.isEmpty {
-                        emptyState("No windows available")
+    private var sourceListContent: some View {
+        VStack(spacing: VSpacing.xs) {
+            switch viewModel.captureScope {
+            case .display:
+                ForEach(viewModel.displays) { display in
+                    displayRow(
+                        display: display,
+                        isSelected: viewModel.selectedDisplayId == display.id
+                    ) {
+                        viewModel.selectedDisplayId = display.id
                     }
                 }
+                if viewModel.displays.isEmpty {
+                    emptyState("No displays available")
+                }
+
+            case .window:
+                ForEach(viewModel.windows) { window in
+                    windowRow(
+                        window: window,
+                        isSelected: viewModel.selectedWindowId == window.id
+                    ) {
+                        viewModel.selectedWindowId = window.id
+                    }
+                }
+                if viewModel.windows.isEmpty {
+                    emptyState("No windows available")
+                }
             }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.xs)
+    }
+
+    /// Source list that hugs content when items fit, scrolls when they overflow.
+    @ViewBuilder
+    private var sourceList: some View {
+        ViewThatFits(in: .vertical) {
+            sourceListContent
+            ScrollView {
+                sourceListContent
+                    .background(ScrollViewScrollerHider())
+            }
+            .scrollIndicators(.hidden)
         }
     }
 
@@ -170,7 +193,7 @@ struct RecordingSourcePickerView: View {
                 }
             }
             .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.vertical, VSpacing.md)
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
@@ -212,15 +235,7 @@ struct RecordingSourcePickerView: View {
                             .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
                         if display.isCurrentDisplay {
-                            Text("This display")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                                .padding(.horizontal, VSpacing.xs)
-                                .padding(.vertical, 1)
-                                .background(
-                                    Capsule()
-                                        .fill(VColor.accent.opacity(0.15))
-                                )
+                            VBadge(style: .label("This display"), color: VColor.accent)
                         }
                     }
                     Text(display.subtitle)
@@ -237,7 +252,7 @@ struct RecordingSourcePickerView: View {
                 }
             }
             .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.vertical, VSpacing.md)
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
@@ -267,54 +282,140 @@ struct RecordingSourcePickerView: View {
     // MARK: - Bottom Bar
 
     private var bottomBar: some View {
-        VStack(spacing: VSpacing.md) {
-            // Audio toggles
-            Toggle(isOn: $viewModel.includeAudio) {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "speaker.wave.2")
-                        .foregroundColor(VColor.textSecondary)
-                    Text("Include system audio")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                }
+        VStack(spacing: VSpacing.lg) {
+            // Audio toggles — icon + text left, toggle right (space-between)
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "speaker.wave.2")
+                    .foregroundColor(VColor.textSecondary)
+                    .frame(width: 20)
+                Text("System audio")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Toggle("", isOn: $viewModel.includeAudio)
+                    .toggleStyle(ButtonPrimarySwitchStyle())
+                    .labelsHidden()
+                    .accessibilityLabel("System audio")
             }
-            .toggleStyle(.switch)
             .padding(.horizontal, VSpacing.xl)
 
             if #available(macOS 14, *) {
-                Toggle(isOn: $viewModel.includeMicrophone) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "mic")
-                            .foregroundColor(VColor.textSecondary)
-                        Text("Include microphone")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                    }
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "mic")
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(width: 20)
+                    Text("Microphone")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                    Toggle("", isOn: $viewModel.includeMicrophone)
+                        .toggleStyle(ButtonPrimarySwitchStyle())
+                        .labelsHidden()
+                        .accessibilityLabel("Microphone")
                 }
-                .toggleStyle(.switch)
                 .padding(.horizontal, VSpacing.xl)
             }
 
             // Buttons
             HStack(spacing: VSpacing.md) {
-                Button("Cancel") {
+                VButton(label: "Cancel", style: .tertiary, size: .medium) {
                     onCancel()
                 }
-                .keyboardShortcut(.cancelAction)
-                .buttonStyle(.bordered)
-
                 Spacer()
-
-                Button("Start Recording") {
+                VButton(label: "Start Recording", style: .primary, size: .medium, isDisabled: !viewModel.canStart) {
                     onStart(viewModel.selectedRecordingOptions)
                 }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(Color(VColor.accent))
-                .disabled(!viewModel.canStart)
             }
             .padding(.horizontal, VSpacing.xl)
+            .background {
+                // Hidden buttons for keyboard shortcuts
+                Button("") { onCancel() }
+                    .keyboardShortcut(.cancelAction)
+                    .opacity(0)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+                Button("") {
+                    guard viewModel.canStart else { return }
+                    onStart(viewModel.selectedRecordingOptions)
+                }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!viewModel.canStart)
+                    .opacity(0)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+            }
         }
         .padding(.vertical, VSpacing.lg)
+    }
+}
+
+// MARK: - Scroll View Helpers
+
+/// Finds the nearest NSScrollView ancestor and hides its scrollers,
+/// overriding the macOS "Show scroll bars: Always" system preference.
+/// Walks the full superview chain as a fallback if `enclosingScrollView`
+/// returns nil (which can happen with SwiftUI's internal hosting layers).
+private struct ScrollViewScrollerHider: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { hideScrollers(from: view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { hideScrollers(from: nsView) }
+    }
+
+    private func hideScrollers(from view: NSView) {
+        // Try the fast path first
+        if let scrollView = view.enclosingScrollView {
+            scrollView.hasVerticalScroller = false
+            scrollView.hasHorizontalScroller = false
+            return
+        }
+        // Walk the full superview chain looking for any NSScrollView
+        var current: NSView? = view.superview
+        while let ancestor = current {
+            if let scrollView = ancestor as? NSScrollView {
+                scrollView.hasVerticalScroller = false
+                scrollView.hasHorizontalScroller = false
+                return
+            }
+            current = ancestor.superview
+        }
+    }
+}
+
+// MARK: - Custom Toggle Style
+
+/// Switch toggle style that fills the track with `VColor.buttonPrimary` when on,
+/// matching the Start Recording button color exactly. Uses the same dimensions
+/// as VToggle for visual consistency.
+private struct ButtonPrimarySwitchStyle: ToggleStyle {
+    private let trackWidth: CGFloat = 40
+    private let trackHeight: CGFloat = 22
+    private let knobSize: CGFloat = 16
+    private let knobPadding: CGFloat = 3
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack {
+            configuration.label
+            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                Capsule()
+                    .fill(configuration.isOn ? VColor.buttonPrimary : VColor.toggleOff)
+                    .frame(width: trackWidth, height: trackHeight)
+                    .overlay(
+                        Capsule()
+                            .stroke(VColor.toggleBorder, lineWidth: 1)
+                    )
+
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: knobSize, height: knobSize)
+                    .padding(.horizontal, knobPadding)
+            }
+            .animation(VAnimation.fast, value: configuration.isOn)
+            .onTapGesture { configuration.isOn.toggle() }
+        }
     }
 }

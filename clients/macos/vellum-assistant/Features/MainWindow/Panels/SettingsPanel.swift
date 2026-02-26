@@ -682,32 +682,56 @@ struct SettingsPanel: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                permissionRow(label: "Accessibility", granted: accessibilityGranted) {
+                permissionRow(
+                    label: "Accessibility",
+                    subtitle: "Allows your assistant to click, type, and control apps on your behalf.",
+                    granted: accessibilityGranted
+                ) {
                     _ = PermissionManager.accessibilityStatus(prompt: true)
                     startPermissionPolling()
                 }
 
-                permissionRow(label: "Screen Recording", granted: screenRecordingGranted) {
+                permissionRow(
+                    label: "Screen Recording",
+                    subtitle: "Allows your assistant to capture screen context during computer-use tasks.",
+                    granted: screenRecordingGranted
+                ) {
                     PermissionManager.requestScreenRecordingAccess()
                     startPermissionPolling()
                 }
 
-                permissionRow(label: "Microphone", granted: microphoneGranted) {
+                permissionRow(
+                    label: "Microphone",
+                    subtitle: "Allows your assistant to capture audio for voice input and recordings.",
+                    granted: microphoneGranted
+                ) {
                     PermissionManager.requestMicrophoneAccess()
                     startPermissionPolling()
                 }
 
-                permissionRow(label: "Speech Recognition", granted: speechRecognitionGranted) {
+                permissionRow(
+                    label: "Speech Recognition",
+                    subtitle: "Allows your assistant to transcribe your speech into text on-device.",
+                    granted: speechRecognitionGranted
+                ) {
                     PermissionManager.requestSpeechRecognitionAccess()
                     startPermissionPolling()
                 }
 
-                permissionRow(label: "Notifications", granted: notificationsGranted) {
+                permissionRow(
+                    label: "Notifications",
+                    subtitle: "Allows your assistant to send macOS alerts for approvals, messages, and task updates.",
+                    granted: notificationsGranted
+                ) {
                     PermissionManager.requestNotificationAccess()
                     startPermissionPolling()
                 }
 
-                permissionRow(label: "Notification Badges", granted: notificationBadgesGranted) {
+                permissionRow(
+                    label: "Notification Badges",
+                    subtitle: "Allows your assistant to show unseen conversation counts on the Dock icon.",
+                    granted: notificationBadgesGranted
+                ) {
                     PermissionManager.requestNotificationBadgeAccess()
                     startPermissionPolling()
                 }
@@ -962,12 +986,18 @@ struct SettingsPanel: View {
 
     // MARK: - Permission Row
 
-    private func permissionRow(label: String, granted: Bool, action: @escaping () -> Void) -> some View {
+    private func permissionRow(label: String, subtitle: String, granted: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: VSpacing.md) {
-                Text(label)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(label)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                    Text(subtitle)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 Spacer()
 
