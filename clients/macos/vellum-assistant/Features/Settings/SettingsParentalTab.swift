@@ -464,7 +464,7 @@ struct SettingsParentalTab: View {
                             .textSelection(.enabled)
                         Spacer()
                         Toggle("", isOn: Binding(
-                            get: { true },
+                            get: { allowedApps.contains(app) },
                             set: { enabled in
                                 if !enabled {
                                     // Optimistically remove the app so the toggle disappears
@@ -517,7 +517,7 @@ struct SettingsParentalTab: View {
                             .textSelection(.enabled)
                         Spacer()
                         Toggle("", isOn: Binding(
-                            get: { true },
+                            get: { allowedWidgets.contains(widget) },
                             set: { enabled in
                                 if !enabled {
                                     // Optimistically remove the widget so the toggle disappears
@@ -925,7 +925,12 @@ struct SettingsParentalTab: View {
                     allowedWidgets: widgets
                 )
             } catch {
-                await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
+                // Transport/connection error — no response will arrive, so restore state from daemon.
+                await MainActor.run {
+                    isLoading = false
+                    errorMessage = error.localizedDescription
+                    loadAllowlist()
+                }
                 return
             }
 
