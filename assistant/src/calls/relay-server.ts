@@ -322,9 +322,13 @@ export class RelayConnection {
       // Post a pointer message in the initiating conversation
       if (session.initiatedFromConversationId) {
         const durationMs = session.startedAt ? Date.now() - session.startedAt : 0;
-        addPointerMessage(session.initiatedFromConversationId, 'completed', session.toNumber, {
-          duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
-        });
+        try {
+          addPointerMessage(session.initiatedFromConversationId, 'completed', session.toNumber, {
+            duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+          });
+        } catch (err) {
+          log.warn({ conversationId: session.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
+        }
       }
     } else {
       const detail = reason || (code ? `relay_closed_${code}` : 'relay_closed_abnormal');
@@ -340,9 +344,13 @@ export class RelayConnection {
 
       // Post a failure pointer message in the initiating conversation
       if (session.initiatedFromConversationId) {
-        addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
-          reason: detail,
-        });
+        try {
+          addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
+            reason: detail,
+          });
+        } catch (err) {
+          log.warn({ conversationId: session.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
+        }
       }
     }
 
@@ -696,12 +704,16 @@ export class RelayConnection {
         // requesting chat sees a deterministic completion notice.
         const successSession = getCallSession(this.callSessionId);
         if (successSession?.initiatedFromConversationId) {
-          addPointerMessage(
-            successSession.initiatedFromConversationId,
-            'guardian_verification_succeeded',
-            successSession.toNumber,
-            { channel: 'voice' },
-          );
+          try {
+            addPointerMessage(
+              successSession.initiatedFromConversationId,
+              'guardian_verification_succeeded',
+              successSession.toNumber,
+              { channel: 'voice' },
+            );
+          } catch (err) {
+            log.warn({ conversationId: successSession.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
+          }
         }
 
         setTimeout(() => {
@@ -764,12 +776,16 @@ export class RelayConnection {
           // Emit a pointer message to the origin conversation so the
           // requesting chat sees a deterministic failure notice.
           if (isOutbound && failSession.initiatedFromConversationId) {
-            addPointerMessage(
-              failSession.initiatedFromConversationId,
-              'guardian_verification_failed',
-              failSession.toNumber,
-              { channel: 'voice', reason: 'Max verification attempts exceeded' },
-            );
+            try {
+              addPointerMessage(
+                failSession.initiatedFromConversationId,
+                'guardian_verification_failed',
+                failSession.toNumber,
+                { channel: 'voice', reason: 'Max verification attempts exceeded' },
+              );
+            } catch (err) {
+              log.warn({ conversationId: failSession.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
+            }
           }
         }
 
@@ -982,9 +998,13 @@ export class RelayConnection {
               persistCallCompletionMessage(session.conversationId, this.callSessionId);
               fireCallCompletionNotifier(session.conversationId, this.callSessionId);
               if (session.initiatedFromConversationId) {
-                addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
-                  reason: 'Callee verification failed',
-                });
+                try {
+                  addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
+                    reason: 'Callee verification failed',
+                  });
+                } catch (err) {
+                  log.warn({ conversationId: session.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
+                }
               }
             }
 
