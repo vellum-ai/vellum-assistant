@@ -21,7 +21,6 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Runtime channel runs pass this as `guardianContext`, and session runtime assembly injects `<guardian_context>` into provider-facing prompts.
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
-- Outbound guardian verification supports two code-submission paths: (1) the user receives a code via SMS/Telegram/voice call and enters it in the macOS Settings UI (`submit_outbound_code` IPC action), or (2) the user replies in-channel with `/guardian_verify <code>` (backward-compatible fallback). Outbound voice calls speak the code and instruct entering it in the app (no DTMF entry required).
 
 ### SMS Channel (Twilio)
 

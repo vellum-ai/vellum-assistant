@@ -572,8 +572,6 @@ export type StartGuardianVerificationCallInput = {
   phoneNumber: string;
   guardianVerificationSessionId: string;
   assistantId?: string;
-  /** Plaintext verification code to speak during outbound call. */
-  guardianVerificationSecret?: string;
 };
 
 export type StartGuardianVerificationCallResult =
@@ -590,7 +588,7 @@ export type StartGuardianVerificationCallResult =
 export async function startGuardianVerificationCall(
   input: StartGuardianVerificationCallInput,
 ): Promise<StartGuardianVerificationCallResult> {
-  const { phoneNumber, guardianVerificationSessionId, assistantId = 'self', guardianVerificationSecret } = input;
+  const { phoneNumber, guardianVerificationSessionId, assistantId = 'self' } = input;
 
   if (!phoneNumber || !E164_REGEX.test(phoneNumber)) {
     return { ok: false, error: 'phone_number must be in E.164 format', status: 400 };
@@ -635,7 +633,6 @@ export async function startGuardianVerificationCall(
       statusCallbackUrl,
       customParams: {
         guardianVerificationSessionId,
-        ...(guardianVerificationSecret ? { guardianVerificationSecret } : {}),
       },
     });
 

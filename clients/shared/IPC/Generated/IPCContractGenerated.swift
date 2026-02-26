@@ -1717,10 +1717,8 @@ public struct IPCGuardianVerificationRequest: Codable, Sendable {
     public let rebind: Bool?
     /// E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions.
     public let destination: String?
-    /// Verification code entered by the user in the Settings UI. Used by submit_outbound_code action.
-    public let verificationCode: String?
 
-    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil, rebind: Bool? = nil, destination: String? = nil, verificationCode: String? = nil) {
+    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil, rebind: Bool? = nil, destination: String? = nil) {
         self.type = type
         self.action = action
         self.channel = channel
@@ -1728,7 +1726,6 @@ public struct IPCGuardianVerificationRequest: Codable, Sendable {
         self.assistantId = assistantId
         self.rebind = rebind
         self.destination = destination
-        self.verificationCode = verificationCode
     }
 }
 
