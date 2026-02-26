@@ -352,7 +352,8 @@ final class AssistantCli {
 
         let proc = Process()
         proc.executableURL = binaryURL
-        proc.arguments = ["hatch", "--remote", config.remote]
+        let cliRemote = config.remote == "customHardware" ? "custom" : config.remote
+        proc.arguments = ["hatch", "--remote", cliRemote]
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -412,7 +413,7 @@ final class AssistantCli {
             if !config.awsRoleArn.isEmpty {
                 env["VELLUM_AWS_ROLE_ARN"] = config.awsRoleArn
             }
-        } else if config.remote == "custom" {
+        } else if cliRemote == "custom" {
             if !config.sshHost.isEmpty {
                 let hostString = config.sshUser.isEmpty
                     ? config.sshHost
