@@ -881,6 +881,15 @@ export function cleanupRecordingsOnDisconnect(
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
+/**
+ * Inject a recording owner entry. Only for use in tests.
+ * This allows tests to simulate a second active recording that blocks
+ * handleRecordingStart's global single-active guard.
+ */
+export function __injectRecordingOwner(conversationId: string, recordingId: string): void {
+  recordingOwnerByConversation.set(conversationId, recordingId);
+}
+
 /** Reset module-level state. Only for use in tests. */
 export function __resetRecordingState(): void {
   for (const handle of pendingStopTimeouts.values()) {
