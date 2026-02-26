@@ -244,7 +244,7 @@ export async function drainQueue(session: ProcessSessionContext, reason: QueueDr
       next.onEvent({ type: 'error', message });
     }
     // Continue draining regardless of success/failure
-    drainQueue(session);
+    await drainQueue(session);
     return;
   }
 
@@ -287,7 +287,7 @@ export async function drainQueue(session: ProcessSessionContext, reason: QueueDr
     // runAgentLoop never ran, so its finally block won't clear this
     session.preactivatedSkillIds = undefined;
     // Continue draining — don't strand remaining messages
-    drainQueue(session);
+    await drainQueue(session);
     return;
   }
 
