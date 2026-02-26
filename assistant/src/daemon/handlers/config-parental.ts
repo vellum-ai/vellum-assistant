@@ -162,6 +162,21 @@ export function handleParentalControlUpdate(
     }
   }
 
+  // Prevent enabling parental controls without a PIN — a PIN is required so
+  // the user cannot be locked out or the controls bypassed by simply toggling.
+  if (msg.enabled === true && !pinExists) {
+    ctx.send(socket, {
+      type: 'parental_control_update_response',
+      success: false,
+      error: 'Cannot enable parental controls without setting a PIN first',
+      enabled: settings.enabled,
+      has_pin: pinExists,
+      content_restrictions: settings.contentRestrictions,
+      blocked_tool_categories: settings.blockedToolCategories,
+    });
+    return;
+  }
+
   // When enabling for the very first time, default all restrictions to ON so
   // the parent starts from a safe baseline. We track first-time initialization
   // with an explicit `initialized` flag rather than inferring it from empty

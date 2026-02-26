@@ -38,6 +38,10 @@ struct SettingsParentalTab: View {
     // forward the PIN to the daemon (required when parental mode is enabled).
     @State private var unlockedPIN: String?
 
+    // -- Set-PIN-to-enable sheet (shown when enabling parental controls without an existing PIN) --
+    @State private var showingSetPINForEnableSheet: Bool = false
+
+
     // -- Child: request permission sheet --
     @State private var showingRequestPermissionSheet: Bool = false
     @State private var requestToolName: String = ""
@@ -142,6 +146,24 @@ struct SettingsParentalTab: View {
                 }
             )
         }
+        .sheet(isPresented: $showingSetPINForEnableSheet) {
+            SetPINForEnableSheet(
+                onComplete: { result in
+                    showingSetPINForEnableSheet = false
+                    switch result {
+                    case .success(let pin):
+                        // PIN is now set; cache it as the unlocked credential and enable
+                        isUnlocked = true
+                        unlockedPIN = pin
+                        hasPIN = true
+                        updateEnabled(true)
+                    case .failure(let msg):
+                        errorMessage = msg
+                    }
+                },
+                daemonClient: daemonClient
+            )
+        }
     }
 
     // MARK: - Sections
@@ -171,8 +193,12 @@ struct SettingsParentalTab: View {
                 Toggle("", isOn: Binding(
                     get: { isEnabled },
                     set: { newValue in
-                        // Toggling off a PIN-locked session requires PIN verification
-                        if !newValue && isEnabled && hasPIN && !isUnlocked {
+                        if newValue && !isEnabled && !hasPIN {
+                            // Enabling without an existing PIN — require the user to create
+                            // one first so parental controls are always PIN-protected.
+                            showingSetPINForEnableSheet = true
+                        } else if !newValue && isEnabled && hasPIN && !isUnlocked {
+                            // Toggling off a PIN-locked session requires PIN verification
                             showingUnlockSheet = true
                         } else {
                             updateEnabled(newValue)
@@ -1193,6 +1219,132 @@ private struct PINSheet: View {
                         onComplete(.success(mode))
                     } else {
                         errorMessage = r.error ?? "Operation failed."
+                    }
+                } else {
+                    errorMessage = "No response from daemon."
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Set PIN for Enable Sheet
+
+/// Result type for the set-PIN-to-enable flow.
+private enum SetPINForEnableResult {
+    case success(pin: String)
+    case failure(String)
+}
+
+/// Sheet shown when the user tries to enable parental controls but has no PIN set.
+/// The user must create a 6-digit PIN before parental controls can be activated.
+@MainActor
+private struct SetPINForEnableSheet: View {
+    let onComplete: (SetPINForEnableResult) -> Void
+    var daemonClient: DaemonClient?
+
+    @State private var pin: String = ""
+    @State private var confirmPIN: String = ""
+    @State private var isLoading: Bool = false
+    @State private var errorMessage: String?
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var canEnable: Bool {
+        pin.count == 6 && pin.allSatisfy({ $0.isNumber }) && pin == confirmPIN
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            Text("Set Parental PIN")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Create a PIN to protect parental settings. You'll need this to switch back to Parental profile.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            SecureField("PIN (6 digits)", text: $pin)
+                .textFieldStyle(.roundedBorder)
+                .font(VFont.body)
+
+            SecureField("Confirm PIN", text: $confirmPIN)
+                .textFieldStyle(.roundedBorder)
+                .font(VFont.body)
+
+            if let error = errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+
+            HStack {
+                Spacer()
+                VButton(label: "Cancel", style: .secondary) {
+                    dismiss()
+                }
+                VButton(label: "Enable", style: .primary) {
+                    submit()
+                }
+                .disabled(isLoading || !canEnable)
+            }
+        }
+        .padding(VSpacing.xl)
+        .frame(width: 320)
+        .background(VColor.background)
+    }
+
+    private func submit() {
+        guard canEnable else { return }
+        errorMessage = nil
+
+        guard pin.count == 6, pin.allSatisfy({ $0.isNumber }) else {
+            errorMessage = "PIN must be exactly 6 digits."
+            return
+        }
+        guard pin == confirmPIN else {
+            errorMessage = "PINs do not match."
+            return
+        }
+
+        isLoading = true
+        let stream = daemonClient?.subscribe()
+        Task {
+            do {
+                try daemonClient?.sendParentalControlSetPin(newPin: pin)
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                    errorMessage = error.localizedDescription
+                }
+                return
+            }
+
+            let response: ParentalControlSetPinResponseMessage? = await withTaskGroup(of: ParentalControlSetPinResponseMessage?.self) { group in
+                group.addTask {
+                    guard let stream else { return nil }
+                    for await message in stream {
+                        if case .parentalControlSetPinResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            await MainActor.run {
+                isLoading = false
+                if let r = response {
+                    if r.success {
+                        onComplete(.success(pin: pin))
+                    } else {
+                        errorMessage = r.error ?? "Failed to set PIN."
                     }
                 } else {
                     errorMessage = "No response from daemon."
