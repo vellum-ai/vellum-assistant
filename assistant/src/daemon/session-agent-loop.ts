@@ -534,6 +534,16 @@ export async function runAgentLoopImpl(
         );
         onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
       }
+    } else if (state.contextTooLargeDetected) {
+      // Progress was made (updatedHistory grew), so the retry path above was
+      // skipped. Surface the error so clients are not left with a silent failure.
+      rlog.warn({ phase: 'post_run' }, 'Context too large after progress — surfacing error without retry');
+      const classified = classifySessionError(
+        new Error('context_length_exceeded'),
+        { phase: 'agent_loop' },
+      );
+      onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
+      state.providerErrorUserMessage = classified.userMessage;
     }
 
     if (state.deferredOrderingError) {
