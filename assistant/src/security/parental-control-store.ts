@@ -31,12 +31,14 @@ export interface ParentalControlSettings {
   enabled: boolean;
   contentRestrictions: ParentalContentTopic[];
   blockedToolCategories: ParentalToolCategory[];
+  activeProfile: 'parental' | 'child';
 }
 
 const DEFAULT_SETTINGS: ParentalControlSettings = {
   enabled: false,
   contentRestrictions: [],
   blockedToolCategories: [],
+  activeProfile: 'parental',
 };
 
 function getSettingsPath(): string {
@@ -57,6 +59,8 @@ export function getParentalControlSettings(): ParentalControlSettings {
       enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : false,
       contentRestrictions: Array.isArray(parsed.contentRestrictions) ? parsed.contentRestrictions : [],
       blockedToolCategories: Array.isArray(parsed.blockedToolCategories) ? parsed.blockedToolCategories : [],
+      // Default to "parental" for existing settings files that predate this field.
+      activeProfile: parsed.activeProfile === 'child' ? 'child' : 'parental',
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -81,9 +85,21 @@ export function updateParentalControlSettings(
     blockedToolCategories: patch.blockedToolCategories !== undefined
       ? patch.blockedToolCategories
       : current.blockedToolCategories,
+    activeProfile: patch.activeProfile !== undefined ? patch.activeProfile : current.activeProfile,
   };
   saveSettings(next);
   return next;
+}
+
+/** Returns the currently active profile ("parental" or "child"). */
+export function getActiveProfile(): 'parental' | 'child' {
+  return getParentalControlSettings().activeProfile;
+}
+
+/** Persists the active profile to parental-control.json. */
+export function setActiveProfile(profile: 'parental' | 'child'): void {
+  updateParentalControlSettings({ activeProfile: profile });
+  log.info({ profile }, 'Active parental profile changed');
 }
 
 // ---------------------------------------------------------------------------

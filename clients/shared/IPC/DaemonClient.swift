@@ -359,6 +359,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `parental_control_update_response` message.
     public var onParentalControlUpdateResponse: ((ParentalControlUpdateResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `parental_control_profile_get_response` message.
+    public var onParentalControlProfileGetResponse: ((ParentalControlProfileGetResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `parental_control_profile_switch_response` message.
+    public var onParentalControlProfileSwitchResponse: ((ParentalControlProfileSwitchResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `twitter_integration_config_response` message.
     public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
 
@@ -1427,6 +1433,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             contentRestrictions: contentRestrictions,
             blockedToolCategories: blockedToolCategories
         ))
+    }
+
+    /// Request the currently active profile ("parental" or "child").
+    public func sendParentalControlProfileGet() throws {
+        try send(ParentalControlProfileGetRequestMessage())
+    }
+
+    /// Switch the active profile. PIN is required when switching to "parental" and a PIN has been set.
+    public func sendParentalControlProfileSwitch(targetProfile: String, pin: String?) throws {
+        try send(ParentalControlProfileSwitchRequestMessage(targetProfile: targetProfile, pin: pin))
     }
 
     // MARK: - Heartbeat

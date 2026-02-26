@@ -2322,6 +2322,8 @@ public enum ServerMessage: Decodable, Sendable {
     case parentalControlVerifyPinResponse(ParentalControlVerifyPinResponseMessage)
     case parentalControlSetPinResponse(ParentalControlSetPinResponseMessage)
     case parentalControlUpdateResponse(ParentalControlUpdateResponseMessage)
+    case parentalControlProfileGetResponse(ParentalControlProfileGetResponseMessage)
+    case parentalControlProfileSwitchResponse(ParentalControlProfileSwitchResponseMessage)
     case conversationSearchResponse(ConversationSearchResponseMessage)
     case pairingApprovalRequest(PairingApprovalRequestMessage)
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
@@ -2726,6 +2728,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "parental_control_update_response":
             let message = try ParentalControlUpdateResponseMessage(from: decoder)
             self = .parentalControlUpdateResponse(message)
+        case "parental_control_profile_get_response":
+            let message = try ParentalControlProfileGetResponseMessage(from: decoder)
+            self = .parentalControlProfileGetResponse(message)
+        case "parental_control_profile_switch_response":
+            let message = try ParentalControlProfileSwitchResponseMessage(from: decoder)
+            self = .parentalControlProfileSwitchResponse(message)
         case "conversation_search_response":
             let message = try ConversationSearchResponseMessage(from: decoder)
             self = .conversationSearchResponse(message)
@@ -2875,6 +2883,34 @@ extension IPCParentalControlUpdateRequest {
 /// Result of a parental control settings update.
 /// Backed by generated `IPCParentalControlUpdateResponse`.
 public typealias ParentalControlUpdateResponseMessage = IPCParentalControlUpdateResponse
+
+/// Get the currently active profile (parental or child).
+/// Backed by generated `IPCParentalControlProfileGetRequest`.
+public typealias ParentalControlProfileGetRequestMessage = IPCParentalControlProfileGetRequest
+
+extension IPCParentalControlProfileGetRequest {
+    public init() {
+        self.init(type: "parental_control_profile_get")
+    }
+}
+
+/// Active profile response.
+/// Backed by generated `IPCParentalControlProfileGetResponse`.
+public typealias ParentalControlProfileGetResponseMessage = IPCParentalControlProfileGetResponse
+
+/// Switch the active profile between "parental" and "child".
+/// Backed by generated `IPCParentalControlProfileSwitchRequest`.
+public typealias ParentalControlProfileSwitchRequestMessage = IPCParentalControlProfileSwitchRequest
+
+extension IPCParentalControlProfileSwitchRequest {
+    public init(targetProfile: String, pin: String? = nil) {
+        self.init(type: "parental_control_profile_switch", targetProfile: targetProfile, pin: pin)
+    }
+}
+
+/// Result of a profile switch operation.
+/// Backed by generated `IPCParentalControlProfileSwitchResponse`.
+public typealias ParentalControlProfileSwitchResponseMessage = IPCParentalControlProfileSwitchResponse
 
 // MARK: - Layout Config Wire Types
 // Defined here temporarily; canonical home is LayoutConfig.swift (M1 / #2973)

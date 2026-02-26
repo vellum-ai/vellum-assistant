@@ -2,8 +2,10 @@ import * as net from 'node:net';
 
 import {
   clearPIN,
+  getActiveProfile,
   getParentalControlSettings,
   hasPIN,
+  setActiveProfile,
   setPIN,
   updateParentalControlSettings,
   verifyPIN,
@@ -11,6 +13,8 @@ import {
 import { getLogger } from '../../util/logger.js';
 import type {
   ParentalControlGetRequest,
+  ParentalControlProfileGetRequest,
+  ParentalControlProfileSwitchRequest,
   ParentalControlSetPinRequest,
   ParentalControlUpdateRequest,
   ParentalControlVerifyPinRequest,
@@ -27,6 +31,7 @@ function sendGetResponse(socket: net.Socket, ctx: HandlerContext): void {
     has_pin: hasPIN(),
     content_restrictions: settings.contentRestrictions,
     blocked_tool_categories: settings.blockedToolCategories,
+    activeProfile: getActiveProfile(),
   });
 }
 
@@ -156,9 +161,70 @@ export function handleParentalControlUpdate(
   });
 }
 
+export function handleParentalControlProfileGet(
+  _msg: ParentalControlProfileGetRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  ctx.send(socket, {
+    type: 'parental_control_profile_get_response',
+    activeProfile: getActiveProfile(),
+  });
+}
+
+export function handleParentalControlProfileSwitch(
+  msg: ParentalControlProfileSwitchRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const currentProfile = getActiveProfile();
+
+  // Validate targetProfile is one of the allowed values (TypeScript types are not enforced at runtime)
+  if (msg.targetProfile !== 'parental' && msg.targetProfile !== 'child') {
+    ctx.send(socket, {
+      type: 'parental_control_profile_switch_response',
+      success: false,
+      activeProfile: currentProfile,
+      error: 'Invalid target profile',
+    });
+    return;
+  }
+
+  // Switching TO parental from child requires PIN verification when a PIN is set.
+  if (msg.targetProfile === 'parental' && hasPIN()) {
+    if (!msg.pin) {
+      ctx.send(socket, {
+        type: 'parental_control_profile_switch_response',
+        success: false,
+        activeProfile: currentProfile,
+        error: 'PIN required',
+      });
+      return;
+    }
+    if (!verifyPIN(msg.pin)) {
+      ctx.send(socket, {
+        type: 'parental_control_profile_switch_response',
+        success: false,
+        activeProfile: currentProfile,
+        error: 'Invalid PIN',
+      });
+      return;
+    }
+  }
+
+  setActiveProfile(msg.targetProfile);
+  ctx.send(socket, {
+    type: 'parental_control_profile_switch_response',
+    success: true,
+    activeProfile: msg.targetProfile,
+  });
+}
+
 export const parentalControlHandlers = defineHandlers({
   parental_control_get: handleParentalControlGet,
   parental_control_verify_pin: handleParentalControlVerifyPin,
   parental_control_set_pin: handleParentalControlSetPin,
   parental_control_update: handleParentalControlUpdate,
+  parental_control_profile_get: handleParentalControlProfileGet,
+  parental_control_profile_switch: handleParentalControlProfileSwitch,
 });
