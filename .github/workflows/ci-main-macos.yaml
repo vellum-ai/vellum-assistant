@@ -107,6 +107,7 @@ jobs:
 
       - name: Track consecutive failures
         if: always()
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
