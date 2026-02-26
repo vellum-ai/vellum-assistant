@@ -483,9 +483,9 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - Message Trimming
 
     /// Threshold above which old messages have their heavy content stripped.
-    private static let trimThreshold = 200
+    private static let trimThreshold = 150
     /// Number of recent messages to keep untrimmed (images, attachments, surfaces intact).
-    private static let trimKeepRecent = 100
+    private static let trimKeepRecent = 75
 
     /// Strip heavyweight binary data (images, attachments, completed surface payloads)
     /// from old messages when the total count exceeds `trimThreshold`. The most recent
