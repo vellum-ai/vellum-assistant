@@ -30,6 +30,33 @@ public final class ChatViewModel: ObservableObject {
 
     private var cancellables: Set<AnyCancellable> = []
 
+    // MARK: - Coalesced objectWillChange forwarding
+
+    /// Coalescing window for sub-manager objectWillChange forwarding.
+    /// The first sub-manager change schedules a single objectWillChange after
+    /// this interval; subsequent changes within the window piggyback on the
+    /// same notification, dramatically reducing view-tree invalidation rate
+    /// during streaming bursts.
+    static let subManagerCoalesceInterval: TimeInterval = 0.1 // 100ms
+
+    /// Coalescing task: fires objectWillChange once per burst window, same
+    /// pattern as SubagentDetailStore.schedulePublish().
+    private var subManagerPublishTask: Task<Void, Never>?
+
+    /// Schedule a single coalesced `objectWillChange` notification.
+    /// The first sub-manager mutation in a burst schedules the publish;
+    /// subsequent mutations within the 100ms window piggyback on the same
+    /// notification instead of firing individually.
+    private func scheduleCoalescedPublish() {
+        guard subManagerPublishTask == nil else { return }
+        subManagerPublishTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.subManagerCoalesceInterval * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.objectWillChange.send()
+            self?.subManagerPublishTask = nil
+        }
+    }
+
     // MARK: - Debug publish-rate counters
 
     #if DEBUG
@@ -655,12 +682,16 @@ public final class ChatViewModel: ObservableObject {
         self.daemonClient = daemonClient
         self.onToolCallsComplete = onToolCallsComplete
 
-        // Pipe sub-manager objectWillChange signals through this object so that
-        // SwiftUI views observing ChatViewModel are notified whenever any
-        // sub-manager @Published property changes.
+        // Coalesce sub-manager objectWillChange signals through a single
+        // delayed publish. During streaming, sub-managers may fire dozens of
+        // objectWillChange events per second (each @Published property
+        // mutation triggers one). Instead of forwarding each immediately —
+        // which invalidates the entire view tree every time — we batch them
+        // into a single objectWillChange per 100ms window. Views still
+        // update promptly, but the SwiftUI diffing cost drops dramatically.
         messageManager.objectWillChange
             .sink { [weak self] _ in
-                self?.objectWillChange.send()
+                self?.scheduleCoalescedPublish()
                 #if DEBUG
                 self?.trackPublish(source: "messageManager")
                 #endif
@@ -668,7 +699,7 @@ public final class ChatViewModel: ObservableObject {
             .store(in: &cancellables)
         attachmentManager.objectWillChange
             .sink { [weak self] _ in
-                self?.objectWillChange.send()
+                self?.scheduleCoalescedPublish()
                 #if DEBUG
                 self?.trackPublish(source: "attachmentManager")
                 #endif
@@ -676,7 +707,7 @@ public final class ChatViewModel: ObservableObject {
             .store(in: &cancellables)
         errorManager.objectWillChange
             .sink { [weak self] _ in
-                self?.objectWillChange.send()
+                self?.scheduleCoalescedPublish()
                 #if DEBUG
                 self?.trackPublish(source: "errorManager")
                 #endif
@@ -2241,6 +2272,7 @@ public final class ChatViewModel: ObservableObject {
     }
 
     deinit {
+        subManagerPublishTask?.cancel()
         messageLoopTask?.cancel()
         streamingFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
