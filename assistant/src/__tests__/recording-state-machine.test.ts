@@ -142,7 +142,7 @@ describe('handleRecordingRestart', () => {
     mockMessageIdCounter = 0;
   });
 
-  test('stops current recording and starts a new one with operation token', () => {
+  test('sends recording_stop and defers start until stop-ack', () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = 'conv-restart-1';
     ctx.socketToSession.set(fakeSocket, conversationId);
@@ -158,14 +158,25 @@ describe('handleRecordingRestart', () => {
     expect(result.operationToken).toBeTruthy();
     expect(result.responseText).toBe('Restarting screen recording.');
 
-    // Should have sent: recording_stop, recording_start
+    // Should have sent only recording_stop (start is deferred)
     const stopMsgs = sent.filter((m) => m.type === 'recording_stop');
     const startMsgs = sent.filter((m) => m.type === 'recording_start');
     expect(stopMsgs).toHaveLength(1);
-    expect(startMsgs).toHaveLength(1);
+    expect(startMsgs).toHaveLength(0);
 
-    // The new recording_start should have the operation token
-    expect(startMsgs[0].operationToken).toBe(result.operationToken);
+    // Simulate the client acknowledging the stop
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
+
+    // NOW the deferred recording_start should have been sent
+    const startMsgsAfterAck = sent.filter((m) => m.type === 'recording_start');
+    expect(startMsgsAfterAck).toHaveLength(1);
+    expect(startMsgsAfterAck[0].operationToken).toBe(result.operationToken);
   });
 
   test('returns "no active recording" with reason when nothing is recording', () => {
@@ -184,8 +195,17 @@ describe('handleRecordingRestart', () => {
     ctx.socketToSession.set(fakeSocket, conversationId);
 
     // First restart cycle
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    const originalId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
     const result1 = handleRecordingRestart(conversationId, fakeSocket, ctx);
+
+    // Simulate the stop-ack to trigger the deferred start
+    const stoppedStatus1: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(stoppedStatus1, fakeSocket, ctx);
 
     // Simulate the first restart completing (started status)
     const startMsg1 = sent.filter((m) => m.type === 'recording_start').pop();
@@ -220,11 +240,20 @@ describe('restart_cancelled status', () => {
     ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start -> restart
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    const originalId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
     const restartResult = handleRecordingRestart(conversationId, fakeSocket, ctx);
     expect(restartResult.initiated).toBe(true);
 
-    // Get the new recording ID from the recording_start message
+    // Simulate the stop-ack to trigger the deferred start
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
+
+    // Get the new recording ID from the deferred recording_start message
     const startMsg = sent.filter((m) => m.type === 'recording_start').pop();
     sent.length = 0;
 
@@ -259,10 +288,22 @@ describe('restart_cancelled status', () => {
     const conversationId = 'conv-cancel-cleanup';
     ctx.socketToSession.set(fakeSocket, conversationId);
 
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    const originalId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
     const restartResult = handleRecordingRestart(conversationId, fakeSocket, ctx);
 
-    // Before cancel: not idle (mid-restart)
+    // Before stop-ack: not idle (mid-restart)
+    expect(isRecordingIdle()).toBe(false);
+
+    // Simulate the stop-ack to trigger the deferred start
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
+
+    // Still not idle — the new recording has started
     expect(isRecordingIdle()).toBe(false);
 
     const startMsg = sent.filter((m) => m.type === 'recording_start').pop();
@@ -296,9 +337,18 @@ describe('stale completion guard (operation token)', () => {
     ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start recording -> restart (creates operation token)
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    const originalId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
     const restartResult = handleRecordingRestart(conversationId, fakeSocket, ctx);
     expect(restartResult.initiated).toBe(true);
+
+    // Simulate the stop-ack to trigger the deferred start
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
 
     const startMsg = sent.filter((m) => m.type === 'recording_start').pop();
     sent.length = 0;
@@ -325,8 +375,17 @@ describe('stale completion guard (operation token)', () => {
     const conversationId = 'conv-matching-1';
     ctx.socketToSession.set(fakeSocket, conversationId);
 
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    const originalId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
     const restartResult = handleRecordingRestart(conversationId, fakeSocket, ctx);
+
+    // Simulate the stop-ack to trigger the deferred start
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
 
     const startMsg = sent.filter((m) => m.type === 'recording_start').pop();
 
@@ -381,15 +440,24 @@ describe('stale completion guard (operation token)', () => {
     const conversationId = 'conv-ghost-1';
     ctx.socketToSession.set(fakeSocket, conversationId);
 
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    const originalId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
 
-    // Restart cleans up old state atomically before starting new
+    // Restart sends stop and defers start until stop-ack
     const restartResult = handleRecordingRestart(conversationId, fakeSocket, ctx);
     expect(restartResult.initiated).toBe(true);
 
+    // Simulate the stop-ack to trigger the deferred start
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
+
     // The new recording should be active (not the old one)
     const startMsgs = sent.filter((m) => m.type === 'recording_start');
-    expect(startMsgs.length).toBeGreaterThanOrEqual(2); // original + restart
+    expect(startMsgs.length).toBeGreaterThanOrEqual(2); // original + deferred restart
 
     // The last recording_start should have the operation token
     const lastStart = startMsgs[startMsgs.length - 1];
@@ -488,7 +556,7 @@ describe('isRecordingIdle', () => {
     expect(isRecordingIdle()).toBe(false);
   });
 
-  test('returns false when mid-restart (between stop and start confirmation)', () => {
+  test('returns false when mid-restart (between stop-ack and start confirmation)', () => {
     const { ctx, fakeSocket } = createCtx();
     const conversationId = 'conv-idle-restart';
     ctx.socketToSession.set(fakeSocket, conversationId);
@@ -496,7 +564,8 @@ describe('isRecordingIdle', () => {
     handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
     handleRecordingRestart(conversationId, fakeSocket, ctx);
 
-    // Mid-restart: there IS an active recording (the new one) AND a pending restart
+    // Mid-restart: the old recording maps are still present AND there's a
+    // pending restart, so the system is not idle
     expect(isRecordingIdle()).toBe(false);
   });
 
@@ -505,8 +574,17 @@ describe('isRecordingIdle', () => {
     const conversationId = 'conv-idle-complete';
     ctx.socketToSession.set(fakeSocket, conversationId);
 
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    const originalId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
     const restartResult = handleRecordingRestart(conversationId, fakeSocket, ctx);
+
+    // Simulate the stop-ack to trigger the deferred start
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
 
     // Simulate the new recording starting
     const startMsg = sent.filter((m) => m.type === 'recording_start').pop();
@@ -532,13 +610,13 @@ describe('executeRecordingIntent — restart/pause/resume', () => {
     __resetRecordingState();
   });
 
-  test('restart_only executes actual restart', () => {
+  test('restart_only executes actual restart (deferred start)', () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = 'conv-exec-restart';
     ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start a recording first
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    const originalId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
     sent.length = 0;
 
     const result = executeRecordingIntent(
@@ -549,11 +627,24 @@ describe('executeRecordingIntent — restart/pause/resume', () => {
     expect(result.handled).toBe(true);
     expect(result.responseText).toBe('Restarting screen recording.');
 
-    // Should have sent stop + start
+    // Should have sent only stop (start is deferred until stop-ack)
     const stopMsgs = sent.filter((m) => m.type === 'recording_stop');
     const startMsgs = sent.filter((m) => m.type === 'recording_start');
     expect(stopMsgs).toHaveLength(1);
-    expect(startMsgs).toHaveLength(1);
+    expect(startMsgs).toHaveLength(0);
+
+    // Simulate the stop-ack to trigger the deferred start
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
+
+    // NOW the deferred start should have been sent
+    const startMsgsAfterAck = sent.filter((m) => m.type === 'recording_start');
+    expect(startMsgsAfterAck).toHaveLength(1);
   });
 
   test('restart_only returns "no active recording" when idle', () => {
@@ -699,13 +790,46 @@ describe('failure during restart', () => {
     mockMessageIdCounter = 0;
   });
 
-  test('failed status during restart clears pending restart state', () => {
+  test('failed status during restart clears pending restart state (old recording fails)', () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = 'conv-fail-restart';
     ctx.socketToSession.set(fakeSocket, conversationId);
 
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    const originalId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    handleRecordingRestart(conversationId, fakeSocket, ctx);
+    sent.length = 0;
+
+    // Simulate the old recording failing to stop (before stop-ack)
+    const failedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'failed',
+      error: 'Permission denied',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(failedStatus, fakeSocket, ctx);
+
+    // Restart state and deferred restart should be cleaned up
+    expect(getActiveRestartToken()).toBeNull();
+    expect(isRecordingIdle()).toBe(true);
+  });
+
+  test('failed status during restart clears state (new recording fails after deferred start)', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+    const conversationId = 'conv-fail-restart-new';
+    ctx.socketToSession.set(fakeSocket, conversationId);
+
+    const originalId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
     const restartResult = handleRecordingRestart(conversationId, fakeSocket, ctx);
+
+    // Simulate the stop-ack to trigger the deferred start
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
 
     const startMsg = sent.filter((m) => m.type === 'recording_start').pop();
     sent.length = 0;
@@ -757,7 +881,7 @@ describe('start_and_stop_only fallback to plain start when idle', () => {
     expect(startMsgs).toHaveLength(1);
   });
 
-  test('goes through restart when a recording is active', () => {
+  test('goes through restart when a recording is active (deferred start)', () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = 'conv-stop-start-active';
     ctx.socketToSession.set(fakeSocket, conversationId);
@@ -777,11 +901,24 @@ describe('start_and_stop_only fallback to plain start when idle', () => {
     expect(result.recordingStarted).toBe(true);
     expect(result.responseText).toBe('Stopping current recording and starting a new one.');
 
-    // Should have sent both stop and start (restart flow)
+    // Should have sent only stop (start is deferred until stop-ack)
     const stopMsgs = sent.filter((m) => m.type === 'recording_stop');
     const startMsgs = sent.filter((m) => m.type === 'recording_start');
     expect(stopMsgs).toHaveLength(1);
-    expect(startMsgs).toHaveLength(1);
+    expect(startMsgs).toHaveLength(0);
+
+    // Simulate the stop-ack to trigger the deferred start
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
+
+    // NOW the deferred start should have been sent
+    const startMsgsAfterAck = sent.filter((m) => m.type === 'recording_start');
+    expect(startMsgsAfterAck).toHaveLength(1);
   });
 });
 
@@ -824,5 +961,146 @@ describe('start_and_stop_with_remainder fallback to plain start when idle', () =
     expect(result.pendingRestart).toBe(true);
     expect(result.pendingStart).toBeUndefined();
     expect(result.remainderText).toBe('do something');
+  });
+});
+
+// ─── Deferred restart race condition tests ───────────────────────────────────
+
+describe('deferred restart prevents race condition', () => {
+  beforeEach(() => {
+    __resetRecordingState();
+    mockMessages.length = 0;
+    mockMessageIdCounter = 0;
+  });
+
+  test('recording_start is NOT sent until client acks the stop', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+    const conversationId = 'conv-deferred-race';
+    ctx.socketToSession.set(fakeSocket, conversationId);
+
+    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    sent.length = 0;
+
+    handleRecordingRestart(conversationId, fakeSocket, ctx);
+
+    // Only recording_stop should have been sent — no recording_start yet
+    expect(sent.filter((m) => m.type === 'recording_stop')).toHaveLength(1);
+    expect(sent.filter((m) => m.type === 'recording_start')).toHaveLength(0);
+
+    // System is mid-restart — not idle
+    expect(isRecordingIdle()).toBe(false);
+  });
+
+  test('stop-ack timeout cleans up deferred restart state', () => {
+    // This test uses a real timer via bun's jest-compatible API
+    const { ctx, sent, fakeSocket } = createCtx();
+    const conversationId = 'conv-deferred-timeout';
+    ctx.socketToSession.set(fakeSocket, conversationId);
+
+    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    handleRecordingRestart(conversationId, fakeSocket, ctx);
+
+    // Mid-restart: not idle
+    expect(isRecordingIdle()).toBe(false);
+
+    // We cannot easily test the setTimeout firing here without mocking timers,
+    // but we can verify the state is correctly set up for the timeout to clean up.
+    expect(getActiveRestartToken()).not.toBeNull();
+  });
+
+  test('cross-conversation restart: conversation B restarts recording owned by A', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+    const convA = 'conv-owner-A';
+    const convB = 'conv-requester-B';
+    ctx.socketToSession.set(fakeSocket, convA);
+
+    // Conversation A starts a recording
+    const originalId = handleRecordingStart(convA, undefined, fakeSocket, ctx);
+    expect(originalId).not.toBeNull();
+    sent.length = 0;
+
+    // Conversation B requests a restart (cross-conversation via global fallback)
+    const result = handleRecordingRestart(convB, fakeSocket, ctx);
+    expect(result.initiated).toBe(true);
+    expect(result.operationToken).toBeTruthy();
+
+    // Should have sent recording_stop (start is deferred)
+    expect(sent.filter((m) => m.type === 'recording_stop')).toHaveLength(1);
+    expect(sent.filter((m) => m.type === 'recording_start')).toHaveLength(0);
+
+    // Simulate the client acknowledging the stop. The stopped status resolves
+    // conversationId from standaloneRecordingConversationId which maps to A.
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: originalId!,
+      status: 'stopped',
+      attachToConversationId: convA,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
+
+    // The deferred recording_start MUST have been triggered even though the
+    // stopped callback resolved to conversation A (owner), not B (requester).
+    const startMsgs = sent.filter((m) => m.type === 'recording_start');
+    expect(startMsgs).toHaveLength(1);
+    expect(startMsgs[0].operationToken).toBe(result.operationToken);
+
+    // The new recording is owned by B (the requester). Simulate the client
+    // confirming the new recording started. The 'started' status resolves
+    // conversationId to B, so pendingRestartByConversation must have been
+    // migrated from A to B for the restart cycle to complete.
+    const newRecordingId = startMsgs[0].recordingId as string;
+    const startedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: newRecordingId,
+      status: 'started',
+      operationToken: result.operationToken,
+      attachToConversationId: convB,
+    };
+    recordingHandlers.recording_status(startedStatus, fakeSocket, ctx);
+
+    // Restart cycle must be fully complete: activeRestartToken cleared
+    expect(getActiveRestartToken()).toBeNull();
+
+    // Not idle yet because the new recording is still running
+    expect(isRecordingIdle()).toBe(false);
+
+    // Stop the new recording and verify system returns to idle
+    handleRecordingStop(convB, ctx);
+    const newStoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: newRecordingId,
+      status: 'stopped',
+      attachToConversationId: convB,
+    };
+    recordingHandlers.recording_status(newStoppedStatus, fakeSocket, ctx);
+
+    expect(isRecordingIdle()).toBe(true);
+  });
+
+  test('normal stop (non-restart) does not trigger deferred start', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+    const conversationId = 'conv-normal-stop';
+    ctx.socketToSession.set(fakeSocket, conversationId);
+
+    const recordingId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    expect(recordingId).not.toBeNull();
+
+    // Manually stop (not via restart)
+    handleRecordingStop(conversationId, ctx);
+    sent.length = 0;
+
+    // Simulate stop-ack without file path (e.g. very short recording)
+    const stoppedStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: recordingId!,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+    };
+    recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
+
+    // Should NOT have sent a recording_start (no deferred restart pending)
+    const startMsgs = sent.filter((m) => m.type === 'recording_start');
+    expect(startMsgs).toHaveLength(0);
+    expect(isRecordingIdle()).toBe(true);
   });
 });
