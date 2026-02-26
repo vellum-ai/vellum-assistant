@@ -1064,6 +1064,12 @@ extension ChatViewModel {
                 messages[index].toolCalls.append(toolCall)
                 messages[index].contentOrder.append(.toolCall(tcIdx))
             } else {
+                // Cap reached — rotate to a new message.
+                // Clear streaming state on the old message first.
+                if let existingId = currentAssistantMessageId,
+                   let oldIndex = messages.firstIndex(where: { $0.id == existingId }) {
+                    messages[oldIndex].isStreaming = false
+                }
                 var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, toolCalls: [toolCall])
                 newMsg.contentOrder = [.toolCall(0)]
                 currentAssistantMessageId = newMsg.id
@@ -1136,10 +1142,28 @@ extension ChatViewModel {
             guard belongsToSession(msg.sessionId) else { return }
             guard !isCancelling else { return }
             guard !isWorkspaceRefinementInFlight else { return }
-            // Find the most recent pending (incomplete) tool call and mark it complete
+            // Find the most recent pending (incomplete) tool call.
+            // First check currentAssistantMessageId, then fall back to searching
+            // backward through messages (handles message rotation from tool call cap).
+            var targetMsgIndex: Int?
+            var targetTcIndex: Int?
             if let existingId = currentAssistantMessageId,
                let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
                let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                targetMsgIndex = msgIndex
+                targetTcIndex = tcIndex
+            } else {
+                // Fallback: search backward for any assistant message with incomplete tool calls
+                for i in messages.indices.reversed() {
+                    guard messages[i].role == .assistant else { continue }
+                    if let tcIndex = messages[i].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                        targetMsgIndex = i
+                        targetTcIndex = tcIndex
+                        break
+                    }
+                }
+            }
+            if let msgIndex = targetMsgIndex, let tcIndex = targetTcIndex {
                 let truncatedResult = msg.result.count > 2000 ? String(msg.result.prefix(2000)) + "...[truncated]" : msg.result
                 messages[msgIndex].toolCalls[tcIndex].result = truncatedResult
                 messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
