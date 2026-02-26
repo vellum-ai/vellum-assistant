@@ -78,12 +78,12 @@ function hashSecret(secret: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Generate a numeric secret for voice channel challenges.
+ * Generate a 6-digit numeric secret for verification challenges.
  * Uses cryptographic randomness to pick a number with the specified
  * number of digits (defaults to 6). The result is always zero-padded
  * to exactly `digits` characters.
  */
-function generateVoiceSecret(digits: number = 6): string {
+function generateNumericSecret(digits: number = 6): string {
   const buf = randomBytes(4);
   const num = buf.readUInt32BE(0);
   const max = 10 ** digits;
@@ -93,8 +93,7 @@ function generateVoiceSecret(digits: number = 6): string {
 /**
  * Create a new verification challenge for a guardian candidate.
  *
- * For voice channels, generates a six-digit numeric secret that can be
- * spoken aloud. For all other channels, generates a 32-byte hex secret.
+ * Generates a six-digit numeric secret for all channels.
  *
  * Hashes the secret (SHA-256) and stores the challenge record with a
  * 10-minute TTL. The raw secret is returned so it can be displayed to
@@ -105,7 +104,7 @@ export function createVerificationChallenge(
   channel: string,
   sessionId?: string,
 ): CreateChallengeResult {
-  const secret = channel === 'voice' ? generateVoiceSecret() : randomBytes(32).toString('hex');
+  const secret = generateNumericSecret();
   const challengeHash = hashSecret(secret);
   const challengeId = uuid();
   const expiresAt = Date.now() + CHALLENGE_TTL_MS;
@@ -395,7 +394,7 @@ export function createOutboundSession(params: {
   const isUnbound = params.identityBindingStatus === 'pending_bootstrap';
   const secret = isUnbound
     ? randomBytes(32).toString('hex')
-    : generateVoiceSecret(params.codeDigits ?? 6);
+    : generateNumericSecret(params.codeDigits ?? 6);
   const challengeHash = hashSecret(secret);
   const sessionId = params.sessionId ?? uuid();
   const expiresAt = Date.now() + CHALLENGE_TTL_MS;

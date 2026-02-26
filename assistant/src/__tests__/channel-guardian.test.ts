@@ -389,7 +389,7 @@ describe('guardian service challenge validation', () => {
 
     expect(result.challengeId).toBeDefined();
     expect(result.secret).toBeDefined();
-    expect(result.secret.length).toBe(64); // 32 bytes hex-encoded
+    expect(result.secret.length).toBe(6); // 6-digit numeric code
     expect(result.verifyCommand).toBe(result.secret);
     expect(result.ttlSeconds).toBe(600);
     expect(result.instruction).toBeDefined();
@@ -1556,11 +1556,11 @@ describe('voice guardian challenge generation', () => {
     expect(result.secret.length).toBe(6);
   });
 
-  test('createVerificationChallenge for non-voice returns 64-char hex secret', () => {
+  test('createVerificationChallenge for non-voice returns 6-digit numeric secret', () => {
     const result = createVerificationChallenge('asst-1', 'telegram');
 
-    expect(result.secret.length).toBe(64);
-    expect(result.secret).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.secret.length).toBe(6);
+    expect(result.secret).toMatch(/^\d{6}$/);
   });
 
   test('voice challenge verifyCommand contains the six-digit secret', () => {
@@ -2867,12 +2867,12 @@ describe('outbound SMS verification', () => {
     expect(lastSms.to).toBe('+15551234567');
   });
 
-  test('template composer includes assistantName when provided', () => {
+  test('template composer includes Vellum assistant prefix', () => {
     const sms = composeVerificationSms(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST,
       { code: '999999', expiresInMinutes: 10, assistantName: 'MyBot' },
     );
-    expect(sms).toContain('[MyBot]');
+    expect(sms).toContain('Vellum assistant');
     // Code should NOT appear in the message
     expect(sms).not.toContain('999999');
   });
@@ -3291,12 +3291,12 @@ describe('outbound Telegram verification', () => {
     expect(msg).toContain('(resent)');
   });
 
-  test('telegram template includes assistantName when provided', () => {
+  test('telegram template includes Vellum assistant prefix', () => {
     const msg = composeVerificationTelegram(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
       { code: '999999', expiresInMinutes: 10, assistantName: 'MyBot' },
     );
-    expect(msg).toContain('[MyBot]');
+    expect(msg).toContain('Vellum assistant');
     // Code should NOT appear in the message
     expect(msg).not.toContain('999999');
   });
