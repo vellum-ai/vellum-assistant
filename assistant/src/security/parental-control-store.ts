@@ -195,9 +195,12 @@ export function clearPIN(): void {
 /**
  * Returns true if the given app name is in the allowlist, or if no apps have
  * been explicitly restricted (empty allowlist means all apps are allowed).
+ * Always returns true when parental controls are disabled or the parental
+ * profile is active, consistent with isToolBlocked.
  */
 export function isAppAllowed(appName: string): boolean {
-  const { allowedApps } = getParentalControlSettings();
+  const { enabled, activeProfile, allowedApps } = getParentalControlSettings();
+  if (!enabled || activeProfile !== 'child') return true;
   if (allowedApps.length === 0) return true;
   return allowedApps.includes(appName);
 }
@@ -205,9 +208,12 @@ export function isAppAllowed(appName: string): boolean {
 /**
  * Returns true if the given widget name is in the allowlist, or if no widgets
  * have been explicitly restricted (empty allowlist means all widgets are allowed).
+ * Always returns true when parental controls are disabled or the parental
+ * profile is active, consistent with isToolBlocked.
  */
 export function isWidgetAllowed(widgetName: string): boolean {
-  const { allowedWidgets } = getParentalControlSettings();
+  const { enabled, activeProfile, allowedWidgets } = getParentalControlSettings();
+  if (!enabled || activeProfile !== 'child') return true;
   if (allowedWidgets.length === 0) return true;
   return allowedWidgets.includes(widgetName);
 }
