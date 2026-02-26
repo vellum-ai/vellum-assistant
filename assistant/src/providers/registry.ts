@@ -160,7 +160,7 @@ export function getProviderDebugStatus(
   }
 
   let overallHealth: 'healthy' | 'degraded' | 'down' = 'down';
-  if (registered.length > 0) {
+  if (registered.length > 0 && selection.selectedPrimary) {
     if (!failoverHealth) {
       overallHealth = 'healthy';
     } else {
