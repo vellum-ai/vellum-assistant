@@ -23,14 +23,15 @@ export { migrateAddOriginInterface } from './022-add-origin-interface.js';
 export { migrateMemoryItemSourcesIndexes } from './023-memory-item-sources-indexes.js';
 export { migrateEmbeddingVectorBlob } from './024-embedding-vector-blob.js';
 export { migrateMessagesFtsBackfill } from './025-messages-fts-backfill.js';
-export { migrateEmbeddingsNullableVectorJson } from './026-embeddings-nullable-vector-json.js';
+export { migrateEmbeddingsNullableVectorJson } from './026a-embeddings-nullable-vector-json.js';
 export { migrateGuardianVerificationSessions } from './026-guardian-verification-sessions.js';
-export { migrateGuardianBootstrapToken } from './027-guardian-bootstrap-token.js';
+export { migrateGuardianBootstrapToken } from './027a-guardian-bootstrap-token.js';
 export { migrateNotificationDeliveryPairingColumns } from './027-notification-delivery-pairing-columns.js';
 export { migrateCallSessionMode } from './028-call-session-mode.js';
 export { migrateChannelInboundDeliveredSegments } from './029-channel-inbound-delivered-segments.js';
 export { migrateGuardianActionFollowup } from './030-guardian-action-followup.js';
 export { migrateGuardianVerificationPurpose } from './030-guardian-verification-purpose.js';
+export { migrateConversationsThreadTypeIndex } from './031-conversations-thread-type-index.js';
 export { createCoreTables } from './100-core-tables.js';
 export { createWatchersAndLogsTables } from './101-watchers-and-logs.js';
 export { addCoreColumns } from './102-alter-table-columns.js';
@@ -50,9 +51,10 @@ export { createSequenceTables } from './115-sequences.js';
 export { createMessagesFts } from './116-messages-fts.js';
 export { createConversationAttentionTables } from './117-conversation-attention.js';
 export { migrateReminderRoutingIntent } from './118-reminder-routing-intent.js';
+export { migrateSchemaIndexesAndColumns } from './119-schema-indexes-and-columns.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,
 } from './registry.js';
-export { validateMigrationState } from './validate-migration-state.js';
+export { recoverCrashedMigrations, validateMigrationState, withCrashRecovery } from './validate-migration-state.js';

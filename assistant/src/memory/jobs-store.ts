@@ -1,9 +1,12 @@
 import { and, asc, eq, inArray,lte, notInArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
-import { getDb, rawAll,rawGet } from './db.js';
+import { getDb, rawAll, rawChanges, rawGet } from './db.js';
 import { memoryJobs } from './schema.js';
+
+const log = getLogger('memory-jobs-store');
 
 export type MemoryJobType =
   | 'embed_segment'
@@ -22,6 +25,7 @@ export type MemoryJobType =
   | 'build_conversation_summary'
   | 'backfill'
   | 'rebuild_index'
+  | 'reconcile_fts'
   | 'delete_qdrant_vectors'
   | 'media_processing';
 
@@ -36,6 +40,7 @@ export interface MemoryJob<T = Record<string, unknown>> {
   deferrals: number;
   runAfter: number;
   lastError: string | null;
+  startedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -244,6 +249,21 @@ export function enqueuePruneOldConversationsJob(retentionDays?: number): string 
   return enqueueMemoryJob('prune_old_conversations', payload);
 }
 
+export function enqueueReconcileFtsJob(): string {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(and(
+      eq(memoryJobs.type, 'reconcile_fts'),
+      inArray(memoryJobs.status, ['pending', 'running']),
+    ))
+    .orderBy(asc(memoryJobs.createdAt))
+    .get();
+  if (existing) return existing.id;
+  return enqueueMemoryJob('reconcile_fts', {});
+}
+
 export function claimMemoryJobs(limit: number): MemoryJob[] {
   if (limit <= 0) return [];
   const db = getDb();
@@ -275,14 +295,15 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
 
   const claimed: MemoryJob[] = [];
   for (const row of candidates) {
-    const result = db.update(memoryJobs)
-      .set({ status: 'running', updatedAt: now })
+    db.update(memoryJobs)
+      .set({ status: 'running', startedAt: now, updatedAt: now })
       .where(and(eq(memoryJobs.id, row.id), eq(memoryJobs.status, 'pending')))
-      .run() as unknown as { changes?: number };
-    if ((result.changes ?? 0) === 0) continue;
+      .run();
+    if (rawChanges() === 0) continue;
     claimed.push(parseRow({
       ...row,
       status: 'running',
+      startedAt: now,
       updatedAt: now,
     }));
   }
@@ -298,7 +319,9 @@ export function completeMemoryJob(id: string): void {
 }
 
 /** Max times a job can be deferred before it is marked as failed. */
-const MAX_DEFERRALS = 200;
+const MAX_DEFERRALS = 50;
+/** Warn when deferrals reach 80% of the limit. */
+const DEFER_WARNING_THRESHOLD = Math.floor(MAX_DEFERRALS * 0.8);
 /** Base delay in ms for deferred jobs (grows with exponential backoff). */
 const DEFER_BASE_DELAY_MS = 30_000;
 /** Maximum delay cap for deferred jobs (5 minutes). */
@@ -328,6 +351,7 @@ export function deferMemoryJob(id: string): 'deferred' | 'failed' {
   const now = Date.now();
 
   if (deferrals >= MAX_DEFERRALS) {
+    log.error({ jobId: id, type: row.type, deferrals }, 'Job exceeded max deferrals, marking as failed');
     db.update(memoryJobs)
       .set({
         status: 'failed',
@@ -338,6 +362,10 @@ export function deferMemoryJob(id: string): 'deferred' | 'failed' {
       .where(eq(memoryJobs.id, id))
       .run();
     return 'failed';
+  }
+
+  if (deferrals >= DEFER_WARNING_THRESHOLD) {
+    log.warn({ jobId: id, type: row.type, deferrals, max: MAX_DEFERRALS }, 'Job approaching max deferral limit');
   }
 
   // Exponential backoff: 30s, 60s, 120s, ... capped at 5 minutes
@@ -403,6 +431,37 @@ export function resetRunningJobsToPending(): number {
   return runningRows.length;
 }
 
+/**
+ * Fail running jobs whose `startedAt` is older than `timeoutMs` ago.
+ * Returns the number of jobs that were timed out.
+ */
+export function failStalledJobs(timeoutMs: number): number {
+  const now = Date.now();
+  const cutoff = now - timeoutMs;
+  const stalled = rawAll<{ id: string; type: string }>(`
+    SELECT id, type
+    FROM memory_jobs
+    WHERE status = 'running'
+      AND started_at IS NOT NULL
+      AND started_at < ?
+  `, cutoff);
+  if (stalled.length === 0) return 0;
+
+  const db = getDb();
+  for (const row of stalled) {
+    db.update(memoryJobs)
+      .set({
+        status: 'failed',
+        updatedAt: now,
+        lastError: `Job timed out after ${Math.round(timeoutMs / 60_000)} minutes`,
+      })
+      .where(and(eq(memoryJobs.id, row.id), eq(memoryJobs.status, 'running')))
+      .run();
+    log.warn({ jobId: row.id, type: row.type, timeoutMs }, 'Failed stalled memory job due to timeout');
+  }
+  return stalled.length;
+}
+
 export function getMemoryJobCounts(): Record<string, number> {
   const rows = rawAll<{ status: string; c: number }>(`
     SELECT status, COUNT(*) AS c
@@ -432,6 +491,7 @@ function parseRow(row: typeof memoryJobs.$inferSelect): MemoryJob {
     deferrals: row.deferrals,
     runAfter: row.runAfter,
     lastError: row.lastError,
+    startedAt: row.startedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

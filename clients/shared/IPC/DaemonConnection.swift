@@ -40,6 +40,16 @@ extension DaemonClient {
         let parameters: NWParameters
 
         if case .socket(let path) = config.transport {
+            // Validate the daemon process is alive before attempting a socket connection.
+            // The socket file can outlive the daemon (crash, unclean shutdown), causing
+            // NWConnection to hang until the connect timeout instead of failing fast.
+            if FileManager.default.fileExists(atPath: path), !Self.isDaemonProcessAlive() {
+                log.warning("Stale daemon socket detected — PID is dead, removing socket at \(path, privacy: .public)")
+                try? FileManager.default.removeItem(atPath: path)
+                isConnecting = false
+                throw NWError.posix(.ECONNREFUSED)
+            }
+
             log.info("Connecting to daemon socket at \(path, privacy: .public)")
             endpoint = NWEndpoint.unix(path: path)
             parameters = NWParameters()
@@ -232,6 +242,15 @@ extension DaemonClient {
             if connected {
                 NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
             }
+        }
+
+        // Persist refreshed bearer tokens so the client survives app restarts.
+        transport.onTokenRefreshed = { newToken in
+            #if os(iOS)
+            let _ = APIKeyManager.shared.setAPIKey(newToken, provider: "runtime-bearer-token")
+            #elseif os(macOS)
+            // macOS re-reads from disk on each request; no persistence needed here.
+            #endif
         }
 
         self.httpTransport = transport

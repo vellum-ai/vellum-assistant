@@ -2,37 +2,36 @@ import { readFileSync } from 'node:fs';
 
 import { getConfig } from '../config/loader.js';
 import { getHookManager } from '../hooks/manager.js';
-import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
-import { addRule } from '../permissions/trust-store.js';
 import { RiskLevel } from '../permissions/types.js';
-import { isToolBlocked } from '../security/parental-control-store.js';
 import { redactSensitiveFields } from '../security/redaction.js';
-import { redactSecrets,scanText } from '../security/secret-scanner.js';
 import { TokenExpiredError } from '../security/token-manager.js';
-import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 import { PermissionDeniedError,ToolError } from '../util/errors.js';
 import { pathExists, safeStatSync } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
 import { resolveExecutionTarget } from './execution-target.js';
 import { executeWithTimeout,safeTimeoutMs } from './execution-timeout.js';
-import { enforceGuardianOnlyPolicy } from './guardian-control-plane-policy.js';
-import { buildPolicyContext } from './policy-context.js';
-import { getAllTools,getTool } from './registry.js';
+import { PermissionChecker } from './permission-checker.js';
+import { SecretDetectionHandler } from './secret-detection-handler.js';
 import { applyEdit } from './shared/filesystem/edit-engine.js';
 import { sandboxPolicy } from './shared/filesystem/path-policy.js';
 import { MAX_FILE_SIZE_BYTES } from './shared/filesystem/size-guard.js';
-import { isSideEffectTool } from './side-effects.js';
-import { wrapCommand } from './terminal/sandbox.js';
+import { ToolApprovalHandler } from './tool-approval-handler.js';
 import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 
 const log = getLogger('tool-executor');
 
 export class ToolExecutor {
   private prompter: PermissionPrompter;
+  private permissionChecker: PermissionChecker;
+  private secretDetectionHandler: SecretDetectionHandler;
+  private approvalHandler: ToolApprovalHandler;
 
   constructor(prompter: PermissionPrompter) {
     this.prompter = prompter;
+    this.permissionChecker = new PermissionChecker(prompter);
+    this.secretDetectionHandler = new SecretDetectionHandler(prompter);
+    this.approvalHandler = new ToolApprovalHandler();
   }
 
   async execute(
@@ -57,382 +56,38 @@ export class ToolExecutor {
       startedAtMs: startTime,
     });
 
-    // Bail out immediately if the session was aborted before this tool started.
-    // Individual tool implementations check the signal themselves for mid-run
-    // cancellation, but a pre-execution check prevents expensive permission
-    // lookups and prompter interactions after the user has already cancelled.
-    if (context.signal?.aborted) {
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent(context, {
-        type: 'error',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'error',
-        durationMs,
-        errorMessage: 'Cancelled',
-        isExpected: true,
-        errorCategory: 'tool_failure',
-      });
-      return { content: 'Cancelled', isError: true };
+    // Run pre-execution approval gates (abort, parental controls, guardian
+    // policy, allowed-tool-set, task-run preflight, tool registry lookup).
+    const gateResult = this.approvalHandler.checkPreExecutionGates(
+      name, input, context, executionTarget, riskLevel, startTime,
+      (event) => emitLifecycleEvent(context, event),
+    );
+
+    if (!gateResult.allowed) {
+      return gateResult.result;
     }
 
-    // Reject tools blocked by parental control settings before any permission check.
-    if (isToolBlocked(name)) {
-      log.warn(
-        {
-          toolName: name,
-          sessionId: context.sessionId,
-          conversationId: context.conversationId,
-          principal: context.principal,
-          reason: 'blocked_by_parental_controls',
-        },
-        'Parental control blocked tool invocation',
-      );
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent(context, {
-        type: 'permission_denied',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'deny',
-        reason: 'Blocked by parental control settings',
-        durationMs,
-      });
-      return { content: 'This tool is blocked by parental control settings.', isError: true };
-    }
-
-    // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.
-    const guardianCheck = enforceGuardianOnlyPolicy(name, input, context.guardianActorRole);
-    if (guardianCheck.denied) {
-      log.warn({
-        toolName: name,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        actorRole: context.guardianActorRole,
-        reason: 'guardian_only_policy',
-      }, 'Guardian-only policy blocked tool invocation');
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent(context, {
-        type: 'permission_denied',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'deny',
-        reason: guardianCheck.reason!,
-        durationMs,
-      });
-      return { content: guardianCheck.reason!, isError: true };
-    }
-
-    // Gate tools not active for the current turn
-    if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
-      const msg = `Tool "${name}" is not currently active. Load the skill that provides this tool first.`;
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent(context, {
-        type: 'error',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'error',
-        durationMs,
-        errorMessage: msg,
-        isExpected: true,
-        errorCategory: 'tool_failure',
-      });
-      return { content: msg, isError: true };
-    }
-
-    // Belt-and-suspenders guard for task runs: only preflight-approved tools
-    // may execute. This catches cases where ephemeral rules might not cover
-    // a tool, ensuring unapproved calls fail deterministically instead of
-    // falling through to the interactive prompter.
-    if (context.taskRunId) {
-      const taskRules = getTaskRunRules(context.taskRunId);
-      const approvedToolNames = new Set(taskRules.map((r) => r.tool));
-      if (approvedToolNames.size > 0 && !approvedToolNames.has(name)) {
-        const msg = `Tool '${name}' was not approved in the task's preflight. Add it to required tools and re-approve.`;
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent(context, {
-          type: 'permission_denied',
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
-          sessionId: context.sessionId,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          decision: 'deny',
-          reason: msg,
-          durationMs,
-        });
-        return { content: msg, isError: true };
-      }
-    }
-
-    const tool = getTool(name);
-    if (!tool) {
-      const available = getAllTools().filter((t) => t.executionMode !== 'proxy' || context.proxyToolResolver).map((t) => t.name).sort().join(', ');
-      const msg = `Unknown tool: ${name}. Available tools: ${available}`;
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent(context, {
-        type: 'error',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'error',
-        durationMs,
-        errorMessage: msg,
-        isExpected: true,
-        errorCategory: 'tool_failure',
-      });
-      return { content: msg, isError: true };
-    }
+    const tool = gateResult.tool;
 
     try {
-      // Check permissions
-      const risk = await classifyRisk(name, input, context.workingDir, undefined, undefined, context.signal);
-      riskLevel = risk;
+      // Check permissions via the extracted PermissionChecker
+      const permResult = await this.permissionChecker.checkPermission(
+        name,
+        input,
+        tool,
+        context,
+        executionTarget,
+        (event) => emitLifecycleEvent(context, event),
+        sanitizeToolInput,
+        startTime,
+        computePreviewDiff,
+      );
 
-      // Build principal context from tool metadata so policy rules can
-      // distinguish skill-provided tools from core built-ins. Also includes
-      // ephemeral rules when executing within a task run.
-      const policyContext = buildPolicyContext(tool, context);
-      const result = await check(name, input, context.workingDir, policyContext, undefined, context.signal);
+      riskLevel = permResult.riskLevel;
+      decision = permResult.decision;
 
-      // Private threads force prompting for side-effect tools even when a
-      // trust/allow rule would auto-allow. Deny decisions are preserved —
-      // only allow → prompt promotion happens here.
-      if (
-        context.forcePromptSideEffects
-        && result.decision === 'allow'
-        && isSideEffectTool(name, input)
-      ) {
-        result.decision = 'prompt';
-        result.reason = 'Private thread: side-effect tools require explicit approval';
-      }
-
-      if (result.decision === 'deny') {
-        decision = 'denied';
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent(context, {
-          type: 'permission_denied',
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
-          sessionId: context.sessionId,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          decision: 'deny',
-          reason: result.reason,
-          durationMs,
-        });
-        return { content: result.reason, isError: true };
-      }
-
-      if (result.decision === 'prompt') {
-        // Non-interactive sessions have no client to respond to prompts —
-        // deny immediately instead of blocking for the full permission timeout.
-        if (context.isInteractive === false) {
-          decision = 'denied';
-          const durationMs = Date.now() - startTime;
-          log.info({ toolName: name, riskLevel }, 'Auto-denying prompt for non-interactive session');
-          emitLifecycleEvent(context, {
-            type: 'permission_denied',
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
-            sessionId: context.sessionId,
-            conversationId: context.conversationId,
-            requestId: context.requestId,
-            riskLevel,
-            decision: 'deny',
-            reason: 'Non-interactive session: no client to approve prompt',
-            durationMs,
-          });
-          return {
-            content: `Permission denied: tool "${name}" requires user approval but no interactive client is connected. The tool was not executed. To allow this tool in non-interactive sessions, add a trust rule via permission settings.`,
-            isError: true,
-          };
-        }
-
-        // Need user approval
-        const allowlistOptions = await generateAllowlistOptions(name, input, context.signal);
-        const scopeOptions = generateScopeOptions(context.workingDir, name);
-
-        // Compute preview diff for file tools so the user sees what will change
-        const previewDiff = computePreviewDiff(name, input, context.workingDir);
-
-        let sandboxed: boolean | undefined;
-        if (name === 'bash' && typeof input.command === 'string') {
-          const cfg = getConfig();
-          const sandboxConfig = context.sandboxOverride != null
-            ? { ...cfg.sandbox, enabled: context.sandboxOverride }
-            : cfg.sandbox;
-          const wrapped = wrapCommand(input.command, context.workingDir, sandboxConfig);
-          sandboxed = wrapped.sandboxed;
-        }
-
-        // Proxied bash prompts are non-persistent — no trust rule saving allowed
-        const persistentDecisionsAllowed = !(
-          name === 'bash'
-          && input.network_mode === 'proxied'
-        );
-
-        emitLifecycleEvent(context, {
-          type: 'permission_prompt',
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
-          sessionId: context.sessionId,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          reason: result.reason,
-          allowlistOptions,
-          scopeOptions,
-          diff: previewDiff,
-          sandboxed,
-          persistentDecisionsAllowed,
-        });
-
-        await getHookManager().trigger('permission-request', {
-          toolName: name,
-          input: sanitizeToolInput(name, input),
-          riskLevel,
-          sessionId: context.sessionId,
-        });
-
-        const response = await this.prompter.prompt(
-          name,
-          input,
-          riskLevel,
-          allowlistOptions,
-          scopeOptions,
-          previewDiff,
-          sandboxed,
-          context.conversationId,
-          executionTarget,
-          persistentDecisionsAllowed,
-          context.signal,
-        );
-
-        decision = response.decision;
-
-        await getHookManager().trigger('permission-resolve', {
-          toolName: name,
-          decision: response.decision,
-          riskLevel,
-          sessionId: context.sessionId,
-        });
-
-        if (response.decision === 'deny') {
-          const contextualDenial = typeof response.decisionContext === 'string'
-            ? response.decisionContext.trim()
-            : '';
-          const denialMessage = contextualDenial.length > 0
-            ? contextualDenial
-            : `Permission denied by user. The user chose not to allow the "${name}" tool. Do NOT retry this tool call immediately. Instead, tell the user that the action was not performed because they denied permission, and ask if they would like you to try again or take a different approach. Wait for the user to explicitly respond before retrying.`;
-          const denialReason = contextualDenial.length > 0
-            ? `Permission denied (${name}): contextual policy`
-            : 'Permission denied by user';
-          const durationMs = Date.now() - startTime;
-          emitLifecycleEvent(context, {
-            type: 'permission_denied',
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
-            sessionId: context.sessionId,
-            conversationId: context.conversationId,
-            requestId: context.requestId,
-            riskLevel,
-            decision: 'deny',
-            reason: denialReason,
-            durationMs,
-          });
-          return { content: denialMessage, isError: true };
-        }
-
-        if (response.decision === 'always_deny') {
-          const ruleSaved = !!(persistentDecisionsAllowed && response.selectedPattern && response.selectedScope);
-          if (ruleSaved) {
-            addRule(name, response.selectedPattern!, response.selectedScope!, 'deny');
-          }
-          const denialReason = ruleSaved ? 'Permission denied by user (rule saved)' : 'Permission denied by user';
-          const denialMessage = ruleSaved
-            ? `Permission denied by user, and a rule was saved to always deny the "${name}" tool for this pattern. Do NOT retry this tool call. Inform the user that this action has been permanently blocked by their preference. If the user wants to allow it in the future, they can update their permission rules.`
-            : `Permission denied by user. The user chose not to allow the "${name}" tool. Do NOT retry this tool call immediately. Instead, tell the user that the action was not performed because they denied permission, and ask if they would like you to try again or take a different approach. Wait for the user to explicitly respond before retrying.`;
-          const durationMs = Date.now() - startTime;
-          emitLifecycleEvent(context, {
-            type: 'permission_denied',
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
-            sessionId: context.sessionId,
-            conversationId: context.conversationId,
-            requestId: context.requestId,
-            riskLevel,
-            decision: 'always_deny',
-            reason: denialReason,
-            durationMs,
-          });
-          return { content: denialMessage, isError: true };
-        }
-
-        if (
-          persistentDecisionsAllowed
-          && (response.decision === 'always_allow' || response.decision === 'always_allow_high_risk')
-          && response.selectedPattern
-          && response.selectedScope
-        ) {
-          const ruleOptions: {
-            allowHighRisk?: boolean;
-            executionTarget?: string;
-          } = {};
-
-          if (response.decision === 'always_allow_high_risk') {
-            ruleOptions.allowHighRisk = true;
-          }
-
-          if (policyContext?.executionTarget != null) {
-            ruleOptions.executionTarget = policyContext.executionTarget;
-          }
-
-          const hasOptions = Object.keys(ruleOptions).length > 0;
-          addRule(name, response.selectedPattern, response.selectedScope, 'allow', 100, hasOptions ? ruleOptions : undefined);
-        }
+      if (!permResult.allowed) {
+        return { content: permResult.content, isError: true };
       }
 
       const hookResult = await getHookManager().trigger('pre-tool-execute', {
@@ -523,197 +178,14 @@ export class ToolExecutor {
       }
 
       // Secret detection on tool output
-      const sdConfig = getConfig().secretDetection;
-      if (sdConfig.enabled && !execResult.isError) {
-        const entropyConfig = { enabled: true, base64Threshold: sdConfig.entropyThreshold };
-        const contentMatches = scanText(execResult.content, entropyConfig);
-        const diffMatches = execResult.diff
-          ? scanText(execResult.diff.newContent, entropyConfig)
-          : [];
-        const blockMatches = (execResult.contentBlocks ?? []).flatMap((block) => {
-          if (block.type === 'text') return scanText(block.text, entropyConfig);
-          if (block.type === 'file' && block.extracted_text) return scanText(block.extracted_text, entropyConfig);
-          return [];
-        });
-        const allMatches = [...contentMatches, ...diffMatches, ...blockMatches];
-
-        if (allMatches.length > 0) {
-          const matchSummary = allMatches.map((m) => ({
-            type: m.type,
-            redactedValue: m.redactedValue,
-          }));
-
-          emitLifecycleEvent(context, {
-            type: 'secret_detected',
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
-            sessionId: context.sessionId,
-            conversationId: context.conversationId,
-            requestId: context.requestId,
-            matches: matchSummary,
-            action: sdConfig.action,
-            detectedAtMs: Date.now(),
-          });
-
-          if (sdConfig.action === 'redact') {
-            execResult.content = redactSecrets(execResult.content, entropyConfig);
-            if (execResult.diff) {
-              execResult.diff = {
-                ...execResult.diff,
-                newContent: redactSecrets(execResult.diff.newContent, entropyConfig),
-              };
-            }
-            if (execResult.contentBlocks) {
-              execResult.contentBlocks = execResult.contentBlocks.map((block) => {
-                if (block.type === 'text') {
-                  return { ...block, text: redactSecrets(block.text, entropyConfig) };
-                }
-                if (block.type === 'file' && block.extracted_text) {
-                  return { ...block, extracted_text: redactSecrets(block.extracted_text, entropyConfig) };
-                }
-                return block;
-              });
-            }
-          } else if (sdConfig.action === 'block') {
-            const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
-            const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Configure secretDetection.action to "redact" or "prompt" to allow output.`;
-            const durationMs = Date.now() - startTime;
-            const blockedResult = {
-              content: blockedContent,
-              isError: true,
-            };
-            emitLifecycleEvent(context, {
-              type: 'executed',
-              toolName: name,
-              executionTarget,
-              input,
-              workingDir: context.workingDir,
-              sessionId: context.sessionId,
-              conversationId: context.conversationId,
-              requestId: context.requestId,
-              riskLevel,
-              decision,
-              durationMs,
-              result: blockedResult,
-            });
-
-            void getHookManager().trigger('post-tool-execute', {
-              toolName: name,
-              input: sanitizeToolInput(name, input),
-              riskLevel,
-              isError: true,
-              durationMs,
-              sessionId: context.sessionId,
-            });
-
-            return blockedResult;
-          } else if (sdConfig.action === 'prompt') {
-            // Ask the user whether to allow tool output containing secrets
-            const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
-
-            // Non-interactive sessions: auto-block secret output instead of waiting for prompt
-            if (context.isInteractive === false) {
-              const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). No interactive client available to approve.`;
-              const durationMs = Date.now() - startTime;
-              log.info({ toolName: name }, 'Auto-blocking secret output for non-interactive session');
-              emitLifecycleEvent(context, {
-                type: 'permission_denied',
-                toolName: name,
-                executionTarget,
-                input,
-                workingDir: context.workingDir,
-                sessionId: context.sessionId,
-                conversationId: context.conversationId,
-                requestId: context.requestId,
-                riskLevel: RiskLevel.High,
-                decision: 'deny',
-                reason: 'Non-interactive session: auto-blocked secret output',
-                durationMs,
-              });
-
-              void getHookManager().trigger('post-tool-execute', {
-                toolName: name,
-                input: sanitizeToolInput(name, input),
-                riskLevel,
-                isError: true,
-                durationMs,
-                sessionId: context.sessionId,
-              });
-
-              return { content: blockedContent, isError: true };
-            }
-
-            const promptInput = {
-              _secretDetection: true,
-              summary: `Tool output contains ${allMatches.length} potential secret(s): ${types}`,
-              tool: name,
-            };
-
-            emitLifecycleEvent(context, {
-              type: 'permission_prompt',
-              toolName: name,
-              executionTarget,
-              input: promptInput,
-              workingDir: context.workingDir,
-              sessionId: context.sessionId,
-              conversationId: context.conversationId,
-              requestId: context.requestId,
-              riskLevel: RiskLevel.High,
-              reason: `Secret detected in tool output: ${types}`,
-              allowlistOptions: [],
-              scopeOptions: [],
-              persistentDecisionsAllowed: false,
-            });
-
-            const response = await this.prompter.prompt(
-              name,
-              promptInput,
-              RiskLevel.High,
-              [],   // no allowlist options
-              [],   // no scope options
-              undefined, // no diff
-              undefined, // not sandboxed
-              context.conversationId,
-              executionTarget,
-              false, // no persistent decisions
-              context.signal,
-            );
-
-            if (response.decision === 'deny' || response.decision === 'always_deny') {
-              const blockedContent = `Tool output blocked: user denied output containing ${allMatches.length} potential secret(s) (${types}).`;
-              const durationMs = Date.now() - startTime;
-              emitLifecycleEvent(context, {
-                type: 'permission_denied',
-                toolName: name,
-                executionTarget,
-                input,
-                workingDir: context.workingDir,
-                sessionId: context.sessionId,
-                conversationId: context.conversationId,
-                requestId: context.requestId,
-                riskLevel: RiskLevel.High,
-                decision: response.decision === 'always_deny' ? 'always_deny' : 'deny',
-                reason: `User denied output containing secrets: ${types}`,
-                durationMs,
-              });
-
-              void getHookManager().trigger('post-tool-execute', {
-                toolName: name,
-                input: sanitizeToolInput(name, input),
-                riskLevel,
-                isError: true,
-                durationMs,
-                sessionId: context.sessionId,
-              });
-
-              return { content: blockedContent, isError: true };
-            }
-            // User allowed — pass content through unchanged
-          }
-        }
+      const secretResult = await this.secretDetectionHandler.handle(
+        execResult, name, input, context, executionTarget,
+        riskLevel, decision, startTime, emitLifecycleEvent, sanitizeToolInput,
+      );
+      if (secretResult.earlyReturn) {
+        return secretResult.result;
       }
+      execResult = secretResult.result;
 
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent(context, {
@@ -796,6 +268,9 @@ export class ToolExecutor {
 // Re-export from the canonical source so existing consumers of
 // `executor.ts` continue to work without changing their imports.
 export { isSideEffectTool } from './side-effects.js';
+
+// Re-export PermissionChecker for consumers that need direct access
+export { PermissionChecker } from './permission-checker.js';
 
 /**
  * Sanitize tool inputs before they are emitted in lifecycle events and hooks.

@@ -108,6 +108,10 @@ export function createWatchersAndLogsTables(database: DrizzleDb): void {
   `);
 
   // FTS table for lexical retrieval over memory_segments.text.
+  // Triggers below are atomic with the triggering statement: if the FTS
+  // operation fails, the base table write rolls back too. A corrupted FTS
+  // table will block all memory_segments writes until rebuilt. See the
+  // analogous comment in 116-messages-fts.ts for recovery steps.
   database.run(/*sql*/ `
     CREATE VIRTUAL TABLE IF NOT EXISTS memory_segment_fts USING fts5(
       segment_id UNINDEXED,

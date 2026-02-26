@@ -4,6 +4,7 @@ import { getLogger } from '../../util/logger.js';
 import { getDb, rawExec } from '../db.js';
 import { asString, BackendUnavailableError } from '../job-utils.js';
 import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
+import { withQdrantBreaker } from '../qdrant-circuit-breaker.js';
 import { getQdrantClient } from '../qdrant-client.js';
 import { memoryEmbeddings, memoryItems, memorySegments, memorySummaries } from '../schema.js';
 
@@ -50,6 +51,6 @@ export async function deleteQdrantVectorsJob(job: MemoryJob): Promise<void> {
     throw new BackendUnavailableError('Qdrant client not initialized');
   }
 
-  await qdrant.deleteByTarget(targetType, targetId);
+  await withQdrantBreaker(() => qdrant.deleteByTarget(targetType, targetId));
   log.info({ targetType, targetId }, 'Retried Qdrant vector deletion succeeded');
 }

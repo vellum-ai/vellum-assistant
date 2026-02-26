@@ -8,6 +8,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import type { ServerWebSocket } from 'bun';
+
 import type { BrowserRelayWebSocketData } from '../browser-extension-relay/server.js';
 import { extensionRelayServer } from '../browser-extension-relay/server.js';
 import {
@@ -25,6 +27,7 @@ import { parseChannelId } from '../channels/types.js';
 import {
   getGatewayInternalBaseUrl,
   getRuntimeGatewayOriginSecret,
+  hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
@@ -37,6 +40,7 @@ import { getLogger } from '../util/logger.js';
 import { buildAssistantEvent } from './assistant-event.js';
 import { assistantEventHub } from './assistant-event-hub.js';
 import { sweepFailedEvents } from './channel-retry-sweep.js';
+import { httpError } from './http-errors.js';
 // Middleware
 import {
   extractBearerToken,
@@ -46,6 +50,14 @@ import {
   verifyBearerToken,
 } from './middleware/auth.js';
 import { withErrorHandling } from './middleware/error-handler.js';
+import {
+  apiRateLimiter,
+  extractClientIp,
+  ipRateLimiter,
+  rateLimitHeaders,
+  rateLimitResponse,
+} from './middleware/rate-limiter.js';
+import { withRequestLogging } from './middleware/request-logger.js';
 import {
   cloneRequestWithBody,
   GATEWAY_ONLY_BLOCKED_SUBPATHS,
@@ -73,6 +85,7 @@ import {
   handleGetAttachmentContent,
   handleUploadAttachment,
 } from './routes/attachment-routes.js';
+import { handleDebug } from './routes/debug-routes.js';
 import {
   handleAnswerCall,
   handleCancelCall,
@@ -245,15 +258,13 @@ export class RuntimeHttpServer {
         open(ws) {
           const data = ws.data as AllWebSocketData;
           if ('wsType' in data && data.wsType === 'browser-relay') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            extensionRelayServer.handleOpen(ws as any);
+            extensionRelayServer.handleOpen(ws as ServerWebSocket<BrowserRelayWebSocketData>);
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
           log.info({ callSessionId }, 'ConversationRelay WebSocket opened');
           if (callSessionId) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const connection = new RelayConnection(ws as any, callSessionId);
+            const connection = new RelayConnection(ws as ServerWebSocket<RelayWebSocketData>, callSessionId);
             activeRelayConnections.set(callSessionId, connection);
           }
         },
@@ -261,8 +272,7 @@ export class RuntimeHttpServer {
           const data = ws.data as AllWebSocketData;
           const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
           if ('wsType' in data && data.wsType === 'browser-relay') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            extensionRelayServer.handleMessage(ws as any, raw);
+            extensionRelayServer.handleMessage(ws as ServerWebSocket<BrowserRelayWebSocketData>, raw);
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -274,8 +284,7 @@ export class RuntimeHttpServer {
         close(ws, code, reason) {
           const data = ws.data as AllWebSocketData;
           if ('wsType' in data && data.wsType === 'browser-relay') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            extensionRelayServer.handleClose(ws as any, code, reason?.toString());
+            extensionRelayServer.handleClose(ws as ServerWebSocket<BrowserRelayWebSocketData>, code, reason?.toString());
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -313,6 +322,12 @@ export class RuntimeHttpServer {
 
     this.pairingStore.start();
 
+    if (hasUngatedHttpAuthDisabled()) {
+      log.warn('DISABLE_HTTP_AUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and HTTP authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.');
+    } else if (isHttpAuthDisabled()) {
+      log.warn('DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All API endpoints are accessible without a bearer token. Do not use in production.');
+    }
+
     log.info({ port: this.actualPort, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
   }
 
@@ -332,6 +347,10 @@ export class RuntimeHttpServer {
   }
 
   private async handleRequest(req: Request, server: ReturnType<typeof Bun.serve>): Promise<Response> {
+    return withRequestLogging(req, () => this.routeRequest(req, server));
+  }
+
+  private async routeRequest(req: Request, server: ReturnType<typeof Bun.serve>): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
 
@@ -367,10 +386,40 @@ export class RuntimeHttpServer {
     if (!isHttpAuthDisabled() && this.bearerToken) {
       const token = extractBearerToken(req);
       if (!token || !verifyBearerToken(token, this.bearerToken)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        return httpError('UNAUTHORIZED', 'Unauthorized', 401);
       }
     }
 
+    // Per-bearer-token rate limiting for /v1/* endpoints, with per-IP fallback
+    // for unauthenticated requests (lower limits to reduce abuse surface).
+    if (path.startsWith('/v1/')) {
+      const token = extractBearerToken(req);
+      const result = token
+        ? apiRateLimiter.check(token)
+        : ipRateLimiter.check(extractClientIp(req, server));
+      if (!result.allowed) {
+        return rateLimitResponse(result);
+      }
+      // Attach rate limit headers to the eventual response
+      const originalResponse = await this.handleAuthenticatedRequest(req, url, path);
+      const headers = new Headers(originalResponse.headers);
+      for (const [k, v] of Object.entries(rateLimitHeaders(result))) {
+        headers.set(k, v);
+      }
+      return new Response(originalResponse.body, {
+        status: originalResponse.status,
+        statusText: originalResponse.statusText,
+        headers,
+      });
+    }
+
+    return this.handleAuthenticatedRequest(req, url, path);
+  }
+
+  /**
+   * Handle requests that have already passed auth and rate limiting.
+   */
+  private async handleAuthenticatedRequest(req: Request, url: URL, path: string): Promise<Response> {
     // Pairing registration (bearer-authenticated)
     if (path === '/v1/pairing/register' && req.method === 'POST') {
       return await handlePairingRegister(req, this.pairingContext);
@@ -383,7 +432,7 @@ export class RuntimeHttpServer {
         return handleServePage(pagesMatch[1]);
       } catch (err) {
         log.error({ err, appId: pagesMatch[1] }, 'Runtime HTTP handler error serving page');
-        return Response.json({ error: 'Internal server error' }, { status: 500 });
+        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
       }
     }
 
@@ -391,7 +440,7 @@ export class RuntimeHttpServer {
     if (path === '/v1/apps/share' && req.method === 'POST') {
       try { return await handleShareApp(req); } catch (err) {
         log.error({ err }, 'Runtime HTTP handler error sharing app');
-        return Response.json({ error: 'Internal server error' }, { status: 500 });
+        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
       }
     }
 
@@ -401,13 +450,13 @@ export class RuntimeHttpServer {
       if (req.method === 'GET') {
         try { return handleDownloadSharedApp(shareToken); } catch (err) {
           log.error({ err, shareToken }, 'Runtime HTTP handler error downloading shared app');
-          return Response.json({ error: 'Internal server error' }, { status: 500 });
+          return httpError('INTERNAL_ERROR', 'Internal server error', 500);
         }
       }
       if (req.method === 'DELETE') {
         try { return handleDeleteSharedApp(shareToken); } catch (err) {
           log.error({ err, shareToken }, 'Runtime HTTP handler error deleting shared app');
-          return Response.json({ error: 'Internal server error' }, { status: 500 });
+          return httpError('INTERNAL_ERROR', 'Internal server error', 500);
         }
       }
     }
@@ -416,7 +465,7 @@ export class RuntimeHttpServer {
     if (sharedMetadataMatch && req.method === 'GET') {
       try { return handleGetSharedAppMetadata(sharedMetadataMatch[1]); } catch (err) {
         log.error({ err, shareToken: sharedMetadataMatch[1] }, 'Runtime HTTP handler error getting shared app metadata');
-        return Response.json({ error: 'Internal server error' }, { status: 500 });
+        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
       }
     }
 
@@ -424,7 +473,7 @@ export class RuntimeHttpServer {
     if (path === '/v1/secrets' && req.method === 'POST') {
       try { return await handleAddSecret(req); } catch (err) {
         log.error({ err }, 'Runtime HTTP handler error adding secret');
-        return Response.json({ error: 'Internal server error' }, { status: 500 });
+        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
       }
     }
 
@@ -437,7 +486,7 @@ export class RuntimeHttpServer {
     // Legacy: /v1/assistants/:assistantId/<endpoint>
     const match = path.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/);
     if (!match) {
-      return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
+      return httpError('NOT_FOUND', 'Not found', 404);
     }
 
     const assistantId = canonicalChannelAssistantId(match[1]);
@@ -448,17 +497,14 @@ export class RuntimeHttpServer {
 
   private handleBrowserRelayUpgrade(req: Request, server: ReturnType<typeof Bun.serve>): Response {
     if (!isLoopbackHost(new URL(req.url).hostname) && !isPrivateNetworkPeer(server, req)) {
-      return Response.json(
-        { error: 'Browser relay only accepts connections from localhost', code: 'LOCALHOST_ONLY' },
-        { status: 403 },
-      );
+      return httpError('FORBIDDEN', 'Browser relay only accepts connections from localhost', 403);
     }
 
-    if ((process.env.DISABLE_HTTP_AUTH ?? '').toLowerCase() !== 'true' && this.bearerToken) {
+    if (!isHttpAuthDisabled() && this.bearerToken) {
       const wsUrl = new URL(req.url);
       const token = wsUrl.searchParams.get('token');
       if (!token || !verifyBearerToken(token, this.bearerToken)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        return httpError('UNAUTHORIZED', 'Unauthorized', 401);
       }
     }
 
@@ -469,15 +515,13 @@ export class RuntimeHttpServer {
     if (!upgraded) {
       return new Response('WebSocket upgrade failed', { status: 500 });
     }
-    return undefined as unknown as Response;
+    // Bun's WebSocket upgrade consumes the request — no Response is sent.
+    return undefined!;
   }
 
   private handleRelayUpgrade(req: Request, server: ReturnType<typeof Bun.serve>): Response {
     if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return Response.json(
-        { error: 'Direct relay access disabled — only private network peers allowed', code: 'GATEWAY_ONLY' },
-        { status: 403 },
-      );
+      return httpError('FORBIDDEN', 'Direct relay access disabled — only private network peers allowed', 403);
     }
 
     const wsUrl = new URL(req.url);
@@ -489,7 +533,8 @@ export class RuntimeHttpServer {
     if (!upgraded) {
       return new Response('WebSocket upgrade failed', { status: 500 });
     }
-    return undefined as unknown as Response;
+    // Bun's WebSocket upgrade consumes the request — no Response is sent.
+    return undefined!;
   }
 
   private async handleTwilioWebhook(req: Request, path: string): Promise<Response | null> {
@@ -505,10 +550,7 @@ export class RuntimeHttpServer {
     const twilioSubpath = resolvedTwilioSubpath;
 
     if (GATEWAY_ONLY_BLOCKED_SUBPATHS.has(twilioSubpath)) {
-      return Response.json(
-        { error: 'Direct webhook access disabled. Use the gateway.', code: 'GATEWAY_ONLY' },
-        { status: 410 },
-      );
+      return httpError('NOT_FOUND', 'Direct webhook access disabled. Use the gateway.', 410);
     }
 
     const validation = await validateTwilioWebhook(req);
@@ -534,6 +576,7 @@ export class RuntimeHttpServer {
   ): Promise<Response> {
     return withErrorHandling(endpoint, async () => {
       if (endpoint === 'health' && req.method === 'GET') return handleHealth();
+      if (endpoint === 'debug' && req.method === 'GET') return handleDebug();
 
       if (endpoint === 'browser-relay/status' && req.method === 'GET') {
         return Response.json(extensionRelayServer.getStatus());
@@ -545,7 +588,7 @@ export class RuntimeHttpServer {
           const resp = await extensionRelayServer.sendCommand(body as Omit<import('../browser-extension-relay/protocol.js').ExtensionCommand, 'id'>);
           return Response.json(resp);
         } catch (err) {
-          return Response.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+          return httpError('INTERNAL_ERROR', err instanceof Error ? err.message : String(err), 500);
         }
       }
 
@@ -598,7 +641,7 @@ export class RuntimeHttpServer {
       if (endpoint === 'conversations/seen' && req.method === 'POST') {
         const body = await req.json() as Record<string, unknown>;
         const conversationId = body.conversationId as string | undefined;
-        if (!conversationId) return Response.json({ error: 'Missing conversationId' }, { status: 400 });
+        if (!conversationId) return httpError('BAD_REQUEST', 'Missing conversationId', 400);
         try {
           recordConversationSeenSignal({
             conversationId,
@@ -614,7 +657,7 @@ export class RuntimeHttpServer {
           return Response.json({ ok: true });
         } catch (err) {
           log.error({ err, conversationId }, 'POST /v1/conversations/seen: failed');
-          return Response.json({ error: 'Failed to record seen signal' }, { status: 500 });
+          return httpError('INTERNAL_ERROR', 'Failed to record seen signal', 500);
         }
       }
 
@@ -742,32 +785,32 @@ export class RuntimeHttpServer {
       // Internal OAuth callback endpoint (gateway -> runtime)
       if (endpoint === 'internal/oauth/callback' && req.method === 'POST') {
         const json = await req.json() as { state: string; code?: string; error?: string };
-        if (!json.state) return Response.json({ error: 'Missing state parameter' }, { status: 400 });
+        if (!json.state) return httpError('BAD_REQUEST', 'Missing state parameter', 400);
         if (json.error) {
           const consumed = consumeCallbackError(json.state, json.error);
-          return consumed ? Response.json({ ok: true }) : Response.json({ error: 'Unknown state' }, { status: 404 });
+          return consumed ? Response.json({ ok: true }) : httpError('NOT_FOUND', 'Unknown state', 404);
         }
         if (json.code) {
           const consumed = consumeCallback(json.state, json.code);
-          return consumed ? Response.json({ ok: true }) : Response.json({ error: 'Unknown state' }, { status: 404 });
+          return consumed ? Response.json({ ok: true }) : httpError('NOT_FOUND', 'Unknown state', 404);
         }
-        return Response.json({ error: 'Missing code or error parameter' }, { status: 400 });
+        return httpError('BAD_REQUEST', 'Missing code or error parameter', 400);
       }
 
-      return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
+      return httpError('NOT_FOUND', 'Not found', 404);
     });
   }
 
   private handleGetInterface(interfacePath: string): Response {
     if (!this.interfacesDir) {
-      return Response.json({ error: 'Interface not found' }, { status: 404 });
+      return httpError('NOT_FOUND', 'Interface not found', 404);
     }
     const fullPath = resolve(this.interfacesDir, interfacePath);
     if (
       (fullPath !== this.interfacesDir && !fullPath.startsWith(this.interfacesDir + '/')) ||
       !existsSync(fullPath)
     ) {
-      return Response.json({ error: 'Interface not found' }, { status: 404 });
+      return httpError('NOT_FOUND', 'Interface not found', 404);
     }
     const source = readFileSync(fullPath, 'utf-8');
     return new Response(source, {

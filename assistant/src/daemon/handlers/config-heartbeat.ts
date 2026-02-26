@@ -85,7 +85,7 @@ export function handleHeartbeatConfig(
         activeHoursEnd: null,
         nextRunAt: null,
         success: false,
-        error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}`,
+        error: `Unknown action: ${String(msg.action)}`,
       });
     }
   } catch (err) {

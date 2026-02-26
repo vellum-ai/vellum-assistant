@@ -4,7 +4,7 @@ import { v4 as uuid } from 'uuid';
 
 import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getConfig } from '../../config/loader.js';
-import { getAttachmentsForMessage, setAttachmentThumbnail } from '../../memory/attachments-store.js';
+import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbnail } from '../../memory/attachments-store.js';
 import { getAttentionStateByConversationIds } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
@@ -245,8 +245,8 @@ export async function handleUserMessage(
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         // Keep in-memory session history aligned with DB so regenerate() and
         // other history operations that rely on session.messages stay consistent.
         // Only push when agent loop is NOT active to avoid corrupting role alternation.
@@ -264,8 +264,8 @@ export async function handleUserMessage(
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         if (!session.isProcessing()) {
           session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
           session.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
@@ -279,8 +279,8 @@ export async function handleUserMessage(
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: restartResult.responseText }]));
+        await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: restartResult.responseText }]));
         if (!session.isProcessing()) {
           session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
           session.messages.push({ role: 'assistant', content: [{ type: 'text', text: restartResult.responseText }] });
@@ -295,8 +295,8 @@ export async function handleUserMessage(
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         if (!session.isProcessing()) {
           session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
           session.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
@@ -311,8 +311,8 @@ export async function handleUserMessage(
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         if (!session.isProcessing()) {
           session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
           session.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
@@ -349,8 +349,8 @@ export async function handleUserMessage(
             sessionId: msg.sessionId,
           });
           ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-          conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-          conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
+          await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+          await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
           if (!session.isProcessing()) {
             session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
             session.messages.push({ role: 'assistant', content: [{ type: 'text', text: execResult.responseText! }] });
@@ -426,8 +426,8 @@ export async function handleUserMessage(
                 sessionId: msg.sessionId,
               });
               ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-              conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
-              conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
+              await conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+              await conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
               if (!session.isProcessing()) {
                 session.messages.push({ role: 'user', content: [{ type: 'text', text: messageText }] });
                 session.messages.push({ role: 'assistant', content: [{ type: 'text', text: execResult.responseText! }] });
@@ -683,7 +683,7 @@ export async function handleSessionSwitch(
   // If the target session is headless-locked (actively executing a task run),
   // skip rebinding the socket so tool confirmations stay suppressed.
   const existingSession = ctx.sessions.get(msg.sessionId);
-  const isHeadlessLocked = existingSession && (existingSession as unknown as { headlessLock?: boolean }).headlessLock;
+  const isHeadlessLocked = existingSession?.headlessLock;
 
   ctx.socketToSession.set(socket, msg.sessionId);
 
@@ -830,6 +830,7 @@ export function handleHistoryRequest(
               );
             }
 
+            const fp = getFilePathForAttachment(a.id);
             return {
               id: a.id,
               filename: a.originalFilename,
@@ -837,18 +838,23 @@ export function handleHistoryRequest(
               data: omit ? '' : a.dataBase64,
               ...(omit ? { sizeBytes: a.sizeBytes } : {}),
               ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
+              ...(fp ? { filePath: fp } : {}),
             };
           });
         } else {
           // Light mode: metadata only, strip base64 data
-          attachments = linked.map((a) => ({
-            id: a.id,
-            filename: a.originalFilename,
-            mimeType: a.mimeType,
-            data: '',
-            sizeBytes: a.sizeBytes,
-            ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
-          }));
+          attachments = linked.map((a) => {
+            const fp = getFilePathForAttachment(a.id);
+            return {
+              id: a.id,
+              filename: a.originalFilename,
+              mimeType: a.mimeType,
+              data: '',
+              sizeBytes: a.sizeBytes,
+              ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
+              ...(fp ? { filePath: fp } : {}),
+            };
+          });
         }
       }
     }

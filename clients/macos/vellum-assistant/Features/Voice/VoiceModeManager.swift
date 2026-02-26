@@ -36,10 +36,17 @@ final class VoiceModeManager: ObservableObject {
     private var ttsTimeoutTask: Task<Void, Never>?
     /// Timer that fires when the conversation has been idle too long.
     private var conversationTimeoutTask: Task<Void, Never>?
+    /// When true, `handleStateTransition` will not re-arm the conversation
+    /// timeout on transitions to `.idle`. Used during CU escalation so that
+    /// `speakTransient`'s completion (which sets state to `.idle`) does not
+    /// prematurely restart the 30s timer while the CU session is still running.
+    private var conversationTimeoutPaused = false
     /// Permission request IDs currently being handled via voice.
     private var pendingPermissionIds: [String] = []
     /// Combine subscription to detect new confirmations in chat messages.
     private var messageCancellable: AnyCancellable?
+    /// Combine subscription to pause/resume conversation timeout during tool execution.
+    private var isThinkingCancellable: AnyCancellable?
 
     nonisolated init() {
         self.voiceService = OpenAIVoiceService()
@@ -112,6 +119,19 @@ final class VoiceModeManager: ObservableObject {
                 self?.checkForConfirmations(in: messages)
             }
 
+        // Pause the conversation timeout while the agent is executing tools,
+        // preventing auto-deactivation during multi-step tool sequences.
+        isThinkingCancellable = chatViewModel.messageManager.$isThinking
+            .removeDuplicates()
+            .sink { [weak self] thinking in
+                guard let self, self.state == .idle else { return }
+                if thinking {
+                    self.cancelConversationTimeout()
+                } else if !self.conversationTimeoutPaused {
+                    self.startConversationTimeout()
+                }
+            }
+
         // Pre-warm audio engine so first recording starts instantly
         voiceService.prewarmEngine()
 
@@ -141,6 +161,7 @@ final class VoiceModeManager: ObservableObject {
 
         // Cancel conversation timeout before setting state to .off
         // (didSet would cancel it too, but be explicit for clarity).
+        conversationTimeoutPaused = false
         cancelConversationTimeout()
 
         // Set state to .off BEFORE shutdown so that any synchronous
@@ -164,6 +185,8 @@ final class VoiceModeManager: ObservableObject {
         previousOnVoiceTextDelta = nil
         messageCancellable?.cancel()
         messageCancellable = nil
+        isThinkingCancellable?.cancel()
+        isThinkingCancellable = nil
         pendingPermissionIds = []
 
         chatViewModel = nil
@@ -219,6 +242,10 @@ final class VoiceModeManager: ObservableObject {
 
         Task {
             let text = await voiceService.stopRecordingAndGetTranscription()
+            // Capture context sequentially on the MainActor after recording
+            // stops. The .processing state transition above already prevents
+            // further transcription, so there is no recording-window concern.
+            let ctx = DictationContextCapture.capture()
             let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
             guard !trimmed.isEmpty, let chatViewModel else {
@@ -235,12 +262,52 @@ final class VoiceModeManager: ObservableObject {
 
             partialTranscription = trimmed
 
-            // Send the transcribed message through the daemon (full context)
+            // Build the context prefix from captured app context. Sanitize
+            // attacker-controlled values (window titles, selected text) to
+            // prevent prompt injection and excessive length.
+            var contextPrefix = ""
+            if !ctx.appName.isEmpty {
+                var parts: [String] = ["app: \(ctx.appName)"]
+                if !ctx.windowTitle.isEmpty {
+                    let sanitizedTitle = Self.sanitize(ctx.windowTitle, maxLength: 200)
+                    if !sanitizedTitle.isEmpty {
+                        parts.append("window: \"\(sanitizedTitle)\"")
+                    }
+                }
+                if let selected = ctx.selectedText, !selected.isEmpty {
+                    let sanitizedSelected = Self.sanitize(selected, maxLength: 500)
+                    if !sanitizedSelected.isEmpty {
+                        parts.append("selected text: \"\(sanitizedSelected)\"")
+                    }
+                }
+                contextPrefix = "[User's current \(parts.joined(separator: ", "))]\n"
+            }
+
+            // Pass context via pendingVoiceContextPrefix so it's injected into
+            // the daemon-bound text only — not into inputText, which is used for
+            // chat bubble display and thread auto-titling.
             chatViewModel.pendingVoiceMessage = true
+            if !contextPrefix.isEmpty {
+                chatViewModel.pendingVoiceContextPrefix = contextPrefix
+            }
             chatViewModel.inputText = trimmed
             chatViewModel.sendMessage()
             log.info("Voice mode: sent transcription to chat via daemon")
         }
+    }
+
+    /// Sanitize attacker-controlled text (window titles, selected text) by
+    /// truncating to a maximum length and stripping bracket patterns like
+    /// `[...]` that could be confused with instruction markers.
+    private static func sanitize(_ input: String, maxLength: Int) -> String {
+        var result = String(input.prefix(maxLength))
+        // Strip bracket patterns that could look like instruction markers
+        result = result.replacingOccurrences(
+            of: "\\[.*?\\]",
+            with: "",
+            options: .regularExpression
+        )
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Streaming TTS from daemon response
@@ -485,7 +552,12 @@ final class VoiceModeManager: ObservableObject {
         guard oldState != newState else { return }
 
         if newState == .idle {
-            startConversationTimeout()
+            // Don't start the timeout if the agent is currently executing tools —
+            // the isThinking observer will restart it when thinking completes.
+            // Also skip if the timeout is paused (e.g., during CU escalation).
+            if !conversationTimeoutPaused && chatViewModel?.isThinking != true {
+                startConversationTimeout()
+            }
         } else {
             cancelConversationTimeout()
         }
@@ -509,6 +581,69 @@ final class VoiceModeManager: ObservableObject {
     private func cancelConversationTimeout() {
         conversationTimeoutTask?.cancel()
         conversationTimeoutTask = nil
+    }
+
+    // MARK: - Transient Speech & Timeout Control
+
+    /// Speak a one-off message using the TTS system without affecting the voice
+    /// mode state machine. The message is spoken and then the state returns to
+    /// whatever it was before. Callers can use this to provide audible feedback
+    /// (e.g., announcing a computer use escalation) without disrupting the
+    /// conversation flow.
+    func speakTransient(_ message: String) {
+        guard state != .off else { return }
+        log.info("Voice mode: transient speech — \(message, privacy: .public)")
+
+        // Stop any in-progress recording so the TTS output isn't picked up
+        // by the microphone as input.
+        if state == .listening {
+            voiceService.cancelRecording()
+        }
+
+        let previousState = state
+        state = .speaking
+        voiceService.resetStreamingTTS()
+        voiceService.feedTextDelta(message)
+
+        ttsTimeoutTask?.cancel()
+        ttsTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard let self, !Task.isCancelled, self.state == .speaking else { return }
+            log.warning("Voice mode: transient speech timeout, recovering")
+            self.voiceService.stopSpeaking()
+            self.state = previousState == .listening ? .idle : previousState
+        }
+
+        voiceService.finishTextStream { [weak self] in
+            guard let self, self.state == .speaking else { return }
+            self.ttsTimeoutTask?.cancel()
+            self.ttsTimeoutTask = nil
+            self.voiceService.stopBargeInMonitor()
+            // Return to idle rather than the previous state so the conversation
+            // timeout logic is properly re-engaged via handleStateTransition.
+            self.state = .idle
+        }
+    }
+
+    /// Pause the conversation timeout timer. Use this when the assistant is
+    /// performing a long-running operation (e.g., computer use) and the
+    /// conversation should not auto-deactivate.
+    func pauseConversationTimeout() {
+        log.info("Voice mode: conversation timeout paused")
+        conversationTimeoutPaused = true
+        cancelConversationTimeout()
+    }
+
+    /// Resume the conversation timeout timer. Call this after a long-running
+    /// operation completes so idle auto-deactivation can kick in again.
+    func resumeConversationTimeout() {
+        log.info("Voice mode: conversation timeout resumed")
+        // Clear the paused flag BEFORE the state guard so that when
+        // speakTransient finishes and transitions to .idle,
+        // handleStateTransition will properly restart the timeout.
+        conversationTimeoutPaused = false
+        guard state == .idle else { return }
+        startConversationTimeout()
     }
 
     // MARK: - Barge-in (interrupt TTS)

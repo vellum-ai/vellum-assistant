@@ -48,7 +48,7 @@ struct ConversationsListResponse: Decodable {
 final class HTTPTransport {
 
     let baseURL: String
-    let bearerToken: String?
+    private(set) var bearerToken: String?
     private let conversationKey: String
     private let sourceChannel: String
 
@@ -100,6 +100,10 @@ final class HTTPTransport {
     /// Callback for connection state changes (health check driven).
     var onConnectionStateChanged: ((Bool) -> Void)?
 
+    /// Callback when the bearer token is refreshed via a `token_rotated` SSE event.
+    /// Clients should persist the new token (e.g. to Keychain).
+    var onTokenRefreshed: ((String) -> Void)?
+
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
@@ -145,6 +149,10 @@ final class HTTPTransport {
         do {
             let (_, response) = try await URLSession.shared.data(for: healthReq)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                if statusCode == 401 {
+                    handleAuthenticationFailure()
+                }
                 throw HTTPTransportError.healthCheckFailed
             }
             log.info("Health check passed for \(self.baseURL, privacy: .public)")
@@ -223,6 +231,9 @@ final class HTTPTransport {
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                     log.error("SSE connection failed with status \(statusCode)")
+                    if statusCode == 401 {
+                        self.handleAuthenticationFailure()
+                    }
                     self.handleSSEDisconnect()
                     return
                 }
@@ -261,17 +272,29 @@ final class HTTPTransport {
 
         do {
             let event = try decoder.decode(AssistantEvent.self, from: jsonData)
-            onMessage?(event.message)
+            handleServerMessage(event.message)
         } catch {
             // Try decoding as a bare ServerMessage (some endpoints may send unwrapped)
             do {
                 let message = try decoder.decode(ServerMessage.self, from: jsonData)
-                onMessage?(message)
+                handleServerMessage(message)
             } catch {
                 let byteCount = jsonData.count
                 log.error("Failed to decode SSE event: \(error.localizedDescription), bytes: \(byteCount)")
             }
         }
+    }
+
+    private func handleServerMessage(_ message: ServerMessage) {
+        if case .tokenRotated(let msg) = message {
+            log.info("Received token_rotated event — updating bearer token and reconnecting SSE")
+            bearerToken = msg.newToken
+            onTokenRefreshed?(msg.newToken)
+            stopSSE()
+            startSSE()
+            return
+        }
+        onMessage?(message)
     }
 
     // MARK: - Send (HTTP API Calls)
@@ -337,6 +360,8 @@ final class HTTPTransport {
 
             if http.statusCode == 202 || http.statusCode == 200 {
                 log.info("Message sent successfully")
+            } else if http.statusCode == 401 {
+                handleAuthenticationFailure()
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
                 log.error("Send message failed (\(http.statusCode)): \(errorBody)")
@@ -375,8 +400,12 @@ final class HTTPTransport {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (_, response) = try await URLSession.shared.data(for: request)
 
-            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-                log.error("Decision response failed (\(http.statusCode))")
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 {
+                    handleAuthenticationFailure()
+                } else if http.statusCode != 200 {
+                    log.error("Decision response failed (\(http.statusCode))")
+                }
             }
         } catch {
             log.error("Decision response error: \(error.localizedDescription)")
@@ -400,8 +429,12 @@ final class HTTPTransport {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (_, response) = try await URLSession.shared.data(for: request)
 
-            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-                log.error("Secret response failed (\(http.statusCode))")
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 {
+                    handleAuthenticationFailure()
+                } else if http.statusCode != 200 {
+                    log.error("Secret response failed (\(http.statusCode))")
+                }
             }
         } catch {
             log.error("Secret response error: \(error.localizedDescription)")
@@ -437,8 +470,12 @@ final class HTTPTransport {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (_, response) = try await URLSession.shared.data(for: request)
 
-            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-                log.error("Conversation seen signal failed (\(http.statusCode))")
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 {
+                    handleAuthenticationFailure()
+                } else if http.statusCode != 200 {
+                    log.error("Conversation seen signal failed (\(http.statusCode))")
+                }
             }
         } catch {
             log.error("Conversation seen signal error: \(error.localizedDescription)")
@@ -455,6 +492,10 @@ final class HTTPTransport {
             let (data, response) = try await URLSession.shared.data(for: request)
 
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                if statusCode == 401 {
+                    handleAuthenticationFailure()
+                }
                 log.error("Fetch session list failed")
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: nil)))
                 return
@@ -489,6 +530,9 @@ final class HTTPTransport {
 
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                if statusCode == 401 {
+                    handleAuthenticationFailure()
+                }
                 log.error("Fetch history failed (HTTP \(statusCode))")
                 return
             }
@@ -609,6 +653,20 @@ final class HTTPTransport {
 
             self.startSSEStream()
         }
+    }
+
+    // MARK: - 401 Recovery
+
+    /// Surface a session-expired error to the client. On iOS this means
+    /// the user must re-pair via QR code since we cannot read the token from disk.
+    private func handleAuthenticationFailure() {
+        log.error("Authentication failed — bearer token is stale")
+        onMessage?(.sessionError(SessionErrorMessage(
+            sessionId: "",
+            code: .authenticationRequired,
+            userMessage: "Session expired. Please re-pair your device.",
+            retryable: false
+        )))
     }
 
     // MARK: - Helpers

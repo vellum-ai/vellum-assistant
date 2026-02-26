@@ -11,6 +11,7 @@ import type { AppManifest } from '../../bundler/manifest.js';
 import { getApp } from '../../memory/app-store.js';
 import * as sharedAppLinksStore from '../../memory/shared-app-links-store.js';
 import { getLogger } from '../../util/logger.js';
+import { httpError } from '../http-errors.js';
 
 const log = getLogger('runtime-http');
 
@@ -41,14 +42,21 @@ function loadDesignSystemCss(): string {
 export function handleServePage(appId: string): Response {
   const app = getApp(appId);
   if (!app) {
-    return Response.json({ error: 'App not found' }, { status: 404 });
+    return httpError('NOT_FOUND', 'App not found', 404);
   }
 
   const css = loadDesignSystemCss();
   const escapedName = app.name.replace(/[<>&"]/g, (c) => HTML_ESCAPE_MAP[c] ?? c);
 
-  // Per-response nonce for the trusted design-system <style> tag.
+  // Per-response nonce for inline <style> and <script> tags.
   const nonce = randomBytes(16).toString('base64');
+
+  // Inject the nonce into any inline <script> tags from the app HTML definition
+  // so they are allowed by the nonce-based CSP without 'unsafe-inline'.
+  const noncedHtml = app.htmlDefinition.replace(
+    /<script(?=[\s>])/gi,
+    `<script nonce="${nonce}"`,
+  );
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -59,16 +67,14 @@ export function handleServePage(appId: string): Response {
   <style nonce="${nonce}">${css}</style>
 </head>
 <body>
-${app.htmlDefinition}
+${noncedHtml}
 </body>
 </html>`;
 
-  // CSP: inline scripts allowed because app HTML definitions contain inline
-  // <script> blocks and event handlers. Other directives are tightened.
   const csp = [
     "default-src 'self'",
     `style-src 'self' 'nonce-${nonce}' 'unsafe-inline'`,
-    "script-src 'self' 'unsafe-inline'",
+    `script-src 'self' 'nonce-${nonce}'`,
     "img-src 'self' data: https:",
     "font-src 'self' data: https:",
     "object-src 'none'",
@@ -91,16 +97,13 @@ const MAX_SHARE_BODY_BYTES = 50 * 1024 * 1024;
 export async function handleShareApp(req: Request): Promise<Response> {
   const rawBody = await req.arrayBuffer();
   if (rawBody.byteLength > MAX_SHARE_BODY_BYTES) {
-    return Response.json(
-      { error: `Request body too large (limit: ${MAX_SHARE_BODY_BYTES} bytes)` },
-      { status: 413 },
-    );
+    return httpError('BAD_REQUEST', `Request body too large (limit: ${MAX_SHARE_BODY_BYTES} bytes)`, 413);
   }
 
   const bundleData = Buffer.from(rawBody);
 
   if (bundleData.length === 0) {
-    return Response.json({ error: 'Empty body' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'Empty body', 400);
   }
 
   // Validate it's a valid zip with a manifest.json
@@ -109,16 +112,16 @@ export async function handleShareApp(req: Request): Promise<Response> {
     const zip = await JSZip.loadAsync(bundleData);
     const manifestFile = zip.file('manifest.json');
     if (!manifestFile) {
-      return Response.json({ error: 'Invalid bundle: missing manifest.json' }, { status: 400 });
+      return httpError('BAD_REQUEST', 'Invalid bundle: missing manifest.json', 400);
     }
     const manifestText = await manifestFile.async('text');
     manifest = JSON.parse(manifestText) as AppManifest;
     if (!manifest.name || !manifest.entry) {
-      return Response.json({ error: 'Invalid manifest: missing required fields' }, { status: 400 });
+      return httpError('BAD_REQUEST', 'Invalid manifest: missing required fields', 400);
     }
   } catch (err) {
     if (err instanceof Response) throw err;
-    return Response.json({ error: 'Invalid zip file' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'Invalid zip file', 400);
   }
 
   const { shareToken } = sharedAppLinksStore.createSharedAppLink(bundleData, manifest);
@@ -133,7 +136,7 @@ export async function handleShareApp(req: Request): Promise<Response> {
 export function handleDownloadSharedApp(shareToken: string): Response {
   const record = sharedAppLinksStore.getSharedAppLink(shareToken);
   if (!record) {
-    return Response.json({ error: 'Shared app not found' }, { status: 404 });
+    return httpError('NOT_FOUND', 'Shared app not found', 404);
   }
 
   sharedAppLinksStore.incrementDownloadCount(shareToken);
@@ -149,14 +152,14 @@ export function handleDownloadSharedApp(shareToken: string): Response {
 export function handleGetSharedAppMetadata(shareToken: string): Response {
   const record = sharedAppLinksStore.getSharedAppLink(shareToken);
   if (!record) {
-    return Response.json({ error: 'Shared app not found' }, { status: 404 });
+    return httpError('NOT_FOUND', 'Shared app not found', 404);
   }
 
   let manifest: AppManifest;
   try {
     manifest = JSON.parse(record.manifestJson) as AppManifest;
   } catch {
-    return Response.json({ error: 'Corrupted manifest data' }, { status: 500 });
+    return httpError('INTERNAL_ERROR', 'Corrupted manifest data', 500);
   }
 
   return Response.json({
@@ -170,7 +173,7 @@ export function handleGetSharedAppMetadata(shareToken: string): Response {
 export function handleDeleteSharedApp(shareToken: string): Response {
   const deleted = sharedAppLinksStore.deleteSharedAppLinkByToken(shareToken);
   if (!deleted) {
-    return Response.json({ error: 'Shared app not found' }, { status: 404 });
+    return httpError('NOT_FOUND', 'Shared app not found', 404);
   }
   return Response.json({ success: true });
 }

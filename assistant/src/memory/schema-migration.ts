@@ -24,9 +24,12 @@ export {
   migrateRemainingTableIndexes,
   migrateReminderRoutingIntent,
   migrateRemoveAssistantIdColumns,
+  migrateSchemaIndexesAndColumns,
   migrateToolInvocationsFk,
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,
+  recoverCrashedMigrations,
   validateMigrationState,
+  withCrashRecovery,
 } from './migrations/index.js';

@@ -4,6 +4,7 @@
 
 import { ConfigError, IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
+import { httpError } from '../http-errors.js';
 
 const log = getLogger('runtime-http');
 
@@ -20,14 +21,14 @@ export async function withErrorHandling(
   } catch (err) {
     if (err instanceof IngressBlockedError) {
       log.warn({ endpoint, detectedTypes: err.detectedTypes }, 'Blocked HTTP request containing secrets');
-      return Response.json({ error: err.message, code: err.code }, { status: 422 });
+      return httpError('UNPROCESSABLE_ENTITY', err.message, 422);
     }
     if (err instanceof ConfigError) {
       log.warn({ err, endpoint }, 'Runtime HTTP config error');
-      return Response.json({ error: err.message, code: err.code }, { status: 422 });
+      return httpError('UNPROCESSABLE_ENTITY', err.message, 422);
     }
     log.error({ err, endpoint }, 'Runtime HTTP handler error');
     const message = err instanceof Error ? err.message : 'Internal server error';
-    return Response.json({ error: message }, { status: 500 });
+    return httpError('INTERNAL_ERROR', message, 500);
   }
 }

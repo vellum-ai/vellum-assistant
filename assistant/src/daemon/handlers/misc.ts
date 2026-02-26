@@ -89,8 +89,8 @@ export async function handleTaskSubmit(
           sessionId: conversation.id,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
-        conversationStore.addMessage(conversation.id, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
-        conversationStore.addMessage(conversation.id, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        await conversationStore.addMessage(conversation.id, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
+        await conversationStore.addMessage(conversation.id, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         // Sync in-memory session if one exists for this conversation
         const startSession = ctx.sessions.get(conversation.id);
         if (startSession && !startSession.isProcessing()) {
@@ -115,8 +115,8 @@ export async function handleTaskSubmit(
           sessionId: activeSessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
-        conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        await conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
+        await conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         const stopSession = ctx.sessions.get(activeSessionId);
         if (stopSession && !stopSession.isProcessing()) {
           stopSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
@@ -138,8 +138,8 @@ export async function handleTaskSubmit(
           sessionId: activeSessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
-        conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: restartResult.responseText }]));
+        await conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
+        await conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: restartResult.responseText }]));
         const restartSession = ctx.sessions.get(activeSessionId);
         if (restartSession && !restartSession.isProcessing()) {
           restartSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
@@ -162,8 +162,8 @@ export async function handleTaskSubmit(
           sessionId: activeSessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
-        conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        await conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
+        await conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         const pauseSession = ctx.sessions.get(activeSessionId);
         if (pauseSession && !pauseSession.isProcessing()) {
           pauseSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
@@ -186,8 +186,8 @@ export async function handleTaskSubmit(
           sessionId: activeSessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
-        conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
+        await conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
+        await conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         const resumeSession = ctx.sessions.get(activeSessionId);
         if (resumeSession && !resumeSession.isProcessing()) {
           resumeSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
@@ -225,8 +225,8 @@ export async function handleTaskSubmit(
         ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
         ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: conversation.id });
         ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
-        conversationStore.addMessage(conversation.id, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
-        conversationStore.addMessage(conversation.id, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
+        await conversationStore.addMessage(conversation.id, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
+        await conversationStore.addMessage(conversation.id, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
         const startOnlySession = ctx.sessions.get(conversation.id);
         if (startOnlySession && !startOnlySession.isProcessing()) {
           startOnlySession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
@@ -260,8 +260,8 @@ export async function handleTaskSubmit(
         ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
         ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: activeSessionId });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
-        conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
+        await conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
+        await conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
         const stopOnlySession = ctx.sessions.get(activeSessionId);
         if (stopOnlySession && !stopOnlySession.isProcessing()) {
           stopOnlySession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
@@ -288,8 +288,8 @@ export async function handleTaskSubmit(
         ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
         ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: activeSessionId });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
-        conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
+        await conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
+        await conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
         const startStopOnlySession = ctx.sessions.get(activeSessionId);
         if (startStopOnlySession && !startStopOnlySession.isProcessing()) {
           startStopOnlySession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
@@ -317,8 +317,8 @@ export async function handleTaskSubmit(
         ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
         ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: activeSessionId });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
-        conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
+        await conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
+        await conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
         const handledSession = ctx.sessions.get(activeSessionId);
         if (handledSession && !handledSession.isProcessing()) {
           handledSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
@@ -389,8 +389,8 @@ export async function handleTaskSubmit(
                 sessionId: activeSessionId,
               });
               ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-              conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
-              conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
+              await conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
+              await conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
               const fallbackSession = ctx.sessions.get(activeSessionId);
               if (fallbackSession && !fallbackSession.isProcessing()) {
                 fallbackSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });

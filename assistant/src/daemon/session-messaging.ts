@@ -154,14 +154,14 @@ export function enqueueMessage(
 
 // ── persistUserMessage ───────────────────────────────────────────────
 
-export function persistUserMessage(
+export async function persistUserMessage(
   ctx: MessagingSessionContext,
   content: string,
   attachments: UserMessageAttachment[],
   requestId?: string,
   metadata?: Record<string, unknown>,
   displayContent?: string,
-): string {
+): Promise<string> {
   if (ctx.processing) {
     throw new Error('Session is already processing a message');
   }
@@ -214,7 +214,7 @@ export function persistUserMessage(
           id: a.id, filename: a.filename, mimeType: a.mimeType, data: a.data, extractedText: a.extractedText,
         }))).content)
       : JSON.stringify(userMessage.content);
-    const persistedUserMessage = conversationStore.addMessage(
+    const persistedUserMessage = await conversationStore.addMessage(
       ctx.conversationId,
       'user',
       contentToPersist,

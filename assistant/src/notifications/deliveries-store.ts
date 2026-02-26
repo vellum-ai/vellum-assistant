@@ -6,9 +6,9 @@
  * (decision, channel, destination) are tracked via the `attempt` counter.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
-import { getDb } from '../memory/db.js';
+import { getDb, rawChanges } from '../memory/db.js';
 import { notificationDeliveries } from '../memory/schema.js';
 import type { NotificationChannel, NotificationDeliveryStatus } from './types.js';
 
@@ -131,13 +131,13 @@ export function updateDeliveryStatus(
     updates.errorMessage = error.message;
   }
 
-  const result = db
+  db
     .update(notificationDeliveries)
     .set(updates)
     .where(eq(notificationDeliveries.id, id))
-    .run() as unknown as { changes?: number };
+    .run();
 
-  return (result.changes ?? 0) > 0;
+  return rawChanges() > 0;
 }
 
 /**
@@ -171,13 +171,13 @@ export function updateDeliveryClientOutcome(
     updates.clientDeliveryError = error.code;
   }
 
-  const result = db
+  db
     .update(notificationDeliveries)
     .set(updates)
     .where(eq(notificationDeliveries.id, deliveryId))
-    .run() as unknown as { changes?: number };
+    .run();
 
-  return (result.changes ?? 0) > 0;
+  return rawChanges() > 0;
 }
 
 /** List all delivery records for a given notification decision. */
@@ -189,4 +189,23 @@ export function listDeliveries(decisionId: string): NotificationDeliveryRow[] {
     .where(eq(notificationDeliveries.notificationDecisionId, decisionId))
     .all();
   return rows.map(rowToDelivery);
+}
+
+/** Check whether a delivery already exists for a given decision+channel pair. */
+export function findDeliveryByDecisionAndChannel(
+  decisionId: string,
+  channel: NotificationChannel,
+): NotificationDeliveryRow | undefined {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(notificationDeliveries)
+    .where(
+      and(
+        eq(notificationDeliveries.notificationDecisionId, decisionId),
+        eq(notificationDeliveries.channel, channel),
+      ),
+    )
+    .get();
+  return row ? rowToDelivery(row) : undefined;
 }

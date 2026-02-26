@@ -321,6 +321,11 @@ public final class ChatViewModel: ObservableObject {
     public var onVoiceTextDelta: ((String) -> Void)?
     /// When true, messages are prefixed with a concise-response instruction for voice conversations.
     public var isVoiceModeActive: Bool = false
+    /// Context prefix captured by VoiceModeManager describing the user's frontmost app.
+    /// Injected into the daemon-bound text (not rawText) alongside the voice instruction
+    /// prefix, then cleared after send. This avoids leaking context into chat bubbles
+    /// and thread auto-titles.
+    public var pendingVoiceContextPrefix: String?
     var pendingUserAttachments: [IPCAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
     private(set) var lastFailedMessageText: String?
@@ -813,8 +818,10 @@ public final class ChatViewModel: ObservableObject {
 
     public func sendMessage() {
         let rawText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let voiceContextPrefix = pendingVoiceContextPrefix ?? ""
+        pendingVoiceContextPrefix = nil
         let text = isVoiceModeActive
-            ? "[Voice conversation — keep spoken responses brief (2-3 sentences) but fully complete the task using any tools needed. Do not give up early. When interacting with macOS apps (Messages, Contacts, Calendar, Reminders, Notes, Mail, etc.), always use osascript with AppleScript — never query databases directly or use sqlite3.]\n\n\(rawText)"
+            ? "[Voice conversation — keep spoken responses brief (2-3 sentences) but fully complete the task using any tools needed. Do not give up early. Proactively use tools to fulfill requests rather than describing how. When interacting with macOS apps (Messages, Contacts, Calendar, Reminders, Notes, Mail, etc.), always use osascript with AppleScript — never query databases directly or use sqlite3. Prefer CLI tools and background automation (osascript/AppleScript) over foreground computer use, which takes over the user's screen.]\n\n\(voiceContextPrefix)\(rawText)"
             : rawText
         let hasAttachments = !pendingAttachments.isEmpty
         let hasSkillInvocation = pendingSkillInvocation != nil

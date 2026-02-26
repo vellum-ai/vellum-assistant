@@ -152,7 +152,9 @@ export class SubagentManager {
     // Store the managed subagent early so the wrapper can read the mutable
     // parentSendToClient reference — this ensures reconnects are picked up.
     const managed: ManagedSubagent = {
-      session: undefined as unknown as Session,
+      // Placeholder — replaced with the real Session a few lines below, before
+      // any code reads this field. Using null! avoids the `as unknown as` cast.
+      session: null! as Session,
       state,
       parentSendToClient,
     };
@@ -232,7 +234,7 @@ export class SubagentManager {
 
     try {
       // Send the objective as the first user message and process it.
-      const messageId = managed.session.persistUserMessage(objective, []);
+      const messageId = await managed.session.persistUserMessage(objective, []);
       await managed.session.runAgentLoop(objective, messageId, onEvent);
 
       // Agent loop completed successfully.
@@ -349,7 +351,7 @@ export class SubagentManager {
 
   // ── Send message to subagent ──────────────────────────────────────────
 
-  sendMessage(subagentId: string, content: string): 'sent' | 'empty' | 'not_found' | 'terminal' | 'queue_full' {
+  async sendMessage(subagentId: string, content: string): Promise<'sent' | 'empty' | 'not_found' | 'terminal' | 'queue_full'> {
     const trimmed = content?.trim();
     if (!trimmed) return 'empty';
 
@@ -365,7 +367,7 @@ export class SubagentManager {
     if (result.rejected) return 'queue_full';
     if (!result.queued) {
       // Session is idle — send directly.  Fire-and-forget so we don't block.
-      const messageId = managed.session.persistUserMessage(trimmed, []);
+      const messageId = await managed.session.persistUserMessage(trimmed, []);
       managed.session.runAgentLoop(trimmed, messageId, onEvent).catch((err) => {
         log.error({ subagentId, err }, 'Subagent message processing failed');
       });

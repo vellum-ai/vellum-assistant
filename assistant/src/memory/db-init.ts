@@ -18,12 +18,15 @@ import {
   createWatchersAndLogsTables,
   migrateCallSessionMode,
   migrateChannelInboundDeliveredSegments,
+  migrateConversationsThreadTypeIndex,
   migrateGuardianActionFollowup,
   migrateGuardianBootstrapToken,
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
   migrateReminderRoutingIntent,
+  migrateSchemaIndexesAndColumns,
+  recoverCrashedMigrations,
   runComplexMigrations,
   runLateMigrations,
   validateMigrationState,
@@ -34,6 +37,10 @@ export function initializeDb(): void {
 
   // 1. Create core tables (conversations, messages, memory, etc.)
   createCoreTables(database);
+
+  // 1b. Clear any stalled 'started' checkpoints left by previous crashes
+  // so the affected migrations can re-run from scratch.
+  recoverCrashedMigrations(database);
 
   // 2. Create watchers, logs, entities, FTS, and conversation keys
   createWatchersAndLogsTables(database);
@@ -92,6 +99,9 @@ export function initializeDb(): void {
   // 14c. Guardian action follow-up lifecycle columns (timeout reason, late answers)
   migrateGuardianActionFollowup(database);
 
+  // 14d. Index on conversations.thread_type for frequent WHERE filters
+  migrateConversationsThreadTypeIndex(database);
+
   // 15. Notification system
   createNotificationTables(database);
 
@@ -107,6 +117,9 @@ export function initializeDb(): void {
 
   // 19. Reminder routing metadata (routing_intent + routing_hints_json columns)
   migrateReminderRoutingIntent(database);
+
+  // 20. Schema indexes, columns, and constraints
+  migrateSchemaIndexesAndColumns(database);
 
   validateMigrationState(database);
 }

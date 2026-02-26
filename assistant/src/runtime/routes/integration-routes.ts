@@ -21,6 +21,7 @@ import {
   createGuardianChallenge,
   getGuardianStatus,
 } from '../../daemon/handlers/config-channels.js';
+import { httpError } from '../http-errors.js';
 import {
   clearTelegramConfig,
   getTelegramConfig,
@@ -33,6 +34,7 @@ import {
   resendOutbound,
   startOutbound,
 } from '../guardian-outbound-actions.js';
+import { guardianVerificationLimiter } from '../verification-rate-limiter.js';
 
 /**
  * GET /v1/integrations/telegram/config
@@ -142,11 +144,14 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
     originConversationId?: string;
   };
   if (!body.channel) {
-    return Response.json(
-      { success: false, error: 'missing_channel', message: 'The "channel" field is required.' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'The "channel" field is required.', 400);
   }
+
+  // Rate-limit by destination identity before processing
+  if (body.destination && guardianVerificationLimiter.isBlocked(body.destination)) {
+    return httpError('RATE_LIMITED', 'Too many verification attempts for this identity. Please try again later.', 429);
+  }
+
   const result = startOutbound({
     channel: body.channel,
     destination: body.destination,
@@ -154,7 +159,12 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
     rebind: body.rebind,
     originConversationId: body.originConversationId,
   });
-  const status = result.success ? 200 : 400;
+
+  if (!result.success && body.destination) {
+    guardianVerificationLimiter.recordFailure(body.destination);
+  }
+
+  const status = result.success ? 200 : (result.error === 'rate_limited' ? 429 : 400);
   return Response.json(result, { status });
 }
 
@@ -170,17 +180,14 @@ export async function handleResendOutbound(req: Request): Promise<Response> {
     originConversationId?: string;
   };
   if (!body.channel) {
-    return Response.json(
-      { success: false, error: 'missing_channel', message: 'The "channel" field is required.' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'The "channel" field is required.', 400);
   }
   const result = resendOutbound({
     channel: body.channel,
     assistantId: body.assistantId,
     originConversationId: body.originConversationId,
   });
-  const status = result.success ? 200 : 400;
+  const status = result.success ? 200 : (result.error === 'rate_limited' ? 429 : 400);
   return Response.json(result, { status });
 }
 
@@ -195,10 +202,7 @@ export async function handleCancelOutbound(req: Request): Promise<Response> {
     assistantId?: string;
   };
   if (!body.channel) {
-    return Response.json(
-      { success: false, error: 'missing_channel', message: 'The "channel" field is required.' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'The "channel" field is required.', 400);
   }
   const result = cancelOutbound({
     channel: body.channel,

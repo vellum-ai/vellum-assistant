@@ -1,3 +1,4 @@
+import { IntegrityError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
 import { MIGRATION_REGISTRY, type MigrationValidationResult } from './registry.js';
@@ -5,14 +6,97 @@ import { MIGRATION_REGISTRY, type MigrationValidationResult } from './registry.j
 const log = getLogger('memory-db');
 
 /**
+ * Recover from crashed migrations before the migration runner executes.
+ *
+ * Scans memory_checkpoints for entries with value 'started' — these represent
+ * migrations that began but never completed (e.g., due to a process crash).
+ * Deletes the stalled checkpoint so the migration can re-run from scratch on
+ * this startup. Each migration's own idempotency guards (DDL IF NOT EXISTS,
+ * transactional rollback) ensure re-running is safe.
+ *
+ * Call this BEFORE running migrations so that stalled checkpoints don't block
+ * re-execution.
+ */
+export function recoverCrashedMigrations(database: DrizzleDb): string[] {
+  const raw = getSqliteFrom(database);
+
+  let rows: Array<{ key: string; value: string }>;
+  try {
+    rows = raw.query(`SELECT key, value FROM memory_checkpoints`).all() as Array<{ key: string; value: string }>;
+  } catch {
+    return [];
+  }
+
+  const crashed = rows.filter((r) => r.value === 'started').map((r) => r.key);
+  if (crashed.length === 0) return [];
+
+  log.error(
+    { crashed },
+    [
+      '╔══════════════════════════════════════════════════════════════╗',
+      '║  CRASHED MIGRATIONS DETECTED — AUTO-RECOVERING             ║',
+      '╚══════════════════════════════════════════════════════════════╝',
+      '',
+      `The following migrations started but never completed: ${crashed.join(', ')}`,
+      '',
+      'Clearing stalled checkpoints so they can be retried on this startup.',
+      'If retries continue to fail, manually inspect the database:',
+      '  sqlite3 ~/.vellum/data/assistant.db "SELECT * FROM memory_checkpoints"',
+    ].join('\n'),
+  );
+
+  for (const key of crashed) {
+    raw.query(`DELETE FROM memory_checkpoints WHERE key = ?`).run(key);
+    log.info({ key }, `Cleared stalled checkpoint "${key}" — migration will re-run`);
+  }
+
+  return crashed;
+}
+
+/**
+ * Wrap a migration function with crash-recovery bookkeeping.
+ *
+ * Writes a 'started' checkpoint before executing the migration body, then
+ * overwrites it with the completion value on success. If the process crashes
+ * between the start marker and completion, recoverCrashedMigrations (which
+ * runs before all migrations) will detect and clear it on the next startup.
+ *
+ * The migrationFn receives the raw SQLite database and should perform its
+ * own transaction management internally.
+ */
+export function withCrashRecovery(
+  database: DrizzleDb,
+  checkpointKey: string,
+  migrationFn: () => void,
+): void {
+  const raw = getSqliteFrom(database);
+
+  const existing = raw.query(
+    `SELECT value FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey) as { value: string } | null;
+  if (existing && existing.value !== 'started') return;
+
+  raw.query(
+    `INSERT OR REPLACE INTO memory_checkpoints (key, value, updated_at) VALUES (?, 'started', ?)`,
+  ).run(checkpointKey, Date.now());
+
+  migrationFn();
+
+  raw.query(
+    `UPDATE memory_checkpoints SET value = '1', updated_at = ? WHERE key = ?`,
+  ).run(Date.now(), checkpointKey);
+}
+
+/**
  * Validate the applied migration state against the registry at startup.
  *
- * Logs warnings when a migration started but never completed (crash detected),
- * and logs errors when a migration was applied but a declared prerequisite is
- * missing from the checkpoints table (dependency ordering violation).
+ * Logs a prominent error when a migration started but never completed (crash
+ * detected) — startup continues so the migration can be retried.
  *
- * Returns structured diagnostic data so callers (e.g. tests) can assert on the
- * specific issues detected without having to re-query the DB or inspect logs.
+ * Throws an IntegrityError when a migration was applied but a declared
+ * prerequisite is missing from the checkpoints table (dependency ordering
+ * violation). This blocks daemon startup to prevent running with an
+ * inconsistent database schema.
  *
  * Call this AFTER all DDL and migration functions have run so that the final
  * state is inspected.
@@ -28,15 +112,23 @@ export function validateMigrationState(database: DrizzleDb): MigrationValidation
     return { crashed: [], dependencyViolations: [] };
   }
 
-  // Detect crashed migrations: a checkpoint value of 'started' means the
-  // migration wrote its start marker but never reached the completion INSERT.
-  // The migration will re-run on the next startup (its own idempotency guard
-  // will determine safety), but we surface a warning for visibility.
+  // Any remaining 'started' checkpoints after recovery + migration execution
+  // indicate a migration that was retried but failed again.
   const crashed = rows.filter((r) => r.value === 'started').map((r) => r.key);
   if (crashed.length > 0) {
-    log.warn(
+    log.error(
       { crashed },
-      'Crashed migrations detected — these migrations started but never completed; they will re-run on next startup',
+      [
+        '╔══════════════════════════════════════════════════════════════╗',
+        '║  MIGRATIONS STILL INCOMPLETE AFTER RETRY                   ║',
+        '╚══════════════════════════════════════════════════════════════╝',
+        '',
+        `The following migrations were retried but still did not complete: ${crashed.join(', ')}`,
+        '',
+        'Manual intervention is required. Inspect the database and resolve:',
+        '  sqlite3 ~/.vellum/data/assistant.db "DELETE FROM memory_checkpoints WHERE key = \'<migration_key>\'"',
+        'Then restart the daemon.',
+      ].join('\n'),
     );
   }
 
@@ -56,13 +148,19 @@ export function validateMigrationState(database: DrizzleDb): MigrationValidation
 
     for (const dep of entry.dependsOn) {
       if (!completed.has(dep)) {
-        log.error(
-          { migration: entry.key, missingDependency: dep, version: entry.version },
-          'Migration dependency violation: this migration is marked complete but its declared prerequisite has no checkpoint — database schema may be inconsistent',
-        );
         dependencyViolations.push({ migration: entry.key, missingDependency: dep });
       }
     }
+  }
+
+  if (dependencyViolations.length > 0) {
+    const details = dependencyViolations
+      .map((v) => `  - "${v.migration}" requires "${v.missingDependency}" but it has no checkpoint`)
+      .join('\n');
+    throw new IntegrityError(
+      `Migration dependency violations detected — database schema may be inconsistent:\n${details}\n` +
+      'The daemon cannot start safely. Inspect the database and re-run missing migrations.',
+    );
   }
 
   return { crashed, dependencyViolations };

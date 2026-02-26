@@ -8,6 +8,7 @@ import { getConversationByKey } from '../../memory/conversation-key-store.js';
 import { addRule } from '../../permissions/trust-store.js';
 import { getTool } from '../../tools/registry.js';
 import { getLogger } from '../../util/logger.js';
+import { httpError } from '../http-errors.js';
 import * as pendingInteractions from '../pending-interactions.js';
 
 const log = getLogger('approval-routes');
@@ -24,22 +25,16 @@ export async function handleConfirm(req: Request): Promise<Response> {
   const { requestId, decision } = body;
 
   if (!requestId || typeof requestId !== 'string') {
-    return Response.json({ error: 'requestId is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'requestId is required', 400);
   }
 
   if (decision !== 'allow' && decision !== 'deny') {
-    return Response.json(
-      { error: 'decision must be "allow" or "deny"' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'decision must be "allow" or "deny"', 400);
   }
 
   const interaction = pendingInteractions.resolve(requestId);
   if (!interaction) {
-    return Response.json(
-      { error: 'No pending interaction found for this requestId' },
-      { status: 404 },
-    );
+    return httpError('NOT_FOUND', 'No pending interaction found for this requestId', 404);
   }
 
   interaction.session.handleConfirmationResponse(requestId, decision);
@@ -59,22 +54,16 @@ export async function handleSecret(req: Request): Promise<Response> {
   const { requestId, value, delivery } = body;
 
   if (!requestId || typeof requestId !== 'string') {
-    return Response.json({ error: 'requestId is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'requestId is required', 400);
   }
 
   if (delivery !== undefined && delivery !== 'store' && delivery !== 'transient_send') {
-    return Response.json(
-      { error: 'delivery must be "store" or "transient_send"' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'delivery must be "store" or "transient_send"', 400);
   }
 
   const interaction = pendingInteractions.resolve(requestId);
   if (!interaction) {
-    return Response.json(
-      { error: 'No pending interaction found for this requestId' },
-      { status: 404 },
-    );
+    return httpError('NOT_FOUND', 'No pending interaction found for this requestId', 404);
   }
 
   interaction.session.handleSecretResponse(
@@ -104,62 +93,47 @@ export async function handleTrustRule(req: Request): Promise<Response> {
   const { requestId, pattern, scope, decision } = body;
 
   if (!requestId || typeof requestId !== 'string') {
-    return Response.json({ error: 'requestId is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'requestId is required', 400);
   }
 
   if (!pattern || typeof pattern !== 'string') {
-    return Response.json({ error: 'pattern is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'pattern is required', 400);
   }
 
   if (!scope || typeof scope !== 'string') {
-    return Response.json({ error: 'scope is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'scope is required', 400);
   }
 
   if (decision !== 'allow' && decision !== 'deny') {
-    return Response.json({ error: 'decision must be "allow" or "deny"' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'decision must be "allow" or "deny"', 400);
   }
 
   // Look up without removing — trust rule doesn't resolve the confirmation
   const interaction = pendingInteractions.get(requestId);
   if (!interaction) {
-    return Response.json(
-      { error: 'No pending interaction found for this requestId' },
-      { status: 404 },
-    );
+    return httpError('NOT_FOUND', 'No pending interaction found for this requestId', 404);
   }
 
   if (!interaction.confirmationDetails) {
-    return Response.json(
-      { error: 'No confirmation details available for this request' },
-      { status: 409 },
-    );
+    return httpError('CONFLICT', 'No confirmation details available for this request', 409);
   }
 
   const confirmation = interaction.confirmationDetails;
 
   if (confirmation.persistentDecisionsAllowed === false) {
-    return Response.json(
-      { error: 'Persistent trust rules are not allowed for this tool invocation' },
-      { status: 403 },
-    );
+    return httpError('FORBIDDEN', 'Persistent trust rules are not allowed for this tool invocation', 403);
   }
 
   // Validate pattern against server-provided allowlist options
   const validPatterns = (confirmation.allowlistOptions ?? []).map((o) => o.pattern);
   if (!validPatterns.includes(pattern)) {
-    return Response.json(
-      { error: 'pattern does not match any server-provided allowlist option' },
-      { status: 403 },
-    );
+    return httpError('FORBIDDEN', 'pattern does not match any server-provided allowlist option', 403);
   }
 
   // Validate scope against server-provided scope options
   const validScopes = (confirmation.scopeOptions ?? []).map((o) => o.scope);
   if (!validScopes.includes(scope)) {
-    return Response.json(
-      { error: 'scope does not match any server-provided scope option' },
-      { status: 403 },
-    );
+    return httpError('FORBIDDEN', 'scope does not match any server-provided scope option', 403);
   }
 
   try {
@@ -175,7 +149,7 @@ export async function handleTrustRule(req: Request): Promise<Response> {
     return Response.json({ accepted: true });
   } catch (err) {
     log.error({ err }, 'Failed to add trust rule');
-    return Response.json({ error: 'Failed to add trust rule' }, { status: 500 });
+    return httpError('INTERNAL_ERROR', 'Failed to add trust rule', 500);
   }
 }
 
@@ -197,10 +171,7 @@ export function handleListPendingInteractions(url: URL): Response {
     const mapping = getConversationByKey(conversationKey);
     resolvedConversationId = mapping?.conversationId;
   } else {
-    return Response.json(
-      { error: 'conversationKey or conversationId query parameter is required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'conversationKey or conversationId query parameter is required', 400);
   }
 
   if (!resolvedConversationId) {

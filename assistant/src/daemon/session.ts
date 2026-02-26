@@ -490,13 +490,13 @@ export class Session {
     return this.currentTurnInterfaceContext;
   }
 
-  persistUserMessage(
+  async persistUserMessage(
     content: string,
     attachments: UserMessageAttachment[],
     requestId?: string,
     metadata?: Record<string, unknown>,
     displayContent?: string,
-  ): string {
+  ): Promise<string> {
     return persistUserMessageImpl(this, content, attachments, requestId, metadata, displayContent);
   }
 
@@ -506,14 +506,14 @@ export class Session {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; titleText?: string },
   ): Promise<void> {
     return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
   }
 
 
-  drainQueue(reason: QueueDrainReason = 'loop_complete'): void {
-    drainQueueImpl(this as ProcessSessionContext, reason);
+  drainQueue(reason: QueueDrainReason = 'loop_complete'): Promise<void> {
+    return drainQueueImpl(this as ProcessSessionContext, reason);
   }
 
   async processMessage(

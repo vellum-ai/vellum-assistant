@@ -85,8 +85,8 @@ describe('Runtime attachment metadata', () => {
 
     // Set up conversation and messages using "self" as the assistantId
     const mapping = getOrCreateConversation(conversationKey);
-    conversationStore.addMessage(mapping.conversationId, 'user', 'Hello');
-    const assistantMsg = conversationStore.addMessage(
+    await conversationStore.addMessage(mapping.conversationId, 'user', 'Hello');
+    const assistantMsg = await conversationStore.addMessage(
       mapping.conversationId,
       'assistant',
       JSON.stringify([{ type: 'text', text: 'Here is a chart' }]),
@@ -124,8 +124,8 @@ describe('Runtime attachment metadata', () => {
     const conversationKey = 'test-conv-2';
 
     const mapping = getOrCreateConversation(conversationKey);
-    conversationStore.addMessage(mapping.conversationId, 'user', 'Hello');
-    conversationStore.addMessage(
+    await conversationStore.addMessage(mapping.conversationId, 'user', 'Hello');
+    await conversationStore.addMessage(
       mapping.conversationId,
       'assistant',
       JSON.stringify([{ type: 'text', text: 'No attachments here' }]),

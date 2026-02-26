@@ -29,6 +29,7 @@ export class DedupCache {
    * the TTL cache.
    */
   private highWaterMark = -Infinity;
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(ttlMs = 5 * 60_000, maxSize = 10_000) {
     this.ttlMs = ttlMs;
@@ -141,6 +142,20 @@ export class DedupCache {
     return this.cache.size;
   }
 
+  /** Start a periodic background sweep of expired entries. */
+  startCleanup(intervalMs = 60_000): void {
+    this.stopCleanup();
+    this.cleanupTimer = setInterval(() => this.evictExpired(), intervalMs);
+  }
+
+  /** Stop the periodic background sweep. */
+  stopCleanup(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+  }
+
   private evictExpired(): void {
     const now = Date.now();
     let evicted = 0;
@@ -171,6 +186,7 @@ export class StringDedupCache {
   private processing = new Set<string>();
   private readonly ttlMs: number;
   private readonly maxSize: number;
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(ttlMs = 5 * 60_000, maxSize = 10_000) {
     this.ttlMs = ttlMs;
@@ -250,6 +266,20 @@ export class StringDedupCache {
 
   get size(): number {
     return this.cache.size;
+  }
+
+  /** Start a periodic background sweep of expired entries. */
+  startCleanup(intervalMs = 60_000): void {
+    this.stopCleanup();
+    this.cleanupTimer = setInterval(() => this.evictExpired(Date.now()), intervalMs);
+  }
+
+  /** Stop the periodic background sweep. */
+  stopCleanup(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
   }
 
   private evictExpired(now: number): void {

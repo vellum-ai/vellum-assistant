@@ -8,6 +8,19 @@ import type { DrizzleDb } from '../db-connection.js';
  * (type, text, tool_use) are short common words that rarely matter as search
  * terms.  The existing buildExcerpt() in conversation-store handles extracting
  * readable text from JSON for display after matching.
+ *
+ * ## Trigger atomicity and failure modes
+ *
+ * SQLite triggers execute atomically within the triggering statement's
+ * transaction. If the FTS trigger fails (e.g., corrupted FTS index), the
+ * entire statement — including the base table INSERT/UPDATE/DELETE — is
+ * rolled back. This means a trigger failure does NOT silently lose FTS
+ * data; instead, it prevents the base operation from succeeding at all.
+ *
+ * The real risk is the reverse: a corrupted FTS virtual table will cause
+ * ALL writes to the messages table to fail until the FTS table is rebuilt.
+ * If this happens, `messages_fts` should be dropped and recreated, then
+ * backfilled via `migrateMessagesFtsBackfill`.
  */
 export function createMessagesFts(database: DrizzleDb): void {
   database.run(/*sql*/ `

@@ -56,8 +56,18 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
   private async initialize(): Promise<void> {
     log.info({ model: this.model }, 'Loading local embedding model (first load downloads the model)');
-    const { pipeline } = await import('@huggingface/transformers');
-    this.extractor = await pipeline('feature-extraction', this.model, {
+    let transformers: typeof import('@huggingface/transformers');
+    try {
+      transformers = await import('@huggingface/transformers');
+    } catch (err) {
+      // onnxruntime-node is not bundled in compiled binaries, so the import
+      // fails at runtime. Surface a clear error so callers can fall back to
+      // another embedding backend.
+      throw new Error(
+        `Local embedding backend unavailable: failed to load @huggingface/transformers (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+    this.extractor = await transformers.pipeline('feature-extraction', this.model, {
       dtype: 'fp32',
     }) as unknown as FeatureExtractionPipeline;
     log.info({ model: this.model }, 'Local embedding model loaded');

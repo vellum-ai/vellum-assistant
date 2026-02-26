@@ -21,7 +21,7 @@ struct RecordingSourcePickerView: View {
             Text("Screen Recording")
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
-                .padding(.top, VSpacing.xl)
+                .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.sm)
 
             Text("Choose what to record")
@@ -38,7 +38,7 @@ struct RecordingSourcePickerView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .controlSize(.large)
-            .padding(.horizontal, VSpacing.xl)
+            .padding(.horizontal, VSpacing.lg)
             .padding(.bottom, VSpacing.sm)
 
             // Preview pane
@@ -108,7 +108,7 @@ struct RecordingSourcePickerView: View {
     /// The rows of source items (display or window) without a scroll wrapper.
     @ViewBuilder
     private var sourceListContent: some View {
-        VStack(spacing: VSpacing.xs) {
+        VStack(spacing: VSpacing.sm) {
             switch viewModel.captureScope {
             case .display:
                 ForEach(viewModel.displays) { display in
@@ -179,16 +179,19 @@ struct RecordingSourcePickerView: View {
                         .font(VFont.bodyMedium)
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1)
-                    Text(window.appName)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .lineLimit(1)
+                    if !window.appName.isEmpty {
+                        Text(window.appName)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer()
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18))
                         .foregroundColor(VColor.accent)
                 }
             }
@@ -223,11 +226,6 @@ struct RecordingSourcePickerView: View {
                     size: rowThumbnailSize
                 )
 
-                Image(systemName: "display")
-                    .font(.system(size: 16))
-                    .foregroundColor(isSelected ? VColor.accent : VColor.textSecondary)
-                    .frame(width: 24)
-
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: VSpacing.sm) {
                         Text(display.name)
@@ -248,6 +246,7 @@ struct RecordingSourcePickerView: View {
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18))
                         .foregroundColor(VColor.accent)
                 }
             }
@@ -326,6 +325,7 @@ struct RecordingSourcePickerView: View {
                     onStart(viewModel.selectedRecordingOptions)
                 }
             }
+            .padding(.top, VSpacing.xs)
             .padding(.horizontal, VSpacing.xl)
             .background {
                 // Hidden buttons for keyboard shortcuts

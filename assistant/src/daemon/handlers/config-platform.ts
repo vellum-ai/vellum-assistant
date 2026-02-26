@@ -38,7 +38,7 @@ export async function handlePlatformConfig(
         type: 'platform_config_response',
         baseUrl: '',
         success: false,
-        error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}`,
+        error: `Unknown action: ${String(msg.action)}`,
       });
     }
   } catch (err) {

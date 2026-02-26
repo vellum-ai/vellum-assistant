@@ -1,7 +1,7 @@
 import { and, asc, eq, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getDb } from '../../memory/db.js';
+import { getDb, rawChanges } from '../../memory/db.js';
 import { reminders } from '../../memory/schema.js';
 import { cast,createRowMapper, parseJson } from '../../util/row-mapper.js';
 
@@ -107,12 +107,12 @@ export function listReminders(options?: { pendingOnly?: boolean }): ReminderRow[
 export function cancelReminder(id: string): boolean {
   const db = getDb();
   const now = Date.now();
-  const result = db
+  db
     .update(reminders)
     .set({ status: 'cancelled', updatedAt: now })
     .where(and(eq(reminders.id, id), eq(reminders.status, 'pending')))
-    .run() as unknown as { changes?: number };
-  return (result.changes ?? 0) > 0;
+    .run();
+  return rawChanges() > 0;
 }
 
 /**
@@ -132,13 +132,13 @@ export function claimDueReminders(now: number): ReminderRow[] {
 
   const claimed: ReminderRow[] = [];
   for (const row of candidates) {
-    const result = db
+    db
       .update(reminders)
       .set({ status: 'firing', firedAt: now, updatedAt: now })
       .where(and(eq(reminders.id, row.id), eq(reminders.status, 'pending')))
-      .run() as unknown as { changes?: number };
+      .run();
 
-    if ((result.changes ?? 0) === 0) continue;
+    if (rawChanges() === 0) continue;
 
     claimed.push(parseRow({
       ...row,

@@ -42,10 +42,12 @@ import {
   getInterfacesDir,
   getRootDir,
   getSocketPath,
+  removeSocketFile,
 } from '../util/platform.js';
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
 import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
+import { hasNoAuthOverride, hasUngatedNoAuthOverride } from './connection-policy.js';
 import { cleanupPidFile,writePid } from './daemon-control.js';
 import { createGuardianActionCopyGenerator } from './guardian-action-generators.js';
 import { initPairingHandlers } from './handlers/pairing.js';
@@ -77,217 +79,246 @@ function loadDotEnv(): void {
 export async function runDaemon(): Promise<void> {
   loadDotEnv();
   validateEnv();
-  initSentry();
-  await initLogfire();
 
-  // Migration order matters: first move legacy flat files into the data dir
-  // structure, then relocate the data dir into the active workspace, and
-  // finally create any directories that don't yet exist.
-  migrateToDataLayout();
-  migrateToWorkspaceLayout();
-  ensureDataDir();
+  if (hasUngatedNoAuthOverride()) {
+    log.warn('VELLUM_DAEMON_NOAUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.');
+  } else if (hasNoAuthOverride()) {
+    log.warn('VELLUM_DAEMON_NOAUTH is set — IPC authentication is DISABLED. This should only be used for development or SSH-forwarded sockets. Do not use in production.');
+  }
 
-  log.info('Daemon startup: migrations complete');
-
-  seedInterfaceFiles();
-
-  log.info('Daemon startup: installing templates and initializing DB');
-  installTemplates();
-  ensurePromptFiles();
+  // Track whether the IPC socket has been created so we can clean it up
+  // if init crashes after the socket is bound but before shutdown handlers
+  // are installed.
+  let socketCreated = false;
 
   try {
-    installCliLaunchers();
-  } catch (err) {
-    log.warn({ err }, 'CLI launcher installation failed — continuing startup');
-  }
-  initializeDb();
-  log.info('Daemon startup: DB initialized');
+    initSentry();
+    await initLogfire();
 
-  // Recover orphaned work items that were left in 'running' state when the
-  // daemon previously crashed or was killed mid-task.
-  const orphanedRunning = listWorkItems({ status: 'running' });
-  if (orphanedRunning.length > 0) {
-    for (const item of orphanedRunning) {
-      updateWorkItem(item.id, { status: 'failed', lastRunStatus: 'interrupted' });
-      log.info({ workItemId: item.id, title: item.title }, 'Recovered orphaned running work item → failed (interrupted)');
-    }
-    log.info({ count: orphanedRunning.length }, 'Recovered orphaned running work items');
-  }
+    // Migration order matters: first move legacy flat files into the data dir
+    // structure, then relocate the data dir into the active workspace, and
+    // finally create any directories that don't yet exist.
+    migrateToDataLayout();
+    migrateToWorkspaceLayout();
+    ensureDataDir();
 
-  try {
-    const twilioProvider = new TwilioConversationRelayProvider();
-    await reconcileCallsOnStartup(twilioProvider, log);
-  } catch (err) {
-    log.warn({ err }, 'Call recovery failed — continuing startup');
-  }
+    log.info('Daemon startup: migrations complete');
 
-  log.info('Daemon startup: loading config');
-  const config = loadConfig();
+    seedInterfaceFiles();
 
-  if (config.logFile.dir) {
-    initLogger({ dir: config.logFile.dir, retentionDays: config.logFile.retentionDays });
-  }
+    log.info('Daemon startup: installing templates and initializing DB');
+    installTemplates();
+    ensurePromptFiles();
 
-  await initializeProvidersAndTools(config);
-
-  // Start the IPC socket BEFORE Qdrant so that clients can connect
-  // immediately. Qdrant startup can take 30+ seconds (binary download,
-  // /readyz polling) which previously blocked the socket from appearing.
-  log.info('Daemon startup: starting DaemonServer (IPC socket)');
-  const server = new DaemonServer();
-  await server.start();
-  log.info('Daemon startup: DaemonServer started');
-
-  // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
-  const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
-  log.info({ qdrantUrl }, 'Daemon startup: initializing Qdrant');
-  const qdrantManager = new QdrantManager({ url: qdrantUrl });
-  try {
-    await qdrantManager.start();
-    initQdrantClient({
-      url: qdrantUrl,
-      collection: config.memory.qdrant.collection,
-      vectorSize: config.memory.qdrant.vectorSize,
-      onDisk: config.memory.qdrant.onDisk,
-      quantization: config.memory.qdrant.quantization,
-    });
-    log.info('Qdrant vector store initialized');
-  } catch (err) {
-    log.warn({ err }, 'Qdrant failed to start — memory features will be unavailable');
-  }
-
-  log.info('Daemon startup: starting memory worker');
-  const memoryWorker = startMemoryJobsWorker();
-
-  registerWatcherProviders();
-  registerMessagingProviders();
-
-  // Register the IPC broadcast function for the notification signal pipeline's
-  // macOS adapter so it can deliver notification_intent messages to desktop clients.
-  registerBroadcastFn((msg) => server.broadcast(msg));
-
-  const scheduler = startScheduler(
-    async (conversationId, message) => {
-      await server.processMessage(conversationId, message);
-    },
-    (reminder) => {
-      void emitNotificationSignal({
-        sourceEventName: 'reminder.fired',
-        sourceChannel: 'scheduler',
-        sourceSessionId: reminder.id,
-        attentionHints: {
-          requiresAction: true,
-          urgency: 'high',
-          isAsyncBackground: false,
-          visibleInSourceNow: false,
-        },
-        contextPayload: {
-          reminderId: reminder.id,
-          label: reminder.label,
-          message: reminder.message,
-        },
-        routingIntent: reminder.routingIntent,
-        routingHints: reminder.routingHints,
-        dedupeKey: `reminder:${reminder.id}`,
-      });
-    },
-    (schedule) => {
-      void emitNotificationSignal({
-        sourceEventName: 'schedule.complete',
-        sourceChannel: 'scheduler',
-        sourceSessionId: schedule.id,
-        attentionHints: {
-          requiresAction: false,
-          urgency: 'medium',
-          isAsyncBackground: true,
-          visibleInSourceNow: false,
-        },
-        contextPayload: {
-          scheduleId: schedule.id,
-          name: schedule.name,
-        },
-      });
-    },
-    (notification) => {
-      void emitNotificationSignal({
-        sourceEventName: 'watcher.notification',
-        sourceChannel: 'watcher',
-        sourceSessionId: `watcher-${Date.now()}`,
-        attentionHints: {
-          requiresAction: false,
-          urgency: 'low',
-          isAsyncBackground: true,
-          visibleInSourceNow: false,
-        },
-        contextPayload: {
-          title: notification.title,
-          body: notification.body,
-        },
-      });
-    },
-    (params) => {
-      void emitNotificationSignal({
-        sourceEventName: 'watcher.escalation',
-        sourceChannel: 'watcher',
-        sourceSessionId: `watcher-escalation-${Date.now()}`,
-        attentionHints: {
-          requiresAction: true,
-          urgency: 'high',
-          isAsyncBackground: false,
-          visibleInSourceNow: false,
-        },
-        contextPayload: {
-          title: params.title,
-          body: params.body,
-        },
-      });
-    },
-  );
-
-  // Start the runtime HTTP server. Required for iOS pairing (gateway proxies
-  // to it) and optional REST API access. Defaults to port 7821.
-  let runtimeHttp: RuntimeHttpServer | null = null;
-  const httpPort = getRuntimeHttpPort();
-  log.info({ httpPort }, 'Daemon startup: starting runtime HTTP server');
-
-  // Resolve the bearer token in priority order:
-  //   1. Explicit env var (e.g. cloud deploys)
-  //   2. Existing token file on disk (preserves QR-paired iOS devices across restarts)
-  //   3. Fresh random token (first-time startup)
-  const httpTokenPath = getHttpTokenPath();
-  let bearerToken = getRuntimeProxyBearerToken();
-  if (!bearerToken) {
     try {
-      const existing = readFileSync(httpTokenPath, 'utf-8').trim();
-      if (existing) bearerToken = existing;
-    } catch {
-      // File doesn't exist or can't be read — will generate below
+      installCliLaunchers();
+    } catch (err) {
+      log.warn({ err }, 'CLI launcher installation failed — continuing startup');
     }
-  }
-  if (!bearerToken) {
-    bearerToken = randomBytes(32).toString('hex');
-  }
-  writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
-  chmodSync(httpTokenPath, 0o600);
+    initializeDb();
+    log.info('Daemon startup: DB initialized');
 
-  const hostname = getRuntimeHttpHost();
+    // Recover orphaned work items that were left in 'running' state when the
+    // daemon previously crashed or was killed mid-task.
+    const orphanedRunning = listWorkItems({ status: 'running' });
+    if (orphanedRunning.length > 0) {
+      for (const item of orphanedRunning) {
+        updateWorkItem(item.id, { status: 'failed', lastRunStatus: 'interrupted' });
+        log.info({ workItemId: item.id, title: item.title }, 'Recovered orphaned running work item → failed (interrupted)');
+      }
+      log.info({ count: orphanedRunning.length }, 'Recovered orphaned running work items');
+    }
 
-  runtimeHttp = new RuntimeHttpServer({
-    port: httpPort,
-    hostname,
-    bearerToken,
-    processMessage: (conversationId, content, attachmentIds, options, sourceChannel, sourceInterface) =>
-      server.processMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
-    persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel, sourceInterface) =>
-      server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
-    interfacesDir: getInterfacesDir(),
-    approvalCopyGenerator: createApprovalCopyGenerator(),
-    approvalConversationGenerator: createApprovalConversationGenerator(),
-    guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
-    sendMessageDeps: {
-      getOrCreateSession: (conversationId) =>
+    try {
+      const twilioProvider = new TwilioConversationRelayProvider();
+      await reconcileCallsOnStartup(twilioProvider, log);
+    } catch (err) {
+      log.warn({ err }, 'Call recovery failed — continuing startup');
+    }
+
+    log.info('Daemon startup: loading config');
+    const config = loadConfig();
+
+    if (config.logFile.dir) {
+      initLogger({ dir: config.logFile.dir, retentionDays: config.logFile.retentionDays });
+    }
+
+    await initializeProvidersAndTools(config);
+
+    // Start the IPC socket BEFORE Qdrant so that clients can connect
+    // immediately. Qdrant startup can take 30+ seconds (binary download,
+    // /readyz polling) which previously blocked the socket from appearing.
+    log.info('Daemon startup: starting DaemonServer (IPC socket)');
+    const server = new DaemonServer();
+    await server.start();
+    socketCreated = true;
+    log.info('Daemon startup: DaemonServer started');
+
+    // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
+    const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
+    log.info({ qdrantUrl }, 'Daemon startup: initializing Qdrant');
+    const qdrantManager = new QdrantManager({ url: qdrantUrl });
+    try {
+      await qdrantManager.start();
+      initQdrantClient({
+        url: qdrantUrl,
+        collection: config.memory.qdrant.collection,
+        vectorSize: config.memory.qdrant.vectorSize,
+        onDisk: config.memory.qdrant.onDisk,
+        quantization: config.memory.qdrant.quantization,
+      });
+      log.info('Qdrant vector store initialized');
+    } catch (err) {
+      log.warn({ err }, 'Qdrant failed to start — memory features will be unavailable');
+    }
+
+    log.info('Daemon startup: starting memory worker');
+    const memoryWorker = startMemoryJobsWorker();
+
+    registerWatcherProviders();
+    registerMessagingProviders();
+
+    // Register the IPC broadcast function for the notification signal pipeline's
+    // macOS adapter so it can deliver notification_intent messages to desktop clients.
+    registerBroadcastFn((msg) => server.broadcast(msg));
+
+    const scheduler = startScheduler(
+      async (conversationId, message) => {
+        await server.processMessage(conversationId, message);
+      },
+      (reminder) => {
+        void emitNotificationSignal({
+          sourceEventName: 'reminder.fired',
+          sourceChannel: 'scheduler',
+          sourceSessionId: reminder.id,
+          attentionHints: {
+            requiresAction: true,
+            urgency: 'high',
+            isAsyncBackground: false,
+            visibleInSourceNow: false,
+          },
+          contextPayload: {
+            reminderId: reminder.id,
+            label: reminder.label,
+            message: reminder.message,
+          },
+          routingIntent: reminder.routingIntent,
+          routingHints: reminder.routingHints,
+          dedupeKey: `reminder:${reminder.id}`,
+        });
+      },
+      (schedule) => {
+        void emitNotificationSignal({
+          sourceEventName: 'schedule.complete',
+          sourceChannel: 'scheduler',
+          sourceSessionId: schedule.id,
+          attentionHints: {
+            requiresAction: false,
+            urgency: 'medium',
+            isAsyncBackground: true,
+            visibleInSourceNow: false,
+          },
+          contextPayload: {
+            scheduleId: schedule.id,
+            name: schedule.name,
+          },
+        });
+      },
+      (notification) => {
+        void emitNotificationSignal({
+          sourceEventName: 'watcher.notification',
+          sourceChannel: 'watcher',
+          sourceSessionId: `watcher-${Date.now()}`,
+          attentionHints: {
+            requiresAction: false,
+            urgency: 'low',
+            isAsyncBackground: true,
+            visibleInSourceNow: false,
+          },
+          contextPayload: {
+            title: notification.title,
+            body: notification.body,
+          },
+        });
+      },
+      (params) => {
+        void emitNotificationSignal({
+          sourceEventName: 'watcher.escalation',
+          sourceChannel: 'watcher',
+          sourceSessionId: `watcher-escalation-${Date.now()}`,
+          attentionHints: {
+            requiresAction: true,
+            urgency: 'high',
+            isAsyncBackground: false,
+            visibleInSourceNow: false,
+          },
+          contextPayload: {
+            title: params.title,
+            body: params.body,
+          },
+        });
+      },
+    );
+
+    // Start the runtime HTTP server. Required for iOS pairing (gateway proxies
+    // to it) and optional REST API access. Defaults to port 7821.
+    let runtimeHttp: RuntimeHttpServer | null = null;
+    const httpPort = getRuntimeHttpPort();
+    log.info({ httpPort }, 'Daemon startup: starting runtime HTTP server');
+
+    // Resolve the bearer token in priority order:
+    //   1. Explicit env var (e.g. cloud deploys)
+    //   2. Existing token file on disk (preserves QR-paired iOS devices across restarts)
+    //   3. Fresh random token (first-time startup)
+    const httpTokenPath = getHttpTokenPath();
+    let bearerToken = getRuntimeProxyBearerToken();
+    if (!bearerToken) {
+      try {
+        const existing = readFileSync(httpTokenPath, 'utf-8').trim();
+        if (existing) bearerToken = existing;
+      } catch {
+        // File doesn't exist or can't be read — will generate below
+      }
+    }
+    if (!bearerToken) {
+      bearerToken = randomBytes(32).toString('hex');
+    }
+    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+    chmodSync(httpTokenPath, 0o600);
+
+    const hostname = getRuntimeHttpHost();
+
+    runtimeHttp = new RuntimeHttpServer({
+      port: httpPort,
+      hostname,
+      bearerToken,
+      processMessage: (conversationId, content, attachmentIds, options, sourceChannel, sourceInterface) =>
+        server.processMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
+      persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel, sourceInterface) =>
+        server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
+      interfacesDir: getInterfacesDir(),
+      approvalCopyGenerator: createApprovalCopyGenerator(),
+      approvalConversationGenerator: createApprovalConversationGenerator(),
+      guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
+      sendMessageDeps: {
+        getOrCreateSession: (conversationId) =>
+          server.getSessionForMessages(conversationId),
+        assistantEventHub,
+        resolveAttachments: (attachmentIds) =>
+          attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            data: a.dataBase64,
+          })),
+      },
+    });
+
+    // Inject voice bridge deps BEFORE attempting to start the HTTP server.
+    // The bridge must be available even when the HTTP server fails to bind.
+    setVoiceBridgeDeps({
+      getOrCreateSession: (conversationId, _transport) =>
         server.getSessionForMessages(conversationId),
-      assistantEventHub,
       resolveAttachments: (attachmentIds) =>
         attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
           id: a.id,
@@ -295,80 +326,77 @@ export async function runDaemon(): Promise<void> {
           mimeType: a.mimeType,
           data: a.dataBase64,
         })),
-    },
-  });
-
-  // Inject voice bridge deps BEFORE attempting to start the HTTP server.
-  // The bridge must be available even when the HTTP server fails to bind.
-  setVoiceBridgeDeps({
-    getOrCreateSession: (conversationId, _transport) =>
-      server.getSessionForMessages(conversationId),
-    resolveAttachments: (attachmentIds) =>
-      attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
-        id: a.id,
-        filename: a.originalFilename,
-        mimeType: a.mimeType,
-        data: a.dataBase64,
-      })),
-    deriveDefaultStrictSideEffects: (conversationId) => {
-      const threadType = conversationStore.getConversationThreadType(conversationId);
-      return threadType === 'private';
-    },
-  });
-  try {
-    await runtimeHttp.start();
-    setRelayBroadcast((msg) => server.broadcast(msg));
-    runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg as ServerMessage));
-    initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
-    initSlashPairingContext(runtimeHttp.getPairingStore());
-    server.setHttpPort(httpPort);
-    log.info({ port: httpPort, hostname }, 'Daemon startup: runtime HTTP server listening');
-  } catch (err) {
-    log.warn({ err, port: httpPort }, 'Failed to start runtime HTTP server, continuing without it');
-    runtimeHttp = null;
-  }
-
-  writePid(process.pid);
-  log.info({ pid: process.pid }, 'Daemon started');
-
-  const hookManager = getHookManager();
-  hookManager.watch();
-
-  void hookManager.trigger('daemon-start', {
-    pid: process.pid,
-    socketPath: getSocketPath(),
-  });
-
-  if (config.auditLog.retentionDays > 0) {
+      deriveDefaultStrictSideEffects: (conversationId) => {
+        const threadType = conversationStore.getConversationThreadType(conversationId);
+        return threadType === 'private';
+      },
+    });
     try {
-      rotateToolInvocations(config.auditLog.retentionDays);
+      await runtimeHttp.start();
+      setRelayBroadcast((msg) => server.broadcast(msg));
+      runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg as ServerMessage));
+      initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
+      initSlashPairingContext(runtimeHttp.getPairingStore());
+      server.setHttpPort(httpPort);
+      log.info({ port: httpPort, hostname }, 'Daemon startup: runtime HTTP server listening');
     } catch (err) {
-      log.warn({ err }, 'Audit log rotation failed');
+      log.warn({ err, port: httpPort }, 'Failed to start runtime HTTP server, continuing without it');
+      runtimeHttp = null;
     }
+
+    writePid(process.pid);
+    log.info({ pid: process.pid }, 'Daemon started');
+
+    const hookManager = getHookManager();
+    hookManager.watch();
+
+    void hookManager.trigger('daemon-start', {
+      pid: process.pid,
+      socketPath: getSocketPath(),
+    });
+
+    if (config.auditLog.retentionDays > 0) {
+      try {
+        rotateToolInvocations(config.auditLog.retentionDays);
+      } catch (err) {
+        log.warn({ err }, 'Audit log rotation failed');
+      }
+    }
+
+    const workspaceHeartbeat = new WorkspaceHeartbeatService();
+    workspaceHeartbeat.start();
+
+    const heartbeatConfig = config.heartbeat;
+    const heartbeat = new HeartbeatService({
+      processMessage: (conversationId, content) =>
+        server.processMessage(conversationId, content),
+      alerter: (alert) => server.broadcast(alert),
+    });
+    heartbeat.start();
+    server.setHeartbeatService(heartbeat);
+    log.info({ enabled: heartbeatConfig.enabled, intervalMs: heartbeatConfig.intervalMs }, 'Heartbeat service configured');
+
+    installShutdownHandlers({
+      server,
+      workspaceHeartbeat,
+      heartbeat,
+      hookManager,
+      runtimeHttp,
+      scheduler,
+      memoryWorker,
+      qdrantManager,
+      cleanupPidFile,
+    });
+  } catch (err) {
+    log.error({ err }, 'Daemon startup failed — cleaning up');
+    cleanupPidFile();
+    if (socketCreated) {
+      try {
+        removeSocketFile(getSocketPath());
+      } catch {
+        // Best-effort socket cleanup
+      }
+    }
+    throw err;
   }
-
-  const workspaceHeartbeat = new WorkspaceHeartbeatService();
-  workspaceHeartbeat.start();
-
-  const heartbeatConfig = config.heartbeat;
-  const heartbeat = new HeartbeatService({
-    processMessage: (conversationId, content) =>
-      server.processMessage(conversationId, content),
-    alerter: (alert) => server.broadcast(alert),
-  });
-  heartbeat.start();
-  server.setHeartbeatService(heartbeat);
-  log.info({ enabled: heartbeatConfig.enabled, intervalMs: heartbeatConfig.intervalMs }, 'Heartbeat service configured');
-
-  installShutdownHandlers({
-    server,
-    workspaceHeartbeat,
-    heartbeat,
-    hookManager,
-    runtimeHttp,
-    scheduler,
-    memoryWorker,
-    qdrantManager,
-    cleanupPidFile,
-  });
 }

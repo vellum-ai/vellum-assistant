@@ -132,7 +132,7 @@ export interface AgentLoopSessionContext {
   getQueueDepth(): number;
   hasQueuedMessages(): boolean;
   canHandoffAtCheckpoint(): boolean;
-  drainQueue(reason: QueueDrainReason): void;
+  drainQueue(reason: QueueDrainReason): Promise<void>;
   getTurnChannelContext(): TurnChannelContext | null;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
@@ -144,7 +144,7 @@ export async function runAgentLoopImpl(
   content: string,
   userMessageId: string,
   onEvent: (msg: ServerMessage) => void,
-  options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
+  options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; titleText?: string },
 ): Promise<void> {
   if (!ctx.abortController) {
     throw new Error('runAgentLoop called without prior persistUserMessage');
@@ -272,7 +272,7 @@ export async function runAgentLoopImpl(
         assistantMessageInterface: capturedTurnInterfaceContext.assistantMessageInterface,
       };
       const assistantMessage = createAssistantMessage(memoryResult.conflictClarification);
-      conversationStore.addMessage(
+      await conversationStore.addMessage(
         ctx.conversationId,
         'assistant',
         JSON.stringify(assistantMessage.content),
@@ -591,7 +591,7 @@ export async function runAgentLoopImpl(
         userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
         assistantMessageInterface: capturedTurnInterfaceContext.assistantMessageInterface,
       };
-      conversationStore.addMessage(
+      await conversationStore.addMessage(
         ctx.conversationId,
         'user',
         JSON.stringify(toolResultBlocks),
@@ -617,7 +617,7 @@ export async function runAgentLoopImpl(
         assistantMessageInterface: capturedTurnInterfaceContext.assistantMessageInterface,
       };
       const errorAssistantMessage = createAssistantMessage(state.providerErrorUserMessage);
-      conversationStore.addMessage(
+      await conversationStore.addMessage(
         ctx.conversationId,
         'assistant',
         JSON.stringify(errorAssistantMessage.content),
@@ -702,7 +702,7 @@ export async function runAgentLoopImpl(
       queueGenerateConversationTitle({
         conversationId: ctx.conversationId,
         provider: ctx.provider,
-        userMessage: content,
+        userMessage: options?.titleText ?? content,
         assistantResponse: state.firstAssistantText || undefined,
         onTitleUpdated: (title) => {
           onEvent({

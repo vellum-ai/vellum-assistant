@@ -21,25 +21,14 @@ extension ChatBubble {
                 MarkdownSegmentView(segments: segments, isStreaming: streaming)
             } else {
                 let attributed = Self.cachedInlineMarkdown(for: segmentText, isStreaming: streaming)
-                if streaming {
-                    Text(attributed)
-                        .font(.system(size: 13 * conversationZoomScale))
-                        .lineSpacing(3)
-                        .foregroundColor(VColor.textPrimary)
-                        .tint(VColor.accent)
-                        .textSelection(.disabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 520, alignment: .leading)
-                } else {
-                    Text(attributed)
-                        .font(.system(size: 13 * conversationZoomScale))
-                        .lineSpacing(3)
-                        .foregroundColor(VColor.textPrimary)
-                        .tint(VColor.accent)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 520, alignment: .leading)
-                }
+                Text(attributed)
+                    .font(.system(size: 13 * conversationZoomScale))
+                    .lineSpacing(3)
+                    .foregroundColor(VColor.textPrimary)
+                    .tint(VColor.accent)
+                    .selectableText(!streaming)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 520, alignment: .leading)
             }
         }
     }

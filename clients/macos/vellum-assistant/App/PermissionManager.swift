@@ -136,7 +136,7 @@ enum PermissionManager {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             switch settings.authorizationStatus {
             case .notDetermined:
-                try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+                _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             case .authorized, .provisional, .ephemeral:
                 return
             case .denied:
@@ -152,7 +152,7 @@ enum PermissionManager {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             switch settings.authorizationStatus {
             case .notDetermined:
-                try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+                _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             case .authorized, .provisional, .ephemeral:
                 if settings.badgeSetting != .enabled {
                     _ = openNotificationSettings()

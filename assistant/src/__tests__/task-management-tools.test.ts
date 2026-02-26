@@ -653,7 +653,7 @@ describe('executeTaskListShow tool', () => {
   test('shows empty message when no work items', async () => {
     const result = await executeTaskListShow({}, ctx);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('no tasks queued');
+    expect(result.content).toContain('No tasks queued');
   });
 
   test('lists work items with priority labels', async () => {
@@ -694,7 +694,7 @@ describe('executeTaskListShow tool', () => {
     const task = createTask({ title: 'T', template: 't' });
     createWorkItem({ taskId: task.id, title: 'Queued' });
     const result = await executeTaskListShow({ status: 'running' }, ctx);
-    expect(result.content).toContain('no items matching filter');
+    expect(result.content).toContain('No items matching that filter');
   });
 });
 
@@ -850,7 +850,7 @@ describe('executeTaskListUpdate tool', () => {
     const item = createWorkItem({ taskId: task.id, title: 'No Done' });
     const result = await executeTaskListUpdate({ work_item_id: item.id, status: 'done' }, ctx);
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("Cannot set status to 'done' directly");
+    expect(result.content).toContain("Cannot mark as done from");
   });
 
   test('rejects update with no fields', async () => {

@@ -92,8 +92,23 @@ export function getRuntimeGatewayOriginSecret(): string | undefined {
   return str('RUNTIME_GATEWAY_ORIGIN_SECRET');
 }
 
+/**
+ * True when HTTP API auth is disabled via DISABLE_HTTP_AUTH=true AND the
+ * safety gate VELLUM_UNSAFE_AUTH_BYPASS=1 is also set. Without the safety
+ * gate, the bypass is ignored.
+ */
 export function isHttpAuthDisabled(): boolean {
-  return str('DISABLE_HTTP_AUTH')?.toLowerCase() === 'true';
+  if (str('DISABLE_HTTP_AUTH')?.toLowerCase() !== 'true') return false;
+  return str('VELLUM_UNSAFE_AUTH_BYPASS')?.trim() === '1';
+}
+
+/**
+ * True when DISABLE_HTTP_AUTH is set but the safety gate
+ * VELLUM_UNSAFE_AUTH_BYPASS=1 is missing — used for warning messages.
+ */
+export function hasUngatedHttpAuthDisabled(): boolean {
+  if (str('DISABLE_HTTP_AUTH')?.toLowerCase() !== 'true') return false;
+  return str('VELLUM_UNSAFE_AUTH_BYPASS')?.trim() !== '1';
 }
 
 // ── Twilio ───────────────────────────────────────────────────────────────────

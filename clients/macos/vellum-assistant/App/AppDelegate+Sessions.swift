@@ -84,7 +84,33 @@ extension AppDelegate {
                 self.mainWindow?.hide()
             }
 
+            // Announce CU escalation via voice if voice mode is active
+            let voiceManager = self.mainWindow?.voiceModeManager
+            let voiceModeWasActive = voiceManager?.state != .off && voiceManager?.state != nil
+            if voiceModeWasActive {
+                voiceManager?.speakTransient("Let me take over the screen for a moment.")
+                voiceManager?.pauseConversationTimeout()
+            }
+
             await session.run()
+
+            // Announce CU completion via voice if voice mode is still active
+            if voiceModeWasActive, let voiceManager, voiceManager.state != .off {
+                let summary: String
+                switch session.state {
+                case .completed(let s, _), .responded(let s, _):
+                    summary = s
+                case .failed:
+                    summary = "Something went wrong while controlling the screen."
+                case .cancelled:
+                    summary = "Screen control was cancelled."
+                default:
+                    summary = "All done with the screen."
+                }
+                voiceManager.speakTransient(summary)
+                voiceManager.resumeConversationTimeout()
+            }
+
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             overlay.close()
             self.overlayWindow = nil

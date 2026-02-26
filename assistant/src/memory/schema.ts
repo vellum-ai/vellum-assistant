@@ -17,13 +17,16 @@ export const conversations = sqliteTable('conversations', {
   originChannel: text('origin_channel'),
   originInterface: text('origin_interface'),
   isAutoTitle: integer('is_auto_title').notNull().default(1),
-});
+}, (table) => [
+  index('idx_conversations_updated_at').on(table.updatedAt),
+  index('idx_conversations_thread_type').on(table.threadType),
+]);
 
 export const messages = sqliteTable('messages', {
   id: text('id').primaryKey(),
   conversationId: text('conversation_id')
     .notNull()
-    .references(() => conversations.id),
+    .references(() => conversations.id, { onDelete: 'cascade' }),
   role: text('role').notNull(),
   content: text('content').notNull(),
   createdAt: integer('created_at').notNull(),
@@ -88,6 +91,7 @@ export const memoryItems = sqliteTable('memory_items', {
 }, (table) => [
   index('idx_memory_items_scope_id').on(table.scopeId),
   index('idx_memory_items_fingerprint').on(table.fingerprint),
+  index('idx_memory_items_scope_id_status').on(table.scopeId, table.status),
 ]);
 
 export const memoryItemSources = sqliteTable('memory_item_sources', {
@@ -166,6 +170,7 @@ export const memoryJobs = sqliteTable('memory_jobs', {
   deferrals: integer('deferrals').notNull().default(0),
   runAfter: integer('run_after').notNull(),
   lastError: text('last_error'),
+  startedAt: integer('started_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
@@ -416,7 +421,7 @@ export const taskRuns = sqliteTable('task_runs', {
   id: text('id').primaryKey(),
   taskId: text('task_id')
     .notNull()
-    .references(() => tasks.id),
+    .references(() => tasks.id, { onDelete: 'cascade' }),
   conversationId: text('conversation_id'),
   status: text('status').notNull().default('pending'),
   startedAt: integer('started_at'),
@@ -540,7 +545,9 @@ export const llmUsageEvents = sqliteTable('llm_usage_events', {
   estimatedCostUsd: real('estimated_cost_usd'),
   pricingStatus: text('pricing_status').notNull(),
   metadataJson: text('metadata_json'),
-});
+}, (table) => [
+  index('idx_llm_usage_events_conversation_id').on(table.conversationId),
+]);
 
 // ── Call Sessions (outgoing AI phone calls) ──────────────────────────
 
@@ -566,7 +573,9 @@ export const callSessions = sqliteTable('call_sessions', {
   lastError: text('last_error'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  index('idx_call_sessions_status').on(table.status),
+]);
 
 export const callEvents = sqliteTable('call_events', {
   id: text('id').primaryKey(),
@@ -889,7 +898,7 @@ export const assistantIngressMembers = sqliteTable('assistant_ingress_members', 
   status: text('status').notNull().default('pending'),
   policy: text('policy').notNull().default('allow'),
   inviteId: text('invite_id')
-    .references(() => assistantIngressInvites.id),
+    .references(() => assistantIngressInvites.id, { onDelete: 'cascade' }),
   createdBySessionId: text('created_by_session_id'),
   revokedReason: text('revoked_reason'),
   blockedReason: text('blocked_reason'),
@@ -931,7 +940,9 @@ export const notificationEvents = sqliteTable('notification_events', {
   dedupeKey: text('dedupe_key'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  index('idx_notification_events_dedupe_key').on(table.dedupeKey),
+]);
 
 export const notificationDecisions = sqliteTable('notification_decisions', {
   id: text('id').primaryKey(),
@@ -1015,7 +1026,9 @@ export const notificationDeliveries = sqliteTable('notification_deliveries', {
   clientDeliveryAt: integer('client_delivery_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  uniqueIndex('idx_notification_deliveries_decision_channel').on(table.notificationDecisionId, table.channel),
+]);
 
 // ── Conversation Attention ───────────────────────────────────────────
 

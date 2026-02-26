@@ -47,6 +47,12 @@ function isFailoverError(error: unknown): boolean {
   return false;
 }
 
+export interface ProviderHealthStatus {
+  name: string;
+  healthy: boolean;
+  unhealthySince: string | null;
+}
+
 export class FailoverProvider implements Provider {
   public readonly name: string;
   private readonly healthMap = new Map<string, ProviderHealth>();
@@ -125,5 +131,18 @@ export class FailoverProvider implements Provider {
       this.name,
       undefined,
     );
+  }
+
+  getHealthStatus(): ProviderHealthStatus[] {
+    return this.providers.map((p) => {
+      const health = this.healthMap.get(p.name)!;
+      return {
+        name: p.name,
+        healthy: health.unhealthySince == null,
+        unhealthySince: health.unhealthySince != null
+          ? new Date(health.unhealthySince).toISOString()
+          : null,
+      };
+    });
   }
 }

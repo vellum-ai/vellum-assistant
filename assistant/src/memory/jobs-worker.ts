@@ -9,6 +9,7 @@ import { cleanupResolvedConflictsJob,resolvePendingConflictsForMessageJob } from
 import { embedItemJob, embedSegmentJob, embedSummaryJob } from './job-handlers/embedding.js';
 import { extractEntitiesJob,extractItemsJob } from './job-handlers/extraction.js';
 import { deleteQdrantVectorsJob,rebuildIndexJob } from './job-handlers/index-maintenance.js';
+import { reconcileFtsIndexes } from './fts-reconciler.js';
 import { mediaProcessingJob } from './job-handlers/media-processing.js';
 import { buildConversationSummaryJob, buildGlobalSummaryJob } from './job-handlers/summarization.js';
 import {
@@ -24,7 +25,9 @@ import {
   enqueueCleanupResolvedConflictsJob,
   enqueueCleanupStaleSupersededItemsJob,
   enqueuePruneOldConversationsJob,
+  enqueueReconcileFtsJob,
   failMemoryJob,
+  failStalledJobs,
   type MemoryJob,
   resetRunningJobsToPending,
 } from './jobs-store.js';
@@ -85,6 +88,12 @@ export async function runMemoryJobsOnce(
 
   // Periodic stale item sweep (throttled to at most once per hour)
   sweepStaleItems(config);
+
+  // Fail jobs that have been running longer than the configured timeout
+  const timedOut = failStalledJobs(config.memory.jobs.stalledJobTimeoutMs);
+  if (timedOut > 0) {
+    log.warn({ timedOut }, 'Timed out stalled memory jobs');
+  }
 
   const batchSize = Math.max(1, config.memory.jobs.batchSize);
   const concurrency = Math.max(1, config.memory.jobs.workerConcurrency);
@@ -174,7 +183,7 @@ function handleJobError(job: MemoryJob, err: unknown): void {
   if (err instanceof BackendUnavailableError) {
     const result = deferMemoryJob(job.id);
     if (result === 'failed') {
-      log.warn({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, job exceeded max deferrals');
+      log.error({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, job exceeded max deferrals');
     } else {
       log.debug({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, deferring job');
     }
@@ -247,6 +256,9 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
     case 'rebuild_index':
       rebuildIndexJob();
       return;
+    case 'reconcile_fts':
+      reconcileFtsIndexes();
+      return;
     case 'delete_qdrant_vectors':
       await deleteQdrantVectorsJob(job);
       return;
@@ -281,11 +293,13 @@ export function maybeEnqueueScheduledCleanupJobs(config: AssistantConfig, nowMs 
   const pruneConversationsJobId = cleanup.conversationRetentionDays > 0
     ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
     : null;
+  const reconcileFtsJobId = enqueueReconcileFtsJob();
   lastScheduledCleanupEnqueueMs = nowMs;
   log.debug({
     resolvedConflictsJobId,
     staleSupersededItemsJobId,
     pruneConversationsJobId,
+    reconcileFtsJobId,
     enqueueIntervalMs: cleanup.enqueueIntervalMs,
     resolvedConflictRetentionMs: cleanup.resolvedConflictRetentionMs,
     supersededItemRetentionMs: cleanup.supersededItemRetentionMs,

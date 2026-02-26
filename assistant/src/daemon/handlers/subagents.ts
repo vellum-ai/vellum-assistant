@@ -80,11 +80,11 @@ export function handleSubagentStatus(
   }
 }
 
-export function handleSubagentMessage(
+export async function handleSubagentMessage(
   msg: SubagentMessageRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   const callerSessionId = ctx.socketToSession.get(socket);
   if (!callerSessionId) {
     log.warn({ subagentId: msg.subagentId }, 'Message rejected: socket has no bound session');
@@ -110,7 +110,7 @@ export function handleSubagentMessage(
     return;
   }
 
-  const result = manager.sendMessage(msg.subagentId, msg.content);
+  const result = await manager.sendMessage(msg.subagentId, msg.content);
 
   if (result === 'queue_full') {
     log.warn({ subagentId: msg.subagentId }, 'Subagent message rejected — queue full');
