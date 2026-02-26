@@ -1424,10 +1424,12 @@ public struct ChatMessage: Identifiable, Equatable {
             attachments[i].dataLength = 0
         }
         for i in inlineSurfaces.indices {
-            // Strip all surfaces in old messages — clear the heavy data payload.
-            // The surface can be re-fetched from the daemon if the user scrolls back.
-            inlineSurfaces[i].data = .stripped
-            inlineSurfaces[i].actions = []
+            if inlineSurfaces[i].completionState != nil {
+                // Surface is completed — clear the heavy data payload.
+                // The surface can be re-fetched from the daemon if the user scrolls back.
+                inlineSurfaces[i].data = .stripped
+                inlineSurfaces[i].actions = []
+            }
         }
         isContentStripped = true
     }
