@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 
 import { getLogger } from '../util/logger.js';
 import { getWorkspaceSkillsDir } from '../util/platform.js';
-import { verifyAndRecordSkillHash } from './clawhub.js';
+import { validateSlug, verifyAndRecordSkillHash } from './clawhub.js';
 import type { SecurityDecision } from './security-decision.js';
 import type { SkillsShSearchWithAuditItem } from './skillssh.js';
 
@@ -148,6 +148,18 @@ export async function skillsshInstall(
 ): Promise<SkillsShInstallResult> {
   const { candidate, securityDecision, userOverride } = options;
   const { skillId, source } = candidate;
+
+  // Reject invalid skill IDs before computing install paths — prevents empty
+  // strings, path traversal segments, or other malformed identifiers from
+  // targeting unexpected directories.
+  if (!validateSlug(skillId)) {
+    return {
+      success: false,
+      skillId,
+      installedVia: 'policy',
+      error: `Invalid skill ID: ${skillId}`,
+    };
+  }
 
   // Gate: block do_not_recommend installs unless the user explicitly overrides
   if (securityDecision.recommendation === 'do_not_recommend' && !userOverride) {
