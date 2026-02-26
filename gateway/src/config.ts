@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { getLogger, type LogFileConfig } from "./logger.js";
-import { getRootDir, readKeychainCredential, readCredential, readTwilioCredentials, readWhatsAppCredentials } from "./credential-reader.js";
+import { getRootDir, readKeychainCredential, readCredential, readTwilioCredentials, readWhatsAppCredentials, readSlackChannelCredentials } from "./credential-reader.js";
 
 const log = getLogger("config");
 
@@ -78,6 +78,15 @@ export type GatewayConfig = {
   whatsappTimeoutMs: number;
   whatsappMaxRetries: number;
   whatsappInitialBackoffMs: number;
+  /** Slack Bot User OAuth Token (xoxb-...) for Slack as a channel. */
+  slackChannelBotToken: string | undefined;
+  /** Slack App-Level Token (xapp-...) for Socket Mode. */
+  slackChannelAppToken: string | undefined;
+  /**
+   * When true, the /deliver/slack endpoint allows unauthenticated access
+   * even when no bearer token is configured. Intended for local development only.
+   */
+  slackDeliverAuthBypass: boolean;
   /** When true, trust X-Forwarded-For for client IP resolution (set when behind a reverse proxy). */
   trustProxy: boolean;
 };
@@ -341,6 +350,25 @@ export function loadConfig(): GatewayConfig {
     throw new Error("GATEWAY_WHATSAPP_INITIAL_BACKOFF_MS must be a positive number");
   }
 
+  // Slack channel credentials: env var > credential store (keychain / encrypted file)
+  const slackChannelCreds = readSlackChannelCredentials();
+  const slackChannelBotToken =
+    process.env.SLACK_CHANNEL_BOT_TOKEN || slackChannelCreds?.botToken || undefined;
+  const slackChannelAppToken =
+    process.env.SLACK_CHANNEL_APP_TOKEN || slackChannelCreds?.appToken || undefined;
+
+  const slackDeliverAuthBypassRaw = process.env.GATEWAY_SLACK_DELIVER_AUTH_BYPASS;
+  if (
+    slackDeliverAuthBypassRaw !== undefined &&
+    slackDeliverAuthBypassRaw !== "true" &&
+    slackDeliverAuthBypassRaw !== "false"
+  ) {
+    throw new Error(
+      `GATEWAY_SLACK_DELIVER_AUTH_BYPASS must be "true" or "false", got "${slackDeliverAuthBypassRaw}"`,
+    );
+  }
+  let slackDeliverAuthBypass = slackDeliverAuthBypassRaw === "true";
+
   const smsDeliverAuthBypassRaw = process.env.GATEWAY_SMS_DELIVER_AUTH_BYPASS;
   if (
     smsDeliverAuthBypassRaw !== undefined &&
@@ -370,6 +398,10 @@ export function loadConfig(): GatewayConfig {
     if (whatsappDeliverAuthBypass) {
       log.warn("GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)", appVersion);
       whatsappDeliverAuthBypass = false;
+    }
+    if (slackDeliverAuthBypass) {
+      log.warn("GATEWAY_SLACK_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)", appVersion);
+      slackDeliverAuthBypass = false;
     }
   }
 
@@ -431,6 +463,9 @@ export function loadConfig(): GatewayConfig {
       hasWhatsAppAppSecret: !!whatsappAppSecret,
       hasWhatsAppWebhookVerifyToken: !!whatsappWebhookVerifyToken,
       whatsappDeliverAuthBypass,
+      hasSlackChannelBotToken: !!slackChannelBotToken,
+      hasSlackChannelAppToken: !!slackChannelAppToken,
+      slackDeliverAuthBypass,
       trustProxy,
     },
     "Configuration loaded",
@@ -478,6 +513,14 @@ export function loadConfig(): GatewayConfig {
     whatsappTimeoutMs,
     whatsappMaxRetries,
     whatsappInitialBackoffMs,
+    slackChannelBotToken,
+    slackChannelAppToken,
+    slackDeliverAuthBypass,
     trustProxy,
   };
+}
+
+/** Returns true when both Slack channel tokens are present. */
+export function isSlackChannelConfigured(config: GatewayConfig): boolean {
+  return !!config.slackChannelBotToken && !!config.slackChannelAppToken;
 }

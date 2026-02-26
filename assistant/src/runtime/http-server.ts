@@ -120,11 +120,14 @@ import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
 import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
 import {
   handleCancelOutbound,
+  handleClearSlackChannelConfig,
   handleClearTelegramConfig,
   handleCreateGuardianChallenge,
   handleGetGuardianStatus,
+  handleGetSlackChannelConfig,
   handleGetTelegramConfig,
   handleResendOutbound,
+  handleSetSlackChannelConfig,
   handleSetTelegramCommands,
   handleSetTelegramConfig,
   handleSetupTelegram,
@@ -713,6 +716,11 @@ export class RuntimeHttpServer {
       if (endpoint === 'integrations/telegram/config' && req.method === 'DELETE') return await handleClearTelegramConfig();
       if (endpoint === 'integrations/telegram/commands' && req.method === 'POST') return await handleSetTelegramCommands(req);
       if (endpoint === 'integrations/telegram/setup' && req.method === 'POST') return await handleSetupTelegram(req);
+
+      // Integrations — Slack channel config
+      if (endpoint === 'integrations/slack/channel/config' && req.method === 'GET') return handleGetSlackChannelConfig();
+      if (endpoint === 'integrations/slack/channel/config' && req.method === 'POST') return await handleSetSlackChannelConfig(req);
+      if (endpoint === 'integrations/slack/channel/config' && req.method === 'DELETE') return handleClearSlackChannelConfig();
 
       // Integrations — Guardian verification
       if (endpoint === 'integrations/guardian/challenge' && req.method === 'POST') return await handleCreateGuardianChallenge(req);

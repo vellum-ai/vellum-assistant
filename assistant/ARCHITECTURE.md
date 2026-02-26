@@ -185,6 +185,48 @@ These can be set via environment variables or stored in the credential vault (ke
 
 **SMS Compliance & Admin**: The `twilio_config` IPC contract extends beyond credential and number management with compliance and admin actions: `sms_compliance_status` detects toll-free vs local number type and fetches verification status; `sms_submit_tollfree_verification`, `sms_update_tollfree_verification`, and `sms_delete_tollfree_verification` manage the Twilio toll-free verification lifecycle; `release_number` removes a phone number from the Twilio account and clears all local references. All compliance actions validate required fields and Twilio enum values before calling the API.
 
+### Slack Channel (Socket Mode)
+
+The Slack channel provides text-based messaging via Slack's Socket Mode API. Unlike other channels that use HTTP webhooks, Slack uses a persistent WebSocket connection managed by the gateway — no public ingress URL is required. The assistant-side manages credential storage and validation through HTTP config endpoints.
+
+**Control-plane endpoints** (`/v1/integrations/slack/channel/config`):
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/integrations/slack/channel/config` | GET | Returns current config status: `hasBotToken`, `hasAppToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`) |
+| `/v1/integrations/slack/channel/config` | POST | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string }` |
+| `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials from secure storage and credential metadata |
+
+All endpoints are bearer-authenticated via the runtime HTTP token (`~/.vellum/http-token`).
+
+**Credential storage pattern:**
+
+Both tokens are stored in the secure key store (macOS Keychain with encrypted file fallback):
+
+| Secure key | Content |
+|-----------|---------|
+| `credential:slack_channel:bot_token` | Slack bot token (used for `chat.postMessage` and `auth.test`) |
+| `credential:slack_channel:app_token` | Slack app token (`xapp-...`, used for Socket Mode `apps.connections.open`) |
+
+Workspace metadata (team ID, team name, bot user ID, bot username) is stored as JSON in the credential metadata store under `('slack_channel', 'bot_token')`.
+
+**Token validation via `auth.test`:**
+
+When a bot token is provided via `POST /v1/integrations/slack/channel/config`, the handler calls `POST https://slack.com/api/auth.test` with the token before storing it. A successful response yields workspace metadata (`team_id`, `team`, `user_id`, `user`) that is persisted alongside the token. If `auth.test` fails, the token is rejected and not stored.
+
+The app token is validated by format only — it must start with `xapp-`.
+
+**Connection status:**
+
+The `GET` endpoint reports `connected: true` only when both `hasBotToken` and `hasAppToken` are true. If only one token is stored, a `warning` field describes which token is missing.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/daemon/handlers/config-slack-channel.ts` | Business logic for get/set/clear Slack channel config |
+| `src/runtime/routes/integration-routes.ts` | HTTP route handlers for `/v1/integrations/slack/channel/config` |
+
 ### Trusted Contact Access (Channel-Agnostic)
 
 External users who are not the guardian can gain access to the assistant through a guardian-mediated verification flow. The flow is channel-agnostic — it works identically on Telegram, SMS, voice, and any future channel.

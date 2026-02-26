@@ -5,7 +5,7 @@
 Bun + TypeScript monorepo with multiple packages:
 
 - `assistant/` — Main backend service (Bun + TypeScript)
-- `gateway/` — Telegram webhook gateway (Bun + TypeScript)
+- `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `clients/` — Client apps (macOS/iOS/etc). See `clients/AGENTS.md` and platform docs like `clients/macos/CLAUDE.md`.
 - `scripts/` — Utility scripts
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`)
