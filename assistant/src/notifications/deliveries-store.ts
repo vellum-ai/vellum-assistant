@@ -191,10 +191,11 @@ export function listDeliveries(decisionId: string): NotificationDeliveryRow[] {
   return rows.map(rowToDelivery);
 }
 
-/** Check whether a delivery already exists for a given decision+channel pair. */
-export function findDeliveryByDecisionAndChannel(
+/** Check whether a delivery already exists for a given decision+channel+destination triple. */
+export function findDeliveryByDecisionChannelAndDestination(
   decisionId: string,
   channel: NotificationChannel,
+  destination: string,
 ): NotificationDeliveryRow | undefined {
   const db = getDb();
   const row = db
@@ -204,6 +205,7 @@ export function findDeliveryByDecisionAndChannel(
       and(
         eq(notificationDeliveries.notificationDecisionId, decisionId),
         eq(notificationDeliveries.channel, channel),
+        eq(notificationDeliveries.destination, destination),
       ),
     )
     .get();
