@@ -109,6 +109,9 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.isSending }
         set { messageManager.isSending = newValue }
     }
+    public var hasPendingConfirmation: Bool {
+        messages.contains(where: { $0.confirmation?.state == .pending })
+    }
     public var pendingQueuedCount: Int {
         get { messageManager.pendingQueuedCount }
         set { messageManager.pendingQueuedCount = newValue }
@@ -816,6 +819,13 @@ public final class ChatViewModel: ObservableObject {
         let hasAttachments = !pendingAttachments.isEmpty
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
+
+        // If there's a pending tool confirmation, auto-deny it so the agent
+        // can process the user's follow-up message instead.
+        if let pendingIndex = messages.firstIndex(where: { $0.confirmation?.state == .pending }),
+           let requestId = messages[pendingIndex].confirmation?.requestId {
+            respondToConfirmation(requestId: requestId, decision: "deny")
+        }
 
         // When "/model" or "/models" is sent, refresh model state so the picker/table has fresh data
         if (text == "/model" || text == "/models") && !hasSkillInvocation {

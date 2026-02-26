@@ -12,7 +12,7 @@ Templates are reusable definitions saved from conversations via `task_save`. The
 
 ## Work Items (Task Queue)
 
-Work items are the user-facing "Tasks" shown in the Tasks panel. They track status and priority:
+Work items are the user-facing "Tasks" managed through conversation. They track status and priority:
 
 - **Priority tiers**: 0 = high, 1 = medium (default), 2 = low
 - **Status flow**: queued -> running -> awaiting_review -> done

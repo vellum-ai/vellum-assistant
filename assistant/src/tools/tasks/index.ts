@@ -2,9 +2,9 @@
  * UX Terminology Glossary
  * ──────────────────────────────────────────────────────────────────────
  *
- * "Task" (user-facing) — A work item in the Tasks panel (backed by the
- *   `work_items` table). This is what users see, create, run, and track.
- *   The user-facing surface is simply called "Tasks".
+ * "Task" (user-facing) — A work item in the task queue (backed by the
+ *   `work_items` table). This is what users create, run, and track
+ *   through conversation.
  *
  * "Task template" / "task definition" (internal) — A reusable template
  *   saved from a conversation (backed by the `tasks` table). Templates

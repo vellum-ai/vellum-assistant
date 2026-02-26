@@ -5,6 +5,7 @@ struct ComposerSection: View {
     @Binding var inputText: String
     let hasAPIKey: Bool
     let isSending: Bool
+    let hasPendingConfirmation: Bool
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
@@ -72,6 +73,7 @@ struct ComposerSection: View {
                 inputText: $inputText,
                 hasAPIKey: hasAPIKey,
                 isSending: isSending,
+                hasPendingConfirmation: hasPendingConfirmation,
                 isRecording: isRecording,
                 suggestion: suggestion,
                 pendingAttachments: pendingAttachments,

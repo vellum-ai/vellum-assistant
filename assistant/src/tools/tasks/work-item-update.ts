@@ -53,12 +53,11 @@ export async function executeTaskListUpdate(
 
     const item = result.workItem;
 
-    // Block direct transitions to 'done' — the only path to done is
-    // through the Review action (handleWorkItemComplete in the daemon).
-    if (input.status === 'done') {
-      log.warn({ selectorType, resolvedWorkItemId: item.id }, 'rejected attempt to set status to done directly');
+    // Allow direct transitions to 'done' only from 'awaiting_review'
+    if (input.status === 'done' && item.status !== 'awaiting_review') {
+      log.warn({ selectorType, resolvedWorkItemId: item.id, currentStatus: item.status }, 'rejected attempt to set status to done from non-review state');
       return {
-        content: 'Error: Cannot set status to \'done\' directly. Use the Review action in the Tasks window.',
+        content: `Error: Cannot mark as done from '${item.status}'. Tasks must reach 'awaiting_review' status first (typically after a task run completes). You can set the status to 'awaiting_review' if the task is ready to be completed.`,
         isError: true,
       };
     }
