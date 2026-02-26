@@ -52,6 +52,12 @@
       "name": "Guardian Verify Setup",
       "description": "Set up guardian verification for SMS, voice, or Telegram channels via outbound verification flow",
       "emoji": "\ud83d\udd10"
+    },
+    {
+      "id": "trusted-contacts",
+      "name": "Trusted Contacts",
+      "description": "Manage trusted contacts \u2014 list, allow, revoke, and block users who can message the assistant through external channels",
+      "emoji": "\ud83d\udc65"
     }
   ]
 }
