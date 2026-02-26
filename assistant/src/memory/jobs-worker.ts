@@ -18,6 +18,7 @@ import {
   RETRY_MAX_ATTEMPTS,
   retryDelayForAttempt,
 } from './job-utils.js';
+import { QdrantCircuitOpenError } from './qdrant-circuit-breaker.js';
 import {
   claimMemoryJobs,
   completeMemoryJob,
@@ -186,6 +187,13 @@ function handleJobError(job: MemoryJob, err: unknown): void {
       log.error({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, job exceeded max deferrals');
     } else {
       log.debug({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, deferring job');
+    }
+  } else if (err instanceof QdrantCircuitOpenError) {
+    const result = deferMemoryJob(job.id);
+    if (result === 'failed') {
+      log.error({ jobId: job.id, type: job.type }, 'Qdrant circuit breaker open, job exceeded max deferrals');
+    } else {
+      log.debug({ jobId: job.id, type: job.type }, 'Qdrant circuit breaker open, deferring job');
     }
   } else {
     const message = err instanceof Error ? err.message : String(err);
