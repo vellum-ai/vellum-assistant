@@ -138,6 +138,7 @@ public final class SettingsStore: ObservableObject {
     @Published var telegramOutboundSendCount: Int = 0
     @Published var telegramBootstrapUrl: String?
     @Published var telegramOutboundCode: String?
+    @Published var telegramOutboundSubmitError: String?
 
     // MARK: - Outbound Guardian Session State (SMS)
 
@@ -146,6 +147,7 @@ public final class SettingsStore: ObservableObject {
     @Published var smsOutboundNextResendAt: Date?
     @Published var smsOutboundSendCount: Int = 0
     @Published var smsOutboundCode: String?
+    @Published var smsOutboundSubmitError: String?
 
     // MARK: - Outbound Guardian Session State (Voice)
 
@@ -154,6 +156,7 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceOutboundNextResendAt: Date?
     @Published var voiceOutboundSendCount: Int = 0
     @Published var voiceOutboundCode: String?
+    @Published var voiceOutboundSubmitError: String?
 
     // MARK: - Email Integration State
 
@@ -576,6 +579,7 @@ public final class SettingsStore: ObservableObject {
             }
 
             // Handle outbound verification session state
+            let submitErrorCodes: Set<String> = ["invalid_code", "missing_code", "session_mismatch", "pending_bootstrap"]
             if response.success {
                 if response.verificationSessionId != nil {
                     self.applyOutboundResponseState(channel: channel, response: response)
@@ -585,6 +589,15 @@ public final class SettingsStore: ObservableObject {
                 } else if response.bound == true {
                     self.clearOutboundState(for: channel)
                     self.stopGuardianStatusPolling(for: channel)
+                }
+            } else if let errorCode = response.error, submitErrorCodes.contains(errorCode) {
+                // Submit-specific error: surface as inline error and keep session active for retry
+                let errorMessage = Self.reflectedString(response, key: "message") ?? "Verification failed. Please try again."
+                switch channel {
+                case "telegram": self.telegramOutboundSubmitError = errorMessage
+                case "sms": self.smsOutboundSubmitError = errorMessage
+                case "voice": self.voiceOutboundSubmitError = errorMessage
+                default: break
                 }
             } else {
                 self.stopGuardianStatusPolling(for: channel)
@@ -1214,6 +1227,44 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    func submitOutboundGuardianCode(channel: String, code: String) {
+        // Clear any prior submit error
+        switch channel {
+        case "telegram": telegramOutboundSubmitError = nil
+        case "sms": smsOutboundSubmitError = nil
+        case "voice": voiceOutboundSubmitError = nil
+        default: return
+        }
+
+        let sessionId: String? = {
+            switch channel {
+            case "telegram": return telegramOutboundSessionId
+            case "sms": return smsOutboundSessionId
+            case "voice": return voiceOutboundSessionId
+            default: return nil
+            }
+        }()
+
+        do {
+            try daemonClient?.sendGuardianVerification(
+                action: "submit_outbound_code",
+                channel: channel,
+                sessionId: sessionId,
+                assistantId: guardianAssistantScope,
+                verificationCode: code
+            )
+        } catch {
+            log.error("Failed to submit outbound \(channel) guardian code: \(error)")
+            let errorMsg = "Failed to submit code. Please try again."
+            switch channel {
+            case "telegram": telegramOutboundSubmitError = errorMsg
+            case "sms": smsOutboundSubmitError = errorMsg
+            case "voice": voiceOutboundSubmitError = errorMsg
+            default: break
+            }
+        }
+    }
+
     private func clearOutboundState(for channel: String) {
         switch channel {
         case "telegram":
@@ -1223,18 +1274,21 @@ public final class SettingsStore: ObservableObject {
             telegramOutboundSendCount = 0
             telegramBootstrapUrl = nil
             telegramOutboundCode = nil
+            telegramOutboundSubmitError = nil
         case "sms":
             smsOutboundSessionId = nil
             smsOutboundExpiresAt = nil
             smsOutboundNextResendAt = nil
             smsOutboundSendCount = 0
             smsOutboundCode = nil
+            smsOutboundSubmitError = nil
         case "voice":
             voiceOutboundSessionId = nil
             voiceOutboundExpiresAt = nil
             voiceOutboundNextResendAt = nil
             voiceOutboundSendCount = 0
             voiceOutboundCode = nil
+            voiceOutboundSubmitError = nil
         default:
             break
         }

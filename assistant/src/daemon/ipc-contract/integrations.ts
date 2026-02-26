@@ -84,13 +84,15 @@ export interface ChannelReadinessRequest {
 
 export interface GuardianVerificationRequest {
   type: 'guardian_verification';
-  action: 'create_challenge' | 'status' | 'revoke' | 'start_outbound' | 'resend_outbound' | 'cancel_outbound';
+  action: 'create_challenge' | 'status' | 'revoke' | 'start_outbound' | 'resend_outbound' | 'cancel_outbound' | 'submit_outbound_code';
   channel?: ChannelId;  // Defaults to 'telegram'
   sessionId?: string;
   assistantId?: string;  // Defaults to 'self'
   rebind?: boolean;  // When true, allows creating a challenge even if a binding already exists
   /** E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions. */
   destination?: string;
+  /** Verification code entered by the user in the Settings UI. Used by submit_outbound_code action. */
+  verificationCode?: string;
 }
 
 export interface TwitterAuthStartRequest {

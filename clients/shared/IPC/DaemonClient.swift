@@ -1070,7 +1070,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         sessionId: String? = nil,
         assistantId: String? = nil,
         rebind: Bool? = nil,
-        destination: String? = nil
+        destination: String? = nil,
+        verificationCode: String? = nil
     ) throws {
         try send(GuardianVerificationRequestMessage(
             action: action,
@@ -1078,7 +1079,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             sessionId: sessionId,
             assistantId: assistantId,
             rebind: rebind,
-            destination: destination
+            destination: destination,
+            verificationCode: verificationCode
         ))
     }
 
