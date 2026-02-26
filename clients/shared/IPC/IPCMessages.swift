@@ -2329,6 +2329,8 @@ public enum ServerMessage: Decodable, Sendable {
     case parentalControlApprovalCreateResponse(ParentalControlApprovalCreateResponseMessage)
     case parentalControlApprovalListResponse(ParentalControlApprovalListResponseMessage)
     case parentalControlApprovalRespondResponse(ParentalControlApprovalRespondResponseMessage)
+    case parentalActivityLogListResponse(ParentalActivityLogListResponseMessage)
+    case parentalActivityLogClearResponse(ParentalActivityLogClearResponseMessage)
     case conversationSearchResponse(ConversationSearchResponseMessage)
     case pairingApprovalRequest(PairingApprovalRequestMessage)
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
@@ -2754,6 +2756,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "parental_control_approval_respond_response":
             let message = try ParentalControlApprovalRespondResponseMessage(from: decoder)
             self = .parentalControlApprovalRespondResponse(message)
+        case "parental_activity_log_list_response":
+            let message = try ParentalActivityLogListResponseMessage(from: decoder)
+            self = .parentalActivityLogListResponse(message)
+        case "parental_activity_log_clear_response":
+            let message = try ParentalActivityLogClearResponseMessage(from: decoder)
+            self = .parentalActivityLogClearResponse(message)
         case "conversation_search_response":
             let message = try ConversationSearchResponseMessage(from: decoder)
             self = .conversationSearchResponse(message)
@@ -3001,6 +3009,50 @@ extension IPCParentalControlApprovalRespondRequest {
 /// Result of responding to an approval request.
 /// Backed by generated `IPCParentalControlApprovalRespondResponse`.
 public typealias ParentalControlApprovalRespondResponseMessage = IPCParentalControlApprovalRespondResponse
+
+// MARK: - Parental Activity Log Wire Types
+
+/// A single recorded child-profile action.
+/// Backed by generated `IPCParentalActivityLogEntryData`.
+public typealias ParentalActivityLogEntryData = IPCParentalActivityLogEntryData
+
+/// One-way append request: mac → daemon.
+/// Backed by generated `IPCParentalActivityLogAppendRequest`.
+public typealias ParentalActivityLogAppendRequestMessage = IPCParentalActivityLogAppendRequest
+
+extension IPCParentalActivityLogAppendRequest {
+    public init(actionType: String, description: String) {
+        self.init(type: "parental_activity_log_append", actionType: actionType, description: description)
+    }
+}
+
+/// Request the full activity log: mac → daemon.
+/// Backed by generated `IPCParentalActivityLogListRequest`.
+public typealias ParentalActivityLogListRequestMessage = IPCParentalActivityLogListRequest
+
+extension IPCParentalActivityLogListRequest {
+    public init() {
+        self.init(type: "parental_activity_log_list")
+    }
+}
+
+/// Response carrying all activity log entries: daemon → mac.
+/// Backed by generated `IPCParentalActivityLogListResponse`.
+public typealias ParentalActivityLogListResponseMessage = IPCParentalActivityLogListResponse
+
+/// Clear all activity log entries: mac → daemon.
+/// Backed by generated `IPCParentalActivityLogClearRequest`.
+public typealias ParentalActivityLogClearRequestMessage = IPCParentalActivityLogClearRequest
+
+extension IPCParentalActivityLogClearRequest {
+    public init() {
+        self.init(type: "parental_activity_log_clear")
+    }
+}
+
+/// Confirmation that the log was cleared: daemon → mac.
+/// Backed by generated `IPCParentalActivityLogClearResponse`.
+public typealias ParentalActivityLogClearResponseMessage = IPCParentalActivityLogClearResponse
 
 // MARK: - Layout Config Wire Types
 // Defined here temporarily; canonical home is LayoutConfig.swift (M1 / #2973)

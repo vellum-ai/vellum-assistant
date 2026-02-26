@@ -380,6 +380,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `parental_control_approval_respond_response` message.
     public var onParentalControlApprovalRespondResponse: ((ParentalControlApprovalRespondResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `parental_activity_log_list_response` message.
+    public var onParentalActivityLogListResponse: ((ParentalActivityLogListResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `parental_activity_log_clear_response` message.
+    public var onParentalActivityLogClearResponse: ((ParentalActivityLogClearResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `twitter_integration_config_response` message.
     public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
 
@@ -1484,6 +1490,23 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Respond to an approval request. PIN is required when parental controls are enabled and a PIN is set.
     public func sendParentalControlApprovalRespond(requestId: String, decision: String, pin: String? = nil) throws {
         try send(ParentalControlApprovalRespondRequestMessage(requestId: requestId, decision: decision, pin: pin))
+    }
+
+    // MARK: - Parental Activity Log
+
+    /// Append one child-profile action to the activity log (fire-and-forget).
+    public func sendParentalActivityLogAppend(actionType: String, description: String) throws {
+        try send(ParentalActivityLogAppendRequestMessage(actionType: actionType, description: description))
+    }
+
+    /// Request the full list of activity log entries.
+    public func sendParentalActivityLogList() throws {
+        try send(ParentalActivityLogListRequestMessage())
+    }
+
+    /// Clear all activity log entries.
+    public func sendParentalActivityLogClear() throws {
+        try send(ParentalActivityLogClearRequestMessage())
     }
 
     // MARK: - Heartbeat

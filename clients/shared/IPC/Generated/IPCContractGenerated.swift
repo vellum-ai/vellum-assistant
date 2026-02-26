@@ -3120,6 +3120,80 @@ public struct IPCPairingApprovalResponse: Codable, Sendable {
     }
 }
 
+/// One-way: mac → daemon. Append one entry to the activity log.
+public struct IPCParentalActivityLogAppendRequest: Codable, Sendable {
+    public let type: String
+    public let actionType: String
+    public let description: String
+    public let metadata: [String: AnyCodable]?
+
+    public init(type: String, actionType: String, description: String, metadata: [String: AnyCodable]? = nil) {
+        self.type = type
+        self.actionType = actionType
+        self.description = description
+        self.metadata = metadata
+    }
+}
+
+/// mac → daemon: clear all activity log entries.
+public struct IPCParentalActivityLogClearRequest: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+/// daemon → mac: confirmation that the log was cleared.
+public struct IPCParentalActivityLogClearResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+
+    public init(type: String, success: Bool) {
+        self.type = type
+        self.success = success
+    }
+}
+
+/// A single recorded child-profile action.
+public struct IPCParentalActivityLogEntryData: Codable, Sendable {
+    public let id: String
+    public let timestamp: String
+    public let profile: String
+    public let actionType: String
+    public let description: String
+    public let metadata: [String: AnyCodable]?
+
+    public init(id: String, timestamp: String, profile: String, actionType: String, description: String, metadata: [String: AnyCodable]? = nil) {
+        self.id = id
+        self.timestamp = timestamp
+        self.profile = profile
+        self.actionType = actionType
+        self.description = description
+        self.metadata = metadata
+    }
+}
+
+/// mac → daemon: request the full list of activity log entries.
+public struct IPCParentalActivityLogListRequest: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+/// daemon → mac: response carrying all activity log entries.
+public struct IPCParentalActivityLogListResponse: Codable, Sendable {
+    public let type: String
+    public let entries: [IPCParentalActivityLogEntryData]
+
+    public init(type: String, entries: [IPCParentalActivityLogEntryData]) {
+        self.type = type
+        self.entries = entries
+    }
+}
+
 /// Retrieve the current app and widget allowlists.
 public struct IPCParentalControlAllowlistGetRequest: Codable, Sendable {
     public let type: String

@@ -198,6 +198,48 @@ export interface ParentalControlApprovalRespondResponse {
   error?: string
 }
 
+// === Activity Log ===
+
+/** A single recorded child-profile action. */
+export interface ParentalActivityLogEntryData {
+  id: string;
+  timestamp: string;
+  profile: 'child';
+  actionType: 'tool_call' | 'request' | 'approval_request';
+  description: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** One-way: mac → daemon. Append one entry to the activity log. */
+export interface ParentalActivityLogAppendRequest {
+  type: 'parental_activity_log_append';
+  actionType: 'tool_call' | 'request' | 'approval_request';
+  description: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** mac → daemon: request the full list of activity log entries. */
+export interface ParentalActivityLogListRequest {
+  type: 'parental_activity_log_list';
+}
+
+/** daemon → mac: response carrying all activity log entries. */
+export interface ParentalActivityLogListResponse {
+  type: 'parental_activity_log_list_response';
+  entries: ParentalActivityLogEntryData[];
+}
+
+/** mac → daemon: clear all activity log entries. */
+export interface ParentalActivityLogClearRequest {
+  type: 'parental_activity_log_clear';
+}
+
+/** daemon → mac: confirmation that the log was cleared. */
+export interface ParentalActivityLogClearResponse {
+  type: 'parental_activity_log_clear_response';
+  success: boolean;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _ParentalControlClientMessages =
@@ -211,7 +253,10 @@ export type _ParentalControlClientMessages =
   | ParentalControlAllowlistUpdateRequest
   | ParentalControlApprovalCreateRequest
   | ParentalControlApprovalListRequest
-  | ParentalControlApprovalRespondRequest;
+  | ParentalControlApprovalRespondRequest
+  | ParentalActivityLogAppendRequest
+  | ParentalActivityLogListRequest
+  | ParentalActivityLogClearRequest;
 
 export type _ParentalControlServerMessages =
   | ParentalControlGetResponse
@@ -224,4 +269,6 @@ export type _ParentalControlServerMessages =
   | ParentalControlAllowlistUpdateResponse
   | ParentalControlApprovalCreateResponse
   | ParentalControlApprovalListResponse
-  | ParentalControlApprovalRespondResponse;
+  | ParentalControlApprovalRespondResponse
+  | ParentalActivityLogListResponse
+  | ParentalActivityLogClearResponse;
