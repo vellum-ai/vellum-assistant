@@ -27,6 +27,7 @@ import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import type { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
 import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
+import { resolveGuardianVerificationIntent } from './guardian-verification-intent.js';
 import { resolveSlash, type SlashContext } from './session-slash.js';
 import type { TraceEmitter } from './trace-emitter.js';
 
@@ -241,11 +242,21 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
     return;
   }
 
-  const resolvedContent = slashResult.content;
+  let resolvedContent = slashResult.content;
 
   // Preactivate skill tools when slash resolution identifies a known skill
   if (slashResult.kind === 'rewritten') {
     session.preactivatedSkillIds = [slashResult.skillId];
+  }
+
+  // Guardian verification intent interception for queued messages
+  if (slashResult.kind === 'passthrough') {
+    const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
+    if (guardianIntent.kind === 'direct_setup') {
+      log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent intercepted in queue — forcing skill flow');
+      resolvedContent = guardianIntent.rewrittenContent;
+      session.preactivatedSkillIds = ['guardian-verify-setup'];
+    }
   }
 
   // Try to persist and run the dequeued message. If persistUserMessage
@@ -443,11 +454,23 @@ export async function processMessage(
     return persisted.id;
   }
 
-  const resolvedContent = slashResult.content;
+  let resolvedContent = slashResult.content;
 
   // Preactivate skill tools when slash resolution identifies a known skill
   if (slashResult.kind === 'rewritten') {
     session.preactivatedSkillIds = [slashResult.skillId];
+  }
+
+  // Guardian verification intent interception — force direct guardian
+  // verification requests into the guardian-verify-setup skill flow on
+  // the first turn, avoiding conceptual preambles from the agent.
+  if (slashResult.kind === 'passthrough') {
+    const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
+    if (guardianIntent.kind === 'direct_setup') {
+      log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent intercepted — forcing skill flow');
+      resolvedContent = guardianIntent.rewrittenContent;
+      session.preactivatedSkillIds = ['guardian-verify-setup'];
+    }
   }
 
   let userMessageId: string;
