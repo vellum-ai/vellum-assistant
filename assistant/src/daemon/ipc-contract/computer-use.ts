@@ -1,6 +1,6 @@
 // Computer use, task routing, ride shotgun, and watch observation types.
 
-import type { IpcBlobRef,UserMessageAttachment } from './shared.js';
+import type { CommandIntent, IpcBlobRef,UserMessageAttachment } from './shared.js';
 
 // === Client → Server ===
 
@@ -51,6 +51,8 @@ export interface TaskSubmit {
   screenHeight: number;
   attachments?: UserMessageAttachment[];
   source?: 'voice' | 'text';
+  /** Structured command intent — bypasses text parsing when present. */
+  commandIntent?: CommandIntent;
 }
 
 export interface RideShotgunStart {

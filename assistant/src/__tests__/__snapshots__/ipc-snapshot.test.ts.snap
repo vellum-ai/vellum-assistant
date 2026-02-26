@@ -9,6 +9,10 @@ exports[`IPC message snapshots ClientMessage types auth serializes to expected J
 
 exports[`IPC message snapshots ClientMessage types user_message serializes to expected JSON 1`] = `
 {
+  "commandIntent": {
+    "action": "start",
+    "domain": "screen_recording",
+  },
   "content": "Hello, assistant!",
   "interface": "cli",
   "sessionId": "sess-001",
@@ -206,6 +210,10 @@ exports[`IPC message snapshots ClientMessage types watch_observation serializes 
 
 exports[`IPC message snapshots ClientMessage types task_submit serializes to expected JSON 1`] = `
 {
+  "commandIntent": {
+    "action": "stop",
+    "domain": "screen_recording",
+  },
   "screenHeight": 1080,
   "screenWidth": 1920,
   "task": "Open Safari and search for weather",
@@ -1096,6 +1104,49 @@ exports[`IPC message snapshots ClientMessage types notification_intent_result se
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types recording_status serializes to expected JSON 1`] = `
+{
+  "sessionId": "rec-001",
+  "status": "started",
+  "type": "recording_status",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_config serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "type": "heartbeat_config",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_runs_list serializes to expected JSON 1`] = `
+{
+  "type": "heartbeat_runs_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_run_now serializes to expected JSON 1`] = `
+{
+  "type": "heartbeat_run_now",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_checklist_read serializes to expected JSON 1`] = `
+{
+  "type": "heartbeat_checklist_read",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_checklist_write serializes to expected JSON 1`] = `
+{
+  "content": 
+"- [ ] Check email
+- [ ] Review PRs"
+,
+  "type": "heartbeat_checklist_write",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -1360,6 +1411,7 @@ exports[`IPC message snapshots ServerMessage types model_info serializes to expe
 
 exports[`IPC message snapshots ServerMessage types history_response serializes to expected JSON 1`] = `
 {
+  "hasMore": false,
   "messages": [
     {
       "role": "user",
@@ -2932,5 +2984,70 @@ exports[`IPC message snapshots ServerMessage types approved_device_remove_respon
 {
   "success": true,
   "type": "approved_device_remove_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types recording_start serializes to expected JSON 1`] = `
+{
+  "recordingId": "rec-001",
+  "type": "recording_start",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types recording_stop serializes to expected JSON 1`] = `
+{
+  "recordingId": "rec-001",
+  "type": "recording_stop",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_config_response serializes to expected JSON 1`] = `
+{
+  "activeHoursEnd": 17,
+  "activeHoursStart": 9,
+  "enabled": true,
+  "intervalMs": 3600000,
+  "nextRunAt": 1700003600000,
+  "success": true,
+  "type": "heartbeat_config_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_runs_list_response serializes to expected JSON 1`] = `
+{
+  "runs": [
+    {
+      "createdAt": 1700000000000,
+      "id": "hb-run-001",
+      "result": "All systems nominal",
+      "title": "Morning heartbeat",
+    },
+  ],
+  "type": "heartbeat_runs_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_run_now_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "heartbeat_run_now_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_checklist_response serializes to expected JSON 1`] = `
+{
+  "content": 
+"- [ ] Check email
+- [ ] Review PRs"
+,
+  "isDefault": false,
+  "type": "heartbeat_checklist_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_checklist_write_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "heartbeat_checklist_write_response",
 }
 `;

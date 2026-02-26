@@ -1,7 +1,7 @@
 // User/assistant messages, tool results, confirmations, secrets, errors, and generation lifecycle.
 
 import type { ChannelId, InterfaceId } from '../../channels/types.js';
-import type { UserMessageAttachment } from './shared.js';
+import type { CommandIntent, UserMessageAttachment } from './shared.js';
 
 // === Client → Server ===
 
@@ -19,6 +19,8 @@ export interface UserMessage {
   channel?: ChannelId;
   /** Originating interface identifier (e.g. 'macos'). */
   interface: InterfaceId;
+  /** Structured command intent — bypasses text parsing when present. */
+  commandIntent?: CommandIntent;
 }
 
 export interface ConfirmationResponse {

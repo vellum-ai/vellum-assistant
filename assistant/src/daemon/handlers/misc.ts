@@ -71,6 +71,42 @@ export async function handleTaskSubmit(
       return;
     }
 
+    // ── Structured command intent (bypasses text parsing) ──────────────────
+    if (msg.commandIntent?.domain === 'screen_recording') {
+      const action = msg.commandIntent.action;
+      rlog.info({ action, source: 'commandIntent' }, 'Recording command intent received');
+      if (action === 'start') {
+        const conversation = conversationStore.createConversation(msg.task || 'Screen Recording');
+        ctx.socketToSession.set(socket, conversation.id);
+        const recordingId = handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
+        ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
+        ctx.send(socket, {
+          type: 'assistant_text_delta',
+          text: recordingId ? 'Starting screen recording.' : 'A recording is already active.',
+          sessionId: conversation.id,
+        });
+        ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
+        if (!recordingId) ctx.socketToSession.delete(socket);
+        return;
+      } else if (action === 'stop') {
+        let activeSessionId = ctx.socketToSession.get(socket);
+        if (!activeSessionId) {
+          const conversation = conversationStore.createConversation(msg.task || 'Stop Recording');
+          activeSessionId = conversation.id;
+          ctx.socketToSession.set(socket, activeSessionId);
+        }
+        const stopped = handleRecordingStop(activeSessionId, ctx) !== undefined;
+        ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
+        ctx.send(socket, {
+          type: 'assistant_text_delta',
+          text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+          sessionId: activeSessionId,
+        });
+        ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+        return;
+      }
+    }
+
     // ── Standalone recording intent interception ──────────────────────────
     let pendingRecordingStart = false;
     let pendingRecordingStop = false;
