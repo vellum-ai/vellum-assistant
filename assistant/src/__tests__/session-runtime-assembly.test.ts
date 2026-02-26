@@ -10,6 +10,7 @@ import {
   injectGuardianContext,
   injectTemporalContext,
   resolveChannelCapabilities,
+  sanitizePttActivationKey,
   stripChannelCapabilityContext,
   stripChannelTurnContext,
   stripGuardianContext,
@@ -785,5 +786,53 @@ describe('applyRuntimeInjections with channelTurnContext', () => {
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sanitizePttActivationKey
+// ---------------------------------------------------------------------------
+
+describe('sanitizePttActivationKey', () => {
+  test('returns undefined for null/undefined input', () => {
+    expect(sanitizePttActivationKey(null)).toBeUndefined();
+    expect(sanitizePttActivationKey(undefined)).toBeUndefined();
+  });
+
+  test('passes through valid keys', () => {
+    expect(sanitizePttActivationKey('fn')).toBe('fn');
+    expect(sanitizePttActivationKey('ctrl')).toBe('ctrl');
+    expect(sanitizePttActivationKey('fn_shift')).toBe('fn_shift');
+    expect(sanitizePttActivationKey('none')).toBe('none');
+  });
+
+  test('returns "unknown" for invalid keys', () => {
+    expect(sanitizePttActivationKey('malicious\nprompt injection')).toBe('unknown');
+    expect(sanitizePttActivationKey('arbitrary_value')).toBe('unknown');
+    expect(sanitizePttActivationKey('')).toBe('unknown');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveChannelCapabilities sanitizes pttActivationKey
+// ---------------------------------------------------------------------------
+
+describe('resolveChannelCapabilities with PTT metadata', () => {
+  test('sanitizes valid pttActivationKey', () => {
+    const caps = resolveChannelCapabilities('macos', 'macos', { pttActivationKey: 'fn' });
+    expect(caps.pttActivationKey).toBe('fn');
+  });
+
+  test('sanitizes invalid pttActivationKey to unknown', () => {
+    const caps = resolveChannelCapabilities('macos', 'macos', { pttActivationKey: 'evil\nprompt' });
+    expect(caps.pttActivationKey).toBe('unknown');
+  });
+
+  test('passes through microphonePermissionGranted', () => {
+    const caps = resolveChannelCapabilities('macos', 'macos', {
+      pttActivationKey: 'fn',
+      microphonePermissionGranted: true,
+    });
+    expect(caps.microphonePermissionGranted).toBe(true);
   });
 });

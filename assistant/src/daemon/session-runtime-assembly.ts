@@ -43,6 +43,15 @@ export interface GuardianRuntimeContext {
   denialReason?: 'no_binding' | 'no_identity';
 }
 
+/** Allowed push-to-talk activation key values. Used to validate client-provided keys before system-prompt injection. */
+const PTT_KEY_ALLOWLIST = new Set(['fn', 'ctrl', 'fn_shift', 'none']);
+
+/** Validate a PTT activation key against the allowlist. Returns the key if valid, 'unknown' otherwise. */
+export function sanitizePttActivationKey(key: string | undefined | null): string | undefined {
+  if (key == null) return undefined;
+  return PTT_KEY_ALLOWLIST.has(key) ? key : 'unknown';
+}
+
 /** Optional PTT metadata provided by the client alongside each message. */
 export interface PttMetadata {
   pttActivationKey?: string;
@@ -96,7 +105,7 @@ export function resolveChannelCapabilities(
         dashboardCapable: supportsDesktopUi,
         supportsDynamicUi: supportsDesktopUi,
         supportsVoiceInput: supportsDesktopUi,
-        pttActivationKey: pttMetadata?.pttActivationKey,
+        pttActivationKey: sanitizePttActivationKey(pttMetadata?.pttActivationKey),
         microphonePermissionGranted: pttMetadata?.microphonePermissionGranted,
       };
     }
