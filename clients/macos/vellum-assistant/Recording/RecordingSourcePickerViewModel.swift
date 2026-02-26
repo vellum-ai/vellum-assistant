@@ -5,6 +5,26 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "RecordingSourcePicker")
 
+// MARK: - Preview Types
+
+/// Reason a source preview capture failed.
+enum PreviewFailureReason: String, Equatable, Hashable, Sendable {
+    case captureFailed = "capture_failed"
+    case blankFrame = "blank_frame"
+    case sourceGone = "source_gone"
+    case cancelled = "cancelled"
+}
+
+/// Status of thumbnail preview capture for a source.
+enum PreviewStatus: Equatable, Hashable, Sendable {
+    case idle
+    case loading
+    case loaded
+    case failed(PreviewFailureReason)
+}
+
+// MARK: - Source Types
+
 /// Represents an available display for recording.
 struct DisplaySource: Identifiable, Hashable {
     let id: UInt32       // CGDirectDisplayID
@@ -14,11 +34,27 @@ struct DisplaySource: Identifiable, Hashable {
     let scaleFactor: CGFloat
     /// Whether the picker window is currently on this display.
     var isCurrentDisplay: Bool
+    /// Preview thumbnail image (not included in hash/equality).
+    var thumbnail: NSImage?
+    /// Current preview capture status.
+    var previewStatus: PreviewStatus = .idle
+    /// Reference to SCDisplay for content filter creation (not included in hash/equality).
+    var scDisplay: SCDisplay?
 
     /// Human-readable resolution and scale, e.g. "2560 × 1440 @ 2x".
     var subtitle: String {
         let scaleLabel = scaleFactor >= 2 ? "@ \(Int(scaleFactor))x" : "@ 1x"
         return "\(width) × \(height) \(scaleLabel)"
+    }
+
+    // Identity is based solely on the display ID so SwiftUI diffing
+    // doesn't trigger spurious rebuilds when thumbnails arrive.
+    static func == (lhs: DisplaySource, rhs: DisplaySource) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 
@@ -28,6 +64,21 @@ struct WindowSource: Identifiable, Hashable {
     let title: String
     let appName: String
     let bundleIdentifier: String?
+    /// Preview thumbnail image (not included in hash/equality).
+    var thumbnail: NSImage?
+    /// Current preview capture status.
+    var previewStatus: PreviewStatus = .idle
+    /// Reference to SCWindow for content filter creation (not included in hash/equality).
+    var scWindow: SCWindow?
+
+    // Identity is based solely on the window ID.
+    static func == (lhs: WindowSource, rhs: WindowSource) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 }
 
 /// Whether to capture a full display or a single window.
@@ -125,7 +176,8 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                     width: display.width,
                     height: display.height,
                     scaleFactor: scale,
-                    isCurrentDisplay: display.displayID == pickerDisplayId
+                    isCurrentDisplay: display.displayID == pickerDisplayId,
+                    scDisplay: display
                 )
             }
 
@@ -158,7 +210,8 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                         id: Int(window.windowID),
                         title: window.title ?? "Untitled",
                         appName: window.owningApplication?.applicationName ?? "Unknown",
-                        bundleIdentifier: window.owningApplication?.bundleIdentifier
+                        bundleIdentifier: window.owningApplication?.bundleIdentifier,
+                        scWindow: window
                     )
                 }
 
@@ -243,6 +296,65 @@ final class RecordingSourcePickerViewModel: ObservableObject {
             if sourceUnavailableNotice == message {
                 sourceUnavailableNotice = nil
             }
+        }
+    }
+
+    // MARK: - Preview Loading
+
+    private let thumbnailProvider = ThumbnailProvider()
+
+    /// Load preview thumbnails for all currently visible sources.
+    /// Must be called after `loadSources()` completes. Does not block
+    /// source loading — previews arrive asynchronously and update the UI.
+    func loadPreviews() async {
+        guard FeatureFlagManager.shared.isEnabled(.sourcePreviewEnabled) else { return }
+
+        switch captureScope {
+        case .display:
+            for i in displays.indices {
+                displays[i].previewStatus = .loading
+            }
+            // Capture in parallel with concurrency limited by the provider
+            await withTaskGroup(of: (UInt32, NSImage?, PreviewStatus).self) { group in
+                for display in displays {
+                    group.addTask { [thumbnailProvider] in
+                        let result = await thumbnailProvider.captureThumbnail(for: display)
+                        return (display.id, result.image, result.status)
+                    }
+                }
+                for await (displayId, image, status) in group {
+                    if let idx = displays.firstIndex(where: { $0.id == displayId }) {
+                        displays[idx].thumbnail = image
+                        displays[idx].previewStatus = status
+                    }
+                }
+            }
+
+        case .window:
+            for i in windows.indices {
+                windows[i].previewStatus = .loading
+            }
+            await withTaskGroup(of: (Int, NSImage?, PreviewStatus).self) { group in
+                for window in windows {
+                    group.addTask { [thumbnailProvider] in
+                        let result = await thumbnailProvider.captureThumbnail(for: window)
+                        return (window.id, result.image, result.status)
+                    }
+                }
+                for await (windowId, image, status) in group {
+                    if let idx = windows.firstIndex(where: { $0.id == windowId }) {
+                        windows[idx].thumbnail = image
+                        windows[idx].previewStatus = status
+                    }
+                }
+            }
+        }
+    }
+
+    /// Clear thumbnail caches when the picker is dismissed.
+    func clearPreviews() {
+        Task {
+            await thumbnailProvider.clearCache()
         }
     }
 }

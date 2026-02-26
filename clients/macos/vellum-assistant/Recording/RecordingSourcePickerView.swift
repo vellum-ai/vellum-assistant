@@ -49,6 +49,10 @@ struct RecordingSourcePickerView: View {
         .background(VColor.background)
         .task {
             await viewModel.loadSources()
+            await viewModel.loadPreviews()
+        }
+        .onChange(of: viewModel.captureScope) { _, _ in
+            Task { await viewModel.loadPreviews() }
         }
     }
 

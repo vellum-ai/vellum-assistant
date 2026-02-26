@@ -89,6 +89,7 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
             NotificationCenter.default.removeObserver(observer)
             moveObserver = nil
         }
+        viewModel?.clearPreviews()
         window?.delegate = nil
         window?.close()
         window = nil
