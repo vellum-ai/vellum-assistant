@@ -127,12 +127,12 @@ describe('approval-message-composer', () => {
       expect(msg).toContain('Code did not match.');
     });
 
-    test('guardian_verify_challenge_setup includes verifyCommand in six-digit code format', () => {
+    test('guardian_verify_challenge_setup includes verifyCommand in N-digit code format', () => {
       const msg = getFallbackMessage({
         scenario: 'guardian_verify_challenge_setup',
         verifyCommand: '123456',
       });
-      expect(msg).toContain('six-digit code: 123456');
+      expect(msg).toContain('6-digit code: 123456');
     });
   });
 
@@ -200,7 +200,7 @@ describe('approval-message-composer', () => {
       });
       expect(typeof msg).toBe('string');
       expect(msg.length).toBeGreaterThan(0);
-      expect(msg).toContain('six-digit code: 987654');
+      expect(msg).toContain('6-digit code: 987654');
     });
 
     test('guardian_verify_failed includes failure reason', () => {

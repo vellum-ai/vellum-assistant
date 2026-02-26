@@ -92,8 +92,6 @@ struct SettingsConnectTab: View {
             store.refreshChannelGuardianStatus(channel: "sms")
             store.refreshChannelGuardianStatus(channel: "voice")
             gatewayExpanded = store.ingressPublicBaseUrl.isEmpty
-            Task { await store.testGatewayOnly() }
-            Task { await store.testTunnelOnly() }
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
             if !isGatewayUrlFocused {
@@ -122,6 +120,11 @@ struct SettingsConnectTab: View {
                 voiceSetupExpanded = false
                 voiceNumberPickerExpanded = false
             }
+        }
+        .onChange(of: store.ingressConfigLoaded) { _, loaded in
+            guard loaded else { return }
+            Task { await store.testGatewayOnly() }
+            Task { await store.testTunnelOnly() }
         }
         .alert("Regenerate Bearer Token", isPresented: $showingRegenerateConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -1509,30 +1512,41 @@ struct SettingsConnectTab: View {
     }
 
     /// Extracts a guardian verification code from a raw instruction string.
-    /// Supports two formats:
+    /// Supports three formats:
     ///   1. Legacy `/guardian_verify <hex>` command
-    ///   2. "six-digit code: 123456" (used by all channels now)
+    ///   2. "N-digit code: <digits>" (numeric codes, e.g. "6-digit code: 123456")
+    ///   3. "the code: <hex>" (high-entropy hex codes for inbound challenges)
     private func extractGuardianCommand(from instruction: String) -> String? {
         // Try legacy /guardian_verify command format first
         if let range = instruction.range(of: #"`?/guardian_verify\s+[0-9a-fA-F]+`?"#, options: .regularExpression) {
             return String(instruction[range]).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
         }
-        // Fall back to six-digit code format (all channels now use 6-digit numeric codes)
-        return extractSixDigitCode(from: instruction)
+        // Try N-digit code format (e.g., "6-digit code: 123456")
+        if let code = extractNumericCode(from: instruction) {
+            return code
+        }
+        // Try generic "the code: <hex>" format for high-entropy codes
+        if let range = instruction.range(of: #"the code:\s*([0-9a-fA-F]+)"#, options: .regularExpression) {
+            let match = String(instruction[range])
+            if let hexRange = match.range(of: #"[0-9a-fA-F]{6,}"#, options: .regularExpression) {
+                return String(match[hexRange])
+            }
+        }
+        return nil
     }
 
-    /// Extracts a six-digit verification code from instruction text.
-    /// Matches the format "six-digit code: 123456" used by all channels.
-    private func extractSixDigitCode(from instruction: String) -> String? {
-        guard let range = instruction.range(of: #"six-digit code:\s*(\d{6})"#, options: .regularExpression) else {
+    /// Extracts a numeric verification code from instruction text.
+    /// Matches the format "N-digit code: <digits>" used for identity-bound codes.
+    private func extractNumericCode(from instruction: String) -> String? {
+        guard let range = instruction.range(of: #"\d+-digit code:\s*(\d+)"#, options: .regularExpression) else {
             return nil
         }
         let match = String(instruction[range])
-        // Extract just the digits from "six-digit code: 123456"
-        guard let digitRange = match.range(of: #"\d{6}"#, options: .regularExpression) else {
+        // Extract just the digits after "N-digit code: "
+        guard let colonRange = match.range(of: #":\s*"#, options: .regularExpression) else {
             return nil
         }
-        return String(match[digitRange])
+        return String(match[colonRange.upperBound...])
     }
 
     @ViewBuilder
@@ -1667,6 +1681,13 @@ struct SettingsConnectTab: View {
                         }
                     )
                 }
+
+                Button("Clear All") {
+                    store.clearAllApprovedDevices()
+                }
+                .font(VFont.caption)
+                .foregroundColor(VColor.error)
+                .buttonStyle(.borderless)
             }
 
             Divider().background(VColor.surfaceBorder)

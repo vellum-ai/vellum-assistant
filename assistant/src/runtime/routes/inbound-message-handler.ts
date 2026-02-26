@@ -73,7 +73,9 @@ const log = getLogger('runtime-http');
  * Accepts three formats:
  *   1. `/guardian_verify <code>` (legacy command format)
  *   2. `/guardian_verify@BotName <code>` (Telegram group format)
- *   3. A bare 6-digit numeric code as the entire message
+ *   3. A bare code as the entire message: 6-digit numeric OR 64-char hex
+ *      (hex is retained for backward compatibility with in-flight inbound
+ *      challenges that still use high-entropy secrets)
  * Returns `{ code, isExplicitCommand }` if recognized, or undefined otherwise.
  * `isExplicitCommand` is true for legacy /guardian_verify commands (explicit
  * intent) and false for bare codes (which need additional gating to avoid
@@ -84,9 +86,10 @@ function parseGuardianVerifyCommand(content: string): { code: string; isExplicit
   const commandMatch = content.match(/^\/guardian_verify(?:@\S+)?\s+(\S+)/);
   if (commandMatch) return { code: commandMatch[1], isExplicitCommand: true };
 
-  // Bare 6-digit numeric code
-  const bareMatch = content.match(/^\d{6}$/);
-  if (bareMatch) return { code: bareMatch[0], isExplicitCommand: false };
+  // Bare code: 6-digit numeric (identity-bound outbound sessions) or
+  // 64-char hex (unbound inbound challenges)
+  const bareMatch = content.match(/^([0-9a-fA-F]{64}|\d{6})$/);
+  if (bareMatch) return { code: bareMatch[1], isExplicitCommand: false };
 
   return undefined;
 }

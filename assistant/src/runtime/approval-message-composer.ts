@@ -217,15 +217,24 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
       return `Verification failed. ${context.failureReason ?? 'Please try again.'}`;
 
     case 'guardian_verify_challenge_setup': {
-      // All channels now use 6-digit numeric codes. The instruction must
-      // include the code so the macOS client (and other consumers) can
-      // parse it from the instruction text.  The "six-digit code: <code>"
-      // format is shared across channels for consistency.
+      // The instruction must include the code so the macOS client (and other
+      // consumers) can parse it from the instruction text.  The
+      // "<N>-digit code: <code>" format is shared across channels for
+      // consistency; wording adapts to channel and code type.
       const code = context.verifyCommand ?? 'the verification code';
+      // Detect whether the code is a short numeric (identity-bound outbound)
+      // or a high-entropy hex (inbound challenge) and adjust wording.
+      const isNumeric = /^\d{4,8}$/.test(code);
       if (context.channel === 'voice') {
-        return `To complete guardian verification, speak or enter the six-digit code: ${code}.`;
+        if (isNumeric) {
+          return `To complete guardian verification, speak or enter the ${code.length}-digit code: ${code}.`;
+        }
+        return `To complete guardian verification, enter the code: ${code}.`;
       }
-      return `To complete guardian verification, send the six-digit code: ${code}.`;
+      if (isNumeric) {
+        return `To complete guardian verification, send the ${code.length}-digit code: ${code}.`;
+      }
+      return `To complete guardian verification, send the code: ${code}.`;
     }
 
     case 'guardian_verify_status_bound':

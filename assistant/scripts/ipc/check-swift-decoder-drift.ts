@@ -54,6 +54,8 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   // Ingress invite/member management — not yet consumed by the macOS client
   'ingress_invite_response',
   'ingress_member_response',
+  // Inbox escalation — not yet consumed by the macOS client
+  'assistant_inbox_escalation_response',
   // Work item messages — not yet consumed by the macOS client
   'work_item_get_response',
   'work_item_run_task_response',
