@@ -45,6 +45,17 @@ This keeps your current branch unchanged so safe-blitz doesn't block your main w
 
 3. Store the feature branch name for later phases. Milestone agents will use `--base <feature-branch-name>`. Per-milestone feedback agents will push directly to the milestone PR branch (see Phase 4c).
 
+### Register active blitz
+
+Register this safe-blitz run in `.private/ACTIVE_BLITZ.md` so that standalone `/check-reviews` runs (without `--namespace`) will automatically skip PRs owned by this blitz. This prevents duplicate work when check-reviews runs as a periodic cronjob while this safe-blitz is active.
+
+1. Read `.private/ACTIVE_BLITZ.md` (create it if it doesn't exist). This file is gitignored.
+2. Remove any existing line starting with `<namespace> ` (in case of a stale entry from a previous crashed run).
+3. Append a new entry:
+   ```bash
+   echo "<namespace> safe-blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md
+   ```
+
 ## Phase 2: Plan & Spec
 
 Read and follow `.claude/phases/plan-and-spec.md`. For safe-blitz mode, replace `<EXTRA_EPIC_FIELDS>` with:
@@ -208,6 +219,13 @@ Address the review feedback on PR #<milestone-pr-number> (<milestone-pr-url>):
    ```
 
 #### 4c. Per-milestone feedback loop
+
+**Update the blitz heartbeat** before entering the feedback loop (and at the start of each feedback cycle) to prevent the entry from going stale:
+```bash
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
+echo "<namespace> safe-blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
+mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+```
 
 Instead of using the full sweep+swarm machinery (which creates new PRs), per-milestone feedback is handled by pushing fixes directly to the milestone PR branch. This is faster and avoids the overhead of creating, reviewing, and merging intermediate feedback PRs.
 
@@ -442,6 +460,13 @@ Proceed to step 4d.
 
 ## Phase 5: Final Feature Branch Sweep
 
+**Update the blitz heartbeat** at the start of each sweep loop iteration to prevent the entry from going stale:
+```bash
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
+echo "<namespace> safe-blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
+mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+```
+
 After all milestones are merged and their individual reviews are clean, run one final recursive sweep on the entire feature branch.
 
 Read and follow `.claude/phases/sweep.md` with `--namespace <namespace>` and `--auto`. Safe-blitz already has review gates on every milestone, so an extra pause before the final sweep is unnecessary.
@@ -653,6 +678,15 @@ gh pr checks <final-pr-number> --json name,state,conclusion --jq '.[] | {name: .
 - If all checks pass (or there are no required checks), proceed to Phase 8.
 
 ## Phase 8: Final Summary & Merge Prompt
+
+### Deregister active blitz
+
+Remove this safe-blitz's entry from `.private/ACTIVE_BLITZ.md`:
+```bash
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
+mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+```
+If the file is now empty (only blank lines), delete it: `rm -f .private/ACTIVE_BLITZ.md`
 
 1. If the final PR warrants focused human review, leave a Human Attention Comment (see "Human Attention Comments on PRs" in AGENTS.md). Skip for routine changes.
 
