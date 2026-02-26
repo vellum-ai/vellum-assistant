@@ -138,10 +138,12 @@ describe('isGuardianControlPlaneInvocation', () => {
       })).toBe(false);
     });
 
-    test('does not match partial path prefix', () => {
+    test('matches partial path prefix via fragment detection (fail-closed for shell tools)', () => {
+      // Even without a trailing sub-path, the presence of both /v1/integrations and guardian
+      // in a bash command triggers the conservative fragment detector.
       expect(isGuardianControlPlaneInvocation('bash', {
         command: 'curl http://localhost:3000/v1/integrations/guardian',
-      })).toBe(false);
+      })).toBe(true);
     });
 
     test('matches unknown sub-path under guardian control-plane (broad pattern)', () => {
@@ -322,6 +324,52 @@ describe('isGuardianControlPlaneInvocation', () => {
         command: 'curl -H "X: %ZZ" http://localhost:3000/v1/integrations%2Fguardian%2Foutbound%2Fstart -d \'{"channel":"sms"}\'',
       });
       expect(result).toBe(true);
+    });
+  });
+
+  describe('shell expansion resistance', () => {
+    test('detects guardian endpoint constructed via shell variable concatenation', () => {
+      expect(isGuardianControlPlaneInvocation('bash', {
+        command: 'base=http://localhost:7821/v1/integrations; seg=guardian; curl "$base/$seg/status"',
+      })).toBe(true);
+    });
+
+    test('detects guardian endpoint with split variable assignment', () => {
+      expect(isGuardianControlPlaneInvocation('bash', {
+        command: 'API=/v1/integrations; curl "http://localhost:3000${API}/guardian/outbound/start"',
+      })).toBe(true);
+    });
+
+    test('detects guardian endpoint with path built across multiple variables', () => {
+      expect(isGuardianControlPlaneInvocation('bash', {
+        command: 'HOST=http://localhost:7821; PATH_PREFIX=/v1/integrations; SVC=guardian; curl "$HOST$PATH_PREFIX/$SVC/challenge"',
+      })).toBe(true);
+    });
+
+    test('detects guardian endpoint via heredoc-style construction', () => {
+      expect(isGuardianControlPlaneInvocation('bash', {
+        command: 'url="http://localhost:3000/v1/integrations"; curl "${url}/guardian/outbound/resend"',
+      })).toBe(true);
+    });
+
+    test('does not false-positive when only /v1/integrations is present without guardian', () => {
+      expect(isGuardianControlPlaneInvocation('bash', {
+        command: 'curl http://localhost:3000/v1/integrations/other/service',
+      })).toBe(false);
+    });
+
+    test('does not false-positive when only guardian is present without /v1/integrations', () => {
+      expect(isGuardianControlPlaneInvocation('bash', {
+        command: 'echo "guardian notification sent"',
+      })).toBe(false);
+    });
+
+    test('shell fragment detection does not apply to URL tools', () => {
+      // URL tools pass structured URLs, not shell commands. The fragment detector
+      // is bash/host_bash only. For URL tools, we rely on exact/normalized matching.
+      expect(isGuardianControlPlaneInvocation('network_request', {
+        url: 'https://api.example.com/v1/messages',
+      })).toBe(false);
     });
   });
 });

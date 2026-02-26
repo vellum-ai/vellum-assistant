@@ -77,6 +77,19 @@ function containsGuardianEndpointPath(value: string): boolean {
 }
 
 /**
+ * Conservative fallback for shell tools: detects when a command contains the
+ * key fragments of a guardian control-plane path even if they are not contiguous
+ * (e.g. constructed via shell variable expansion like `base=/v1/integrations; curl "$base/guardian/status"`).
+ *
+ * Only applied to bash/host_bash — URL tools pass structured URLs that cannot
+ * be split by shell expansion.
+ */
+function containsGuardianFragments(command: string): boolean {
+  const lower = command.toLowerCase();
+  return lower.includes('/v1/integrations') && lower.includes('guardian');
+}
+
+/**
  * Pure function that determines whether a tool invocation targets a guardian
  * control-plane endpoint based on the tool name and its input.
  */
@@ -86,8 +99,11 @@ export function isGuardianControlPlaneInvocation(
 ): boolean {
   if (COMMAND_TOOLS.has(toolName)) {
     const command = input.command;
-    if (typeof command === 'string' && containsGuardianEndpointPath(command)) {
-      return true;
+    if (typeof command === 'string') {
+      // Primary: exact/normalized path matching
+      if (containsGuardianEndpointPath(command)) return true;
+      // Fallback: detect shell-expanded construction of guardian paths
+      if (containsGuardianFragments(command)) return true;
     }
   }
 
