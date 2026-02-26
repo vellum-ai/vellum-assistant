@@ -9,6 +9,7 @@ export interface FtsReconciliationResult {
   ftsCount: number;
   missingInserted: number;
   orphansRemoved: number;
+  staleRefreshed: number;
 }
 
 /**
@@ -52,7 +53,29 @@ function reconcileTable(opts: {
     )
   `);
 
-  return { table: ftsTable, baseCount, ftsCount, missingInserted, orphansRemoved };
+  // Refresh FTS rows whose content is stale (base row was updated but the
+  // update trigger didn't fire or was missing). Delete-then-insert is the
+  // standard FTS5 update pattern.
+  const staleDeleted = rawRun(/*sql*/ `
+    DELETE FROM ${ftsTable}
+    WHERE ${ftsIdColumn} IN (
+      SELECT f.${ftsIdColumn}
+      FROM ${ftsTable} f
+      JOIN ${baseTable} b ON b.${baseIdColumn} = f.${ftsIdColumn}
+      WHERE b.${baseContentColumn} IS NOT f.${ftsContentColumn}
+    )
+  `);
+  if (staleDeleted > 0) {
+    rawRun(/*sql*/ `
+      INSERT INTO ${ftsTable}(${ftsIdColumn}, ${ftsContentColumn})
+      SELECT b.${baseIdColumn}, b.${baseContentColumn}
+      FROM ${baseTable} b
+      LEFT JOIN ${ftsTable} f ON f.${ftsIdColumn} = b.${baseIdColumn}
+      WHERE f.${ftsIdColumn} IS NULL
+    `);
+  }
+
+  return { table: ftsTable, baseCount, ftsCount, missingInserted, orphansRemoved, staleRefreshed: staleDeleted };
 }
 
 /**
@@ -63,43 +86,35 @@ export function reconcileFtsIndexes(): FtsReconciliationResult[] {
   const results: FtsReconciliationResult[] = [];
 
   // memory_segment_fts tracks memory_segments
-  try {
-    const result = reconcileTable({
-      ftsTable: 'memory_segment_fts',
-      ftsIdColumn: 'segment_id',
-      ftsContentColumn: 'text',
-      baseTable: 'memory_segments',
-      baseIdColumn: 'id',
-      baseContentColumn: 'text',
-    });
-    results.push(result);
-    if (result.missingInserted > 0 || result.orphansRemoved > 0) {
-      log.info(result, 'Reconciled memory_segment_fts');
-    } else {
-      log.debug(result, 'memory_segment_fts is in sync');
-    }
-  } catch (err) {
-    log.error({ err }, 'Failed to reconcile memory_segment_fts');
+  const memResult = reconcileTable({
+    ftsTable: 'memory_segment_fts',
+    ftsIdColumn: 'segment_id',
+    ftsContentColumn: 'text',
+    baseTable: 'memory_segments',
+    baseIdColumn: 'id',
+    baseContentColumn: 'text',
+  });
+  results.push(memResult);
+  if (memResult.missingInserted > 0 || memResult.orphansRemoved > 0 || memResult.staleRefreshed > 0) {
+    log.info(memResult, 'Reconciled memory_segment_fts');
+  } else {
+    log.debug(memResult, 'memory_segment_fts is in sync');
   }
 
   // messages_fts tracks messages
-  try {
-    const result = reconcileTable({
-      ftsTable: 'messages_fts',
-      ftsIdColumn: 'message_id',
-      ftsContentColumn: 'content',
-      baseTable: 'messages',
-      baseIdColumn: 'id',
-      baseContentColumn: 'content',
-    });
-    results.push(result);
-    if (result.missingInserted > 0 || result.orphansRemoved > 0) {
-      log.info(result, 'Reconciled messages_fts');
-    } else {
-      log.debug(result, 'messages_fts is in sync');
-    }
-  } catch (err) {
-    log.error({ err }, 'Failed to reconcile messages_fts');
+  const msgResult = reconcileTable({
+    ftsTable: 'messages_fts',
+    ftsIdColumn: 'message_id',
+    ftsContentColumn: 'content',
+    baseTable: 'messages',
+    baseIdColumn: 'id',
+    baseContentColumn: 'content',
+  });
+  results.push(msgResult);
+  if (msgResult.missingInserted > 0 || msgResult.orphansRemoved > 0 || msgResult.staleRefreshed > 0) {
+    log.info(msgResult, 'Reconciled messages_fts');
+  } else {
+    log.debug(msgResult, 'messages_fts is in sync');
   }
 
   return results;
