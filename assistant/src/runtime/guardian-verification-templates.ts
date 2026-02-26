@@ -29,6 +29,12 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
   VOICE_SUCCESS: 'guardian_verify.voice.success',
   /** Voice failure prompt after too many incorrect attempts. */
   VOICE_FAILURE: 'guardian_verify.voice.failure',
+  /** Deterministic reply after successful channel verification command. */
+  CHANNEL_VERIFY_SUCCESS: 'guardian_verify.channel.success',
+  /** Deterministic reply after failed channel verification command. */
+  CHANNEL_VERIFY_FAILED: 'guardian_verify.channel.failed',
+  /** Deterministic reply for bootstrap deep-link success. */
+  CHANNEL_BOOTSTRAP_BOUND: 'guardian_verify.channel.bootstrap_bound',
 } as const;
 
 export type GuardianVerifyTemplateKey =
@@ -41,6 +47,12 @@ type TextVerifyTemplateKey =
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND;
+
+/** Template keys for deterministic channel verification reply messages. */
+export type ChannelVerifyReplyTemplateKey =
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED
+  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_BOOTSTRAP_BOUND;
 
 // ---------------------------------------------------------------------------
 // Template Variables
@@ -55,6 +67,11 @@ export interface GuardianVerifyTemplateVars {
 export interface GuardianVerifyVoiceTemplateVars {
   /** Number of digits in the verification code. */
   codeDigits: number;
+}
+
+export interface ChannelVerifyReplyVars {
+  /** Failure reason (anti-oracle: generic message). Only used for failed template. */
+  failureReason?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,5 +162,34 @@ export function composeVerificationVoice(
   vars: GuardianVerifyVoiceTemplateVars,
 ): string {
   const composer = voiceTemplates[templateKey];
+  return composer(vars);
+}
+
+// ---------------------------------------------------------------------------
+// Channel Verification Reply Templates (deterministic, non-agent)
+// ---------------------------------------------------------------------------
+
+const channelVerifyReplyTemplates: Record<ChannelVerifyReplyTemplateKey, (vars: ChannelVerifyReplyVars) => string> = {
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS]: () =>
+    'Verification successful. You are now set as the guardian for this channel.',
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED]: (vars) =>
+    vars.failureReason ?? 'The verification code is invalid or has expired.',
+
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_BOOTSTRAP_BOUND]: () =>
+    'Welcome! Your identity has been linked. Please check for a verification code message.',
+};
+
+/**
+ * Compose a deterministic channel verification reply from a template key.
+ * These replies are delivered directly via channel reply delivery and
+ * never enter the agent pipeline, ensuring verification commands produce
+ * only template-driven copy.
+ */
+export function composeChannelVerifyReply(
+  templateKey: ChannelVerifyReplyTemplateKey,
+  vars: ChannelVerifyReplyVars = {},
+): string {
+  const composer = channelVerifyReplyTemplates[templateKey];
   return composer(vars);
 }

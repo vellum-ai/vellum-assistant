@@ -137,6 +137,7 @@ public final class SettingsStore: ObservableObject {
     @Published var telegramOutboundNextResendAt: Date?
     @Published var telegramOutboundSendCount: Int = 0
     @Published var telegramBootstrapUrl: String?
+    @Published var telegramOutboundCode: String?
 
     // MARK: - Outbound Guardian Session State (SMS)
 
@@ -144,6 +145,7 @@ public final class SettingsStore: ObservableObject {
     @Published var smsOutboundExpiresAt: Date?
     @Published var smsOutboundNextResendAt: Date?
     @Published var smsOutboundSendCount: Int = 0
+    @Published var smsOutboundCode: String?
 
     // MARK: - Outbound Guardian Session State (Voice)
 
@@ -151,6 +153,7 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceOutboundExpiresAt: Date?
     @Published var voiceOutboundNextResendAt: Date?
     @Published var voiceOutboundSendCount: Int = 0
+    @Published var voiceOutboundCode: String?
 
     // MARK: - Email Integration State
 
@@ -1219,16 +1222,19 @@ public final class SettingsStore: ObservableObject {
             telegramOutboundNextResendAt = nil
             telegramOutboundSendCount = 0
             telegramBootstrapUrl = nil
+            telegramOutboundCode = nil
         case "sms":
             smsOutboundSessionId = nil
             smsOutboundExpiresAt = nil
             smsOutboundNextResendAt = nil
             smsOutboundSendCount = 0
+            smsOutboundCode = nil
         case "voice":
             voiceOutboundSessionId = nil
             voiceOutboundExpiresAt = nil
             voiceOutboundNextResendAt = nil
             voiceOutboundSendCount = 0
+            voiceOutboundCode = nil
         default:
             break
         }
@@ -1243,6 +1249,9 @@ public final class SettingsStore: ObservableObject {
         let nextResendAt = response.nextResendAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
         let sendCount = response.sendCount
         let bootstrapUrl = response.telegramBootstrapUrl
+        // The secret is returned on start/resend but not on status polls.
+        // Persist it so the UI can display the verification code.
+        let secret = response.secret
 
         switch channel {
         case "telegram":
@@ -1251,11 +1260,13 @@ public final class SettingsStore: ObservableObject {
             if sessionId != telegramOutboundSessionId {
                 telegramOutboundNextResendAt = nil
                 telegramOutboundSendCount = 0
+                telegramOutboundCode = nil
             }
             telegramOutboundSessionId = sessionId
             if let expiresAt { telegramOutboundExpiresAt = expiresAt }
             if let nextResendAt { telegramOutboundNextResendAt = nextResendAt }
             if let sendCount { telegramOutboundSendCount = sendCount }
+            if let secret { telegramOutboundCode = secret }
             if let bootstrapUrl {
                 telegramBootstrapUrl = bootstrapUrl
             } else if response.pendingBootstrap == true {
@@ -1271,20 +1282,24 @@ public final class SettingsStore: ObservableObject {
             if sessionId != smsOutboundSessionId {
                 smsOutboundNextResendAt = nil
                 smsOutboundSendCount = 0
+                smsOutboundCode = nil
             }
             smsOutboundSessionId = sessionId
             if let expiresAt { smsOutboundExpiresAt = expiresAt }
             if let nextResendAt { smsOutboundNextResendAt = nextResendAt }
             if let sendCount { smsOutboundSendCount = sendCount }
+            if let secret { smsOutboundCode = secret }
         case "voice":
             if sessionId != voiceOutboundSessionId {
                 voiceOutboundNextResendAt = nil
                 voiceOutboundSendCount = 0
+                voiceOutboundCode = nil
             }
             voiceOutboundSessionId = sessionId
             if let expiresAt { voiceOutboundExpiresAt = expiresAt }
             if let nextResendAt { voiceOutboundNextResendAt = nextResendAt }
             if let sendCount { voiceOutboundSendCount = sendCount }
+            if let secret { voiceOutboundCode = secret }
         default:
             break
         }
