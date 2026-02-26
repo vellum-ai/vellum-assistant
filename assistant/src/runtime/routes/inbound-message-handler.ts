@@ -1121,7 +1121,7 @@ function notifyGuardianOfAccessRequest(params: {
 
   const senderIdentifier = senderName || senderUsername || senderExternalUserId;
 
-  createApprovalRequest({
+  const approvalRequest = createApprovalRequest({
     runId: `ingress-access-request-${Date.now()}`,
     conversationId: `access-req-${sourceChannel}-${senderExternalUserId}`,
     assistantId: canonicalAssistantId,
@@ -1155,9 +1155,10 @@ function notifyGuardianOfAccessRequest(params: {
       senderUsername: senderUsername ?? null,
       senderIdentifier,
     },
-    // Deduplicate at the notification pipeline level too, keyed on the
-    // requester identity so repeated messages don't flood the guardian.
-    dedupeKey: `access-request:${canonicalAssistantId}:${sourceChannel}:${senderExternalUserId}`,
+    // Scoped to the approval request ID so duplicate notifications for the
+    // same request are suppressed, but a new request (after deny/expire)
+    // gets its own dedupe key and the guardian is notified again.
+    dedupeKey: `access-request:${approvalRequest.id}`,
   });
 
   log.info(
