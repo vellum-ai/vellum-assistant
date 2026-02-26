@@ -55,6 +55,7 @@ struct TimezonePicker: View {
                             .font(.system(size: 12))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
                 }
             }
             .padding(.horizontal, VSpacing.md)
