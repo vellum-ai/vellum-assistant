@@ -170,6 +170,8 @@ struct ChatSessionErrorToast: View {
             return "stop.circle.fill"
         case .processingFailed, .regenerateFailed:
             return "arrow.triangle.2.circlepath"
+        case .authenticationRequired:
+            return "lock.fill"
         case .unknown:
             return "exclamationmark.triangle.fill"
         }
