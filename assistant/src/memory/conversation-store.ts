@@ -2,6 +2,7 @@
 // Existing imports from this file continue to work without changes.
 
 import { rawGet, rawRun } from './db.js';
+import { ensureDisplayOrderMigration } from './conversation-display-order-migration.js';
 
 export {
   messageMetadataSchema,
@@ -46,38 +47,15 @@ export {
   searchConversations,
 } from './conversation-queries.js';
 
-// ---------------------------------------------------------------------------
-// Runtime migration: display_order and is_pinned columns
-// ---------------------------------------------------------------------------
-
-function ensureDisplayOrderColumns(): void {
-  try {
-    rawRun('ALTER TABLE conversations ADD COLUMN display_order INTEGER');
-  } catch {
-    // Column already exists — ignore the error
-  }
-  try {
-    rawRun('ALTER TABLE conversations ADD COLUMN is_pinned INTEGER DEFAULT 0');
-  } catch {
-    // Column already exists — ignore the error
-  }
-}
-
-let displayOrderColumnsEnsured = false;
-
-function ensureColumns(): void {
-  if (!displayOrderColumnsEnsured) {
-    ensureDisplayOrderColumns();
-    displayOrderColumnsEnsured = true;
-  }
-}
+// Re-export for backward compat — callers that imported ensureColumns from here
+export { ensureDisplayOrderMigration as ensureColumns } from './conversation-display-order-migration.js';
 
 // ---------------------------------------------------------------------------
 // CRUD functions for display_order and is_pinned
 // ---------------------------------------------------------------------------
 
 export function getDisplayOrder(conversationId: string): number | null {
-  ensureColumns();
+  ensureDisplayOrderMigration();
   const row = rawGet<{ display_order: number | null }>(
     'SELECT display_order FROM conversations WHERE id = ?',
     conversationId,
@@ -86,7 +64,7 @@ export function getDisplayOrder(conversationId: string): number | null {
 }
 
 export function setDisplayOrder(conversationId: string, order: number | null): void {
-  ensureColumns();
+  ensureDisplayOrderMigration();
   rawRun(
     'UPDATE conversations SET display_order = ? WHERE id = ?',
     order,
@@ -97,7 +75,7 @@ export function setDisplayOrder(conversationId: string, order: number | null): v
 export function batchSetDisplayOrders(
   updates: Array<{ id: string; displayOrder: number | null; isPinned: boolean }>,
 ): void {
-  ensureColumns();
+  ensureDisplayOrderMigration();
   for (const update of updates) {
     rawRun(
       'UPDATE conversations SET display_order = ?, is_pinned = ? WHERE id = ?',
@@ -109,7 +87,7 @@ export function batchSetDisplayOrders(
 }
 
 export function setConversationPinned(conversationId: string, isPinned: boolean): void {
-  ensureColumns();
+  ensureDisplayOrderMigration();
   rawRun(
     'UPDATE conversations SET is_pinned = ? WHERE id = ?',
     isPinned ? 1 : 0,
@@ -120,7 +98,7 @@ export function setConversationPinned(conversationId: string, isPinned: boolean)
 export function getConversationDisplayMeta(
   conversationId: string,
 ): { displayOrder: number | null; isPinned: boolean } {
-  ensureColumns();
+  ensureDisplayOrderMigration();
   const row = rawGet<{ display_order: number | null; is_pinned: number | null }>(
     'SELECT display_order, is_pinned FROM conversations WHERE id = ?',
     conversationId,
@@ -134,7 +112,7 @@ export function getConversationDisplayMeta(
 export function getDisplayMetaForConversations(
   conversationIds: string[],
 ): Map<string, { displayOrder: number | null; isPinned: boolean }> {
-  ensureColumns();
+  ensureDisplayOrderMigration();
   const result = new Map<string, { displayOrder: number | null; isPinned: boolean }>();
   if (conversationIds.length === 0) return result;
   for (const id of conversationIds) {
