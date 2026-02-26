@@ -1054,9 +1054,12 @@ extension ChatViewModel {
                 startedAt: Date()
             )
             toolCall.buildingStatus = buildingStatus
-            // Add to existing assistant message or create one
+            // Add to existing assistant message or create one.
+            // Cap at 100 tool calls per message to prevent unbounded memory growth;
+            // overflow falls through to create a new message.
             if let existingId = currentAssistantMessageId,
-               let index = messages.firstIndex(where: { $0.id == existingId }) {
+               let index = messages.firstIndex(where: { $0.id == existingId }),
+               messages[index].toolCalls.count < 100 {
                 let tcIdx = messages[index].toolCalls.count
                 messages[index].toolCalls.append(toolCall)
                 messages[index].contentOrder.append(.toolCall(tcIdx))
@@ -1101,6 +1104,12 @@ extension ChatViewModel {
                             subToolId: msg.subToolId
                         )
                         messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.append(step)
+                        // Cap sub-steps to prevent unbounded memory growth
+                        if messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.count > 200 {
+                            messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.removeFirst(
+                                messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.count - 200
+                            )
+                        }
                     }
                 case "tool_complete":
                     // Prefer matching by subToolId (stable SDK identifier) over tool name.
