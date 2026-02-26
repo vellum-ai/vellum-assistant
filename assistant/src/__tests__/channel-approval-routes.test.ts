@@ -960,6 +960,42 @@ describe('SMS guardian verify intercept', () => {
 
     deliverSpy.mockRestore();
   });
+
+  test('64-char hex messages are not treated as guardian verification codes', async () => {
+    const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
+    // Keep a pending challenge active so interception eligibility exists.
+    createVerificationChallenge('self', 'sms');
+
+    let processMessageCalled = false;
+    const processMessage = async () => {
+      processMessageCalled = true;
+      return { messageId: 'msg-hex-not-verify' };
+    };
+
+    const req = new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gateway-Origin': TEST_BEARER_TOKEN,
+      },
+      body: JSON.stringify({
+        sourceChannel: 'sms',
+        interface: 'sms',
+        externalChatId: 'sms-chat-hex-message',
+        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
+        content: 'a'.repeat(64),
+        senderExternalUserId: 'sms-user-hex',
+        replyCallbackUrl: 'https://gateway.test/deliver',
+      }),
+    });
+
+    const res = await handleChannelInbound(req, processMessage, TEST_BEARER_TOKEN);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.guardianVerification).toBeUndefined();
+    expect(processMessageCalled).toBe(true);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

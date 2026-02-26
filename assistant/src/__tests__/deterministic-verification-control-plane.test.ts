@@ -217,7 +217,7 @@ describe('Verification control messages are deterministic (guard)', () => {
     } = await import('../memory/channel-guardian-store.js');
 
     // Set up a pending challenge
-    const secret = 'a'.repeat(64);
+    const secret = '123456';
     const challengeHash = createHash('sha256').update(secret).digest('hex');
     createChallenge({
       id: 'challenge-guard-test',

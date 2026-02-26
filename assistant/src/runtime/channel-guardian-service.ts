@@ -93,13 +93,9 @@ function generateNumericSecret(digits: number = 6): string {
 /**
  * Create a new verification challenge for a guardian candidate.
  *
- * Inbound challenges are not identity-bound: `validateAndConsumeChallenge`
- * skips the identity check when no expected-identity fields are set, so
- * code secrecy is the only protection against brute-force guessing during
- * the TTL window. A 32-byte hex secret provides ~2^128 entropy, making
- * enumeration infeasible. Identity-bound outbound sessions (created via
- * `createOutboundSession`) use shorter 6-digit numeric codes because the
- * identity check adds a second layer of protection.
+ * Guardian verification uses a 6-digit numeric code across channels.
+ * Inbound challenges and outbound sessions share the same code format so
+ * user instructions and parsing stay consistent.
  *
  * Hashes the secret (SHA-256) and stores the challenge record with a
  * 10-minute TTL. The raw secret is returned so it can be displayed to
@@ -110,9 +106,7 @@ export function createVerificationChallenge(
   channel: string,
   sessionId?: string,
 ): CreateChallengeResult {
-  // High-entropy hex for unbound inbound challenges — 6-digit numeric
-  // codes are only safe when identity binding provides a second factor.
-  const secret = randomBytes(32).toString('hex');
+  const secret = generateNumericSecret(6);
   const challengeHash = hashSecret(secret);
   const challengeId = uuid();
   const expiresAt = Date.now() + CHALLENGE_TTL_MS;
@@ -378,11 +372,8 @@ export interface CreateOutboundSessionResult {
  * Create an outbound verification session with expected identity pre-set.
  * Returns session info including the secret for outbound delivery.
  *
- * Channels where identity is pre-bound (SMS, voice, Telegram with known
- * chat ID) use 6-digit numeric codes for ease of entry. Unbound bootstrap
- * sessions (e.g. Telegram handle where identity is not yet known) use
- * high-entropy 32-byte hex secrets to prevent brute-force guessing during
- * the TTL window.
+ * All outbound sessions use 6-digit numeric codes for consistency across
+ * SMS, voice, and Telegram flows (including bootstrap completion).
  */
 export function createOutboundSession(params: {
   assistantId: string;
@@ -397,12 +388,7 @@ export function createOutboundSession(params: {
   sessionId?: string;
   bootstrapTokenHash?: string;
 }): CreateOutboundSessionResult {
-  // Use high-entropy hex for unbound bootstrap sessions to prevent brute-force;
-  // 6-digit numeric codes are only safe when identity is already bound.
-  const isUnbound = params.identityBindingStatus === 'pending_bootstrap';
-  const secret = isUnbound
-    ? randomBytes(32).toString('hex')
-    : generateNumericSecret(params.codeDigits ?? 6);
+  const secret = generateNumericSecret(params.codeDigits ?? 6);
   const challengeHash = hashSecret(secret);
   const sessionId = params.sessionId ?? uuid();
   const expiresAt = Date.now() + CHALLENGE_TTL_MS;
