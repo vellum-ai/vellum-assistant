@@ -8,6 +8,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import type { ServerWebSocket } from 'bun';
+
 import type { BrowserRelayWebSocketData } from '../browser-extension-relay/server.js';
 import { extensionRelayServer } from '../browser-extension-relay/server.js';
 import {
@@ -245,15 +247,13 @@ export class RuntimeHttpServer {
         open(ws) {
           const data = ws.data as AllWebSocketData;
           if ('wsType' in data && data.wsType === 'browser-relay') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            extensionRelayServer.handleOpen(ws as any);
+            extensionRelayServer.handleOpen(ws as ServerWebSocket<BrowserRelayWebSocketData>);
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
           log.info({ callSessionId }, 'ConversationRelay WebSocket opened');
           if (callSessionId) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const connection = new RelayConnection(ws as any, callSessionId);
+            const connection = new RelayConnection(ws as ServerWebSocket<RelayWebSocketData>, callSessionId);
             activeRelayConnections.set(callSessionId, connection);
           }
         },
@@ -261,8 +261,7 @@ export class RuntimeHttpServer {
           const data = ws.data as AllWebSocketData;
           const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
           if ('wsType' in data && data.wsType === 'browser-relay') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            extensionRelayServer.handleMessage(ws as any, raw);
+            extensionRelayServer.handleMessage(ws as ServerWebSocket<BrowserRelayWebSocketData>, raw);
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -274,8 +273,7 @@ export class RuntimeHttpServer {
         close(ws, code, reason) {
           const data = ws.data as AllWebSocketData;
           if ('wsType' in data && data.wsType === 'browser-relay') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            extensionRelayServer.handleClose(ws as any, code, reason?.toString());
+            extensionRelayServer.handleClose(ws as ServerWebSocket<BrowserRelayWebSocketData>, code, reason?.toString());
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
