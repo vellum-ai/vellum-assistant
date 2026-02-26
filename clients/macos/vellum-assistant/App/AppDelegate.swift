@@ -1106,7 +1106,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // Handle client_settings_update from daemon: write to UserDefaults and post notification
         daemonClient.onClientSettingsUpdate = { msg in
             UserDefaults.standard.set(msg.value, forKey: msg.key)
-            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
+            if msg.key == "activationKey" {
+                NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
+            }
         }
 
         // Restart DaemonClient connection when the health monitor relaunches
