@@ -11,7 +11,7 @@ export interface TemporalContextOptions {
   nowMs?: number;
   /** IANA timezone (e.g. "America/New_York"). Defaults to host timezone. */
   timeZone?: string;
-  /** IANA timezone for the daemon host clock (defaults to process local timezone). */
+  /** IANA timezone for the assistant host clock (defaults to process local timezone). */
   hostTimeZone?: string;
   /** IANA timezone configured in user settings (if available). */
   configuredUserTimeZone?: string | null;
@@ -66,13 +66,20 @@ function canonicalizeUtcGmtOffsetToken(offsetToken: string): string | null {
   if (totalMinutes === 0) {
     return 'UTC';
   }
-  // `Etc/GMT` uses POSIX sign semantics: east-of-UTC offsets use a minus sign.
-  if (Math.abs(totalMinutes) % 60 !== 0) {
-    return null;
+  const absTotalMinutes = Math.abs(totalMinutes);
+  const absHours = Math.floor(absTotalMinutes / 60);
+  const absMinutes = absTotalMinutes % 60;
+  const offsetSign = totalMinutes > 0 ? '+' : '-';
+
+  // For whole-hour offsets, prefer `Etc/GMT` for stable canonicalization.
+  if (absMinutes === 0) {
+    // `Etc/GMT` uses POSIX sign semantics: east-of-UTC offsets use a minus sign.
+    const etcSign = totalMinutes > 0 ? '-' : '+';
+    return `Etc/GMT${etcSign}${absHours}`;
   }
-  const etcSign = totalMinutes > 0 ? '-' : '+';
-  const absHours = Math.abs(totalMinutes) / 60;
-  return `Etc/GMT${etcSign}${absHours}`;
+
+  // Bun/Intl accepts fixed-offset IDs in ±HH:MM format.
+  return `${offsetSign}${String(absHours).padStart(2, '0')}:${String(absMinutes).padStart(2, '0')}`;
 }
 
 function canonicalizeTimeZone(timeZone: string): string | null {
@@ -242,7 +249,7 @@ export function buildTemporalContext(options: TemporalContextOptions = {}): stri
       ? 'user_settings'
       : resolvedUserTimeZone
         ? 'user_profile_memory'
-        : 'daemon_host_fallback';
+        : 'assistant_host_fallback';
   const horizonDays = Math.min(options.horizonDays ?? MAX_HORIZON_ENTRIES, MAX_HORIZON_ENTRIES);
 
   const todayParts = localDateParts(now, timeZone);
@@ -274,8 +281,8 @@ export function buildTemporalContext(options: TemporalContextOptions = {}): stri
     `Timezone: ${timeZone}`,
     `Current local time: ${formatLocalIsoWithOffset(now, timeZone)}`,
     `Current UTC time: ${now.toISOString()}`,
-    `Clock source: daemon host machine`,
-    `Daemon host timezone: ${resolvedHostTimeZone}`,
+    `Clock source: assistant host machine`,
+    `Assistant host timezone: ${resolvedHostTimeZone}`,
     `User timezone: ${userTimeZone ?? 'unknown'}`,
     `Timezone source: ${timeZoneSource}`,
     ``,

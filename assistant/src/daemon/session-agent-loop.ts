@@ -325,7 +325,7 @@ export async function runAgentLoopImpl(
     ctx.refreshWorkspaceTopLevelContextIfNeeded();
 
     // Compute fresh temporal context each turn for date grounding.
-    // Absolute "now" is always anchored to daemon host clock, while local
+    // Absolute "now" is always anchored to assistant host clock, while local
     // date semantics prefer configured user timezone, then profile memory.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const userTimeZone = extractUserTimeZoneFromDynamicProfile(dynamicProfile.text);

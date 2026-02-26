@@ -45,14 +45,14 @@ describe('buildTemporalContext', () => {
     expect(result).toContain('Current local time: 2026-02-18T12:00:00+00:00');
   });
 
-  test('includes current UTC time from daemon host clock', () => {
+  test('includes current UTC time from assistant host clock', () => {
     const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
     expect(result).toContain('Current UTC time: 2026-02-18T12:00:00.000Z');
   });
 
-  test('documents daemon host as the authoritative clock source', () => {
+  test('documents assistant host as the authoritative clock source', () => {
     const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
-    expect(result).toContain('Clock source: daemon host machine');
+    expect(result).toContain('Clock source: assistant host machine');
   });
 
   test('uses user timezone when provided and records source metadata', () => {
@@ -63,7 +63,7 @@ describe('buildTemporalContext', () => {
     });
     expect(result).toContain('Timezone: America/New_York');
     expect(result).toContain('Current local time: 2026-02-18T07:00:00-05:00');
-    expect(result).toContain('Daemon host timezone: UTC');
+    expect(result).toContain('Assistant host timezone: UTC');
     expect(result).toContain('User timezone: America/New_York');
     expect(result).toContain('Timezone source: user_profile_memory');
   });
@@ -102,7 +102,7 @@ describe('buildTemporalContext', () => {
     });
     expect(result).toContain('Timezone: UTC');
     expect(result).toContain('User timezone: unknown');
-    expect(result).toContain('Timezone source: daemon_host_fallback');
+    expect(result).toContain('Timezone source: assistant_host_fallback');
   });
 
   test('accepts UTC/GMT offset-style user timezone values', () => {
@@ -114,6 +114,18 @@ describe('buildTemporalContext', () => {
     expect(result).toContain('Timezone: Etc/GMT-2');
     expect(result).toContain('Current local time: 2026-02-18T14:00:00+02:00');
     expect(result).toContain('User timezone: Etc/GMT-2');
+    expect(result).toContain('Timezone source: user_profile_memory');
+  });
+
+  test('accepts fractional UTC/GMT offset-style user timezone values', () => {
+    const result = buildTemporalContext({
+      nowMs: WED_FEB_18,
+      hostTimeZone: 'UTC',
+      userTimeZone: 'UTC+5:30',
+    });
+    expect(result).toContain('Timezone: +05:30');
+    expect(result).toContain('Current local time: 2026-02-18T17:30:00+05:30');
+    expect(result).toContain('User timezone: +05:30');
     expect(result).toContain('Timezone source: user_profile_memory');
   });
 
@@ -175,6 +187,24 @@ describe('extractUserTimeZoneFromDynamicProfile', () => {
       '</dynamic-user-profile>',
     ].join('\n');
     expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('Etc/GMT+5');
+  });
+
+  test('extracts fractional UTC offset tokens from explicit timezone profile line', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- timezone: UTC+5:30',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('+05:30');
+  });
+
+  test('extracts fractional GMT offset tokens from generic profile text', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- preferences: default reminders to GMT+5:45.',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('+05:45');
   });
 });
 
