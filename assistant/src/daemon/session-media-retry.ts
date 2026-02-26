@@ -30,16 +30,12 @@ export function stripMediaPayloadsForRetry(messages: Message[]): { messages: Mes
   const nextMessages = messages.map((msg, msgIndex) => {
     const nextContent: ContentBlock[] = [];
     for (const block of msg.content) {
+      // Top-level image blocks are user-uploaded attachments — always preserve
+      // them so the assistant can reference previously shared images. Only
+      // images inside tool_result blocks (e.g. browser screenshots) are
+      // stripped to save context.
       if (block.type === 'image') {
-        const keep = latestUserIndex === msgIndex && keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
-        if (keep) {
-          keptLatestMediaBlocks += 1;
-          nextContent.push(block);
-        } else {
-          replacedBlocks += 1;
-          modified = true;
-          nextContent.push(imageBlockToStub(block));
-        }
+        nextContent.push(block);
         continue;
       }
 
