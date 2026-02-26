@@ -228,15 +228,17 @@ private struct CategoryNodeView: View {
         }
         .frame(width: size, height: size)
         .background(
-            Circle()
-                .fill(category.color.opacity(isHovered ? 0.25 : 0.14))
+            ZStack {
+                RoundedRectangle(cornerRadius: VRadius.xl).fill(VColor.background)
+                RoundedRectangle(cornerRadius: VRadius.xl).fill(category.color.opacity(isHovered ? 0.25 : 0.14))
+            }
         )
         .overlay(
-            Circle()
+            RoundedRectangle(cornerRadius: VRadius.xl)
                 .stroke(category.color.opacity(isHovered ? 0.85 : 0.55), lineWidth: isHovered ? 2.5 : 2)
         )
-        .clipShape(Circle())
-        .contentShape(Circle())
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .contentShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -269,18 +271,20 @@ private struct SubCategoryNodeView: View {
         }
         .frame(width: size, height: size)
         .background(
-            Circle()
-                .fill(category.color.opacity(isHovered ? 0.20 : 0.10))
+            ZStack {
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.background)
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(category.color.opacity(isHovered ? 0.20 : 0.10))
+            }
         )
         .overlay(
-            Circle()
+            RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(
                     category.color.opacity(isHovered ? 0.70 : 0.40),
                     style: StrokeStyle(lineWidth: isHovered ? 2 : 1.5, dash: [6, 4])
                 )
         )
-        .clipShape(Circle())
-        .contentShape(Circle())
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -321,15 +325,17 @@ private struct SkillNodeView: View {
         }
         .frame(width: size, height: size)
         .background(
-            Circle()
-                .fill(item.color.opacity(isHovered ? 0.20 : 0.10))
+            ZStack {
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.background)
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(item.color.opacity(isHovered ? 0.20 : 0.10))
+            }
         )
         .overlay(
-            Circle()
+            RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(item.color.opacity(isHovered ? 0.70 : 0.40), lineWidth: isHovered ? 2 : 1.5)
         )
-        .clipShape(Circle())
-        .contentShape(Circle())
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -491,8 +497,8 @@ private func buildTree(center: CGPoint, groups: [CategoryGroup]) -> (nodes: [Tre
     let nodeGap: CGFloat = 10
 
     let centerToCatRadius: CGFloat = 200
-    let catToSubCatRadius: CGFloat = 110
-    let skillOutwardDist: CGFloat = 90
+    let catToSubCatRadius: CGFloat = 160
+    let skillOutwardDist: CGFloat = 160
 
     // Center node
     nodes.append(TreeNode(
@@ -749,10 +755,6 @@ struct ConstellationView: View {
                 category: cat
             )
             categoryMap[cat, default: []].append(item)
-        }
-
-        if !fileItems.isEmpty {
-            categoryMap[.knowledge, default: []].insert(contentsOf: fileItems, at: 0)
         }
 
         var result: [CategoryGroup] = []
@@ -1131,12 +1133,12 @@ struct ConstellationView: View {
             DinoFaceView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
                 .frame(width: centerAvatarSize, height: centerAvatarSize)
                 .background(
-                    Circle()
+                    RoundedRectangle(cornerRadius: VRadius.xl)
                         .fill(VColor.background.opacity(0.9))
                         .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
                 )
                 .overlay(
-                    Circle()
+                    RoundedRectangle(cornerRadius: VRadius.xl)
                         .stroke(Forest._500.opacity(0.4), lineWidth: 2)
                         .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
                 )

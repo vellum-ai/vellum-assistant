@@ -30,6 +30,8 @@ public enum SessionErrorCategory: Equatable, Sendable {
             self = .processingFailed
         case .regenerateFailed:
             self = .regenerateFailed
+        case .authenticationRequired:
+            self = .unknown
         case .unknown:
             self = .unknown
         }
