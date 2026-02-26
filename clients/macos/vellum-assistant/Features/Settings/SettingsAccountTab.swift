@@ -2,56 +2,60 @@ import Foundation
 import SwiftUI
 import VellumAssistantShared
 
-/// Advanced settings tab — computer usage limits, archived threads,
-/// and developer tools.
+/// Account settings tab — sign-in/out, assistant identity, switch/retire/hatch.
 @MainActor
-struct SettingsAdvancedTab: View {
+struct SettingsAccountTab: View {
     @ObservedObject var store: SettingsStore
-    @ObservedObject var threadManager: ThreadManager
-    var onClose: () -> Void
     var daemonClient: DaemonClient?
+    var authManager: AuthManager
+    var onClose: () -> Void
 
+    // -- Account / Vellum section state --
+    @State private var platformUrlText: String = ""
+    @FocusState private var isPlatformUrlFocused: Bool
+
+    // -- Assistant Info state (from SettingsAdvancedTab) --
     @State private var showingRetireConfirmation: Bool = false
     @State private var isRetiring: Bool = false
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
     @State private var identity: IdentityInfo?
     @State private var remoteIdentity: RemoteIdentityInfo?
-    @State private var flagStates: [(flag: FeatureFlag, enabled: Bool)] = []
-
     @State private var devModeTapCount: Int = 0
     @State private var devModeMessage: String?
 
-    @State private var showingEnvVars = false
-    @State private var appEnvVars: [(String, String)] = []
-    @State private var daemonEnvVars: [(String, String)] = []
-
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
+            accountSection
             assistantInfoSection
-            computerUsageSection
-            archivedThreadsSection
             switchAssistantSection
             retireAssistantSection
             hatchNewAssistantSection
-            featureFlagSection
-
-            if store.isDevMode {
-                developerSection
-            }
         }
         .onAppear {
+            Task { await authManager.checkSession() }
+            store.refreshPlatformConfig()
+            Task { await store.checkVellumPlatform() }
+            platformUrlText = store.platformBaseUrl
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             identity = IdentityInfo.load()
-            flagStates = FeatureFlag.allCases.map { flag in
-                (flag: flag, enabled: FeatureFlagManager.shared.isEnabled(flag))
-            }
-
-            if identity == nil, let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }), assistant.isRemote {
+            if identity == nil,
+               let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
+               assistant.isRemote {
                 Task {
                     remoteIdentity = await daemonClient?.fetchRemoteIdentity()
                 }
+            }
+        }
+        .onChange(of: store.platformBaseUrl) { _, newValue in
+            if !isPlatformUrlFocused {
+                platformUrlText = newValue
+            }
+        }
+        .onChange(of: isPlatformUrlFocused) { _, focused in
+            if !focused {
+                platformUrlText = store.platformBaseUrl
             }
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
@@ -88,12 +92,117 @@ struct SettingsAdvancedTab: View {
             .frame(minWidth: 260)
             .interactiveDismissDisabled()
         }
-        .sheet(isPresented: $showingEnvVars) {
-            SettingsPanelEnvVarsSheet(appEnvVars: appEnvVars, daemonEnvVars: daemonEnvVars)
+    }
+
+    // MARK: - Account Section
+
+    private var accountSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Account")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            if authManager.isLoading {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .foregroundColor(VColor.textMuted)
+                        .font(.system(size: 14))
+                    Text("Checking...")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            } else if let user = authManager.currentUser {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                        .font(.system(size: 14))
+                    Text(user.email ?? user.display ?? "Signed in")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                    VButton(label: "Log Out", style: .danger) {
+                        Task { await authManager.logout() }
+                    }
+                }
+            } else {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "xmark.circle")
+                        .foregroundColor(VColor.textMuted)
+                        .font(.system(size: 14))
+                    Text("Not signed in")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                    VButton(
+                        label: authManager.isSubmitting ? "Signing in..." : "Log In",
+                        style: .primary
+                    ) {
+                        Task { await authManager.startWorkOSLogin() }
+                    }
+                    .disabled(authManager.isSubmitting)
+                }
+            }
+
+            if let error = authManager.errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+
+            if store.isDevMode {
+                Divider().background(VColor.surfaceBorder)
+
+                Text("Platform URL")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+
+                HStack(spacing: VSpacing.sm) {
+                    TextField("https://platform.vellum.ai", text: $platformUrlText)
+                        .focused($isPlatformUrlFocused)
+                        .vInputStyle()
+                        .font(VFont.mono)
+                        .onSubmit {
+                            store.savePlatformBaseUrl(platformUrlText)
+                            Task { await store.checkVellumPlatform() }
+                        }
+                    VButton(label: "Save", style: .primary) {
+                        store.savePlatformBaseUrl(platformUrlText)
+                        Task { await store.checkVellumPlatform() }
+                    }
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder)
+
+            // Platform connection status
+            HStack(spacing: VSpacing.sm) {
+                Text("Platform")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                Spacer()
+                if store.isCheckingVellumPlatform {
+                    ProgressView().controlSize(.small)
+                } else if let reachable = store.vellumPlatformReachable {
+                    Image(systemName: reachable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundColor(reachable ? VColor.success : VColor.error)
+                        .font(.system(size: 12))
+                    Text(reachable ? "Reachable" : (store.vellumPlatformError ?? "Unreachable"))
+                        .font(VFont.caption)
+                        .foregroundColor(reachable ? VColor.success : VColor.error)
+                }
+                Button {
+                    Task { await store.checkVellumPlatform() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .onDisappear {
-            daemonClient?.onEnvVarsResponse = nil
-        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Assistant Info
@@ -134,7 +243,7 @@ struct SettingsAdvancedTab: View {
 
             // Process status (child view observes @Published changes)
             if let daemonClient {
-                DaemonStatusRows(daemonClient: daemonClient)
+                AccountDaemonStatusRows(daemonClient: daemonClient)
             }
         }
         .padding(VSpacing.lg)
@@ -184,64 +293,6 @@ struct SettingsAdvancedTab: View {
             }
 
             Spacer()
-        }
-    }
-
-    // MARK: - Computer Usage
-
-    private var computerUsageSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Computer Usage")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            HStack {
-                Text("Max Steps per Session")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                VInfoTooltip("Maximum number of tool-use steps the assistant can take in a single session")
-                Spacer()
-                Text("\(Int(store.maxSteps))")
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textSecondary)
-            }
-
-            VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    // MARK: - Archived Threads
-
-    @ViewBuilder
-    private var archivedThreadsSection: some View {
-        if !threadManager.archivedThreads.isEmpty {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Archived Threads")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                ForEach(threadManager.archivedThreads) { thread in
-                    HStack {
-                        Text(thread.title)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                            .lineLimit(1)
-                        Spacer()
-                        Button(action: { threadManager.unarchiveThread(id: thread.id) }) {
-                            Text("Unarchive")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Unarchive \(thread.title)")
-                    }
-                    .padding(.vertical, VSpacing.xs)
-                }
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
         }
     }
 
@@ -360,83 +411,13 @@ struct SettingsAdvancedTab: View {
             .vCard(background: VColor.surfaceSubtle)
         }
     }
-
-    // MARK: - Feature Flags
-
-    @ViewBuilder
-    private var featureFlagSection: some View {
-        if store.isDevMode {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Feature Flags")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                ForEach(Array(flagStates.enumerated()), id: \.element.flag) { index, entry in
-                    Toggle(entry.flag.displayName, isOn: Binding(
-                        get: { flagStates[index].enabled },
-                        set: { newValue in
-                            flagStates[index].enabled = newValue
-                            FeatureFlagManager.shared.setOverride(entry.flag, enabled: newValue)
-                        }
-                    ))
-                    .toggleStyle(.switch)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                }
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
-        }
-    }
-
-    // MARK: - Developer
-
-    @ViewBuilder
-    private var developerSection: some View {
-        if daemonClient != nil {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Developer")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                HStack {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Environment Variables")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Text("View env vars for both the app and daemon processes")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    Spacer()
-                    VButton(label: "View...", style: .tertiary) {
-                        appEnvVars = ProcessInfo.processInfo.environment
-                            .sorted(by: { $0.key < $1.key })
-                            .map { ($0.key, $0.value) }
-                        daemonEnvVars = []
-                        daemonClient?.onEnvVarsResponse = { response in
-                            Task { @MainActor in
-                                self.daemonEnvVars = response.vars
-                                    .sorted(by: { $0.key < $1.key })
-                                    .map { ($0.key, $0.value) }
-                            }
-                        }
-                        try? daemonClient?.sendEnvVarsRequest()
-                        showingEnvVars = true
-                    }
-                }
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
-        }
-    }
 }
 
 // MARK: - Daemon Status Rows
 
 /// Extracted child view so SwiftUI observes `DaemonClient`'s `@Published`
 /// properties and re-renders when connection or memory status changes.
-private struct DaemonStatusRows: View {
+private struct AccountDaemonStatusRows: View {
     @ObservedObject var daemonClient: DaemonClient
 
     var body: some View {
