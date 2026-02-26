@@ -139,6 +139,22 @@ async function collectAndMergeCandidates(
   // A per-call scopePolicyOverride takes precedence over the global policy.
   const scopeIds = buildScopeFilter(scopeId, scopePolicy, opts?.scopePolicyOverride);
 
+  // -- Start async semantic search early so the network round-trip overlaps
+  // with all synchronous work (lexical, recency, direct item, entity). --
+  let semanticSearchFailed = false;
+  const semanticPromise = queryVector
+    ? semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds)
+        .catch((err): Candidate[] => {
+          semanticSearchFailed = true;
+          if (isQdrantConnectionError(err)) {
+            log.warn({ err }, 'Qdrant is unavailable — semantic search disabled, memory recall will be degraded');
+          } else {
+            log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
+          }
+          return [];
+        })
+    : null;
+
   // -- Phase 1: cheap local searches (always run) --
   const lexical = lexicalSearch(query, config.memory.retrieval.lexicalTopK, excludeMessageIds, scopeIds);
 
@@ -220,8 +236,8 @@ async function collectAndMergeCandidates(
 
   // -- Early termination check --
   // If cheap sources already produced enough high-relevance candidates,
-  // skip the expensive semantic search (Qdrant network call) and entity
-  // relation traversal to reduce recall latency.
+  // skip entity search. The semantic promise (if started) will resolve
+  // on its own via .catch() — we just ignore its results.
   //
   // Deduplicate before counting: lexical and recency can return the same
   // segment (common when recent messages match the query), so checking raw
@@ -248,12 +264,8 @@ async function collectAndMergeCandidates(
     && cheapCandidates.length >= etConfig.minCandidates
     && cheapCandidates.filter((c) => c.lexical >= etConfig.confidenceThreshold).length >= etConfig.minHighConfidence;
 
-  // -- Phase 2: expensive searches (skipped on early termination) --
-  // Semantic search (async Qdrant network call) and entity search (sync
-  // SQLite graph traversal) are independent. Start the network call first,
-  // run the sync work while it's in flight, then await the result.
+  // -- Phase 2: entity search + await semantic (skipped on early termination) --
   let semantic: Candidate[] = [];
-  let semanticSearchFailed = false;
   let entity: Candidate[] = [];
   let candidateDepths: Map<string, number> | undefined;
   let relationSeedEntityCount = 0;
@@ -262,19 +274,8 @@ async function collectAndMergeCandidates(
   let relationExpandedItemCount = 0;
 
   if (!canTerminateEarly) {
-    const semanticPromise = queryVector
-      ? semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds)
-          .catch((err): Candidate[] => {
-            semanticSearchFailed = true;
-            if (isQdrantConnectionError(err)) {
-              log.warn({ err }, 'Qdrant is unavailable — semantic search disabled, memory recall will be degraded');
-            } else {
-              log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
-            }
-            return [];
-          })
-      : null;
-
+    // Entity search is synchronous — run it while the semantic promise
+    // (started above) is still in flight.
     if (config.memory.entity.enabled) {
       const entitySearchResult = entitySearch(
         query,
