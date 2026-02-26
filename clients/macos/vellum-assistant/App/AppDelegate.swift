@@ -1922,6 +1922,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // pause/resume wake-word detection during live transcription.
         mainWindow.liveTranscriptManager.setAudioMonitor(audioMonitor)
         mainWindow.liveTranscriptManager.setVoiceModeManager(mainWindow.voiceModeManager)
+        mainWindow.liveTranscriptManager.setDaemonClient(daemonClient)
 
         if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
             audioMonitor.startMonitoring()
