@@ -2,35 +2,39 @@ import AppKit
 import Foundation
 import VellumAssistantShared
 
-/// Loads avatar appearance from LOOKS.md, watches for changes, and provides
-/// the current DinoPalette for rendering. @Observable so SwiftUI views reactively update.
+/// Manages the assistant's avatar image. Provides a custom avatar when uploaded,
+/// or falls back to a colored circle with the assistant's initial letter.
+/// @Observable so SwiftUI views reactively update.
 @MainActor @Observable
 final class AvatarAppearanceManager {
-    private(set) var palette: DinoPalette = .violet
-    private(set) var outfit: DinoOutfit = .none
-    private(set) var config: LooksConfig = .default
-    private var fileMonitor: DispatchSourceFileSystemObject?
-
-    /// Pre-rendered 28px blob image for chat avatars, rebuilt when palette changes.
-    private(set) var cachedChatAvatarImage: NSImage?
     /// User-uploaded custom avatar image, persisted to disk.
     private(set) var customAvatarImage: NSImage?
 
-    /// Returns the custom avatar if set, otherwise the cached blob.
+    /// Cached fallback avatar to avoid rebuilding on every access.
+    private var cachedFallbackAvatar: NSImage?
+    /// The name used to build the cached fallback, so we can invalidate when identity changes.
+    private var cachedFallbackName: String?
+
+    /// Returns the custom avatar if set, otherwise an initial-letter placeholder (cached).
     var chatAvatarImage: NSImage {
         if let custom = customAvatarImage { return custom }
-        if let cached = cachedChatAvatarImage { return cached }
-        // Fallback: build on-demand
-        return PixelSpriteBuilder.buildBlobNSImage(pixelSize: 2, palette: palette)
+
+        let name = assistantName
+        if let cached = cachedFallbackAvatar, cachedFallbackName == name {
+            return cached
+        }
+
+        let avatar = Self.buildInitialLetterAvatar(name: name)
+        cachedFallbackAvatar = avatar
+        cachedFallbackName = name
+        return avatar
     }
 
     static let shared = AvatarAppearanceManager()
 
-    var looksPath: String {
-        NSHomeDirectory() + "/.vellum/workspace/LOOKS.md"
-    }
+    private var fileMonitor: DispatchSourceFileSystemObject?
 
-    /// Workspace path for custom avatar — canonical storage location.
+    /// Workspace path for custom avatar -- canonical storage location.
     nonisolated static func workspaceCustomAvatarURL(homeDirectory: String = NSHomeDirectory()) -> URL {
         URL(fileURLWithPath: homeDirectory)
             .appendingPathComponent(".vellum/workspace/data/avatar/custom-avatar.png")
@@ -48,24 +52,13 @@ final class AvatarAppearanceManager {
         Self.workspaceCustomAvatarURL()
     }
 
+    /// The assistant's display name, loaded once from IDENTITY.md to avoid repeated disk I/O.
+    private var assistantName: String = "V"
+
     func start() {
-        reload()
+        assistantName = IdentityInfo.load()?.name ?? "V"
         loadCustomAvatar()
-        watchFile()
-    }
-
-    private func reload() {
-        guard let content = try? String(contentsOfFile: looksPath, encoding: .utf8) else {
-            return
-        }
-        config = LooksConfig.parse(from: content)
-        palette = config.toPalette()
-        outfit = config.toOutfit()
-        rebuildCachedChatAvatar()
-    }
-
-    private func rebuildCachedChatAvatar() {
-        cachedChatAvatarImage = PixelSpriteBuilder.buildBlobNSImage(pixelSize: 2, palette: palette)
+        watchAvatarFile()
     }
 
     // MARK: - Custom Avatar
@@ -117,18 +110,21 @@ final class AvatarAppearanceManager {
         try? FileManager.default.removeItem(at: customAvatarURL)
         try? FileManager.default.removeItem(at: Self.legacyAppSupportCustomAvatarURL())
         customAvatarImage = nil
+        cachedFallbackAvatar = nil
     }
 
-    private func watchFile() {
+    // MARK: - File Watching
+
+    /// Watch the custom avatar PNG for external changes (e.g. user replaces the file manually).
+    private func watchAvatarFile() {
         fileMonitor?.cancel()
         fileMonitor = nil
 
-        let path = looksPath
+        let path = customAvatarURL.path
         let fd = open(path, O_EVTONLY)
 
         if fd < 0 {
-            // File doesn't exist yet — watch the parent directory for creation
-            watchDirectory()
+            watchAvatarDirectory()
             return
         }
 
@@ -141,10 +137,9 @@ final class AvatarAppearanceManager {
         source.setEventHandler { [weak self] in
             let flags = source.data
             Task { @MainActor [weak self] in
-                self?.reload()
-                // Re-watch in case of delete+recreate
+                self?.loadCustomAvatar()
                 if flags.contains(.delete) || flags.contains(.rename) {
-                    self?.watchFile()
+                    self?.watchAvatarFile()
                 }
             }
         }
@@ -157,9 +152,9 @@ final class AvatarAppearanceManager {
         source.resume()
     }
 
-    /// Watches the workspace directory for LOOKS.md creation, then switches to file-level watching.
-    private func watchDirectory() {
-        let dirPath = (looksPath as NSString).deletingLastPathComponent
+    /// Watch the avatar directory for file creation when the avatar file doesn't exist yet.
+    private func watchAvatarDirectory() {
+        let dirPath = (customAvatarURL.path as NSString).deletingLastPathComponent
         let fd = open(dirPath, O_EVTONLY)
         guard fd >= 0 else { return }
 
@@ -172,9 +167,9 @@ final class AvatarAppearanceManager {
         source.setEventHandler { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if FileManager.default.fileExists(atPath: self.looksPath) {
-                    self.reload()
-                    self.watchFile()
+                if FileManager.default.fileExists(atPath: self.customAvatarURL.path) {
+                    self.loadCustomAvatar()
+                    self.watchAvatarFile()
                 }
             }
         }
@@ -187,36 +182,30 @@ final class AvatarAppearanceManager {
         source.resume()
     }
 
-    // MARK: - Evolution Write-Back
+    // MARK: - Initial Letter Avatar
 
-    /// Write a resolved LooksConfig to LOOKS.md.
-    /// Only writes if the config actually changed from current.
-    func applyEvolutionResult(_ newConfig: LooksConfig) {
-        guard newConfig != config else { return }
+    /// Build a 56px NSImage with a colored circle and white initial letter as fallback avatar.
+    static func buildInitialLetterAvatar(name: String, size: CGFloat = 56) -> NSImage {
+        let image = NSImage(size: NSSize(width: size, height: size))
+        image.lockFocus()
 
-        let content = """
-        - **Body:** \(newConfig.bodyColor)
-        - **Cheeks:** \(newConfig.cheekColor)
-        - **Hat:** \(formatOutfitField(newConfig.hat, color: newConfig.hatColor))
-        - **Shirt:** \(formatOutfitField(newConfig.shirt, color: newConfig.shirtColor))
-        - **Accessory:** \(formatOutfitField(newConfig.accessory, color: newConfig.accessoryColor))
-        - **Held Item:** \(newConfig.heldItem)
-        """
+        // Draw circle with accent color (Forest._600 equivalent)
+        let path = NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: size, height: size))
+        NSColor(Forest._600).setFill()
+        path.fill()
 
-        try? content.write(toFile: looksPath, atomically: true, encoding: .utf8)
+        // Draw initial letter
+        let initial = String(name.prefix(1)).uppercased()
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: size * 0.45, weight: .semibold),
+            .foregroundColor: NSColor.white
+        ]
+        let attrStr = NSAttributedString(string: initial, attributes: attrs)
+        let textSize = attrStr.size()
+        let textPoint = NSPoint(x: (size - textSize.width) / 2, y: (size - textSize.height) / 2)
+        attrStr.draw(at: textPoint)
 
-        // Apply in-process immediately instead of waiting for the file watcher round-trip.
-        // The file watcher still handles external edits to LOOKS.md.
-        config = newConfig
-        palette = newConfig.toPalette()
-        outfit = newConfig.toOutfit()
-        rebuildCachedChatAvatar()
-    }
-
-    private func formatOutfitField(_ item: String, color: String?) -> String {
-        if let color = color, color != "none" {
-            return "\(item) (\(color))"
-        }
-        return item
+        image.unlockFocus()
+        return image
     }
 }

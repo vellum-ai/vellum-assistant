@@ -2,7 +2,7 @@ import VellumAssistantShared
 import SpriteKit
 import AppKit
 
-/// Delegate protocol for SpriteKit → SwiftUI communication.
+/// Delegate protocol for SpriteKit to SwiftUI communication.
 protocol EggHatchSceneDelegate: AnyObject {
     func sceneDidComplete(_ event: HatchEvent)
 }
@@ -14,20 +14,27 @@ enum HatchEvent {
 }
 
 /// SpriteKit scene managing the egg hatch animation with progressive shell fragment reveal.
+/// Post-dino removal: the "creature" is now a simple colored circle avatar placeholder.
 final class EggHatchScene: SKScene {
     weak var hatchDelegate: EggHatchSceneDelegate?
 
     // Nodes
     private var eggContainer: SKNode!
-    private var fragmentNodes: [PixelSpriteBuilder.FragmentInfo] = []
+    private var fragmentNodes: [FragmentInfo] = []
     private var glowNode: SKEffectNode!
     private var glowSpriteNode: SKSpriteNode!
-    private var dinoNode: SKSpriteNode!
+    private var creatureNode: SKShapeNode!
 
     // State
     private var currentProgress: CGFloat = 0
     private var hasFullyHatched = false
     private var idleFloatAction: SKAction?
+
+    private struct FragmentInfo {
+        let index: Int
+        let sprite: SKSpriteNode
+        let centerOffset: CGPoint
+    }
 
     // MARK: - Scene Setup
 
@@ -45,27 +52,114 @@ final class EggHatchScene: SKScene {
     private func setupEgg() {
         let ps = Meadow.artPixelSize
 
-        // Build dino sprite (behind egg, starts invisible)
-        let palette = AvatarAppearanceManager.shared.palette
-        let (dinoTex, dinoSize) = PixelSpriteBuilder.buildTexture(from: PixelArtData.dino(palette: palette), pixelSize: ps)
-        dinoNode = SKSpriteNode(texture: dinoTex, size: dinoSize)
-        dinoNode.position = CGPoint(x: 0, y: 10)
-        dinoNode.zPosition = 8
-        dinoNode.alpha = 0
-        addChild(dinoNode)
+        // Build creature node (colored circle, starts invisible)
+        let creatureRadius: CGFloat = 40
+        creatureNode = SKShapeNode(circleOfRadius: creatureRadius)
+        creatureNode.fillColor = NSColor(Forest._600)
+        creatureNode.strokeColor = NSColor(Forest._800)
+        creatureNode.lineWidth = 2
+        creatureNode.position = CGPoint(x: 0, y: 10)
+        creatureNode.zPosition = 8
+        creatureNode.alpha = 0
+        addChild(creatureNode)
 
-        // Build egg container with 7 fragment sprites
+        // Build egg container with fragment sprites from the egg grid
         eggContainer = SKNode()
         eggContainer.position = CGPoint(x: 0, y: 10)
         eggContainer.zPosition = 10
         addChild(eggContainer)
 
-        fragmentNodes = PixelSpriteBuilder.buildEggFragments(pixelSize: ps)
-        for frag in fragmentNodes {
-            frag.sprite.position = frag.centerOffset
-            frag.sprite.zPosition = 10
-            eggContainer.addChild(frag.sprite)
+        // Build simple egg fragments using the egg pixel data and fragment map
+        let grid = PixelArtData.egg
+        let map = EggFragmentMap.fragmentMap
+        let rows = grid.count
+        let cols = grid[0].count
+
+        for frag in 0..<7 {
+            var minR = rows, maxR = 0, minC = cols, maxC = 0
+            for r in 0..<rows {
+                for c in 0..<cols {
+                    if map[r][c] == frag {
+                        minR = min(minR, r)
+                        maxR = max(maxR, r)
+                        minC = min(minC, c)
+                        maxC = max(maxC, c)
+                    }
+                }
+            }
+            guard minR <= maxR, minC <= maxC else { continue }
+
+            let subRows = maxR - minR + 1
+            let subCols = maxC - minC + 1
+            var subGrid = [[UInt32?]](repeating: [UInt32?](repeating: nil, count: subCols), count: subRows)
+            for r in minR...maxR {
+                for c in minC...maxC {
+                    if map[r][c] == frag {
+                        subGrid[r - minR][c - minC] = grid[r][c]
+                    }
+                }
+            }
+
+            let sprite = buildSpriteFromGrid(subGrid, pixelSize: ps)
+
+            let eggCenterX = CGFloat(cols) * ps / 2
+            let eggCenterY = CGFloat(rows) * ps / 2
+            let fragCenterX = (CGFloat(minC) + CGFloat(subCols) / 2) * ps
+            let fragCenterY = (CGFloat(minR) + CGFloat(subRows) / 2) * ps
+
+            let offsetX = fragCenterX - eggCenterX
+            let offsetY = eggCenterY - fragCenterY
+
+            let info = FragmentInfo(index: frag, sprite: sprite, centerOffset: CGPoint(x: offsetX, y: offsetY))
+            fragmentNodes.append(info)
+
+            sprite.position = info.centerOffset
+            sprite.zPosition = 10
+            eggContainer.addChild(sprite)
         }
+    }
+
+    /// Build an SKSpriteNode from a pixel grid using CGBitmapContext.
+    private func buildSpriteFromGrid(_ grid: [[UInt32?]], pixelSize: CGFloat) -> SKSpriteNode {
+        let rows = grid.count
+        let cols = grid[0].count
+        let width = Int(CGFloat(cols) * pixelSize)
+        let height = Int(CGFloat(rows) * pixelSize)
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return SKSpriteNode()
+        }
+
+        let ps = Int(pixelSize)
+        for row in 0..<rows {
+            for col in 0..<cols {
+                guard let hex = grid[row][col] else { continue }
+                let r = CGFloat((hex >> 16) & 0xFF) / 255.0
+                let g = CGFloat((hex >> 8) & 0xFF) / 255.0
+                let b = CGFloat(hex & 0xFF) / 255.0
+                context.setFillColor(red: r, green: g, blue: b, alpha: 1.0)
+                let x = col * ps
+                let y = (rows - 1 - row) * ps
+                context.fill(CGRect(x: x, y: y, width: ps, height: ps))
+            }
+        }
+
+        guard let cgImage = context.makeImage() else {
+            return SKSpriteNode()
+        }
+
+        let texture = SKTexture(cgImage: cgImage)
+        texture.filteringMode = .nearest
+        return SKSpriteNode(texture: texture, size: CGSize(width: width, height: height))
     }
 
     private func setupGlow() {
@@ -80,7 +174,6 @@ final class EggHatchScene: SKScene {
         glowNode.position = CGPoint(x: 0, y: 10)
         addChild(glowNode)
 
-        // Glow pulse
         let pulseUp = SKAction.run { [weak self] in
             self?.glowSpriteNode.run(SKAction.fadeAlpha(to: 0.5, duration: 1.5))
         }
@@ -139,7 +232,7 @@ final class EggHatchScene: SKScene {
         let floatAction = SKAction.repeatForever(SKAction.sequence([floatUp, floatDown]))
         idleFloatAction = floatAction
         eggContainer.run(floatAction, withKey: "idleFloat")
-        dinoNode?.run(floatAction, withKey: "idleFloat")
+        creatureNode?.run(floatAction, withKey: "idleFloat")
     }
 
     // MARK: - Public API
@@ -148,7 +241,6 @@ final class EggHatchScene: SKScene {
         guard !hasFullyHatched, eggContainer != nil, glowSpriteNode != nil else { return }
         currentProgress = progress
 
-        // Interpolate fragment drifts
         let drifts = EggFragmentMap.interpolatedDrifts(for: progress)
         let duration: TimeInterval = animated ? 0.5 : 0
 
@@ -171,23 +263,22 @@ final class EggHatchScene: SKScene {
             }
         }
 
-        // Fade dino in: alpha 0 at progress ≤0.10, alpha 1 at progress ≥0.40
-        let dinoAlpha: CGFloat
+        // Fade creature in
+        let creatureAlpha: CGFloat
         if progress <= 0.10 {
-            dinoAlpha = 0
+            creatureAlpha = 0
         } else if progress >= 0.40 {
-            dinoAlpha = 1
+            creatureAlpha = 1
         } else {
-            dinoAlpha = (progress - 0.10) / 0.30
+            creatureAlpha = (progress - 0.10) / 0.30
         }
 
         if animated {
-            dinoNode?.run(SKAction.fadeAlpha(to: dinoAlpha, duration: duration))
+            creatureNode?.run(SKAction.fadeAlpha(to: creatureAlpha, duration: duration))
         } else {
-            dinoNode?.alpha = dinoAlpha
+            creatureNode?.alpha = creatureAlpha
         }
 
-        // Intensify glow as progress increases
         let glowAlpha = 0.3 + progress * 0.5
         glowSpriteNode.run(SKAction.fadeAlpha(to: glowAlpha, duration: animated ? 0.5 : 0))
     }
@@ -195,18 +286,15 @@ final class EggHatchScene: SKScene {
     func triggerDramaticCrack(for step: Int) {
         guard eggContainer != nil else { return }
 
-        // Stop idle float
         eggContainer.removeAction(forKey: "idleFloat")
-        dinoNode?.removeAction(forKey: "idleFloat")
+        creatureNode?.removeAction(forKey: "idleFloat")
 
-        // Violent shake on egg container
         let shakeRight = SKAction.moveBy(x: 6, y: 0, duration: 0.04)
         let shakeLeft = SKAction.moveBy(x: -12, y: 0, duration: 0.04)
         let shakeCenter = SKAction.moveBy(x: 6, y: 0, duration: 0.04)
         let shakeSeq = SKAction.sequence([shakeRight, shakeLeft, shakeCenter])
         let shake = SKAction.repeat(shakeSeq, count: 6)
 
-        // Bright flash
         let flash = SKSpriteNode(color: .white, size: CGSize(width: 300, height: 300))
         flash.position = eggContainer.position
         flash.alpha = 0
@@ -218,10 +306,8 @@ final class EggHatchScene: SKScene {
         let removeFlash = SKAction.removeFromParent()
         flash.run(SKAction.sequence([flashIn, flashOut, removeFlash]))
 
-        // Crack sparkles
         spawnCrackSparkles()
 
-        // Per-fragment jitter during shake
         for frag in fragmentNodes {
             let jitterX = CGFloat.random(in: -3...3)
             let jitterY = CGFloat.random(in: -3...3)
@@ -234,9 +320,8 @@ final class EggHatchScene: SKScene {
 
         eggContainer.run(shake) { [weak self] in
             guard let self else { return }
-            // Restore position to base (the shake displaces it)
             self.eggContainer.position = CGPoint(x: 0, y: 10)
-            self.dinoNode?.position = CGPoint(x: 0, y: 10)
+            self.creatureNode?.position = CGPoint(x: 0, y: 10)
             self.startIdleAnimations()
             self.hatchDelegate?.sceneDidComplete(.dramaticCrackDone)
         }
@@ -246,11 +331,9 @@ final class EggHatchScene: SKScene {
         guard eggContainer != nil, !hasFullyHatched else { return }
         hasFullyHatched = true
 
-        // Stop all idle
         eggContainer.removeAllActions()
-        dinoNode?.removeAllActions()
+        creatureNode?.removeAllActions()
 
-        // White flash
         let flash = SKSpriteNode(color: .white, size: CGSize(width: 400, height: 400))
         flash.position = eggContainer.position
         flash.alpha = 0
@@ -262,7 +345,6 @@ final class EggHatchScene: SKScene {
             SKAction.removeFromParent(),
         ]))
 
-        // Reparent fragments to scene root for independent physics
         for frag in fragmentNodes {
             let worldPos = eggContainer.convert(frag.sprite.position, to: self)
             let worldRotation = frag.sprite.zRotation
@@ -272,7 +354,6 @@ final class EggHatchScene: SKScene {
             frag.sprite.zPosition = 20
             addChild(frag.sprite)
 
-            // Add physics body
             frag.sprite.physicsBody = SKPhysicsBody(rectangleOf: frag.sprite.size)
             frag.sprite.physicsBody?.affectedByGravity = true
             frag.sprite.physicsBody?.collisionBitMask = 0
@@ -280,14 +361,12 @@ final class EggHatchScene: SKScene {
             frag.sprite.physicsBody?.linearDamping = 0.5
             frag.sprite.physicsBody?.angularDamping = 0.3
 
-            // Apply burst impulse
             if frag.index < EggFragmentMap.burstVelocities.count {
                 let v = EggFragmentMap.burstVelocities[frag.index]
                 frag.sprite.physicsBody?.applyImpulse(CGVector(dx: v.dx * 0.12, dy: v.dy * 0.12))
                 frag.sprite.physicsBody?.applyAngularImpulse(v.angularImpulse)
             }
 
-            // Fade and remove
             frag.sprite.run(SKAction.sequence([
                 SKAction.wait(forDuration: 0.8),
                 SKAction.fadeOut(withDuration: 0.4),
@@ -295,10 +374,8 @@ final class EggHatchScene: SKScene {
             ]))
         }
 
-        // Remove egg container
         eggContainer.removeFromParent()
 
-        // Show creature celebration
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.showCreature()
         }
@@ -339,14 +416,12 @@ final class EggHatchScene: SKScene {
     // MARK: - Creature
 
     private func showCreature() {
-        guard let dinoNode else { return }
+        guard let creatureNode else { return }
 
-        // Ensure dino is fully visible and in position
-        dinoNode.alpha = 1
-        dinoNode.position = CGPoint(x: 0, y: 10)
-        dinoNode.setScale(0)
+        creatureNode.alpha = 1
+        creatureNode.position = CGPoint(x: 0, y: 10)
+        creatureNode.setScale(0)
 
-        // Spring entrance
         let appear = SKAction.group([
             SKAction.fadeIn(withDuration: 0.2),
             SKAction.scale(to: 1.1, duration: 0.3),
@@ -355,21 +430,18 @@ final class EggHatchScene: SKScene {
         let settle = SKAction.scale(to: 1.0, duration: 0.2)
         settle.timingMode = .easeInEaseOut
 
-        // Bounce
         let bounceUp = SKAction.moveBy(x: 0, y: 15, duration: 0.3)
         bounceUp.timingMode = .easeOut
         let bounceDown = SKAction.moveBy(x: 0, y: -15, duration: 0.2)
         bounceDown.timingMode = .easeIn
 
-        dinoNode.run(SKAction.sequence([appear, settle, bounceUp, bounceDown])) { [weak self] in
-            // Start breathing idle
+        creatureNode.run(SKAction.sequence([appear, settle, bounceUp, bounceDown])) { [weak self] in
             let breatheUp = SKAction.scaleY(to: 1.03, duration: 1.5)
             breatheUp.timingMode = .easeInEaseOut
             let breatheDown = SKAction.scaleY(to: 1.0, duration: 1.5)
             breatheDown.timingMode = .easeInEaseOut
-            dinoNode.run(SKAction.repeatForever(SKAction.sequence([breatheUp, breatheDown])))
+            creatureNode.run(SKAction.repeatForever(SKAction.sequence([breatheUp, breatheDown])))
 
-            // Celebration sparkles
             self?.spawnCelebration()
             self?.hatchDelegate?.sceneDidComplete(.fullHatchDone)
         }

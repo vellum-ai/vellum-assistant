@@ -6,7 +6,6 @@ struct VoiceTranscriptionView: View {
     @State private var appearance = AvatarAppearanceManager.shared
 
     private let circleSize: CGFloat = 80
-    private let dinoPixelSize: CGFloat = 3
 
     var body: some View {
         VStack(spacing: 12) {
@@ -15,7 +14,11 @@ struct VoiceTranscriptionView: View {
                     .stroke(VColor.accent, lineWidth: 2.5)
                     .frame(width: circleSize, height: circleSize)
 
-                Image(nsImage: PixelSpriteBuilder.buildBlobNSImage(pixelSize: dinoPixelSize, palette: appearance.palette))
+                Image(nsImage: appearance.chatAvatarImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: circleSize - 8, height: circleSize - 8)
+                    .clipShape(Circle())
             }
 
             Text("Listening")

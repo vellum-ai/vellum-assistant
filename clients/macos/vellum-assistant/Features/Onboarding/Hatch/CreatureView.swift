@@ -1,7 +1,8 @@
 import VellumAssistantShared
 import SwiftUI
 
-/// The revealed creature (purple dino) with spring entrance and breathing animation.
+/// The revealed creature with spring entrance and breathing animation.
+/// Now shows the avatar image (custom or initial-letter fallback) instead of a pixel blob.
 struct CreatureView: View {
     let visible: Bool
     var animated: Bool = true
@@ -11,23 +12,19 @@ struct CreatureView: View {
     @State private var bounceOffset: CGFloat = 0
     @State private var breatheScaleY: CGFloat = 1.0
     @State private var breatheScaleX: CGFloat = 1.0
-    @State private var cachedBlobImage: NSImage?
-    @State private var cachedPalette: DinoPalette?
 
     var body: some View {
         if visible {
-            dinoImage
+            avatarImage
                 .scaleEffect(x: breatheScaleX, y: breatheScaleY, anchor: .bottom)
                 .offset(y: bounceOffset)
                 .scaleEffect(appeared ? 1.0 : 0.0)
                 .opacity(appeared ? 1.0 : 0.0)
                 .onAppear {
                     if animated {
-                        // Spring entrance
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.5, blendDuration: 0)) {
                             appeared = true
                         }
-                        // Bounce
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                             withAnimation(.easeOut(duration: 0.6)) {
                                 bounceOffset = -15
@@ -41,7 +38,6 @@ struct CreatureView: View {
                     } else {
                         appeared = true
                     }
-                    // Breathing idle
                     let breatheDelay: Double = animated ? 1.0 : 0.0
                     DispatchQueue.main.asyncAfter(deadline: .now() + breatheDelay) {
                         withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
@@ -53,27 +49,12 @@ struct CreatureView: View {
         }
     }
 
-    private var dinoImage: some View {
-        Image(nsImage: blobImage)
+    private var avatarImage: some View {
+        Image(nsImage: appearance.chatAvatarImage)
             .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 400, height: 360)
+            .aspectRatio(contentMode: .fill)
+            .frame(width: 200, height: 200)
+            .clipShape(Circle())
             .shadow(radius: 8)
-            .onChange(of: appearance.palette) { _, newPalette in
-                rebuildBlobImage(palette: newPalette)
-            }
-            .onAppear {
-                rebuildBlobImage(palette: appearance.palette)
-            }
-    }
-
-    private var blobImage: NSImage {
-        cachedBlobImage ?? PixelSpriteBuilder.buildBlobNSImage(pixelSize: Meadow.artPixelSize, palette: appearance.palette)
-    }
-
-    private func rebuildBlobImage(palette: DinoPalette) {
-        guard palette != cachedPalette else { return }
-        cachedPalette = palette
-        cachedBlobImage = PixelSpriteBuilder.buildBlobNSImage(pixelSize: Meadow.artPixelSize, palette: palette)
     }
 }
