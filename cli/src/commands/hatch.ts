@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
 
@@ -535,6 +535,39 @@ async function hatchCustom(
   }
 }
 
+function installCLISymlink(): void {
+  const cliBinary = process.execPath;
+  if (!cliBinary || !existsSync(cliBinary)) return;
+
+  const symlinkPath = "/usr/local/bin/vellum";
+
+  try {
+    // If path exists, check whether it's our symlink or something else
+    if (existsSync(symlinkPath)) {
+      const stats = lstatSync(symlinkPath);
+      if (!stats.isSymbolicLink()) {
+        // Real file — don't overwrite (developer's local install)
+        return;
+      }
+      // Already a symlink — skip if it already points to our binary
+      const dest = readlinkSync(symlinkPath);
+      if (dest === cliBinary) return;
+      // Stale symlink — remove before creating new one
+      unlinkSync(symlinkPath);
+    }
+
+    const dir = "/usr/local/bin";
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    symlinkSync(cliBinary, symlinkPath);
+    console.log(`   Symlinked ${symlinkPath} → ${cliBinary}`);
+  } catch {
+    // Permission denied or other error — not critical
+    console.log(`   ⚠ Could not create symlink at ${symlinkPath} (run with sudo or create manually)`);
+  }
+}
+
 async function hatchLocal(species: Species, name: string | null, daemonOnly: boolean = false): Promise<void> {
   const instanceName =
     name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
@@ -601,6 +634,10 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
   };
   if (!daemonOnly) {
     saveAssistantEntry(localEntry);
+
+    if (process.env.VELLUM_DESKTOP_APP) {
+      installCLISymlink();
+    }
 
     console.log("");
     console.log(`✅ Local assistant hatched!`);
