@@ -426,7 +426,7 @@ describe('guardian service challenge validation', () => {
     );
 
     expect(result.success).toBe(true);
-    if (result.success) {
+    if (result.success && result.verificationType === 'guardian') {
       expect(result.bindingId).toBeDefined();
     }
   });
@@ -528,7 +528,7 @@ describe('guardian service challenge validation', () => {
     );
 
     expect(result.success).toBe(true);
-    if (result.success) {
+    if (result.success && result.verificationType === 'guardian') {
       expect(result.bindingId).toBeDefined();
     }
 
@@ -1616,7 +1616,7 @@ describe('voice guardian challenge validation', () => {
     );
 
     expect(result.success).toBe(true);
-    if (result.success) {
+    if (result.success && result.verificationType === 'guardian') {
       expect(result.bindingId).toBeDefined();
     }
   });
@@ -2261,7 +2261,7 @@ describe('outbound verification sessions', () => {
     );
 
     expect(result.success).toBe(true);
-    if (result.success) {
+    if (result.success && result.verificationType === 'guardian') {
       expect(result.bindingId).toBeDefined();
     }
   });
@@ -2740,7 +2740,9 @@ describe('outbound SMS verification', () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.bindingId).toBeDefined();
+      // Identity-bound outbound sessions produce trusted_contact verification
+      // (no guardian binding created)
+      expect(result.verificationType).toBe('trusted_contact');
     }
   });
 

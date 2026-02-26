@@ -62,7 +62,8 @@ export interface CreateChallengeResult {
 }
 
 export type ValidateChallengeResult =
-  | { success: true; bindingId: string }
+  | { success: true; bindingId: string; verificationType: 'guardian' }
+  | { success: true; verificationType: 'trusted_contact' }
   | { success: false; reason: string };
 
 // ---------------------------------------------------------------------------
@@ -272,6 +273,14 @@ export function validateAndConsumeChallenge(
   // Reset the rate-limit counter on success
   resetRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
 
+  // Identity-bound outbound sessions (from the trusted contact access flow)
+  // should NOT create a guardian binding — the requester is becoming a trusted
+  // contact, not a guardian. Only unbound inbound challenges (guardian
+  // verification) create guardian bindings.
+  if (hasExpectedIdentity && challenge.identityBindingStatus === 'bound') {
+    return { success: true, verificationType: 'trusted_contact' };
+  }
+
   // Reject if a different user already holds the guardian binding
   const existingBinding = getActiveBinding(assistantId, channel);
   if (existingBinding && existingBinding.guardianExternalUserId !== actorExternalUserId) {
@@ -302,7 +311,7 @@ export function validateAndConsumeChallenge(
     metadataJson: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
   });
 
-  return { success: true, bindingId: binding.id };
+  return { success: true, bindingId: binding.id, verificationType: 'guardian' };
 }
 
 /**
