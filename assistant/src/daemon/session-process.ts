@@ -277,12 +277,15 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
     session.preactivatedSkillIds = [slashResult.skillId];
   }
 
-  // Guardian verification intent interception for queued messages
+  // Guardian verification intent interception for queued messages.
+  // Preserve the original user content for persistence; only the agent
+  // loop receives the rewritten instruction.
+  let agentLoopContent = resolvedContent;
   if (slashResult.kind === 'passthrough') {
     const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
     if (guardianIntent.kind === 'direct_setup') {
       log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent intercepted in queue — forcing skill flow');
-      resolvedContent = guardianIntent.rewrittenContent;
+      agentLoopContent = guardianIntent.rewrittenContent;
       session.preactivatedSkillIds = ['guardian-verify-setup'];
     }
   }
@@ -340,7 +343,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // Fire-and-forget: persistUserMessage set session.processing = true
   // so subsequent messages will still be enqueued.
   // runAgentLoop's finally block will call drainQueue when this run completes.
-  session.runAgentLoop(resolvedContent, userMessageId, next.onEvent,
+  session.runAgentLoop(agentLoopContent, userMessageId, next.onEvent,
     next.isInteractive !== undefined ? { isInteractive: next.isInteractive } : undefined,
   ).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
@@ -629,11 +632,14 @@ export async function processMessage(
   // Guardian verification intent interception — force direct guardian
   // verification requests into the guardian-verify-setup skill flow on
   // the first turn, avoiding conceptual preambles from the agent.
+  // We keep the original user content for persistence and use the
+  // rewritten content only for the agent loop instruction.
+  let agentLoopContent = resolvedContent;
   if (slashResult.kind === 'passthrough') {
     const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
     if (guardianIntent.kind === 'direct_setup') {
       log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent intercepted — forcing skill flow');
-      resolvedContent = guardianIntent.rewrittenContent;
+      agentLoopContent = guardianIntent.rewrittenContent;
       session.preactivatedSkillIds = ['guardian-verify-setup'];
     }
   }
@@ -673,7 +679,7 @@ export async function processMessage(
       });
   }
 
-  await session.runAgentLoop(resolvedContent, userMessageId, onEvent,
+  await session.runAgentLoop(agentLoopContent, userMessageId, onEvent,
     options?.isInteractive !== undefined ? { isInteractive: options.isInteractive } : undefined,
   );
   return userMessageId;
