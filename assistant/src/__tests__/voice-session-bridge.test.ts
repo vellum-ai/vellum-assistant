@@ -462,6 +462,8 @@ describe('voice-session-bridge', () => {
     const prompt: string = capturedPrompt;
 
     expect(prompt).toContain('this is an inbound call you are answering (not a call you initiated)');
+    expect(prompt).toContain('Introduce yourself once at the start using your assistant name if you know it');
+    expect(prompt).toContain('If your assistant name is not known, skip the name and just identify yourself as the guardian\'s assistant.');
     expect(prompt).toContain('Do NOT say "I\'m calling" or "I\'m calling on behalf of".');
   });
 
