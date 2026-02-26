@@ -7,6 +7,11 @@ import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { loadConfig, isSlackChannelConfigured, type GatewayConfig } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
+import {
+  createBrowserRelayWebsocketHandler,
+  getBrowserRelayWebsocketHandlers,
+  type BrowserRelaySocketData,
+} from "./http/routes/browser-relay-websocket.js";
 import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
 import { createTelegramReconcileHandler } from "./http/routes/telegram-reconcile.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
@@ -40,6 +45,10 @@ let draining = false;
 
 // Shared rate limiter for auth failures and unauthenticated endpoints
 const authRateLimiter = new AuthRateLimiter();
+
+function isBrowserRelaySocketData(data: unknown): data is BrowserRelaySocketData {
+  return !!data && typeof data === "object" && (data as { wsType?: unknown }).wsType === "browser-relay";
+}
 
 function getClientIp(req: Request, server: ReturnType<typeof Bun.serve>, trustProxy: boolean): string {
   if (trustProxy) {
@@ -126,6 +135,9 @@ function main() {
   const handleTwilioStatusWebhook = createTwilioStatusWebhookHandler(config);
   const handleTwilioConnectActionWebhook = createTwilioConnectActionWebhookHandler(config);
   const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config);
+  const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
+  const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
+  const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
   const { handler: handleTwilioSmsWebhook, dedupCache: smsDedupCache } = createTwilioSmsWebhookHandler(config);
   const handleSmsDeliver = createSmsDeliverHandler(config);
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } = createWhatsAppWebhookHandler(config);
@@ -140,7 +152,29 @@ function main() {
 
   const server = Bun.serve({
     port: config.port,
-    websocket: getRelayWebsocketHandlers(),
+    websocket: {
+      open(ws) {
+        if (isBrowserRelaySocketData(ws.data)) {
+          browserRelayWebsocketHandlers.open(ws as never);
+          return;
+        }
+        twilioRelayWebsocketHandlers.open(ws as never);
+      },
+      message(ws, message) {
+        if (isBrowserRelaySocketData(ws.data)) {
+          browserRelayWebsocketHandlers.message(ws as never, message);
+          return;
+        }
+        twilioRelayWebsocketHandlers.message(ws as never, message);
+      },
+      close(ws, code, reason) {
+        if (isBrowserRelaySocketData(ws.data)) {
+          browserRelayWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        twilioRelayWebsocketHandlers.close(ws as never, code, reason);
+      },
+    },
     error(err) {
       if (err instanceof CircuitBreakerOpenError) {
         return Response.json(
@@ -183,6 +217,7 @@ function main() {
           url.pathname !== "/v1/calls/twilio/voice-webhook" &&
           url.pathname !== "/v1/calls/twilio/status" &&
           url.pathname !== "/v1/calls/twilio/connect-action" &&
+          url.pathname !== "/v1/browser-relay" &&
           url.pathname !== "/v1/calls/relay");
       if (isRateLimitedRoute) {
         const clientIp = getClientIp(req, svr, config.trustProxy);
@@ -303,6 +338,13 @@ function main() {
 
       if (url.pathname === "/webhooks/twilio/relay" || url.pathname === "/v1/calls/relay") {
         const upgradeResult = handleTwilioRelayWs(req, server);
+        if (upgradeResult !== undefined) return upgradeResult;
+        // If upgrade was handled, Bun doesn't need a response
+        return undefined as unknown as Response;
+      }
+
+      if (config.runtimeProxyEnabled && url.pathname === "/v1/browser-relay") {
+        const upgradeResult = handleBrowserRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         // If upgrade was handled, Bun doesn't need a response
         return undefined as unknown as Response;
