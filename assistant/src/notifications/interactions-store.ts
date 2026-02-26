@@ -296,7 +296,7 @@ export function findLatestUnseenTelegramDelivery(
         isNull(notificationDeliveries.seenAt),
       ),
     )
-    .orderBy(desc(notificationDeliveries.createdAt))
+    .orderBy(desc(sql`COALESCE(${notificationDeliveries.sentAt}, ${notificationDeliveries.createdAt})`))
     .limit(1)
     .get();
 

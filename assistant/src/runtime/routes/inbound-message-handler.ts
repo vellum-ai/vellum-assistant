@@ -429,23 +429,6 @@ export async function handleChannelInbound(
     });
   }
 
-  // ── Telegram inferred seen ──
-  // Any non-duplicate telegram inbound activity (message or callback) implies
-  // the user has seen previously delivered notifications in this chat.
-  if (!result.duplicate && sourceChannel === 'telegram') {
-    try {
-      inferTelegramSeen({
-        assistantId: canonicalAssistantId,
-        externalChatId,
-        hasCallbackData,
-        callbackData: body.callbackData,
-        content: trimmedContent,
-      });
-    } catch (err) {
-      log.warn({ err, externalChatId }, 'Failed to record inferred telegram seen signal');
-    }
-  }
-
   // ── Ingress escalation ──
   // When the member's policy is 'escalate', create a pending guardian
   // approval request and halt the run. This check runs after recordInbound
@@ -906,6 +889,25 @@ export async function handleChannelInbound(
     if (ingressCheck.blocked) {
       channelDeliveryStore.clearPayload(result.eventId);
       throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+    }
+
+    // ── Telegram inferred seen ──
+    // Any non-duplicate telegram inbound activity (message or callback) implies
+    // the user has seen previously delivered notifications in this chat.
+    // Runs after secret ingress validation so rejected messages don't persist
+    // secret-bearing content as evidenceText in notification_delivery_interactions.
+    if (sourceChannel === 'telegram') {
+      try {
+        inferTelegramSeen({
+          assistantId: canonicalAssistantId,
+          externalChatId,
+          hasCallbackData,
+          callbackData: body.callbackData,
+          content: trimmedContent,
+        });
+      } catch (err) {
+        log.warn({ err, externalChatId }, 'Failed to record inferred telegram seen signal');
+      }
     }
 
     // Fire-and-forget: process the message and deliver the reply in the background.
