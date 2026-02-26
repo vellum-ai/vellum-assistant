@@ -299,6 +299,7 @@ struct RecordingSourcePickerView: View {
                 Toggle("", isOn: $viewModel.includeAudio)
                     .toggleStyle(ButtonPrimarySwitchStyle())
                     .labelsHidden()
+                    .accessibilityLabel("System audio")
             }
             .padding(.horizontal, VSpacing.xl)
 
@@ -314,6 +315,7 @@ struct RecordingSourcePickerView: View {
                     Toggle("", isOn: $viewModel.includeMicrophone)
                         .toggleStyle(ButtonPrimarySwitchStyle())
                         .labelsHidden()
+                        .accessibilityLabel("Microphone")
                 }
                 .padding(.horizontal, VSpacing.xl)
             }
