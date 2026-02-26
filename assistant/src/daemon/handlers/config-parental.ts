@@ -179,6 +179,17 @@ export function handleParentalControlProfileSwitch(
 ): void {
   const currentProfile = getActiveProfile();
 
+  // Validate targetProfile is one of the allowed values (TypeScript types are not enforced at runtime)
+  if (msg.targetProfile !== 'parental' && msg.targetProfile !== 'child') {
+    ctx.send(socket, {
+      type: 'parental_control_profile_switch_response',
+      success: false,
+      activeProfile: currentProfile,
+      error: 'Invalid target profile',
+    });
+    return;
+  }
+
   // Switching TO parental from child requires PIN verification when a PIN is set.
   if (msg.targetProfile === 'parental' && hasPIN()) {
     if (!msg.pin) {
