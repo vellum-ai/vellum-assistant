@@ -428,6 +428,7 @@ struct SettingsParentalTab: View {
                 isLoading = false
                 if let r = response {
                     isEnabled = r.enabled
+                    settingsStore.isParentalEnabled = r.enabled
                     hasPIN = r.has_pin
                     contentRestrictions = Set(r.content_restrictions)
                     blockedToolCategories = Set(r.blocked_tool_categories)
@@ -478,6 +479,7 @@ struct SettingsParentalTab: View {
                 if let r = response {
                     if r.success {
                         isEnabled = r.enabled
+                        settingsStore.isParentalEnabled = r.enabled
                         hasPIN = r.has_pin
                         contentRestrictions = Set(r.content_restrictions)
                         blockedToolCategories = Set(r.blocked_tool_categories)
@@ -932,8 +934,7 @@ private struct ProfileSwitchSheet: View {
                         errorMessage = "Incorrect PIN."
                     }
                 } else {
-                    // Daemon not connected — optimistically allow the switch in stub mode
-                    onComplete(.success(pin: pin))
+                    errorMessage = "No response from daemon."
                 }
             }
         }
