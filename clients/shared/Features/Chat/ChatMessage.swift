@@ -625,9 +625,9 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.isError == rhs.isError
             && lhs.isComplete == rhs.isComplete
             && lhs.arrivedBeforeText == rhs.arrivedBeforeText
-            && lhs.inputFull == rhs.inputFull
-            && lhs.inputRawValue == rhs.inputRawValue
-            && lhs.imageData == rhs.imageData
+            // inputFull, inputRawValue, and imageData are intentionally excluded:
+            // they can be multi-MB / 10k+ chars and don't affect rendering state.
+            // SwiftUI diffing would do expensive string comparisons on every update.
             && lhs.buildingStatus == rhs.buildingStatus
             && lhs.claudeCodeSteps == rhs.claudeCodeSteps
     }
