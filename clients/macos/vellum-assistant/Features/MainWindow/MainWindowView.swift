@@ -1539,7 +1539,7 @@ private struct ProfileSwitcherSidebarRow: View {
 
     private var isParental: Bool { activeProfile == "parental" }
     private var avatarIcon: String { isParental ? "crown.fill" : "figure.child" }
-    private var avatarColor: Color { isParental ? VColor.accent : VColor.success }
+    private var avatarColor: Color { adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400) }
     private var profileLabel: String { isParental ? "Parental Mode" : "Child Mode" }
 
     var body: some View {
@@ -1846,7 +1846,7 @@ private struct ProfileSwitchModal: View {
         VStack(spacing: VSpacing.xs) {
             Image(systemName: isParental ? "crown.fill" : "figure.child")
                 .font(.system(size: 30, weight: .medium))
-                .foregroundColor(isParental ? VColor.accent : VColor.success)
+                .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
                 .frame(width: 36, height: 36)
             Text(isParental ? "Parental Mode" : "Child Mode")
                 .font(VFont.caption)
