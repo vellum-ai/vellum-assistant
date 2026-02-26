@@ -46,6 +46,22 @@ let activeRestartToken: string | null = null;
  *  is only returned when the state is truly idle (not mid-restart). */
 const pendingRestartByConversation = new Map<string, string>();
 
+/** Deferred restart parameters stored when a restart is initiated. The actual
+ *  recording_start is sent only after the client acknowledges the stop (via a
+ *  'stopped' status callback), preventing the race where the macOS client's
+ *  async stop hasn't completed when the start arrives. */
+interface DeferredRestartParams {
+  conversationId: string;
+  socket: net.Socket;
+  ctx: HandlerContext;
+  operationToken: string;
+}
+
+/** Maps conversationId -> deferred restart parameters. Populated by
+ *  handleRecordingRestart, consumed by the 'stopped' branch of
+ *  handleRecordingStatus. */
+const deferredRestartByConversation = new Map<string, DeferredRestartParams>();
+
 // ─── Start ───────────────────────────────────────────────────────────────────
 
 /**
@@ -150,6 +166,16 @@ export function handleRecordingStop(
     pendingStopTimeouts.delete(recordingId);
     log.warn({ recordingId, conversationId: ownerConversationId, timeoutMs: STOP_ACK_TIMEOUT_MS }, 'Stop-acknowledgement timeout fired — cleaning up stale recording state');
     cleanupMaps(recordingId, ownerConversationId);
+
+    // Clean up any deferred restart that was waiting for this stop-ack
+    if (deferredRestartByConversation.has(ownerConversationId)) {
+      deferredRestartByConversation.delete(ownerConversationId);
+      pendingRestartByConversation.delete(ownerConversationId);
+      if (pendingRestartByConversation.size === 0) {
+        activeRestartToken = null;
+      }
+      log.warn({ recordingId, conversationId: ownerConversationId }, 'Deferred restart cleaned up due to stop-ack timeout');
+    }
   }, STOP_ACK_TIMEOUT_MS);
   pendingStopTimeouts.set(recordingId, timeoutHandle);
 
@@ -171,18 +197,23 @@ export interface RecordingRestartResult {
 }
 
 /**
- * Restart the active recording: stop the current one, then start a new one
- * with `promptForSource: true` (client reopens source picker).
+ * Restart the active recording: stop the current one, then defer starting a
+ * new one until the client acknowledges the stop via a 'stopped' status
+ * callback.
+ *
+ * This prevents a race condition where the macOS client processes
+ * recording_stop asynchronously — if recording_start arrives before the
+ * async stop completes, RecordingManager.start() rejects because state is
+ * still active.
  *
  * Uses an operation token to guard against stale async completions from
  * a previous restart cycle. The token is:
  * 1. Generated here and stored as `activeRestartToken`
- * 2. Threaded through to the new `recording_start` message
- * 3. Validated when `recording_status` callbacks arrive
+ * 2. Stored in `deferredRestartByConversation` for later use
+ * 3. Threaded through to the new `recording_start` message when the stop ack arrives
+ * 4. Validated when `recording_status` callbacks arrive
  *
- * If the picker is closed/canceled during restart, the client sends a
- * `restart_cancelled` status and the daemon emits a deterministic response
- * (never "new recording started").
+ * If the stop fails or times out, the deferred restart state is cleaned up.
  */
 export function handleRecordingRestart(
   conversationId: string,
@@ -220,45 +251,17 @@ export function handleRecordingRestart(
   activeRestartToken = operationToken;
   pendingRestartByConversation.set(conversationId, operationToken);
 
-  // Resolve the actual owner conversation ID. When conversation B requests
-  // a restart but the recording is owned by conversation A, the stop above
-  // used the global fallback to find A's recording. We need to pass A's
-  // conversationId to cleanupMaps so it can delete the correct map entry.
-  let ownerConversationId = conversationId;
-  if (recordingOwnerByConversation.get(conversationId) !== stoppedRecordingId && recordingOwnerByConversation.size > 0) {
-    const [activeConv, activeRec] = [...recordingOwnerByConversation.entries()][0];
-    if (activeRec === stoppedRecordingId) {
-      ownerConversationId = activeConv;
-      log.info({ conversationId, ownerConversationId, stoppedRecordingId }, 'Resolved restart cleanup to actual owner conversation');
-    }
-  }
-
-  // Immediately clean up the old recording maps so the start call
-  // doesn't hit the "already active" guard. The stop command has already
-  // been sent; we clean maps here to ensure atomic stop/start handoff.
-  cleanupMaps(stoppedRecordingId, ownerConversationId);
-  cancelStopTimeout(stoppedRecordingId);
-
-  // Start a new recording with the operation token
-  const newRecordingId = handleRecordingStart(
+  // Store the deferred restart parameters. The actual recording_start will
+  // be sent when the 'stopped' status callback arrives in handleRecordingStatus,
+  // ensuring the client has fully completed the async stop before we start.
+  deferredRestartByConversation.set(conversationId, {
     conversationId,
-    { promptForSource: true },
     socket,
     ctx,
     operationToken,
-  );
+  });
 
-  if (!newRecordingId) {
-    // Start failed (shouldn't happen after cleanup, but defensive)
-    activeRestartToken = null;
-    pendingRestartByConversation.delete(conversationId);
-    return {
-      initiated: false,
-      responseText: 'Failed to restart recording.',
-    };
-  }
-
-  log.info({ conversationId, operationToken, oldRecordingId: stoppedRecordingId, newRecordingId }, 'Recording restart initiated');
+  log.info({ conversationId, operationToken, stoppedRecordingId }, 'Recording restart initiated — start deferred until stop-ack');
 
   return {
     initiated: true,
@@ -494,6 +497,38 @@ async function handleRecordingStatus(
       // aren't blocked by thumbnail generation or attachment processing.
       cleanupMaps(recordingId, conversationId);
 
+      // Check for a deferred restart: if handleRecordingRestart stored
+      // pending start parameters for this conversation, trigger the start
+      // now that the client has fully completed the async stop.
+      const deferred = deferredRestartByConversation.get(conversationId);
+      if (deferred) {
+        deferredRestartByConversation.delete(conversationId);
+
+        log.info({ recordingId, conversationId, operationToken: deferred.operationToken }, 'Stop-ack received — triggering deferred restart start');
+
+        const newRecordingId = handleRecordingStart(
+          deferred.conversationId,
+          { promptForSource: true },
+          deferred.socket,
+          deferred.ctx,
+          deferred.operationToken,
+        );
+
+        if (!newRecordingId) {
+          // Start failed — clean up restart state
+          activeRestartToken = null;
+          pendingRestartByConversation.delete(conversationId);
+          log.warn({ conversationId }, 'Deferred restart start failed after stop-ack');
+        } else {
+          log.info({ conversationId, newRecordingId, operationToken: deferred.operationToken }, 'Deferred restart recording started');
+        }
+
+        // Skip normal file-attachment flow for the old recording during
+        // a restart — the user initiated a stop+start cycle, not a
+        // deliberate "stop and save".
+        break;
+      }
+
       // Finalize: attach the recording file to the conversation
       if (msg.filePath) {
         // Restrict accepted file paths to the app's recordings directory to
@@ -663,6 +698,8 @@ async function handleRecordingStatus(
       cleanupMaps(recordingId, conversationId);
 
       // If this failure was part of a restart cycle, clear restart state
+      // including any deferred start that will never fire
+      deferredRestartByConversation.delete(conversationId);
       if (pendingRestartByConversation.has(conversationId)) {
         pendingRestartByConversation.delete(conversationId);
         if (pendingRestartByConversation.size === 0) {
@@ -698,6 +735,7 @@ export function cleanupRecordingsOnDisconnect(
       standaloneRecordingConversationId.delete(recId);
       recordingOwnerByConversation.delete(convId);
       pendingRestartByConversation.delete(convId);
+      deferredRestartByConversation.delete(convId);
     }
   }
   // Clear restart token if all pending restarts were cleaned up
@@ -717,6 +755,7 @@ export function __resetRecordingState(): void {
   standaloneRecordingConversationId.clear();
   recordingOwnerByConversation.clear();
   pendingRestartByConversation.clear();
+  deferredRestartByConversation.clear();
   activeRestartToken = null;
 }
 
