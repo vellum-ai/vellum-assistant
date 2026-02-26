@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, mock, beforeEach } from 'bun:test';
 import {
   detectRecordingIntent,
   isRecordingOnly,
@@ -8,6 +8,8 @@ import {
   isStopRecordingOnly,
   classifyRecordingIntent,
   isInterrogative,
+  resolveRecordingIntent,
+  type RecordingIntentResult,
 } from '../daemon/recording-intent.js';
 
 // ─── detectRecordingIntent ──────────────────────────────────────────────────
@@ -384,5 +386,253 @@ describe('isInterrogative', () => {
   test('handles polite prefix before question word', () => {
     expect(isInterrogative('please, how do I stop recording?')).toBe(true);
     expect(isInterrogative('hey, what does screen recording do?')).toBe(true);
+  });
+});
+
+// ─── resolveRecordingIntent ─────────────────────────────────────────────────
+
+describe('resolveRecordingIntent', () => {
+  // Pure start
+  test.each([
+    'record my screen',
+    'start recording',
+    'capture my screen',
+  ])('pure start: "%s" → start_only', (text) => {
+    expect(resolveRecordingIntent(text)).toEqual({ kind: 'start_only' });
+  });
+
+  test('pure start with polite wrapper: "please record my screen"', () => {
+    expect(resolveRecordingIntent('please record my screen')).toEqual({ kind: 'start_only' });
+  });
+
+  test('pure start with polite filler stripped: "can you record my screen"', () => {
+    // "can you" is a filler; after stripping, only the recording clause remains
+    expect(resolveRecordingIntent('can you record my screen')).toEqual({ kind: 'start_only' });
+  });
+
+  // Pure stop
+  test.each([
+    'stop recording',
+    'end the recording',
+  ])('pure stop: "%s" → stop_only', (text) => {
+    expect(resolveRecordingIntent(text)).toEqual({ kind: 'stop_only' });
+  });
+
+  test('pure stop with polite wrapper: "please stop recording"', () => {
+    expect(resolveRecordingIntent('please stop recording')).toEqual({ kind: 'stop_only' });
+  });
+
+  // Start with remainder
+  test('start with remainder: "record my screen and open Safari"', () => {
+    const result = resolveRecordingIntent('record my screen and open Safari');
+    expect(result.kind).toBe('start_with_remainder');
+    if (result.kind === 'start_with_remainder') {
+      expect(result.remainder).toContain('open Safari');
+    }
+  });
+
+  test('start with remainder: "open Chrome and record my screen"', () => {
+    const result = resolveRecordingIntent('open Chrome and record my screen');
+    expect(result.kind).toBe('start_with_remainder');
+    if (result.kind === 'start_with_remainder') {
+      expect(result.remainder).toContain('open Chrome');
+    }
+  });
+
+  // Stop with remainder
+  test('stop with remainder: "stop recording and open Chrome"', () => {
+    const result = resolveRecordingIntent('stop recording and open Chrome');
+    expect(result.kind).toBe('stop_with_remainder');
+    if (result.kind === 'stop_with_remainder') {
+      expect(result.remainder).toContain('open Chrome');
+    }
+  });
+
+  // Start and stop combined
+  test('start and stop: "stop recording and record my screen"', () => {
+    const result = resolveRecordingIntent('stop recording and record my screen');
+    expect(result.kind).toBe('start_and_stop_only');
+  });
+
+  test('start and stop: "stop recording and start a new recording"', () => {
+    const result = resolveRecordingIntent('stop recording and start recording');
+    expect(result.kind).toBe('start_and_stop_only');
+  });
+
+  // Questions (interrogative gate)
+  test.each([
+    'how do I stop recording?',
+    'what does screen recording do?',
+    'how can I record my screen?',
+    'why did the recording stop?',
+  ])('interrogative gate returns none: "%s"', (text) => {
+    expect(resolveRecordingIntent(text)).toEqual({ kind: 'none' });
+  });
+
+  // Dynamic names
+  test('dynamic names: "Nova, record my screen" with dynamicNames=["Nova"]', () => {
+    expect(resolveRecordingIntent('Nova, record my screen', ['Nova'])).toEqual({
+      kind: 'start_only',
+    });
+  });
+
+  test('dynamic names: interrogative with name prefix returns none', () => {
+    expect(resolveRecordingIntent('hey Nova, how do I stop recording?', ['Nova'])).toEqual({
+      kind: 'none',
+    });
+  });
+
+  test('dynamic names: "Nova, record my screen and open Safari" with dynamicNames=["Nova"]', () => {
+    const result = resolveRecordingIntent('Nova, record my screen and open Safari', ['Nova']);
+    expect(result.kind).toBe('start_with_remainder');
+    if (result.kind === 'start_with_remainder') {
+      expect(result.remainder).toContain('open Safari');
+    }
+  });
+
+  // None (no recording intent)
+  test.each([
+    'open Safari',
+    'I broke the record',
+    '',
+  ])('no recording intent: "%s" → none', (text) => {
+    expect(resolveRecordingIntent(text)).toEqual({ kind: 'none' });
+  });
+});
+
+// ─── executeRecordingIntent ─────────────────────────────────────────────────
+
+describe('executeRecordingIntent', () => {
+  // Mock the recording handlers module
+  const mockHandleRecordingStart = mock(() => 'mock-recording-id');
+  const mockHandleRecordingStop = mock(() => 'mock-recording-id');
+
+  mock.module('../daemon/handlers/recording.js', () => ({
+    handleRecordingStart: mockHandleRecordingStart,
+    handleRecordingStop: mockHandleRecordingStop,
+  }));
+
+  // Dynamically import so the mock takes effect
+  let executeRecordingIntent: typeof import('../daemon/recording-executor.js').executeRecordingIntent;
+
+  // Must await the dynamic import before running tests
+  const setupPromise = import('../daemon/recording-executor.js').then((mod) => {
+    executeRecordingIntent = mod.executeRecordingIntent;
+  });
+
+  const mockContext = {
+    conversationId: 'conv-123',
+    socket: {} as any,
+    ctx: {} as any,
+  };
+
+  beforeEach(async () => {
+    await setupPromise;
+    mockHandleRecordingStart.mockReset();
+    mockHandleRecordingStop.mockReset();
+    // Default: start succeeds (returns recording ID)
+    mockHandleRecordingStart.mockReturnValue('mock-recording-id');
+    // Default: stop succeeds (returns recording ID)
+    mockHandleRecordingStop.mockReturnValue('mock-recording-id');
+  });
+
+  test('none → returns { handled: false }', () => {
+    const result = executeRecordingIntent({ kind: 'none' }, mockContext);
+    expect(result).toEqual({ handled: false });
+  });
+
+  test('start_only → calls handleRecordingStart, returns handled with start text', () => {
+    const result = executeRecordingIntent({ kind: 'start_only' }, mockContext);
+    expect(mockHandleRecordingStart).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      handled: true,
+      responseText: 'Starting screen recording.',
+    });
+  });
+
+  test('start_only when recording already active → returns handled with already-active text', () => {
+    mockHandleRecordingStart.mockReturnValue(null);
+    const result = executeRecordingIntent({ kind: 'start_only' }, mockContext);
+    expect(mockHandleRecordingStart).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      handled: true,
+      responseText: 'A recording is already active.',
+    });
+  });
+
+  test('stop_only → calls handleRecordingStop, returns handled with stop text', () => {
+    const result = executeRecordingIntent({ kind: 'stop_only' }, mockContext);
+    expect(mockHandleRecordingStop).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      handled: true,
+      responseText: 'Stopping the recording.',
+    });
+  });
+
+  test('stop_only when no active recording → returns handled with no-active text', () => {
+    mockHandleRecordingStop.mockReturnValue(undefined);
+    const result = executeRecordingIntent({ kind: 'stop_only' }, mockContext);
+    expect(result).toEqual({
+      handled: true,
+      responseText: 'No active recording to stop.',
+    });
+  });
+
+  test('start_with_remainder → returns not handled with remainder and pendingStart', () => {
+    const result = executeRecordingIntent(
+      { kind: 'start_with_remainder', remainder: 'open Safari' },
+      mockContext,
+    );
+    expect(result).toEqual({
+      handled: false,
+      remainderText: 'open Safari',
+      pendingStart: true,
+    });
+  });
+
+  test('stop_with_remainder → returns not handled with remainder and pendingStop', () => {
+    const result = executeRecordingIntent(
+      { kind: 'stop_with_remainder', remainder: 'open Chrome' },
+      mockContext,
+    );
+    expect(result).toEqual({
+      handled: false,
+      remainderText: 'open Chrome',
+      pendingStop: true,
+    });
+  });
+
+  test('start_and_stop_only → calls both stop and start, returns handled', () => {
+    const result = executeRecordingIntent({ kind: 'start_and_stop_only' }, mockContext);
+    expect(mockHandleRecordingStop).toHaveBeenCalledTimes(1);
+    expect(mockHandleRecordingStart).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      handled: true,
+      responseText: 'Stopping current recording and starting a new one.',
+    });
+  });
+
+  test('start_and_stop_only when start fails → returns handled with stop-only text', () => {
+    mockHandleRecordingStart.mockReturnValue(null);
+    const result = executeRecordingIntent({ kind: 'start_and_stop_only' }, mockContext);
+    expect(mockHandleRecordingStop).toHaveBeenCalledTimes(1);
+    expect(mockHandleRecordingStart).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      handled: true,
+      responseText: 'Stopping the recording.',
+    });
+  });
+
+  test('start_and_stop_with_remainder → returns not handled with remainder and both pending flags', () => {
+    const result = executeRecordingIntent(
+      { kind: 'start_and_stop_with_remainder', remainder: 'open Safari' },
+      mockContext,
+    );
+    expect(result).toEqual({
+      handled: false,
+      remainderText: 'open Safari',
+      pendingStart: true,
+      pendingStop: true,
+    });
   });
 });
