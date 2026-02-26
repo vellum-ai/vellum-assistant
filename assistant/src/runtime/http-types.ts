@@ -64,6 +64,42 @@ export type GuardianActionCopyGenerator = (
   options?: ComposeGuardianActionMessageOptions,
 ) => Promise<string | null>;
 
+// ---------------------------------------------------------------------------
+// Guardian follow-up conversation flow types
+// ---------------------------------------------------------------------------
+
+/** The disposition returned by the guardian follow-up conversation engine. */
+export type GuardianFollowUpDisposition =
+  | 'call_back'
+  | 'message_back'
+  | 'decline'
+  | 'keep_pending';
+
+/** Structured result from a single turn of the guardian follow-up conversation. */
+export interface GuardianFollowUpTurnResult {
+  disposition: GuardianFollowUpDisposition;
+  replyText: string;
+}
+
+/** Input context for the guardian follow-up conversation engine. */
+export interface GuardianFollowUpConversationContext {
+  /** The original question that was asked during the voice call. */
+  questionText: string;
+  /** The guardian's late answer text that initiated the follow-up. */
+  lateAnswerText: string;
+  /** The guardian's latest reply in the follow-up conversation. */
+  guardianReply: string;
+}
+
+/**
+ * Daemon-injected function that processes one turn of a guardian follow-up
+ * conversation. Classifies the guardian's intent into a structured disposition
+ * and produces a natural reply.
+ */
+export type GuardianFollowUpConversationGenerator = (
+  context: GuardianFollowUpConversationContext,
+) => Promise<GuardianFollowUpTurnResult>;
+
 export interface RuntimeMessageSessionOptions {
   transport?: {
     channelId: ChannelId;
@@ -140,6 +176,8 @@ export interface RuntimeHttpServerOptions {
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Daemon-injected generator for guardian action copy (provider-backed). */
   guardianActionCopyGenerator?: GuardianActionCopyGenerator;
+  /** Daemon-injected generator for guardian follow-up conversation (provider-backed). */
+  guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
   /** Dependencies for the POST /v1/messages queue-if-busy handler. */
   sendMessageDeps?: SendMessageDeps;
 }

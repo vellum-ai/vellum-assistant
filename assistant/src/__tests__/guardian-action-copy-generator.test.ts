@@ -22,8 +22,15 @@ const ALL_SCENARIOS: GuardianActionMessageScenario[] = [
   'guardian_followup_completed',
   'guardian_followup_failed',
   'guardian_followup_declined_ack',
+  'guardian_followup_clarification',
+  'guardian_stale_answered',
   'guardian_stale_expired',
+  'guardian_stale_followup',
   'outbound_message_copy',
+  'followup_message_sent',
+  'followup_call_started',
+  'followup_action_failed',
+  'guardian_answer_delivery_failed',
 ];
 
 describe('guardian-action-copy-generator', () => {
@@ -80,23 +87,22 @@ describe('guardian-action-copy-generator', () => {
       expect(msg).toContain('The phone number is not valid.');
     });
 
-    test('outbound_message_copy includes callerIdentifier and questionText', () => {
+    test('outbound_message_copy includes lateAnswerText and questionText', () => {
       const msg = getGuardianActionFallbackMessage({
         scenario: 'outbound_message_copy',
-        callerIdentifier: 'Bob',
         questionText: 'When is the appointment?',
+        lateAnswerText: 'It is at 3pm tomorrow.',
       });
-      expect(msg).toContain('Bob');
       expect(msg).toContain('When is the appointment?');
+      expect(msg).toContain('It is at 3pm tomorrow.');
     });
 
-    test('outbound_message_copy without callerIdentifier still includes questionText', () => {
+    test('outbound_message_copy without lateAnswerText still includes questionText', () => {
       const msg = getGuardianActionFallbackMessage({
         scenario: 'outbound_message_copy',
         questionText: 'Is the office open?',
       });
       expect(msg).toContain('Is the office open?');
-      expect(msg).toContain('Someone');
     });
   });
 
