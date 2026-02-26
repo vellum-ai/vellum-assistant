@@ -17,6 +17,7 @@ import {
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
   migrateCallSessionMode,
+  migrateFkCascadeRebuilds,
   migrateChannelInboundDeliveredSegments,
   migrateConversationsThreadTypeIndex,
   migrateGuardianActionFollowup,
@@ -116,6 +117,9 @@ export function initializeDb(): void {
 
   // 20. Schema indexes, columns, and constraints
   migrateSchemaIndexesAndColumns(database);
+
+  // 21. Rebuild tables to add ON DELETE CASCADE to FK constraints
+  migrateFkCascadeRebuilds(database);
 
   validateMigrationState(database);
 }

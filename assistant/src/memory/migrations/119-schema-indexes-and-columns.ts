@@ -15,5 +15,23 @@ export function migrateSchemaIndexesAndColumns(database: DrizzleDb): void {
     database.run(/*sql*/ `ALTER TABLE memory_jobs ADD COLUMN started_at INTEGER`);
   } catch { /* already exists */ }
 
+  // Deduplicate before creating the unique index — the prior schema allowed
+  // multiple rows per (notification_decision_id, channel) via the wider
+  // (decision_id, channel, destination, attempt) unique index.  Keep the
+  // row with the latest updated_at for each group.
+  database.run(/*sql*/ `
+    DELETE FROM notification_deliveries
+    WHERE id NOT IN (
+      SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (
+          PARTITION BY notification_decision_id, channel
+          ORDER BY updated_at DESC
+        ) AS rn
+        FROM notification_deliveries
+      )
+      WHERE rn = 1
+    )
+  `);
+
   database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_deliveries_decision_channel ON notification_deliveries(notification_decision_id, channel)`);
 }
