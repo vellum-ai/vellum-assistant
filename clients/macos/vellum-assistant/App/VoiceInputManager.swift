@@ -260,9 +260,18 @@ final class VoiceInputManager {
             currentDictationContext = nil
             return
         }
-        if micStatus == .denied || micStatus == .restricted
-            || speechStatus == .denied || speechStatus == .restricted {
-            showPermissionPrompt(kind: .denied)
+        let micDenied = micStatus == .denied || micStatus == .restricted
+        let speechDenied = speechStatus == .denied || speechStatus == .restricted
+        if micDenied || speechDenied {
+            let deniedPermission: PermissionPromptOverlay.DeniedPermission
+            if micDenied && speechDenied {
+                deniedPermission = .both
+            } else if micDenied {
+                deniedPermission = .microphone
+            } else {
+                deniedPermission = .speechRecognition
+            }
+            showPermissionPrompt(kind: .denied, deniedPermission: deniedPermission)
             currentDictationContext = nil
             return
         }
@@ -362,7 +371,10 @@ final class VoiceInputManager {
 
     /// Show the permission prompt overlay explaining why access is needed and providing
     /// action buttons. After the user grants access, recording starts automatically.
-    private func showPermissionPrompt(kind: PermissionPromptKind) {
+    private func showPermissionPrompt(
+        kind: PermissionPromptKind,
+        deniedPermission: PermissionPromptOverlay.DeniedPermission = .both
+    ) {
         let keyName = activationKeyDisplayName
 
         switch kind {
@@ -383,7 +395,7 @@ final class VoiceInputManager {
 
         case .denied:
             permissionOverlay.show(
-                kind: .denied(keyName: keyName),
+                kind: .denied(keyName: keyName, deniedPermission: deniedPermission),
                 onGrantAccess: { },
                 onDismiss: { [weak self] in
                     self?.permissionOverlay.dismiss()
@@ -398,7 +410,7 @@ final class VoiceInputManager {
         let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
         guard micGranted else {
             log.warning("Microphone access denied by user")
-            showPermissionPrompt(kind: .denied)
+            showPermissionPrompt(kind: .denied, deniedPermission: .microphone)
             return
         }
 
@@ -409,7 +421,7 @@ final class VoiceInputManager {
         }
         guard speechGranted else {
             log.warning("Speech recognition access denied by user")
-            showPermissionPrompt(kind: .denied)
+            showPermissionPrompt(kind: .denied, deniedPermission: .speechRecognition)
             return
         }
 
