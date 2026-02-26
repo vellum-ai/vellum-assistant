@@ -39,14 +39,14 @@ struct RecordingSourcePickerView: View {
             .labelsHidden()
             .controlSize(.large)
             .padding(.horizontal, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(.bottom, VSpacing.sm)
 
             // Preview pane
             previewPane
                 .padding(.horizontal, VSpacing.lg)
-                .padding(.bottom, VSpacing.md)
+                .padding(.bottom, VSpacing.xs)
 
-            // Source list (content-sized, scrolls when needed)
+            // Source list
             if viewModel.isLoading {
                 Spacer()
                 ProgressView("Loading sources...")
@@ -55,7 +55,6 @@ struct RecordingSourcePickerView: View {
                 Spacer()
             } else {
                 sourceList
-                Spacer(minLength: VSpacing.sm)
             }
 
             Divider()
@@ -135,10 +134,8 @@ struct RecordingSourcePickerView: View {
                 }
             }
             .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
         }
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxHeight: 280)
     }
 
     /// Row for a window source. When preview is enabled, shows a thumbnail
@@ -278,10 +275,11 @@ struct RecordingSourcePickerView: View {
 
     private var bottomBar: some View {
         VStack(spacing: VSpacing.lg) {
-            // Audio toggles — manual HStack layout for space-between
-            HStack {
+            // Audio toggles — icon + text left, toggle right (space-between)
+            HStack(spacing: VSpacing.sm) {
                 Image(systemName: "speaker.wave.2")
                     .foregroundColor(VColor.textSecondary)
+                    .frame(width: 20)
                 Text("System audio")
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
@@ -289,14 +287,15 @@ struct RecordingSourcePickerView: View {
                 Toggle("", isOn: $viewModel.includeAudio)
                     .toggleStyle(.switch)
                     .labelsHidden()
-                    .tint(VColor.accent)
+                    .tint(VColor.buttonPrimary)
             }
             .padding(.horizontal, VSpacing.xl)
 
             if #available(macOS 14, *) {
-                HStack {
+                HStack(spacing: VSpacing.sm) {
                     Image(systemName: "mic")
                         .foregroundColor(VColor.textSecondary)
+                        .frame(width: 20)
                     Text("Microphone")
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
@@ -304,7 +303,7 @@ struct RecordingSourcePickerView: View {
                     Toggle("", isOn: $viewModel.includeMicrophone)
                         .toggleStyle(.switch)
                         .labelsHidden()
-                        .tint(VColor.accent)
+                        .tint(VColor.buttonPrimary)
                 }
                 .padding(.horizontal, VSpacing.xl)
             }
