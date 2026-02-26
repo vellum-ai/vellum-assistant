@@ -26,6 +26,8 @@ struct IOSParentalControlSection: View {
     // Retained after a successful unlock so that subsequent update calls can
     // forward the PIN to the daemon (required when parental mode is enabled).
     @State private var unlockedPIN: String?
+    // Shown when the user tries to enable parental controls without a PIN set.
+    @State private var showingSetPINForEnable: Bool = false
 
     private var daemon: DaemonClient? { clientProvider.client as? DaemonClient }
 
@@ -41,7 +43,11 @@ struct IOSParentalControlSection: View {
                         Toggle("", isOn: Binding(
                             get: { isEnabled },
                             set: { newValue in
-                                if !newValue && isEnabled && hasPIN && !isUnlocked {
+                                if newValue && !isEnabled && !hasPIN {
+                                    // Enabling without a PIN — require the user to create one
+                                    // first so parental controls are always PIN-protected.
+                                    showingSetPINForEnable = true
+                                } else if !newValue && isEnabled && hasPIN && !isUnlocked {
                                     showingUnlock = true
                                 } else {
                                     updateEnabled(newValue)
@@ -113,6 +119,21 @@ struct IOSParentalControlSection: View {
                     errorMessage = nil
                 case .failure:
                     errorMessage = "Incorrect PIN."
+                }
+            }
+        }
+        .sheet(isPresented: $showingSetPINForEnable) {
+            IOSSetPINForEnableSheet(daemon: daemon) { result in
+                showingSetPINForEnable = false
+                switch result {
+                case .success(let pin):
+                    // PIN is now set; cache it as the unlocked credential and enable.
+                    isUnlocked = true
+                    unlockedPIN = pin
+                    hasPIN = true
+                    updateEnabled(true)
+                case .failure(let msg):
+                    errorMessage = msg
                 }
             }
         }
@@ -411,6 +432,91 @@ struct IOSPINSheet: View {
                 if let r = response {
                     if r.success { onComplete(.success(mode)) }
                     else { errorMessage = r.error ?? "Operation failed." }
+                } else { errorMessage = "No response from assistant." }
+            }
+        }
+    }
+}
+
+// MARK: - Set-PIN-for-Enable Sheet (iOS)
+
+enum IOSSetPINForEnableResult { case success(pin: String); case failure(String) }
+
+struct IOSSetPINForEnableSheet: View {
+    let daemon: DaemonClient?
+    let onComplete: (IOSSetPINForEnableResult) -> Void
+
+    @State private var newPIN: String = ""
+    @State private var confirmPIN: String = ""
+    @State private var isLoading: Bool = false
+    @State private var errorMessage: String?
+    @Environment(\.dismiss) private var dismiss
+
+    private var canSubmit: Bool {
+        newPIN.count == 6 && newPIN.allSatisfy({ $0.isNumber }) && newPIN == confirmPIN
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("A PIN is required to protect parental control settings. Create one now to enable parental controls.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Section("New PIN") {
+                    SecureField("6-digit PIN", text: $newPIN)
+                        .keyboardType(.numberPad)
+                    SecureField("Confirm PIN", text: $confirmPIN)
+                        .keyboardType(.numberPad)
+                }
+                if let error = errorMessage {
+                    Section { Text(error).foregroundStyle(.red) }
+                }
+            }
+            .navigationTitle("Set Parental PIN")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isLoading {
+                        ProgressView()
+                    } else {
+                        Button("Enable") { submit() }.disabled(!canSubmit)
+                    }
+                }
+            }
+        }
+    }
+
+    private func submit() {
+        guard canSubmit else { return }
+        guard newPIN == confirmPIN else { errorMessage = "PINs do not match."; return }
+        isLoading = true; errorMessage = nil
+        let stream = daemon?.subscribe()
+        Task {
+            do {
+                try daemon?.sendParentalControlSetPin(newPin: newPIN)
+            } catch {
+                await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
+                return
+            }
+            let response: ParentalControlSetPinResponseMessage? = await withTaskGroup(of: ParentalControlSetPinResponseMessage?.self) { group in
+                group.addTask {
+                    guard let stream else { return nil }
+                    for await msg in stream { if case .parentalControlSetPinResponse(let r) = msg { return r } }
+                    return nil
+                }
+                group.addTask { try? await Task.sleep(nanoseconds: 8_000_000_000); return nil }
+                let first = await group.next() ?? nil; group.cancelAll(); return first
+            }
+            await MainActor.run {
+                isLoading = false
+                if let r = response {
+                    if r.success { onComplete(.success(pin: newPIN)) }
+                    else { errorMessage = r.error ?? "Failed to set PIN." }
                 } else { errorMessage = "No response from assistant." }
             }
         }
