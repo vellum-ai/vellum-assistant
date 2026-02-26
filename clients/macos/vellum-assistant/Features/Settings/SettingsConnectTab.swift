@@ -62,9 +62,6 @@ struct SettingsConnectTab: View {
     // Token regeneration state
     @State private var isRegeneratingToken: Bool = false
 
-    // Override fields for power users / debugging
-    @AppStorage(PairingConfiguration.gatewayOverrideKey) private var iosPairingGatewayOverride: String = ""
-    @AppStorage(PairingConfiguration.tokenOverrideKey) private var iosPairingTokenOverride: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -1546,12 +1543,9 @@ struct SettingsConnectTab: View {
             }
             .disabled(isRegeneratingToken)
 
-            // Status line — use resolvedIosGatewayUrl for gateway (no I/O) and
-            // cached bearerToken + override for token (avoids synchronous disk read).
-            // LAN pairing works without a cloud gateway URL.
+            // Status line — LAN pairing works without a cloud gateway URL.
             let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
-            let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
-            let hasToken = !bearerToken.isEmpty || !trimmedOverrideToken.isEmpty
+            let hasToken = !bearerToken.isEmpty
 
             if isRegeneratingToken {
                 HStack(spacing: VSpacing.sm) {
@@ -1612,28 +1606,6 @@ struct SettingsConnectTab: View {
                 if advancedExpanded {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         bearerTokenContent
-
-                        Divider().background(VColor.surfaceBorder)
-
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("URL Override (optional)")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
-                            TextField("Custom gateway URL", text: $iosPairingGatewayOverride)
-                                .vInputStyle()
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textPrimary)
-                        }
-
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Token Override (optional)")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
-                            SecureField("Custom bearer token", text: $iosPairingTokenOverride)
-                                .vInputStyle()
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textPrimary)
-                        }
                     }
                     .padding(.top, VSpacing.sm)
                 }

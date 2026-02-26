@@ -1596,16 +1596,16 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    // MARK: - Override Resolution
+    // MARK: - iOS Pairing
 
-    /// Resolved gateway URL for iOS pairing — uses per-integration override if enabled, else global.
+    /// Gateway URL for iOS pairing.
     var resolvedIosGatewayUrl: String {
-        PairingConfiguration.resolvedGatewayURL(fallback: ingressPublicBaseUrl)
+        ingressPublicBaseUrl
     }
 
-    /// Resolved bearer token for iOS pairing — uses per-integration override if enabled, else global.
+    /// Bearer token for iOS pairing.
     var resolvedIosBearerToken: String {
-        PairingConfiguration.resolvedBearerToken(fallback: readHttpToken() ?? "")
+        readHttpToken() ?? ""
     }
 
     /// LAN pairing URL for the gateway (port 7830), or nil if no LAN IP available.
