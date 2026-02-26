@@ -10,6 +10,7 @@ import { v4 as uuid } from 'uuid';
 import { createUserMessage } from '../agent/message-types.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
+import { AttachmentUploadError, linkAttachmentToMessage, uploadAttachment } from '../memory/attachments-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
@@ -230,6 +231,22 @@ export async function persistUserMessage(
 
     if (!persistedUserMessage.id) {
       throw new Error('Failed to persist user message');
+    }
+
+    // Index user attachments in the attachments table so asset_search can find them.
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i];
+      if (!a.data) continue;
+      try {
+        const stored = uploadAttachment(a.filename, a.mimeType, a.data);
+        linkAttachmentToMessage(persistedUserMessage.id, stored.id, i);
+      } catch (err) {
+        if (err instanceof AttachmentUploadError) {
+          log.warn({ filename: a.filename, error: err.message }, 'Skipping user attachment indexing');
+        } else {
+          log.error({ filename: a.filename, err }, 'Failed to index user attachment');
+        }
+      }
     }
 
     return persistedUserMessage.id;
