@@ -820,6 +820,12 @@ public final class ChatViewModel: ObservableObject {
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
+        // If there's a pending tool confirmation, mark it as denied in the UI.
+        // The daemon auto-denies it server-side when it receives this message.
+        if let pendingIndex = messages.firstIndex(where: { $0.confirmation?.state == .pending }) {
+            messages[pendingIndex].confirmation?.state = .denied
+        }
+
         // When "/model" or "/models" is sent, refresh model state so the picker/table has fresh data
         if (text == "/model" || text == "/models") && !hasSkillInvocation {
             do {
