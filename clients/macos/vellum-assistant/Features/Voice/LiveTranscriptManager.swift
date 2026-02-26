@@ -98,7 +98,7 @@ final class LiveTranscriptManager: ObservableObject {
                 log.info("Live transcription active")
             } catch {
                 // If stopListening() was called while we were awaiting, bail out
-                guard self.startGeneration == currentGeneration else { return }
+                guard self.status == .starting, self.startGeneration == currentGeneration else { return }
 
                 log.error("Failed to start audio capture: \(error.localizedDescription, privacy: .public)")
                 status = .error(error.localizedDescription)
