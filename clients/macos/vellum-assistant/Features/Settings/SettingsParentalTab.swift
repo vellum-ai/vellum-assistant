@@ -57,10 +57,6 @@ struct SettingsParentalTab: View {
             enableSection
 
             if isEnabled {
-                // Profile switcher — always visible when parental controls are enabled,
-                // regardless of lock state (switching to child doesn't need unlock).
-                profileSwitcherSection
-
                 if settingsStore.activeProfile == "child" {
                     // Child-side: allow the child to request permission for a blocked tool
                     requestPermissionSection
@@ -75,6 +71,9 @@ struct SettingsParentalTab: View {
                     pinSection
                     contentRestrictionsSection
                     toolCategorySection
+                    // Profile switcher appears after the Control Center restriction sections so
+                    // the parent sees the full restriction context before switching profiles.
+                    profileSwitcherSection
                     // Allowlist section is only editable from the parental profile
                     if settingsStore.activeProfile == "parental" {
                         appAllowlistSection
@@ -249,10 +248,17 @@ struct SettingsParentalTab: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
 
-            HStack {
-                Text("Active Profile")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+            // Current profile display with avatar
+            HStack(spacing: VSpacing.sm) {
+                profileAvatar(for: settingsStore.activeProfile)
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    Text("Active Profile")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    Text(settingsStore.activeProfile == "parental" ? "Parental (Admin)" : "Child")
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.textPrimary)
+                }
                 Spacer()
                 HStack(spacing: VSpacing.xs) {
                     VButton(
@@ -279,6 +285,18 @@ struct SettingsParentalTab: View {
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+    }
+
+    /// Renders an SF Symbol avatar appropriate for the given profile identifier.
+    /// Parental profile uses `person.crop.circle.fill` in accent (violet);
+    /// child profile uses `figure.child.circle.fill` in success (emerald).
+    @ViewBuilder
+    private func profileAvatar(for profile: String) -> some View {
+        let isParental = profile == "parental"
+        Image(systemName: isParental ? "person.crop.circle.fill" : "figure.child.circle.fill")
+            .font(.system(size: 32))
+            .foregroundColor(isParental ? VColor.accent : VColor.success)
+            .accessibilityLabel(isParental ? "Parental profile" : "Child profile")
     }
 
     private func switchProfile(to target: String) {
@@ -1401,6 +1419,30 @@ private struct ProfileSwitchSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
+            // Profile transition header with avatars
+            HStack(spacing: VSpacing.md) {
+                VStack(spacing: VSpacing.xxs) {
+                    Image(systemName: "figure.child.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundColor(VColor.success)
+                    Text("Child")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+                VStack(spacing: VSpacing.xxs) {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundColor(VColor.accent)
+                    Text("Parental (Admin)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+
             Text("Switch to Parental Profile")
                 .font(VFont.headline)
                 .foregroundColor(VColor.textPrimary)
