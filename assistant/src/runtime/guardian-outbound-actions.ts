@@ -103,6 +103,8 @@ export interface StartOutboundParams {
 export interface ResendOutboundParams {
   channel: ChannelId;
   assistantId?: string;
+  /** Origin conversation ID so completion/failure pointers can route back on resend. */
+  originConversationId?: string;
 }
 
 export interface CancelOutboundParams {
@@ -541,6 +543,7 @@ function startOutboundVoice(
 export function resendOutbound(params: ResendOutboundParams): OutboundActionResult {
   const assistantId = normalizeAssistantId(params.assistantId ?? 'self');
   const channel = params.channel;
+  const originConversationId = params.originConversationId;
 
   const session = findActiveSession(assistantId, channel);
   if (!session) {
@@ -634,6 +637,7 @@ export function resendOutbound(params: ResendOutboundParams): OutboundActionResu
       nextResendAt,
       sendCount: newSendCount,
       channel,
+      originConversationId,
     };
   } else if (channel === 'voice') {
     const newSession = createOutboundSession({
@@ -650,7 +654,7 @@ export function resendOutbound(params: ResendOutboundParams): OutboundActionResu
     const nextResendAt = now + RESEND_COOLDOWN_MS;
 
     updateSessionDelivery(newSession.sessionId, now, newSendCount, nextResendAt);
-    initiateGuardianVoiceCall(destination, newSession.sessionId, assistantId);
+    initiateGuardianVoiceCall(destination, newSession.sessionId, assistantId, originConversationId);
 
     return {
       success: true,
@@ -659,6 +663,7 @@ export function resendOutbound(params: ResendOutboundParams): OutboundActionResu
       nextResendAt,
       sendCount: newSendCount,
       channel,
+      originConversationId,
     };
   }
 
@@ -693,6 +698,7 @@ export function resendOutbound(params: ResendOutboundParams): OutboundActionResu
     nextResendAt,
     sendCount: newSendCount,
     channel,
+    originConversationId,
   };
 }
 
