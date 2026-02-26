@@ -3198,6 +3198,28 @@ public struct IPCRecordingOptions: Codable, Sendable {
     }
 }
 
+/// Server → Client: pause the active recording.
+public struct IPCRecordingPause: Codable, Sendable {
+    public let type: String
+    public let recordingId: String
+
+    public init(type: String, recordingId: String) {
+        self.type = type
+        self.recordingId = recordingId
+    }
+}
+
+/// Server → Client: resume a paused recording.
+public struct IPCRecordingResume: Codable, Sendable {
+    public let type: String
+    public let recordingId: String
+
+    public init(type: String, recordingId: String) {
+        self.type = type
+        self.recordingId = recordingId
+    }
+}
+
 /// Server → Client: start a recording.
 public struct IPCRecordingStart: Codable, Sendable {
     public let type: String
@@ -3205,12 +3227,15 @@ public struct IPCRecordingStart: Codable, Sendable {
     public let attachToConversationId: String?
     /// Recording options shared across standalone and CU recording flows.
     public let options: IPCRecordingOptions?
+    /// Operation token for restart race hardening — stale completions with mismatched tokens are rejected.
+    public let operationToken: String?
 
-    public init(type: String, recordingId: String, attachToConversationId: String? = nil, options: IPCRecordingOptions? = nil) {
+    public init(type: String, recordingId: String, attachToConversationId: String? = nil, options: IPCRecordingOptions? = nil, operationToken: String? = nil) {
         self.type = type
         self.recordingId = recordingId
         self.attachToConversationId = attachToConversationId
         self.options = options
+        self.operationToken = operationToken
     }
 }
 
@@ -3223,8 +3248,10 @@ public struct IPCRecordingStatus: Codable, Sendable {
     public let durationMs: Double?
     public let error: String?
     public let attachToConversationId: String?
+    /// Operation token for restart race hardening — matches the token from RecordingStart.
+    public let operationToken: String?
 
-    public init(type: String, sessionId: String, status: String, filePath: String? = nil, durationMs: Double? = nil, error: String? = nil, attachToConversationId: String? = nil) {
+    public init(type: String, sessionId: String, status: String, filePath: String? = nil, durationMs: Double? = nil, error: String? = nil, attachToConversationId: String? = nil, operationToken: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.status = status
@@ -3232,6 +3259,7 @@ public struct IPCRecordingStatus: Codable, Sendable {
         self.durationMs = durationMs
         self.error = error
         self.attachToConversationId = attachToConversationId
+        self.operationToken = operationToken
     }
 }
 

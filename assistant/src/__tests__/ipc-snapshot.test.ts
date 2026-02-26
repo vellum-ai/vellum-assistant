@@ -1922,6 +1922,14 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'approved_device_remove_response',
     success: true,
   },
+  recording_pause: {
+    type: 'recording_pause',
+    recordingId: 'rec-001',
+  },
+  recording_resume: {
+    type: 'recording_resume',
+    recordingId: 'rec-001',
+  },
   recording_start: {
     type: 'recording_start',
     recordingId: 'rec-001',

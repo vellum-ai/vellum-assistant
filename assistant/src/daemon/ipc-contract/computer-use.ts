@@ -100,11 +100,13 @@ export interface RecordingOptions {
 export interface RecordingStatus {
   type: 'recording_status';
   sessionId: string;          // matches recordingId from RecordingStart
-  status: 'started' | 'stopped' | 'failed';
+  status: 'started' | 'stopped' | 'failed' | 'restart_cancelled' | 'paused' | 'resumed';
   filePath?: string;          // on stop
   durationMs?: number;        // on stop
   error?: string;             // on failure
   attachToConversationId?: string;
+  /** Operation token for restart race hardening — matches the token from RecordingStart. */
+  operationToken?: string;
 }
 
 // === Server → Client ===
@@ -115,12 +117,26 @@ export interface RecordingStart {
   recordingId: string;        // daemon-assigned UUID
   attachToConversationId?: string;
   options?: RecordingOptions;
+  /** Operation token for restart race hardening — stale completions with mismatched tokens are rejected. */
+  operationToken?: string;
 }
 
 /** Server → Client: stop a recording. */
 export interface RecordingStop {
   type: 'recording_stop';
   recordingId: string;        // matches RecordingStart.recordingId
+}
+
+/** Server → Client: pause the active recording. */
+export interface RecordingPause {
+  type: 'recording_pause';
+  recordingId: string;
+}
+
+/** Server → Client: resume a paused recording. */
+export interface RecordingResume {
+  type: 'recording_resume';
+  recordingId: string;
 }
 
 export interface CuAction {
@@ -211,4 +227,6 @@ export type _ComputerUseServerMessages =
   | WatchStarted
   | WatchCompleteRequest
   | RecordingStart
-  | RecordingStop;
+  | RecordingStop
+  | RecordingPause
+  | RecordingResume;
