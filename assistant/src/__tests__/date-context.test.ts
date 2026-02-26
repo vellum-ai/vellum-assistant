@@ -206,6 +206,15 @@ describe('extractUserTimeZoneFromDynamicProfile', () => {
     ].join('\n');
     expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('+05:45');
   });
+
+  test('prefers IANA timezone tokens over UTC/GMT offsets in the same profile line', () => {
+    const profile = [
+      '<dynamic-user-profile>',
+      '- timezone: UTC+1 (Europe/Paris)',
+      '</dynamic-user-profile>',
+    ].join('\n');
+    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe('Europe/Paris');
+  });
 });
 
 // ---------------------------------------------------------------------------

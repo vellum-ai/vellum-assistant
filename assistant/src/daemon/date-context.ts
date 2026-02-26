@@ -103,8 +103,10 @@ function canonicalizeTimeZone(timeZone: string): string | null {
 }
 
 function extractTimeZoneCandidates(text: string): string[] {
-  const matches = text.match(TIMEZONE_TOKEN_RE) ?? [];
-  return matches.map((token) => token.trim()).filter((token) => token.length > 0);
+  const matches = (text.match(TIMEZONE_TOKEN_RE) ?? []).map((token) => token.trim()).filter((token) => token.length > 0);
+  const ianaTokens = matches.filter((token) => token.includes('/'));
+  const offsetTokens = matches.filter((token) => !token.includes('/'));
+  return [...ianaTokens, ...offsetTokens];
 }
 
 /**
