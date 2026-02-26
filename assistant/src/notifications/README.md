@@ -154,9 +154,66 @@ The macOS/iOS client listens for this event and surfaces the thread in the sideb
 
 `emitNotificationSignal()` accepts an optional `onThreadCreated` callback. This lets producers run domain side effects (for example, creating cross-channel guardian delivery rows) as soon as vellum pairing occurs, without introducing a second thread-creation path.
 
+## Reminder Routing Metadata and Trigger-Time Enforcement
+
+Reminders carry optional routing metadata that controls how notifications fan out across channels when the reminder fires. This enables a single reminder to produce multi-channel delivery without requiring the user to create duplicate reminders per channel.
+
+### Routing Intent Model
+
+The `routing_intent` field on each reminder row specifies the desired channel coverage:
+
+| Intent | Behavior | When to use |
+|--------|----------|-------------|
+| `single_channel` | Default LLM-driven routing (no override) | Standard reminders where the decision engine picks the best channel |
+| `multi_channel` | Ensures delivery on 2+ channels when 2+ are connected | Important reminders the user wants on both desktop and phone |
+| `all_channels` | Forces delivery on every connected channel | Critical reminders that must reach the user everywhere |
+
+The default is `single_channel`, preserving backward compatibility. Routing intent is persisted in the `reminders` table (`routing_intent` column) and carried through the notification signal as `routingIntent`.
+
+### Routing Hints
+
+The `routing_hints` field is free-form JSON metadata passed alongside the routing intent. It flows through the signal as `routingHints` and is included in the decision engine prompt, allowing producers to communicate channel preferences or contextual hints without requiring schema changes.
+
+### Trigger-Time Enforcement Flow
+
+When a reminder fires, the routing metadata flows through the notification pipeline with a post-decision enforcement step:
+
+```
+Reminder fires (scheduler)
+  → emitNotificationSignal({ routingIntent, routingHints })
+    → Decision Engine (LLM selects channels)
+      → enforceRoutingIntent() (post-decision guard)
+        → Deterministic Checks
+          → Broadcaster → Adapters → Delivery
+```
+
+The `enforceRoutingIntent()` function in `decision-engine.ts` runs after the LLM produces its channel selection but before deterministic checks. It overrides the decision's `selectedChannels` based on the routing intent:
+
+- **`all_channels`**: Replaces `selectedChannels` with all connected channels (from `getConnectedChannels()`).
+- **`multi_channel`**: If the LLM selected fewer than 2 channels but 2+ are connected, expands `selectedChannels` to all connected channels.
+- **`single_channel`**: No override -- the LLM's selection stands.
+
+When enforcement changes the decision, the updated channel selection is re-persisted to the `notification_decisions` table so the stored decision matches what was actually dispatched. The `reasoningSummary` is annotated with the enforcement action (e.g. `[routing_intent=all_channels enforced: vellum, telegram, sms]`).
+
+### Single-Reminder Fanout
+
+A key design principle: **one reminder produces one notification signal that fans out to multiple channels**. The user never needs to create separate reminders for each channel. The routing intent metadata on the single reminder controls the fanout behavior, and the notification pipeline handles per-channel copy rendering, conversation pairing, and delivery through the existing adapter infrastructure.
+
+### Data Flow
+
+```
+reminders table (routing_intent, routing_hints_json)
+  → scheduler.ts: claimDueReminders() reads routing metadata
+    → lifecycle.ts: notifyReminder({ routingIntent, routingHints })
+      → emitNotificationSignal({ routingIntent, routingHints })
+        → signal.ts: NotificationSignal.routingIntent / routingHints
+          → decision-engine.ts: evaluateSignal() → enforceRoutingIntent()
+            → broadcaster.ts: fan-out to selected channel adapters
+```
+
 ## Channel Delivery Architecture
 
-The notification system delivers to two channel types:
+The notification system delivers to three channel types:
 
 ### Vellum (always connected)
 
@@ -172,12 +229,19 @@ The macOS/iOS client posts a native `UNUserNotificationCenter` notification from
 
 HTTP POST to the gateway's `/deliver/telegram` endpoint. The `TelegramAdapter` sends channel-native text (`deliveryText` when present) to the guardian's chat ID (resolved from the active guardian binding), with deterministic fallbacks when model copy is unavailable.
 
+### SMS (when guardian binding exists)
+
+HTTP POST to the gateway's `/deliver/sms` endpoint. The `SmsAdapter` follows the same pattern as the Telegram adapter: it resolves a phone number from the active guardian binding and sends text via the gateway, which forwards to the Twilio Messages API. The adapter resolves message text via a priority chain: `deliveryText` > `body` > `title` > humanized event name. The `assistantId` is threaded through the `ChannelDeliveryPayload` so the gateway can resolve the correct outbound phone number for multi-assistant deployments.
+
+SMS delivery is text-only (no MMS). Graceful degradation: when the gateway is unreachable or SMS is not configured, the adapter returns a failed `DeliveryResult` without throwing, so the broadcaster continues delivering to other channels.
+
 ### Channel Connectivity
 
 Connected channels are resolved at signal emission time by `getConnectedChannels()` in `emit-signal.ts`:
 
 - **Vellum** is always considered connected (IPC socket is always available when the daemon is running)
 - **Telegram** is considered connected only when an active guardian binding exists for the assistant (checked via `getActiveBinding()`)
+- **SMS** is considered connected only when an active guardian binding exists for the assistant (same check as Telegram)
 
 ## Conversation Materialization
 
@@ -211,6 +275,7 @@ For notification flows that create conversations, the conversation must be creat
 | `destination-resolver.ts` | Resolves per-channel endpoints (vellum IPC, Telegram chat ID) |
 | `adapters/macos.ts` | Vellum adapter -- broadcasts `notification_intent` via IPC with deep-link metadata |
 | `adapters/telegram.ts` | Telegram adapter -- POSTs to gateway `/deliver/telegram` |
+| `adapters/sms.ts` | SMS adapter -- POSTs to gateway `/deliver/sms` via Twilio Messages API |
 | `preference-extractor.ts` | Detects notification preferences in conversation messages |
 | `preference-summary.ts` | Builds preference context string for the decision engine prompt |
 | `preferences-store.ts` | CRUD for `notification_preferences` table |
@@ -237,6 +302,9 @@ await emitNotificationSignal({
     visibleInSourceNow: false,
   },
   contextPayload: { /* arbitrary data for the decision engine */ },
+  // Optional: control multi-channel fanout behavior
+  routingIntent: 'multi_channel',   // 'single_channel' | 'multi_channel' | 'all_channels'
+  routingHints: { preferredChannels: ['telegram', 'sms'] },
 });
 ```
 
