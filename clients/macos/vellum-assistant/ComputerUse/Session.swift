@@ -300,6 +300,14 @@ final class ComputerUseSession: ObservableObject {
             verifier.resetBlockCount()
 
         case .needsConfirmation(let reason):
+            // Skip confirmation when auto-approve is on
+            if autoApproveTools {
+                log.info("[\(action.stepNumber)] Auto-approved: \(reason)")
+                verifier.recordConfirmedAction(agentAction)
+                verifier.resetBlockCount()
+                break
+            }
+
             // Capture the PID before showing confirmation UI
             if let result = enumerator.enumerateCurrentWindow() {
                 primaryPID = result.pid
