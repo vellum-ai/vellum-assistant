@@ -297,6 +297,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `history_response` message.
     public var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `message_content_response` with full (untruncated) content.
+    public var onMessageContentResponse: ((IPCMessageContentResponse) -> Void)?
+
     /// Called when the daemon sends a `share_to_slack_response` message.
     public var onShareToSlackResponse: ((ShareToSlackResponseMessage) -> Void)?
 
@@ -966,8 +969,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     ///   - limit: Max messages to return per page.
     ///   - beforeTimestamp: Pagination cursor — only return messages before this timestamp (ms since epoch).
     ///   - mode: `"light"` omits heavy payloads (attachments, tool images, surface data); `"full"` includes everything.
-    public func sendHistoryRequest(sessionId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil) throws {
-        try send(HistoryRequestMessage(sessionId: sessionId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode))
+    ///   - maxTextChars: When set, truncates assistant text content to this many characters.
+    ///   - maxToolResultChars: When set, truncates tool result content to this many characters.
+    public func sendHistoryRequest(sessionId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) throws {
+        try send(HistoryRequestMessage(sessionId: sessionId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode, maxTextChars: maxTextChars, maxToolResultChars: maxToolResultChars))
+    }
+
+    /// Request full (untruncated) content for a specific message.
+    /// Used to rehydrate messages that were loaded with truncated text/tool results.
+    public func sendMessageContentRequest(sessionId: String, messageId: String) throws {
+        try send(IPCMessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: messageId))
     }
 
     // MARK: - Apps

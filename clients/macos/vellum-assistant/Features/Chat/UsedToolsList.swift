@@ -58,11 +58,13 @@ struct UsedToolsList: View {
 
 struct StepsSection: View {
     let toolCalls: [ToolCallData]
+    /// Optional callback invoked when a tool row with truncated content is expanded.
+    var onRehydrate: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
-                UsedToolsRow(toolCall: toolCall)
+                UsedToolsRow(toolCall: toolCall, onRehydrate: onRehydrate)
 
                 if index < toolCalls.count - 1 {
                     Divider()
@@ -78,6 +80,8 @@ struct StepsSection: View {
 
 private struct UsedToolsRow: View {
     let toolCall: ToolCallData
+    /// Optional callback invoked when expanding a row with truncated content.
+    var onRehydrate: (() -> Void)?
 
     @State private var isExpanded = false
     @State private var isHovered = false
@@ -92,6 +96,12 @@ private struct UsedToolsRow: View {
         if let cached = cachedInputFull { return cached }
         if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
         return ""
+    }
+
+    /// Whether the tool result or input appears to contain truncated content.
+    private var isTruncated: Bool {
+        (toolCall.result?.hasSuffix("[truncated]") ?? false)
+            || toolCall.inputFull.hasSuffix("[truncated]")
     }
 
     private var hasDetails: Bool {
@@ -159,10 +169,22 @@ private struct UsedToolsRow: View {
 
                     // Technical details
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Technical details")
-                            .font(VFont.small)
-                            .foregroundColor(VColor.textMuted)
-                            .textCase(.uppercase)
+                        HStack {
+                            Text("Technical details")
+                                .font(VFont.small)
+                                .foregroundColor(VColor.textMuted)
+                                .textCase(.uppercase)
+                            if isTruncated {
+                                Text("truncated")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.warning)
+                                    .padding(.horizontal, VSpacing.xs)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: VRadius.xs)
+                                            .fill(VColor.warning.opacity(0.12))
+                                    )
+                            }
+                        }
 
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text(toolCall.friendlyName)
@@ -286,6 +308,10 @@ private struct UsedToolsRow: View {
                         } else if let dict = toolCall.inputRawDict {
                             cachedInputFull = ToolCallData.formatAllToolInput(dict)
                         }
+                    }
+                    // Trigger on-demand rehydration when expanding truncated content.
+                    if isTruncated {
+                        onRehydrate?()
                     }
                 }
             }

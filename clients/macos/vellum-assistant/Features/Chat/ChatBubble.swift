@@ -13,6 +13,8 @@ struct ChatBubble: View {
     let onDismissDocumentWidget: (String) -> Void
     let dismissedDocumentSurfaceIds: Set<String>
     var onReportMessage: ((String?) -> Void)?
+    /// Called when expanding a tool call with truncated content to fetch the full text.
+    var onRehydrate: (() -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var daemonHttpPort: Int?
     var showAvatar: Bool = true

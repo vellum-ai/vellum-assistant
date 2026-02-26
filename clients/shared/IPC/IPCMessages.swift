@@ -553,13 +553,15 @@ extension IPCRegenerateRequest {
 public typealias HistoryRequestMessage = IPCHistoryRequest
 
 extension IPCHistoryRequest {
-    public init(sessionId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil) {
+    public init(sessionId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) {
         self.init(
             type: "history_request",
             sessionId: sessionId,
             limit: limit.map { Double($0) },
             beforeTimestamp: beforeTimestamp,
-            mode: mode
+            mode: mode,
+            maxTextChars: maxTextChars.map { Double($0) },
+            maxToolResultChars: maxToolResultChars.map { Double($0) }
         )
     }
 }
@@ -2300,6 +2302,7 @@ public enum ServerMessage: Decodable, Sendable {
     case heartbeatRunNowResponse(IPCHeartbeatRunNowResponse)
     case heartbeatChecklistResponse(IPCHeartbeatChecklistResponse)
     case heartbeatChecklistWriteResponse(IPCHeartbeatChecklistWriteResponse)
+    case messageContentResponse(IPCMessageContentResponse)
     case pong
     case unknown(String)
 
@@ -2723,6 +2726,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "heartbeat_checklist_write_response":
             let message = try IPCHeartbeatChecklistWriteResponse(from: decoder)
             self = .heartbeatChecklistWriteResponse(message)
+        case "message_content_response":
+            let message = try IPCMessageContentResponse(from: decoder)
+            self = .messageContentResponse(message)
         case "pong":
             self = .pong
         default:

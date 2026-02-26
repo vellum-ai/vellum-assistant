@@ -137,6 +137,9 @@ class IOSThreadStore: ObservableObject {
         daemon.onSubagentDetailResponse = { [weak self] response in
             self?.handleSubagentDetailResponse(response)
         }
+        daemon.onMessageContentResponse = { [weak self] response in
+            self?.handleMessageContentResponse(response)
+        }
 
         // Fetch session list once connected. Try immediately if already connected,
         // otherwise wait for the daemonDidReconnect notification.
@@ -213,6 +216,7 @@ class IOSThreadStore: ObservableObject {
             oldDaemon.onSessionListResponse = nil
             oldDaemon.onHistoryResponse = nil
             oldDaemon.onSubagentDetailResponse = nil
+            oldDaemon.onMessageContentResponse = nil
         }
 
         daemonClient = newClient
@@ -449,6 +453,15 @@ class IOSThreadStore: ObservableObject {
         }
     }
 
+    private func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
+        for (_, vm) in viewModels {
+            if vm.messages.contains(where: { $0.daemonMessageId == response.messageId }) {
+                vm.handleMessageContentResponse(response)
+                return
+            }
+        }
+    }
+
     /// Load history for a daemon-backed thread when first selected.
     func loadHistoryIfNeeded(for threadId: UUID) {
         guard let thread = threads.first(where: { $0.id == threadId }),
@@ -464,7 +477,7 @@ class IOSThreadStore: ObservableObject {
             self?.requestPaginatedHistory(sessionId: sessionId, beforeTimestamp: beforeTimestamp)
         }
 
-        try? daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light")
+        try? daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
     }
 
     /// Request an older page of history for pagination.
@@ -481,7 +494,7 @@ class IOSThreadStore: ObservableObject {
         }
         pendingHistoryBySessionId[sessionId] = thread.id
         do {
-            try daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light")
+            try daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
         } catch {
             pendingHistoryBySessionId.removeValue(forKey: sessionId)
             if let vm = viewModels[thread.id] {
@@ -524,7 +537,7 @@ class IOSThreadStore: ObservableObject {
         vm.onReconnectHistoryNeeded = { [weak self, weak vm] sessionId in
             guard let self, let _ = vm, let daemon = self.daemonClient as? DaemonClient else { return }
             self.pendingHistoryBySessionId[sessionId] = threadId
-            try? daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light")
+            try? daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
         }
     }
 

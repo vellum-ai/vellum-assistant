@@ -62,6 +62,9 @@ final class ThreadSessionRestorer {
         daemonClient.onSubagentDetailResponse = { [weak self] response in
             self?.handleSubagentDetailResponse(response)
         }
+        daemonClient.onMessageContentResponse = { [weak self] response in
+            self?.handleMessageContentResponse(response)
+        }
 
         // On first launch after onboarding, skip the initial session list fetch
         // so the session restorer doesn't override the wake-up conversation thread.
@@ -102,7 +105,7 @@ final class ThreadSessionRestorer {
         }
 
         do {
-            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light")
+            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
         } catch {
             log.error("Failed to send history_request: \(error.localizedDescription)")
             pendingHistoryBySessionId.removeValue(forKey: sessionId)
@@ -117,7 +120,7 @@ final class ThreadSessionRestorer {
         guard let thread = delegate.threads.first(where: { $0.sessionId == sessionId }) else { return }
         pendingHistoryBySessionId[sessionId] = thread.id
         do {
-            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light")
+            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
         } catch {
             log.error("Failed to send reconnect history_request: \(error.localizedDescription)")
             pendingHistoryBySessionId.removeValue(forKey: sessionId)
@@ -136,7 +139,7 @@ final class ThreadSessionRestorer {
         }
         pendingHistoryBySessionId[sessionId] = thread.id
         do {
-            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light")
+            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
         } catch {
             log.error("Failed to send paginated history_request: \(error.localizedDescription)")
             pendingHistoryBySessionId.removeValue(forKey: sessionId)
@@ -259,6 +262,19 @@ final class ThreadSessionRestorer {
         guard let delegate else { return }
         guard let index = delegate.threads.firstIndex(where: { $0.sessionId == response.sessionId }) else { return }
         delegate.threads[index].title = response.title
+    }
+
+    func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
+        guard let delegate else { return }
+        // Route the full content back to the ChatViewModel that owns this message.
+        // We check all threads with existing VMs for a matching daemonMessageId.
+        for thread in delegate.threads {
+            guard let viewModel = delegate.existingChatViewModel(for: thread.id) else { continue }
+            if viewModel.messages.contains(where: { $0.daemonMessageId == response.messageId }) {
+                viewModel.handleMessageContentResponse(response)
+                return
+            }
+        }
     }
 
     func handleSubagentDetailResponse(_ response: IPCSubagentDetailResponse) {

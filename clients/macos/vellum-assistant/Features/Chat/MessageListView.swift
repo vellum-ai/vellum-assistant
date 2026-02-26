@@ -20,6 +20,8 @@ struct MessageListView: View {
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
+    /// Called to rehydrate truncated message content on demand.
+    var onRehydrateMessage: ((UUID) -> Void)?
     @ObservedObject var subagentDetailStore: SubagentDetailStore
 
     // MARK: - Pagination
@@ -205,6 +207,7 @@ struct MessageListView: View {
                                 },
                                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                                 onReportMessage: onReportMessage,
+                                onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
                                 mediaEmbedSettings: mediaEmbedSettings,
                                 daemonHttpPort: daemonHttpPort,
                                 showAvatar: !previousIsAssistant,

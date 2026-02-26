@@ -5,14 +5,24 @@ import AppKit
 
 public struct ToolCallChip: View {
     public let toolCall: ToolCallData
+    /// Optional callback invoked when expanding a tool call whose content was truncated.
+    /// The parent view can use this to trigger on-demand rehydration of the full content.
+    public var onRehydrate: (() -> Void)?
 
-    public init(toolCall: ToolCallData) {
+    public init(toolCall: ToolCallData, onRehydrate: (() -> Void)? = nil) {
         self.toolCall = toolCall
+        self.onRehydrate = onRehydrate
     }
     @State private var isExpanded = false
     /// Cached formatted input — computed once on first expand to avoid re-running
     /// `formatAllToolInput` on every SwiftUI render pass.
     @State private var cachedInputFull: String?
+
+    /// Whether the tool result or input appears to contain truncated content.
+    private var isTruncated: Bool {
+        (toolCall.result?.hasSuffix("[truncated]") ?? false)
+            || toolCall.inputFull.hasSuffix("[truncated]")
+    }
 
     private var hasExpandableContent: Bool {
         toolCall.result != nil || toolCall.cachedImage != nil
@@ -72,10 +82,22 @@ public struct ToolCallChip: View {
 
                     // Technical details section
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Technical details")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                            .textCase(.uppercase)
+                        HStack {
+                            Text("Technical details")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                                .textCase(.uppercase)
+                            if isTruncated {
+                                Text("truncated")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.warning)
+                                    .padding(.horizontal, VSpacing.xs)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: VRadius.xs)
+                                            .fill(VColor.warning.opacity(0.12))
+                                    )
+                            }
+                        }
 
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text(toolCall.friendlyName)
@@ -158,6 +180,10 @@ public struct ToolCallChip: View {
                         } else if let dict = toolCall.inputRawDict {
                             cachedInputFull = ToolCallData.formatAllToolInput(dict)
                         }
+                    }
+                    // Trigger on-demand rehydration when expanding truncated content.
+                    if isTruncated {
+                        onRehydrate?()
                     }
                 }
             }

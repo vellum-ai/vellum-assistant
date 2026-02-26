@@ -754,6 +754,9 @@ struct ActiveChatViewWrapper: View {
             onSubagentTap: { subagentId in
                 windowState.selectedSubagentId = subagentId
             },
+            onRehydrateMessage: { messageId in
+                viewModel.rehydrateMessage(id: messageId)
+            },
             subagentDetailStore: viewModel.subagentDetailStore,
             daemonHttpPort: daemonClient.httpPort,
             isHistoryLoaded: viewModel.isHistoryLoaded,

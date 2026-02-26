@@ -53,6 +53,8 @@ struct ChatView: View {
     var activeSubagents: [SubagentInfo] = []
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
+    /// Called to rehydrate truncated message content on demand.
+    var onRehydrateMessage: ((UUID) -> Void)?
     @ObservedObject var subagentDetailStore: SubagentDetailStore
     var daemonHttpPort: Int?
     var isHistoryLoaded: Bool = true
@@ -188,6 +190,7 @@ struct ChatView: View {
                             onModelPickerSelect: onModelPickerSelect,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
+                            onRehydrateMessage: onRehydrateMessage,
                             subagentDetailStore: subagentDetailStore,
                             displayedMessageCount: displayedMessageCount,
                             hasMoreMessages: hasMoreMessages,

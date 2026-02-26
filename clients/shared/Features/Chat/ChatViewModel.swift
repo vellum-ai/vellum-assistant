@@ -480,6 +480,50 @@ public final class ChatViewModel: ObservableObject {
         hasMoreHistory = false
     }
 
+    // MARK: - On-Demand Content Rehydration
+
+    /// Fetch full (untruncated) content for a message that was loaded with truncated
+    /// text/tool results. No-ops if the message is not found or wasn't truncated.
+    public func rehydrateMessage(id: UUID) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }),
+              messages[idx].wasTruncated,
+              let sessionId = sessionId,
+              let daemonMessageId = messages[idx].daemonMessageId else { return }
+        do {
+            try daemonClient.send(IPCMessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: daemonMessageId))
+        } catch {
+            log.error("Failed to send message_content_request: \(error)")
+        }
+    }
+
+    /// Handle a `message_content_response` from the daemon, updating the matching
+    /// message with full (untruncated) text and tool call results.
+    public func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
+        guard let idx = messages.firstIndex(where: { $0.daemonMessageId == response.messageId }) else { return }
+
+        // Update text with full content
+        if let fullText = response.text {
+            messages[idx].textSegments = fullText.isEmpty ? [] : [fullText]
+        }
+
+        // Update tool call results with full content
+        if let fullToolCalls = response.toolCalls {
+            for fullTC in fullToolCalls {
+                if let tcIdx = messages[idx].toolCalls.firstIndex(where: { $0.toolName == fullTC.name }) {
+                    if let result = fullTC.result {
+                        messages[idx].toolCalls[tcIdx].result = result
+                    }
+                    if let input = fullTC.input {
+                        messages[idx].toolCalls[tcIdx].inputFull = ToolCallData.formatAllToolInput(input)
+                        messages[idx].toolCalls[tcIdx].inputRawDict = input
+                    }
+                }
+            }
+        }
+
+        messages[idx].wasTruncated = false
+    }
+
     // MARK: - Message Trimming
 
     /// Threshold above which old messages have their heavy content stripped.
@@ -1906,6 +1950,9 @@ public final class ChatViewModel: ObservableObject {
             // anchor to it. This is the database ID from the daemon, not the
             // client-side UUID.
             chatMsg.daemonMessageId = item.id
+
+            // Preserve truncation flag so the UI can offer on-demand rehydration.
+            chatMsg.wasTruncated = item.wasTruncated ?? false
 
             // Drop base64 data from history attachments — the daemon already
             // persisted them, so we only need thumbnails for display.

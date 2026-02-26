@@ -1362,6 +1362,10 @@ public struct ChatMessage: Identifiable, Equatable {
     /// has been stripped from this message to reduce memory. The UI can use this flag
     /// to show a "load full content" affordance in a future milestone.
     public var isContentStripped: Bool = false
+    /// When true, the message text and/or tool results were truncated by the daemon
+    /// during history loading (via maxTextChars/maxToolResultChars). Full content
+    /// can be fetched on demand via message_content_request.
+    public var wasTruncated: Bool = false
 
     /// Concatenated text from all segments. Backward-compatible computed property.
     public var text: String {
