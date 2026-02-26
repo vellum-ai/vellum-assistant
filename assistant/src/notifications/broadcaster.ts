@@ -129,6 +129,31 @@ export class NotificationBroadcaster {
       // Resolve the per-channel thread action from the decision (default: start_new)
       const threadAction: ThreadAction | undefined = decision.threadActions?.[channel];
 
+      // Check for duplicate delivery BEFORE pairing to avoid side effects
+      // (e.g. appending seed messages to existing threads) on retry paths
+      // where a delivery row already exists.
+      const persistedDecisionId = decision.persistedDecisionId;
+      const hasPersistedDecision = typeof persistedDecisionId === 'string';
+      if (hasPersistedDecision) {
+        const existingDelivery = findDeliveryByDecisionAndChannel(persistedDecisionId, channel);
+        if (existingDelivery) {
+          log.info(
+            { channel, signalId: signal.signalId, existingDeliveryId: existingDelivery.id },
+            'Delivery already exists for this decision+channel — skipping duplicate',
+          );
+          results.push({
+            channel,
+            destination: destination.endpoint ?? channel,
+            status: 'skipped',
+            errorMessage: 'Duplicate delivery skipped',
+            conversationId: existingDelivery.conversationId ?? undefined,
+            messageId: existingDelivery.messageId ?? undefined,
+            conversationStrategy: existingDelivery.conversationStrategy ?? undefined,
+          });
+          continue;
+        }
+      }
+
       // Pair the delivery with a conversation before sending, passing the thread action
       const pairing = await pairDeliveryWithConversation(signal, channel, copy, { threadAction });
 
@@ -182,13 +207,6 @@ export class NotificationBroadcaster {
         deepLinkTarget,
       };
 
-      // Only create a delivery audit record when we have a persisted decision ID
-      // for the FK. If decision persistence failed (persistedDecisionId is
-      // undefined), we still dispatch via the adapter but skip the delivery
-      // record — using dedupeKey would violate the FK constraint.
-      const persistedDecisionId = decision.persistedDecisionId;
-      const hasPersistedDecision = typeof persistedDecisionId === 'string';
-
       // Compute thread decision audit fields for the delivery record
       const threadAudit = {
         threadAction: threadAction?.action ?? 'start_new',
@@ -198,24 +216,6 @@ export class NotificationBroadcaster {
 
       try {
         if (hasPersistedDecision) {
-          const existingDelivery = findDeliveryByDecisionAndChannel(persistedDecisionId, channel);
-          if (existingDelivery) {
-            log.info(
-              { channel, signalId: signal.signalId, existingDeliveryId: existingDelivery.id },
-              'Delivery already exists for this decision+channel — skipping duplicate',
-            );
-            results.push({
-              channel,
-              destination: destinationLabel,
-              status: 'skipped',
-              errorMessage: 'Duplicate delivery skipped',
-              conversationId: existingDelivery.conversationId ?? undefined,
-              messageId: existingDelivery.messageId ?? undefined,
-              conversationStrategy: existingDelivery.conversationStrategy ?? undefined,
-            });
-            continue;
-          }
-
           createDelivery({
             id: deliveryId,
             notificationDecisionId: persistedDecisionId,
