@@ -684,7 +684,7 @@ struct SettingsPanel: View {
 
                 permissionRow(
                     label: "Accessibility",
-                    subtitle: "Allows Vellum to click, type, and control apps on your behalf.",
+                    subtitle: "Allows your assistant to click, type, and control apps on your behalf.",
                     granted: accessibilityGranted
                 ) {
                     _ = PermissionManager.accessibilityStatus(prompt: true)
@@ -693,7 +693,7 @@ struct SettingsPanel: View {
 
                 permissionRow(
                     label: "Screen Recording",
-                    subtitle: "Allows Vellum to capture screen context during computer-use tasks.",
+                    subtitle: "Allows your assistant to capture screen context during computer-use tasks.",
                     granted: screenRecordingGranted
                 ) {
                     PermissionManager.requestScreenRecordingAccess()
@@ -702,7 +702,7 @@ struct SettingsPanel: View {
 
                 permissionRow(
                     label: "Microphone",
-                    subtitle: "Allows Vellum to capture audio for voice input and recordings.",
+                    subtitle: "Allows your assistant to capture audio for voice input and recordings.",
                     granted: microphoneGranted
                 ) {
                     PermissionManager.requestMicrophoneAccess()
@@ -711,7 +711,7 @@ struct SettingsPanel: View {
 
                 permissionRow(
                     label: "Speech Recognition",
-                    subtitle: "Allows on-device transcription of your speech into text.",
+                    subtitle: "Allows your assistant to transcribe your speech into text on-device.",
                     granted: speechRecognitionGranted
                 ) {
                     PermissionManager.requestSpeechRecognitionAccess()
@@ -720,7 +720,7 @@ struct SettingsPanel: View {
 
                 permissionRow(
                     label: "Notifications",
-                    subtitle: "Allows macOS alerts for approvals, messages, and task updates.",
+                    subtitle: "Allows your assistant to send macOS alerts for approvals, messages, and task updates.",
                     granted: notificationsGranted
                 ) {
                     PermissionManager.requestNotificationAccess()
@@ -729,7 +729,7 @@ struct SettingsPanel: View {
 
                 permissionRow(
                     label: "Notification Badges",
-                    subtitle: "Allows unseen conversation counts on the Dock icon.",
+                    subtitle: "Allows your assistant to show unseen conversation counts on the Dock icon.",
                     granted: notificationBadgesGranted
                 ) {
                     PermissionManager.requestNotificationBadgeAccess()
