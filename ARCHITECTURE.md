@@ -19,7 +19,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 
 - Public ingress is gateway-only; external webhook/API routes are implemented in `gateway/` and forwarded internally.
 - Production LLM calls go through the provider abstraction, not provider SDKs in feature code.
-- Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants.
+- Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout.
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.
 
 ## System Overview
@@ -134,7 +134,7 @@ graph TB
             DB_ATTACH["attachments"]
             DB_CHAN["channel_inbound_events"]
             DB_KEYS["conversation_keys"]
-            DB_REMINDERS["reminders"]
+            DB_REMINDERS["reminders<br/>(routing_intent, routing_hints_json)"]
             DB_SCHED_JOBS["cron_jobs (recurrence schedules)"]
             DB_SCHED_RUNS["cron_runs (schedule execution history)"]
             DB_HOME["home_base_app_links"]
