@@ -18,6 +18,7 @@ import { createTwilioSmsWebhookHandler } from "./http/routes/twilio-sms-webhook.
 import { createSmsDeliverHandler } from "./http/routes/sms-deliver.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
+import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
 import { validateBearerToken } from "./http/auth/bearer.js";
@@ -127,6 +128,7 @@ function main() {
   const handleSmsDeliver = createSmsDeliverHandler(config);
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } = createWhatsAppWebhookHandler(config);
   const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config);
+  const handleSlackDeliver = createSlackDeliverHandler(config);
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
 
@@ -172,6 +174,7 @@ function main() {
         url.pathname === "/deliver/telegram" ||
         url.pathname === "/deliver/sms" ||
         url.pathname === "/deliver/whatsapp" ||
+        url.pathname === "/deliver/slack" ||
         url.pathname.startsWith("/pairing/") ||
         url.pathname === "/webhooks/oauth/callback" ||
         (url.pathname.startsWith("/v1/") &&
@@ -276,6 +279,20 @@ function main() {
           );
         }
         const res = await handleWhatsAppDeliver(tracedReq);
+        if (res.status === 401) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+        }
+        return res;
+      }
+
+      if (url.pathname === "/deliver/slack") {
+        if (!config.slackChannelBotToken) {
+          return Response.json(
+            { error: "Slack integration not configured" },
+            { status: 503 },
+          );
+        }
+        const res = await handleSlackDeliver(tracedReq);
         if (res.status === 401) {
           authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
         }
