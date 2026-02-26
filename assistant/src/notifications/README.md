@@ -204,7 +204,12 @@ The macOS/iOS client listens for this event and surfaces the thread in the sideb
 
 ### Per-Dispatch Thread Callback
 
-`emitNotificationSignal()` accepts an optional `onThreadCreated` callback. This lets producers run domain side effects (for example, creating cross-channel guardian delivery rows) as soon as vellum pairing occurs, without introducing a second thread-creation path. The callback fires under the same creation-only gate — it is not invoked when a thread is reused.
+`emitNotificationSignal()` accepts an optional `onThreadCreated` callback (`options.onThreadCreated`). This lets producers run domain side effects (for example, creating cross-channel guardian delivery rows) as soon as vellum pairing occurs, without introducing a second thread-creation path.
+
+**Important distinction between the two callbacks:**
+
+- **Per-dispatch `options.onThreadCreated`**: Fires for **both** new and reused vellum conversation pairings. Callers like `dispatchGuardianQuestion` rely on this to create delivery bookkeeping rows before `emitNotificationSignal()` returns, regardless of whether the conversation was newly created or reused.
+- **Class-level `this.onThreadCreated` (IPC)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_thread_created` IPC event so macOS/iOS clients surface the new thread in the sidebar. Reused threads do not trigger this event because the client already knows about the conversation.
 
 ## Reminder Routing Metadata and Trigger-Time Enforcement
 
