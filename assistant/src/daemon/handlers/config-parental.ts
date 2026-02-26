@@ -143,10 +143,23 @@ export function handleParentalControlUpdate(
     }
   }
 
+  // When enabling for the first time (no existing restrictions), default all
+  // restrictions to ON so the parent starts from a safe baseline rather than
+  // having to manually configure everything.
+  const isFirstEnable = msg.enabled === true && !settings.enabled
+    && settings.contentRestrictions.length === 0
+    && settings.blockedToolCategories.length === 0;
+
+  const effectiveMsg = isFirstEnable ? {
+    ...msg,
+    content_restrictions: msg.content_restrictions ?? ['violence', 'adult_content', 'political', 'gambling', 'drugs'],
+    blocked_tool_categories: msg.blocked_tool_categories ?? ['computer_use', 'network', 'shell', 'file_write'],
+  } : msg;
+
   const updated = updateParentalControlSettings({
-    enabled: msg.enabled,
-    contentRestrictions: msg.content_restrictions,
-    blockedToolCategories: msg.blocked_tool_categories,
+    enabled: effectiveMsg.enabled,
+    contentRestrictions: effectiveMsg.content_restrictions,
+    blockedToolCategories: effectiveMsg.blocked_tool_categories,
   });
 
   log.info({ enabled: updated.enabled }, 'Parental control settings updated');

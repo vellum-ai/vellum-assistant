@@ -197,9 +197,26 @@ struct SettingsParentalTab: View {
 
     private var contentRestrictionsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Content Restrictions")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            HStack {
+                Text("Content Restrictions")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button("All") {
+                    updateContentRestrictions(ContentTopic.allCases.map { $0.rawValue })
+                }
+                .buttonStyle(.plain)
+                .font(VFont.caption)
+                .foregroundColor(VColor.accent)
+                .accessibilityLabel("Select all content restrictions")
+                Button("None") {
+                    updateContentRestrictions([])
+                }
+                .buttonStyle(.plain)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .accessibilityLabel("Deselect all content restrictions")
+            }
 
             Text("Block responses on these topics.")
                 .font(VFont.caption)
@@ -233,9 +250,26 @@ struct SettingsParentalTab: View {
 
     private var toolCategorySection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Tool Restrictions")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            HStack {
+                Text("Tool Restrictions")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button("All") {
+                    updateToolCategories(ToolCategory.allCases.map { $0.rawValue })
+                }
+                .buttonStyle(.plain)
+                .font(VFont.caption)
+                .foregroundColor(VColor.accent)
+                .accessibilityLabel("Select all tool restrictions")
+                Button("None") {
+                    updateToolCategories([])
+                }
+                .buttonStyle(.plain)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .accessibilityLabel("Deselect all tool restrictions")
+            }
 
             Text("Prevent the assistant from using these tool categories.")
                 .font(VFont.caption)
