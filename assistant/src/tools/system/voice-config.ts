@@ -47,14 +47,6 @@ export const voiceConfigUpdateTool: Tool = {
       return { content: result.reason, isError: true };
     }
 
-    if (context.sendToClient) {
-      context.sendToClient({
-        type: 'client_settings_update',
-        key: 'activationKey',
-        value: result.value,
-      });
-    }
-
     const labels: Record<string, string> = {
       fn: 'Fn/Globe key',
       ctrl: 'Control key',
