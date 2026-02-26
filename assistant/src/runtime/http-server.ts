@@ -29,6 +29,7 @@ import {
 } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import { PairingStore } from '../daemon/pairing-store.js';
+import { getAttentionStateByConversationIds } from '../memory/conversation-attention-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as externalConversationStore from '../memory/external-conversation-store.js';
 import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
@@ -94,6 +95,7 @@ import {
   handleListContacts,
   handleMergeContacts,
 } from './routes/contact-routes.js';
+import { handleListConversationAttention } from './routes/conversation-attention-routes.js';
 // Route handlers — grouped by domain
 import {
   handleGetSuggestion,
@@ -535,13 +537,22 @@ export class RuntimeHttpServer {
         const offset = Number(url.searchParams.get('offset') ?? 0);
         const conversations = conversationStore.listConversations(limit, false, offset);
         const totalCount = conversationStore.countConversations();
-        const bindings = externalConversationStore.getBindingsForConversations(
-          conversations.map((c) => c.id),
-        );
+        const conversationIds = conversations.map((c) => c.id);
+        const bindings = externalConversationStore.getBindingsForConversations(conversationIds);
+        const attentionStates = getAttentionStateByConversationIds(conversationIds);
         return Response.json({
           sessions: conversations.map((c) => {
             const binding = bindings.get(c.id);
             const originChannel = parseChannelId(c.originChannel);
+            const attn = attentionStates.get(c.id);
+            const assistantAttention = attn ? {
+              hasUnseenLatestAssistantMessage: attn.latestAssistantMessageAt !== null &&
+                (attn.lastSeenAssistantMessageAt === null || attn.lastSeenAssistantMessageAt < attn.latestAssistantMessageAt),
+              ...(attn.latestAssistantMessageAt !== null ? { latestAssistantMessageAt: attn.latestAssistantMessageAt } : {}),
+              ...(attn.lastSeenAssistantMessageAt !== null ? { lastSeenAssistantMessageAt: attn.lastSeenAssistantMessageAt } : {}),
+              ...(attn.lastSeenConfidence !== null ? { lastSeenConfidence: attn.lastSeenConfidence } : {}),
+              ...(attn.lastSeenSignalType !== null ? { lastSeenSignalType: attn.lastSeenSignalType } : {}),
+            } : undefined;
             return {
               id: c.id,
               title: c.title ?? 'Untitled',
@@ -557,11 +568,14 @@ export class RuntimeHttpServer {
                 },
               } : {}),
               ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
+              ...(assistantAttention ? { assistantAttention } : {}),
             };
           }),
           hasMore: offset + conversations.length < totalCount,
         });
       }
+
+      if (endpoint === 'conversations/attention' && req.method === 'GET') return handleListConversationAttention(url);
 
       if (endpoint === 'messages' && req.method === 'GET') return handleListMessages(url, this.interfacesDir);
       if (endpoint === 'search' && req.method === 'GET') return handleSearchConversations(url);

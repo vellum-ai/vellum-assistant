@@ -5,6 +5,7 @@ import { v4 as uuid } from 'uuid';
 import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getAttachmentsForMessage, setAttachmentThumbnail } from '../../memory/attachments-store.js';
+import { getAttentionStateByConversationIds } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
@@ -393,15 +394,24 @@ export function handleSecretResponse(
 export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offset = 0, limit = 50): void {
   const conversations = conversationStore.listConversations(limit, false, offset);
   const totalCount = conversationStore.countConversations();
-  const bindings = externalConversationStore.getBindingsForConversations(
-    conversations.map((c) => c.id),
-  );
+  const conversationIds = conversations.map((c) => c.id);
+  const bindings = externalConversationStore.getBindingsForConversations(conversationIds);
+  const attentionStates = getAttentionStateByConversationIds(conversationIds);
   ctx.send(socket, {
     type: 'session_list_response',
     sessions: conversations.map((c) => {
       const binding = bindings.get(c.id);
       const originChannel = parseChannelId(c.originChannel);
       const originInterface = parseInterfaceId(c.originInterface);
+      const attn = attentionStates.get(c.id);
+      const assistantAttention = attn ? {
+        hasUnseenLatestAssistantMessage: attn.latestAssistantMessageAt !== null &&
+          (attn.lastSeenAssistantMessageAt === null || attn.lastSeenAssistantMessageAt < attn.latestAssistantMessageAt),
+        ...(attn.latestAssistantMessageAt !== null ? { latestAssistantMessageAt: attn.latestAssistantMessageAt } : {}),
+        ...(attn.lastSeenAssistantMessageAt !== null ? { lastSeenAssistantMessageAt: attn.lastSeenAssistantMessageAt } : {}),
+        ...(attn.lastSeenConfidence !== null ? { lastSeenConfidence: attn.lastSeenConfidence } : {}),
+        ...(attn.lastSeenSignalType !== null ? { lastSeenSignalType: attn.lastSeenSignalType } : {}),
+      } : undefined;
       return {
         id: c.id,
         title: c.title ?? 'Untitled',
@@ -419,6 +429,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
         } : {}),
         ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
         ...(originInterface ? { conversationOriginInterface: originInterface } : {}),
+        ...(assistantAttention ? { assistantAttention } : {}),
       };
     }),
     hasMore: offset + conversations.length < totalCount,

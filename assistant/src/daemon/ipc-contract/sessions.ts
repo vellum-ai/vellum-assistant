@@ -202,9 +202,18 @@ export interface ChannelBinding {
   username?: string | null;
 }
 
+/** Attention state metadata for a conversation's latest assistant message. */
+export interface AssistantAttention {
+  hasUnseenLatestAssistantMessage: boolean;
+  latestAssistantMessageAt?: number;
+  lastSeenAssistantMessageAt?: number;
+  lastSeenConfidence?: string;
+  lastSeenSignalType?: string;
+}
+
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId }>;
+  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId; assistantAttention?: AssistantAttention }>;
   /** Whether more sessions exist beyond the returned page. */
   hasMore?: boolean;
 }

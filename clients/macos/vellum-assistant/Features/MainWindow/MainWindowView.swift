@@ -847,6 +847,11 @@ struct MainWindowView: View {
             }
         }) {
             HStack(spacing: VSpacing.xs) {
+                if thread.source == "notification" && thread.hasUnseenLatestAssistantMessage {
+                    Circle()
+                        .fill(VColor.accent)
+                        .frame(width: 8, height: 8)
+                }
                 if thread.kind == .private {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10, weight: .medium))

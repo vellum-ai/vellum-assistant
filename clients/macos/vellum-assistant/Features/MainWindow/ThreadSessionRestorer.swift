@@ -199,7 +199,8 @@ final class ThreadSessionRestorer {
                 sessionId: session.id,
                 isArchived: delegate.isSessionArchived(session.id),
                 kind: kind,
-                source: session.source
+                source: session.source,
+                hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
             )
             // VM creation is lazy — only the active thread will get a VM via
             // getOrCreateViewModel() when it's first accessed.

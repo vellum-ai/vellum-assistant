@@ -832,7 +832,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'session_list_response',
     sessions: [
       { id: 'sess-001', title: 'First session', updatedAt: 1700000000, threadType: 'standard' },
-      { id: 'sess-002', title: 'Second session', updatedAt: 1700001000, threadType: 'standard' },
+      { id: 'sess-002', title: 'Second session', updatedAt: 1700001000, threadType: 'standard', assistantAttention: { hasUnseenLatestAssistantMessage: true, latestAssistantMessageAt: 1700001000, lastSeenConfidence: 'explicit', lastSeenSignalType: 'macos_notification_view' } },
     ],
   },
   sessions_clear_response: {
