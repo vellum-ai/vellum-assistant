@@ -24,6 +24,7 @@ import {
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
   migrateReminderRoutingIntent,
+  recoverCrashedMigrations,
   runComplexMigrations,
   runLateMigrations,
   validateMigrationState,
@@ -34,6 +35,10 @@ export function initializeDb(): void {
 
   // 1. Create core tables (conversations, messages, memory, etc.)
   createCoreTables(database);
+
+  // 1b. Clear any stalled 'started' checkpoints left by previous crashes
+  // so the affected migrations can re-run from scratch.
+  recoverCrashedMigrations(database);
 
   // 2. Create watchers, logs, entities, FTS, and conversation keys
   createWatchersAndLogsTables(database);
