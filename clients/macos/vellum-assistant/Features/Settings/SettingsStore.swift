@@ -208,6 +208,8 @@ public final class SettingsStore: ObservableObject {
     @Published var activeProfile: String = "parental"
     /// Set when a profile switch fails so the UI can surface the error.
     @Published var profileSwitchError: String?
+    /// PIN cached after a successful profile switch to parental, used for settings update IPC calls.
+    @Published var cachedPIN: String? = nil
 
     /// Whether parental controls are currently enabled. Kept in sync via IPC responses.
     @Published var isParentalEnabled: Bool = false
@@ -1769,6 +1771,11 @@ public final class SettingsStore: ObservableObject {
         if let r = response {
             if r.success {
                 activeProfile = r.activeProfile
+                if targetProfile == "parental" {
+                    cachedPIN = pin
+                } else {
+                    cachedPIN = nil
+                }
             } else {
                 profileSwitchError = r.error
             }

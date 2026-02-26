@@ -37,13 +37,6 @@ struct SettingsParentalTab: View {
     @State private var showingPINSheet: Bool = false
     @State private var pinSheetMode: PINSheetMode = .set
 
-    // -- Unlock overlay (shown when settings are locked) --
-    @State private var showingUnlockSheet: Bool = false
-    @State private var isUnlocked: Bool = false
-    // Retained after a successful unlock so that subsequent update calls can
-    // forward the PIN to the daemon (required when parental mode is enabled).
-    @State private var unlockedPIN: String?
-
     // -- Set-PIN-to-enable sheet (shown when enabling parental controls without an existing PIN) --
     @State private var showingSetPINForEnableSheet: Bool = false
 
@@ -73,31 +66,21 @@ struct SettingsParentalTab: View {
                     pendingApprovalsSection
                 }
 
-                if isUnlocked || !hasPIN {
-                    pinSection
-                    contentRestrictionsSection
-                    toolCategorySection
-                    // Allowlist and activity log are only visible to the parent
-                    if settingsStore.activeProfile == "parental" {
-                        appsAndWidgetsSection
-                        integrationsSection
-                        activityLogSection
-                    }
-                } else {
-                    lockedPlaceholder
+                pinSection
+                contentRestrictionsSection
+                toolCategorySection
+                // Allowlist and activity log are only visible to the parent
+                if settingsStore.activeProfile == "parental" {
+                    appsAndWidgetsSection
+                    integrationsSection
+                    activityLogSection
                 }
             }
         }
         .onAppear {
             loadSettings()
             settingsStore.loadActivityLog()
-            if let pin = unlockedPIN {
-                // Already unlocked (e.g. view re-appears while PIN is cached)
-                settingsStore.loadAllowedIntegrations(pin: pin)
-            } else if !hasPIN {
-                // No PIN configured — integrations are accessible without a PIN
-                settingsStore.loadAllowedIntegrations(pin: "")
-            }
+            settingsStore.loadAllowedIntegrations(pin: settingsStore.cachedPIN ?? "")
         }
         .sheet(isPresented: $showingPINSheet) {
             PINSheet(
@@ -113,34 +96,15 @@ struct SettingsParentalTab: View {
                         case .change:
                             // The old PIN is now invalid; clear the cache so subsequent
                             // updates don't silently send a stale credential.
-                            isUnlocked = false
-                            unlockedPIN = nil
+                            settingsStore.cachedPIN = nil
                             successMessage = "PIN changed."
                         case .clear:
                             hasPIN = false
-                            isUnlocked = false
-                            unlockedPIN = nil
+                            settingsStore.cachedPIN = nil
                             successMessage = "PIN cleared."
                         }
                     case .failure(let msg):
                         errorMessage = msg
-                    }
-                },
-                daemonClient: daemonClient
-            )
-        }
-        .sheet(isPresented: $showingUnlockSheet) {
-            UnlockSheet(
-                onComplete: { result in
-                    showingUnlockSheet = false
-                    switch result {
-                    case .success(let pin):
-                        isUnlocked = true
-                        unlockedPIN = pin
-                        errorMessage = nil
-                        settingsStore.loadAllowedIntegrations(pin: pin)
-                    case .failure:
-                        errorMessage = "Incorrect PIN."
                     }
                 },
                 daemonClient: daemonClient
@@ -165,9 +129,8 @@ struct SettingsParentalTab: View {
                     showingSetPINForEnableSheet = false
                     switch result {
                     case .success(let pin):
-                        // PIN is now set; cache it as the unlocked credential and enable
-                        isUnlocked = true
-                        unlockedPIN = pin
+                        // PIN is now set; cache it and enable parental controls
+                        settingsStore.cachedPIN = pin
                         hasPIN = true
                         updateEnabled(true)
                     case .failure(let msg):
@@ -232,9 +195,6 @@ struct SettingsParentalTab: View {
                             // Enabling without an existing PIN — require the user to create
                             // one first so parental controls are always PIN-protected.
                             showingSetPINForEnableSheet = true
-                        } else if !newValue && isEnabled && hasPIN && !isUnlocked {
-                            // Toggling off a PIN-locked session requires PIN verification
-                            showingUnlockSheet = true
                         } else {
                             updateEnabled(newValue)
                         }
@@ -515,7 +475,7 @@ struct SettingsParentalTab: View {
                                     get: { appTimeLimits[app] ?? 0 },
                                     set: { newValue in
                                         appTimeLimits[app] = newValue
-                                        settingsStore.setAppTimeLimit(appName: app, minutes: newValue, pin: unlockedPIN ?? "")
+                                        settingsStore.setAppTimeLimit(appName: app, minutes: newValue, pin: settingsStore.cachedPIN ?? "")
                                     }
                                 )
                             ) {
@@ -585,7 +545,7 @@ struct SettingsParentalTab: View {
             }
         }
         .onAppear {
-            settingsStore.loadAppTimeLimits(pin: unlockedPIN ?? "")
+            settingsStore.loadAppTimeLimits(pin: settingsStore.cachedPIN ?? "")
         }
         .onChange(of: settingsStore.appTimeLimits) { _, newLimits in
             appTimeLimits = newLimits
@@ -622,10 +582,7 @@ struct SettingsParentalTab: View {
                 Toggle(integration.label, isOn: Binding(
                     get: { settingsStore.allowedIntegrations.contains(integration.id) },
                     set: { isOn in
-                        // Use the cached PIN when set; fall back to "" when no PIN is configured
-                        let pin = unlockedPIN ?? (hasPIN ? nil : "") ?? ""
-                        // Guard: if a PIN is set but not yet unlocked, do nothing
-                        if hasPIN && unlockedPIN == nil { return }
+                        let pin = settingsStore.cachedPIN ?? ""
                         let updated = isOn
                             ? settingsStore.allowedIntegrations + [integration.id]
                             : settingsStore.allowedIntegrations.filter { $0 != integration.id }
@@ -634,8 +591,7 @@ struct SettingsParentalTab: View {
                     }
                 ))
                 .accessibilityLabel(integration.label)
-                // Disable only when loading or when a PIN is required but not yet provided
-                .disabled(isLoading || (hasPIN && unlockedPIN == nil))
+                .disabled(isLoading)
             }
         }
         .padding(VSpacing.lg)
@@ -652,7 +608,7 @@ struct SettingsParentalTab: View {
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
                 VButton(label: "Clear Log", style: .danger) {
-                    settingsStore.clearActivityLogEntries(pin: unlockedPIN)
+                    settingsStore.clearActivityLogEntries(pin: settingsStore.cachedPIN)
                 }
                 .accessibilityLabel("Clear activity log")
                 .disabled(settingsStore.activityLog.isEmpty)
@@ -675,33 +631,6 @@ struct SettingsParentalTab: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    private var lockedPlaceholder: some View {
-        VStack(spacing: VSpacing.md) {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 28))
-                .foregroundColor(VColor.textMuted)
-
-            Text("Settings are locked")
-                .font(VFont.bodyMedium)
-                .foregroundColor(VColor.textSecondary)
-                .textSelection(.enabled)
-
-            Text("Enter your PIN to make changes.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .textSelection(.enabled)
-
-            VButton(label: "Unlock", style: .primary) {
-                errorMessage = nil
-                showingUnlockSheet = true
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, VSpacing.xxl)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }
@@ -837,7 +766,7 @@ struct SettingsParentalTab: View {
 
     private func loadPendingApprovals() {
         let stream = daemonClient?.subscribe()
-        let pin = unlockedPIN
+        let pin = settingsStore.cachedPIN
         Task {
             do {
                 try daemonClient?.sendParentalControlApprovalList(pin: pin)
@@ -881,7 +810,7 @@ struct SettingsParentalTab: View {
 
     private func respondToRequest(_ request: ApprovalRequestItem, decision: String) {
         let stream = daemonClient?.subscribe()
-        let pin = unlockedPIN
+        let pin = settingsStore.cachedPIN
         Task {
             do {
                 try daemonClient?.sendParentalControlApprovalRespond(
@@ -1010,7 +939,7 @@ struct SettingsParentalTab: View {
                     // Load time limits now that we have the allowlist. Pass an
                     // empty string when no PIN is configured — the daemon skips
                     // PIN verification in that case.
-                    settingsStore.loadAppTimeLimits(pin: unlockedPIN ?? "")
+                    settingsStore.loadAppTimeLimits(pin: settingsStore.cachedPIN ?? "")
                 }
             }
         }
@@ -1022,7 +951,7 @@ struct SettingsParentalTab: View {
         successMessage = nil
 
         let stream = daemonClient?.subscribe()
-        let pin = unlockedPIN
+        let pin = settingsStore.cachedPIN
         Task {
             do {
                 try daemonClient?.sendParentalControlAllowlistUpdate(
@@ -1079,7 +1008,7 @@ struct SettingsParentalTab: View {
         successMessage = nil
 
         let stream = daemonClient?.subscribe()
-        let pin = unlockedPIN
+        let pin = settingsStore.cachedPIN
         Task {
             do {
                 try daemonClient?.sendParentalControlUpdate(pin: pin, enabled: enabled)
@@ -1133,7 +1062,7 @@ struct SettingsParentalTab: View {
         successMessage = nil
 
         let stream = daemonClient?.subscribe()
-        let pin = unlockedPIN
+        let pin = settingsStore.cachedPIN
         Task {
             do {
                 try daemonClient?.sendParentalControlUpdate(pin: pin, contentRestrictions: restrictions)
@@ -1178,7 +1107,7 @@ struct SettingsParentalTab: View {
         successMessage = nil
 
         let stream = daemonClient?.subscribe()
-        let pin = unlockedPIN
+        let pin = settingsStore.cachedPIN
         Task {
             do {
                 try daemonClient?.sendParentalControlUpdate(pin: pin, blockedToolCategories: categories)
@@ -1490,237 +1419,6 @@ private struct SetPINForEnableSheet: View {
                         onComplete(.success(pin: pin))
                     } else {
                         errorMessage = r.error ?? "Failed to set PIN."
-                    }
-                } else {
-                    errorMessage = "No response from daemon."
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Unlock Sheet
-
-private enum UnlockResult {
-    case success(pin: String)
-    case failure
-}
-
-@MainActor
-private struct UnlockSheet: View {
-    let onComplete: (UnlockResult) -> Void
-    var daemonClient: DaemonClient?
-
-    @State private var pin: String = ""
-    @State private var isLoading: Bool = false
-    @State private var errorMessage: String?
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            Text("Unlock Parental Controls")
-                .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
-
-            Text("Enter your 6-digit PIN to unlock settings.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-
-            SecureField("PIN", text: $pin)
-                .textFieldStyle(.roundedBorder)
-                .font(VFont.body)
-
-            if let error = errorMessage {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-            }
-
-            HStack {
-                Spacer()
-                VButton(label: "Cancel", style: .secondary) {
-                    dismiss()
-                }
-                VButton(label: "Unlock", style: .primary) {
-                    verify()
-                }
-                .disabled(isLoading || pin.count != 6)
-            }
-        }
-        .padding(VSpacing.xl)
-        .frame(width: 280)
-        .background(VColor.background)
-    }
-
-    private func verify() {
-        guard pin.count == 6 else { return }
-        isLoading = true
-        errorMessage = nil
-
-        let stream = daemonClient?.subscribe()
-        Task {
-            do {
-                try daemonClient?.sendParentalControlVerifyPin(pin: pin)
-            } catch {
-                await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
-                return
-            }
-
-            let response: ParentalControlVerifyPinResponseMessage? = await withTaskGroup(of: ParentalControlVerifyPinResponseMessage?.self) { group in
-                group.addTask {
-                    guard let stream else { return nil }
-                    for await message in stream {
-                        if case .parentalControlVerifyPinResponse(let msg) = message { return msg }
-                    }
-                    return nil
-                }
-                group.addTask {
-                    try? await Task.sleep(nanoseconds: 8_000_000_000)
-                    return nil
-                }
-                let first = await group.next() ?? nil
-                group.cancelAll()
-                return first
-            }
-
-            await MainActor.run {
-                isLoading = false
-                if let r = response {
-                    if r.verified {
-                        onComplete(.success(pin: pin))
-                    } else {
-                        onComplete(.failure)
-                        errorMessage = "Incorrect PIN."
-                    }
-                } else {
-                    errorMessage = "No response from daemon."
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Profile Switch Sheet
-
-/// PIN prompt shown when attempting to switch to the parental (admin) profile.
-/// Exposed as `internal` so that MainWindowView can present it from the sidebar
-/// without going through the Settings tab. The `onComplete` closure receives the
-/// verified PIN on success so the caller can forward it to `settingsStore.switchProfile`.
-@MainActor
-struct ProfileSwitchSheet: View {
-    let targetProfile: String
-    let currentProfile: String
-    let onComplete: (Result<String, Error>) -> Void
-    var daemonClient: DaemonClient?
-
-    @State private var pin: String = ""
-    @State private var isLoading: Bool = false
-    @State private var errorMessage: String?
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Profile transition header with avatars
-            HStack(spacing: VSpacing.md) {
-                VStack(spacing: VSpacing.xxs) {
-                    Image(systemName: "figure.child.circle.fill")
-                        .font(.system(size: 36))
-                        .foregroundColor(VColor.success)
-                    Text("Child")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(VColor.textMuted)
-                VStack(spacing: VSpacing.xxs) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 36))
-                        .foregroundColor(VColor.accent)
-                    Text("Parental (Admin)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
-
-            Text("Switch to Parental Profile")
-                .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
-
-            Text("Enter your 6-digit PIN to switch back to the Parental (Admin) profile.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            SecureField("PIN", text: $pin)
-                .textFieldStyle(.roundedBorder)
-                .font(VFont.body)
-
-            if let error = errorMessage {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-            }
-
-            HStack {
-                Spacer()
-                VButton(label: "Cancel", style: .secondary) {
-                    dismiss()
-                }
-                VButton(label: "Switch Profile", style: .primary) {
-                    verify()
-                }
-                .disabled(isLoading || pin.count != 6)
-            }
-        }
-        .padding(VSpacing.xl)
-        .frame(width: 320)
-        .background(VColor.background)
-    }
-
-    private func verify() {
-        guard pin.count == 6 else { return }
-        isLoading = true
-        errorMessage = nil
-
-        let stream = daemonClient?.subscribe()
-        Task {
-            do {
-                try daemonClient?.sendParentalControlVerifyPin(pin: pin)
-            } catch {
-                await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
-                return
-            }
-
-            let response: ParentalControlVerifyPinResponseMessage? = await withTaskGroup(of: ParentalControlVerifyPinResponseMessage?.self) { group in
-                group.addTask {
-                    guard let stream else { return nil }
-                    for await message in stream {
-                        if case .parentalControlVerifyPinResponse(let msg) = message { return msg }
-                    }
-                    return nil
-                }
-                group.addTask {
-                    try? await Task.sleep(nanoseconds: 8_000_000_000)
-                    return nil
-                }
-                let first = await group.next() ?? nil
-                group.cancelAll()
-                return first
-            }
-
-            await MainActor.run {
-                isLoading = false
-                if let r = response {
-                    if r.verified {
-                        onComplete(.success(pin))
-                    } else {
-                        struct PINError: Error {}
-                        onComplete(.failure(PINError()))
-                        errorMessage = "Incorrect PIN."
                     }
                 } else {
                     errorMessage = "No response from daemon."

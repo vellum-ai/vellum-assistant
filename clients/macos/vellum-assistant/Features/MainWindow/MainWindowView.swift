@@ -1094,21 +1094,18 @@ struct MainWindowView: View {
             Text("Enter a new name for this thread")
         }
         .sheet(isPresented: $showingProfileSwitchSheet) {
-            ProfileSwitchSheet(
-                targetProfile: "parental",
-                currentProfile: settingsStore.activeProfile,
-                onComplete: { result in
-                    switch result {
-                    case .success(let pin):
-                        Task {
-                            await settingsStore.switchProfile(to: "parental", pin: pin)
-                            showingProfileSwitchSheet = false
-                        }
-                    case .failure:
-                        break
+            ProfileSwitchModal(
+                activeProfile: settingsStore.activeProfile,
+                settingsStore: settingsStore,
+                daemonClient: daemonClient,
+                onSuccess: {
+                    showingProfileSwitchSheet = false
+                    if let firstThread = threadManager.visibleThreads.first {
+                        windowState.selection = .thread(firstThread.id)
+                    } else {
+                        windowState.selection = nil
                     }
-                },
-                daemonClient: daemonClient
+                }
             )
         }
     }
@@ -1255,11 +1252,7 @@ struct MainWindowView: View {
                     activeProfile: settingsStore.activeProfile,
                     isExpanded: true,
                     onSwitch: {
-                        if settingsStore.activeProfile == "parental" {
-                            Task { await settingsStore.switchProfile(to: "child", pin: nil) }
-                        } else {
-                            showingProfileSwitchSheet = true
-                        }
+                        showingProfileSwitchSheet = true
                     }
                 )
             }
@@ -1308,11 +1301,7 @@ struct MainWindowView: View {
                     activeProfile: settingsStore.activeProfile,
                     isExpanded: false,
                     onSwitch: {
-                        if settingsStore.activeProfile == "parental" {
-                            Task { await settingsStore.switchProfile(to: "child", pin: nil) }
-                        } else {
-                            showingProfileSwitchSheet = true
-                        }
+                        showingProfileSwitchSheet = true
                     }
                 )
             }
@@ -1637,6 +1626,184 @@ private struct DrawerMenuItem: View {
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
+// MARK: - Profile Switch Modal
+
+private enum SwitchStep: Equatable {
+    case overview
+    case enterPIN
+    case switching
+}
+
+/// Sheet shown when switching between parental and child profiles.
+/// Handles both directions: parental→child (no PIN) and child→parental (PIN required).
+/// Animates between an overview step and a PIN entry step for the child→parental flow.
+@MainActor
+private struct ProfileSwitchModal: View {
+    let activeProfile: String
+    @ObservedObject var settingsStore: SettingsStore
+    var daemonClient: DaemonClient?
+    let onSuccess: () -> Void
+
+    @State private var step: SwitchStep = .overview
+    @State private var pin: String = ""
+    @State private var errorMessage: String?
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var isChildToParental: Bool { activeProfile == "child" }
+
+    var body: some View {
+        VStack(spacing: VSpacing.xl) {
+            // Profile transition header
+            HStack(spacing: VSpacing.md) {
+                VStack(spacing: VSpacing.xxs) {
+                    Image(systemName: isChildToParental ? "figure.child.circle.fill" : "person.crop.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundColor(isChildToParental ? VColor.success : VColor.accent)
+                    Text(isChildToParental ? "Child" : "Parental")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+                VStack(spacing: VSpacing.xxs) {
+                    Image(systemName: isChildToParental ? "person.crop.circle.fill" : "figure.child.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundColor(isChildToParental ? VColor.accent : VColor.success)
+                    Text(isChildToParental ? "Parental" : "Child")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+
+            if step == .overview {
+                overviewContent
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .leading).combined(with: .opacity),
+                        removal: .move(edge: .leading).combined(with: .opacity)
+                    ))
+            } else if step == .enterPIN {
+                pinContent
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .move(edge: .trailing).combined(with: .opacity)
+                    ))
+            } else {
+                switchingContent
+                    .transition(.opacity)
+            }
+        }
+        .padding(VSpacing.xl)
+        .frame(width: 340)
+        .background(VColor.background)
+        .animation(VAnimation.standard, value: step)
+    }
+
+    private var overviewContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text(isChildToParental ? "Switch to Parental Profile" : "Switch to Child Profile")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textPrimary)
+
+            Text(isChildToParental
+                ? "You'll need to enter your 6-digit PIN to switch to the Parental profile."
+                : "Switch to the restricted Child profile.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let error = errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+
+            HStack {
+                VButton(label: "Cancel", style: .secondary) { dismiss() }
+                Spacer()
+                VButton(label: isChildToParental ? "Enter PIN" : "Switch", style: .primary) {
+                    if isChildToParental {
+                        withAnimation(VAnimation.standard) { step = .enterPIN }
+                    } else {
+                        performSwitch()
+                    }
+                }
+            }
+        }
+    }
+
+    private var pinContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Enter PIN")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Enter your 6-digit PIN to switch to the Parental profile.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            SecureField("6-digit PIN", text: $pin)
+                .textFieldStyle(.roundedBorder)
+                .font(VFont.body)
+                .onSubmit { if pin.count == 6 { performSwitch() } }
+
+            if let error = errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+
+            HStack {
+                VButton(label: "Back", style: .secondary) {
+                    withAnimation(VAnimation.standard) {
+                        step = .overview
+                        pin = ""
+                        errorMessage = nil
+                    }
+                }
+                Spacer()
+                VButton(label: "Switch Profile", style: .primary) {
+                    performSwitch()
+                }
+                .disabled(pin.count != 6)
+            }
+        }
+    }
+
+    private var switchingContent: some View {
+        HStack(spacing: VSpacing.sm) {
+            ProgressView().scaleEffect(0.7)
+            Text("Switching profile…")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, VSpacing.xl)
+    }
+
+    private func performSwitch() {
+        let targetProfile = isChildToParental ? "parental" : "child"
+        let switchPIN: String? = isChildToParental ? pin : nil
+        withAnimation(VAnimation.standard) { step = .switching }
+        errorMessage = nil
+
+        Task {
+            await settingsStore.switchProfile(to: targetProfile, pin: switchPIN)
+            if settingsStore.profileSwitchError == nil {
+                onSuccess()
+            } else {
+                errorMessage = settingsStore.profileSwitchError
+                withAnimation(VAnimation.standard) {
+                    step = isChildToParental ? .enterPIN : .overview
+                }
+            }
         }
     }
 }
