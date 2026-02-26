@@ -144,7 +144,7 @@ struct SettingsConnectTab: View {
             if authManager.isLoading {
                 channelStatusRow(
                     label: "Account",
-                    icon: "arrow.trianglehead.2.counterclockwise",
+                    icon: "arrow.triangle.2.circlepath",
                     iconColor: VColor.textMuted,
                     value: "Checking..."
                 )
@@ -1849,7 +1849,7 @@ struct SettingsConnectTab: View {
                 Button {
                     if !isRefreshing { onRefresh() }
                 } label: {
-                    Image(systemName: "arrow.trianglehead.2.counterclockwise")
+                    Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(isRefreshing ? VColor.accent : VColor.textMuted)
                         .rotationEffect(.degrees(isRefreshing ? 360 : 0))
