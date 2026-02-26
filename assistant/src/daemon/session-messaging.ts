@@ -10,7 +10,7 @@ import { v4 as uuid } from 'uuid';
 import { createUserMessage } from '../agent/message-types.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
-import { AttachmentUploadError, linkAttachmentToMessage, uploadAttachment } from '../memory/attachments-store.js';
+import { AttachmentUploadError, linkAttachmentToMessage, uploadAttachment, validateAttachmentUpload } from '../memory/attachments-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
@@ -238,6 +238,11 @@ export async function persistUserMessage(
       const a = attachments[i];
       if (!a.data) continue;
       try {
+        const validation = validateAttachmentUpload(a.filename, a.mimeType);
+        if (!validation.ok) {
+          log.warn({ filename: a.filename, error: validation.error }, 'Skipping user attachment indexing: validation failed');
+          continue;
+        }
         const stored = uploadAttachment(a.filename, a.mimeType, a.data);
         linkAttachmentToMessage(persistedUserMessage.id, stored.id, i);
       } catch (err) {
