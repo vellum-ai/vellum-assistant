@@ -2928,7 +2928,8 @@ describe('outbound Telegram verification', () => {
     const session = serviceFindActiveSession('self', 'telegram');
     expect(session).not.toBeNull();
     expect(session!.identityBindingStatus).toBe('pending_bootstrap');
-    expect(session!.destinationAddress).toBe('@someuser');
+    // destinationAddress is normalized: '@' stripped and lowercased
+    expect(session!.destinationAddress).toBe('someuser');
     expect(session!.bootstrapTokenHash).toBeDefined();
     expect(session!.bootstrapTokenHash).not.toBeNull();
   });
@@ -3601,5 +3602,161 @@ describe('outbound voice verification', () => {
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe('missing_destination');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 22. M1–M4 Hardening: constant values, secret presence, and entropy
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('M1–M4 hardening coverage', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  // ── M2: RESEND_COOLDOWN_MS is 15 000 ms (was 60 000) ──
+
+  test('RESEND_COOLDOWN_MS is 15 000 ms', () => {
+    expect(RESEND_COOLDOWN_MS).toBe(15_000);
+  });
+
+  // ── M2: start_outbound for SMS returns secret in response ──
+
+  test('start_outbound for SMS response includes secret', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+      destination: '+15551234567',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.secret).toBeDefined();
+    expect(typeof resp!.secret).toBe('string');
+    expect(resp!.secret!.length).toBeGreaterThan(0);
+  });
+
+  // ── M2: resend_outbound for SMS returns secret in response ──
+
+  test('resend_outbound for SMS response includes secret', () => {
+    // Start a session first
+    const { ctx: startCtx } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+      destination: '+15551234567',
+    }, mockSocket, startCtx);
+
+    // Move past cooldown
+    const session = serviceFindActiveSession('self', 'sms');
+    expect(session).not.toBeNull();
+    storeUpdateSessionDelivery(session!.id, Date.now() - RESEND_COOLDOWN_MS - 1000, 1, Date.now() - 1000);
+
+    // Resend
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'resend_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.secret).toBeDefined();
+    expect(typeof resp!.secret).toBe('string');
+    expect(resp!.secret!.length).toBeGreaterThan(0);
+  });
+
+  // ── M2: start_outbound for Telegram bootstrap does NOT return secret ──
+
+  test('start_outbound for Telegram bootstrap (handle) does NOT return secret', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+      destination: '@someuser',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    // Security: secret must NOT be revealed for pending_bootstrap sessions
+    expect(resp!.secret).toBeUndefined();
+    // Bootstrap URL should be present instead
+    expect(resp!.telegramBootstrapUrl).toBeDefined();
+  });
+
+  // ── M2: bootstrap sessions use high-entropy hex secrets ──
+
+  test('bootstrap (pending_bootstrap) sessions use high-entropy hex secrets, identity-bound use 6-digit numeric', () => {
+    // Pending bootstrap: high-entropy hex (32 bytes = 64 hex chars)
+    const bootstrapResult = createOutboundSession({
+      assistantId: 'asst-entropy',
+      channel: 'telegram',
+      identityBindingStatus: 'pending_bootstrap',
+      destinationAddress: '@testuser',
+    });
+    expect(bootstrapResult.secret.length).toBe(64);
+    expect(bootstrapResult.secret).toMatch(/^[a-f0-9]{64}$/);
+
+    resetTables();
+
+    // Identity-bound: 6-digit numeric code
+    const boundResult = createOutboundSession({
+      assistantId: 'asst-entropy',
+      channel: 'sms',
+      expectedPhoneE164: '+15551234567',
+      destinationAddress: '+15551234567',
+      identityBindingStatus: 'bound',
+    });
+    expect(boundResult.secret.length).toBe(6);
+    expect(boundResult.secret).toMatch(/^\d{6}$/);
+  });
+
+  // ── M2: all identity-bound channels use 6-digit numeric codes ──
+
+  test('all identity-bound channels (SMS, Telegram chat ID, voice) use 6-digit numeric codes', () => {
+    // SMS
+    const smsResult = createOutboundSession({
+      assistantId: 'asst-codes',
+      channel: 'sms',
+      expectedPhoneE164: '+15551234567',
+      destinationAddress: '+15551234567',
+    });
+    expect(smsResult.secret).toMatch(/^\d{6}$/);
+
+    resetTables();
+
+    // Telegram (bound via chat ID)
+    const tgResult = createOutboundSession({
+      assistantId: 'asst-codes',
+      channel: 'telegram',
+      expectedChatId: '123456789',
+      identityBindingStatus: 'bound',
+      destinationAddress: '123456789',
+    });
+    expect(tgResult.secret).toMatch(/^\d{6}$/);
+
+    resetTables();
+
+    // Voice
+    const voiceResult = createOutboundSession({
+      assistantId: 'asst-codes',
+      channel: 'voice',
+      expectedPhoneE164: '+15551234567',
+      destinationAddress: '+15551234567',
+      codeDigits: 6,
+    });
+    expect(voiceResult.secret).toMatch(/^\d{6}$/);
   });
 });

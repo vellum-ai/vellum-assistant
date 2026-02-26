@@ -282,4 +282,78 @@ describe('Verification commands are deterministic (guard)', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test('handleChannelInbound does not call processMessage for /start gv_<token> bootstrap commands', async () => {
+    const { createHash, randomBytes } = await import('node:crypto');
+    const { handleChannelInbound } = await import('../runtime/routes/inbound-message-handler.js');
+    const { createOutboundSession } = await import('../runtime/channel-guardian-service.js');
+
+    // Generate a bootstrap token and create a pending_bootstrap session
+    const bootstrapToken = randomBytes(16).toString('hex');
+    const bootstrapTokenHash = createHash('sha256').update(bootstrapToken).digest('hex');
+
+    createOutboundSession({
+      assistantId: 'self',
+      channel: 'telegram',
+      identityBindingStatus: 'pending_bootstrap',
+      destinationAddress: 'test_user',
+      bootstrapTokenHash,
+    });
+
+    // Track whether processMessage was called
+    let processMessageCalled = false;
+    const processMessage = async () => {
+      processMessageCalled = true;
+      return { messageId: 'msg-1' };
+    };
+
+    // Track channel replies (the handler delivers the verification code via fetch)
+    const deliveredReplies: Array<{ chatId: string; text: string }> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (init?.method === 'POST' && init.body) {
+        try {
+          const body = JSON.parse(init.body as string);
+          if (body.chatId && body.text) {
+            deliveredReplies.push({ chatId: body.chatId, text: body.text });
+          }
+        } catch { /* not JSON */ }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      return originalFetch(input, init as never);
+    }) as typeof fetch;
+
+    try {
+      const req = new Request('http://localhost/channels/inbound', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceChannel: 'telegram',
+          interface: 'telegram',
+          externalChatId: 'chat-bootstrap-123',
+          externalMessageId: `msg-bootstrap-${Date.now()}`,
+          content: `/start gv_${bootstrapToken}`,
+          senderExternalUserId: 'user-bootstrap-123',
+          senderName: 'Bootstrap User',
+          replyCallbackUrl: 'http://localhost/callback',
+          sourceMetadata: {
+            commandIntent: { type: 'start', payload: `gv_${bootstrapToken}` },
+          },
+        }),
+      });
+
+      const response = await handleChannelInbound(req, processMessage);
+      const body = await response.json() as Record<string, unknown>;
+
+      // Bootstrap should have been handled deterministically
+      expect(body.guardianVerification).toBe('bootstrap_bound');
+      expect(body.accepted).toBe(true);
+
+      // processMessage must NOT have been called — deterministic handling
+      expect(processMessageCalled).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
