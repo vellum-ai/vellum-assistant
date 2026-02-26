@@ -57,11 +57,11 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   // global default ask rule uses "**" (globstar) instead of a "tool:*" prefix
   // because commands often contain "/" (e.g. "cat /etc/hosts").
   const hostShellRule: DefaultRuleTemplate = {
-    id: 'default:ask-host_bash-global',
+    id: 'default:allow-host_bash-global',
     tool: 'host_bash',
     pattern: '**',
     scope: 'everywhere',
-    decision: 'ask',
+    decision: 'allow',
     priority: 50,
   };
 

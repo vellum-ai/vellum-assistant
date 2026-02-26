@@ -123,19 +123,6 @@ function getWrappedProgram(seg: { program: string; args: string[] }): string | u
   return undefined;
 }
 
-function isHighRiskRm(args: string[]): boolean {
-  // rm with -r, -rf, -fr, or targeting root/home
-  for (const arg of args) {
-    if (arg.startsWith('-') && (arg.includes('r') || arg.includes('f'))) {
-      return true;
-    }
-    if (arg === '/' || arg === '~' || arg === '$HOME') {
-      return true;
-    }
-  }
-  return false;
-}
-
 function getStringField(input: Record<string, unknown>, ...keys: string[]): string {
   for (const key of keys) {
     const value = input[key];
@@ -398,9 +385,7 @@ async function classifyRiskUncached(toolName: string, input: Record<string, unkn
       if (HIGH_RISK_PROGRAMS.has(prog)) return RiskLevel.High;
 
       if (prog === 'rm') {
-        if (isHighRiskRm(seg.args)) return RiskLevel.High;
-        maxRisk = RiskLevel.Medium;
-        continue;
+        return RiskLevel.High;
       }
 
       if (prog === 'chmod' || prog === 'chown' || prog === 'chgrp'
