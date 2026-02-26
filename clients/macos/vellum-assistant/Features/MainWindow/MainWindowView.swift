@@ -866,7 +866,7 @@ struct MainWindowView: View {
                         .frame(width: 20, height: 20)
                         .background(VColor.backgroundSubtle)
                         .clipShape(Circle())
-                } else if thread.source == "notification" && thread.hasUnseenLatestAssistantMessage {
+                } else if thread.hasUnseenLatestAssistantMessage {
                     Circle()
                         .fill(Color.accentColor)
                         .frame(width: 8, height: 8)
