@@ -14,6 +14,7 @@ final class SessionOverlayWindow {
     private var stateContainer: NSView?
     private var guidanceContainer: NSView?
     private var controlsContainer: NSView?
+    private var stateScrollView: NSScrollView?
     private var spinner: NSProgressIndicator?
     private var guidanceField: NSTextField?
 
@@ -131,6 +132,7 @@ final class SessionOverlayWindow {
             stateView.trailingAnchor.constraint(equalTo: clipView.trailingAnchor),
         ])
         scrollView.heightAnchor.constraint(lessThanOrEqualToConstant: 400).isActive = true
+        self.stateScrollView = scrollView
 
         stack.addArrangedSubview(scrollView)
         scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -608,25 +610,26 @@ final class SessionOverlayWindow {
     // MARK: - Update
 
     private func updateState(_ state: SessionState) {
-        guard let stateContainer else { return }
+        guard let stateScrollView else { return }
 
         // Stop any running spinner
         spinner?.stopAnimation(nil)
         spinner = nil
 
-        // Replace state content inside the scroll view's clip view
+        // Replace state content as the scroll view's document view
         let newState = buildStateContent(state)
-        if let scrollDocView = stateContainer.superview {
-            stateContainer.removeFromSuperview()
-            scrollDocView.addSubview(newState)
-            newState.translatesAutoresizingMaskIntoConstraints = false
+        newState.translatesAutoresizingMaskIntoConstraints = false
+        stateScrollView.documentView = newState
+
+        if let clipView = stateScrollView.contentView as? NSClipView {
             NSLayoutConstraint.activate([
-                newState.topAnchor.constraint(equalTo: scrollDocView.topAnchor),
-                newState.leadingAnchor.constraint(equalTo: scrollDocView.leadingAnchor),
-                newState.trailingAnchor.constraint(equalTo: scrollDocView.trailingAnchor),
+                newState.topAnchor.constraint(equalTo: clipView.topAnchor),
+                newState.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
+                newState.trailingAnchor.constraint(equalTo: clipView.trailingAnchor),
             ])
-            self.stateContainer = newState
         }
+
+        self.stateContainer = newState
 
         // Update guidance visibility
         updateGuidanceVisibility()
