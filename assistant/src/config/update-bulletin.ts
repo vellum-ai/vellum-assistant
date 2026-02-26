@@ -21,10 +21,17 @@ function atomicWriteFileSync(filePath: string, content: string): void {
   const tmpPath = `${filePath}.tmp.${process.pid}`;
   try {
     writeFileSync(tmpPath, content, 'utf-8');
-    // Resolve symlinks so we rename to the real target, preserving the link
-    const targetPath = lstatSync(filePath, { throwIfNoEntry: false })?.isSymbolicLink()
-      ? realpathSync(filePath)
-      : filePath;
+    // Resolve symlinks so we rename to the real target, preserving the link.
+    // If the symlink is dangling (target doesn't exist), fall back to writing
+    // through the symlink path directly — realpathSync throws ENOENT for dangling links.
+    let targetPath = filePath;
+    try {
+      if (lstatSync(filePath, { throwIfNoEntry: false })?.isSymbolicLink()) {
+        targetPath = realpathSync(filePath);
+      }
+    } catch {
+      // Dangling symlink — fall back to writing through the symlink path
+    }
     renameSync(tmpPath, targetPath);
   } catch (err) {
     try {
