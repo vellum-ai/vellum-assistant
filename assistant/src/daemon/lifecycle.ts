@@ -48,7 +48,7 @@ import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js'
 import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
 import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
 import { hasNoAuthOverride, hasUngatedNoAuthOverride } from './connection-policy.js';
-import { cleanupPidFile,writePid } from './daemon-control.js';
+import { cleanupPidFile, cleanupPidFileIfOwner, writePid } from './daemon-control.js';
 import { createGuardianActionCopyGenerator } from './guardian-action-generators.js';
 import { initPairingHandlers } from './handlers/pairing.js';
 import { installCliLaunchers } from './install-cli-launchers.js';
@@ -389,7 +389,7 @@ export async function runDaemon(): Promise<void> {
     });
   } catch (err) {
     log.error({ err }, 'Daemon startup failed — cleaning up');
-    cleanupPidFile();
+    cleanupPidFileIfOwner(process.pid);
     if (socketCreated) {
       try {
         removeSocketFile(getSocketPath());
