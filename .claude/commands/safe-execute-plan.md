@@ -183,18 +183,19 @@ The `check-pr-reviews` script reports **cumulative** review status — it counts
      # Get reviewer bot logins with new reactions after last_fix_push_time (e.g., Codex +1 approval)
      reaction_bot_logins=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/reactions" \
        --jq '[.[] | select(.created_at > "'$last_fix_push_time'" and (.user.login == "chatgpt-codex-connector[bot]" or .user.login == "devin-ai-integration[bot]"))] | [.[].user.login] | unique | .[]')
-     # Union all logins across endpoints and count unique bots
-     all_responded_bots=$(echo -e "$review_bot_logins\n$comment_bot_logins\n$issue_comment_bot_logins\n$reaction_bot_logins" | sort -u | grep -c .)
+     # Union all logins across endpoints into a set of responding bots and count
+     responded_bot_logins=$(printf "%s\n%s\n%s\n%s\n" "$review_bot_logins" "$comment_bot_logins" "$issue_comment_bot_logins" "$reaction_bot_logins" | sort -u | grep .)
+     all_responded_bots=$(echo "$responded_bot_logins" | grep -c .)
      ```
-     A reviewer bot counts as "responded" if its login appears in any of the four queries above.
-   - If `all_responded_bots` is **>= 1** (at least one reviewer bot has posted new activity after `last_fix_push_time`), run `.claude/check-pr-reviews $PR_NUMBER` and derive the aggregate status:
+     A reviewer bot counts as "responded" if its login appears in any of the four queries above. Collect all unique responding logins into `responded_bot_logins` (the set of bots that have posted new activity), and also compute `all_responded_bots` (the count).
+   - If `all_responded_bots` is **>= 1** (at least one reviewer bot has posted new activity after `last_fix_push_time`), run `.claude/check-pr-reviews $PR_NUMBER` and derive the aggregate status. **Important:** when the aggregate status would be `changes_requested`, verify that the bot with `changes_requested` is in `responded_bot_logins` — if it is not (meaning the `changes_requested` comes from a bot that has not yet responded to the new commit), treat the status as `pending` instead and continue polling.
      - If aggregate status is `approved`, proceed to Step 7.
-     - If aggregate status is `changes_requested`, return to step 2 (which checks the cycle limit).
-     - If aggregate status is `pending` or `rate_limited`, continue polling.
+     - If aggregate status is `changes_requested` **and the bot with `changes_requested` is in `responded_bot_logins`**, return to step 2 (which checks the cycle limit).
+     - Otherwise (`pending`, `rate_limited`, or `changes_requested` from a non-responding bot), continue polling.
    - If `all_responded_bots` is **< 1**, **continue polling** — do not exit the loop. Old cumulative statuses from `check-pr-reviews` are unreliable after fixes have been pushed.
-   - If **10 minutes** pass without both reviewer bots posting new activity, proceed to Step 7. Log: `"Timed out after 10 minutes waiting for reviewer responses. Proceeding with pending reviews."`
+   - If **10 minutes** pass without any reviewer bot posting new activity, proceed to Step 7. Log: `"Timed out after 10 minutes waiting for reviewer responses. Proceeding with pending reviews."`
 
-Repeat steps 1-5 until the exit condition: either `approved` aggregate status, both reviewers have posted fresh activity, 10-minute timeout after a fix push, or the cycle counter has reached 3.
+Repeat steps 1-5 until the exit condition: either `approved` aggregate status, actionable `changes_requested` from a freshly-responding bot, 10-minute timeout after a fix push, or the cycle counter has reached 3.
 
 #### Feedback agent prompt
 
