@@ -179,6 +179,34 @@ build_binaries() {
             find "$onnx_bin/darwin" -mindepth 1 -maxdepth 1 -not -name "$arch" -exec rm -rf {} +
         fi
     fi
+    # Copy @huggingface/transformers and its runtime deps (sharp, @img/*)
+    # so the externalized import('@huggingface/transformers') resolves at runtime
+    mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface"
+    cp -R "$ASSISTANT_SRC_DIR/node_modules/@huggingface/transformers" "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers"
+    # Strip non-runtime files (source, types, sourcemaps, web/browser bundles, WASM)
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/src"
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/types"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/README.md"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/"*.map
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/"*.min.*
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/transformers.js"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/transformers.web.js"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/ort-wasm-*"
+    # Stage sharp (static dep of transformers Node entry) and its native bindings
+    cp -R "$ASSISTANT_SRC_DIR/node_modules/sharp" "$SCRIPT_DIR/daemon-bin/node_modules/sharp"
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/sharp/src"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/sharp/README.md"
+    mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules/@img"
+    for img_pkg in "$ASSISTANT_SRC_DIR/node_modules/@img/"*; do
+        [ -d "$img_pkg" ] && cp -R "$img_pkg" "$SCRIPT_DIR/daemon-bin/node_modules/@img/"
+    done
+    # Stage sharp's JS dependencies
+    for dep in detect-libc semver; do
+        if [ -d "$ASSISTANT_SRC_DIR/node_modules/$dep" ]; then
+            cp -R "$ASSISTANT_SRC_DIR/node_modules/$dep" "$SCRIPT_DIR/daemon-bin/node_modules/$dep"
+        fi
+    done
+    find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
     # Copy bundled skills
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
@@ -333,6 +361,30 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
             find "$onnx_bin/darwin" -mindepth 1 -maxdepth 1 -not -name "$_arch" -exec rm -rf {} +
         fi
     fi
+    # Copy @huggingface/transformers and its runtime deps (sharp, @img/*)
+    mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface"
+    cp -R "$ASSISTANT_SRC_DIR/node_modules/@huggingface/transformers" "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers"
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/src"
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/types"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/README.md"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/"*.map
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/"*.min.*
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/transformers.js"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/transformers.web.js"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/ort-wasm-*"
+    cp -R "$ASSISTANT_SRC_DIR/node_modules/sharp" "$SCRIPT_DIR/daemon-bin/node_modules/sharp"
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/sharp/src"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/sharp/README.md"
+    mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules/@img"
+    for img_pkg in "$ASSISTANT_SRC_DIR/node_modules/@img/"*; do
+        [ -d "$img_pkg" ] && cp -R "$img_pkg" "$SCRIPT_DIR/daemon-bin/node_modules/@img/"
+    done
+    for dep in detect-libc semver; do
+        if [ -d "$ASSISTANT_SRC_DIR/node_modules/$dep" ]; then
+            cp -R "$ASSISTANT_SRC_DIR/node_modules/$dep" "$SCRIPT_DIR/daemon-bin/node_modules/$dep"
+        fi
+    done
+    find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
 fi
 
 # Always refresh bundled skills from source (skill assets like SKILL.md aren't
@@ -418,8 +470,8 @@ if [ "$NEEDS_REBUILD" = true ]; then
         for wasm in "$SCRIPT_DIR/daemon-bin/"*.wasm; do
             [ -f "$wasm" ] && cp "$wasm" "$RESOURCES_DIR/"
         done
-        # Bundle onnxruntime-node native modules (resolved via node_modules/ next to binary)
-        if [ -d "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node" ]; then
+        # Bundle externalized node_modules (onnxruntime, @huggingface/transformers, sharp, etc.)
+        if [ -d "$SCRIPT_DIR/daemon-bin/node_modules" ]; then
             rm -rf "$MACOS_DIR/node_modules"
             cp -R "$SCRIPT_DIR/daemon-bin/node_modules" "$MACOS_DIR/node_modules"
         fi
