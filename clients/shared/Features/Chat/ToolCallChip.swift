@@ -200,6 +200,19 @@ public struct ToolCallChip: View {
                     ? VColor.error.opacity(0.3)
                     : VColor.surfaceBorder.opacity(0.5), lineWidth: 0.5)
         )
+        .onChange(of: isExpanded) { newValue in
+            // Populate the cache *before* the expanded body evaluates so that
+            // `resolvedInputFull` returns the formatted input on the very first
+            // render of the expanded section — avoiding a visible flash/pop-in
+            // for lazy-loaded history tool calls where `.onAppear` fires too late.
+            if newValue, cachedInputFull == nil {
+                if let dict = toolCall.inputRawDict {
+                    cachedInputFull = ToolCallData.formatAllToolInput(dict)
+                } else if !toolCall.inputFull.isEmpty {
+                    cachedInputFull = toolCall.inputFull
+                }
+            }
+        }
         .onChange(of: toolCall.inputFull) { _ in
             // Invalidate the cached formatted input so the next render picks up
             // the fresh (rehydrated) value instead of the stale truncated one.
