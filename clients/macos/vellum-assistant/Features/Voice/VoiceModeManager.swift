@@ -127,7 +127,7 @@ final class VoiceModeManager: ObservableObject {
                 guard let self, self.state == .idle else { return }
                 if thinking {
                     self.cancelConversationTimeout()
-                } else {
+                } else if !self.conversationTimeoutPaused {
                     self.startConversationTimeout()
                 }
             }
