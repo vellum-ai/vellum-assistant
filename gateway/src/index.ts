@@ -212,6 +212,7 @@ function main() {
           url.pathname !== "/v1/calls/twilio/voice-webhook" &&
           url.pathname !== "/v1/calls/twilio/status" &&
           url.pathname !== "/v1/calls/twilio/connect-action" &&
+          url.pathname !== "/v1/browser-relay" &&
           url.pathname !== "/v1/calls/relay");
       if (isRateLimitedRoute) {
         const clientIp = getClientIp(req, svr, config.trustProxy);
