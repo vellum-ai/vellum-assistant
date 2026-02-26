@@ -227,7 +227,7 @@ export async function handleUserMessage(
     }
 
     // ── Structured command intent (bypasses text parsing) ──────────────────
-    if (msg.commandIntent?.domain === 'screen_recording') {
+    if (config.daemon.standaloneRecording && msg.commandIntent?.domain === 'screen_recording') {
       const action = msg.commandIntent.action;
       rlog.info({ action, source: 'commandIntent' }, 'Recording command intent received');
       if (action === 'start') {

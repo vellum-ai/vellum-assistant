@@ -72,7 +72,8 @@ export async function handleTaskSubmit(
     }
 
     // ── Structured command intent (bypasses text parsing) ──────────────────
-    if (msg.commandIntent?.domain === 'screen_recording') {
+    const config = getConfig();
+    if (config.daemon.standaloneRecording && msg.commandIntent?.domain === 'screen_recording') {
       const action = msg.commandIntent.action;
       rlog.info({ action, source: 'commandIntent' }, 'Recording command intent received');
       if (action === 'start') {
@@ -110,7 +111,6 @@ export async function handleTaskSubmit(
     // ── Standalone recording intent interception ──────────────────────────
     let pendingRecordingStart = false;
     let pendingRecordingStop = false;
-    const config = getConfig();
     if (config.daemon.standaloneRecording) {
       const name = getAssistantName();
       const dynamicNames = [name].filter(Boolean) as string[];
