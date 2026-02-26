@@ -146,7 +146,11 @@ struct RecordingSourcePickerView: View {
     private var sourceList: some View {
         ViewThatFits(in: .vertical) {
             sourceListContent
-            ScrollView { sourceListContent }
+            ScrollView {
+                sourceListContent
+                    .background(ScrollViewScrollerHider())
+            }
+            .scrollIndicators(.hidden)
         }
     }
 
@@ -231,15 +235,7 @@ struct RecordingSourcePickerView: View {
                             .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
                         if display.isCurrentDisplay {
-                            Text("This display")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                                .padding(.horizontal, VSpacing.xs)
-                                .padding(.vertical, 1)
-                                .background(
-                                    Capsule()
-                                        .fill(VColor.accent.opacity(0.15))
-                                )
+                            VBadge(style: .label("This display"), color: VColor.accent)
                         }
                     }
                     Text(display.subtitle)
@@ -322,11 +318,11 @@ struct RecordingSourcePickerView: View {
 
             // Buttons
             HStack(spacing: VSpacing.md) {
-                VButton(label: "Cancel", style: .secondary, size: .large) {
+                VButton(label: "Cancel", style: .tertiary, size: .medium) {
                     onCancel()
                 }
                 Spacer()
-                VButton(label: "Start Recording", style: .primary, size: .large, isDisabled: !viewModel.canStart) {
+                VButton(label: "Start Recording", style: .primary, size: .medium, isDisabled: !viewModel.canStart) {
                     onStart(viewModel.selectedRecordingOptions)
                 }
             }
@@ -350,6 +346,43 @@ struct RecordingSourcePickerView: View {
             }
         }
         .padding(.vertical, VSpacing.lg)
+    }
+}
+
+// MARK: - Scroll View Helpers
+
+/// Finds the nearest NSScrollView ancestor and hides its scrollers,
+/// overriding the macOS "Show scroll bars: Always" system preference.
+/// Walks the full superview chain as a fallback if `enclosingScrollView`
+/// returns nil (which can happen with SwiftUI's internal hosting layers).
+private struct ScrollViewScrollerHider: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { hideScrollers(from: view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { hideScrollers(from: nsView) }
+    }
+
+    private func hideScrollers(from view: NSView) {
+        // Try the fast path first
+        if let scrollView = view.enclosingScrollView {
+            scrollView.hasVerticalScroller = false
+            scrollView.hasHorizontalScroller = false
+            return
+        }
+        // Walk the full superview chain looking for any NSScrollView
+        var current: NSView? = view.superview
+        while let ancestor = current {
+            if let scrollView = ancestor as? NSScrollView {
+                scrollView.hasVerticalScroller = false
+                scrollView.hasHorizontalScroller = false
+                return
+            }
+            current = ancestor.superview
+        }
     }
 }
 
