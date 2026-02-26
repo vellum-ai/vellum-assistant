@@ -260,6 +260,7 @@ extension AppDelegate {
     /// app is active. All notification types get a fallback native alert when
     /// backgrounded to guarantee delivery if the notification_intent IPC is late.
     func handleNotificationThreadCreated(_ msg: IPCNotificationThreadCreated) {
+        ensureMainWindowExists()
         mainWindow?.threadManager.createNotificationThread(
             conversationId: msg.conversationId,
             title: msg.title,
