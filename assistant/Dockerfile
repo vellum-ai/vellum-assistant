@@ -89,7 +89,7 @@ RUN echo 'Dir::State "/data/dpkg";' > /etc/apt/apt.conf.d/99data-dir && \
 ENV PATH="/data/usr/bin:/data/usr/sbin:${PATH}"
 ENV LD_LIBRARY_PATH="/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
 
-USER assistant
+USER root
 
 EXPOSE 3001
 
