@@ -291,6 +291,7 @@ describe('install command', () => {
     const parsed = JSON.parse(stdoutOutput);
     expect(parsed.success).toBe(false);
     expect(parsed.error).toContain('do_not_recommend');
+    expect(process.exitCode).toBe(1);
   });
 
   test('reports fetch errors', async () => {

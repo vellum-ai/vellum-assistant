@@ -171,6 +171,7 @@ export function createCli(): Command {
 
         if (opts.json) {
           process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+          if (!result.success) process.exitCode = 1;
         } else {
           if (result.success) {
             process.stdout.write(
