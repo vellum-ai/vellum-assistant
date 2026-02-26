@@ -241,13 +241,20 @@ export function serializeCandidatesForPrompt(candidateSet: ThreadCandidateSet): 
 
     const lines: string[] = [`Channel: ${channel}`];
     for (const c of candidates) {
+      // Escape title to prevent format corruption from quotes or newlines in
+      // user/model-provided text. JSON.stringify produces a safe single-line
+      // quoted string; we strip the outer quotes since we wrap in our own.
+      const safeTitle = c.title
+        ? JSON.stringify(c.title).slice(1, -1)
+        : '(untitled)';
       const parts: string[] = [
         `  - id=${c.conversationId}`,
-        `title="${c.title ?? '(untitled)'}"`,
+        `title="${safeTitle}"`,
         `updated=${new Date(c.updatedAt).toISOString()}`,
       ];
       if (c.latestSourceEventName) {
-        parts.push(`lastEvent="${c.latestSourceEventName}"`);
+        const safeEventName = JSON.stringify(c.latestSourceEventName).slice(1, -1);
+        parts.push(`lastEvent="${safeEventName}"`);
       }
       if (c.guardianContext) {
         parts.push(`pendingRequests=${c.guardianContext.pendingUnresolvedRequestCount}`);
