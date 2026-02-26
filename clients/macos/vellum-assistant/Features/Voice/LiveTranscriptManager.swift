@@ -48,6 +48,9 @@ final class LiveTranscriptManager: ObservableObject {
     /// Timer to prune old segments periodically.
     private var pruneTimer: Timer?
 
+    /// Generation counter to detect stale async completions after stopListening().
+    private var startGeneration = 0
+
     // MARK: - Init
 
     init(audioMonitor: AlwaysOnAudioMonitor? = nil) {
@@ -58,9 +61,11 @@ final class LiveTranscriptManager: ObservableObject {
     // MARK: - Public API
 
     func startListening() {
-        guard status == .idle || status == .error("") || isErrorStatus else { return }
+        guard status == .idle || isErrorStatus else { return }
 
         status = .starting
+        startGeneration += 1
+        let currentGeneration = startGeneration
         log.info("Starting live audio capture and transcription")
 
         // Pause wake word engine to avoid SFSpeechRecognizer conflicts
@@ -73,11 +78,25 @@ final class LiveTranscriptManager: ObservableObject {
         Task {
             do {
                 try await audioCapture.start()
-                transcriptionEngine.start()
+
+                // If stopListening() was called while we were awaiting, bail out
+                guard self.status == .starting, self.startGeneration == currentGeneration else { return }
+
+                guard transcriptionEngine.start() else {
+                    log.error("Transcription engine failed to start")
+                    status = .error("Speech recognition unavailable")
+                    audioCapture.stop()
+                    resumeWakeWordIfNeeded()
+                    return
+                }
+
                 status = .listening
                 startPruneTimer()
                 log.info("Live transcription active")
             } catch {
+                // If stopListening() was called while we were awaiting, bail out
+                guard self.startGeneration == currentGeneration else { return }
+
                 log.error("Failed to start audio capture: \(error.localizedDescription, privacy: .public)")
                 status = .error(error.localizedDescription)
                 resumeWakeWordIfNeeded()

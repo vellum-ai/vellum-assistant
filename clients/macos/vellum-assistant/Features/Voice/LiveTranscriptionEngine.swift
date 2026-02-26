@@ -28,6 +28,10 @@ final class LiveTranscriptionEngine {
     private var consecutiveFailures = 0
     private static let maxBackoffSeconds: TimeInterval = 30
 
+    /// Serial queue protecting recognitionRequest, audioConverter, and isRunning
+    /// against concurrent access from the ScreenCaptureKit output queue and control methods.
+    private let engineQueue = DispatchQueue(label: "com.vellum.LiveTranscriptionEngine")
+
     /// Rolling session duration — restart before the ~60s timeout.
     private static let sessionDuration: TimeInterval = 55
 
@@ -37,8 +41,10 @@ final class LiveTranscriptionEngine {
 
     // MARK: - Start / Stop
 
-    func start() {
-        guard !isRunning else { return }
+    /// Returns `true` if the engine started successfully, `false` otherwise.
+    @discardableResult
+    func start() -> Bool {
+        guard !isRunning else { return true }
 
         let authStatus = SFSpeechRecognizer.authorizationStatus()
         switch authStatus {
@@ -53,10 +59,10 @@ final class LiveTranscriptionEngine {
                     }
                 }
             }
-            return
+            return false
         case .denied, .restricted:
             log.warning("Speech recognition not authorized — live transcription disabled")
-            return
+            return false
         case .authorized:
             break
         @unknown default:
@@ -66,7 +72,7 @@ final class LiveTranscriptionEngine {
         let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
         guard let recognizer, recognizer.isAvailable else {
             log.warning("SFSpeechRecognizer not available")
-            return
+            return false
         }
 
         self.speechRecognizer = recognizer
@@ -77,6 +83,7 @@ final class LiveTranscriptionEngine {
         scheduleRestartTimer()
 
         log.info("LiveTranscriptionEngine started (onDevice: \(recognizer.supportsOnDeviceRecognition, privacy: .public))")
+        return true
     }
 
     func stop() {
@@ -98,54 +105,56 @@ final class LiveTranscriptionEngine {
     /// Feed a CMSampleBuffer from SystemAudioCapture into the recognizer.
     /// Handles resampling from 48kHz to 16kHz internally.
     func appendAudioBuffer(_ sampleBuffer: CMSampleBuffer) {
-        guard isRunning, let recognitionRequest else { return }
+        engineQueue.sync {
+            guard isRunning, let recognitionRequest else { return }
 
-        guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else {
-            return
-        }
-
-        let sourceFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: asbd.pointee.mSampleRate,
-            channels: AVAudioChannelCount(asbd.pointee.mChannelsPerFrame),
-            interleaved: false
-        )!
-
-        guard let pcmBuffer = sampleBuffer.toPCMBuffer(format: sourceFormat) else { return }
-
-        // If already at 16kHz mono, append directly
-        if sourceFormat.sampleRate == 16000 && sourceFormat.channelCount == 1 {
-            recognitionRequest.append(pcmBuffer)
-            return
-        }
-
-        // Resample to 16kHz mono
-        if audioConverter == nil || audioConverter?.inputFormat != sourceFormat {
-            audioConverter = AVAudioConverter(from: sourceFormat, to: targetFormat)
-        }
-
-        guard let converter = audioConverter else { return }
-
-        let ratio = targetFormat.sampleRate / sourceFormat.sampleRate
-        let outputFrameCount = AVAudioFrameCount(Double(pcmBuffer.frameLength) * ratio)
-        guard outputFrameCount > 0 else { return }
-
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrameCount) else { return }
-
-        var inputConsumed = false
-        let status = converter.convert(to: outputBuffer, error: nil) { _, outStatus in
-            if inputConsumed {
-                outStatus.pointee = .noDataNow
-                return nil
+            guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
+                  let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else {
+                return
             }
-            inputConsumed = true
-            outStatus.pointee = .haveData
-            return pcmBuffer
-        }
 
-        if status == .haveData || status == .inputRanDry {
-            recognitionRequest.append(outputBuffer)
+            let sourceFormat = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: asbd.pointee.mSampleRate,
+                channels: AVAudioChannelCount(asbd.pointee.mChannelsPerFrame),
+                interleaved: false
+            )!
+
+            guard let pcmBuffer = sampleBuffer.toPCMBuffer(format: sourceFormat) else { return }
+
+            // If already at 16kHz mono, append directly
+            if sourceFormat.sampleRate == 16000 && sourceFormat.channelCount == 1 {
+                recognitionRequest.append(pcmBuffer)
+                return
+            }
+
+            // Resample to 16kHz mono
+            if audioConverter == nil || audioConverter?.inputFormat != sourceFormat {
+                audioConverter = AVAudioConverter(from: sourceFormat, to: targetFormat)
+            }
+
+            guard let converter = audioConverter else { return }
+
+            let ratio = targetFormat.sampleRate / sourceFormat.sampleRate
+            let outputFrameCount = AVAudioFrameCount(Double(pcmBuffer.frameLength) * ratio)
+            guard outputFrameCount > 0 else { return }
+
+            guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrameCount) else { return }
+
+            var inputConsumed = false
+            let status = converter.convert(to: outputBuffer, error: nil) { _, outStatus in
+                if inputConsumed {
+                    outStatus.pointee = .noDataNow
+                    return nil
+                }
+                inputConsumed = true
+                outStatus.pointee = .haveData
+                return pcmBuffer
+            }
+
+            if status == .haveData || status == .inputRanDry {
+                recognitionRequest.append(outputBuffer)
+            }
         }
     }
 
@@ -273,10 +282,10 @@ private extension CMSampleBuffer {
                 if channelCount == 1 {
                     memcpy(floatData[0], sourcePtr, min(totalLength, samplesPerChannel * MemoryLayout<Float>.size))
                 } else {
-                    // Interleaved source -> deinterleave
+                    // Non-interleaved (planar) source — each channel is a contiguous block
                     for ch in 0..<channelCount {
                         for i in 0..<samplesPerChannel {
-                            let srcIdx = i * channelCount + ch
+                            let srcIdx = ch * samplesPerChannel + i
                             if srcIdx < totalSamples {
                                 floatData[ch][i] = sourcePtr[srcIdx]
                             }
