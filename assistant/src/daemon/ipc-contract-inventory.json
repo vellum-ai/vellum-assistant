@@ -259,6 +259,7 @@
     "message_queued",
     "message_queued_deleted",
     "model_info",
+    "navigate_settings",
     "notification_intent",
     "notification_thread_created",
     "oauth_connect_result",

@@ -2289,6 +2289,7 @@ public enum ServerMessage: Decodable, Sendable {
     case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
     case openUrl(OpenUrlMessage)
+    case navigateSettings(IPCNavigateSettings)
     case integrationListResponse(IPCIntegrationListResponse)
     case integrationConnectResult(IPCIntegrationConnectResult)
     case oauthConnectResult(IPCOAuthConnectResultResponse)
@@ -2616,6 +2617,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "open_url":
             let message = try OpenUrlMessage(from: decoder)
             self = .openUrl(message)
+        case "navigate_settings":
+            let message = try IPCNavigateSettings(from: decoder)
+            self = .navigateSettings(message)
         case "get_signing_identity":
             let message = try IPCGetSigningIdentityRequest(from: decoder)
             self = .getSigningIdentity(message)
