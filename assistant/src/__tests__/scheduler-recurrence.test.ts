@@ -36,6 +36,7 @@ import {
 } from '../schedule/schedule-store.js';
 import { startScheduler } from '../schedule/scheduler.js';
 import { createTask } from '../tasks/task-store.js';
+import { getReminder, insertReminder } from '../tools/reminder/reminder-store.js';
 
 initializeDb();
 
@@ -79,6 +80,7 @@ describe('scheduler RRULE execution', () => {
     const db = getDb();
     db.run('DELETE FROM cron_runs');
     db.run('DELETE FROM cron_jobs');
+    db.run('DELETE FROM reminders');
     db.run('DELETE FROM task_runs');
     db.run('DELETE FROM tasks');
     db.run('DELETE FROM messages');
@@ -436,5 +438,53 @@ describe('scheduler RRULE execution', () => {
     // After claiming, MINUTELY recurrence advances nextRunAt by ~60s, so allow up to 65s tolerance
     expect(Math.abs(after!.nextRunAt - originalNextRunAt)).toBeLessThan(65000);
     expect(after!.lastRunAt).not.toBeNull();
+  });
+
+  test('notify reminder passes routing metadata to notifyReminder callback', async () => {
+    const reminder = insertReminder({
+      label: 'Route this reminder',
+      message: 'Reminder body',
+      fireAt: Date.now() - 1000,
+      mode: 'notify',
+      routingIntent: 'multi_channel',
+      routingHints: {
+        requestedByUser: true,
+        channelMentions: ['telegram', 'sms'],
+      },
+    });
+
+    const notifyCalls: Array<{
+      id: string;
+      label: string;
+      message: string;
+      routingIntent: 'single_channel' | 'multi_channel' | 'all_channels';
+      routingHints: Record<string, unknown>;
+    }> = [];
+    const notifyReminder = (payload: {
+      id: string;
+      label: string;
+      message: string;
+      routingIntent: 'single_channel' | 'multi_channel' | 'all_channels';
+      routingHints: Record<string, unknown>;
+    }) => {
+      notifyCalls.push(payload);
+    };
+
+    const scheduler = startScheduler(async () => {}, notifyReminder, () => {});
+    await new Promise(resolve => setTimeout(resolve, 500));
+    scheduler.stop();
+
+    expect(notifyCalls).toHaveLength(1);
+    expect(notifyCalls[0]).toEqual({
+      id: reminder.id,
+      label: reminder.label,
+      message: reminder.message,
+      routingIntent: 'multi_channel',
+      routingHints: {
+        requestedByUser: true,
+        channelMentions: ['telegram', 'sms'],
+      },
+    });
+    expect(getReminder(reminder.id)?.status).toBe('fired');
   });
 });

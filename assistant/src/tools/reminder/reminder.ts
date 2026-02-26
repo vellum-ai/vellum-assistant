@@ -22,7 +22,7 @@ export function executeReminderCreate(input: Record<string, unknown>): ToolExecu
   const message = input.message as string | undefined;
   const mode = (input.mode as string | undefined) ?? 'notify';
   const routingIntentRaw = input.routing_intent as string | undefined;
-  const routingHintsRaw = input.routing_hints as Record<string, unknown> | undefined;
+  const routingHintsRaw = input.routing_hints as unknown;
 
   if (!fireAtStr) {
     return { content: 'Error: fire_at is required for create', isError: true };
@@ -47,10 +47,13 @@ export function executeReminderCreate(input: Record<string, unknown>): ToolExecu
   }
 
   // Validate routing_hints if provided
-  const routingHints: RoutingHints = (routingHintsRaw as RoutingHints) ?? {};
-  if (routingHintsRaw !== undefined && (typeof routingHintsRaw !== 'object' || Array.isArray(routingHintsRaw))) {
+  if (
+    routingHintsRaw !== undefined
+    && (!routingHintsRaw || typeof routingHintsRaw !== 'object' || Array.isArray(routingHintsRaw))
+  ) {
     return { content: 'Error: routing_hints must be a JSON object', isError: true };
   }
+  const routingHints: RoutingHints = routingHintsRaw === undefined ? {} : routingHintsRaw as RoutingHints;
 
   // Require strict ISO 8601 with timezone offset or Z to avoid ambiguous parsing
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(fireAtStr)) {

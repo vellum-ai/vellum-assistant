@@ -91,7 +91,7 @@ The `enforceRoutingIntent()` step runs after the LLM produces a channel selectio
 | Intent | Enforcement Rule |
 |--------|-----------------|
 | `single_channel` | No override. The LLM's channel selection stands. |
-| `multi_channel` | If the LLM selected < 2 channels and 2+ are connected, expand to all connected channels. |
+| `multi_channel` | If the LLM selected < 2 channels and 2+ are connected, expand to at least two connected channels. |
 | `all_channels` | Replace the LLM's selection with all connected channels. |
 
 When enforcement changes the decision, the updated `selectedChannels` and annotated `reasoningSummary` are re-persisted to `notification_decisions` so the audit trail reflects what was actually dispatched.
@@ -355,4 +355,3 @@ Deletion uses optimistic UI with rollback:
 1. **Optimistic removal** — `TasksWindowViewModel.removeTask()` snapshots the current `items` array, then immediately removes the target item with animation.
 2. **IPC request** — Sends `work_item_delete` with the item ID. The daemon looks up the item; if found, deletes it and responds with `work_item_delete_response { success: true }`, then broadcasts `tasks_changed`.
 3. **Failure rollback** — If the send throws (socket error), the view model restores the snapshot with animation. If the daemon responds with `success: false` (item not found), the `onWorkItemDeleteResponse` callback triggers a full refetch to reconcile.
-

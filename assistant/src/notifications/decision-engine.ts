@@ -432,12 +432,31 @@ export function enforceRoutingIntent(
   if (routingIntent === 'multi_channel') {
     // Ensure at least 2 channels when 2+ are connected
     if (connectedChannels.length >= 2 && decision.selectedChannels.length < 2) {
+      const connectedSet = new Set<NotificationChannel>(connectedChannels);
+      const selectedConnected = decision.selectedChannels.filter((ch) => connectedSet.has(ch));
+      const expanded: NotificationChannel[] = [];
+      const seen = new Set<NotificationChannel>();
+
+      // Preserve the decision's selected channels first, then add connected
+      // channels until we reach two channels total.
+      for (const ch of selectedConnected) {
+        if (seen.has(ch)) continue;
+        expanded.push(ch);
+        seen.add(ch);
+      }
+      for (const ch of connectedChannels) {
+        if (seen.has(ch)) continue;
+        expanded.push(ch);
+        seen.add(ch);
+        if (expanded.length >= 2) break;
+      }
+
       const enforced = { ...decision };
-      enforced.selectedChannels = [...connectedChannels];
-      enforced.reasoningSummary = `${decision.reasoningSummary} [routing_intent=multi_channel enforced: expanded to ${connectedChannels.join(', ')}]`;
+      enforced.selectedChannels = expanded;
+      enforced.reasoningSummary = `${decision.reasoningSummary} [routing_intent=multi_channel enforced: expanded to ${expanded.join(', ')}]`;
       log.info(
-        { routingIntent, connectedChannels, originalChannels: decision.selectedChannels },
-        'Routing intent enforcement: multi_channel → expanded to all connected channels',
+        { routingIntent, connectedChannels, originalChannels: decision.selectedChannels, enforcedChannels: expanded },
+        'Routing intent enforcement: multi_channel → expanded to at least two channels',
       );
       return enforced;
     }

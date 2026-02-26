@@ -219,6 +219,19 @@ describe('reminder tool', () => {
     expect(result.content).toContain('Routing: multi_channel');
   });
 
+  test('create with routing_hints null returns error', async () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const result = executeReminderCreate({
+      fire_at: future,
+      label: 'Bad hints',
+      message: 'Null hints should fail',
+      routing_hints: null,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('routing_hints must be a JSON object');
+  });
+
   test('create without routing fields still works (backward compat)', async () => {
     const future = new Date(Date.now() + 60_000).toISOString();
     const result = executeReminderCreate({

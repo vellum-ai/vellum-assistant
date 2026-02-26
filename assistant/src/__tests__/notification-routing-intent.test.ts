@@ -100,7 +100,7 @@ describe('routing intent enforcement', () => {
   });
 
   describe('multi_channel intent', () => {
-    test('expands to all connected when LLM picked fewer than 2 and 2+ are connected', () => {
+    test('expands to at least two channels when LLM picked fewer than 2 and 2+ are connected', () => {
       const decision = makeDecision({ selectedChannels: ['vellum'] });
       const connected: NotificationChannel[] = ['vellum', 'telegram'];
 
@@ -108,6 +108,16 @@ describe('routing intent enforcement', () => {
 
       expect(enforced.selectedChannels).toEqual(['vellum', 'telegram']);
       expect(enforced.reasoningSummary).toContain('routing_intent=multi_channel');
+    });
+
+    test('does not expand to all channels when 3+ are connected', () => {
+      const decision = makeDecision({ selectedChannels: ['telegram'] });
+      const connected: NotificationChannel[] = ['vellum', 'telegram', 'sms'];
+
+      const enforced = enforceRoutingIntent(decision, 'multi_channel', connected);
+
+      expect(enforced.selectedChannels).toEqual(['telegram', 'vellum']);
+      expect(enforced.selectedChannels).not.toContain('sms');
     });
 
     test('does not override when LLM already picked 2+ channels', () => {
