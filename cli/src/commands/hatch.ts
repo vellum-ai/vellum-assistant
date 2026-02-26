@@ -1,7 +1,9 @@
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync } from "fs";
+import jsQR from "jsqr";
 import { hostname as osHostname, networkInterfaces, homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
+import { PNG } from "pngjs";
 import QRCode from "qrcode";
 import qrcodeTerminal from "qrcode-terminal";
 
@@ -414,11 +416,94 @@ function getMachineIdHash(): string {
   return createHash("sha256").update(raw).digest("hex").substring(0, 12);
 }
 
+interface QRPairingPayload {
+  type: string;
+  v: number;
+  id?: string;
+  g: string;
+  pairingRequestId: string;
+  pairingSecret: string;
+  localLanUrl?: string;
+}
+
+function decodeQRCodeFromPng(pngPath: string): string {
+  const fileData = readFileSync(pngPath);
+  const png = PNG.sync.read(fileData);
+  const code = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
+  if (!code) {
+    throw new Error("Could not decode QR code from the provided PNG image.");
+  }
+  return code.data;
+}
+
 async function hatchCustom(
   species: Species,
   _detached: boolean,
   name: string | null,
 ): Promise<void> {
+  const qrCodePath = process.env.VELLUM_CUSTOM_QR_CODE_PATH;
+
+  // Mode 1: Desktop app provided a QR code PNG — decode it and pair with the remote assistant
+  if (qrCodePath) {
+    try {
+      console.log("🔍 Reading QR code from provided image...");
+      const qrData = decodeQRCodeFromPng(qrCodePath);
+
+      let payload: QRPairingPayload;
+      try {
+        payload = JSON.parse(qrData) as QRPairingPayload;
+      } catch {
+        throw new Error("QR code does not contain valid pairing data.");
+      }
+
+      if (payload.type !== "vellum-daemon" || !payload.g || !payload.pairingRequestId || !payload.pairingSecret) {
+        throw new Error("QR code does not contain valid Vellum pairing data.");
+      }
+
+      const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
+      const runtimeUrl = payload.g;
+
+      console.log(`🔗 Pairing with remote assistant at ${runtimeUrl}...`);
+
+      // Approve the pairing request on the remote assistant
+      const approveUrl = `${runtimeUrl}/v1/pairing/approve`;
+      const approveRes = await fetch(approveUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pairingRequestId: payload.pairingRequestId,
+          pairingSecret: payload.pairingSecret,
+        }),
+      });
+
+      if (!approveRes.ok) {
+        const body = await approveRes.text().catch(() => "");
+        throw new Error(`Failed to pair with remote assistant: HTTP ${approveRes.status}: ${body || approveRes.statusText}`);
+      }
+
+      const customEntry: AssistantEntry = {
+        assistantId: instanceName,
+        runtimeUrl,
+        cloud: "custom",
+        species,
+        hatchedAt: new Date().toISOString(),
+      };
+      saveAssistantEntry(customEntry);
+
+      console.log("");
+      console.log("✅ Successfully paired with remote assistant!");
+      console.log("Instance details:");
+      console.log(`  Name: ${instanceName}`);
+      console.log(`  Runtime URL: ${runtimeUrl}`);
+      console.log("");
+    } catch (error) {
+      console.error("❌ Error:", error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+    return;
+  }
+
+  // Mode 2: Running on the Mac mini — do a local hatch and generate a pairing QR code
   try {
     const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
 
