@@ -201,6 +201,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         let thread = ThreadModel(title: title, sessionId: conversationId)
         let viewModel = makeViewModel()
         viewModel.sessionId = conversationId
+        // Mark history as loaded since this thread streams live — there is no
+        // prior history to fetch. Without this, handleAssistantMessageArrival
+        // would drop all live updates (unseen indicators, recency bumps) because
+        // the !isHistoryLoaded guard returns early.
+        viewModel.isHistoryLoaded = true
         // Start the message loop so the view model receives streamed messages
         viewModel.startMessageLoop()
 
@@ -228,6 +233,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         thread.hasUnseenLatestAssistantMessage = true
         let viewModel = makeViewModel()
         viewModel.sessionId = conversationId
+        // Mark history as loaded since this thread streams live — there is no
+        // prior history to fetch. Without this, handleAssistantMessageArrival
+        // would drop all live updates (unseen indicators, recency bumps) because
+        // the !isHistoryLoaded guard returns early.
+        viewModel.isHistoryLoaded = true
         // Start the message loop so the view model receives streamed messages
         viewModel.startMessageLoop()
 
