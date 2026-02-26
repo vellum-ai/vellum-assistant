@@ -177,11 +177,18 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
       return 'That request has already expired. No further action is needed.';
 
     case 'outbound_message_copy':
-      return context.callerIdentifier && context.questionText
-        ? `Hi, ${context.callerIdentifier} tried to reach you earlier and asked: "${context.questionText}". Please reply when you get a chance.`
-        : context.questionText
-          ? `Someone tried to reach you earlier and asked: "${context.questionText}". Please reply when you get a chance.`
-          : 'Someone tried to reach you earlier. Please reply when you get a chance.';
+      // This SMS is sent TO the original caller who asked a question.
+      // It should relay the guardian's late answer back to them.
+      if (context.lateAnswerText && context.questionText) {
+        return `Hi! You asked earlier: "${context.questionText}". Here's the answer: ${context.lateAnswerText}`;
+      }
+      if (context.lateAnswerText) {
+        return `Hi! Regarding your earlier question — here's the answer: ${context.lateAnswerText}`;
+      }
+      if (context.questionText) {
+        return `Hi! You asked earlier: "${context.questionText}". We'll get back to you with an answer shortly.`;
+      }
+      return 'Hi! We received your question and will get back to you shortly.';
 
     case 'followup_message_sent':
       return context.counterpartyPhone
