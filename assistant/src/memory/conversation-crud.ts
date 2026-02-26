@@ -380,6 +380,11 @@ export function clearAll(): { conversations: number; messages: number } {
     rawExec('DROP TRIGGER IF EXISTS memory_segments_ai');
     rawExec('DROP TRIGGER IF EXISTS memory_segments_ad');
     rawExec('DROP TRIGGER IF EXISTS memory_segments_au');
+    // Recreate triggers immediately so subsequent writes maintain FTS consistency
+    // without requiring a daemon restart. Uses IF NOT EXISTS so this is idempotent.
+    rawExec(`CREATE TRIGGER IF NOT EXISTS memory_segments_ai AFTER INSERT ON memory_segments BEGIN INSERT INTO memory_segment_fts(segment_id, text) VALUES (new.id, new.text); END`);
+    rawExec(`CREATE TRIGGER IF NOT EXISTS memory_segments_ad AFTER DELETE ON memory_segments BEGIN DELETE FROM memory_segment_fts WHERE segment_id = old.id; END`);
+    rawExec(`CREATE TRIGGER IF NOT EXISTS memory_segments_au AFTER UPDATE ON memory_segments BEGIN DELETE FROM memory_segment_fts WHERE segment_id = old.id; INSERT INTO memory_segment_fts(segment_id, text) VALUES (new.id, new.text); END`);
   }
   rawExec('DELETE FROM memory_item_sources');
   rawExec('DELETE FROM memory_segments');
@@ -400,6 +405,11 @@ export function clearAll(): { conversations: number; messages: number } {
     rawExec('DROP TRIGGER IF EXISTS messages_fts_ai');
     rawExec('DROP TRIGGER IF EXISTS messages_fts_ad');
     rawExec('DROP TRIGGER IF EXISTS messages_fts_au');
+    // Recreate triggers immediately so subsequent writes maintain FTS consistency
+    // without requiring a daemon restart. Uses IF NOT EXISTS so this is idempotent.
+    rawExec(`CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`);
+    rawExec(`CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; END`);
+    rawExec(`CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`);
   }
   rawExec('DELETE FROM messages');
   rawExec('DELETE FROM conversations');
