@@ -601,6 +601,7 @@ describe('executeRecordingIntent', () => {
     handleRecordingRestart: mockHandleRecordingRestart,
     handleRecordingPause: mockHandleRecordingPause,
     handleRecordingResume: mockHandleRecordingResume,
+    isRecordingIdle: () => true,
   }));
 
   // Dynamically import so the mock takes effect
@@ -732,7 +733,7 @@ describe('executeRecordingIntent', () => {
     });
   });
 
-  test('start_and_stop_with_remainder → returns not handled with remainder and pendingRestart', () => {
+  test('start_and_stop_with_remainder → returns not handled with remainder and pendingStart when idle', () => {
     const result = executeRecordingIntent(
       { kind: 'start_and_stop_with_remainder', remainder: 'open Safari' },
       mockContext,
@@ -740,7 +741,7 @@ describe('executeRecordingIntent', () => {
     expect(result).toEqual({
       handled: false,
       remainderText: 'open Safari',
-      pendingRestart: true,
+      pendingStart: true,
     });
   });
 
