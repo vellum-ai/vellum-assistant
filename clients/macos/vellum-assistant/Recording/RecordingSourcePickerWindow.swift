@@ -50,8 +50,9 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
         )
 
         let hostingController = NSHostingController(rootView: pickerView)
+        let windowHeight: CGFloat = 640
         let newWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 440),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: windowHeight),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -89,6 +90,8 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
             NotificationCenter.default.removeObserver(observer)
             moveObserver = nil
         }
+        let vm = viewModel
+        Task { await vm?.clearPreviews() }
         window?.delegate = nil
         window?.close()
         window = nil
@@ -104,6 +107,9 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
             if let observer = moveObserver {
                 NotificationCenter.default.removeObserver(observer)
                 moveObserver = nil
+            }
+            if let vm = viewModel {
+                Task { await vm.clearPreviews() }
             }
             window = nil
             viewModel = nil
