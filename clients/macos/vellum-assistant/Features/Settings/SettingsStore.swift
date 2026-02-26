@@ -10,6 +10,12 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// (main window side panel) and its extracted tab views.
 @MainActor
 public final class SettingsStore: ObservableObject {
+    // MARK: - Navigation
+
+    /// Set externally (e.g. via IPC) to deep-link into a specific settings tab.
+    /// SettingsPanel observes this and clears it after applying.
+    @Published var pendingSettingsTab: SettingsTab?
+
     // MARK: - API Key State
 
     @Published var hasKey: Bool

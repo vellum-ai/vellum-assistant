@@ -380,6 +380,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `open_url` message.
     public var onOpenUrl: ((OpenUrlMessage) -> Void)?
 
+    /// Called when the daemon sends a `navigate_settings` message.
+    public var onNavigateSettings: ((IPCNavigateSettings) -> Void)?
+
     /// Called when the daemon sends a `ui_layout_config` message.
     public var onLayoutConfig: ((UiLayoutConfigMessage) -> Void)?
 

@@ -96,6 +96,16 @@ struct SettingsPanel: View {
             if testerModel == nil, let dc = daemonClient {
                 testerModel = ToolPermissionTesterModel(daemonClient: dc)
             }
+            if let pending = store.pendingSettingsTab {
+                selectedTab = pending
+                store.pendingSettingsTab = nil
+            }
+        }
+        .onChange(of: store.pendingSettingsTab) { _, newTab in
+            if let tab = newTab {
+                selectedTab = tab
+                store.pendingSettingsTab = nil
+            }
         }
         .onDisappear {
             daemonClient?.onIntegrationListResponse = nil
