@@ -324,7 +324,7 @@ function main() {
         return undefined as unknown as Response;
       }
 
-      if (url.pathname === "/v1/browser-relay") {
+      if (config.runtimeProxyEnabled && url.pathname === "/v1/browser-relay") {
         const upgradeResult = handleBrowserRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         // If upgrade was handled, Bun doesn't need a response
