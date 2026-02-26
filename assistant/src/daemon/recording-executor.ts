@@ -5,7 +5,6 @@
 
 import type * as net from 'node:net';
 
-import type { HandlerContext } from './handlers/shared.js';
 import {
   handleRecordingPause,
   handleRecordingRestart,
@@ -14,6 +13,7 @@ import {
   handleRecordingStop,
   isRecordingIdle,
 } from './handlers/recording.js';
+import type { HandlerContext } from './handlers/shared.js';
 import type { RecordingIntentResult } from './recording-intent.js';
 
 export interface RecordingExecutionContext {

@@ -22,17 +22,17 @@ import {
   getGuardianStatus,
 } from '../../daemon/handlers/config-channels.js';
 import {
-  startOutbound,
-  resendOutbound,
-  cancelOutbound,
-} from '../guardian-outbound-actions.js';
-import {
   clearTelegramConfig,
   getTelegramConfig,
   setTelegramCommands,
   setTelegramConfig,
   setupTelegram,
 } from '../../daemon/handlers/config-telegram.js';
+import {
+  cancelOutbound,
+  resendOutbound,
+  startOutbound,
+} from '../guardian-outbound-actions.js';
 
 /**
  * GET /v1/integrations/telegram/config

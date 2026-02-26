@@ -29,7 +29,7 @@ import {
 } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import { PairingStore } from '../daemon/pairing-store.js';
-import { type Confidence, type SignalType, getAttentionStateByConversationIds, recordConversationSeenSignal } from '../memory/conversation-attention-store.js';
+import { type Confidence, getAttentionStateByConversationIds, recordConversationSeenSignal,type SignalType } from '../memory/conversation-attention-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as externalConversationStore from '../memory/external-conversation-store.js';
 import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
@@ -549,12 +549,12 @@ export class RuntimeHttpServer {
             const originChannel = parseChannelId(c.originChannel);
             const attn = attentionStates.get(c.id);
             const assistantAttention = attn ? {
-              hasUnseenLatestAssistantMessage: attn.latestAssistantMessageAt !== null &&
-                (attn.lastSeenAssistantMessageAt === null || attn.lastSeenAssistantMessageAt < attn.latestAssistantMessageAt),
-              ...(attn.latestAssistantMessageAt !== null ? { latestAssistantMessageAt: attn.latestAssistantMessageAt } : {}),
-              ...(attn.lastSeenAssistantMessageAt !== null ? { lastSeenAssistantMessageAt: attn.lastSeenAssistantMessageAt } : {}),
-              ...(attn.lastSeenConfidence !== null ? { lastSeenConfidence: attn.lastSeenConfidence } : {}),
-              ...(attn.lastSeenSignalType !== null ? { lastSeenSignalType: attn.lastSeenSignalType } : {}),
+              hasUnseenLatestAssistantMessage: attn.latestAssistantMessageAt != null &&
+                (attn.lastSeenAssistantMessageAt == null || attn.lastSeenAssistantMessageAt < attn.latestAssistantMessageAt),
+              ...(attn.latestAssistantMessageAt != null ? { latestAssistantMessageAt: attn.latestAssistantMessageAt } : {}),
+              ...(attn.lastSeenAssistantMessageAt != null ? { lastSeenAssistantMessageAt: attn.lastSeenAssistantMessageAt } : {}),
+              ...(attn.lastSeenConfidence != null ? { lastSeenConfidence: attn.lastSeenConfidence } : {}),
+              ...(attn.lastSeenSignalType != null ? { lastSeenSignalType: attn.lastSeenSignalType } : {}),
             } : undefined;
             return {
               id: c.id,

@@ -61,9 +61,9 @@ export function handleListConversationAttention(url: URL): Response {
   const results = pageStates.map((attn) => {
     const conv = conversationMap.get(attn.conversationId);
     const convSource = conv?.source ?? 'user';
-    const hasUnseen = attn.latestAssistantMessageAt !== null &&
-      (attn.lastSeenAssistantMessageAt === null || attn.lastSeenAssistantMessageAt < attn.latestAssistantMessageAt);
-    const state: 'seen' | 'unseen' | 'no_assistant_message' = attn.latestAssistantMessageAt === null
+    const hasUnseen = attn.latestAssistantMessageAt != null &&
+      (attn.lastSeenAssistantMessageAt == null || attn.lastSeenAssistantMessageAt < attn.latestAssistantMessageAt);
+    const state: 'seen' | 'unseen' | 'no_assistant_message' = attn.latestAssistantMessageAt == null
       ? 'no_assistant_message'
       : hasUnseen ? 'unseen' : 'seen';
 

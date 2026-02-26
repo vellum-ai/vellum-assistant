@@ -1,6 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import * as net from 'node:net';
+
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ─── Mocks (must be before any imports that depend on them) ─────────────────
 
@@ -66,8 +66,8 @@ mock.module('../memory/attachments-store.js', () => ({
 }));
 
 // Mock node:fs
-mock.module('node:fs', () => {
-  const realFs = require('fs');
+mock.module('node:fs', async () => {
+  const realFs = await import('fs');
   return {
     ...realFs,
     existsSync: (p: string) => {
@@ -89,19 +89,19 @@ mock.module('../daemon/video-thumbnail.js', () => ({
 // ─── Imports (after mocks) ──────────────────────────────────────────────────
 
 import {
+  __resetRecordingState,
+  getActiveRestartToken,
+  handleRecordingPause,
+  handleRecordingRestart,
+  handleRecordingResume,
   handleRecordingStart,
   handleRecordingStop,
-  handleRecordingRestart,
-  handleRecordingPause,
-  handleRecordingResume,
   isRecordingIdle,
-  getActiveRestartToken,
   recordingHandlers,
-  __resetRecordingState,
 } from '../daemon/handlers/recording.js';
-import { executeRecordingIntent } from '../daemon/recording-executor.js';
 import type { HandlerContext } from '../daemon/handlers/shared.js';
 import type { RecordingStatus } from '../daemon/ipc-contract/computer-use.js';
+import { executeRecordingIntent } from '../daemon/recording-executor.js';
 import { DebouncerMap } from '../util/debounce.js';
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
@@ -996,7 +996,7 @@ describe('deferred restart prevents race condition', () => {
 
   test('stop-ack timeout cleans up deferred restart state', () => {
     // This test uses a real timer via bun's jest-compatible API
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, fakeSocket } = createCtx();
     const conversationId = 'conv-deferred-timeout';
     ctx.socketToSession.set(fakeSocket, conversationId);
 

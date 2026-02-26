@@ -25,8 +25,8 @@ import { requestComputerControlTool } from '../tools/computer-use/request-comput
 import type { ProxyApprovalCallback, ProxyApprovalRequest } from '../tools/network/script-proxy/index.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
-import { projectSkillTools, type SkillProjectionCache } from './session-skill-tools.js';
 import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
+import { projectSkillTools, type SkillProjectionCache } from './session-skill-tools.js';
 import type { SurfaceSessionContext } from './session-surfaces.js';
 import {
   surfaceProxyResolver,

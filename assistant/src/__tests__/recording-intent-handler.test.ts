@@ -83,6 +83,7 @@ let mockIntentResult: RecordingIntentResult = { kind: 'none' };
 // Capture real function references BEFORE mock.module replaces the module.
 // require() at this point returns the real module since mock.module has not
 // been called yet for this specifier.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const _realRecordingIntentMod = require('../daemon/recording-intent.js');
 const _realResolveRecordingIntent = _realRecordingIntentMod.resolveRecordingIntent;
 const _realStripDynamicNames = _realRecordingIntentMod.stripDynamicNames;
@@ -125,6 +126,7 @@ let executorCalled = false;
 
 let _realExecuteRecordingIntent: ((...args: any[]) => any) | null = null;
 try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const _mod = require('../daemon/recording-executor.js');
   _realExecuteRecordingIntent = _mod.executeRecordingIntent;
 } catch {
@@ -152,7 +154,7 @@ mock.module('../daemon/recording-executor.js', () => ({
 // handlers/recording.js, it gets the real behavior.
 
 let recordingStartCalled = false;
-let recordingStopCalled = false;
+let _recordingStopCalled = false;
 let recordingRestartCalled = false;
 let recordingPauseCalled = false;
 let recordingResumeCalled = false;
@@ -167,6 +169,7 @@ let _realRecordingHandlers: any = {};
 let _realResetRecordingState: ((...args: any[]) => any) | null = null;
 
 try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const _mod = require('../daemon/handlers/recording.js');
   _realHandleRecordingStart = _mod.handleRecordingStart;
   _realHandleRecordingStop = _mod.handleRecordingStop;
@@ -190,7 +193,7 @@ mock.module('../daemon/handlers/recording.js', () => ({
   },
   handleRecordingStop: (...args: any[]) => {
     if ((globalThis as any).__riHandlerUseMockIntent) {
-      recordingStopCalled = true;
+      _recordingStopCalled = true;
       return 'mock-recording-id';
     }
     return _realHandleRecordingStop?.(...args);
@@ -420,7 +423,7 @@ function resetMockState(): void {
   mockExecuteResult = { handled: false };
   mockAssistantName = null;
   recordingStartCalled = false;
-  recordingStopCalled = false;
+  _recordingStopCalled = false;
   recordingRestartCalled = false;
   recordingPauseCalled = false;
   recordingResumeCalled = false;

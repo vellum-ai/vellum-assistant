@@ -1,6 +1,6 @@
 import * as net from 'node:net';
 
-import { recordConversationSeenSignal, type Confidence, type SignalType } from '../../memory/conversation-attention-store.js';
+import { type Confidence, recordConversationSeenSignal, type SignalType } from '../../memory/conversation-attention-store.js';
 import { updateDeliveryClientOutcome } from '../../notifications/deliveries-store.js';
 import type { ClientMessage } from '../ipc-protocol.js';
 import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';

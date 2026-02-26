@@ -92,20 +92,20 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
 // Now import modules under test (after mocks are in place)
 // ---------------------------------------------------------------------------
 
-import {
-  startOutbound,
-  resendOutbound,
-  cancelOutbound,
-} from '../runtime/guardian-outbound-actions.js';
-import {
-  handleStartOutbound,
-  handleResendOutbound,
-  handleCancelOutbound,
-} from '../runtime/routes/integration-routes.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import {
   updateSessionDelivery,
 } from '../runtime/channel-guardian-service.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import {
+  cancelOutbound,
+  resendOutbound,
+  startOutbound,
+} from '../runtime/guardian-outbound-actions.js';
+import {
+  handleCancelOutbound,
+  handleResendOutbound,
+  handleStartOutbound,
+} from '../runtime/routes/integration-routes.js';
 
 // Initialize the database (creates all tables)
 initializeDb();
