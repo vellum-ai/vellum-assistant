@@ -21,6 +21,10 @@ const log = getLogger('access-request-decision');
 
 export type AccessRequestDecisionAction = 'approve' | 'deny';
 
+export type DeliveryResult =
+  | { ok: true }
+  | { ok: false; reason: string };
+
 export interface AccessRequestDecisionResult {
   handled: boolean;
   type: 'approved' | 'denied' | 'stale' | 'idempotent';
@@ -108,7 +112,7 @@ export async function deliverVerificationCodeToGuardian(params: {
   verificationCode: string;
   assistantId: string;
   bearerToken?: string;
-}): Promise<void> {
+}): Promise<DeliveryResult> {
   const text = `You approved access for ${params.requesterIdentifier}. `
     + `Give them this verification code: ${params.verificationCode}. `
     + `The code expires in 10 minutes.`;
@@ -119,11 +123,14 @@ export async function deliverVerificationCodeToGuardian(params: {
       text,
       assistantId: params.assistantId,
     }, params.bearerToken);
+    return { ok: true };
   } catch (err) {
     log.error(
       { err, guardianChatId: params.guardianChatId },
       'Failed to deliver verification code to guardian',
     );
+    const reason = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason };
   }
 }
 
@@ -150,6 +157,34 @@ export async function notifyRequesterOfApproval(params: {
     log.error(
       { err, requesterChatId: params.requesterChatId },
       'Failed to notify requester of access request approval',
+    );
+  }
+}
+
+/**
+ * Notify the requester that something went wrong delivering the verification
+ * code and they should try again later. Sent instead of the "enter the code"
+ * message when guardian code delivery fails.
+ */
+export async function notifyRequesterOfDeliveryFailure(params: {
+  replyCallbackUrl: string;
+  requesterChatId: string;
+  assistantId: string;
+  bearerToken?: string;
+}): Promise<void> {
+  const text = 'Your access request was approved, but we were unable to '
+    + 'deliver the verification code. Please try again later.';
+
+  try {
+    await deliverChannelReply(params.replyCallbackUrl, {
+      chatId: params.requesterChatId,
+      text,
+      assistantId: params.assistantId,
+    }, params.bearerToken);
+  } catch (err) {
+    log.error(
+      { err, requesterChatId: params.requesterChatId },
+      'Failed to notify requester of delivery failure',
     );
   }
 }

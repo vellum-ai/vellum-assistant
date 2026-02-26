@@ -41,10 +41,14 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-// Track deliverChannelReply calls
+// Track deliverChannelReply calls and allow injecting failures
 const deliverReplyCalls: Array<{ url: string; payload: Record<string, unknown> }> = [];
+let deliverReplyError: Error | null = null;
 mock.module('../runtime/gateway-client.js', () => ({
   deliverChannelReply: async (url: string, payload: Record<string, unknown>) => {
+    if (deliverReplyError) {
+      throw deliverReplyError;
+    }
     deliverReplyCalls.push({ url, payload });
   },
 }));
@@ -64,6 +68,7 @@ import {
   deliverVerificationCodeToGuardian,
   notifyRequesterOfApproval,
   notifyRequesterOfDenial,
+  notifyRequesterOfDeliveryFailure,
 } from '../runtime/routes/access-request-decision.js';
 
 initializeDb();
@@ -233,10 +238,11 @@ describe('access request decision handler', () => {
 describe('access request notification delivery', () => {
   beforeEach(() => {
     deliverReplyCalls.length = 0;
+    deliverReplyError = null;
   });
 
-  test('delivers verification code to guardian', async () => {
-    await deliverVerificationCodeToGuardian({
+  test('delivers verification code to guardian and returns ok', async () => {
+    const result = await deliverVerificationCodeToGuardian({
       replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
       guardianChatId: 'guardian-chat-789',
       requesterIdentifier: 'user-unknown-456',
@@ -245,6 +251,7 @@ describe('access request notification delivery', () => {
       bearerToken: 'test-token',
     });
 
+    expect(result.ok).toBe(true);
     expect(deliverReplyCalls.length).toBe(1);
     const call = deliverReplyCalls[0];
     expect(call.payload.chatId).toBe('guardian-chat-789');
@@ -252,6 +259,26 @@ describe('access request notification delivery', () => {
     expect(text).toContain('123456');
     expect(text).toContain('user-unknown-456');
     expect(text).toContain('10 minutes');
+  });
+
+  test('returns failure result when guardian code delivery fails', async () => {
+    deliverReplyError = new Error('Gateway timeout');
+
+    const result = await deliverVerificationCodeToGuardian({
+      replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
+      guardianChatId: 'guardian-chat-789',
+      requesterIdentifier: 'user-unknown-456',
+      verificationCode: '123456',
+      assistantId: 'self',
+      bearerToken: 'test-token',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('Gateway timeout');
+    }
+    // No calls should have been recorded (error thrown before push)
+    expect(deliverReplyCalls.length).toBe(0);
   });
 
   test('notifies requester of approval', async () => {
@@ -283,5 +310,22 @@ describe('access request notification delivery', () => {
     expect(call.payload.chatId).toBe('chat-123');
     const text = call.payload.text as string;
     expect(text).toContain('denied');
+  });
+
+  test('notifies requester of delivery failure', async () => {
+    await notifyRequesterOfDeliveryFailure({
+      replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
+      requesterChatId: 'chat-123',
+      assistantId: 'self',
+      bearerToken: 'test-token',
+    });
+
+    expect(deliverReplyCalls.length).toBe(1);
+    const call = deliverReplyCalls[0];
+    expect(call.payload.chatId).toBe('chat-123');
+    const text = call.payload.text as string;
+    expect(text).toContain('approved');
+    expect(text).toContain('unable to deliver');
+    expect(text).toContain('try again');
   });
 });
