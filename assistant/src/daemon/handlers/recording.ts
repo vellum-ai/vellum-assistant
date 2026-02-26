@@ -52,8 +52,6 @@ const pendingRestartByConversation = new Map<string, string>();
  *  async stop hasn't completed when the start arrives. */
 interface DeferredRestartParams {
   conversationId: string;
-  socket: net.Socket;
-  ctx: HandlerContext;
   operationToken: string;
 }
 
@@ -269,8 +267,6 @@ export function handleRecordingRestart(
   // conversationId from the recording's owner) can find this entry.
   deferredRestartByConversation.set(ownerConversationId, {
     conversationId,
-    socket,
-    ctx,
     operationToken,
   });
 
@@ -517,13 +513,26 @@ async function handleRecordingStatus(
       if (deferred) {
         deferredRestartByConversation.delete(conversationId);
 
+        // Resolve a fresh socket at stop-ack time instead of using the one
+        // captured at restart-request time, which may be stale (disconnected
+        // or replaced) by the time the async stop completes.
+        const freshSocket = findSocketForSession(deferred.conversationId, ctx)
+          ?? reportingSocket;
+
+        if (!freshSocket) {
+          log.warn({ conversationId, requesterId: deferred.conversationId }, 'Deferred restart aborted — no socket available at stop-ack time');
+          activeRestartToken = null;
+          pendingRestartByConversation.delete(conversationId);
+          break;
+        }
+
         log.info({ recordingId, conversationId, operationToken: deferred.operationToken }, 'Stop-ack received — triggering deferred restart start');
 
         const newRecordingId = handleRecordingStart(
           deferred.conversationId,
           { promptForSource: true },
-          deferred.socket,
-          deferred.ctx,
+          freshSocket,
+          ctx,
           deferred.operationToken,
         );
 
