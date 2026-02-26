@@ -417,10 +417,16 @@ export async function processMessage(
         : {}),
     };
     const userMsg = createUserMessage(content, attachments);
+    // When displayContent is provided (e.g. original text before recording
+    // intent stripping), persist that to DB so users see the full message.
+    // The in-memory userMessage (sent to the LLM) still uses the stripped content.
+    const contentToPersist = displayContent
+      ? JSON.stringify(createUserMessage(displayContent, attachments).content)
+      : JSON.stringify(userMsg.content);
     const persisted = conversationStore.addMessage(
       session.conversationId,
       'user',
-      JSON.stringify(userMsg.content),
+      contentToPersist,
       pmChannelMeta,
     );
     session.messages.push(userMsg);
