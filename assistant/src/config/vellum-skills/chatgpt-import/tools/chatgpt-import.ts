@@ -110,7 +110,7 @@ export async function run(
     } as const;
 
     for (const msg of conv.messages) {
-      addMessage(conversation.id, msg.role, JSON.stringify(msg.content), importChannelMetadata);
+      await addMessage(conversation.id, msg.role, JSON.stringify(msg.content), importChannelMetadata);
     }
 
     // addMessage auto-fills originChannel but not originInterface, so set it explicitly

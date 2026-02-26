@@ -482,7 +482,7 @@ async function executeDeny(
 
   // Store a system note about the denial in the conversation
   const denialInterface = isInterfaceId(sourceChannel) ? sourceChannel : undefined;
-  addMessage(conversationId, 'assistant', denialText, {
+  await addMessage(conversationId, 'assistant', denialText, {
     provenanceActorRole: 'guardian' as const,
     userMessageChannel: sourceChannel,
     assistantMessageChannel: sourceChannel,

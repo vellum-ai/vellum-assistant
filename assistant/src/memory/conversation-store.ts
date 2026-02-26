@@ -233,7 +233,7 @@ export function getLatestConversation(): ConversationRow | null {
   return row ? parseConversation(row) : null;
 }
 
-export function addMessage(conversationId: string, role: string, content: string, metadata?: Record<string, unknown>, opts?: { skipIndexing?: boolean }) {
+export async function addMessage(conversationId: string, role: string, content: string, metadata?: Record<string, unknown>, opts?: { skipIndexing?: boolean }) {
   const db = getDb();
   const messageId = uuid();
 
@@ -282,7 +282,7 @@ export function addMessage(conversationId: string, role: string, content: string
     } catch (err) {
       if (attempt < MAX_RETRIES && (err as { code?: string }).code === 'SQLITE_BUSY') {
         log.warn({ attempt, conversationId }, 'addMessage: SQLITE_BUSY, retrying');
-        Bun.sleepSync(50 * (attempt + 1));
+        await Bun.sleep(50 * (attempt + 1));
         continue;
       }
       throw err;

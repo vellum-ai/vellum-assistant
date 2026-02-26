@@ -34,11 +34,11 @@ export interface PairingResult {
  * Errors are caught and logged — this function never throws so the
  * notification pipeline is not disrupted by pairing failures.
  */
-export function pairDeliveryWithConversation(
+export async function pairDeliveryWithConversation(
   signal: NotificationSignal,
   channel: NotificationChannel,
   copy: RenderedChannelCopy,
-): PairingResult {
+): Promise<PairingResult> {
   try {
     const strategy = getConversationStrategy(channel as ChannelId);
 
@@ -78,7 +78,7 @@ export function pairDeliveryWithConversation(
       : composeThreadSeed(signal, channel, copy);
     // Skip memory indexing — notification audit messages are not conversational
     // memory and should not pollute recall or incur embedding/extraction overhead.
-    const message = addMessage(conversation.id, 'assistant', messageContent, undefined, { skipIndexing: true });
+    const message = await addMessage(conversation.id, 'assistant', messageContent, undefined, { skipIndexing: true });
 
     log.info(
       {

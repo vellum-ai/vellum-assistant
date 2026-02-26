@@ -335,7 +335,7 @@ export async function handleSendMessage(
       assistantMessageInterface: sourceInterface,
     });
     const requestId = crypto.randomUUID();
-    const messageId = session.persistUserMessage(content ?? '', attachments, requestId);
+    const messageId = await session.persistUserMessage(content ?? '', attachments, requestId);
 
     // Fire-and-forget the agent loop; events flow to the hub via onEvent.
     // Mark non-interactive so conflict clarification doesn't block the turn.

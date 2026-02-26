@@ -188,7 +188,7 @@ export class DaemonServer {
       const children = getSubagentManager().getChildrenOf(sessionId);
       return children.some((c) => c.status === 'running' || c.status === 'pending');
     };
-    getSubagentManager().onSubagentFinished = (parentSessionId, message, sendToClient, notification) => {
+    getSubagentManager().onSubagentFinished = async (parentSessionId, message, sendToClient, notification) => {
       const parentSession = this.sessions.get(parentSessionId);
       if (!parentSession) {
         log.warn({ parentSessionId }, 'Subagent finished but parent session not found');
@@ -202,7 +202,7 @@ export class DaemonServer {
         return;
       }
       if (!enqueueResult.queued) {
-        const messageId = parentSession.persistUserMessage(message, [], undefined, metadata);
+        const messageId = await parentSession.persistUserMessage(message, [], undefined, metadata);
         parentSession.runAgentLoop(message, messageId, sendToClient).catch((err) => {
           log.error({ parentSessionId, err }, 'Failed to process subagent notification in parent');
         });
@@ -809,7 +809,7 @@ export class DaemonServer {
     );
 
     const requestId = crypto.randomUUID();
-    const messageId = session.persistUserMessage(content, attachments, requestId);
+    const messageId = await session.persistUserMessage(content, attachments, requestId);
 
     // Register pending interactions so channel approval interception can
     // find the session by requestId when confirmation/secret events fire.
@@ -865,7 +865,7 @@ export class DaemonServer {
           : {}),
       };
       const userMsg = createUserMessage(content, attachments);
-      const persisted = conversationStore.addMessage(
+      const persisted = await conversationStore.addMessage(
         conversationId,
         'user',
         JSON.stringify(userMsg.content),
@@ -889,7 +889,7 @@ export class DaemonServer {
       }
 
       const assistantMsg = createAssistantMessage(slashResult.message);
-      conversationStore.addMessage(
+      await conversationStore.addMessage(
         conversationId,
         'assistant',
         JSON.stringify(assistantMsg.content),
@@ -908,7 +908,7 @@ export class DaemonServer {
     const requestId = crypto.randomUUID();
     let messageId: string;
     try {
-      messageId = session.persistUserMessage(resolvedContent, attachments, requestId);
+      messageId = await session.persistUserMessage(resolvedContent, attachments, requestId);
     } catch (err) {
       session.setPreactivatedSkillIds(undefined);
       throw err;

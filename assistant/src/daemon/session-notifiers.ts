@@ -96,12 +96,12 @@ export function registerSessionNotifiers(
     }
   });
 
-  registerCallQuestionNotifier(conversationId, (callSessionId: string, question: string) => {
+  registerCallQuestionNotifier(conversationId, async (callSessionId: string, question: string) => {
     const callSession = getCallSession(callSessionId);
     const callee = callSession?.toNumber ?? 'the caller';
     const questionText = `**Live call question** (to ${callee}):\n\n${question}\n\n_Use the call answer API to respond._`;
 
-    conversationStore.addMessage(
+    await conversationStore.addMessage(
       conversationId,
       'assistant',
       JSON.stringify([{ type: 'text', text: questionText }]),

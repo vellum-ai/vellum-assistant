@@ -80,7 +80,7 @@ export function handleSubagentStatus(
   }
 }
 
-export function handleSubagentMessage(
+export async function handleSubagentMessage(
   msg: SubagentMessageRequest,
   socket: net.Socket,
   ctx: HandlerContext,
@@ -110,7 +110,7 @@ export function handleSubagentMessage(
     return;
   }
 
-  const result = manager.sendMessage(msg.subagentId, msg.content);
+  const result = await manager.sendMessage(msg.subagentId, msg.content);
 
   if (result === 'queue_full') {
     log.warn({ subagentId: msg.subagentId }, 'Subagent message rejected — queue full');
