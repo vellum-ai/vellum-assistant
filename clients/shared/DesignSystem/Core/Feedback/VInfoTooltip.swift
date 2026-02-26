@@ -28,6 +28,7 @@ public struct VInfoTooltip: View {
             .frame(width: 16, height: 16)
             .contentShape(Rectangle())
             .help(tooltip)
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(tooltip)
     }
 }

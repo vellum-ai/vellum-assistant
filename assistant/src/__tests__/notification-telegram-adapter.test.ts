@@ -90,6 +90,24 @@ describe('TelegramAdapter', () => {
     expect(deliveryCalls[0]?.payload.text).toBe('Please check the oven now.');
   });
 
+  test('uses recipient-facing fallback text without channel or meta-send phrasing', async () => {
+    const adapter = new TelegramAdapter();
+    const payload = makePayload({
+      copy: {
+        title: 'Reminder',
+        body: 'Check the oven now!',
+      },
+    });
+
+    await adapter.send(payload, makeDestination());
+
+    const text = deliveryCalls[0]?.payload.text as string;
+    expect(text).toBe('Check the oven now!');
+    expect(text).not.toMatch(/via telegram/i);
+    expect(text).not.toMatch(/may i go ahead/i);
+    expect(text).not.toMatch(/i'd like to send/i);
+  });
+
   test('falls back to body/title/sourceEventName when richer text is unavailable', async () => {
     const adapter = new TelegramAdapter();
 
@@ -126,6 +144,6 @@ describe('TelegramAdapter', () => {
       }),
       makeDestination(),
     );
-    expect(deliveryCalls[2]?.payload.text).toBe('watcher.escalation');
+    expect(deliveryCalls[2]?.payload.text).toBe('watcher escalation');
   });
 });

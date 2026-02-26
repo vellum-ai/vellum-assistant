@@ -371,6 +371,16 @@ describe('composeThreadSeed', () => {
       expect(seed.trim().length).toBeGreaterThan(0);
     });
 
+    test('uses context payload "senderIdentifier" for escalation events', () => {
+      const signal = makeSignal({
+        sourceEventName: 'ingress.escalation',
+        contextPayload: { senderIdentifier: 'Alice' },
+      });
+      const copy = makeCopy({ title: '', body: '' });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed).toBe('Ingress escalation: Alice');
+    });
+
     test('prefers "message" over "summary" in context payload', () => {
       const signal = makeSignal({
         sourceEventName: 'test.event',

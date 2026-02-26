@@ -24,7 +24,7 @@ import type { NotificationChannel, NotificationDecision, RenderedChannelCopy } f
 const log = getLogger('notification-decision-engine');
 
 const DECISION_TIMEOUT_MS = 15_000;
-const PROMPT_VERSION = 'v2';
+const PROMPT_VERSION = 'v3';
 
 // ── System prompt ──────────────────────────────────────────────────────
 
@@ -60,7 +60,9 @@ function buildSystemPrompt(
     `- \`title\` and \`body\` are for native notification popups (e.g. vellum desktop/mobile) — keep them short and glanceable (title ≤ 8 words, body ≤ 2 sentences).`,
     `- \`deliveryText\` is the channel-native message for chat channels (e.g. telegram). It must read naturally as a standalone message.`,
     `  - Do not prepend mechanical labels like "Thread:".`,
+    `  - Do not mention channel or transport names (e.g. Telegram, SMS, email) unless the event context explicitly requires it.`,
     `  - Do not repeat title/body verbatim unless that repetition is truly necessary.`,
+    `  - Avoid meta-send phrasing (e.g. "I'd like to send a notification", "May I go ahead with that?"). Write the recipient-facing message directly.`,
     `  - For telegram: 1-2 concise sentences.`,
     `- \`threadSeedMessage\` is the opening message in the internal notification thread — it can be richer and more contextual.`,
     `  - For vellum (desktop): 2-4 short sentences with useful context and clear next step if action is required.`,
@@ -197,7 +199,7 @@ function buildFallbackDecision(
     copy[ch] = {
       title: signal.sourceEventName,
       body: fallbackBody,
-      deliveryText: fallbackBody,
+      ...(ch === 'telegram' ? { deliveryText: fallbackBody } : {}),
     };
   }
 

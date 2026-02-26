@@ -392,6 +392,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             let viewModel = makeViewModel()
             viewModel.sessionId = thread.sessionId
             chatViewModels[id] = viewModel
+            subscribeToBusyState(for: id, viewModel: viewModel)
             evictStaleCachedViewModels()
         }
 
