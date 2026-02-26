@@ -7,6 +7,7 @@ import { BackendUnavailableError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { getDb } from './db.js';
 import { embedWithBackend, getMemoryBackendStatus } from './embedding-backend.js';
+import { withQdrantBreaker } from './qdrant-circuit-breaker.js';
 import { getQdrantClient } from './qdrant-client.js';
 import { memoryEmbeddings } from './schema.js';
 
@@ -213,11 +214,13 @@ export async function embedAndUpsert(
   }
 
   try {
-    await qdrant.upsert(targetType, targetId, vector, {
-      text,
-      created_at: (extraPayload?.created_at as number) ?? now,
-      ...(extraPayload as Record<string, unknown> | undefined),
-    });
+    await withQdrantBreaker(() =>
+      qdrant.upsert(targetType, targetId, vector, {
+        text,
+        created_at: (extraPayload?.created_at as number) ?? now,
+        ...(extraPayload as Record<string, unknown> | undefined),
+      }),
+    );
   } catch (err) {
     log.warn({ err, targetType, targetId }, 'Failed to upsert embedding to Qdrant');
     throw err;

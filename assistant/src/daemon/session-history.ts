@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { getSummaryFromContextMessage } from '../context/window-manager.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { enqueueMemoryJob } from '../memory/jobs-store.js';
+import { withQdrantBreaker } from '../memory/qdrant-circuit-breaker.js';
 import { getQdrantClient } from '../memory/qdrant-client.js';
 import type { ContentBlock,Message } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
@@ -67,7 +68,7 @@ export async function cleanupQdrantVectors(
   }
 
   const results = await Promise.allSettled(
-    targets.map((t) => qdrant.deleteByTarget(t.targetType, t.targetId)),
+    targets.map((t) => withQdrantBreaker(() => qdrant.deleteByTarget(t.targetType, t.targetId))),
   );
 
   let succeeded = 0;
