@@ -199,6 +199,9 @@ mock.module('../daemon/handlers/computer-use.js', () => ({
 
 mock.module('../providers/provider-send-message.js', () => ({
   getConfiguredProvider: () => null,
+  extractText: (_response: unknown) => '',
+  createTimeout: (_ms: number) => ({ signal: new AbortController().signal, cleanup: () => {} }),
+  userMessage: (text: string) => ({ role: 'user', content: text }),
 }));
 
 // ── Mock external conversation store ───────────────────────────────────────
