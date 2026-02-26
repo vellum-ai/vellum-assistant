@@ -1461,6 +1461,13 @@ private struct DrawerMenuView: View {
     let onDebug: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            DrawerThemeToggle()
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.sm)
+
+            VColor.surfaceBorder.frame(height: 1)
+                .padding(.vertical, VSpacing.xs)
+
             DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
 
             VColor.surfaceBorder.frame(height: 1)
@@ -1476,6 +1483,63 @@ private struct DrawerMenuView: View {
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.15), radius: 6, y: -2)
+    }
+}
+
+/// Compact three-way theme toggle (System / Light / Dark) for the control center drawer.
+private struct DrawerThemeToggle: View {
+    @AppStorage("themePreference") private var themePreference: String = "system"
+
+    private struct ThemeOption {
+        let value: String
+        let icon: String
+        let tooltip: String
+    }
+
+    private let options: [ThemeOption] = [
+        ThemeOption(value: "system", icon: "circle.lefthalf.filled", tooltip: "System"),
+        ThemeOption(value: "light", icon: "sun.max.fill", tooltip: "Light"),
+        ThemeOption(value: "dark", icon: "moon.fill", tooltip: "Dark"),
+    ]
+
+    var body: some View {
+        HStack(spacing: VSpacing.xs) {
+            Text("Theme")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+            Spacer()
+            HStack(spacing: 2) {
+                ForEach(options, id: \.value) { option in
+                    let isSelected = themePreference == option.value
+                    Button {
+                        themePreference = option.value
+                        AppDelegate.shared?.applyThemePreference()
+                    } label: {
+                        Image(systemName: option.icon)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(isSelected ? VColor.textPrimary : VColor.textMuted)
+                            .frame(width: 28, height: 22)
+                            .background(
+                                isSelected
+                                    ? VColor.hoverOverlay.opacity(0.1)
+                                    : Color.clear
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    }
+                    .buttonStyle(.plain)
+                    .help(option.tooltip)
+                    .accessibilityLabel("\(option.tooltip) theme")
+                    .accessibilityValue(isSelected ? "Selected" : "")
+                }
+            }
+            .padding(2)
+            .background(VColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
+        }
     }
 }
 
