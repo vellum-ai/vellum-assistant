@@ -334,9 +334,10 @@ export async function handleUserMessage(
         // handleRecordingRestart which properly cleans up maps between stop and start.
         if (intentResult.kind === 'restart_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder') {
           const restartResult = handleRecordingRestart(msg.sessionId, socket, ctx);
-          // When there was no active recording to restart, fall back to a plain
-          // start — the stop is a no-op and we just need to start a new recording.
-          if (!restartResult.initiated && restartResult.reason === 'no_active_recording') {
+          // Only fall back to plain start for start_and_stop_with_remainder.
+          // restart_with_remainder should NOT silently start a new recording when idle.
+          if (!restartResult.initiated && restartResult.reason === 'no_active_recording'
+              && intentResult.kind === 'start_and_stop_with_remainder') {
             handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
           }
         }
