@@ -9,7 +9,7 @@
  * - last_interaction_*: always reflects the most recent interaction by occurred_at
  */
 
-import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import { getDb } from '../memory/db.js';
 import { notificationDeliveries, notificationDeliveryInteractions } from '../memory/schema.js';
@@ -260,4 +260,45 @@ export function getNotificationDeliverySummaries(
     .all();
 
   return rows;
+}
+
+// -- Telegram inferred-seen helpers -------------------------------------------
+
+export interface UnseenTelegramDelivery {
+  id: string;
+  assistantId: string;
+  channel: string;
+}
+
+/**
+ * Find the most recent sent telegram delivery for (assistantId, destination)
+ * that has not yet been marked as seen. Returns undefined when there is no
+ * eligible delivery.
+ */
+export function findLatestUnseenTelegramDelivery(
+  assistantId: string,
+  destination: string,
+): UnseenTelegramDelivery | undefined {
+  const db = getDb();
+  const row = db
+    .select({
+      id: notificationDeliveries.id,
+      assistantId: notificationDeliveries.assistantId,
+      channel: notificationDeliveries.channel,
+    })
+    .from(notificationDeliveries)
+    .where(
+      and(
+        eq(notificationDeliveries.assistantId, assistantId),
+        eq(notificationDeliveries.channel, 'telegram'),
+        eq(notificationDeliveries.destination, destination),
+        eq(notificationDeliveries.status, 'sent'),
+        isNull(notificationDeliveries.seenAt),
+      ),
+    )
+    .orderBy(desc(sql`COALESCE(${notificationDeliveries.sentAt}, ${notificationDeliveries.createdAt})`))
+    .limit(1)
+    .get();
+
+  return row ?? undefined;
 }

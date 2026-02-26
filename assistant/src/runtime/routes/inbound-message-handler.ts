@@ -21,6 +21,10 @@ import {
 } from '../../memory/guardian-action-store.js';
 import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
+import {
+  findLatestUnseenTelegramDelivery,
+  recordNotificationDeliveryInteraction,
+} from '../../notifications/interactions-store.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { IngressBlockedError } from '../../util/errors.js';
@@ -833,6 +837,27 @@ export async function handleChannelInbound(
       approvalConversationGenerator,
     });
 
+    // ── Telegram inferred seen for callback early returns ──
+    // Callback queries always return early from this approval interception
+    // block (either handled or stale_ignored), so inferTelegramSeen must
+    // run here before those returns. Callback data is system-generated
+    // (e.g. "apr:<requestId>:<action>"), not user-typed, so secret ingress
+    // concerns do not apply — safe to record as evidenceText without the
+    // secret gate that protects the normal message path below.
+    if (sourceChannel === 'telegram' && hasCallbackData) {
+      try {
+        inferTelegramSeen({
+          assistantId: canonicalAssistantId,
+          externalChatId,
+          hasCallbackData,
+          callbackData: body.callbackData,
+          content: trimmedContent,
+        });
+      } catch (err) {
+        log.warn({ err, externalChatId }, 'Failed to record inferred telegram seen signal (callback)');
+      }
+    }
+
     if (approvalResult.handled) {
       return Response.json({
         accepted: true,
@@ -885,6 +910,25 @@ export async function handleChannelInbound(
     if (ingressCheck.blocked) {
       channelDeliveryStore.clearPayload(result.eventId);
       throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+    }
+
+    // ── Telegram inferred seen ──
+    // Any non-duplicate telegram inbound activity (message or callback) implies
+    // the user has seen previously delivered notifications in this chat.
+    // Runs after secret ingress validation so rejected messages don't persist
+    // secret-bearing content as evidenceText in notification_delivery_interactions.
+    if (sourceChannel === 'telegram') {
+      try {
+        inferTelegramSeen({
+          assistantId: canonicalAssistantId,
+          externalChatId,
+          hasCallbackData,
+          callbackData: body.callbackData,
+          content: trimmedContent,
+        });
+      } catch (err) {
+        log.warn({ err, externalChatId }, 'Failed to record inferred telegram seen signal');
+      }
     }
 
     // Fire-and-forget: process the message and deliver the reply in the background.
@@ -1124,4 +1168,69 @@ function deliverBootstrapVerificationTelegram(
       }
     }, 3000);
   })();
+}
+
+// ---------------------------------------------------------------------------
+// Telegram inferred-seen signal
+// ---------------------------------------------------------------------------
+
+/** Truncate a string to a reasonable evidence snippet length. */
+function truncateEvidence(text: string, maxLen: number = 120): string {
+  if (text.length <= maxLen) return text;
+  return text.slice(0, maxLen - 1) + '\u2026';
+}
+
+/**
+ * Returns true if the text looks like a bare UUID or structured ID payload
+ * that carries no meaningful evidence value for a human reader.
+ */
+function isUuidOnlyPayload(text: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text.trim());
+}
+
+interface InferTelegramSeenParams {
+  assistantId: string;
+  externalChatId: string;
+  hasCallbackData: boolean;
+  callbackData?: string;
+  content: string;
+}
+
+/**
+ * When Telegram inbound activity arrives, infer that the user has "seen"
+ * the most recent unseen notification delivered to this chat. Records an
+ * inferred interaction (replied or callback_clicked) and sets seen_at
+ * via markDeliverySeen if not already set.
+ */
+function inferTelegramSeen(params: InferTelegramSeenParams): void {
+  const { assistantId, externalChatId, hasCallbackData, callbackData, content } = params;
+
+  const delivery = findLatestUnseenTelegramDelivery(assistantId, externalChatId);
+  if (!delivery) return;
+
+  const now = Date.now();
+  const isCallback = hasCallbackData && typeof callbackData === 'string' && callbackData.length > 0;
+
+  const interactionType = isCallback ? 'callback_clicked' as const : 'replied' as const;
+  const source = isCallback ? 'telegram_callback_query' as const : 'telegram_inbound_message' as const;
+
+  // Build a concise evidence snippet, skipping UUID-only payloads
+  const rawEvidence = isCallback ? callbackData! : content;
+  const evidenceText = rawEvidence.length > 0 && !isUuidOnlyPayload(rawEvidence)
+    ? truncateEvidence(rawEvidence)
+    : undefined;
+
+  // Record the interaction. recordNotificationDeliveryInteraction also sets
+  // seen_at on first write, so no separate markDeliverySeen call is needed.
+  recordNotificationDeliveryInteraction({
+    id: crypto.randomUUID(),
+    notificationDeliveryId: delivery.id,
+    assistantId: delivery.assistantId,
+    channel: delivery.channel,
+    interactionType,
+    confidence: 'inferred',
+    source,
+    evidenceText,
+    occurredAt: now,
+  });
 }
