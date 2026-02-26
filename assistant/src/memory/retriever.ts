@@ -139,21 +139,7 @@ async function collectAndMergeCandidates(
   // A per-call scopePolicyOverride takes precedence over the global policy.
   const scopeIds = buildScopeFilter(scopeId, scopePolicy, opts?.scopePolicyOverride);
 
-  // -- Start async semantic search early so the network round-trip overlaps
-  // with all synchronous work (lexical, recency, direct item, entity). --
   let semanticSearchFailed = false;
-  const semanticPromise = queryVector
-    ? semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds)
-        .catch((err): Candidate[] => {
-          semanticSearchFailed = true;
-          if (isQdrantConnectionError(err)) {
-            log.warn({ err }, 'Qdrant is unavailable — semantic search disabled, memory recall will be degraded');
-          } else {
-            log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
-          }
-          return [];
-        })
-    : null;
 
   // -- Phase 1: cheap local searches (always run) --
   const lexical = lexicalSearch(query, config.memory.retrieval.lexicalTopK, excludeMessageIds, scopeIds);
@@ -236,8 +222,7 @@ async function collectAndMergeCandidates(
 
   // -- Early termination check --
   // If cheap sources already produced enough high-relevance candidates,
-  // skip entity search. The semantic promise (if started) will resolve
-  // on its own via .catch() — we just ignore its results.
+  // skip semantic and entity search entirely.
   //
   // Deduplicate before counting: lexical and recency can return the same
   // segment (common when recent messages match the query), so checking raw
@@ -274,8 +259,23 @@ async function collectAndMergeCandidates(
   let relationExpandedItemCount = 0;
 
   if (!canTerminateEarly) {
+    // Start semantic search now that we know early termination won't apply.
+    // The network round-trip overlaps with entity search below.
+    const semanticPromise = queryVector
+      ? semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds)
+          .catch((err): Candidate[] => {
+            semanticSearchFailed = true;
+            if (isQdrantConnectionError(err)) {
+              log.warn({ err }, 'Qdrant is unavailable — semantic search disabled, memory recall will be degraded');
+            } else {
+              log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
+            }
+            return [];
+          })
+      : null;
+
     // Entity search is synchronous — run it while the semantic promise
-    // (started above) is still in flight.
+    // is in flight.
     if (config.memory.entity.enabled) {
       const entitySearchResult = entitySearch(
         query,
