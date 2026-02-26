@@ -72,18 +72,26 @@ public struct SubagentThreadView: View {
     }
 
     public var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.4)) { context in
-            let phase = isRunning ? Int(context.date.timeIntervalSince1970 / 0.4) % 3 : 0
-            HStack(alignment: .center, spacing: 0) {
-                // L-shaped connector: vertical line from parent → curves right into the thread bar
-                LConnector()
-                    .stroke(statusColor.opacity(0.4), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .frame(width: 14, height: 28)
-                    .padding(.trailing, VSpacing.xs)
-
-                // Thread indicator content
-                threadBar(phase: phase)
+        if isRunning {
+            TimelineView(.periodic(from: .now, by: 0.4)) { context in
+                threadContent(phase: Int(context.date.timeIntervalSince1970 / 0.4) % 3)
             }
+        } else {
+            threadContent(phase: 0)
+        }
+    }
+
+    @ViewBuilder
+    private func threadContent(phase: Int) -> some View {
+        HStack(alignment: .center, spacing: 0) {
+            // L-shaped connector: vertical line from parent → curves right into the thread bar
+            LConnector()
+                .stroke(statusColor.opacity(0.4), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .frame(width: 14, height: 28)
+                .padding(.trailing, VSpacing.xs)
+
+            // Thread indicator content
+            threadBar(phase: phase)
         }
     }
 
