@@ -372,6 +372,14 @@ describe('resolveRecordingIntent', () => {
       expect(resolveRecordingIntent('stop recording and start another')).toEqual({ kind: 'restart_only' });
     });
 
+    test('"stop recording and start another." → restart_only (trailing period)', () => {
+      expect(resolveRecordingIntent('stop recording and start another.')).toEqual({ kind: 'restart_only' });
+    });
+
+    test('"stop recording and start a new!" → restart_only (trailing exclamation)', () => {
+      expect(resolveRecordingIntent('stop recording and start a new!')).toEqual({ kind: 'restart_only' });
+    });
+
     test('restart with remainder: "restart recording and open safari"', () => {
       const result = resolveRecordingIntent('restart recording and open safari');
       expect(result.kind).toBe('restart_with_remainder');
