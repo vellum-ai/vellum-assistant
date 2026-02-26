@@ -648,6 +648,32 @@ export async function handleChannelInbound(
         ? 'Trusted contact verified'
         : 'Guardian verified';
       log.info({ sourceChannel, externalUserId: body.senderExternalUserId, verificationType: verifyResult.verificationType }, `${verifyLogLabel}: auto-upserted ingress member`);
+
+      // Emit activated signal when a trusted contact completes verification.
+      // Member record is persisted above before this event fires, satisfying
+      // the persistence-before-event ordering invariant.
+      if (verifyResult.verificationType === 'trusted_contact') {
+        void emitNotificationSignal({
+          sourceEventName: 'ingress.trusted_contact.activated',
+          sourceChannel,
+          sourceSessionId: result.conversationId,
+          assistantId: canonicalAssistantId,
+          attentionHints: {
+            requiresAction: false,
+            urgency: 'low',
+            isAsyncBackground: false,
+            visibleInSourceNow: false,
+          },
+          contextPayload: {
+            sourceChannel,
+            externalUserId: body.senderExternalUserId,
+            externalChatId,
+            senderName: body.senderName ?? null,
+            senderUsername: body.senderUsername ?? null,
+          },
+          dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${body.senderExternalUserId}`,
+        });
+      }
     }
 
     // Deliver a deterministic template-driven reply and short-circuit.

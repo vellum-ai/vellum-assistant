@@ -1,0 +1,489 @@
+/**
+ * Tests for M7: Trusted contact lifecycle notification signals.
+ *
+ * Verifies that all trusted contact lifecycle transitions emit proper
+ * notification signals via emitNotificationSignal():
+ *
+ * 1. request_submitted — when a non-member requests access (covered by
+ *    ingress.access_request, tested in non-member-access-request.test.ts)
+ * 2. guardian_decision — when the guardian approves or denies
+ * 3. verification_sent — when the verification code is created and delivered
+ * 4. activated — when the trusted contact successfully verifies
+ * 5. denied — when the guardian denies the request
+ */
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+
+// ---------------------------------------------------------------------------
+// Test isolation: in-memory SQLite via temp directory
+// ---------------------------------------------------------------------------
+
+const testDir = mkdtempSync(join(tmpdir(), 'trusted-contact-lifecycle-notif-'));
+
+mock.module('../util/platform.js', () => ({
+  getRootDir: () => testDir,
+  getDataDir: () => testDir,
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getSocketPath: () => join(testDir, 'test.sock'),
+  getPidPath: () => join(testDir, 'test.pid'),
+  getDbPath: () => join(testDir, 'test.db'),
+  getLogPath: () => join(testDir, 'test.log'),
+  ensureDataDir: () => {},
+  normalizeAssistantId: (id: string) => id === 'self' ? 'self' : id,
+  readHttpToken: () => 'test-bearer-token',
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
+// Mock security check to always pass
+mock.module('../security/secret-ingress.js', () => ({
+  checkIngressForSecrets: () => ({ blocked: false }),
+}));
+
+mock.module('../config/env.js', () => ({
+  getGatewayInternalBaseUrl: () => 'http://127.0.0.1:7830',
+}));
+
+// Track emitNotificationSignal calls
+const emitSignalCalls: Array<Record<string, unknown>> = [];
+mock.module('../notifications/emit-signal.js', () => ({
+  emitNotificationSignal: async (params: Record<string, unknown>) => {
+    emitSignalCalls.push(params);
+    return {
+      signalId: 'mock-signal-id',
+      deduplicated: false,
+      dispatched: true,
+      reason: 'mock',
+      deliveryResults: [],
+    };
+  },
+}));
+
+// Track deliverChannelReply calls
+const deliverReplyCalls: Array<{ url: string; payload: Record<string, unknown> }> = [];
+mock.module('../runtime/gateway-client.js', () => ({
+  deliverChannelReply: async (url: string, payload: Record<string, unknown>) => {
+    deliverReplyCalls.push({ url, payload });
+  },
+}));
+
+// Mock the approval conversation / copy generators so they return canned text.
+mock.module('../runtime/approval-message-composer.js', () => ({
+  composeApprovalMessage: () => 'mock approval message',
+  composeApprovalMessageGenerative: async () => 'mock generative message',
+}));
+
+import {
+  createApprovalRequest,
+  createBinding,
+  findPendingAccessRequestForRequester,
+  getAllPendingApprovalsByGuardianChat,
+} from '../memory/channel-guardian-store.js';
+import {
+  createOutboundSession,
+} from '../runtime/channel-guardian-service.js';
+import { findMember, upsertMember } from '../memory/ingress-member-store.js';
+import { initializeDb, resetDb } from '../memory/db.js';
+import { handleChannelInbound } from '../runtime/routes/channel-routes.js';
+
+initializeDb();
+
+afterAll(() => {
+  resetDb();
+  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const TEST_BEARER_TOKEN = 'test-token';
+const GUARDIAN_APPROVAL_TTL_MS = 5 * 60 * 1000;
+
+function resetState(): void {
+  const { getDb } = require('../memory/db.js');
+  const db = getDb();
+  db.run('DELETE FROM channel_guardian_approval_requests');
+  db.run('DELETE FROM channel_guardian_bindings');
+  db.run('DELETE FROM channel_guardian_verification_challenges');
+  db.run('DELETE FROM channel_guardian_rate_limits');
+  db.run('DELETE FROM channel_inbound_events');
+  db.run('DELETE FROM conversations');
+  db.run('DELETE FROM notification_events');
+  db.run('DELETE FROM assistant_ingress_members');
+  emitSignalCalls.length = 0;
+  deliverReplyCalls.length = 0;
+}
+
+function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
+  const body: Record<string, unknown> = {
+    sourceChannel: 'telegram',
+    interface: 'telegram',
+    externalChatId: 'chat-123',
+    externalMessageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    content: 'Hello',
+    senderExternalUserId: 'requester-user-456',
+    senderName: 'Alice Requester',
+    senderUsername: 'alice_req',
+    replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
+    ...overrides,
+  };
+
+  return new Request('http://localhost:8080/channels/inbound', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Gateway-Origin': TEST_BEARER_TOKEN,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Tests: Guardian decision signals (approve/deny)
+// ---------------------------------------------------------------------------
+
+describe('trusted contact lifecycle notification signals', () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  test('guardian deny emits guardian_decision and denied signals', async () => {
+    // Set up guardian binding and member record (guardians must pass ACL)
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-789',
+      guardianDeliveryChatId: 'guardian-chat-789',
+    });
+    upsertMember({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalUserId: 'guardian-user-789',
+      externalChatId: 'guardian-chat-789',
+      status: 'active',
+      policy: 'allow',
+    });
+
+    const testRequestId = `req-deny-${Date.now()}`;
+
+    // Create a pending access request approval
+    const approval = createApprovalRequest({
+      runId: `ingress-access-request-${Date.now()}`,
+      requestId: testRequestId,
+      conversationId: 'access-req-telegram-requester-user-456',
+      assistantId: 'self',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-user-456',
+      requesterChatId: 'requester-chat-456',
+      guardianExternalUserId: 'guardian-user-789',
+      guardianChatId: 'guardian-chat-789',
+      toolName: 'ingress_access_request',
+      riskLevel: 'access_request',
+      reason: 'Alice is requesting access',
+      expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
+    });
+
+    // Guardian denies via callback button
+    const guardianReq = buildInboundRequest({
+      externalChatId: 'guardian-chat-789',
+      senderExternalUserId: 'guardian-user-789',
+      senderName: 'Guardian',
+      content: '',
+      callbackData: `apr:${testRequestId}:reject`,
+    });
+
+    await handleChannelInbound(guardianReq, undefined, TEST_BEARER_TOKEN);
+
+    // Should emit guardian_decision and denied signals
+
+    const guardianDecisionSignals = emitSignalCalls.filter(
+      (c) => c.sourceEventName === 'ingress.trusted_contact.guardian_decision',
+    );
+    const deniedSignals = emitSignalCalls.filter(
+      (c) => c.sourceEventName === 'ingress.trusted_contact.denied',
+    );
+
+    expect(guardianDecisionSignals.length).toBe(1);
+    expect(deniedSignals.length).toBe(1);
+
+    // Verify guardian_decision payload
+    const gdPayload = guardianDecisionSignals[0].contextPayload as Record<string, unknown>;
+    expect(gdPayload.decision).toBe('denied');
+    expect(gdPayload.requesterExternalUserId).toBe('requester-user-456');
+    expect(gdPayload.decidedByExternalUserId).toBe('guardian-user-789');
+
+    // Verify denied payload
+    const dPayload = deniedSignals[0].contextPayload as Record<string, unknown>;
+    expect(dPayload.decision).toBe('denied');
+    expect(dPayload.requesterExternalUserId).toBe('requester-user-456');
+
+    // Verify deduplication keys are distinct
+    expect(guardianDecisionSignals[0].dedupeKey).toContain('trusted-contact:guardian-decision:');
+    expect(deniedSignals[0].dedupeKey).toContain('trusted-contact:denied:');
+  });
+
+  test('guardian approve emits guardian_decision and verification_sent signals', async () => {
+    // Set up guardian binding and member record (guardians must pass ACL)
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-789',
+      guardianDeliveryChatId: 'guardian-chat-789',
+    });
+    upsertMember({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalUserId: 'guardian-user-789',
+      externalChatId: 'guardian-chat-789',
+      status: 'active',
+      policy: 'allow',
+    });
+
+    const testRequestId = `req-approve-${Date.now()}`;
+
+    // Create a pending access request approval
+    const approval = createApprovalRequest({
+      runId: `ingress-access-request-${Date.now()}`,
+      requestId: testRequestId,
+      conversationId: 'access-req-telegram-requester-user-456',
+      assistantId: 'self',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-user-456',
+      requesterChatId: 'requester-chat-456',
+      guardianExternalUserId: 'guardian-user-789',
+      guardianChatId: 'guardian-chat-789',
+      toolName: 'ingress_access_request',
+      riskLevel: 'access_request',
+      reason: 'Alice is requesting access',
+      expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
+    });
+
+    // Guardian approves via callback button
+    const guardianReq = buildInboundRequest({
+      externalChatId: 'guardian-chat-789',
+      senderExternalUserId: 'guardian-user-789',
+      senderName: 'Guardian',
+      content: '',
+      callbackData: `apr:${testRequestId}:approve_once`,
+    });
+
+    await handleChannelInbound(guardianReq, undefined, TEST_BEARER_TOKEN);
+
+    // Should emit guardian_decision (approved) and verification_sent signals
+    const guardianDecisionSignals = emitSignalCalls.filter(
+      (c) => c.sourceEventName === 'ingress.trusted_contact.guardian_decision',
+    );
+    const verificationSentSignals = emitSignalCalls.filter(
+      (c) => c.sourceEventName === 'ingress.trusted_contact.verification_sent',
+    );
+
+    expect(guardianDecisionSignals.length).toBe(1);
+    expect(verificationSentSignals.length).toBe(1);
+
+    // Verify guardian_decision payload
+    const gdPayload = guardianDecisionSignals[0].contextPayload as Record<string, unknown>;
+    expect(gdPayload.decision).toBe('approved');
+    expect(gdPayload.requesterExternalUserId).toBe('requester-user-456');
+    expect(gdPayload.decidedByExternalUserId).toBe('guardian-user-789');
+
+    // Verify verification_sent payload
+    const vsPayload = verificationSentSignals[0].contextPayload as Record<string, unknown>;
+    expect(vsPayload.requesterExternalUserId).toBe('requester-user-456');
+    expect(vsPayload.verificationSessionId).toBeDefined();
+
+    // Should NOT emit denied signal
+    const deniedSignals = emitSignalCalls.filter(
+      (c) => c.sourceEventName === 'ingress.trusted_contact.denied',
+    );
+    expect(deniedSignals.length).toBe(0);
+  });
+
+  test('deduplication keys prevent duplicate signals', async () => {
+    // Set up guardian binding and member record (guardians must pass ACL)
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-789',
+      guardianDeliveryChatId: 'guardian-chat-789',
+    });
+    upsertMember({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalUserId: 'guardian-user-789',
+      externalChatId: 'guardian-chat-789',
+      status: 'active',
+      policy: 'allow',
+    });
+
+    const testRequestId = `req-dedup-${Date.now()}`;
+
+    const approval = createApprovalRequest({
+      runId: `ingress-access-request-${Date.now()}`,
+      requestId: testRequestId,
+      conversationId: 'access-req-telegram-requester-user-456',
+      assistantId: 'self',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-user-456',
+      requesterChatId: 'requester-chat-456',
+      guardianExternalUserId: 'guardian-user-789',
+      guardianChatId: 'guardian-chat-789',
+      toolName: 'ingress_access_request',
+      riskLevel: 'access_request',
+      reason: 'Alice is requesting access',
+      expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
+    });
+
+    // All guardian_decision signals include the approval ID in the dedupe key
+    const guardianReq = buildInboundRequest({
+      externalChatId: 'guardian-chat-789',
+      senderExternalUserId: 'guardian-user-789',
+      senderName: 'Guardian',
+      content: '',
+      callbackData: `apr:${testRequestId}:reject`,
+    });
+
+    await handleChannelInbound(guardianReq, undefined, TEST_BEARER_TOKEN);
+
+    const signals = emitSignalCalls.filter(
+      (c) => typeof c.dedupeKey === 'string' && (c.dedupeKey as string).includes(approval.id),
+    );
+    // guardian_decision and denied — both keyed on approval.id
+    expect(signals.length).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: Activated signal (trusted contact verification success)
+// ---------------------------------------------------------------------------
+
+describe('trusted contact activated notification signal', () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  test('successful trusted contact verification emits activated signal', async () => {
+    // Set up a guardian binding so the verification path allows bypass
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-789',
+      guardianDeliveryChatId: 'guardian-chat-789',
+    });
+
+    // Create an identity-bound outbound session (simulates M3 approval flow)
+    const session = createOutboundSession({
+      assistantId: 'self',
+      channel: 'telegram',
+      expectedExternalUserId: 'requester-user-456',
+      expectedChatId: 'chat-123',
+      identityBindingStatus: 'bound',
+      destinationAddress: 'chat-123',
+    });
+
+    // Requester enters the verification code
+    const verifyReq = buildInboundRequest({
+      content: session.secret,
+      externalChatId: 'chat-123',
+      senderExternalUserId: 'requester-user-456',
+    });
+
+    await handleChannelInbound(verifyReq, undefined, TEST_BEARER_TOKEN);
+
+    // Should emit the activated signal
+    const activatedSignals = emitSignalCalls.filter(
+      (c) => c.sourceEventName === 'ingress.trusted_contact.activated',
+    );
+
+    expect(activatedSignals.length).toBe(1);
+
+    // Verify payload
+    const payload = activatedSignals[0].contextPayload as Record<string, unknown>;
+    expect(payload.sourceChannel).toBe('telegram');
+    expect(payload.externalUserId).toBe('requester-user-456');
+    expect(payload.externalChatId).toBe('chat-123');
+
+    // Verify deduplication key includes the user identity
+    const dedupeKey = activatedSignals[0].dedupeKey as string;
+    expect(dedupeKey).toContain('trusted-contact:activated:');
+    expect(dedupeKey).toContain('requester-user-456');
+
+    // Verify attention hints indicate informational (no action required)
+    const hints = activatedSignals[0].attentionHints as Record<string, unknown>;
+    expect(hints.requiresAction).toBe(false);
+    expect(hints.urgency).toBe('low');
+  });
+
+  test('guardian verification does NOT emit activated signal', async () => {
+    // Create an inbound challenge (guardian flow, not trusted contact)
+    const { createVerificationChallenge } = require('../runtime/channel-guardian-service.js');
+    const { secret } = createVerificationChallenge('self', 'telegram');
+
+    // "Guardian" enters the verification code
+    const verifyReq = buildInboundRequest({
+      content: secret,
+      externalChatId: 'guardian-chat-new',
+      senderExternalUserId: 'guardian-user-new',
+    });
+
+    await handleChannelInbound(verifyReq, undefined, TEST_BEARER_TOKEN);
+
+    // Should NOT emit the trusted_contact.activated signal
+    const activatedSignals = emitSignalCalls.filter(
+      (c) => c.sourceEventName === 'ingress.trusted_contact.activated',
+    );
+    expect(activatedSignals.length).toBe(0);
+  });
+
+  test('member is persisted BEFORE activated signal is emitted', async () => {
+    // Set up a guardian binding
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-789',
+      guardianDeliveryChatId: 'guardian-chat-789',
+    });
+
+    const session = createOutboundSession({
+      assistantId: 'self',
+      channel: 'telegram',
+      expectedExternalUserId: 'requester-user-456',
+      expectedChatId: 'chat-123',
+      identityBindingStatus: 'bound',
+      destinationAddress: 'chat-123',
+    });
+
+    const verifyReq = buildInboundRequest({
+      content: session.secret,
+      externalChatId: 'chat-123',
+      senderExternalUserId: 'requester-user-456',
+    });
+
+    await handleChannelInbound(verifyReq, undefined, TEST_BEARER_TOKEN);
+
+    // The activated signal was emitted
+    const activatedSignals = emitSignalCalls.filter(
+      (c) => c.sourceEventName === 'ingress.trusted_contact.activated',
+    );
+    expect(activatedSignals.length).toBe(1);
+
+    // Verify the member was already persisted (the signal fires after upsertMember)
+    const member = findMember({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalUserId: 'requester-user-456',
+    });
+    expect(member).not.toBeNull();
+    expect(member!.status).toBe('active');
+    expect(member!.policy).toBe('allow');
+  });
+});
