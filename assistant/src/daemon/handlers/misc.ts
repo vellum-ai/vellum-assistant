@@ -22,6 +22,7 @@ import type {
   TaskSubmit,
 } from '../ipc-protocol.js';
 import { executeRecordingIntent } from '../recording-executor.js';
+import { classifyRecordingIntentFallback, containsRecordingKeywords } from '../recording-intent-fallback.js';
 import { resolveRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { handleCuSessionCreate } from './computer-use.js';
@@ -279,7 +280,55 @@ export async function handleTaskSubmit(
         rlog.info({ remaining: intentResult.remainder }, 'Recording intent deferred, continuing with remaining text');
       }
 
-      // 'none' falls through to normal processing
+      // 'none' — deterministic resolver found nothing; try LLM fallback
+      // if the text contains recording-related keywords.
+      if (intentResult.kind === 'none' && containsRecordingKeywords(msg.task)) {
+        const fallback = await classifyRecordingIntentFallback(msg.task);
+        rlog.info({ fallbackAction: fallback.action, fallbackConfidence: fallback.confidence }, 'Recording intent LLM fallback result');
+
+        if (fallback.action !== 'none' && fallback.confidence === 'high') {
+          const kindMap: Record<string, import('../recording-intent.js').RecordingIntentResult> = {
+            start: { kind: 'start_only' },
+            stop: { kind: 'stop_only' },
+            restart: { kind: 'restart_only' },
+            pause: { kind: 'pause_only' },
+            resume: { kind: 'resume_only' },
+          };
+          const mapped = kindMap[fallback.action];
+          if (mapped) {
+            let activeSessionId = ctx.socketToSession.get(socket);
+            if (!activeSessionId) {
+              const conversation = conversationStore.createConversation(msg.task);
+              activeSessionId = conversation.id;
+              ctx.socketToSession.set(socket, activeSessionId);
+            }
+
+            const execResult = executeRecordingIntent(mapped, {
+              conversationId: activeSessionId,
+              socket,
+              ctx,
+            });
+
+            if (execResult.handled) {
+              rlog.info({ kind: mapped.kind, source: 'llm_fallback' }, 'Recording intent intercepted via LLM fallback');
+              ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
+              ctx.send(socket, {
+                type: 'assistant_text_delta',
+                text: execResult.responseText!,
+                sessionId: activeSessionId,
+              });
+              ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+
+              // If recording was rejected (e.g. already active), unbind the
+              // socket so it doesn't stay bound to an orphaned conversation.
+              if (execResult.recordingStarted === false) {
+                ctx.socketToSession.delete(socket);
+              }
+              return;
+            }
+          }
+        }
+      }
     }
 
     // Slash candidates always route to text_qa — bypass classifier
