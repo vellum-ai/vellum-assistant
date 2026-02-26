@@ -325,8 +325,8 @@ extension IPCUserMessage {
         #endif
     }
 
-    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String? = nil) {
-        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage, bypassSecretCheck: bypassSecretCheck, channel: channel ?? Self.defaultChannel, interface: interface ?? Self.defaultInterface)
+    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String? = nil, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil) {
+        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage, bypassSecretCheck: bypassSecretCheck, channel: channel ?? Self.defaultChannel, interface: interface ?? Self.defaultInterface, pttActivationKey: pttActivationKey, microphonePermissionGranted: microphonePermissionGranted)
     }
 }
 

@@ -38,6 +38,7 @@ import { normalizeThreadType } from '../ipc-protocol.js';
 import { executeRecordingIntent } from '../recording-executor.js';
 import { resolveRecordingIntent } from '../recording-intent.js';
 import { classifyRecordingIntentFallback, containsRecordingKeywords } from '../recording-intent-fallback.js';
+import { resolveChannelCapabilities } from '../session-runtime-assembly.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { generateVideoThumbnail } from '../video-thumbnail.js';
 import { handleRecordingPause, handleRecordingRestart, handleRecordingResume, handleRecordingStart, handleRecordingStop } from './recording.js';
@@ -166,6 +167,10 @@ export async function handleUserMessage(
       // IPC/desktop user IS the guardian — default to guardian role so messages
       // are not tagged 'unverified_channel' (which blocks memory extraction).
       session.setGuardianContext({ actorRole: 'guardian', sourceChannel: ipcChannel });
+      session.setChannelCapabilities(resolveChannelCapabilities(ipcChannel, ipcInterface, {
+        pttActivationKey: msg.pttActivationKey,
+        microphonePermissionGranted: msg.microphonePermissionGranted,
+      }));
       session.setCommandIntent(null);
       // Fire-and-forget: don't block the IPC handler so the connection can
       // continue receiving messages (e.g. cancel, confirmations, or

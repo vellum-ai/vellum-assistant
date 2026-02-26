@@ -5712,10 +5712,14 @@ public struct IPCUserMessage: Codable, Sendable {
     public let channel: String?
     /// Originating interface identifier (e.g. 'macos').
     public let interface: String
+    /// Push-to-talk activation key configured on the client (e.g. 'fn', 'ctrl', 'fn_shift', 'none').
+    public let pttActivationKey: String?
+    /// Whether the client has been granted microphone permission by the OS.
+    public let microphonePermissionGranted: Bool?
     /// Structured command intent — bypasses text parsing when present.
     public let commandIntent: IPCCommandIntent?
 
-    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, commandIntent: IPCCommandIntent? = nil) {
+    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil, commandIntent: IPCCommandIntent? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.content = content
@@ -5725,6 +5729,8 @@ public struct IPCUserMessage: Codable, Sendable {
         self.bypassSecretCheck = bypassSecretCheck
         self.channel = channel
         self.interface = interface
+        self.pttActivationKey = pttActivationKey
+        self.microphonePermissionGranted = microphonePermissionGranted
         self.commandIntent = commandIntent
     }
 }
