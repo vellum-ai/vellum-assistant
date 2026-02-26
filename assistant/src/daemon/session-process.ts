@@ -248,7 +248,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
     return;
   }
 
-  let resolvedContent = slashResult.content;
+  const resolvedContent = slashResult.content;
 
   // Preactivate skill tools when slash resolution identifies a known skill
   if (slashResult.kind === 'rewritten') {
@@ -470,7 +470,7 @@ export async function processMessage(
     return persisted.id;
   }
 
-  let resolvedContent = slashResult.content;
+  const resolvedContent = slashResult.content;
 
   // Preactivate skill tools when slash resolution identifies a known skill
   if (slashResult.kind === 'rewritten') {
