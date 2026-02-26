@@ -263,7 +263,7 @@ export interface HistorySessionContext {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean },
+    options?: { skipPreMessageRollback?: boolean; titleText?: string },
   ): Promise<void>;
 }
 
