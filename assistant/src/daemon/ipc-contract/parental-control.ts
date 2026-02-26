@@ -71,6 +71,7 @@ export interface ParentalControlGetResponse {
   has_pin: boolean;
   content_restrictions: ParentalContentTopic[];
   blocked_tool_categories: ParentalToolCategory[];
+  activeProfile?: 'parental' | 'child';
 }
 
 export interface ParentalControlVerifyPinResponse {
@@ -94,16 +95,45 @@ export interface ParentalControlUpdateResponse {
   blocked_tool_categories: ParentalToolCategory[];
 }
 
+/** Get the currently active profile. */
+export interface ParentalControlProfileGetRequest {
+  type: 'parental_control_profile_get';
+}
+
+/** Switch the active profile. Switching TO "parental" requires the PIN when one has been set. */
+export interface ParentalControlProfileSwitchRequest {
+  type: 'parental_control_profile_switch';
+  targetProfile: 'parental' | 'child';
+  /** Required when switching TO "parental" and a PIN has been set. */
+  pin?: string;
+}
+
+export interface ParentalControlProfileGetResponse {
+  type: 'parental_control_profile_get_response';
+  activeProfile: 'parental' | 'child';
+}
+
+export interface ParentalControlProfileSwitchResponse {
+  type: 'parental_control_profile_switch_response';
+  success: boolean;
+  activeProfile: 'parental' | 'child';
+  error?: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _ParentalControlClientMessages =
   | ParentalControlGetRequest
   | ParentalControlVerifyPinRequest
   | ParentalControlSetPinRequest
-  | ParentalControlUpdateRequest;
+  | ParentalControlUpdateRequest
+  | ParentalControlProfileGetRequest
+  | ParentalControlProfileSwitchRequest;
 
 export type _ParentalControlServerMessages =
   | ParentalControlGetResponse
   | ParentalControlVerifyPinResponse
   | ParentalControlSetPinResponse
-  | ParentalControlUpdateResponse;
+  | ParentalControlUpdateResponse
+  | ParentalControlProfileGetResponse
+  | ParentalControlProfileSwitchResponse;

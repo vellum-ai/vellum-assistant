@@ -193,6 +193,13 @@ public final class SettingsStore: ObservableObject {
 
     @Published var isDevMode: Bool
 
+    // MARK: - Parental Control Profile State
+
+    /// The currently active profile. "parental" means full access; "child" means restricted mode.
+    @Published var activeProfile: String = "parental"
+    /// Set when a profile switch fails so the UI can surface the error.
+    @Published var profileSwitchError: String?
+
     // MARK: - Trust Rules Coordination
 
     /// Whether any settings surface currently has a trust rules sheet open.
@@ -604,6 +611,31 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
+        // Wire up parental control get response — pick up activeProfile from the initial settings load.
+        daemonClient?.onParentalControlGetResponse = { [weak self] response in
+            guard let self else { return }
+            if let profile = response.activeProfile {
+                self.activeProfile = profile
+            }
+        }
+
+        // Wire up profile get response.
+        daemonClient?.onParentalControlProfileGetResponse = { [weak self] response in
+            guard let self else { return }
+            self.activeProfile = response.activeProfile
+        }
+
+        // Wire up profile switch response.
+        daemonClient?.onParentalControlProfileSwitchResponse = { [weak self] response in
+            guard let self else { return }
+            if response.success {
+                self.activeProfile = response.activeProfile
+                self.profileSwitchError = nil
+            } else {
+                self.profileSwitchError = response.error
+            }
+        }
+
         // Refresh Vercel key state on init
         refreshVercelKeyState()
 
@@ -627,6 +659,13 @@ public final class SettingsStore: ObservableObject {
         refreshChannelGuardianStatus(channel: "telegram")
         refreshChannelGuardianStatus(channel: "sms")
         refreshChannelGuardianStatus(channel: "voice")
+
+        // Fetch the current active parental profile on init.
+        do {
+            try daemonClient?.sendParentalControlProfileGet()
+        } catch {
+            log.error("Failed to send parental control profile get request: \(error)")
+        }
 
         // Ingress config is refreshed by onAppear in SettingsPanel,
         // not here, to avoid duplicate get requests whose
@@ -1646,6 +1685,53 @@ public final class SettingsStore: ObservableObject {
 
     func toggleDevMode() {
         isDevMode.toggle()
+    }
+
+    // MARK: - Parental Control Profile Actions
+
+    /// Switch the active profile.
+    ///
+    /// When switching to "parental" and a PIN is set the caller must supply the
+    /// current PIN. On success `activeProfile` is updated; on failure
+    /// `profileSwitchError` is set so the UI can display the reason.
+    func switchProfile(to targetProfile: String, pin: String?) async {
+        profileSwitchError = nil
+        guard let daemonClient else { return }
+        let stream = daemonClient.subscribe()
+        do {
+            try daemonClient.sendParentalControlProfileSwitch(targetProfile: targetProfile, pin: pin)
+        } catch {
+            profileSwitchError = error.localizedDescription
+            return
+        }
+
+        let response: ParentalControlProfileSwitchResponseMessage? = await withTaskGroup(
+            of: ParentalControlProfileSwitchResponseMessage?.self
+        ) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .parentalControlProfileSwitchResponse(let msg) = message { return msg }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        if let r = response {
+            if r.success {
+                activeProfile = r.activeProfile
+            } else {
+                profileSwitchError = r.error
+            }
+        } else {
+            profileSwitchError = "No response from daemon."
+        }
     }
 
     // MARK: - Model Actions

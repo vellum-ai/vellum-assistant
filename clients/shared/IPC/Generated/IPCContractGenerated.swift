@@ -3135,13 +3135,62 @@ public struct IPCParentalControlGetResponse: Codable, Sendable {
     public let has_pin: Bool
     public let content_restrictions: [String]
     public let blocked_tool_categories: [String]
+    public let activeProfile: String?
 
-    public init(type: String, enabled: Bool, has_pin: Bool, content_restrictions: [String], blocked_tool_categories: [String]) {
+    public init(type: String, enabled: Bool, has_pin: Bool, content_restrictions: [String], blocked_tool_categories: [String], activeProfile: String? = nil) {
         self.type = type
         self.enabled = enabled
         self.has_pin = has_pin
         self.content_restrictions = content_restrictions
         self.blocked_tool_categories = blocked_tool_categories
+        self.activeProfile = activeProfile
+    }
+}
+
+/// Get the currently active profile.
+public struct IPCParentalControlProfileGetRequest: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+public struct IPCParentalControlProfileGetResponse: Codable, Sendable {
+    public let type: String
+    public let activeProfile: String
+
+    public init(type: String, activeProfile: String) {
+        self.type = type
+        self.activeProfile = activeProfile
+    }
+}
+
+/// Switch the active profile. Switching TO "parental" requires the PIN when one has been set.
+public struct IPCParentalControlProfileSwitchRequest: Codable, Sendable {
+    public let type: String
+    public let targetProfile: String
+    /// Required when switching TO "parental" and a PIN has been set.
+    public let pin: String?
+
+    public init(type: String, targetProfile: String, pin: String? = nil) {
+        self.type = type
+        self.targetProfile = targetProfile
+        self.pin = pin
+    }
+}
+
+public struct IPCParentalControlProfileSwitchResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let activeProfile: String
+    public let error: String?
+
+    public init(type: String, success: Bool, activeProfile: String, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.activeProfile = activeProfile
+        self.error = error
     }
 }
 
