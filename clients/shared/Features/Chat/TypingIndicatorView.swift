@@ -39,6 +39,9 @@ public struct TypingIndicatorView: View {
         .onDisappear {
             animate = false
         }
+        .onChange(of: reduceMotion) {
+            animate = !reduceMotion
+        }
     }
 }
 

@@ -32,6 +32,9 @@ public struct VLoadingIndicator: View {
             .onDisappear {
                 isAnimating = false
             }
+            .onChange(of: reduceMotion) {
+                isAnimating = !reduceMotion
+            }
     }
 }
 
