@@ -36,8 +36,9 @@ export function createOverrideTracker(): OverrideTracker {
   return {
     recordOverride(override: InstallOverride): void {
       const key = overrideKey(override.skillId, override.source);
-      // Allow re-recording (e.g. risk level changed), but keep the full audit trail
-      overrides.push(override);
+      // Allow re-recording (e.g. risk level changed), but keep the full audit trail.
+      // Clone so later mutations to the caller's object don't rewrite history.
+      overrides.push({ ...override });
       seen.add(key);
     },
 
@@ -46,7 +47,7 @@ export function createOverrideTracker(): OverrideTracker {
     },
 
     getOverrides(): InstallOverride[] {
-      return [...overrides];
+      return overrides.map((o) => ({ ...o }));
     },
   };
 }

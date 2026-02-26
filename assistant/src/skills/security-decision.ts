@@ -88,8 +88,15 @@ function buildRationale(
 
     case 'do_not_recommend': {
       const riskLabel = overallRisk.charAt(0).toUpperCase() + overallRisk.slice(1);
+      const KNOWN_SAFE_RISKS: Record<string, true> = { safe: true, low: true, medium: true };
       const flaggedProviders = auditSummary
-        .filter((s) => s.risk === overallRisk || s.risk === 'critical' || s.risk === 'high')
+        .filter(
+          (s) =>
+            s.risk === overallRisk ||
+            s.risk === 'critical' ||
+            s.risk === 'high' ||
+            !Object.hasOwn(KNOWN_SAFE_RISKS, s.risk),
+        )
         .map((s) => s.provider.charAt(0).toUpperCase() + s.provider.slice(1));
       const providerNames =
         flaggedProviders.length > 0 ? ` by ${flaggedProviders.join(' and ')}` : '';

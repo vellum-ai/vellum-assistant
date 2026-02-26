@@ -130,6 +130,7 @@ describe('makeSecurityDecision', () => {
 
       expect(decision.recommendation).toBe('do_not_recommend');
       expect(decision.overallRisk).toBe('unknown');
+      expect(decision.rationale).toContain('Ath');
     });
   });
 
@@ -287,6 +288,44 @@ describe('OverrideTracker', () => {
     expect(tracker.getOverrides()).toHaveLength(2);
     expect(tracker.getOverrides()[0].overallRiskAtOverride).toBe('medium');
     expect(tracker.getOverrides()[1].overallRiskAtOverride).toBe('high');
+  });
+
+  test('recordOverride snapshots the input — later mutations do not affect history', () => {
+    const tracker = createOverrideTracker();
+
+    const override = {
+      skillId: 'tool',
+      source: 'org/repo',
+      overriddenAt: '2025-06-15T10:00:00Z',
+      overallRiskAtOverride: 'medium',
+      recommendation: 'proceed_with_caution',
+    };
+
+    tracker.recordOverride(override);
+
+    // Mutate the original object after recording
+    override.overallRiskAtOverride = 'MUTATED';
+
+    const recorded = tracker.getOverrides();
+    expect(recorded[0].overallRiskAtOverride).toBe('medium');
+  });
+
+  test('getOverrides entries are independent — mutating one does not affect internals', () => {
+    const tracker = createOverrideTracker();
+
+    tracker.recordOverride({
+      skillId: 'tool',
+      source: 'org/repo',
+      overriddenAt: '2025-06-15T10:00:00Z',
+      overallRiskAtOverride: 'medium',
+      recommendation: 'proceed_with_caution',
+    });
+
+    const first = tracker.getOverrides();
+    first[0].overallRiskAtOverride = 'MUTATED';
+
+    const second = tracker.getOverrides();
+    expect(second[0].overallRiskAtOverride).toBe('medium');
   });
 
   test('getOverrides returns a defensive copy', () => {
