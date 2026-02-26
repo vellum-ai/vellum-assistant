@@ -612,18 +612,19 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func makeViewModel() -> ChatViewModel {
-        let viewModel = ChatViewModel(daemonClient: daemonClient, onToolCallsComplete: { [weak self] toolCalls in
+        let viewModel = ChatViewModel(daemonClient: daemonClient)
+        viewModel.onToolCallsComplete = { [weak self, weak viewModel] toolCalls in
             guard let self, let service = self.activityNotificationService else { return }
-            // Send notification when tool calls complete
+            let sessionId = viewModel?.sessionId ?? ""
             Task { @MainActor in
                 await service.notifySessionComplete(
                     summary: "Tool execution completed",
                     steps: toolCalls.count,
                     toolCalls: toolCalls,
-                    sessionId: "" // Session ID not needed for chat-based notifications
+                    sessionId: sessionId
                 )
             }
-        })
+        }
         viewModel.shouldAcceptConfirmation = { [weak self, weak viewModel] in
             guard let self, let viewModel else { return false }
             return self.isLatestToolUseRecipient(viewModel)
