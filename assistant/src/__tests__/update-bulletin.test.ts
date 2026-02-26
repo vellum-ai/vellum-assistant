@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import * as fs from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -284,13 +285,20 @@ describe('syncUpdateBulletinOnStartup', () => {
     const originalContent = '<!-- vellum-update-release:0.9.0 -->\nOriginal content.\n';
     writeFileSync(workspacePath, originalContent, 'utf-8');
 
-    // Make tempDir read-only so the temp file creation fails.
-    // On macOS/Linux, 0o555 prevents new file creation inside the directory.
-    chmodSync(tempDir, 0o555);
+    // Mock writeFileSync to throw when writing the temp file, simulating a
+    // disk-full or permission error deterministically (chmod-based approaches
+    // are unreliable when running as root or with CAP_DAC_OVERRIDE).
+    const originalWriteFileSync = fs.writeFileSync;
+    const spy = spyOn(fs, 'writeFileSync').mockImplementation((...args: Parameters<typeof fs.writeFileSync>) => {
+      if (typeof args[0] === 'string' && args[0].includes('.tmp.')) {
+        throw new Error('Simulated write failure');
+      }
+      return originalWriteFileSync(...args);
+    });
     try {
-      expect(() => syncUpdateBulletinOnStartup()).toThrow();
+      expect(() => syncUpdateBulletinOnStartup()).toThrow('Simulated write failure');
     } finally {
-      chmodSync(tempDir, 0o755);
+      spy.mockRestore();
     }
 
     // Original content should be preserved (atomic write never renamed over it)
