@@ -12,6 +12,7 @@ import { loadRawConfig } from '../config/loader.js';
 import { getConfig } from '../config/loader.js';
 import { hasSocketOverride,shouldAutoStartDaemon } from '../daemon/connection-policy.js';
 import {
+  cleanupPidFile,
   ensureDaemonRunning,
   getDaemonStatus,
   startDaemon,
@@ -110,13 +111,19 @@ export function registerDevCommand(program: Command): void {
     .description('Run the daemon in dev mode with auto-restart on file changes')
     .action(async () => {
       const status = await getDaemonStatus();
-      if (status.running || status.pid) {
+      if (status.running) {
         log.info('Stopping existing daemon...');
         const stopResult = await stopDaemon();
         if (!stopResult.stopped && stopResult.reason === 'stop_failed') {
           log.error('Failed to stop existing daemon — process survived SIGKILL');
           process.exit(1);
         }
+      } else if (status.pid) {
+        // PID file references a live process but the socket is unresponsive.
+        // The PID may have been reused by an unrelated process — only remove
+        // the stale PID file; never signal a process we cannot verify is ours.
+        log.info('Cleaning up stale PID file (socket unresponsive)...');
+        cleanupPidFile();
       }
 
       const mainPath = `${import.meta.dirname}/../daemon/main.ts`;
