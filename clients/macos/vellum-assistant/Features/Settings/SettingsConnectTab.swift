@@ -663,10 +663,7 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.error)
             }
 
-            if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
-                Divider().background(VColor.surfaceBorder)
-                guardianStatusRow(channel: "slack")
-            }
+
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
