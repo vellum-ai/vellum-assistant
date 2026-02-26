@@ -6,6 +6,10 @@ import type { Session } from '../daemon/session.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import type { ApprovalMessageContext, ComposeApprovalMessageGenerativeOptions } from './approval-message-composer.js';
 import type { AssistantEventHub } from './assistant-event-hub.js';
+import type {
+  ComposeGuardianActionMessageOptions,
+  GuardianActionMessageContext,
+} from './guardian-action-message-composer.js';
 /**
  * Daemon-injected function that generates approval copy using a provider.
  * Returns generated text or `null` on failure (caller falls back to deterministic text).
@@ -50,6 +54,15 @@ export interface ApprovalConversationContext {
 export type ApprovalConversationGenerator = (
   context: ApprovalConversationContext,
 ) => Promise<ApprovalConversationResult>;
+
+/**
+ * Daemon-injected function that generates guardian action copy using a provider.
+ * Returns generated text or `null` on failure (caller falls back to deterministic text).
+ */
+export type GuardianActionCopyGenerator = (
+  context: GuardianActionMessageContext,
+  options?: ComposeGuardianActionMessageOptions,
+) => Promise<string | null>;
 
 export interface RuntimeMessageSessionOptions {
   transport?: {
@@ -125,6 +138,8 @@ export interface RuntimeHttpServerOptions {
   approvalCopyGenerator?: ApprovalCopyGenerator;
   /** Daemon-injected generator for conversational approval flow (provider-backed). */
   approvalConversationGenerator?: ApprovalConversationGenerator;
+  /** Daemon-injected generator for guardian action copy (provider-backed). */
+  guardianActionCopyGenerator?: GuardianActionCopyGenerator;
   /** Dependencies for the POST /v1/messages queue-if-busy handler. */
   sendMessageDeps?: SendMessageDeps;
 }

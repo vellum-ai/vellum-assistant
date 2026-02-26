@@ -53,6 +53,7 @@ import {
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
+  GuardianActionCopyGenerator,
   MessageProcessor,
 } from '../http-types.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
@@ -103,6 +104,7 @@ export async function handleChannelInbound(
   gatewayOriginSecret?: string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
   approvalConversationGenerator?: ApprovalConversationGenerator,
+  _guardianActionCopyGenerator?: GuardianActionCopyGenerator,
 ): Promise<Response> {
   // Reject requests that lack valid gateway-origin proof. This ensures
   // channel inbound messages can only arrive via the gateway (which
@@ -569,7 +571,7 @@ export async function handleChannelInbound(
         destinationAddress: externalChatId,
       });
 
-      // Compose and send the verification code via Telegram
+      // Compose and send the verification prompt via Telegram
       const telegramBody = composeVerificationTelegram(
         GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
         {

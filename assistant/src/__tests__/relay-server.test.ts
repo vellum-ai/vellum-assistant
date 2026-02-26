@@ -1520,20 +1520,20 @@ describe('relay-server', () => {
     relay.destroy();
   });
 
-  // ── Outbound guardian verification pointer messages ────────────────
+  // ── Outbound guardian verification pointer messages ─────────────────
 
-  test('outbound guardian verification success emits pointer message to origin conversation', async () => {
-    ensureConversation('conv-gv-origin-success');
-    ensureConversation('conv-gv-voice-success');
+  test('outbound guardian verification success emits pointer to origin conversation', async () => {
+    ensureConversation('conv-gv-pointer-success');
+    ensureConversation('conv-gv-pointer-success-origin');
     const session = createCallSession({
-      conversationId: 'conv-gv-voice-success',
+      conversationId: 'conv-gv-pointer-success',
       provider: 'twilio',
       fromNumber: '+15551111111',
-      toNumber: '+15550001111',
+      toNumber: '+15559999999',
       assistantId: 'test-assistant',
       callMode: 'guardian_verification',
-      guardianVerificationSessionId: 'gv-session-success',
-      initiatedFromConversationId: 'conv-gv-origin-success',
+      guardianVerificationSessionId: 'gv-session-ptr-success',
+      initiatedFromConversationId: 'conv-gv-pointer-success-origin',
     });
 
     const challenge = createVerificationChallenge('test-assistant', 'voice');
@@ -1543,9 +1543,10 @@ describe('relay-server', () => {
 
     await relay.handleMessage(JSON.stringify({
       type: 'setup',
-      callSid: 'CA_gv_ptr_success',
+      callSid: 'CA_gv_pointer_success',
       from: '+15551111111',
-      to: '+15550001111',
+      to: '+15559999999',
+      customParameters: { guardianVerificationSessionId: 'gv-session-ptr-success' },
     }));
 
     expect(relay.isGuardianVerificationActive()).toBe(true);
@@ -1555,38 +1556,34 @@ describe('relay-server', () => {
       await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit }));
     }
 
-    // Verify a pointer message was emitted to the origin conversation
-    const originMessages = getMessages('conv-gv-origin-success').filter((m) => m.role === 'assistant');
-    expect(originMessages.length).toBeGreaterThan(0);
-    const pointerText = originMessages.map((m) => {
-      try {
-        const parsed = JSON.parse(m.content);
-        if (Array.isArray(parsed)) return parsed.map((b: { text?: string }) => b.text ?? '').join('');
-      } catch { /* ignore */ }
-      return m.content;
-    }).join('');
-    expect(pointerText).toContain('Guardian verification');
-    expect(pointerText).toContain('succeeded');
-    expect(pointerText).toContain('+15550001111');
+    // Verification should have succeeded
+    expect(relay.isGuardianVerificationActive()).toBe(false);
 
-    // Let delayed endSession flush
+    // Origin conversation should have a pointer message
+    const originText = getLatestAssistantText('conv-gv-pointer-success-origin');
+    expect(originText).not.toBeNull();
+    expect(originText).toContain('Guardian verification');
+    expect(originText).toContain('+15559999999');
+    expect(originText).toContain('succeeded');
+
+    // Let the delayed endSession callback flush
     await new Promise((resolve) => setTimeout(resolve, 3100));
 
     relay.destroy();
   });
 
-  test('outbound guardian verification failure emits pointer message to origin conversation', async () => {
-    ensureConversation('conv-gv-origin-fail');
-    ensureConversation('conv-gv-voice-fail');
+  test('outbound guardian verification failure emits pointer to origin conversation', async () => {
+    ensureConversation('conv-gv-pointer-fail');
+    ensureConversation('conv-gv-pointer-fail-origin');
     const session = createCallSession({
-      conversationId: 'conv-gv-voice-fail',
+      conversationId: 'conv-gv-pointer-fail',
       provider: 'twilio',
       fromNumber: '+15551111111',
-      toNumber: '+15550001111',
+      toNumber: '+15559999999',
       assistantId: 'test-assistant',
       callMode: 'guardian_verification',
-      guardianVerificationSessionId: 'gv-session-fail',
-      initiatedFromConversationId: 'conv-gv-origin-fail',
+      guardianVerificationSessionId: 'gv-session-ptr-fail',
+      initiatedFromConversationId: 'conv-gv-pointer-fail-origin',
     });
 
     createVerificationChallenge('test-assistant', 'voice');
@@ -1595,9 +1592,10 @@ describe('relay-server', () => {
 
     await relay.handleMessage(JSON.stringify({
       type: 'setup',
-      callSid: 'CA_gv_ptr_fail',
+      callSid: 'CA_gv_pointer_fail',
       from: '+15551111111',
-      to: '+15550001111',
+      to: '+15559999999',
+      customParameters: { guardianVerificationSessionId: 'gv-session-ptr-fail' },
     }));
 
     expect(relay.isGuardianVerificationActive()).toBe(true);
@@ -1614,21 +1612,14 @@ describe('relay-server', () => {
     expect(updated).not.toBeNull();
     expect(updated!.status).toBe('failed');
 
-    // Verify a pointer message was emitted to the origin conversation
-    const originMessages = getMessages('conv-gv-origin-fail').filter((m) => m.role === 'assistant');
-    expect(originMessages.length).toBeGreaterThan(0);
-    const pointerText = originMessages.map((m) => {
-      try {
-        const parsed = JSON.parse(m.content);
-        if (Array.isArray(parsed)) return parsed.map((b: { text?: string }) => b.text ?? '').join('');
-      } catch { /* ignore */ }
-      return m.content;
-    }).join('');
-    expect(pointerText).toContain('Guardian verification');
-    expect(pointerText).toContain('failed');
-    expect(pointerText).toContain('+15550001111');
+    // Origin conversation should have a failure pointer message
+    const originText = getLatestAssistantText('conv-gv-pointer-fail-origin');
+    expect(originText).not.toBeNull();
+    expect(originText).toContain('Guardian verification');
+    expect(originText).toContain('+15559999999');
+    expect(originText).toContain('failed');
 
-    // Let delayed endSession flush
+    // Let the delayed endSession callback flush
     await new Promise((resolve) => setTimeout(resolve, 2100));
 
     relay.destroy();

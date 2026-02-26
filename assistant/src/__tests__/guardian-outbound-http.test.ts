@@ -235,6 +235,26 @@ describe('startOutbound', () => {
     expect(result.sendCount).toBe(1);
   });
 
+  test('voice: passes originConversationId to startGuardianVerificationCall', () => {
+    voiceCallInitCalls.length = 0;
+    const result = startOutbound({
+      channel: 'voice',
+      destination: '+15559876543',
+      originConversationId: 'conv-origin-linkage-test',
+    });
+    expect(result.success).toBe(true);
+    // The voice call mock should have been invoked with the origin conversation
+    expect(voiceCallInitCalls.length).toBe(1);
+    expect(voiceCallInitCalls[0].phoneNumber).toBe('+15559876543');
+  });
+
+  test('voice: succeeds without originConversationId (backward compat)', () => {
+    voiceCallInitCalls.length = 0;
+    const result = startOutbound({ channel: 'voice', destination: '+15551119999' });
+    expect(result.success).toBe(true);
+    expect(voiceCallInitCalls.length).toBe(1);
+  });
+
   test('unsupported channel returns unsupported_channel', () => {
     // Cast to bypass type checking for test purposes
     const result = startOutbound({ channel: 'email' as never });

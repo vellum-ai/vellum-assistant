@@ -131,7 +131,7 @@ export function handleGetGuardianStatus(url: URL): Response {
 /**
  * POST /v1/integrations/guardian/outbound/start
  *
- * Body: { channel: ChannelId; destination?: string; assistantId?: string; rebind?: boolean }
+ * Body: { channel: ChannelId; destination?: string; assistantId?: string; rebind?: boolean; originConversationId?: string }
  */
 export async function handleStartOutbound(req: Request): Promise<Response> {
   const body = (await req.json()) as {

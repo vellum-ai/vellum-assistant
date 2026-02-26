@@ -10,6 +10,10 @@
 
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import {
+  getPendingRequestByCallSessionId,
+  markTimedOutWithReason,
+} from '../memory/guardian-action-store.js';
 import { getLogger } from '../util/logger.js';
 import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
@@ -38,6 +42,8 @@ const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
 const CALL_OPENING_MARKER_REGEX = /\[CALL_OPENING\]/g;
 const CALL_OPENING_ACK_MARKER_REGEX = /\[CALL_OPENING_ACK\]/g;
 const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
+const GUARDIAN_TIMEOUT_MARKER_REGEX = /\[GUARDIAN_TIMEOUT\]/g;
+const GUARDIAN_UNAVAILABLE_MARKER_REGEX = /\[GUARDIAN_UNAVAILABLE\]/g;
 const CALL_OPENING_MARKER = '[CALL_OPENING]';
 const CALL_OPENING_ACK_MARKER = '[CALL_OPENING_ACK]';
 const END_CALL_MARKER = '[END_CALL]';
@@ -49,7 +55,9 @@ function stripInternalSpeechMarkers(text: string): string {
     .replace(USER_INSTRUCTION_MARKER_REGEX, '')
     .replace(CALL_OPENING_MARKER_REGEX, '')
     .replace(CALL_OPENING_ACK_MARKER_REGEX, '')
-    .replace(END_CALL_MARKER_REGEX, '');
+    .replace(END_CALL_MARKER_REGEX, '')
+    .replace(GUARDIAN_TIMEOUT_MARKER_REGEX, '')
+    .replace(GUARDIAN_UNAVAILABLE_MARKER_REGEX, '');
 }
 
 export class CallController {
@@ -92,6 +100,13 @@ export class CallController {
    * alternation in the underlying session pipeline.
    */
   private lastSentWasOpener = false;
+  /**
+   * Set to true after a guardian consultation timeout occurs in this call.
+   * Subsequent ASK_GUARDIAN attempts skip the full wait and immediately
+   * inject a guardian-unavailable instruction so the model can adapt
+   * without blocking the caller.
+   */
+  private guardianUnavailableForCall = false;
 
   constructor(
     callSessionId: string,
@@ -401,6 +416,8 @@ export class CallController {
             '[CALL_OPENING]'.startsWith(afterBracket) ||
             '[CALL_OPENING_ACK]'.startsWith(afterBracket) ||
             '[END_CALL]'.startsWith(afterBracket) ||
+            '[GUARDIAN_TIMEOUT]'.startsWith(afterBracket) ||
+            '[GUARDIAN_UNAVAILABLE]'.startsWith(afterBracket) ||
             afterBracket.startsWith('[ASK_GUARDIAN:') ||
             afterBracket.startsWith('[USER_ANSWERED:') ||
             afterBracket.startsWith('[USER_INSTRUCTION:') ||
@@ -409,7 +426,11 @@ export class CallController {
             afterBracket === '[CALL_OPENING_ACK' ||
             afterBracket.startsWith('[CALL_OPENING_ACK]') ||
             afterBracket === '[END_CALL' ||
-            afterBracket.startsWith('[END_CALL]');
+            afterBracket.startsWith('[END_CALL]') ||
+            afterBracket === '[GUARDIAN_TIMEOUT' ||
+            afterBracket.startsWith('[GUARDIAN_TIMEOUT]') ||
+            afterBracket === '[GUARDIAN_UNAVAILABLE' ||
+            afterBracket.startsWith('[GUARDIAN_UNAVAILABLE]');
 
           if (!couldBeControl) {
             // Not a control marker prefix — flush up to the next '[' (if any)
@@ -514,6 +535,19 @@ export class CallController {
           log.info({ callSessionId: this.callSessionId }, 'Caller is guardian — skipping ASK_GUARDIAN dispatch, asking directly');
           this.pendingInstructions.push(`You just tried to use [ASK_GUARDIAN] but the person on the phone IS your guardian. Ask them directly: "${questionText}"`);
           // Fall through to normal turn completion (idle + flushPendingInstructions)
+        } else if (this.guardianUnavailableForCall) {
+          // Guardian already timed out earlier in this call — skip the full
+          // consultation wait and immediately tell the model to proceed
+          // without guardian input.
+          log.info({ callSessionId: this.callSessionId }, 'Guardian unavailable for call — skipping ASK_GUARDIAN wait');
+          recordCallEvent(this.callSessionId, 'guardian_unavailable_skipped', { question: questionText });
+          this.pendingInstructions.push(
+            `[GUARDIAN_UNAVAILABLE] You tried to consult your guardian again, but they were already unreachable earlier in this call. `
+            + `Do NOT use [ASK_GUARDIAN] again. Instead, let the caller know you cannot reach the guardian right now, `
+            + `and continue the conversation by asking if there is anything else you can help with or if they would like a callback. `
+            + `The unanswered question was: "${questionText}"`,
+          );
+          // Fall through to normal turn completion (idle + flushPendingInstructions)
         } else {
           const pendingQuestion = createPendingQuestion(this.callSessionId, questionText);
           this.state = 'waiting_on_user';
@@ -536,39 +570,59 @@ export class CallController {
 
           // Set a consultation timeout
           this.consultationTimer = setTimeout(() => {
-            if (this.state === 'waiting_on_user') {
-              log.info({ callSessionId: this.callSessionId }, 'User consultation timed out');
-              this.relay.sendTextToken(
-                'I\'m sorry, I wasn\'t able to get that information in time. Let me move on.',
-                true,
+            if (this.state !== 'waiting_on_user') return;
+
+            log.info({ callSessionId: this.callSessionId }, 'User consultation timed out');
+
+            // Mark the linked guardian action request as timed out
+            const pendingActionRequest = getPendingRequestByCallSessionId(this.callSessionId);
+            if (pendingActionRequest) {
+              markTimedOutWithReason(pendingActionRequest.id, 'call_timeout');
+              log.info(
+                { callSessionId: this.callSessionId, requestId: pendingActionRequest.id },
+                'Marked guardian action request as timed out',
               );
-              this.state = 'idle';
-              updateCallSession(this.callSessionId, { status: 'in_progress' });
-              expirePendingQuestions(this.callSessionId);
-              // Restart silence detection now that we're back to idle.
-              // flushPendingInstructions / drainPendingCallerUtterances will
-              // reset it again when they start a new turn, but we need the
-              // fallback in case neither queue has work.
-              this.resetSilenceTimer();
+            }
 
-              const hasInstructions = this.pendingInstructions.length > 0;
-              const hasUtterances = this.pendingCallerUtterances.length > 0;
+            // Expire pending questions and update call state
+            expirePendingQuestions(this.callSessionId);
+            this.state = 'idle';
+            updateCallSession(this.callSessionId, { status: 'in_progress' });
+            this.guardianUnavailableForCall = true;
+            recordCallEvent(this.callSessionId, 'guardian_consultation_timed_out', { question: questionText });
 
-              if (hasInstructions && hasUtterances) {
-                // Merge both queues into a single turn to avoid the race where
-                // flushPendingInstructions fires a turn that gets aborted by
-                // drainPendingCallerUtterances, losing the instructions.
-                const instructionPrefix = this.pendingInstructions
-                  .map((instr) => `[USER_INSTRUCTION: ${instr}]`)
-                  .join('\n');
-                this.pendingInstructions = [];
-                this.drainPendingCallerUtterances(instructionPrefix);
-              } else if (hasInstructions) {
-                this.flushPendingInstructions();
-              } else if (hasUtterances) {
-                this.drainPendingCallerUtterances();
+            // Restart silence detection before firing the generated turn
+            this.resetSilenceTimer();
+
+            // Build a generated turn instruction instead of hardcoded text.
+            // Merge any queued instructions and caller utterances into the
+            // timeout turn to avoid concurrent-turn races.
+            const timeoutInstruction =
+              `[GUARDIAN_TIMEOUT] Your guardian did not respond in time to your question: "${questionText}". `
+              + `Apologize to the caller for the delay, let them know you were unable to reach your guardian, `
+              + `ask if they would like to leave a message or receive a callback, `
+              + `and ask if there are any other questions you can help with right now.`;
+
+            const parts: string[] = [];
+            for (const instr of this.pendingInstructions) {
+              parts.push(`[USER_INSTRUCTION: ${instr}]`);
+            }
+            this.pendingInstructions = [];
+            parts.push(`[USER_INSTRUCTION: ${timeoutInstruction}]`);
+
+            if (this.pendingCallerUtterances.length > 0) {
+              const latest = this.pendingCallerUtterances[this.pendingCallerUtterances.length - 1];
+              this.pendingCallerUtterances = [];
+              const callerContent = this.formatCallerUtterance(latest.transcript, latest.speaker);
+              if (callerContent.length > 0) {
+                parts.push(callerContent);
               }
             }
+
+            const content = parts.join('\n');
+            this.runTurn(content).catch((err) =>
+              log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after guardian consultation timeout'),
+            );
           }, getUserConsultationTimeoutMs());
           return;
         }

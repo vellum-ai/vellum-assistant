@@ -692,8 +692,8 @@ export class RelayConnection {
           endedAt: Date.now(),
         });
 
-        // Emit a pointer message to the origin conversation so the user
-        // sees the verification result even if skill-level polling is bypassed.
+        // Emit a pointer message to the origin conversation so the
+        // requesting chat sees a deterministic completion notice.
         const successSession = getCallSession(this.callSessionId);
         if (successSession?.initiatedFromConversationId) {
           addPointerMessage(
@@ -761,9 +761,9 @@ export class RelayConnection {
           persistCallCompletionMessage(failSession.conversationId, this.callSessionId);
           fireCallCompletionNotifier(failSession.conversationId, this.callSessionId);
 
-          // Emit a pointer message to the origin conversation so the user
-          // sees the verification failure even if skill-level polling is bypassed.
-          if (failSession.initiatedFromConversationId) {
+          // Emit a pointer message to the origin conversation so the
+          // requesting chat sees a deterministic failure notice.
+          if (isOutbound && failSession.initiatedFromConversationId) {
             addPointerMessage(
               failSession.initiatedFromConversationId,
               'guardian_verification_failed',

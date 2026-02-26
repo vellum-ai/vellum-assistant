@@ -572,7 +572,7 @@ export type StartGuardianVerificationCallInput = {
   phoneNumber: string;
   guardianVerificationSessionId: string;
   assistantId?: string;
-  /** The conversation that initiated this verification, for pointer messages. */
+  /** Origin conversation ID so completion/failure pointers can route back. */
   originConversationId?: string;
 };
 

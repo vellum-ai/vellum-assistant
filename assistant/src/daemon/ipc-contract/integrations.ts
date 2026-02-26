@@ -91,7 +91,7 @@ export interface GuardianVerificationRequest {
   rebind?: boolean;  // When true, allows creating a challenge even if a binding already exists
   /** E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions. */
   destination?: string;
-  /** The conversation that initiated this verification, for cross-conversation pointer messages. */
+  /** Origin conversation ID so completion/failure pointers can route back. */
   originConversationId?: string;
 }
 

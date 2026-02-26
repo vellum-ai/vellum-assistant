@@ -25,6 +25,9 @@ const log = getLogger('guardian-action-store');
 
 export type GuardianActionRequestStatus = 'pending' | 'answered' | 'expired' | 'cancelled';
 export type GuardianActionDeliveryStatus = 'pending' | 'sent' | 'failed' | 'answered' | 'expired' | 'cancelled';
+export type ExpiredReason = 'call_timeout' | 'sweep_timeout' | 'cancelled';
+export type FollowupState = 'none' | 'awaiting_guardian_choice' | 'dispatching' | 'completed' | 'declined' | 'failed';
+export type FollowupAction = 'call_back' | 'message_back' | 'decline';
 
 export interface GuardianActionRequest {
   id: string;
@@ -42,6 +45,12 @@ export interface GuardianActionRequest {
   answeredByExternalUserId: string | null;
   answeredAt: number | null;
   expiresAt: number;
+  expiredReason: ExpiredReason | null;
+  followupState: FollowupState;
+  lateAnswerText: string | null;
+  lateAnsweredAt: number | null;
+  followupAction: FollowupAction | null;
+  followupCompletedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -82,6 +91,12 @@ function rowToRequest(row: typeof guardianActionRequests.$inferSelect): Guardian
     answeredByExternalUserId: row.answeredByExternalUserId,
     answeredAt: row.answeredAt,
     expiresAt: row.expiresAt,
+    expiredReason: (row.expiredReason as ExpiredReason) ?? null,
+    followupState: (row.followupState as FollowupState) ?? 'none',
+    lateAnswerText: row.lateAnswerText ?? null,
+    lateAnsweredAt: row.lateAnsweredAt ?? null,
+    followupAction: (row.followupAction as FollowupAction) ?? null,
+    followupCompletedAt: row.followupCompletedAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -143,6 +158,12 @@ export function createGuardianActionRequest(params: {
     answeredByExternalUserId: null,
     answeredAt: null,
     expiresAt: params.expiresAt,
+    expiredReason: null,
+    followupState: 'none' as const,
+    lateAnswerText: null,
+    lateAnsweredAt: null,
+    followupAction: null,
+    followupCompletedAt: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -167,6 +188,25 @@ export function getByPendingQuestionId(questionId: string): GuardianActionReques
     .select()
     .from(guardianActionRequests)
     .where(eq(guardianActionRequests.pendingQuestionId, questionId))
+    .get();
+  return row ? rowToRequest(row) : null;
+}
+
+/**
+ * Find the most recent pending guardian action request for a given call session.
+ * Used by the consultation timeout handler to mark the linked request as timed out.
+ */
+export function getPendingRequestByCallSessionId(callSessionId: string): GuardianActionRequest | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(guardianActionRequests)
+    .where(
+      and(
+        eq(guardianActionRequests.callSessionId, callSessionId),
+        eq(guardianActionRequests.status, 'pending'),
+      ),
+    )
     .get();
   return row ? rowToRequest(row) : null;
 }
@@ -217,13 +257,14 @@ export function resolveGuardianActionRequest(
 
 /**
  * Expire a guardian action request and all its deliveries.
+ * When reason is not provided, defaults to 'sweep_timeout' for backward compatibility.
  */
-export function expireGuardianActionRequest(id: string): void {
+export function expireGuardianActionRequest(id: string, reason?: ExpiredReason): void {
   const db = getDb();
   const now = Date.now();
 
   db.update(guardianActionRequests)
-    .set({ status: 'expired', updatedAt: now })
+    .set({ status: 'expired', expiredReason: reason ?? 'sweep_timeout', updatedAt: now })
     .where(
       and(
         eq(guardianActionRequests.id, id),
@@ -301,6 +342,175 @@ export function cancelGuardianActionRequest(id: string): void {
       ),
     )
     .run();
+}
+
+// ---------------------------------------------------------------------------
+// Follow-up lifecycle helpers
+// ---------------------------------------------------------------------------
+
+/** Valid non-terminal followup_state transitions for progressFollowupState.
+ * Terminal states (completed, declined, failed) are only reachable via
+ * finalizeFollowup, which properly sets followupCompletedAt. */
+const FOLLOWUP_TRANSITIONS: Record<FollowupState, FollowupState[]> = {
+  none: [],
+  awaiting_guardian_choice: ['dispatching'],
+  dispatching: [],
+  completed: [],
+  declined: [],
+  failed: [],
+};
+
+/** Valid terminal transitions for finalizeFollowup. Maps from current
+ * followup_state to the terminal states reachable from it. */
+const FOLLOWUP_FINALIZE_TRANSITIONS: Partial<Record<FollowupState, FollowupState[]>> = {
+  awaiting_guardian_choice: ['declined'],
+  dispatching: ['completed', 'failed'],
+};
+
+/**
+ * Atomically set status='expired' and expired_reason on a pending request.
+ * Returns the updated request on success, or null if the request was not
+ * in 'pending' status (first-writer-wins).
+ */
+export function markTimedOutWithReason(id: string, reason: ExpiredReason): GuardianActionRequest | null {
+  const db = getDb();
+  const now = Date.now();
+
+  db.update(guardianActionRequests)
+    .set({ status: 'expired', expiredReason: reason, updatedAt: now })
+    .where(
+      and(
+        eq(guardianActionRequests.id, id),
+        eq(guardianActionRequests.status, 'pending'),
+      ),
+    )
+    .run();
+
+  if (rawChanges() === 0) return null;
+
+  // Also expire active deliveries
+  db.update(guardianActionDeliveries)
+    .set({ status: 'expired', updatedAt: now })
+    .where(
+      and(
+        eq(guardianActionDeliveries.requestId, id),
+        inArray(guardianActionDeliveries.status, ['pending', 'sent']),
+      ),
+    )
+    .run();
+
+  return getGuardianActionRequest(id);
+}
+
+/**
+ * Atomically transition an expired request into the follow-up flow.
+ * Sets followup_state='awaiting_guardian_choice', records the late answer
+ * text and timestamp. Only succeeds if status='expired' and followup_state='none'.
+ * Returns the updated request on success, or null on conflict.
+ */
+export function startFollowupFromExpiredRequest(
+  id: string,
+  lateAnswerText: string,
+): GuardianActionRequest | null {
+  const db = getDb();
+  const now = Date.now();
+
+  db.update(guardianActionRequests)
+    .set({
+      followupState: 'awaiting_guardian_choice',
+      lateAnswerText,
+      lateAnsweredAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(guardianActionRequests.id, id),
+        eq(guardianActionRequests.status, 'expired'),
+        eq(guardianActionRequests.followupState, 'none'),
+      ),
+    )
+    .run();
+
+  if (rawChanges() === 0) return null;
+  return getGuardianActionRequest(id);
+}
+
+/**
+ * Atomically progress the followup_state. Validates that the transition
+ * is allowed (see FOLLOWUP_TRANSITIONS). Optionally sets the followup_action.
+ * Returns the updated request on success, or null if the transition was
+ * invalid or the prior state didn't match.
+ */
+export function progressFollowupState(
+  id: string,
+  newState: FollowupState,
+  action?: FollowupAction,
+): GuardianActionRequest | null {
+  const request = getGuardianActionRequest(id);
+  if (!request) return null;
+
+  const allowed = FOLLOWUP_TRANSITIONS[request.followupState];
+  if (!allowed.includes(newState)) return null;
+
+  const db = getDb();
+  const now = Date.now();
+
+  const updates: Record<string, unknown> = {
+    followupState: newState,
+    updatedAt: now,
+  };
+  if (action !== undefined) updates.followupAction = action;
+
+  db.update(guardianActionRequests)
+    .set(updates)
+    .where(
+      and(
+        eq(guardianActionRequests.id, id),
+        eq(guardianActionRequests.status, 'expired'),
+        eq(guardianActionRequests.followupState, request.followupState),
+      ),
+    )
+    .run();
+
+  if (rawChanges() === 0) return null;
+  return getGuardianActionRequest(id);
+}
+
+/**
+ * Finalize a follow-up by setting the terminal followup_state and
+ * recording followup_completed_at. Only succeeds from a non-terminal state
+ * and only on expired requests.
+ */
+export function finalizeFollowup(
+  id: string,
+  finalState: 'completed' | 'declined' | 'failed',
+): GuardianActionRequest | null {
+  const request = getGuardianActionRequest(id);
+  if (!request) return null;
+
+  const allowed = FOLLOWUP_FINALIZE_TRANSITIONS[request.followupState];
+  if (!allowed?.includes(finalState)) return null;
+
+  const db = getDb();
+  const now = Date.now();
+
+  db.update(guardianActionRequests)
+    .set({
+      followupState: finalState,
+      followupCompletedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(guardianActionRequests.id, id),
+        eq(guardianActionRequests.status, 'expired'),
+        eq(guardianActionRequests.followupState, request.followupState),
+      ),
+    )
+    .run();
+
+  if (rawChanges() === 0) return null;
+  return getGuardianActionRequest(id);
 }
 
 // ---------------------------------------------------------------------------
