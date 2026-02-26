@@ -400,9 +400,10 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                     var processedCount = 0
                     for await (displayId, image, status, latencyMs, fromCache) in group {
                         // Discard stale results from a previous generation;
-                        // cancel remaining children so they release semaphore slots promptly
+                        // cancel remaining children so they release semaphore slots promptly.
+                        // Subtract 1 because the current result was already dequeued and completed.
                         guard self.previewGeneration == generation else {
-                            let remaining = totalDisplaySources - processedCount
+                            let remaining = totalDisplaySources - processedCount - 1
                             if remaining > 0 {
                                 self.previewAttemptCount += remaining
                                 self.previewCancelCount += remaining
@@ -412,7 +413,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                             return
                         }
                         guard !Task.isCancelled else {
-                            let remaining = totalDisplaySources - processedCount
+                            let remaining = totalDisplaySources - processedCount - 1
                             if remaining > 0 {
                                 self.previewAttemptCount += remaining
                                 self.previewCancelCount += remaining
@@ -469,8 +470,9 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                     }
                     var processedCount = 0
                     for await (windowId, image, status, latencyMs, fromCache) in group {
+                        // Subtract 1 because the current result was already dequeued and completed.
                         guard self.previewGeneration == generation else {
-                            let remaining = totalWindowSources - processedCount
+                            let remaining = totalWindowSources - processedCount - 1
                             if remaining > 0 {
                                 self.previewAttemptCount += remaining
                                 self.previewCancelCount += remaining
@@ -480,7 +482,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                             return
                         }
                         guard !Task.isCancelled else {
-                            let remaining = totalWindowSources - processedCount
+                            let remaining = totalWindowSources - processedCount - 1
                             if remaining > 0 {
                                 self.previewAttemptCount += remaining
                                 self.previewCancelCount += remaining
