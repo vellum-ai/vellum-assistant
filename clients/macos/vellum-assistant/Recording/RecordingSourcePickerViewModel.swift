@@ -263,6 +263,10 @@ final class RecordingSourcePickerViewModel: ObservableObject {
     /// selected. If not, the selection is cleared and a brief notice is shown
     /// to inform the user.
     func refreshSources() async {
+        // Cancel in-flight preview tasks before refreshing the source list
+        previewTask?.cancel()
+        previewGeneration += 1
+
         let previousDisplayId = selectedDisplayId
         let previousWindowId = selectedWindowId
         let previousScope = captureScope
@@ -331,6 +335,11 @@ final class RecordingSourcePickerViewModel: ObservableObject {
     // MARK: - Preview Loading
 
     private let thumbnailProvider = ThumbnailProvider()
+    /// In-flight preview loading task — cancelled on scope switch, refresh, or dismiss.
+    private var previewTask: Task<Void, Never>?
+    /// Monotonic counter incremented each time previews are loaded or sources are refreshed.
+    /// Used to discard stale capture results from a previous scope/refresh cycle.
+    private var previewGeneration: Int = 0
 
     /// Load preview thumbnails for all currently visible sources.
     /// Must be called after `loadSources()` completes. Does not block
@@ -338,50 +347,100 @@ final class RecordingSourcePickerViewModel: ObservableObject {
     func loadPreviews() async {
         guard FeatureFlagManager.shared.isEnabled(.sourcePreviewEnabled) else { return }
 
-        switch captureScope {
-        case .display:
-            for i in displays.indices {
-                displays[i].previewStatus = .loading
-            }
-            // Capture in parallel with concurrency limited by the provider
-            await withTaskGroup(of: (UInt32, NSImage?, PreviewStatus).self) { group in
-                for display in displays {
-                    group.addTask { [thumbnailProvider] in
-                        let result = await thumbnailProvider.captureThumbnail(for: display)
-                        return (display.id, result.image, result.status)
-                    }
-                }
-                for await (displayId, image, status) in group {
-                    if let idx = displays.firstIndex(where: { $0.id == displayId }) {
-                        displays[idx].thumbnail = image
-                        displays[idx].previewStatus = status
-                    }
-                }
-            }
+        // Cancel any in-flight preview work from a previous scope or refresh
+        previewTask?.cancel()
 
-        case .window:
-            for i in windows.indices {
-                windows[i].previewStatus = .loading
-            }
-            await withTaskGroup(of: (Int, NSImage?, PreviewStatus).self) { group in
-                for window in windows {
-                    group.addTask { [thumbnailProvider] in
-                        let result = await thumbnailProvider.captureThumbnail(for: window)
-                        return (window.id, result.image, result.status)
+        previewGeneration += 1
+        let generation = previewGeneration
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            switch self.captureScope {
+            case .display:
+                for i in self.displays.indices {
+                    self.displays[i].previewStatus = .loading
+                }
+                await withTaskGroup(of: (UInt32, NSImage?, PreviewStatus).self) { group in
+                    for display in self.displays {
+                        group.addTask { [thumbnailProvider] in
+                            // Check cancellation before starting each capture
+                            guard !Task.isCancelled else {
+                                return (display.id, nil, PreviewStatus.failed(.cancelled))
+                            }
+                            let result = await thumbnailProvider.captureThumbnail(for: display)
+                            return (display.id, result.image, result.status)
+                        }
+                    }
+                    for await (displayId, image, status) in group {
+                        // Discard stale results from a previous generation;
+                        // cancel remaining children so they release semaphore slots promptly
+                        guard self.previewGeneration == generation else {
+                            group.cancelAll()
+                            return
+                        }
+                        guard !Task.isCancelled else {
+                            group.cancelAll()
+                            return
+                        }
+                        if let idx = self.displays.firstIndex(where: { $0.id == displayId }) {
+                            self.displays[idx].thumbnail = image
+                            self.displays[idx].previewStatus = status
+                        }
                     }
                 }
-                for await (windowId, image, status) in group {
-                    if let idx = windows.firstIndex(where: { $0.id == windowId }) {
-                        windows[idx].thumbnail = image
-                        windows[idx].previewStatus = status
+
+            case .window:
+                for i in self.windows.indices {
+                    self.windows[i].previewStatus = .loading
+                }
+                await withTaskGroup(of: (Int, NSImage?, PreviewStatus).self) { group in
+                    for window in self.windows {
+                        group.addTask { [thumbnailProvider] in
+                            guard !Task.isCancelled else {
+                                return (window.id, nil, PreviewStatus.failed(.cancelled))
+                            }
+                            let result = await thumbnailProvider.captureThumbnail(for: window)
+                            return (window.id, result.image, result.status)
+                        }
+                    }
+                    for await (windowId, image, status) in group {
+                        guard self.previewGeneration == generation else {
+                            group.cancelAll()
+                            return
+                        }
+                        guard !Task.isCancelled else {
+                            group.cancelAll()
+                            return
+                        }
+                        if let idx = self.windows.firstIndex(where: { $0.id == windowId }) {
+                            self.windows[idx].thumbnail = image
+                            self.windows[idx].previewStatus = status
+                        }
                     }
                 }
             }
         }
+
+        previewTask = task
+        await task.value
     }
 
-    /// Clear thumbnail caches when the picker is dismissed.
+    /// Clear thumbnail caches and cancel in-flight tasks when the picker is dismissed.
     func clearPreviews() {
+        previewTask?.cancel()
+        previewTask = nil
+
+        // Reset all sources' preview states
+        for i in displays.indices {
+            displays[i].previewStatus = .idle
+            displays[i].thumbnail = nil
+        }
+        for i in windows.indices {
+            windows[i].previewStatus = .idle
+            windows[i].thumbnail = nil
+        }
+
         Task {
             await thumbnailProvider.clearCache()
         }
