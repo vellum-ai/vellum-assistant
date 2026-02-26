@@ -85,6 +85,13 @@ final class VoiceInputManager {
         }
     }
 
+    /// Tear down and re-create key monitors so changes to the activation key
+    /// take effect immediately without restarting the app.
+    func restartKeyMonitors() {
+        stop()
+        start()
+    }
+
     func stop() {
         if let monitor = globalMonitor {
             NSEvent.removeMonitor(monitor)
