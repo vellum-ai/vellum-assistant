@@ -19,6 +19,7 @@ concurrency:
 jobs:
   compute-version:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.compute.outputs.version }}
     steps:
@@ -45,6 +46,7 @@ jobs:
   notify-start:
     needs: compute-version
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     continue-on-error: true
     steps:
       - name: Notify Slack of release start
@@ -75,6 +77,7 @@ jobs:
   bump-and-tag:
     needs: compute-version
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -144,6 +147,7 @@ jobs:
   push-assistant-image:
     needs: bump-and-tag
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       id-token: write
@@ -208,6 +212,7 @@ jobs:
   push-gateway-image:
     needs: bump-and-tag
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       id-token: write
@@ -272,6 +277,7 @@ jobs:
   publish-npm:
     needs: bump-and-tag
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     strategy:
@@ -307,6 +313,7 @@ jobs:
   publish-meta:
     needs: [bump-and-tag, publish-npm]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -329,6 +336,7 @@ jobs:
   build-macos:
     needs: bump-and-tag
     runs-on: macos-14
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: clients/macos
@@ -595,6 +603,7 @@ jobs:
     needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image]
     if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -684,6 +693,7 @@ jobs:
   update-platform:
     needs: [bump-and-tag, publish-npm]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -737,6 +747,7 @@ jobs:
 
   ci-assistant:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -765,6 +776,7 @@ jobs:
 
   ci-cli:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -787,6 +799,7 @@ jobs:
 
   ci-gateway:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -882,6 +895,7 @@ jobs:
     if: always() && !cancelled()
     needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     continue-on-error: true
     steps:
       - name: Generate GitHub App token
