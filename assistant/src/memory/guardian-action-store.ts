@@ -51,6 +51,8 @@ export interface GuardianActionRequest {
   lateAnsweredAt: number | null;
   followupAction: FollowupAction | null;
   followupCompletedAt: number | null;
+  toolName: string | null;
+  inputDigest: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -97,6 +99,8 @@ function rowToRequest(row: typeof guardianActionRequests.$inferSelect): Guardian
     lateAnsweredAt: row.lateAnsweredAt ?? null,
     followupAction: (row.followupAction as FollowupAction) ?? null,
     followupCompletedAt: row.followupCompletedAt ?? null,
+    toolName: row.toolName ?? null,
+    inputDigest: row.inputDigest ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -137,6 +141,8 @@ export function createGuardianActionRequest(params: {
   pendingQuestionId: string;
   questionText: string;
   expiresAt: number;
+  toolName?: string;
+  inputDigest?: string;
 }): GuardianActionRequest {
   const db = getDb();
   const now = Date.now();
@@ -164,6 +170,8 @@ export function createGuardianActionRequest(params: {
     lateAnsweredAt: null,
     followupAction: null,
     followupCompletedAt: null,
+    toolName: params.toolName ?? null,
+    inputDigest: params.inputDigest ?? null,
     createdAt: now,
     updatedAt: now,
   };

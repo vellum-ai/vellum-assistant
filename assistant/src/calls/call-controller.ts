@@ -30,6 +30,7 @@ import {
 import { getGatewayInternalBaseUrl } from '../config/env.js';
 import { readHttpToken } from '../util/platform.js';
 import { dispatchGuardianQuestion } from './guardian-dispatch.js';
+import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { sendGuardianExpiryNotices } from './guardian-action-sweep.js';
 import type { RelayConnection } from './relay-server.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
@@ -41,6 +42,8 @@ type ControllerState = 'idle' | 'processing' | 'waiting_on_user' | 'speaking';
 
 const ASK_GUARDIAN_CAPTURE_REGEX = /\[ASK_GUARDIAN:\s*(.+?)\]/;
 const ASK_GUARDIAN_MARKER_REGEX = /\[ASK_GUARDIAN:\s*.+?\]/g;
+const ASK_GUARDIAN_APPROVAL_CAPTURE_REGEX = /\[ASK_GUARDIAN_APPROVAL:\s*(\{.+?\})\]/;
+const ASK_GUARDIAN_APPROVAL_MARKER_REGEX = /\[ASK_GUARDIAN_APPROVAL:\s*\{.+?\}\]/g;
 const USER_ANSWERED_MARKER_REGEX = /\[USER_ANSWERED:\s*.+?\]/g;
 const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
 const CALL_OPENING_MARKER_REGEX = /\[CALL_OPENING\]/g;
@@ -54,6 +57,7 @@ const END_CALL_MARKER = '[END_CALL]';
 
 function stripInternalSpeechMarkers(text: string): string {
   return text
+    .replace(ASK_GUARDIAN_APPROVAL_MARKER_REGEX, '')
     .replace(ASK_GUARDIAN_MARKER_REGEX, '')
     .replace(USER_ANSWERED_MARKER_REGEX, '')
     .replace(USER_INSTRUCTION_MARKER_REGEX, '')
@@ -414,6 +418,7 @@ export class CallController {
           // bracketed text (e.g. "[A]", "[note]") doesn't stall TTS.
           const afterBracket = ttsBuffer;
           const couldBeControl =
+            '[ASK_GUARDIAN_APPROVAL:'.startsWith(afterBracket) ||
             '[ASK_GUARDIAN:'.startsWith(afterBracket) ||
             '[USER_ANSWERED:'.startsWith(afterBracket) ||
             '[USER_INSTRUCTION:'.startsWith(afterBracket) ||
@@ -422,6 +427,7 @@ export class CallController {
             '[END_CALL]'.startsWith(afterBracket) ||
             '[GUARDIAN_TIMEOUT]'.startsWith(afterBracket) ||
             '[GUARDIAN_UNAVAILABLE]'.startsWith(afterBracket) ||
+            afterBracket.startsWith('[ASK_GUARDIAN_APPROVAL:') ||
             afterBracket.startsWith('[ASK_GUARDIAN:') ||
             afterBracket.startsWith('[USER_ANSWERED:') ||
             afterBracket.startsWith('[USER_INSTRUCTION:') ||
@@ -528,11 +534,28 @@ export class CallController {
         }
       }
 
-      // Check for ASK_GUARDIAN pattern
-      const askMatch = responseText.match(ASK_GUARDIAN_CAPTURE_REGEX);
-      if (askMatch) {
-        const questionText = askMatch[1];
+      // Check for structured tool-approval ASK_GUARDIAN_APPROVAL first, then informational ASK_GUARDIAN
+      const approvalMatch = responseText.match(ASK_GUARDIAN_APPROVAL_CAPTURE_REGEX);
+      let toolApprovalMeta: { question: string; toolName: string; inputDigest: string } | null = null;
+      if (approvalMatch) {
+        try {
+          const parsed = JSON.parse(approvalMatch[1]) as { question?: string; toolName?: string; input?: Record<string, unknown> };
+          if (parsed.question && parsed.toolName && parsed.input) {
+            const digest = computeToolApprovalDigest(parsed.toolName, parsed.input);
+            toolApprovalMeta = { question: parsed.question, toolName: parsed.toolName, inputDigest: digest };
+          }
+        } catch {
+          log.warn({ callSessionId: this.callSessionId }, 'Failed to parse ASK_GUARDIAN_APPROVAL JSON payload');
+        }
+      }
 
+      const askMatch = toolApprovalMeta
+        ? null // structured approval takes precedence
+        : responseText.match(ASK_GUARDIAN_CAPTURE_REGEX);
+
+      const questionText = toolApprovalMeta?.question ?? (askMatch ? askMatch[1] : null);
+
+      if (questionText) {
         if (this.isCallerGuardian()) {
           // Caller IS the guardian — don't dispatch cross-channel.
           // Queue an instruction so the next turn asks them directly.
@@ -569,6 +592,8 @@ export class CallController {
               conversationId: session.conversationId,
               assistantId: this.assistantId,
               pendingQuestion,
+              toolName: toolApprovalMeta?.toolName,
+              inputDigest: toolApprovalMeta?.inputDigest,
             });
           }
 

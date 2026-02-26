@@ -22,6 +22,7 @@ import {
   migrateChannelInboundDeliveredSegments,
   migrateConversationsThreadTypeIndex,
   migrateGuardianActionFollowup,
+  migrateGuardianActionToolMetadata,
   migrateGuardianDeliveryConversationIndex,
   migrateGuardianBootstrapToken,
   migrateGuardianVerificationPurpose,
@@ -101,6 +102,9 @@ export function initializeDb(): void {
 
   // 14c. Guardian action follow-up lifecycle columns (timeout reason, late answers)
   migrateGuardianActionFollowup(database);
+
+  // 14c2. Guardian action tool-approval metadata columns (tool_name, input_digest)
+  migrateGuardianActionToolMetadata(database);
 
   // 14d. Index on conversations.thread_type for frequent WHERE filters
   migrateConversationsThreadTypeIndex(database);
