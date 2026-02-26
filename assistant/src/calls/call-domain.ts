@@ -581,7 +581,7 @@ export type StartGuardianVerificationCallResult =
 /**
  * Initiate an outbound call to the guardian's phone for verification.
  *
- * Creates a minimal call session (no task, no voice conversation) and
+ * Creates a minimal call session with a voice channel binding and
  * passes `guardianVerificationSessionId` as a custom parameter so the
  * relay server can detect this is a guardian verification call.
  */
@@ -606,11 +606,17 @@ export async function startGuardianVerificationCall(
       return { ok: false, error: identityResult.error, status: 400 };
     }
 
-    // Create a minimal conversation so the call session has a valid FK.
-    // The relay will detect the guardianVerificationSessionId custom param
-    // and enter verification mode instead of starting a normal agent flow.
+    // Create a minimal conversation so the call session has a valid FK,
+    // and bind it to the voice channel so it never appears as an unbound
+    // desktop thread.
     const convKey = `guardian-verify:${guardianVerificationSessionId}`;
     const { conversationId } = getOrCreateConversation(convKey);
+
+    upsertBinding({
+      conversationId,
+      sourceChannel: 'voice',
+      externalChatId: `guardian-verify:${guardianVerificationSessionId}`,
+    });
 
     const session = createCallSession({
       conversationId,
