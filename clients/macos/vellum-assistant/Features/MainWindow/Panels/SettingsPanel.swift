@@ -25,7 +25,7 @@ struct SettingsPanel: View {
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
-@State private var showingTrustRules = false
+    @State private var showingTrustRules = false
     @State private var showingReminders = false
     @State private var showingScheduledTasks = false
     @State private var twitterClientId: String = ""
