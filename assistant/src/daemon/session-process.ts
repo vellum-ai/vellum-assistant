@@ -192,10 +192,16 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
           : {}),
       };
       const userMsg = createUserMessage(next.content, next.attachments);
+      // When displayContent is provided (e.g. original text before recording
+      // intent stripping), persist that to DB so users see the full message.
+      // The in-memory userMessage (sent to the LLM) still uses the stripped content.
+      const contentToPersist = next.displayContent
+        ? JSON.stringify(createUserMessage(next.displayContent, next.attachments).content)
+        : JSON.stringify(userMsg.content);
       conversationStore.addMessage(
         session.conversationId,
         'user',
-        JSON.stringify(userMsg.content),
+        contentToPersist,
         drainChannelMeta,
       );
       session.messages.push(userMsg);
