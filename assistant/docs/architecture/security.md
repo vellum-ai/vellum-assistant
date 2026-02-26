@@ -315,3 +315,91 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 ---
 
+## Channel-Agnostic Scoped Approval Grants
+
+Scoped approval grants are a channel-agnostic primitive that allows a guardian's approval decision on one channel (e.g., Telegram) to authorize a tool execution on a different channel (e.g., voice). Each grant authorizes exactly one tool execution and is consumed atomically.
+
+### Scope Modes
+
+Two scope modes exist:
+
+| Mode | Key fields | Use case |
+|------|-----------|----------|
+| `request_id` | `requestId` | Grant is bound to a specific pending confirmation request. Consumed by matching the request ID. |
+| `tool_signature` | `toolName` + `inputDigest` | Grant is bound to a specific tool invocation identified by tool name and a canonical SHA-256 digest of the input. Consumed by matching both fields plus optional context constraints. |
+
+### Lifecycle Flow
+
+```mermaid
+sequenceDiagram
+    participant Caller as Non-Guardian Caller (Voice)
+    participant Session as Session / Agent Loop
+    participant Bridge as Voice Session Bridge
+    participant Guardian as Guardian (Telegram)
+    participant Interception as Approval Interception
+    participant GrantStore as Scoped Grant Store (SQLite)
+
+    Caller->>Session: Tool invocation triggers confirmation_request
+    Session->>Bridge: confirmation_request event
+    Note over Bridge: Non-guardian voice call cannot prompt interactively
+
+    Bridge->>Session: ASK_GUARDIAN_APPROVAL marker in agent response
+    Session->>Guardian: "Approve [tool] with [args]?" (Telegram)
+
+    Guardian->>Interception: "yes" / approve_once callback
+    Interception->>Session: handleChannelDecision(approve_once)
+    Interception->>GrantStore: createScopedApprovalGrant(tool_signature)
+    Note over GrantStore: Grant minted with 5-min TTL
+
+    Note over Bridge: On next confirmation_request for same tool+input...
+    Bridge->>GrantStore: consumeScopedApprovalGrantByToolSignature()
+    GrantStore-->>Bridge: { ok: true, grant }
+    Bridge->>Session: handleConfirmationResponse(allow)
+    Note over GrantStore: Grant status: active -> consumed (CAS)
+```
+
+### Security Invariants
+
+1. **One-time use** -- Each grant can be consumed at most once. The consume operation uses compare-and-swap (CAS) on the `status` column (`active` -> `consumed`) so concurrent consumers race safely. At most one wins.
+
+2. **Exact-match** -- All non-null scope fields on the grant must match the consumption context exactly. The `inputDigest` is a SHA-256 of the canonical JSON serialization of `{ toolName, input }`, ensuring key-order-independent matching.
+
+3. **Fail-closed** -- When no matching active grant exists, consumption returns `{ ok: false }` and the voice bridge auto-denies. There is no fallback to "allow without a grant."
+
+4. **TTL-bound** -- Grants expire after a configurable TTL (default: 5 minutes). An expiry sweep transitions active past-TTL grants to `expired` status. Expired grants cannot be consumed.
+
+5. **Context-constrained** -- Optional scope fields (`executionChannel`, `conversationId`, `callSessionId`, `requesterExternalUserId`) narrow the grant's applicability. When set on the grant, they must match the consumer's context. When null on the grant, they act as wildcards.
+
+6. **Identity-bound** -- The guardian identity is verified at the approval interception level before a grant is minted. A sender whose `externalUserId` does not match the expected guardian cannot mint a grant.
+
+7. **Persistent storage** -- Grants are stored in the SQLite `scoped_approval_grants` table, which survives daemon restarts. This ensures fail-closed behavior across restarts: consumed grants remain consumed, and no implicit "reset to allowed" occurs.
+
+### Feature Flags
+
+| Environment variable | Default | Effect when disabled |
+|---|---|---|
+| `VELLUM_SCOPED_APPROVAL_GRANTS_ENABLED` | `true` | Grant minting is skipped. Approval decisions still resolve normally. |
+| `VELLUM_VOICE_SCOPED_GRANT_CONSUMER_ENABLED` | `true` | Voice bridge skips grant lookup and falls through to default auto-deny for non-guardian callers. |
+
+### Key Source Files
+
+| File | Role |
+|------|------|
+| `assistant/src/memory/scoped-approval-grants.ts` | CRUD, atomic CAS consume, expiry sweep, context-based revocation |
+| `assistant/src/memory/migrations/033-scoped-approval-grants.ts` | SQLite schema migration for the `scoped_approval_grants` table |
+| `assistant/src/security/tool-approval-digest.ts` | Canonical JSON serialization + SHA-256 digest for tool signatures |
+| `assistant/src/runtime/routes/guardian-approval-interception.ts` | Grant minting on guardian approve_once decisions (`tryMintToolApprovalGrant`) |
+| `assistant/src/calls/voice-session-bridge.ts` | Voice consumer: checks and consumes grants before auto-denying |
+| `assistant/src/config/env-registry.ts` | Feature flag accessors (`getScopedApprovalGrantsEnabled`, `getVoiceScopedGrantConsumerEnabled`) |
+
+### Test Coverage
+
+| Test file | Scenarios covered |
+|-----------|-------------------|
+| `assistant/src/__tests__/scoped-approval-grants.test.ts` | Store CRUD, request_id consume, tool_signature consume, expiry, revocation, digest stability |
+| `assistant/src/__tests__/voice-scoped-grant-consumer.test.ts` | Voice bridge integration: grant-allowed, no-grant-denied, tool-mismatch, guardian-bypass, one-time-use, revocation on call end |
+| `assistant/src/__tests__/guardian-grant-minting.test.ts` | Grant minting: callback/engine/legacy paths, informational-skip, reject-skip, identity-mismatch, stale-skip, TTL verification |
+| `assistant/src/__tests__/scoped-grant-security-matrix.test.ts` | Security matrix: requester identity mismatch, concurrent CAS, persistence across restart, fail-closed default, cross-scope invariants |
+
+---
+

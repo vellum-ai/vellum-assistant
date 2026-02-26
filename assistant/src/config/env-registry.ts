@@ -124,6 +124,32 @@ export function getEnableMonitoring(): boolean {
   return flag('VELLUM_ENABLE_MONITORING');
 }
 
+/**
+ * VELLUM_SCOPED_APPROVAL_GRANTS_ENABLED — boolean, default: true
+ * Gates the scoped approval grants system. When false, grant minting is
+ * skipped (approval decisions still resolve normally but no grant is created).
+ * Consumption calls return miss when the system is disabled.
+ */
+export function getScopedApprovalGrantsEnabled(): boolean {
+  const raw = str('VELLUM_SCOPED_APPROVAL_GRANTS_ENABLED');
+  // Default to true — the feature is on unless explicitly disabled.
+  if (raw === 'false' || raw === '0') return false;
+  return true;
+}
+
+/**
+ * VELLUM_VOICE_SCOPED_GRANT_CONSUMER_ENABLED — boolean, default: true
+ * Gates the voice consumer's scoped-grant check. When false, the voice
+ * bridge skips the grant lookup and falls through to the default auto-deny
+ * behavior for non-guardian callers.
+ */
+export function getVoiceScopedGrantConsumerEnabled(): boolean {
+  const raw = str('VELLUM_VOICE_SCOPED_GRANT_CONSUMER_ENABLED');
+  // Default to true — the feature is on unless explicitly disabled.
+  if (raw === 'false' || raw === '0') return false;
+  return true;
+}
+
 // ── Known env var names ──────────────────────────────────────────────────────
 
 /**
@@ -149,6 +175,8 @@ const KNOWN_VELLUM_VARS = new Set([
   'VELLUM_CLAUDE_CODE_DEPTH',
   'VELLUM_ASSISTANT_PLATFORM_URL',
   'VELLUM_UNSAFE_AUTH_BYPASS',
+  'VELLUM_SCOPED_APPROVAL_GRANTS_ENABLED',
+  'VELLUM_VOICE_SCOPED_GRANT_CONSUMER_ENABLED',
 ]);
 
 /**

@@ -16,6 +16,9 @@ import { v4 as uuid } from 'uuid';
 
 import { getDb, rawChanges } from './db.js';
 import { scopedApprovalGrants } from './schema.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('scoped-approval-grants');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,6 +132,22 @@ export function createScopedApprovalGrant(params: CreateScopedApprovalGrantParam
   };
 
   db.insert(scopedApprovalGrants).values(row).run();
+
+  log.info(
+    {
+      event: 'scoped_grant_created',
+      grantId: id,
+      scopeMode: params.scopeMode,
+      toolName: params.toolName ?? null,
+      assistantId: params.assistantId,
+      requestChannel: params.requestChannel,
+      decisionChannel: params.decisionChannel,
+      executionChannel: params.executionChannel ?? null,
+      expiresAt: params.expiresAt,
+    },
+    'Scoped approval grant created',
+  );
+
   return rowToGrant(row);
 }
 
@@ -174,6 +193,10 @@ export function consumeScopedApprovalGrantByRequestId(
     .run();
 
   if (rawChanges() === 0) {
+    log.info(
+      { event: 'scoped_grant_consume_miss', requestId, consumingRequestId, scopeMode: 'request_id' },
+      'No matching active grant found for request ID',
+    );
     return { ok: false, grant: null };
   }
 
@@ -190,7 +213,13 @@ export function consumeScopedApprovalGrantByRequestId(
     )
     .get();
 
-  return { ok: true, grant: row ? rowToGrant(row) : null };
+  const grant = row ? rowToGrant(row) : null;
+  log.info(
+    { event: 'scoped_grant_consume_success', grantId: grant?.id, requestId, consumingRequestId, scopeMode: 'request_id' },
+    'Scoped approval grant consumed by request ID',
+  );
+
+  return { ok: true, grant };
 }
 
 // ---------------------------------------------------------------------------
@@ -300,6 +329,10 @@ export function consumeScopedApprovalGrantByToolSignature(
       .get();
 
     if (!candidate) {
+      log.info(
+        { event: 'scoped_grant_consume_miss', toolName: params.toolName, scopeMode: 'tool_signature', attempt },
+        'No matching active grant found for tool signature',
+      );
       return { ok: false, grant: null };
     }
 
@@ -330,10 +363,20 @@ export function consumeScopedApprovalGrantByToolSignature(
       .where(eq(scopedApprovalGrants.id, candidate.id))
       .get();
 
-    return { ok: true, grant: row ? rowToGrant(row) : null };
+    const grant = row ? rowToGrant(row) : null;
+    log.info(
+      { event: 'scoped_grant_consume_success', grantId: grant?.id, toolName: params.toolName, consumingRequestId: params.consumingRequestId, scopeMode: 'tool_signature' },
+      'Scoped approval grant consumed by tool signature',
+    );
+
+    return { ok: true, grant };
   }
 
   // All retry attempts exhausted — every candidate was stolen by concurrent consumers
+  log.info(
+    { event: 'scoped_grant_consume_miss', toolName: params.toolName, scopeMode: 'tool_signature', reason: 'cas_exhausted' },
+    'All CAS retry attempts exhausted for tool signature consume',
+  );
   return { ok: false, grant: null };
 }
 
@@ -362,7 +405,15 @@ export function expireScopedApprovalGrants(now?: string): number {
     )
     .run();
 
-  return rawChanges();
+  const count = rawChanges();
+  if (count > 0) {
+    log.info(
+      { event: 'scoped_grant_expired', count },
+      `Expired ${count} scoped approval grant(s)`,
+    );
+  }
+
+  return count;
 }
 
 // ---------------------------------------------------------------------------
@@ -415,5 +466,20 @@ export function revokeScopedApprovalGrantsForContext(params: RevokeContextParams
     .where(and(...conditions))
     .run();
 
-  return rawChanges();
+  const count = rawChanges();
+  if (count > 0) {
+    log.info(
+      {
+        event: 'scoped_grant_revoked',
+        count,
+        assistantId: params.assistantId,
+        conversationId: params.conversationId,
+        callSessionId: params.callSessionId,
+        requestChannel: params.requestChannel,
+      },
+      `Revoked ${count} scoped approval grant(s) for context`,
+    );
+  }
+
+  return count;
 }
