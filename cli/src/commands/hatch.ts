@@ -542,8 +542,9 @@ function installCLISymlink(): void {
   const symlinkPath = "/usr/local/bin/vellum";
 
   try {
-    // If path exists, check whether it's our symlink or something else
-    if (existsSync(symlinkPath)) {
+    // Use lstatSync (not existsSync) to detect dangling symlinks —
+    // existsSync follows symlinks and returns false for broken links.
+    try {
       const stats = lstatSync(symlinkPath);
       if (!stats.isSymbolicLink()) {
         // Real file — don't overwrite (developer's local install)
@@ -552,8 +553,11 @@ function installCLISymlink(): void {
       // Already a symlink — skip if it already points to our binary
       const dest = readlinkSync(symlinkPath);
       if (dest === cliBinary) return;
-      // Stale symlink — remove before creating new one
+      // Stale or dangling symlink — remove before creating new one
       unlinkSync(symlinkPath);
+    } catch (e: any) {
+      if (e?.code !== "ENOENT") throw e;
+      // Path doesn't exist — proceed to create symlink
     }
 
     const dir = "/usr/local/bin";
