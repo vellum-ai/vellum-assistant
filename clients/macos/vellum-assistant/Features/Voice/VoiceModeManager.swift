@@ -547,6 +547,64 @@ final class VoiceModeManager: ObservableObject {
         conversationTimeoutTask = nil
     }
 
+    // MARK: - Transient Speech & Timeout Control
+
+    /// Speak a one-off message using the TTS system without affecting the voice
+    /// mode state machine. The message is spoken and then the state returns to
+    /// whatever it was before. Callers can use this to provide audible feedback
+    /// (e.g., announcing a computer use escalation) without disrupting the
+    /// conversation flow.
+    func speakTransient(_ message: String) {
+        guard state != .off else { return }
+        log.info("Voice mode: transient speech — \(message, privacy: .public)")
+
+        // Stop any in-progress recording so the TTS output isn't picked up
+        // by the microphone as input.
+        if state == .listening {
+            voiceService.cancelRecording()
+        }
+
+        let previousState = state
+        state = .speaking
+        voiceService.resetStreamingTTS()
+        voiceService.feedTextDelta(message)
+
+        ttsTimeoutTask?.cancel()
+        ttsTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard let self, !Task.isCancelled, self.state == .speaking else { return }
+            log.warning("Voice mode: transient speech timeout, recovering")
+            self.voiceService.stopSpeaking()
+            self.state = previousState == .listening ? .idle : previousState
+        }
+
+        voiceService.finishTextStream { [weak self] in
+            guard let self, self.state == .speaking else { return }
+            self.ttsTimeoutTask?.cancel()
+            self.ttsTimeoutTask = nil
+            self.voiceService.stopBargeInMonitor()
+            // Return to idle rather than the previous state so the conversation
+            // timeout logic is properly re-engaged via handleStateTransition.
+            self.state = .idle
+        }
+    }
+
+    /// Pause the conversation timeout timer. Use this when the assistant is
+    /// performing a long-running operation (e.g., computer use) and the
+    /// conversation should not auto-deactivate.
+    func pauseConversationTimeout() {
+        log.info("Voice mode: conversation timeout paused")
+        cancelConversationTimeout()
+    }
+
+    /// Resume the conversation timeout timer. Call this after a long-running
+    /// operation completes so idle auto-deactivation can kick in again.
+    func resumeConversationTimeout() {
+        log.info("Voice mode: conversation timeout resumed")
+        guard state == .idle else { return }
+        startConversationTimeout()
+    }
+
     // MARK: - Barge-in (interrupt TTS)
 
     private func handleBargeIn() {
