@@ -275,29 +275,29 @@ struct RecordingSourcePickerView: View {
     private var bottomBar: some View {
         VStack(spacing: VSpacing.lg) {
             // Audio toggles
-            HStack {
-                Image(systemName: "speaker.wave.2")
-                    .foregroundColor(VColor.textSecondary)
-                Text("System audio")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                VToggle(isOn: $viewModel.includeAudio)
-                    .accessibilityLabel("System audio")
+            Toggle(isOn: $viewModel.includeAudio) {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "speaker.wave.2")
+                        .foregroundColor(VColor.textSecondary)
+                    Text("System audio")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                }
             }
+            .toggleStyle(.switch)
             .padding(.horizontal, VSpacing.xl)
 
             if #available(macOS 14, *) {
-                HStack {
-                    Image(systemName: "mic")
-                        .foregroundColor(VColor.textSecondary)
-                    Text("Microphone")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                    Spacer()
-                    VToggle(isOn: $viewModel.includeMicrophone)
-                        .accessibilityLabel("Microphone")
+                Toggle(isOn: $viewModel.includeMicrophone) {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "mic")
+                            .foregroundColor(VColor.textSecondary)
+                        Text("Microphone")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                    }
                 }
+                .toggleStyle(.switch)
                 .padding(.horizontal, VSpacing.xl)
             }
 
