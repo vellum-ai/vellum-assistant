@@ -213,7 +213,7 @@ export function buildGuardianVerificationRoutingSection(): string {
     '### Exclusivity rules',
     '- Guardian verification intents must only be handled by `guardian-verify-setup` — load it exclusively.',
     '- Do NOT load `phone-calls` for guardian verification intent routing. The phone-calls skill does not orchestrate verification flows.',
-    '- If the user has already specified a channel (e.g., "verify my phone number" implies voice), do not re-ask which channel unless the input is contradictory.',
+    '- If the user has already explicitly specified a channel (e.g., "verify my phone for SMS", "verify my Telegram"), do not re-ask which channel unless the input is contradictory. Note: "verify my phone number" alone is ambiguous (phone numbers apply to both sms and voice) — ask which channel.',
   ].join('\n');
 }
 
