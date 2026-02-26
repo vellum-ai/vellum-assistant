@@ -88,9 +88,9 @@ export function startGuardianActionSweep(
   bearerToken?: string,
 ): void {
   if (sweepTimer) return;
-  sweepTimer = setInterval(() => {
+  sweepTimer = setInterval(async () => {
     try {
-      sweepExpiredGuardianActions(gatewayBaseUrl, bearerToken);
+      await sweepExpiredGuardianActions(gatewayBaseUrl, bearerToken);
     } catch (err) {
       log.error({ err }, 'Guardian action sweep failed');
     }
