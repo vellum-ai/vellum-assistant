@@ -241,15 +241,11 @@ final class VoiceModeManager: ObservableObject {
         voiceService.resetStreamingTTS()
 
         Task {
-            // Run context capture concurrently with transcription finalization.
-            // Both start after silence is detected (recording stops inside
-            // stopRecordingAndGetTranscription), so context captures the app
-            // the user was looking at when they spoke, and any AX query delay
-            // in capture() doesn't extend the recording window.
-            async let ctx = DictationContextCapture.capture()
-            async let transcription = voiceService.stopRecordingAndGetTranscription()
-
-            let text = await transcription
+            let text = await voiceService.stopRecordingAndGetTranscription()
+            // Capture context sequentially on the MainActor after recording
+            // stops. The .processing state transition above already prevents
+            // further transcription, so there is no recording-window concern.
+            let ctx = DictationContextCapture.capture()
             let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
             guard !trimmed.isEmpty, let chatViewModel else {
@@ -269,17 +265,16 @@ final class VoiceModeManager: ObservableObject {
             // Build the context prefix from captured app context. Sanitize
             // attacker-controlled values (window titles, selected text) to
             // prevent prompt injection and excessive length.
-            let capturedCtx = await ctx
             var contextPrefix = ""
-            if !capturedCtx.appName.isEmpty {
-                var parts: [String] = ["app: \(capturedCtx.appName)"]
-                if !capturedCtx.windowTitle.isEmpty {
-                    let sanitizedTitle = Self.sanitize(capturedCtx.windowTitle, maxLength: 200)
+            if !ctx.appName.isEmpty {
+                var parts: [String] = ["app: \(ctx.appName)"]
+                if !ctx.windowTitle.isEmpty {
+                    let sanitizedTitle = Self.sanitize(ctx.windowTitle, maxLength: 200)
                     if !sanitizedTitle.isEmpty {
                         parts.append("window: \"\(sanitizedTitle)\"")
                     }
                 }
-                if let selected = capturedCtx.selectedText, !selected.isEmpty {
+                if let selected = ctx.selectedText, !selected.isEmpty {
                     let sanitizedSelected = Self.sanitize(selected, maxLength: 500)
                     if !sanitizedSelected.isEmpty {
                         parts.append("selected text: \"\(sanitizedSelected)\"")
