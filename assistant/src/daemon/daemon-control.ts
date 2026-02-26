@@ -232,6 +232,10 @@ export async function startDaemon(): Promise<{
     waited += interval;
   }
 
+  // The child process is still running but the socket hasn't appeared yet.
+  // Write the PID file so isDaemonRunning()/stopDaemon() can still track
+  // and manage the orphaned process.
+  writePid(pid);
   throw new DaemonError(
     `Daemon started but socket not available after ${maxWait}ms`,
   );
