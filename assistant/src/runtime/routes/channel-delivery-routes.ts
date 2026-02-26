@@ -3,6 +3,7 @@
  * and post-decision delivery scheduling.
  */
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
+import { httpError } from '../http-errors.js';
 export { type DeliverReplyOptions,deliverReplyViaCallback } from '../channel-reply-delivery.js';
 
 // ---------------------------------------------------------------------------
@@ -19,7 +20,7 @@ export async function handleReplayDeadLetters(req: Request): Promise<Response> {
   const eventIds = body.eventIds;
 
   if (!Array.isArray(eventIds) || eventIds.length === 0) {
-    return Response.json({ error: 'eventIds array is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'eventIds array is required', 400);
   }
 
   const replayed = channelDeliveryStore.replayDeadLetters(eventIds);
@@ -40,13 +41,13 @@ export async function handleChannelDeliveryAck(req: Request): Promise<Response> 
   const { sourceChannel, externalChatId, externalMessageId } = body;
 
   if (!sourceChannel || typeof sourceChannel !== 'string') {
-    return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'sourceChannel is required', 400);
   }
   if (!externalChatId || typeof externalChatId !== 'string') {
-    return Response.json({ error: 'externalChatId is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'externalChatId is required', 400);
   }
   if (!externalMessageId || typeof externalMessageId !== 'string') {
-    return Response.json({ error: 'externalMessageId is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'externalMessageId is required', 400);
   }
 
   const acked = channelDeliveryStore.acknowledgeDelivery(
@@ -56,7 +57,7 @@ export async function handleChannelDeliveryAck(req: Request): Promise<Response> 
   );
 
   if (!acked) {
-    return Response.json({ error: 'Inbound event not found' }, { status: 404 });
+    return httpError('NOT_FOUND', 'Inbound event not found', 404);
   }
 
   return new Response(null, { status: 204 });

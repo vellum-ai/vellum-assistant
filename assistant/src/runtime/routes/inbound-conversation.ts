@@ -3,6 +3,7 @@
  */
 import { deleteConversationKey } from '../../memory/conversation-key-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
+import { httpError } from '../http-errors.js';
 
 export async function handleDeleteConversation(req: Request, assistantId: string = 'self'): Promise<Response> {
   const body = await req.json() as {
@@ -13,10 +14,10 @@ export async function handleDeleteConversation(req: Request, assistantId: string
   const { sourceChannel, externalChatId } = body;
 
   if (!sourceChannel || typeof sourceChannel !== 'string') {
-    return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'sourceChannel is required', 400);
   }
   if (!externalChatId || typeof externalChatId !== 'string') {
-    return Response.json({ error: 'externalChatId is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'externalChatId is required', 400);
   }
 
   // Delete the assistant-scoped key unconditionally. The legacy key is

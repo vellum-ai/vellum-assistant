@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import { AttachmentUploadError, getFilePathForAttachment, validateAttachmentUpload } from '../../memory/attachments-store.js';
+import { httpError } from '../http-errors.js';
 
 /** 30 MB — base64-encoded 20 MB attachment ≈ 27 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
@@ -12,10 +13,7 @@ const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
 export async function handleUploadAttachment(req: Request): Promise<Response> {
   const rawBody = await req.arrayBuffer();
   if (rawBody.byteLength > MAX_UPLOAD_BODY_BYTES) {
-    return Response.json(
-      { error: `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)` },
-      { status: 413 },
-    );
+    return httpError('BAD_REQUEST', `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)`, 413);
   }
 
   const body = JSON.parse(new TextDecoder().decode(rawBody)) as {
@@ -27,32 +25,20 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
   const { filename, mimeType, data } = body;
 
   if (!filename || typeof filename !== 'string') {
-    return Response.json(
-      { error: 'filename is required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'filename is required', 400);
   }
 
   if (!mimeType || typeof mimeType !== 'string') {
-    return Response.json(
-      { error: 'mimeType is required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'mimeType is required', 400);
   }
 
   if (!data || typeof data !== 'string') {
-    return Response.json(
-      { error: 'data (base64) is required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'data (base64) is required', 400);
   }
 
   const validation = validateAttachmentUpload(filename, mimeType);
   if (!validation.ok) {
-    return Response.json(
-      { error: validation.error },
-      { status: 415 },
-    );
+    return httpError('UNPROCESSABLE_ENTITY', validation.error, 415);
   }
 
   let attachment: attachmentsStore.StoredAttachment;
@@ -65,7 +51,7 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
   } catch (err) {
     if (err instanceof AttachmentUploadError) {
       const status = err.message.startsWith('Attachment too large') ? 413 : 400;
-      return Response.json({ error: err.message }, { status });
+      return httpError('BAD_REQUEST', err.message, status);
     }
     throw err;
   }
@@ -84,35 +70,23 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
   try {
     body = await req.json() as { attachmentId?: string };
   } catch {
-    return Response.json(
-      { error: 'Invalid or missing JSON body' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'Invalid or missing JSON body', 400);
   }
 
   const { attachmentId } = body;
 
   if (!attachmentId || typeof attachmentId !== 'string') {
-    return Response.json(
-      { error: 'attachmentId is required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'attachmentId is required', 400);
   }
 
   const result = attachmentsStore.deleteAttachment(attachmentId);
 
   if (result === 'not_found') {
-    return Response.json(
-      { error: 'Attachment not found' },
-      { status: 404 },
-    );
+    return httpError('NOT_FOUND', 'Attachment not found', 404);
   }
 
   if (result === 'still_referenced') {
-    return Response.json(
-      { error: 'Attachment is still referenced by one or more messages' },
-      { status: 409 },
-    );
+    return httpError('CONFLICT', 'Attachment is still referenced by one or more messages', 409);
   }
 
   return new Response(null, { status: 204 });
@@ -121,7 +95,7 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
 export function handleGetAttachment(attachmentId: string): Response {
   const attachment = attachmentsStore.getAttachmentById(attachmentId);
   if (!attachment) {
-    return Response.json({ error: 'Attachment not found' }, { status: 404 });
+    return httpError('NOT_FOUND', 'Attachment not found', 404);
   }
 
   // Use the file_path column to detect file-backed attachments, not string
@@ -148,14 +122,14 @@ export function handleGetAttachment(attachmentId: string): Response {
 export function handleGetAttachmentContent(attachmentId: string, req: Request): Response {
   const attachment = attachmentsStore.getAttachmentById(attachmentId);
   if (!attachment) {
-    return Response.json({ error: 'Attachment not found' }, { status: 404 });
+    return httpError('NOT_FOUND', 'Attachment not found', 404);
   }
 
   // Check for file-backed attachment
   const filePath = getFilePathForAttachment(attachmentId);
   if (filePath) {
     if (!existsSync(filePath)) {
-      return Response.json({ error: 'Recording file not found on disk' }, { status: 404 });
+      return httpError('NOT_FOUND', 'Recording file not found on disk', 404);
     }
 
     const file = Bun.file(filePath);
@@ -223,7 +197,7 @@ export function handleGetAttachmentContent(attachmentId: string, req: Request): 
 
   // Fall back to base64-decoded content for inline attachments
   if (!attachment.dataBase64) {
-    return Response.json({ error: 'No content available' }, { status: 404 });
+    return httpError('NOT_FOUND', 'No content available', 404);
   }
 
   const buffer = Buffer.from(attachment.dataBase64, 'base64');

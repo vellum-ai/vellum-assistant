@@ -7,6 +7,7 @@ import { isTwilioWebhookValidationDisabled } from '../../config/env.js';
 import { loadConfig } from '../../config/loader.js';
 import { getPublicBaseUrl } from '../../inbound/public-ingress-urls.js';
 import { getLogger } from '../../util/logger.js';
+import { httpError } from '../http-errors.js';
 
 const log = getLogger('runtime-http');
 
@@ -68,13 +69,13 @@ export async function validateTwilioWebhook(
   // Fail-closed: reject if no auth token is configured
   if (!authToken) {
     log.error('Twilio auth token not configured — rejecting webhook request (fail-closed)');
-    return Response.json({ error: 'Forbidden' }, { status: 403 });
+    return httpError('FORBIDDEN', 'Forbidden', 403);
   }
 
   const signature = req.headers.get('x-twilio-signature');
   if (!signature) {
     log.warn('Twilio webhook request missing X-Twilio-Signature header');
-    return Response.json({ error: 'Forbidden' }, { status: 403 });
+    return httpError('FORBIDDEN', 'Forbidden', 403);
   }
 
   // Parse form-urlencoded body into key-value params for signature computation
@@ -108,7 +109,7 @@ export async function validateTwilioWebhook(
 
   if (!isValid) {
     log.warn('Twilio webhook signature validation failed');
-    return Response.json({ error: 'Forbidden' }, { status: 403 });
+    return httpError('FORBIDDEN', 'Forbidden', 403);
   }
 
   return { body: rawBody };
