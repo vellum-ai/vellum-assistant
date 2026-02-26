@@ -9,6 +9,7 @@ import { cleanupResolvedConflictsJob,resolvePendingConflictsForMessageJob } from
 import { embedItemJob, embedSegmentJob, embedSummaryJob } from './job-handlers/embedding.js';
 import { extractEntitiesJob,extractItemsJob } from './job-handlers/extraction.js';
 import { deleteQdrantVectorsJob,rebuildIndexJob } from './job-handlers/index-maintenance.js';
+import { reconcileFtsIndexes } from './fts-reconciler.js';
 import { mediaProcessingJob } from './job-handlers/media-processing.js';
 import { buildConversationSummaryJob, buildGlobalSummaryJob } from './job-handlers/summarization.js';
 import {
@@ -24,6 +25,7 @@ import {
   enqueueCleanupResolvedConflictsJob,
   enqueueCleanupStaleSupersededItemsJob,
   enqueuePruneOldConversationsJob,
+  enqueueReconcileFtsJob,
   failMemoryJob,
   type MemoryJob,
   resetRunningJobsToPending,
@@ -247,6 +249,9 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
     case 'rebuild_index':
       rebuildIndexJob();
       return;
+    case 'reconcile_fts':
+      reconcileFtsIndexes();
+      return;
     case 'delete_qdrant_vectors':
       await deleteQdrantVectorsJob(job);
       return;
@@ -281,11 +286,13 @@ export function maybeEnqueueScheduledCleanupJobs(config: AssistantConfig, nowMs 
   const pruneConversationsJobId = cleanup.conversationRetentionDays > 0
     ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
     : null;
+  const reconcileFtsJobId = enqueueReconcileFtsJob();
   lastScheduledCleanupEnqueueMs = nowMs;
   log.debug({
     resolvedConflictsJobId,
     staleSupersededItemsJobId,
     pruneConversationsJobId,
+    reconcileFtsJobId,
     enqueueIntervalMs: cleanup.enqueueIntervalMs,
     resolvedConflictRetentionMs: cleanup.resolvedConflictRetentionMs,
     supersededItemRetentionMs: cleanup.supersededItemRetentionMs,

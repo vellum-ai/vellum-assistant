@@ -25,6 +25,7 @@ export type MemoryJobType =
   | 'build_conversation_summary'
   | 'backfill'
   | 'rebuild_index'
+  | 'reconcile_fts'
   | 'delete_qdrant_vectors'
   | 'media_processing';
 
@@ -245,6 +246,21 @@ export function enqueuePruneOldConversationsJob(retentionDays?: number): string 
     ? { retentionDays }
     : {};
   return enqueueMemoryJob('prune_old_conversations', payload);
+}
+
+export function enqueueReconcileFtsJob(): string {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(and(
+      eq(memoryJobs.type, 'reconcile_fts'),
+      inArray(memoryJobs.status, ['pending', 'running']),
+    ))
+    .orderBy(asc(memoryJobs.createdAt))
+    .get();
+  if (existing) return existing.id;
+  return enqueueMemoryJob('reconcile_fts', {});
 }
 
 export function claimMemoryJobs(limit: number): MemoryJob[] {
