@@ -306,7 +306,7 @@ struct FnKeyStepView: View {
                 .padding(.bottom, VSpacing.xxl)
             FnKeyStepView(state: {
                 let s = OnboardingState()
-                s.assistantName = "Velly"
+                s.assistantName = "Assistant"
                 s.currentStep = 4
                 return s
             }())
