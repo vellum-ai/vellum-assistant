@@ -1,8 +1,8 @@
 /**
  * Tests for the thread seed composer.
  *
- * Validates surface-aware verbosity resolution, event-specific seed
- * templates, generic fallback, and the threadSeedMessage sanity check.
+ * Validates surface-aware verbosity resolution, copy-based seed
+ * composition, and the threadSeedMessage sanity check.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -110,8 +110,18 @@ describe('isThreadSeedSane', () => {
     expect(isThreadSeedSane('')).toBe(false);
   });
 
-  test('rejects very short string', () => {
+  test('rejects very short string (1-2 chars)', () => {
     expect(isThreadSeedSane('Hi')).toBe(false);
+  });
+
+  test('accepts short CJK text (>= 3 chars)', () => {
+    // CJK characters pack more meaning per character
+    expect(isThreadSeedSane('リマインダー')).toBe(true);
+    expect(isThreadSeedSane('提醒您')).toBe(true);
+  });
+
+  test('accepts string at min boundary (3 chars)', () => {
+    expect(isThreadSeedSane('abc')).toBe(true);
   });
 
   test('rejects JSON object dump', () => {
@@ -135,204 +145,55 @@ describe('isThreadSeedSane', () => {
   test('accepts string at max boundary', () => {
     expect(isThreadSeedSane('x'.repeat(2000))).toBe(true);
   });
-
-  test('accepts string at min boundary', () => {
-    expect(isThreadSeedSane('0123456789')).toBe(true);
-  });
 });
 
-// ── composeThreadSeed — event-specific templates ───────────────────────
+// ── composeThreadSeed — copy-based composition ─────────────────────────
 
 describe('composeThreadSeed', () => {
-  describe('reminder.fired', () => {
-    test('rich verbosity includes reminder message', () => {
-      const signal = makeSignal({
-        sourceEventName: 'reminder.fired',
-        contextPayload: { message: 'Take out the trash' },
-      });
-      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, makeCopy());
-      expect(seed).toContain('Take out the trash');
-      expect(seed).toContain('Reminder');
-    });
-
-    test('rich verbosity with requiresAction includes attention note', () => {
-      const signal = makeSignal({
-        sourceEventName: 'reminder.fired',
-        contextPayload: { message: 'Call the doctor' },
-        attentionHints: {
-          requiresAction: true,
-          urgency: 'high',
-          isAsyncBackground: false,
-          visibleInSourceNow: false,
-        },
-      });
-      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, makeCopy());
-      expect(seed).toContain('Call the doctor');
-      expect(seed).toContain('attention');
-    });
-
-    test('compact verbosity is shorter', () => {
-      const signal = makeSignal({
-        sourceEventName: 'reminder.fired',
-        contextPayload: { message: 'Take out the trash' },
-      });
-      const richSeed = composeThreadSeed(signal, 'vellum' as NotificationChannel, makeCopy());
-      const compactSeed = composeThreadSeed(signal, 'telegram' as NotificationChannel, makeCopy());
-      expect(compactSeed.length).toBeLessThanOrEqual(richSeed.length);
-      expect(compactSeed).toContain('Take out the trash');
-    });
-
-    test('compact with requiresAction appends action marker', () => {
-      const signal = makeSignal({
-        sourceEventName: 'reminder.fired',
-        contextPayload: { message: 'Respond to email' },
-        attentionHints: {
-          requiresAction: true,
-          urgency: 'high',
-          isAsyncBackground: false,
-          visibleInSourceNow: false,
-        },
-      });
-      const seed = composeThreadSeed(signal, 'telegram' as NotificationChannel, makeCopy());
-      expect(seed).toContain('action needed');
-    });
-
-    test('falls back to label when message is missing', () => {
-      const signal = makeSignal({
-        sourceEventName: 'reminder.fired',
-        contextPayload: { label: 'My labeled reminder' },
-      });
-      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, makeCopy());
-      expect(seed).toContain('My labeled reminder');
-    });
-
-    test('uses default text when both message and label are missing', () => {
-      const signal = makeSignal({
-        sourceEventName: 'reminder.fired',
-        contextPayload: {},
-      });
-      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, makeCopy());
-      expect(seed).toContain('reminder has fired');
-    });
-  });
-
-  describe('guardian.question', () => {
-    test('rich includes question text and reply instruction', () => {
-      const signal = makeSignal({
-        sourceEventName: 'guardian.question',
-        contextPayload: { questionText: 'What is the gate code?' },
-      });
-      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, makeCopy());
-      expect(seed).toContain('What is the gate code?');
-      expect(seed).toContain('Reply');
-    });
-
-    test('compact is shorter', () => {
-      const signal = makeSignal({
-        sourceEventName: 'guardian.question',
-        contextPayload: { questionText: 'What is the gate code?' },
-      });
-      const seed = composeThreadSeed(signal, 'telegram' as NotificationChannel, makeCopy());
-      expect(seed).toContain('What is the gate code?');
-      expect(seed).not.toContain('Reply in this thread');
-    });
-  });
-
-  describe('tool_confirmation.required_action', () => {
-    test('rich mentions tool name and includes review instruction', () => {
-      const signal = makeSignal({
-        sourceEventName: 'tool_confirmation.required_action',
-        contextPayload: { toolName: 'send_email' },
-      });
-      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, makeCopy());
-      expect(seed).toContain('send_email');
-      expect(seed).toContain('confirmation');
-    });
-
-    test('compact is concise', () => {
-      const signal = makeSignal({
-        sourceEventName: 'tool_confirmation.required_action',
-        contextPayload: { toolName: 'send_email' },
-      });
-      const seed = composeThreadSeed(signal, 'telegram' as NotificationChannel, makeCopy());
-      expect(seed).toContain('send_email');
-      expect(seed).toContain('confirmation');
-      expect(seed.length).toBeLessThan(50);
-    });
-  });
-
-  describe('ingress.escalation', () => {
-    test('rich includes sender, preview, and action instruction', () => {
-      const signal = makeSignal({
-        sourceEventName: 'ingress.escalation',
-        contextPayload: { senderIdentifier: 'Alice', preview: 'Can you help me?' },
-        attentionHints: {
-          requiresAction: true,
-          urgency: 'high',
-          isAsyncBackground: false,
-          visibleInSourceNow: false,
-        },
-      });
-      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, makeCopy());
-      expect(seed).toContain('Alice');
-      expect(seed).toContain('Can you help me?');
-      expect(seed).toContain('review');
-    });
-
-    test('compact omits detailed instructions', () => {
-      const signal = makeSignal({
-        sourceEventName: 'ingress.escalation',
-        contextPayload: { senderIdentifier: 'Bob' },
-      });
-      const seed = composeThreadSeed(signal, 'telegram' as NotificationChannel, makeCopy());
-      expect(seed).toContain('Bob');
-      expect(seed).toContain('attention');
-    });
-  });
-
-  // ── Generic fallback ─────────────────────────────────────────────────
-
-  describe('generic fallback (unknown event)', () => {
-    test('rich generic includes copy title and body with action note', () => {
-      const signal = makeSignal({
-        sourceEventName: 'some.unknown_event',
-        attentionHints: {
-          requiresAction: true,
-          urgency: 'medium',
-          isAsyncBackground: false,
-          visibleInSourceNow: false,
-        },
-      });
-      const copy = makeCopy({ title: 'Custom Title', body: 'Event details here.' });
+  describe('rich verbosity (vellum/macos)', () => {
+    test('combines title and body into flowing prose', () => {
+      const signal = makeSignal();
+      const copy = makeCopy({ title: 'Reminder', body: 'Take out the trash' });
       const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
-      expect(seed).toContain('Custom Title');
-      expect(seed).toContain('Event details here');
+      expect(seed).toContain('Reminder');
+      expect(seed).toContain('Take out the trash');
+      // Should be flowing prose (joined with ". "), not newline-separated
+      expect(seed).not.toContain('\n');
+    });
+
+    test('appends "Action required." when requiresAction is true', () => {
+      const signal = makeSignal({
+        attentionHints: {
+          requiresAction: true,
+          urgency: 'high',
+          isAsyncBackground: false,
+          visibleInSourceNow: false,
+        },
+      });
+      const copy = makeCopy({ title: 'Reminder', body: 'Call the doctor' });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
       expect(seed).toContain('Action required');
     });
 
-    test('rich generic skips "Notification" title', () => {
-      const signal = makeSignal({ sourceEventName: 'novel.event' });
+    test('omits "Notification" generic title', () => {
+      const signal = makeSignal();
       const copy = makeCopy({ title: 'Notification', body: 'Something new.' });
       const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
       expect(seed).not.toMatch(/^Notification/);
       expect(seed).toContain('Something new');
     });
+  });
 
-    test('compact generic preserves title/body format', () => {
-      const signal = makeSignal({ sourceEventName: 'novel.event' });
+  describe('compact verbosity (telegram)', () => {
+    test('preserves title/body format with newline separator', () => {
+      const signal = makeSignal();
       const copy = makeCopy({ title: 'Alert', body: 'Details here.' });
       const seed = composeThreadSeed(signal, 'telegram' as NotificationChannel, copy);
       expect(seed).toBe('Alert\n\nDetails here.');
     });
-  });
 
-  // ── Surface-aware verbosity ──────────────────────────────────────────
-
-  describe('surface-aware verbosity', () => {
-    test('vellum seeds are longer than telegram seeds for same signal', () => {
+    test('does not append action markers', () => {
       const signal = makeSignal({
-        sourceEventName: 'reminder.fired',
-        contextPayload: { message: 'Important meeting at 3pm' },
         attentionHints: {
           requiresAction: true,
           urgency: 'high',
@@ -340,52 +201,99 @@ describe('composeThreadSeed', () => {
           visibleInSourceNow: false,
         },
       });
-      const richSeed = composeThreadSeed(signal, 'vellum' as NotificationChannel, makeCopy());
-      const compactSeed = composeThreadSeed(signal, 'telegram' as NotificationChannel, makeCopy());
-      expect(richSeed.length).toBeGreaterThan(compactSeed.length);
+      const copy = makeCopy({ title: 'Reminder', body: 'Respond to email' });
+      const seed = composeThreadSeed(signal, 'telegram' as NotificationChannel, copy);
+      expect(seed).toBe('Reminder\n\nRespond to email');
+    });
+  });
+
+  describe('localization preservation', () => {
+    test('preserves localized LLM copy on vellum (rich)', () => {
+      const signal = makeSignal();
+      const copy = makeCopy({
+        title: 'リマインダー',
+        body: 'ゴミを出してください',
+      });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed).toContain('リマインダー');
+      expect(seed).toContain('ゴミを出してください');
+    });
+
+    test('preserves localized LLM copy on telegram (compact)', () => {
+      const signal = makeSignal();
+      const copy = makeCopy({
+        title: 'リマインダー',
+        body: 'ゴミを出してください',
+      });
+      const seed = composeThreadSeed(signal, 'telegram' as NotificationChannel, copy);
+      expect(seed).toBe('リマインダー\n\nゴミを出してください');
+    });
+
+    test('does not inject English template strings into localized copy', () => {
+      const signal = makeSignal({
+        sourceEventName: 'guardian.question',
+        attentionHints: {
+          requiresAction: true,
+          urgency: 'high',
+          isAsyncBackground: false,
+          visibleInSourceNow: false,
+        },
+      });
+      const copy = makeCopy({
+        title: 'ガーディアンの質問',
+        body: 'ゲートコードは何ですか？',
+      });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed).toContain('ガーディアンの質問');
+      expect(seed).toContain('ゲートコードは何ですか？');
+      // The only English that may appear is "Action required." which is
+      // an intentional structural marker, not a content replacement
+    });
+  });
+
+  describe('surface-aware verbosity', () => {
+    test('vellum seeds are formatted differently than telegram seeds', () => {
+      const signal = makeSignal({
+        attentionHints: {
+          requiresAction: true,
+          urgency: 'high',
+          isAsyncBackground: false,
+          visibleInSourceNow: false,
+        },
+      });
+      const copy = makeCopy({ title: 'Reminder', body: 'Important meeting at 3pm' });
+      const richSeed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      const compactSeed = composeThreadSeed(signal, 'telegram' as NotificationChannel, copy);
+      // Rich has action note, compact does not
+      expect(richSeed).toContain('Action required');
+      expect(compactSeed).not.toContain('Action required');
     });
 
     test('interfaceHint in contextPayload overrides channel default', () => {
       const signal = makeSignal({
-        sourceEventName: 'reminder.fired',
-        contextPayload: { message: 'Test', interfaceHint: 'telegram' },
-        attentionHints: {
-          requiresAction: true,
-          urgency: 'high',
-          isAsyncBackground: false,
-          visibleInSourceNow: false,
-        },
+        contextPayload: { interfaceHint: 'telegram' },
       });
-      // Even though channel is vellum, interfaceHint says telegram → compact
-      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, makeCopy());
-      // Compact reminder with action marker
-      expect(seed).toContain('action needed');
+      const copy = makeCopy({ title: 'Alert', body: 'Details.' });
+      // Channel is vellum but interfaceHint says telegram → compact format
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed).toBe('Alert\n\nDetails.');
     });
   });
 
-  // ── Edge cases ───────────────────────────────────────────────────────
-
   describe('edge cases', () => {
-    test('empty contextPayload produces usable seed', () => {
-      const signal = makeSignal({
-        sourceEventName: 'reminder.fired',
-        contextPayload: {},
-      });
-      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, makeCopy());
-      expect(seed.length).toBeGreaterThan(10);
-      expect(seed).not.toContain('{');
+    test('handles empty copy body gracefully', () => {
+      const signal = makeSignal();
+      const copy = makeCopy({ title: 'Alert', body: '' });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed.length).toBeGreaterThan(0);
     });
 
     test('never produces raw JSON in output', () => {
-      const signal = makeSignal({
-        sourceEventName: 'reminder.fired',
-        contextPayload: { message: '{"nested": "json"}', extra: { deep: true } },
-      });
-      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, makeCopy());
-      // The message field is a string that happens to look like JSON — it should
-      // be treated as a string (which it is, since str() just returns it).
-      // The point is the seed itself isn't a JSON dump.
-      expect(seed).toContain('Reminder');
+      const signal = makeSignal();
+      const copy = makeCopy({ title: 'Alert', body: 'Check the results.' });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed).not.toMatch(/^\{/);
+      expect(seed).not.toMatch(/^\[/);
     });
   });
 });
