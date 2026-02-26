@@ -3,7 +3,8 @@
  *
  * Validates that the VellumAdapter broadcasts notification_intent with
  * deepLinkMetadata, and that the broadcaster correctly passes deepLinkTarget
- * from the decision through to the adapter payload.
+ * from the decision through to the adapter payload — regardless of whether
+ * the conversation was newly created or reused.
  */
 
 import { describe, expect, mock, test } from 'bun:test';
@@ -153,6 +154,48 @@ describe('notification deep-link metadata', () => {
       const metadata = msg.deepLinkMetadata as Record<string, unknown>;
       expect(metadata.conversationId).toBe('conv-task-run-42');
       expect(metadata.workItemId).toBe('work-item-7');
+    });
+
+    // ── Deep-link conversationId present regardless of reuse/new ──────
+
+    test('deep-link payload includes conversationId for a newly created conversation', async () => {
+      const messages: ServerMessage[] = [];
+      const adapter = new VellumAdapter((msg) => messages.push(msg));
+
+      // Simulates the broadcaster merging pairing.conversationId into deep-link
+      // for a newly created notification thread (start_new path)
+      await adapter.send(
+        {
+          sourceEventName: 'reminder.fired',
+          copy: { title: 'Reminder', body: 'Take out the trash' },
+          deepLinkTarget: { conversationId: 'conv-new-thread-001' },
+        },
+        { channel: 'vellum' },
+      );
+
+      const msg = messages[0] as unknown as Record<string, unknown>;
+      const metadata = msg.deepLinkMetadata as Record<string, unknown>;
+      expect(metadata.conversationId).toBe('conv-new-thread-001');
+    });
+
+    test('deep-link payload includes conversationId for a reused conversation', async () => {
+      const messages: ServerMessage[] = [];
+      const adapter = new VellumAdapter((msg) => messages.push(msg));
+
+      // Simulates the broadcaster merging pairing.conversationId into deep-link
+      // for a reused notification thread (reuse_existing path)
+      await adapter.send(
+        {
+          sourceEventName: 'reminder.fired',
+          copy: { title: 'Follow-up', body: 'Still need to take out the trash' },
+          deepLinkTarget: { conversationId: 'conv-reused-thread-042' },
+        },
+        { channel: 'vellum' },
+      );
+
+      const msg = messages[0] as unknown as Record<string, unknown>;
+      const metadata = msg.deepLinkMetadata as Record<string, unknown>;
+      expect(metadata.conversationId).toBe('conv-reused-thread-042');
     });
   });
 });
