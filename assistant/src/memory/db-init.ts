@@ -19,6 +19,7 @@ import {
   migrateCallSessionMode,
   migrateChannelInboundDeliveredSegments,
   migrateGuardianBootstrapToken,
+  migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
   runComplexMigrations,
@@ -70,6 +71,9 @@ export function initializeDb(): void {
 
   // 11c. Guardian bootstrap token hash column (Telegram deep-link flow)
   migrateGuardianBootstrapToken(database);
+
+  // 11d. Guardian verification purpose discriminator (guardian vs trusted_contact)
+  migrateGuardianVerificationPurpose(database);
 
   // 12. Media assets
   createMediaAssetsTables(database);

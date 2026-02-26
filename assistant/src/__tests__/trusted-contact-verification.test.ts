@@ -95,6 +95,7 @@ describe('trusted contact verification → member activation', () => {
       expectedChatId: 'requester-chat-123',
       identityBindingStatus: 'bound',
       destinationAddress: 'requester-chat-123',
+      verificationPurpose: 'trusted_contact',
     });
 
     // Requester enters the 6-digit code
@@ -152,6 +153,7 @@ describe('trusted contact verification → member activation', () => {
       expectedChatId: 'requester-chat-456',
       identityBindingStatus: 'bound',
       destinationAddress: 'requester-chat-456',
+      verificationPurpose: 'trusted_contact',
     });
 
     validateAndConsumeChallenge(
@@ -192,6 +194,7 @@ describe('trusted contact verification → member activation', () => {
       expectedChatId: 'chat-cross-test',
       identityBindingStatus: 'bound',
       destinationAddress: 'chat-cross-test',
+      verificationPurpose: 'trusted_contact',
     });
 
     validateAndConsumeChallenge(
@@ -260,6 +263,7 @@ describe('trusted contact verification → member activation', () => {
       expectedChatId: 'chat-revoked',
       identityBindingStatus: 'bound',
       destinationAddress: 'chat-revoked',
+      verificationPurpose: 'trusted_contact',
     });
 
     // Requester enters the new code
@@ -312,6 +316,7 @@ describe('trusted contact verification → member activation', () => {
       expectedChatId: 'requester-chat-789',
       identityBindingStatus: 'bound',
       destinationAddress: 'requester-chat-789',
+      verificationPurpose: 'trusted_contact',
     });
 
     const result = validateAndConsumeChallenge(
