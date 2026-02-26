@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 
@@ -339,17 +339,20 @@ export function getMessageById(messageId: string, conversationId?: string): Mess
 }
 
 /**
- * Get the next message in a conversation after a given message (by timestamp).
- * Used for legacy tool_result merging in the rehydrate endpoint.
+ * Get the next message in a conversation after a given message.
+ * Uses gte + ne(id) instead of gt on timestamp so that messages sharing the
+ * same millisecond (common in legacy conversations where an assistant turn and
+ * the following user tool_result are saved in the same tick) are not skipped.
  */
-export function getNextMessage(conversationId: string, afterTimestamp: number): MessageRow | null {
+export function getNextMessage(conversationId: string, afterTimestamp: number, excludeMessageId: string): MessageRow | null {
   const db = getDb();
   const row = db
     .select()
     .from(messages)
     .where(and(
       eq(messages.conversationId, conversationId),
-      gt(messages.createdAt, afterTimestamp),
+      gte(messages.createdAt, afterTimestamp),
+      ne(messages.id, excludeMessageId),
     ))
     .orderBy(asc(messages.createdAt))
     .limit(1)
