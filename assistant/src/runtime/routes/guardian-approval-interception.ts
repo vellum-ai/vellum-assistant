@@ -35,6 +35,8 @@ import {
   deliverVerificationCodeToGuardian,
   notifyRequesterOfApproval,
   notifyRequesterOfDenial,
+  notifyRequesterOfDeliveryFailure,
+  type DeliveryResult,
 } from './access-request-decision.js';
 import {
   buildGuardianDenyContext,
@@ -998,8 +1000,9 @@ async function handleAccessRequestApproval(
   // Approved: deliver the verification code to the guardian and notify the requester.
   const requesterIdentifier = approval.requesterExternalUserId;
 
+  let codeDelivered = true;
   if (decisionResult.verificationCode) {
-    await deliverVerificationCodeToGuardian({
+    const deliveryResult: DeliveryResult = await deliverVerificationCodeToGuardian({
       replyCallbackUrl,
       guardianChatId: approval.guardianChatId,
       requesterIdentifier,
@@ -1007,14 +1010,31 @@ async function handleAccessRequestApproval(
       assistantId,
       bearerToken,
     });
+    if (!deliveryResult.ok) {
+      log.error(
+        { reason: deliveryResult.reason, approvalId: approval.id },
+        'Skipping requester notification — verification code was not delivered to guardian',
+      );
+      codeDelivered = false;
+    }
   }
 
-  await notifyRequesterOfApproval({
-    replyCallbackUrl,
-    requesterChatId: approval.requesterChatId,
-    assistantId,
-    bearerToken,
-  });
+  if (codeDelivered) {
+    await notifyRequesterOfApproval({
+      replyCallbackUrl,
+      requesterChatId: approval.requesterChatId,
+      assistantId,
+      bearerToken,
+    });
+  } else {
+    // Let the requester know something went wrong without revealing details
+    await notifyRequesterOfDeliveryFailure({
+      replyCallbackUrl,
+      requesterChatId: approval.requesterChatId,
+      assistantId,
+      bearerToken,
+    });
+  }
 
   // Emit guardian_decision (approved) signal
   void emitNotificationSignal({
@@ -1038,9 +1058,8 @@ async function handleAccessRequestApproval(
     dedupeKey: `trusted-contact:guardian-decision:${approval.id}`,
   });
 
-  // Emit verification_sent signal — the code has been created and
-  // delivered to the guardian for out-of-band relay to the requester.
-  if (decisionResult.verificationSessionId) {
+  // Only emit verification_sent when the code was actually delivered to the guardian.
+  if (decisionResult.verificationSessionId && codeDelivered) {
     void emitNotificationSignal({
       sourceEventName: 'ingress.trusted_contact.verification_sent',
       sourceChannel: approval.channel,
