@@ -2918,6 +2918,16 @@ public struct IPCModelSetRequest: Codable, Sendable {
     }
 }
 
+public struct IPCNavigateSettings: Codable, Sendable {
+    public let type: String
+    public let tab: String
+
+    public init(type: String, tab: String) {
+        self.type = type
+        self.tab = tab
+    }
+}
+
 /// Broadcast to connected macOS clients when a notification should be displayed.
 public struct IPCNotificationIntent: Codable, Sendable {
     public let type: String

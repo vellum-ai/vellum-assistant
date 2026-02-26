@@ -162,6 +162,8 @@ extension DaemonClient {
             onPublishPageResponse?(msg)
         case .openUrl(let msg):
             onOpenUrl?(msg)
+        case .navigateSettings(let msg):
+            onNavigateSettings?(msg)
         case .unpublishPageResponse:
             break // Handled via specific callback if needed
         case .memoryStatus(let msg):

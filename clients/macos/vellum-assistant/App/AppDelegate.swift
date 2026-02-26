@@ -989,6 +989,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         }
 
+        daemonClient.onNavigateSettings = { [weak self] msg in
+            Task { @MainActor in
+                self?.showSettingsTab(msg.tab)
+            }
+        }
+
         daemonClient.onPairingApprovalRequest = { [weak self] msg in
             guard let self else { return }
             if self.pairingApprovalWindow == nil {
@@ -2177,6 +2183,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     @objc public func showSettingsWindow(_ sender: Any?) {
         showMainWindow()
         mainWindow?.windowState.selection = .panel(.settings)
+    }
+
+    /// Opens the settings panel and navigates to a specific tab.
+    public func showSettingsTab(_ tab: String) {
+        if let settingsTab = SettingsTab(rawValue: tab) {
+            services.settingsStore.pendingSettingsTab = settingsTab
+        }
+        showSettingsWindow(nil)
     }
 
     // MARK: - Application Lifecycle
