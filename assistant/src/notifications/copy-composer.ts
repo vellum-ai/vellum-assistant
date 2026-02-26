@@ -115,14 +115,14 @@ function applyChannelDefaults(
 ): RenderedChannelCopy {
   const copy: RenderedChannelCopy = { ...baseCopy };
 
-  if (channel === 'telegram') {
-    copy.deliveryText = buildTelegramFallbackDeliveryText(baseCopy, signal);
+  if (channel === 'telegram' || channel === 'sms') {
+    copy.deliveryText = buildChatSurfaceFallbackDeliveryText(baseCopy, signal);
   }
 
   return copy;
 }
 
-function buildTelegramFallbackDeliveryText(
+function buildChatSurfaceFallbackDeliveryText(
   baseCopy: RenderedChannelCopy,
   signal: NotificationSignal,
 ): string {

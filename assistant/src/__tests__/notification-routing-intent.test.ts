@@ -78,6 +78,26 @@ describe('routing intent enforcement', () => {
       const enforced = enforceRoutingIntent(decision, 'all_channels', connected);
       expect(enforced.selectedChannels).toEqual(['vellum']);
     });
+
+    test('includes SMS when SMS is among connected channels', () => {
+      const decision = makeDecision({ selectedChannels: ['vellum'] });
+      const connected: NotificationChannel[] = ['vellum', 'telegram', 'sms'];
+
+      const enforced = enforceRoutingIntent(decision, 'all_channels', connected);
+
+      expect(enforced.selectedChannels).toEqual(['vellum', 'telegram', 'sms']);
+      expect(enforced.reasoningSummary).toContain('routing_intent=all_channels');
+    });
+
+    test('excludes SMS when SMS is not among connected channels', () => {
+      const decision = makeDecision({ selectedChannels: ['vellum'] });
+      const connected: NotificationChannel[] = ['vellum', 'telegram'];
+
+      const enforced = enforceRoutingIntent(decision, 'all_channels', connected);
+
+      expect(enforced.selectedChannels).toEqual(['vellum', 'telegram']);
+      expect(enforced.selectedChannels).not.toContain('sms');
+    });
   });
 
   describe('multi_channel intent', () => {
