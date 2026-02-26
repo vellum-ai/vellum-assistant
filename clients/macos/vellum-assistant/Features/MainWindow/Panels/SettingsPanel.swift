@@ -192,7 +192,7 @@ struct SettingsPanel: View {
         case .heartbeat:
             HeartbeatSettingsTab(daemonClient: daemonClient)
         case .voice:
-            VoiceSettingsView()
+            VoiceSettingsView(store: store)
         case .appearance:
             SettingsAppearanceTab(store: store)
         case .advanced:
