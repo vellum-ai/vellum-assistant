@@ -683,13 +683,20 @@ export interface CustomPatternInput {
 
 /**
  * Compile user-provided custom patterns into SecretPattern objects.
- * Invalid regex patterns are logged and skipped.
+ * Invalid regex patterns and patterns that can match empty strings are
+ * logged and skipped — an empty-match pattern would cause infinite loops
+ * in the `while (regex.exec(...))` scanning loops.
  */
 export function compileCustomPatterns(inputs: CustomPatternInput[]): SecretPattern[] {
   const compiled: SecretPattern[] = [];
   for (const { label, pattern } of inputs) {
     try {
-      compiled.push({ type: label, regex: new RegExp(pattern, 'g') });
+      const regex = new RegExp(pattern, 'g');
+      if (regex.test('')) {
+        log.warn({ label, pattern }, 'Skipping custom secret pattern that matches empty strings');
+        continue;
+      }
+      compiled.push({ type: label, regex });
     } catch (err) {
       log.warn({ label, pattern, error: String(err) }, 'Skipping invalid custom secret pattern');
     }
