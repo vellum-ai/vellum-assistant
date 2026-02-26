@@ -389,17 +389,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // Switching threads is a natural point to shed cached render
         // artefacts from the previous conversation.
         Self.clearRenderCaches()
-
-        // Report explicit conversation view for notification threads.
-        // selectThread is only called from user-initiated actions (sidebar
-        // click, search result), never during restore-time synthetic selections.
-        if let sessionId = thread.sessionId {
-            try? daemonClient.sendNotificationConversationViewed(
-                conversationId: sessionId,
-                source: "macos_conversation_opened",
-                occurredAt: Int(Date().timeIntervalSince1970 * 1000)
-            )
-        }
     }
 
     // MARK: - Render Cache Management
