@@ -79,6 +79,7 @@ import {
   handleGetAttachmentContent,
   handleUploadAttachment,
 } from './routes/attachment-routes.js';
+import { handleDebug } from './routes/debug-routes.js';
 import {
   handleAnswerCall,
   handleCancelCall,
@@ -563,6 +564,7 @@ export class RuntimeHttpServer {
   ): Promise<Response> {
     return withErrorHandling(endpoint, async () => {
       if (endpoint === 'health' && req.method === 'GET') return handleHealth();
+      if (endpoint === 'debug' && req.method === 'GET') return handleDebug();
 
       if (endpoint === 'browser-relay/status' && req.method === 'GET') {
         return Response.json(extensionRelayServer.getStatus());
