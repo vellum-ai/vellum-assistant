@@ -479,14 +479,17 @@ function formatRecallResult(
   const noticeTokenCost = degradationNotice
     ? estimateTextTokens(degradationNotice) + 2 // +2 for '\n\n' separator
     : 0;
-  const candidateBudget = Math.max(1, maxInjectTokens - noticeTokenCost);
+  // When the notice alone exceeds the budget, skip it entirely so
+  // injectedText never exceeds maxInjectTokens.
+  const budgetForNotice = noticeTokenCost <= maxInjectTokens;
+  const candidateBudget = budgetForNotice ? maxInjectTokens - noticeTokenCost : maxInjectTokens;
 
   const selected = trimToTokenBudget(merged, candidateBudget, config.memory.retrieval.injectionFormat);
   markItemUsage(selected);
 
   let injectedText = buildInjectedText(selected, config.memory.retrieval.injectionFormat);
 
-  if (degradationNotice) {
+  if (degradationNotice && budgetForNotice) {
     injectedText = injectedText.length > 0
       ? injectedText + '\n\n' + degradationNotice
       : degradationNotice;
