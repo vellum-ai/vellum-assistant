@@ -9,14 +9,22 @@
  * POST   /v1/integrations/telegram/setup    — composite: set config + register commands
  *
  * Guardian verification:
- * POST   /v1/integrations/guardian/challenge — create a verification challenge
- * GET    /v1/integrations/guardian/status    — check guardian binding status
+ * POST   /v1/integrations/guardian/challenge        — create a verification challenge
+ * GET    /v1/integrations/guardian/status            — check guardian binding status
+ * POST   /v1/integrations/guardian/outbound/start    — start outbound verification
+ * POST   /v1/integrations/guardian/outbound/resend   — resend outbound verification
+ * POST   /v1/integrations/guardian/outbound/cancel   — cancel outbound verification
  */
 
 import {
   createGuardianChallenge,
   getGuardianStatus,
 } from '../../daemon/handlers/config-channels.js';
+import {
+  startOutbound,
+  resendOutbound,
+  cancelOutbound,
+} from '../guardian-outbound-actions.js';
 import type { ChannelId } from '../../channels/types.js';
 import {
   clearTelegramConfig,
@@ -114,4 +122,84 @@ export function handleGetGuardianStatus(url: URL): Response {
   const assistantId = url.searchParams.get('assistantId') ?? undefined;
   const result = getGuardianStatus(channel, assistantId);
   return Response.json(result);
+}
+
+// ---------------------------------------------------------------------------
+// Guardian outbound verification
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /v1/integrations/guardian/outbound/start
+ *
+ * Body: { channel: ChannelId; destination?: string; assistantId?: string; rebind?: boolean }
+ */
+export async function handleStartOutbound(req: Request): Promise<Response> {
+  const body = (await req.json()) as {
+    channel?: ChannelId;
+    destination?: string;
+    assistantId?: string;
+    rebind?: boolean;
+  };
+  if (!body.channel) {
+    return Response.json(
+      { success: false, error: 'missing_channel', message: 'The "channel" field is required.' },
+      { status: 400 },
+    );
+  }
+  const result = startOutbound({
+    channel: body.channel,
+    destination: body.destination,
+    assistantId: body.assistantId,
+    rebind: body.rebind,
+  });
+  const status = result.success ? 200 : 400;
+  return Response.json(result, { status });
+}
+
+/**
+ * POST /v1/integrations/guardian/outbound/resend
+ *
+ * Body: { channel: ChannelId; assistantId?: string }
+ */
+export async function handleResendOutbound(req: Request): Promise<Response> {
+  const body = (await req.json()) as {
+    channel?: ChannelId;
+    assistantId?: string;
+  };
+  if (!body.channel) {
+    return Response.json(
+      { success: false, error: 'missing_channel', message: 'The "channel" field is required.' },
+      { status: 400 },
+    );
+  }
+  const result = resendOutbound({
+    channel: body.channel,
+    assistantId: body.assistantId,
+  });
+  const status = result.success ? 200 : 400;
+  return Response.json(result, { status });
+}
+
+/**
+ * POST /v1/integrations/guardian/outbound/cancel
+ *
+ * Body: { channel: ChannelId; assistantId?: string }
+ */
+export async function handleCancelOutbound(req: Request): Promise<Response> {
+  const body = (await req.json()) as {
+    channel?: ChannelId;
+    assistantId?: string;
+  };
+  if (!body.channel) {
+    return Response.json(
+      { success: false, error: 'missing_channel', message: 'The "channel" field is required.' },
+      { status: 400 },
+    );
+  }
+  const result = cancelOutbound({
+    channel: body.channel,
+    assistantId: body.assistantId,
+  });
+  const status = result.success ? 200 : 400;
+  return Response.json(result, { status });
 }
