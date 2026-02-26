@@ -162,6 +162,13 @@ build_binaries() {
     mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules"
     cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/"
     cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-common" "$SCRIPT_DIR/daemon-bin/node_modules/"
+    # Strip non-runtime files to reduce bundle size (source, docs, sourcemaps, type declarations)
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/script"
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/lib"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/README.md"
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common/lib"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common/README.md"
+    find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
     # Strip non-native-platform binaries to save space
     local onnx_bin="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/bin/napi-v3"
     if [ -d "$onnx_bin" ]; then
@@ -308,6 +315,13 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules"
     cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/"
     cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-common" "$SCRIPT_DIR/daemon-bin/node_modules/"
+    # Strip non-runtime files to reduce bundle size (source, docs, sourcemaps, type declarations)
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/script"
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/lib"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/README.md"
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common/lib"
+    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common/README.md"
+    find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
     onnx_bin="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/bin/napi-v3"
     if [ -d "$onnx_bin" ]; then
         find "$onnx_bin" -mindepth 1 -maxdepth 1 -not -name darwin -exec rm -rf {} +
@@ -664,15 +678,17 @@ if [ -f "$MACOS_DIR/vellum-gateway" ]; then
     echo "Gateway binary signed"
 fi
 
-# Sign onnxruntime native libraries (must sign before daemon binary)
-if [ -d "$MACOS_DIR/node_modules/onnxruntime-node/bin" ]; then
+# Sign all files in bundled node_modules (must sign before daemon binary).
+# codesign treats everything under Contents/MacOS/ as code objects, so all
+# files — native binaries, JS, JSON, etc. — must carry a valid signature.
+if [ -d "$MACOS_DIR/node_modules" ]; then
     NATIVE_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
     if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
         NATIVE_SIGN_FLAGS+=(--timestamp --options runtime)
     fi
-    find "$MACOS_DIR/node_modules/onnxruntime-node/bin" \( -name "*.node" -o -name "*.dylib" \) -exec \
+    find "$MACOS_DIR/node_modules" -type f -exec \
         codesign "${NATIVE_SIGN_FLAGS[@]}" {} \;
-    echo "ONNX Runtime native libraries signed"
+    echo "Bundled node_modules signed"
 fi
 
 # Sign daemon binary with its own entitlements (JIT, network)
