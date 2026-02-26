@@ -127,6 +127,24 @@ These scenarios verify that the encoder fallback chain (primary -> halved -> HEV
 
 ---
 
+## Source Preview
+
+These scenarios verify that thumbnail previews in the source picker work
+correctly across configurations.
+
+- [ ] **Mixed-DPI displays** — Connect 1x + 2x displays, open picker → Thumbnails render correctly for both
+- [ ] **Multi-monitor previews** — Multiple displays connected → Previews load for all displays
+- [ ] **Disappearing window** — Open picker, close a listed window → Preview clears gracefully, no crash
+- [ ] **Protected content (DRM)** — Have a DRM-protected window visible → Shows "Preview unavailable"
+- [ ] **Large window list (20+)** — Open many windows, open picker → Picker remains responsive, previews load progressively
+- [ ] **Scope switching** — Switch display ↔ window tabs → Previous previews cancelled, new ones load
+- [ ] **Feature flag off** — Disable `sourcePreviewEnabled` → No thumbnails, original picker behavior
+- [ ] **Preview failure + recording** — Let preview fail, click Start Recording → Recording starts normally
+- [ ] **Selected source preview** — Click different sources → Large preview pane updates to show selected source
+- [ ] **Cache behavior** — Switch away and back quickly → Cached thumbnails appear instantly
+
+---
+
 ## Validation Checklist (For Each Test Above)
 
 For each checked scenario, verify:
