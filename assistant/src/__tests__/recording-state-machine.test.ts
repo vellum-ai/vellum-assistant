@@ -83,6 +83,7 @@ mock.module('node:fs', async () => {
       // attacks like `${ALLOWED_DIR}/../outside.mov` are normalized,
       // preserving the same semantics as the real realpathSync without
       // hitting the filesystem (which would throw ENOENT for test paths).
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { resolve } = require('path');
       return resolve(p);
     },
