@@ -1,7 +1,10 @@
+import { getLogger } from '../util/logger.js';
 import { detectCycles } from './graph-utils.js';
 import type { SwarmLimits } from './limits.js';
 import type { SwarmPlan, SwarmTaskNode } from './types.js';
 import { VALID_SWARM_ROLES } from './types.js';
+
+const log = getLogger('swarm:plan-validator');
 
 export class SwarmPlanValidationError extends Error {
   constructor(
@@ -41,7 +44,7 @@ export function validateAndNormalizePlan(
 
   // --- Task count limit ---
   if (tasks.length > limits.maxTasks) {
-    console.warn(`Plan truncated from ${tasks.length} tasks to ${limits.maxTasks}`);
+    log.warn({ original: tasks.length, max: limits.maxTasks }, 'Plan truncated to task limit');
     tasks = tasks.slice(0, limits.maxTasks);
   }
 
