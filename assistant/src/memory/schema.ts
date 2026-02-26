@@ -843,6 +843,8 @@ export const guardianActionRequests = sqliteTable('guardian_action_requests', {
   lateAnsweredAt: integer('late_answered_at'),
   followupAction: text('followup_action'),                          // call_back | message_back | decline
   followupCompletedAt: integer('followup_completed_at'),
+  toolName: text('tool_name'),                                        // tool identity for tool-approval requests
+  inputDigest: text('input_digest'),                                  // canonical SHA-256 digest of tool input
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

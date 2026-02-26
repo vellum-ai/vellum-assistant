@@ -1195,4 +1195,174 @@ describe('call-controller', () => {
 
     controller.destroy();
   });
+
+  // ── Structured tool-approval ASK_GUARDIAN_APPROVAL ──────────────────
+
+  test('ASK_GUARDIAN_APPROVAL: persists toolName and inputDigest on guardian action request', async () => {
+    const approvalPayload = JSON.stringify({
+      question: 'Allow send_email to bob@example.com?',
+      toolName: 'send_email',
+      input: { to: 'bob@example.com', subject: 'Hello' },
+    });
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      [`Let me check with your guardian. [ASK_GUARDIAN_APPROVAL: ${approvalPayload}]`],
+    ));
+    const { session, relay, controller } = setupController('Send an email');
+
+    await controller.handleCallerUtterance('Send an email to Bob');
+
+    // Give the async dispatchGuardianQuestion a tick to create the request
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Verify controller entered waiting_on_user
+    expect(controller.getState()).toBe('waiting_on_user');
+
+    // Verify a pending question was created with the correct text
+    const question = getPendingQuestion(session.id);
+    expect(question).not.toBeNull();
+    expect(question!.questionText).toBe('Allow send_email to bob@example.com?');
+
+    // Verify the guardian action request has tool metadata
+    const pendingRequest = getPendingRequestByCallSessionId(session.id);
+    expect(pendingRequest).not.toBeNull();
+    expect(pendingRequest!.toolName).toBe('send_email');
+    expect(pendingRequest!.inputDigest).not.toBeNull();
+    expect(pendingRequest!.inputDigest!.length).toBe(64); // SHA-256 hex = 64 chars
+
+    // The ASK_GUARDIAN_APPROVAL marker should NOT appear in the relay tokens
+    const allText = relay.sentTokens.map((t) => t.token).join('');
+    expect(allText).not.toContain('[ASK_GUARDIAN_APPROVAL:');
+    expect(allText).not.toContain('send_email');
+
+    controller.destroy();
+  });
+
+  test('ASK_GUARDIAN_APPROVAL: computes deterministic digest for same tool+input', async () => {
+    const approvalPayload = JSON.stringify({
+      question: 'Allow send_email?',
+      toolName: 'send_email',
+      input: { subject: 'Hello', to: 'bob@example.com' },
+    });
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      [`Checking. [ASK_GUARDIAN_APPROVAL: ${approvalPayload}]`],
+    ));
+    const { session, controller } = setupController('Send email');
+
+    await controller.handleCallerUtterance('Send it');
+    await new Promise((r) => setTimeout(r, 50));
+
+    const request1 = getPendingRequestByCallSessionId(session.id);
+    expect(request1).not.toBeNull();
+
+    // Compute expected digest independently using the same utility
+    const { computeToolApprovalDigest } = await import('../security/tool-approval-digest.js');
+    const expectedDigest = computeToolApprovalDigest('send_email', { subject: 'Hello', to: 'bob@example.com' });
+    expect(request1!.inputDigest).toBe(expectedDigest);
+
+    controller.destroy();
+  });
+
+  test('informational ASK_GUARDIAN: does NOT persist tool metadata (null toolName/inputDigest)', async () => {
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Let me check. [ASK_GUARDIAN: What date works best?]'],
+    ));
+    const { session, controller } = setupController('Book appointment');
+
+    await controller.handleCallerUtterance('I need to schedule something');
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Verify the guardian action request has NO tool metadata
+    const pendingRequest = getPendingRequestByCallSessionId(session.id);
+    expect(pendingRequest).not.toBeNull();
+    expect(pendingRequest!.toolName).toBeNull();
+    expect(pendingRequest!.inputDigest).toBeNull();
+    expect(pendingRequest!.questionText).toBe('What date works best?');
+
+    controller.destroy();
+  });
+
+  test('ASK_GUARDIAN_APPROVAL: strips marker from TTS output', async () => {
+    const approvalPayload = JSON.stringify({
+      question: 'Allow calendar_create?',
+      toolName: 'calendar_create',
+      input: { date: '2026-03-01', title: 'Meeting' },
+    });
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn([
+      'Let me get approval for that. ',
+      `[ASK_GUARDIAN_APPROVAL: ${approvalPayload}]`,
+      ' Thank you.',
+    ]));
+    const { relay, controller } = setupController('Create event');
+
+    await controller.handleCallerUtterance('Create a meeting');
+
+    const allText = relay.sentTokens.map((t) => t.token).join('');
+    expect(allText).toContain('Let me get approval');
+    expect(allText).not.toContain('[ASK_GUARDIAN_APPROVAL:');
+    expect(allText).not.toContain('calendar_create');
+    expect(allText).not.toContain('inputDigest');
+
+    controller.destroy();
+  });
+
+  test('ASK_GUARDIAN_APPROVAL: handles JSON payloads containing }] in string values', async () => {
+    // The `}]` sequence inside a JSON string value previously caused the
+    // non-greedy regex to terminate early, truncating the JSON and leaking
+    // partial data into TTS output.
+    const approvalPayload = JSON.stringify({
+      question: 'Allow send_message?',
+      toolName: 'send_message',
+      input: { msg: 'test}]more', nested: { key: 'value with }] braces' } },
+    });
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      [`Let me check. [ASK_GUARDIAN_APPROVAL: ${approvalPayload}]`],
+    ));
+    const { session, relay, controller } = setupController('Send a message');
+
+    await controller.handleCallerUtterance('Send it');
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Verify controller entered waiting_on_user with the correct question
+    expect(controller.getState()).toBe('waiting_on_user');
+    const question = getPendingQuestion(session.id);
+    expect(question).not.toBeNull();
+    expect(question!.questionText).toBe('Allow send_message?');
+
+    // Verify tool metadata was parsed correctly
+    const pendingRequest = getPendingRequestByCallSessionId(session.id);
+    expect(pendingRequest).not.toBeNull();
+    expect(pendingRequest!.toolName).toBe('send_message');
+    expect(pendingRequest!.inputDigest).not.toBeNull();
+
+    // No partial JSON or marker text should leak into TTS output
+    const allText = relay.sentTokens.map((t) => t.token).join('');
+    expect(allText).not.toContain('[ASK_GUARDIAN_APPROVAL:');
+    expect(allText).not.toContain('send_message');
+    expect(allText).not.toContain('}]');
+    expect(allText).not.toContain('test}]more');
+    expect(allText).toContain('Let me check.');
+
+    controller.destroy();
+  });
+
+  test('ASK_GUARDIAN_APPROVAL with malformed JSON: falls through to informational ASK_GUARDIAN', async () => {
+    // Malformed JSON in the approval marker — should be ignored, and if there's
+    // also an informational ASK_GUARDIAN marker, it should be used instead
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Checking. [ASK_GUARDIAN_APPROVAL: {invalid json}] [ASK_GUARDIAN: Fallback question?]'],
+    ));
+    const { session, controller } = setupController('Test fallback');
+
+    await controller.handleCallerUtterance('Do something');
+    await new Promise((r) => setTimeout(r, 50));
+
+    const pendingRequest = getPendingRequestByCallSessionId(session.id);
+    expect(pendingRequest).not.toBeNull();
+    expect(pendingRequest!.questionText).toBe('Fallback question?');
+    // Tool metadata should be null since the approval marker was malformed
+    expect(pendingRequest!.toolName).toBeNull();
+    expect(pendingRequest!.inputDigest).toBeNull();
+
+    controller.destroy();
+  });
 });
