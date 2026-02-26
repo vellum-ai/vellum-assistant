@@ -4,13 +4,13 @@
 
 import { statSync } from 'node:fs';
 
-import { getDbPath } from '../../util/platform.js';
-import { countConversations } from '../../memory/conversation-store.js';
-import { getMemoryJobCounts } from '../../memory/jobs-store.js';
-import { countSchedules } from '../../schedule/schedule-store.js';
-import { rawAll } from '../../memory/db.js';
 import { getConfig } from '../../config/loader.js';
+import { countConversations } from '../../memory/conversation-store.js';
+import { rawAll } from '../../memory/db.js';
+import { getMemoryJobCounts } from '../../memory/jobs-store.js';
 import { getProviderDebugStatus } from '../../providers/registry.js';
+import { countSchedules } from '../../schedule/schedule-store.js';
+import { getDbPath } from '../../util/platform.js';
 
 /** Process start time — used to calculate uptime. */
 const startedAt = Date.now();

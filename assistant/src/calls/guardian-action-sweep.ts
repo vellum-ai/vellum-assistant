@@ -17,8 +17,8 @@ import {
   getExpiredGuardianActionRequests,
 } from '../memory/guardian-action-store.js';
 import { deliverChannelReply } from '../runtime/gateway-client.js';
-import type { GuardianActionCopyGenerator } from '../runtime/http-types.js';
 import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
+import type { GuardianActionCopyGenerator } from '../runtime/http-types.js';
 import { getLogger } from '../util/logger.js';
 import { expirePendingQuestions } from './call-store.js';
 
