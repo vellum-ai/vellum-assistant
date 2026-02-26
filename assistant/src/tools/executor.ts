@@ -490,8 +490,39 @@ export class ToolExecutor {
 
       // Consume the deferred approve_once grant now that all rejection paths
       // have been cleared and the tool is guaranteed to execute.
+      // Check the return value: a concurrent invocation may have consumed the
+      // same grant between our hasApproveOnce() check above and now. If
+      // consumption fails (returns false) we must deny — passing through would
+      // turn a one-time approval into multiple effective executions.
       if (pendingConsumeApproveOnce) {
-        consumeApproveOnce(name);
+        const consumed = consumeApproveOnce(name);
+        if (!consumed) {
+          log.warn(
+            {
+              toolName: name,
+              sessionId: context.sessionId,
+              conversationId: context.conversationId,
+              reason: 'approve_once_already_consumed',
+            },
+            'Parental control: approve_once grant already consumed by concurrent invocation; denying',
+          );
+          const durationMs = Date.now() - startTime;
+          emitLifecycleEvent(context, {
+            type: 'permission_denied',
+            toolName: name,
+            executionTarget,
+            input,
+            workingDir: context.workingDir,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            requestId: context.requestId,
+            riskLevel,
+            decision: 'deny',
+            reason: 'Approve-once grant already used by a concurrent request',
+            durationMs,
+          });
+          return { content: 'This tool is blocked by parental control settings.', isError: true };
+        }
       }
 
       // Execute the tool — proxy tools delegate to an external resolver
