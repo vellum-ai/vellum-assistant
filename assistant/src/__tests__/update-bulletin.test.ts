@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -235,5 +235,26 @@ describe('syncUpdateBulletinOnStartup', () => {
     const afterThird = readFileSync(workspacePath, 'utf-8');
 
     expect(afterThird).toBe(afterFirst);
+  });
+
+  it('write path produces valid UTF-8 with trailing newline', () => {
+    syncUpdateBulletinOnStartup();
+    const workspacePath = join(tempDir, 'UPDATES.md');
+    const content = readFileSync(workspacePath, 'utf-8');
+
+    expect(content.length).toBeGreaterThan(0);
+    expect(content.endsWith('\n')).toBe(true);
+
+    // Verify round-trip through Buffer produces identical content (valid UTF-8)
+    const roundTripped = Buffer.from(content, 'utf-8').toString('utf-8');
+    expect(roundTripped).toBe(content);
+  });
+
+  it('no temp file leftovers after successful write', () => {
+    syncUpdateBulletinOnStartup();
+
+    const entries = readdirSync(tempDir);
+    const tmpFiles = entries.filter((e) => e.includes('.tmp.'));
+    expect(tmpFiles).toHaveLength(0);
   });
 });

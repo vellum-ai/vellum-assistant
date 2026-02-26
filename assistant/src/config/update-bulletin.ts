@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { stripCommentLines } from './system-prompt.js';
@@ -12,6 +12,25 @@ import {
 } from './update-bulletin-state.js';
 import { APP_VERSION } from '../version.js';
 import { getWorkspacePromptPath } from '../util/platform.js';
+
+/**
+ * Writes content to a file via a temp-file + rename to prevent partial/truncated
+ * writes if the process crashes mid-write.
+ */
+function atomicWriteFileSync(filePath: string, content: string): void {
+  const tmpPath = `${filePath}.tmp.${process.pid}`;
+  try {
+    writeFileSync(tmpPath, content, 'utf-8');
+    renameSync(tmpPath, filePath);
+  } catch (err) {
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      /* ignore cleanup errors */
+    }
+    throw err;
+  }
+}
 
 /**
  * Materializes the current release's update bulletin on startup.
@@ -50,12 +69,12 @@ export function syncUpdateBulletinOnStartup(): void {
 
   if (!existsSync(workspacePath)) {
     const content = appendReleaseBlock('', currentReleaseId, templateContent);
-    writeFileSync(workspacePath, content, 'utf-8');
+    atomicWriteFileSync(workspacePath, content);
   } else {
     const existing = readFileSync(workspacePath, 'utf-8');
     if (!hasReleaseBlock(existing, currentReleaseId)) {
       const updated = appendReleaseBlock(existing, currentReleaseId, templateContent);
-      writeFileSync(workspacePath, updated, 'utf-8');
+      atomicWriteFileSync(workspacePath, updated);
     }
   }
 
