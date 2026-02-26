@@ -2772,15 +2772,16 @@ describe('outbound SMS verification', () => {
       GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST,
       { code: '123456', expiresInMinutes: 10 },
     );
-    expect(challengeSms).toContain('123456');
+    // Code should NOT appear in the message — user sees it in the app
+    expect(challengeSms).not.toContain('123456');
     expect(challengeSms).toContain('10 minutes');
-    expect(challengeSms).toContain('verification code');
+    expect(challengeSms).toContain('Vellum assistant app');
 
     const resendSms = composeVerificationSms(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND,
       { code: 'ABCDEF', expiresInMinutes: 5 },
     );
-    expect(resendSms).toContain('ABCDEF');
+    expect(resendSms).not.toContain('ABCDEF');
     expect(resendSms).toContain('5 minutes');
     expect(resendSms).toContain('resent');
 
@@ -2876,7 +2877,8 @@ describe('outbound SMS verification', () => {
       { code: '999999', expiresInMinutes: 10, assistantName: 'MyBot' },
     );
     expect(sms).toContain('[MyBot]');
-    expect(sms).toContain('999999');
+    // Code should NOT appear in the message
+    expect(sms).not.toContain('999999');
   });
 
   test('cancel_outbound returns error when no active session', () => {
@@ -3273,12 +3275,15 @@ describe('outbound Telegram verification', () => {
     expect(revoked).toBeNull();
   });
 
-  test('telegram template includes /guardian_verify command', () => {
+  test('telegram template includes /guardian_verify instruction without code', () => {
     const msg = composeVerificationTelegram(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
       { code: 'abc123', expiresInMinutes: 10 },
     );
-    expect(msg).toContain('/guardian_verify abc123');
+    // Should mention /guardian_verify but NOT include the actual code
+    expect(msg).toContain('/guardian_verify');
+    expect(msg).not.toContain('abc123');
+    expect(msg).toContain('Vellum assistant app');
   });
 
   test('telegram resend template includes (resent) suffix', () => {
@@ -3286,7 +3291,8 @@ describe('outbound Telegram verification', () => {
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND,
       { code: 'xyz789', expiresInMinutes: 5 },
     );
-    expect(msg).toContain('/guardian_verify xyz789');
+    expect(msg).toContain('/guardian_verify');
+    expect(msg).not.toContain('xyz789');
     expect(msg).toContain('(resent)');
   });
 
@@ -3296,7 +3302,8 @@ describe('outbound Telegram verification', () => {
       { code: '999999', expiresInMinutes: 10, assistantName: 'MyBot' },
     );
     expect(msg).toContain('[MyBot]');
-    expect(msg).toContain('999999');
+    // Code should NOT appear in the message
+    expect(msg).not.toContain('999999');
   });
 
   test('start_outbound for telegram with missing destination fails', () => {

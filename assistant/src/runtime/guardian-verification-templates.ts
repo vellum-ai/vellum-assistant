@@ -81,12 +81,12 @@ export interface ChannelVerifyReplyVars {
 const templates: Record<TextVerifyTemplateKey, (vars: GuardianVerifyTemplateVars) => string> = {
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST]: (vars) => {
     const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Your verification code is: ${vars.code}. It expires in ${vars.expiresInMinutes} minutes. Reply with this code to verify.`;
+    return `${prefix}Guardian verification requested. Reply with the code shown in your Vellum assistant app to verify. It expires in ${vars.expiresInMinutes} minutes.`;
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND]: (vars) => {
     const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Your verification code is: ${vars.code}. It expires in ${vars.expiresInMinutes} minutes. Reply with this code to verify. (resent)`;
+    return `${prefix}Guardian verification requested. Reply with the code shown in your Vellum assistant app to verify. It expires in ${vars.expiresInMinutes} minutes. (resent)`;
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED]: (_vars) => {
@@ -96,12 +96,12 @@ const templates: Record<TextVerifyTemplateKey, (vars: GuardianVerifyTemplateVars
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST]: (vars) => {
     const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Your verification code is: ${vars.code}. Reply with: /guardian_verify ${vars.code}`;
+    return `${prefix}Guardian verification requested. Reply with /guardian_verify followed by the code shown in your Vellum assistant app. It expires in ${vars.expiresInMinutes} minutes.`;
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND]: (vars) => {
     const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Your verification code is: ${vars.code}. (resent)\nReply with: /guardian_verify ${vars.code}`;
+    return `${prefix}Guardian verification requested. Reply with /guardian_verify followed by the code shown in your Vellum assistant app. It expires in ${vars.expiresInMinutes} minutes. (resent)`;
   },
 };
 
