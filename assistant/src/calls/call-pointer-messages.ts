@@ -13,7 +13,7 @@ export async function addPointerMessage(
   event: PointerEvent,
   phoneNumber: string,
   extra?: { duration?: string; reason?: string; verificationCode?: string; channel?: string },
-): void {
+): Promise<void> {
   let text: string;
   switch (event) {
     case 'started':

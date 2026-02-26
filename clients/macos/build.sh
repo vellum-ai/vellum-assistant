@@ -308,7 +308,7 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules"
     cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/"
     cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-common" "$SCRIPT_DIR/daemon-bin/node_modules/"
-    local onnx_bin="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/bin/napi-v3"
+    onnx_bin="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/bin/napi-v3"
     if [ -d "$onnx_bin" ]; then
         find "$onnx_bin" -mindepth 1 -maxdepth 1 -not -name darwin -exec rm -rf {} +
         if [ -d "$onnx_bin/darwin" ]; then

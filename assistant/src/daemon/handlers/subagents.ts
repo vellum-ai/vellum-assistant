@@ -84,7 +84,7 @@ export async function handleSubagentMessage(
   msg: SubagentMessageRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   const callerSessionId = ctx.socketToSession.get(socket);
   if (!callerSessionId) {
     log.warn({ subagentId: msg.subagentId }, 'Message rejected: socket has no bound session');

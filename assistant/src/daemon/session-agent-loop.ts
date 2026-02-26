@@ -132,7 +132,7 @@ export interface AgentLoopSessionContext {
   getQueueDepth(): number;
   hasQueuedMessages(): boolean;
   canHandoffAtCheckpoint(): boolean;
-  drainQueue(reason: QueueDrainReason): void;
+  drainQueue(reason: QueueDrainReason): Promise<void>;
   getTurnChannelContext(): TurnChannelContext | null;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }

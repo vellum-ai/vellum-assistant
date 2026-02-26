@@ -147,7 +147,7 @@ function buildSlashContext(session: ProcessSessionContext): SlashContext {
  * block, we must explicitly continue draining on failure — otherwise
  * remaining queued messages would be stranded.
  */
-export function drainQueue(session: ProcessSessionContext, reason: QueueDrainReason = 'loop_complete'): void {
+export async function drainQueue(session: ProcessSessionContext, reason: QueueDrainReason = 'loop_complete'): Promise<void> {
   const next = session.queue.shift();
   if (!next) return;
 
