@@ -467,9 +467,10 @@ struct SettingsParentalTab: View {
                             get: { true },
                             set: { enabled in
                                 if !enabled {
-                                    // Toggling off removes the app from the allowlist
-                                    let updated = allowedApps.filter { $0 != app }
-                                    updateAllowlist(apps: updated, widgets: nil)
+                                    // Optimistically remove the app so the toggle disappears
+                                    // immediately rather than snapping back to "on"
+                                    allowedApps = allowedApps.filter { $0 != app }
+                                    updateAllowlist(apps: allowedApps, widgets: nil)
                                 }
                             }
                         ))
@@ -519,9 +520,10 @@ struct SettingsParentalTab: View {
                             get: { true },
                             set: { enabled in
                                 if !enabled {
-                                    // Toggling off removes the widget from the allowlist
-                                    let updated = allowedWidgets.filter { $0 != widget }
-                                    updateAllowlist(apps: nil, widgets: updated)
+                                    // Optimistically remove the widget so the toggle disappears
+                                    // immediately rather than snapping back to "on"
+                                    allowedWidgets = allowedWidgets.filter { $0 != widget }
+                                    updateAllowlist(apps: nil, widgets: allowedWidgets)
                                 }
                             }
                         ))
