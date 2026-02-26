@@ -94,15 +94,26 @@ mock.module('../version.js', () => ({
 
 const { syncUpdateBulletinOnStartup } = await import('../config/update-bulletin.js');
 
+// The real template is now comment-only (no materialized content). Tests that
+// exercise materialization need a template with real content, so we swap in a
+// test template before each test and restore the original afterwards.
+const TEMPLATE_PATH = join(import.meta.dirname, '..', 'config', 'templates', 'UPDATES.md');
+const originalTemplate = readFileSync(TEMPLATE_PATH, 'utf-8');
+const TEST_TEMPLATE = '## What\'s New\n\nTest release notes.\n';
+
 describe('syncUpdateBulletinOnStartup', () => {
   beforeEach(() => {
     store.clear();
     tempDir = join(tmpdir(), `update-bulletin-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(tempDir, { recursive: true });
+    // Write a test template with real content so materialization proceeds
+    writeFileSync(TEMPLATE_PATH, TEST_TEMPLATE, 'utf-8');
   });
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+    // Restore the original comment-only template
+    writeFileSync(TEMPLATE_PATH, originalTemplate, 'utf-8');
   });
 
   it('creates workspace file on first eligible run', () => {
@@ -256,5 +267,15 @@ describe('syncUpdateBulletinOnStartup', () => {
     const entries = readdirSync(tempDir);
     const tmpFiles = entries.filter((e) => e.includes('.tmp.'));
     expect(tmpFiles).toHaveLength(0);
+  });
+
+  it('skips materialization when template is comment-only', () => {
+    // Restore the real comment-only template for this test
+    writeFileSync(TEMPLATE_PATH, originalTemplate, 'utf-8');
+
+    const workspacePath = join(tempDir, 'UPDATES.md');
+    syncUpdateBulletinOnStartup();
+
+    expect(existsSync(workspacePath)).toBe(false);
   });
 });
