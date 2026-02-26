@@ -14,13 +14,18 @@ import { getConfig } from '../config/loader.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import {
+  finalizeFollowup,
   getExpiredDeliveryByConversation,
+  getFollowupDeliveryByConversation,
   getGuardianActionRequest,
   getPendingDeliveryByConversation,
+  progressFollowupState,
   resolveGuardianActionRequest,
   startFollowupFromExpiredRequest,
 } from '../memory/guardian-action-store.js';
+import { processGuardianFollowUpTurn } from '../runtime/guardian-action-conversation-turn.js';
 import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
+import type { GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
 import { extractPreferences } from '../notifications/preference-extractor.js';
 import { createPreference } from '../notifications/preferences-store.js';
 import type { Message } from '../providers/types.js';
@@ -35,6 +40,19 @@ import { resolveSlash, type SlashContext } from './session-slash.js';
 import type { TraceEmitter } from './trace-emitter.js';
 
 const log = getLogger('session-process');
+
+// ---------------------------------------------------------------------------
+// Module-level generator injection
+// ---------------------------------------------------------------------------
+// The daemon lifecycle creates the generator once and injects it here so the
+// mac/IPC channel path can classify follow-up replies without threading the
+// generator through Session / DaemonServer constructors.
+let _guardianFollowUpGenerator: GuardianFollowUpConversationGenerator | undefined;
+
+/** Inject the guardian follow-up conversation generator (called from lifecycle.ts). */
+export function setGuardianFollowUpConversationGenerator(gen: GuardianFollowUpConversationGenerator): void {
+  _guardianFollowUpGenerator = gen;
+}
 
 /** Build a model_info event with fresh config data. */
 function buildModelInfoEvent(): ServerMessage {
@@ -453,6 +471,56 @@ export async function processMessage(
         session.messages.push(staleMsg);
         onEvent({ type: 'assistant_text_delta', text: staleText });
       }
+      onEvent({ type: 'message_complete', sessionId: session.conversationId });
+      return persisted.id;
+    }
+  }
+
+  // ── Guardian follow-up conversation interception (mac channel) ──
+  // When a request is in `awaiting_guardian_choice` state, the guardian has
+  // already been asked "call back or send a message?". Their next message
+  // is the reply — route it through the conversation engine.
+  const followupDelivery = getFollowupDeliveryByConversation(session.conversationId);
+  if (followupDelivery) {
+    const followupRequest = getGuardianActionRequest(followupDelivery.requestId);
+    if (followupRequest && followupRequest.followupState === 'awaiting_guardian_choice') {
+      const guardianIfCtx = session.getTurnInterfaceContext();
+      const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum', assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum', provenanceActorRole: 'guardian' as const };
+      const userMsg = createUserMessage(content, attachments);
+      const persisted = conversationStore.addMessage(
+        session.conversationId,
+        'user',
+        JSON.stringify(userMsg.content),
+        guardianChannelMeta,
+      );
+      session.messages.push(userMsg);
+
+      const turnResult = await processGuardianFollowUpTurn(
+        {
+          questionText: followupRequest.questionText,
+          lateAnswerText: followupRequest.lateAnswerText ?? '',
+          guardianReply: content,
+        },
+        _guardianFollowUpGenerator,
+      );
+
+      // Apply the disposition to the follow-up state machine
+      if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
+        progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition);
+      } else if (turnResult.disposition === 'decline') {
+        finalizeFollowup(followupRequest.id, 'declined');
+      }
+      // keep_pending: no state change — guardian can reply again
+
+      const replyMsg = createAssistantMessage(turnResult.replyText);
+      conversationStore.addMessage(
+        session.conversationId,
+        'assistant',
+        JSON.stringify(replyMsg.content),
+        guardianChannelMeta,
+      );
+      session.messages.push(replyMsg);
+      onEvent({ type: 'assistant_text_delta', text: turnResult.replyText });
       onEvent({ type: 'message_complete', sessionId: session.conversationId });
       return persisted.id;
     }
