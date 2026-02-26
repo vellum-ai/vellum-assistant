@@ -4,6 +4,7 @@ import * as net from 'node:net';
 
 import { v4 as uuid } from 'uuid';
 
+import { getConfig } from '../../config/loader.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle } from '../../memory/conversation-title-service.js';
 import { getConfiguredProvider } from '../../providers/provider-send-message.js';
@@ -11,10 +12,8 @@ import type { Provider } from '../../providers/types.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { parseSlashCandidate } from '../../skills/slash-commands.js';
 import { classifyInteraction } from '../classifier.js';
+import { getAssistantName } from '../identity-helpers.js';
 import { deleteBlob, isValidBlobId, resolveBlobPath } from '../ipc-blob-store.js';
-import { getConfig } from '../../config/loader.js';
-import { isRecordingOnly, isStopRecordingOnly } from '../recording-intent.js';
-import { handleRecordingStart, handleRecordingStop } from './recording.js';
 import type {
   CuSessionCreate,
   IpcBlobProbe,
@@ -22,8 +21,10 @@ import type {
   SuggestionRequest,
   TaskSubmit,
 } from '../ipc-protocol.js';
+import { classifyRecordingIntent, detectRecordingIntent, detectStopRecordingIntent, hasSubstantiveContent, isInterrogative, stripRecordingIntent, stripStopRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { handleCuSessionCreate } from './computer-use.js';
+import { handleRecordingStart, handleRecordingStop } from './recording.js';
 import { defineHandlers, type HandlerContext,log, renderHistoryContent, wireEscalationHandler } from './shared.js';
 
 // ─── Task submit handler ────────────────────────────────────────────────────
@@ -73,58 +74,121 @@ export async function handleTaskSubmit(
     // Intercept recording-only and stop-recording prompts before they reach
     // the classifier. This prevents "record my screen" from creating a CU
     // session and routes it to the standalone recording flow instead.
+    //
+    // For mixed intent, recording start/stop is deferred until after the
+    // downstream classifier creates the final conversation, so the recording
+    // attachment is linked to the correct conversation (not an orphaned one).
+    let pendingRecordingStart = false;
+    let pendingRecordingStop = false;
     const config = getConfig();
     if (config.daemon.standaloneRecording) {
-      if (isStopRecordingOnly(msg.task)) {
-        // Find the active session for this socket so we can resolve the
-        // conversation that owns the recording.
-        let activeSessionId = ctx.socketToSession.get(socket);
-        // Ensure we have a sessionId for message_complete even if no prior session exists
-        if (!activeSessionId) {
+      const name = getAssistantName();
+      const dynamicNames = [name].filter(Boolean) as string[];
+      const intentClass = classifyRecordingIntent(msg.task, dynamicNames);
+
+      switch (intentClass) {
+        case 'stop_only': {
+          // Find the active session for this socket so we can resolve the
+          // conversation that owns the recording.
+          let activeSessionId = ctx.socketToSession.get(socket);
+          // Ensure we have a sessionId for message_complete even if no prior session exists
+          if (!activeSessionId) {
+            const conversation = conversationStore.createConversation(msg.task);
+            activeSessionId = conversation.id;
+            ctx.socketToSession.set(socket, activeSessionId);
+          }
+          // Always attempt stop — handleRecordingStop has a global fallback that
+          // resolves to the active recording even if this conversation doesn't own it.
+          const stopped = handleRecordingStop(activeSessionId, ctx) !== undefined;
+          rlog.info('Recording stop intent intercepted');
+          ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
+          ctx.send(socket, {
+            type: 'assistant_text_delta',
+            text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+            sessionId: activeSessionId,
+          });
+          ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+          return;
+        }
+        case 'start_only': {
+          // Create a conversation so the recording can be attached later (M4).
           const conversation = conversationStore.createConversation(msg.task);
-          activeSessionId = conversation.id;
-          ctx.socketToSession.set(socket, activeSessionId);
+          ctx.socketToSession.set(socket, conversation.id);
+
+          const recordingId = handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
+
+          if (recordingId) {
+            ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
+            ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: conversation.id });
+          } else {
+            // Recording was rejected (already active) — clean up the orphaned conversation
+            ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
+            ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: conversation.id });
+          }
+          ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
+
+          if (!recordingId) {
+            // Unbind the socket so the ephemeral rejection session doesn't block
+            // future task_submit routing, but keep the conversation in the DB so
+            // the client can still send follow-up messages to the routed sessionId.
+            ctx.socketToSession.delete(socket);
+          }
+
+          rlog.info({ sessionId: conversation.id }, 'Recording-only intent intercepted — routed to standalone recording');
+          return;
         }
-        // Always attempt stop — handleRecordingStop has a global fallback that
-        // resolves to the active recording even if this conversation doesn't own it.
-        const stopped = handleRecordingStop(activeSessionId, ctx) !== undefined;
-        rlog.info('Recording stop intent intercepted');
-        ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
-        ctx.send(socket, {
-          type: 'assistant_text_delta',
-          text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
-          sessionId: activeSessionId,
-        });
-        ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        return;
-      }
+        case 'mixed': {
+          // Skip recording side effects for questions about recording
+          // (e.g., "how do I stop recording?") — let the model answer instead.
+          if (isInterrogative(msg.task, dynamicNames)) {
+            rlog.info('Mixed recording intent is interrogative — skipping side effects');
+            break;
+          }
 
-      if (isRecordingOnly(msg.task)) {
-        // Create a conversation so the recording can be attached later (M4).
-        const conversation = conversationStore.createConversation(msg.task);
-        ctx.socketToSession.set(socket, conversation.id);
+          // Mixed = recording intent embedded in broader text (e.g., "open Chrome and record my screen").
+          // Defer recording start/stop until after the classifier creates the final conversation,
+          // so the recording attachment is linked to the correct conversation.
+          const hasStart = detectRecordingIntent(msg.task);
+          const hasStop = detectStopRecordingIntent(msg.task);
 
-        const recordingId = handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
+          // Strip recording clauses from the task
+          let remaining = msg.task;
+          if (hasStart) remaining = stripRecordingIntent(remaining);
+          if (hasStop) remaining = stripStopRecordingIntent(remaining);
 
-        if (recordingId) {
-          ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
-          ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: conversation.id });
-        } else {
-          // Recording was rejected (already active) — clean up the orphaned conversation
-          ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
-          ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: conversation.id });
+          // If nothing substantive remains after stripping, handle as recording-only now
+          if (!hasSubstantiveContent(remaining, dynamicNames)) {
+            let sessionId = ctx.socketToSession.get(socket);
+            if (!sessionId) {
+              const conversation = conversationStore.createConversation(msg.task);
+              sessionId = conversation.id;
+              ctx.socketToSession.set(socket, sessionId);
+            }
+            if (hasStop) handleRecordingStop(sessionId, ctx);
+            const startResult = hasStart ? handleRecordingStart(sessionId, { promptForSource: true }, socket, ctx) : null;
+            ctx.send(socket, { type: 'task_routed', sessionId, interactionType: 'text_qa' });
+            let text: string;
+            if (hasStart && startResult) {
+              text = hasStop ? 'Stopping current recording and starting a new one.' : 'Starting screen recording.';
+            } else if (hasStart) {
+              text = 'A recording is already active.';
+            } else {
+              text = 'Stopping the recording.';
+            }
+            ctx.send(socket, { type: 'assistant_text_delta', text, sessionId });
+            ctx.send(socket, { type: 'message_complete', sessionId });
+            return;
+          }
+
+          // Set deferred flags — recording will start after the final conversation is created
+          pendingRecordingStart = hasStart;
+          pendingRecordingStop = hasStop;
+          (msg as { task: string }).task = remaining;
+          rlog.info({ remaining }, 'Mixed recording intent — deferred, continuing with remaining text');
+          break;
         }
-        ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
-
-        if (!recordingId) {
-          // Unbind the socket so the ephemeral rejection session doesn't block
-          // future task_submit routing, but keep the conversation in the DB so
-          // the client can still send follow-up messages to the routed sessionId.
-          ctx.socketToSession.delete(socket);
-        }
-
-        rlog.info({ sessionId: conversation.id }, 'Recording-only intent intercepted — routed to standalone recording');
-        return;
+        case 'none':
+          break;
       }
     }
 
@@ -149,6 +213,14 @@ export async function handleTaskSubmit(
       };
       handleCuSessionCreate(cuMsg, socket, ctx);
 
+      // Start deferred recording from mixed intent (create a DB conversation
+      // for the recording attachment since CU sessions don't have one).
+      if (pendingRecordingStart || pendingRecordingStop) {
+        const recConversation = conversationStore.createConversation('Screen Recording');
+        if (pendingRecordingStop) handleRecordingStop(recConversation.id, ctx);
+        if (pendingRecordingStart) handleRecordingStart(recConversation.id, { promptForSource: true }, socket, ctx);
+      }
+
       ctx.send(socket, {
         type: 'task_routed',
         sessionId,
@@ -167,6 +239,10 @@ export async function handleTaskSubmit(
 
       // Wire escalation handler so the agent can call computer_use_request_control
       wireEscalationHandler(session, socket, ctx, msg.screenWidth, msg.screenHeight);
+
+      // Start deferred recording from mixed intent, now using the real conversation
+      if (pendingRecordingStop) handleRecordingStop(conversation.id, ctx);
+      if (pendingRecordingStart) handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
 
       ctx.send(socket, {
         type: 'task_routed',

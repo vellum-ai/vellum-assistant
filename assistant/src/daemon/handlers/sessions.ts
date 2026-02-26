@@ -13,9 +13,8 @@ import { redactSecrets } from '../../security/secret-scanner.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { truncate } from '../../util/truncate.js';
+import { getAssistantName } from '../identity-helpers.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
-import { isRecordingOnly, isStopRecordingOnly } from '../recording-intent.js';
-import { handleRecordingStart, handleRecordingStop } from './recording.js';
 import type {
   CancelRequest,
   ConfirmationResponse,
@@ -34,8 +33,10 @@ import type {
   UserMessage,
 } from '../ipc-protocol.js';
 import { normalizeThreadType } from '../ipc-protocol.js';
+import { classifyRecordingIntent, detectRecordingIntent, detectStopRecordingIntent, hasSubstantiveContent, isInterrogative, stripRecordingIntent, stripStopRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { generateVideoThumbnail } from '../video-thumbnail.js';
+import { handleRecordingStart, handleRecordingStop } from './recording.js';
 import {
   defineHandlers,
   type HandlerContext,
@@ -226,29 +227,83 @@ export async function handleUserMessage(
 
     // ── Standalone recording intent interception ──────────────────────────
     if (config.daemon.standaloneRecording && messageText) {
-      if (isStopRecordingOnly(messageText)) {
-        const stopped = handleRecordingStop(msg.sessionId, ctx) !== undefined;
-        rlog.info('Recording stop intent intercepted in user_message');
-        ctx.send(socket, {
-          type: 'assistant_text_delta',
-          text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
-          sessionId: msg.sessionId,
-        });
-        ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        return;
-      }
+      const name = getAssistantName();
+      const dynamicNames = [name].filter(Boolean) as string[];
+      const intentClass = classifyRecordingIntent(messageText, dynamicNames);
 
-      if (isRecordingOnly(messageText)) {
-        const recordingId = handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
-        rlog.info('Recording-only intent intercepted in user_message');
-
-        if (recordingId) {
-          ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: msg.sessionId });
-        } else {
-          ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: msg.sessionId });
+      switch (intentClass) {
+        case 'stop_only': {
+          const stopped = handleRecordingStop(msg.sessionId, ctx) !== undefined;
+          rlog.info('Recording stop intent intercepted in user_message');
+          ctx.send(socket, {
+            type: 'assistant_text_delta',
+            text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+            sessionId: msg.sessionId,
+          });
+          ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+          return;
         }
-        ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-        return;
+        case 'start_only': {
+          const recordingId = handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
+          rlog.info('Recording-only intent intercepted in user_message');
+
+          if (recordingId) {
+            ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: msg.sessionId });
+          } else {
+            ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: msg.sessionId });
+          }
+          ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+          return;
+        }
+        case 'mixed': {
+          // Skip recording side effects for questions about recording
+          // (e.g., "how do I stop recording?") — let the model answer instead.
+          if (isInterrogative(messageText, dynamicNames)) {
+            rlog.info('Mixed recording intent is interrogative — skipping side effects');
+            break;
+          }
+
+          // Mixed = recording intent embedded in broader text.
+          // Handle the recording action, then check if remaining text is substantive.
+          const hasStart = detectRecordingIntent(messageText);
+          const hasStop = detectStopRecordingIntent(messageText);
+
+          if (hasStop) {
+            handleRecordingStop(msg.sessionId, ctx);
+            rlog.info('Mixed intent — stopping recording');
+          }
+          const startResult = hasStart ? handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx) : null;
+          if (hasStart) {
+            rlog.info({ started: !!startResult }, 'Mixed intent — starting recording');
+          }
+
+          // Strip recording clauses from the message
+          let remaining = messageText;
+          if (hasStart) remaining = stripRecordingIntent(remaining);
+          if (hasStop) remaining = stripStopRecordingIntent(remaining);
+
+          // If nothing substantive remains (just fillers, names, punctuation), complete now
+          if (!hasSubstantiveContent(remaining, dynamicNames)) {
+            let text: string;
+            if (hasStart && startResult) {
+              text = hasStop ? 'Stopping current recording and starting a new one.' : 'Starting screen recording.';
+            } else if (hasStart) {
+              text = 'A recording is already active.';
+            } else {
+              text = 'Stopping the recording.';
+            }
+            ctx.send(socket, { type: 'assistant_text_delta', text, sessionId: msg.sessionId });
+            ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+            return;
+          }
+
+          // Continue with stripped text for downstream processing
+          msg.content = remaining;
+          rlog.info({ remaining }, 'Mixed recording intent — recording handled, continuing with remaining text');
+          break;
+        }
+        case 'none':
+          break;
       }
     }
 

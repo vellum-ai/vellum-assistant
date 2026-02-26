@@ -472,18 +472,25 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
 
   if (orphanIds.length === 0) return 0;
 
-  // Clean up on-disk files only for confirmed orphans
+  // Collect file paths BEFORE deleting the DB rows (the rows contain the path reference)
+  const orphanFilePaths: string[] = [];
   for (const id of orphanIds) {
     const filePath = getFilePathForAttachment(id);
-    if (filePath) {
-      try { unlinkSync(filePath); } catch { /* file may already be gone */ }
-    }
+    if (filePath) orphanFilePaths.push(filePath);
   }
 
-  // Delete the orphaned DB rows
+  // Delete the orphaned DB rows first — if this fails, the on-disk files
+  // remain intact alongside their DB rows, so nothing is left inconsistent.
   const orphanPlaceholders = orphanIds.map(() => '?').join(', ');
-  return rawRun(
+  const deletedCount = rawRun(
     `DELETE FROM attachments WHERE id IN (${orphanPlaceholders})`,
     ...orphanIds,
   );
+
+  // Clean up on-disk files only after the DB rows have been removed
+  for (const filePath of orphanFilePaths) {
+    try { unlinkSync(filePath); } catch { /* file may already be gone */ }
+  }
+
+  return deletedCount;
 }

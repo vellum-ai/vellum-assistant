@@ -44,6 +44,11 @@ final class RecordingManager: ObservableObject {
     private let recorder = ScreenRecorder()
     private weak var daemonClient: DaemonClient?
 
+    /// Callback invoked when source validation fails with `.noMatchingDisplay`
+    /// or `.noMatchingWindow` and `promptForSource` was set. The caller
+    /// (AppDelegate) can use this to re-show the source picker.
+    var onSourceValidationFailed: ((_ sessionId: String, _ attachToConversationId: String?) -> Void)?
+
     init(daemonClient: DaemonClient? = nil) {
         self.daemonClient = daemonClient
     }
@@ -62,7 +67,7 @@ final class RecordingManager: ObservableObject {
     ///   - attachToConversationId: Optional conversation ID to attach the recording to.
     /// - Returns: `true` if the recording started successfully, `false` otherwise.
     @discardableResult
-    func start(sessionId: String, options: IPCRecordingOptions? = nil, attachToConversationId: String? = nil) async -> Bool {
+    func start(sessionId: String, options: IPCRecordingOptions? = nil, attachToConversationId: String? = nil, promptForSource: Bool = false) async -> Bool {
         guard !state.isActive else {
             log.warning("Cannot start recording — already active (state=\(String(describing: self.state)), owner=\(self.ownerSessionId ?? "nil"))")
             sendStatus(sessionId: sessionId, status: "failed", error: "Another recording is already active")
@@ -72,6 +77,14 @@ final class RecordingManager: ObservableObject {
         self.ownerSessionId = sessionId
         self.attachToConversationId = attachToConversationId
         self.state = .starting
+
+        // Clear any stale stream error callback from a previous session.
+        // If the prior recording ended via stream error, the old callback
+        // (capturing the old sessionId) is never cleared. Without this,
+        // a stream error during this session's startup fallback chain could
+        // fire the stale callback, sending a failure status for the wrong
+        // session and corrupting this session's state.
+        recorder.onStreamError = nil
 
         do {
             try await recorder.start(
@@ -96,16 +109,60 @@ final class RecordingManager: ObservableObject {
             }
 
             state = .recording
+
+            // Wire up the stream error callback AFTER startup is confirmed.
+            // During startup, ScreenRecorder.attemptStartWithConfig() handles stream
+            // errors internally as part of the fallback chain. Installing the callback
+            // earlier would let a transient didStopWithError from an early fallback
+            // config flip the manager out of .starting state, causing the stale-completion
+            // guard above to cancel a recording that actually succeeded on a later config.
+            recorder.onStreamError = { [weak self] recorderError in
+                guard let self else { return }
+                let message = recorderError.localizedDescription ?? "Unknown stream error"
+                log.error("Stream error during recording session \(sessionId, privacy: .public): \(message, privacy: .public)")
+
+                self.state = .failed(message)
+                self.sendStatus(sessionId: sessionId, status: "failed", error: message)
+                self.ownerSessionId = nil
+                self.attachToConversationId = nil
+            }
+
             sendStatus(sessionId: sessionId, status: "started")
             log.info("Recording started for session \(sessionId, privacy: .public)")
             return true
         } catch {
             // Only update state if we're still the active start attempt
             if state == .starting, ownerSessionId == sessionId {
+                // If source validation failed and promptForSource was set,
+                // re-show the source picker instead of failing permanently.
+                let isSourceValidationError: Bool
+                if let recorderError = error as? RecorderError {
+                    switch recorderError {
+                    case .noMatchingDisplay, .noMatchingWindow:
+                        isSourceValidationError = true
+                    default:
+                        isSourceValidationError = false
+                    }
+                } else {
+                    isSourceValidationError = false
+                }
+
+                if isSourceValidationError && promptForSource {
+                    log.warning("Source validation failed with promptForSource — re-showing source picker for session \(sessionId, privacy: .public)")
+                    state = .idle
+                    ownerSessionId = nil
+                    onSourceValidationFailed?(sessionId, attachToConversationId)
+                    self.attachToConversationId = nil
+                    return false
+                }
+
                 let message = error.localizedDescription
                 state = .failed(message)
                 sendStatus(sessionId: sessionId, status: "failed", error: message)
                 log.error("Recording failed to start: \(message, privacy: .public)")
+                // Note: telemetry logging is handled inside ScreenRecorder.start()
+                // with richer context (source dimensions, config labels). Logging
+                // here again would double-report with lower-fidelity data.
             }
             return false
         }
@@ -127,6 +184,7 @@ final class RecordingManager: ObservableObject {
 
         do {
             let result = try await recorder.stop()
+            recorder.onStreamError = nil
             state = .idle
             sendStatus(
                 sessionId: sessionId,
@@ -146,6 +204,7 @@ final class RecordingManager: ObservableObject {
 
             return (result.filePath, result.durationMs)
         } catch {
+            recorder.onStreamError = nil
             let message = error.localizedDescription
             state = .failed(message)
             sendStatus(sessionId: sessionId, status: "failed", error: message)
@@ -164,6 +223,7 @@ final class RecordingManager: ObservableObject {
     func forceStop() {
         guard state.isActive else { return }
 
+        recorder.onStreamError = nil
         recorder.cancelRecording()
 
         let sessionId = ownerSessionId

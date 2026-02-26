@@ -1,11 +1,14 @@
-import * as net from 'node:net';
 import { existsSync, realpathSync, statSync } from 'node:fs';
+import * as net from 'node:net';
 import * as path from 'node:path';
+
 import { v4 as uuid } from 'uuid';
-import type { RecordingStatus, RecordingOptions } from '../ipc-protocol.js';
-import { log, findSocketForSession, defineHandlers, type HandlerContext } from './shared.js';
+
+import { linkAttachmentToMessage, setAttachmentThumbnail,uploadFileBackedAttachment } from '../../memory/attachments-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
-import { uploadFileBackedAttachment, linkAttachmentToMessage } from '../../memory/attachments-store.js';
+import type { RecordingOptions,RecordingStatus } from '../ipc-protocol.js';
+import { generateVideoThumbnailFromPath } from '../video-thumbnail.js';
+import { defineHandlers, findSocketForSession, type HandlerContext,log } from './shared.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -164,11 +167,11 @@ function cleanupMaps(recordingId: string, conversationId: string | undefined): v
 
 // ─── Status (client → server lifecycle updates) ─────────────────────────────
 
-function handleRecordingStatus(
+async function handleRecordingStatus(
   msg: RecordingStatus,
   reportingSocket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   const recordingId = msg.sessionId;
   let conversationId = standaloneRecordingConversationId.get(recordingId);
 
@@ -204,6 +207,10 @@ function handleRecordingStatus(
         'Standalone recording stopped — file ready',
       );
 
+      // Release recording state immediately so back-to-back recordings
+      // aren't blocked by thumbnail generation or attachment processing.
+      cleanupMaps(recordingId, conversationId);
+
       // Finalize: attach the recording file to the conversation
       if (msg.filePath) {
         // Restrict accepted file paths to the app's recordings directory to
@@ -236,8 +243,6 @@ function handleRecordingStatus(
             });
             ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
           }
-          // Clean up maps before breaking so future recordings aren't blocked
-          cleanupMaps(recordingId, conversationId);
           break;
         }
 
@@ -279,6 +284,20 @@ function handleRecordingStatus(
             linkAttachmentToMessage(messageId, attachment.id, 0);
             log.info({ recordingId, messageId, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
 
+            // Generate thumbnail before notifying the client so it's included
+            // in the message_complete payload (fire-and-forget would race).
+            let thumbnailData: string | undefined;
+            try {
+              const thumb = await generateVideoThumbnailFromPath(resolvedPath);
+              if (thumb) {
+                setAttachmentThumbnail(attachment.id, thumb);
+                thumbnailData = thumb;
+                log.info({ recordingId, attachmentId: attachment.id }, 'Thumbnail generated for recording');
+              }
+            } catch (err) {
+              log.warn({ err, recordingId }, 'Thumbnail generation failed — continuing without thumbnail');
+            }
+
             // Notify the client via the reporting socket
             if (notifySocket) {
               ctx.send(notifySocket, {
@@ -295,6 +314,7 @@ function handleRecordingStatus(
                   mimeType: attachment.mimeType,
                   data: '',  // empty for file-backed; client uses content endpoint
                   sizeBytes: attachment.sizeBytes,
+                  thumbnailData,
                 }],
               });
             }
@@ -323,7 +343,6 @@ function handleRecordingStatus(
         }
       }
 
-      cleanupMaps(recordingId, conversationId);
       break;
     }
 

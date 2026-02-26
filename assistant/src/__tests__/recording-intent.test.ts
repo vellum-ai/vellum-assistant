@@ -6,6 +6,8 @@ import {
   stripRecordingIntent,
   stripStopRecordingIntent,
   isStopRecordingOnly,
+  classifyRecordingIntent,
+  isInterrogative,
 } from '../daemon/recording-intent.js';
 
 // ─── detectRecordingIntent ──────────────────────────────────────────────────
@@ -261,5 +263,126 @@ describe('isStopRecordingOnly', () => {
     expect(isStopRecordingOnly('stop recording!')).toBe(true);
     expect(isStopRecordingOnly('stop recording.')).toBe(true);
     expect(isStopRecordingOnly('end the recording?')).toBe(true);
+  });
+});
+
+// ─── classifyRecordingIntent ────────────────────────────────────────────────
+
+describe('classifyRecordingIntent', () => {
+  // Basic classification
+  test.each([
+    ['record my screen', 'start_only'],
+    ['stop recording', 'stop_only'],
+    ['open Safari and record my screen', 'mixed'],
+    ['hello world', 'none'],
+    ['', 'none'],
+  ] as const)('basic: "%s" → %s', (text, expected) => {
+    expect(classifyRecordingIntent(text)).toBe(expected);
+  });
+
+  // Dynamic name stripping
+  test.each([
+    ['Nova, record my screen', ['Nova'], 'start_only'],
+    ['hey Nova, start recording', ['Nova'], 'start_only'],
+    ['hey, Nova, start recording', ['Nova'], 'start_only'],
+    ['Nova, stop recording', ['Nova'], 'stop_only'],
+    ['Nova, open Safari and record my screen', ['Nova'], 'mixed'],
+    ['Nova, hello', ['Nova'], 'none'],
+  ] as const)('dynamic names: "%s" with %j → %s', (text, names, expected) => {
+    expect(classifyRecordingIntent(text, [...names])).toBe(expected);
+  });
+
+  // No dynamic names (backwards compat)
+  test('works without dynamic names parameter', () => {
+    expect(classifyRecordingIntent('record my screen')).toBe('start_only');
+    expect(classifyRecordingIntent('stop recording')).toBe('stop_only');
+  });
+
+  // With fillers
+  test('handles filler words correctly', () => {
+    expect(classifyRecordingIntent('please record my screen')).toBe('start_only');
+    expect(classifyRecordingIntent('can you stop recording?')).toBe('stop_only');
+  });
+
+  // Both start and stop → mixed
+  test('classifies as mixed when both start and stop patterns are present', () => {
+    expect(classifyRecordingIntent('start recording and then stop recording')).toBe('mixed');
+    expect(classifyRecordingIntent('record my screen and stop recording')).toBe('mixed');
+  });
+
+  // Edge cases
+  test('classifies as mixed when stop-recording has additional task', () => {
+    expect(classifyRecordingIntent('stop recording and open Chrome')).toBe('mixed');
+  });
+
+  // Case insensitivity with dynamic names
+  test('dynamic name stripping is case-insensitive', () => {
+    expect(classifyRecordingIntent('nova, record my screen', ['Nova'])).toBe('start_only');
+    expect(classifyRecordingIntent('NOVA, stop recording', ['Nova'])).toBe('stop_only');
+    expect(classifyRecordingIntent('Hey NOVA, start recording', ['nova'])).toBe('start_only');
+  });
+
+  // Multiple dynamic names
+  test('handles multiple dynamic names', () => {
+    expect(classifyRecordingIntent('Jarvis, record my screen', ['Nova', 'Jarvis'])).toBe(
+      'start_only',
+    );
+    expect(classifyRecordingIntent('Nova, stop recording', ['Nova', 'Jarvis'])).toBe('stop_only');
+  });
+
+  // Empty dynamic names array
+  test('handles empty dynamic names array', () => {
+    expect(classifyRecordingIntent('record my screen', [])).toBe('start_only');
+    expect(classifyRecordingIntent('stop recording', [])).toBe('stop_only');
+  });
+
+  // Name with colon separator
+  test('handles colon separator after name', () => {
+    expect(classifyRecordingIntent('Nova: record my screen', ['Nova'])).toBe('start_only');
+  });
+});
+
+// ─── isInterrogative ──────────────────────────────────────────────────────────
+
+describe('isInterrogative', () => {
+  // Questions about recording — should return true
+  test.each([
+    'how do I stop recording?',
+    'how do I record my screen?',
+    'what does screen recording do?',
+    'why is screen recording not working?',
+    'when should I stop recording?',
+    'where does the recording file go?',
+    'which display should I record?',
+    'What is the screen recording feature?',
+    'How do I start recording on Mac?',
+  ])('returns true for question: "%s"', (text) => {
+    expect(isInterrogative(text)).toBe(true);
+  });
+
+  // Imperative commands — should return false
+  test.each([
+    'record my screen',
+    'stop recording',
+    'open Chrome and record my screen',
+    'stop recording and close the browser',
+    'can you record my screen?',
+    'could you stop recording please',
+    'start recording',
+    'please record my screen',
+  ])('returns false for command: "%s"', (text) => {
+    expect(isInterrogative(text)).toBe(false);
+  });
+
+  // With dynamic names — strips name prefix first
+  test('strips dynamic name before checking', () => {
+    expect(isInterrogative('Nova, how do I stop recording?', ['Nova'])).toBe(true);
+    expect(isInterrogative('Nova, record my screen', ['Nova'])).toBe(false);
+  });
+
+  // Polite prefix + question
+  test('handles polite prefix before question word', () => {
+    expect(isInterrogative('please, how do I stop recording?')).toBe(true);
+    expect(isInterrogative('hey, what does screen recording do?')).toBe(true);
   });
 });
