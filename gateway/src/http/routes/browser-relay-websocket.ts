@@ -7,10 +7,6 @@ const log = getLogger("browser-relay-ws");
 // Cap buffered messages to prevent unbounded memory growth if upstream stalls
 const MAX_PENDING_MESSAGES = 100;
 
-function isLoopbackHost(hostname: string): boolean {
-  return hostname === "127.0.0.1" || hostname === "::1" || hostname === "localhost";
-}
-
 function isPrivateAddress(addr: string): boolean {
   const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
   const normalized = v4Mapped ? v4Mapped[1] : addr;
@@ -65,8 +61,8 @@ export function createBrowserRelayWebsocketHandler(config: GatewayConfig) {
 
     const url = new URL(req.url);
 
-    // Match runtime policy: browser relay is local/private-network only.
-    if (!isLoopbackHost(url.hostname) && !isPrivateNetworkPeer(server, req)) {
+    // Trust actual peer IP, not request host headers, for local/private gating.
+    if (!isPrivateNetworkPeer(server, req)) {
       return new Response("Browser relay only accepts connections from localhost", { status: 403 });
     }
 

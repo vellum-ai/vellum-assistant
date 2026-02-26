@@ -10,7 +10,6 @@ If `$ARGUMENTS` is empty, stop and tell the user to provide a feature descriptio
 
 Extract these flags from `$ARGUMENTS` before treating the remainder as the feature description:
 
-- `--auto` — skip the pause between rounds (default: pause and ask before sweep)
 - `--workers N` — parallel worker count for swarm phases (default: 12)
 - `--skip-plan` — skip planning; use issues already in the "Ready" column of the GH project
 - `--branch NAME` — custom feature branch name (default: auto-generated from feature description as `feature/<kebab-case-summary>`)
@@ -444,7 +443,7 @@ Proceed to step 4d.
 
 After all milestones are merged and their individual reviews are clean, run one final recursive sweep on the entire feature branch.
 
-Read and follow `.claude/phases/sweep.md` with `--namespace <namespace>`. Unless `--auto` was passed, this is where the user-facing pause happens: **"All milestones complete. Run final sweep for review feedback?"**
+Read and follow `.claude/phases/sweep.md` with `--namespace <namespace>` and `--auto`. Safe-blitz already has review gates on every milestone, so an extra pause before the final sweep is unnecessary.
 
 This final sweep catches:
 - Any cross-milestone issues that individual per-milestone feedback loops missed

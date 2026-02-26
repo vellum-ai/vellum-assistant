@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, lstatSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 
 import { stripCommentLines } from './system-prompt.js';
 import { appendReleaseBlock, hasReleaseBlock } from './update-bulletin-format.js';
+import { getTemplatePath } from './update-bulletin-template-path.js';
 import {
   addActiveRelease,
   getActiveReleases,
@@ -21,7 +21,18 @@ function atomicWriteFileSync(filePath: string, content: string): void {
   const tmpPath = `${filePath}.tmp.${process.pid}`;
   try {
     writeFileSync(tmpPath, content, 'utf-8');
-    renameSync(tmpPath, filePath);
+    // Resolve symlinks so we rename to the real target, preserving the link.
+    // If the symlink is dangling (target doesn't exist), fall back to writing
+    // through the symlink path directly — realpathSync throws ENOENT for dangling links.
+    let targetPath = filePath;
+    try {
+      if (lstatSync(filePath, { throwIfNoEntry: false })?.isSymbolicLink()) {
+        targetPath = realpathSync(filePath);
+      }
+    } catch {
+      // Dangling symlink — fall back to writing through the symlink path
+    }
+    renameSync(tmpPath, targetPath);
   } catch (err) {
     try {
       unlinkSync(tmpPath);
@@ -57,7 +68,7 @@ export function syncUpdateBulletinOnStartup(): void {
   }
 
   // --- Template materialization ---
-  const templatePath = join(import.meta.dirname ?? __dirname, 'templates', 'UPDATES.md');
+  const templatePath = getTemplatePath();
   if (!existsSync(templatePath)) return;
 
   const rawTemplate = readFileSync(templatePath, 'utf-8');

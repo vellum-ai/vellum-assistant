@@ -272,8 +272,8 @@ describe('Permission Checker', () => {
         expect(await classifyRisk('bash', { command: 'some_custom_tool' })).toBe(RiskLevel.Medium);
       });
 
-      test('rm (without -r) is medium risk', async () => {
-        expect(await classifyRisk('bash', { command: 'rm file.txt' })).toBe(RiskLevel.Medium);
+      test('rm (without -r) is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'rm file.txt' })).toBe(RiskLevel.High);
       });
 
       test('chmod is medium risk', async () => {
@@ -374,7 +374,7 @@ describe('Permission Checker', () => {
       expect(high.matchedRule?.id).toBe('default:allow-bash-global');
 
       // Medium risk
-      const med = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      const med = await check('bash', { command: 'curl https://example.com' }, '/tmp');
       expect(med.decision).toBe('allow');
       expect(med.matchedRule?.id).toBe('default:allow-bash-global');
 
@@ -391,7 +391,7 @@ describe('Permission Checker', () => {
         const high = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
         expect(high.decision).toBe('prompt');
 
-        const med = await check('bash', { command: 'rm file.txt' }, '/tmp');
+        const med = await check('bash', { command: 'curl https://example.com' }, '/tmp');
         expect(med.decision).toBe('prompt');
 
         // Low risk still auto-allows via the normal risk-based fallback
@@ -409,17 +409,31 @@ describe('Permission Checker', () => {
       expect(result.decision).toBe('prompt');
     });
 
-    test('host_bash medium risk with no matching rule → prompt', async () => {
+    test('host_bash rm is always high risk → prompt', async () => {
       const result = await check('host_bash', { command: 'rm file.txt' }, '/tmp');
       expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
     });
 
-    test('medium risk with matching trust rule → allow', async () => {
+    test('plain rm (without -rf) is high risk and prompts despite default allow rule', async () => {
+      // Validates that ALL rm commands are escalated to High risk, not just rm -rf.
+      // The default allow rule for host_bash auto-approves Low/Medium risk but
+      // High risk always prompts.
+      const result = await check('host_bash', { command: 'rm single-file.txt' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
+
+      // Also verify rm -rf still prompts
+      const rfResult = await check('host_bash', { command: 'rm -rf /tmp/dir' }, '/tmp');
+      expect(rfResult.decision).toBe('prompt');
+      expect(rfResult.reason).toContain('High risk');
+    });
+
+    test('rm is high risk even with matching trust rule → prompt', async () => {
       addRule('bash', 'rm *', '/tmp');
       const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
-      expect(result.decision).toBe('allow');
-      expect(result.reason).toContain('Matched trust rule');
-      expect(result.matchedRule).toBeDefined();
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
     });
 
     test('file_read → auto-allow', async () => {
@@ -489,11 +503,11 @@ describe('Permission Checker', () => {
       expect(result.matchedRule?.id).toBe('default:ask-host_file_edit-global');
     });
 
-    test('host_bash prompts by default via host ask rule', async () => {
+    test('host_bash auto-allows low risk via default allow rule', async () => {
       const result = await check('host_bash', { command: 'ls' }, '/tmp');
-      expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('ask rule');
-      expect(result.matchedRule?.id).toBe('default:ask-host_bash-global');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('Matched trust rule');
+      expect(result.matchedRule?.id).toBe('default:allow-host_bash-global');
     });
 
     test('scaffold_managed_skill prompts by default via managed skill ask rule', async () => {
@@ -597,7 +611,7 @@ describe('Permission Checker', () => {
     });
 
     // Deny rule tests
-    test('deny rule blocks medium-risk command', async () => {
+    test('deny rule blocks high-risk command', async () => {
       addRule('bash', 'rm *', '/tmp', 'deny');
       const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
       expect(result.decision).toBe('deny');
@@ -764,16 +778,16 @@ describe('Permission Checker', () => {
 
     // Priority-based rule resolution
     test('higher-priority allow rule overrides lower-priority deny rule', async () => {
-      addRule('bash', 'rm *', '/tmp', 'deny', 0);
-      addRule('bash', 'rm *', '/tmp', 'allow', 100);
-      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      addRule('bash', 'chmod *', '/tmp', 'deny', 0);
+      addRule('bash', 'chmod *', '/tmp', 'allow', 100);
+      const result = await check('bash', { command: 'chmod 644 file.txt' }, '/tmp');
       expect(result.decision).toBe('allow');
     });
 
     test('higher-priority deny rule overrides lower-priority allow rule', async () => {
-      addRule('bash', 'rm *', '/tmp', 'allow', 0);
-      addRule('bash', 'rm *', '/tmp', 'deny', 100);
-      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      addRule('bash', 'chmod *', '/tmp', 'allow', 0);
+      addRule('bash', 'chmod *', '/tmp', 'deny', 100);
+      const result = await check('bash', { command: 'chmod 644 file.txt' }, '/tmp');
       expect(result.decision).toBe('deny');
     });
 
@@ -1465,13 +1479,14 @@ describe('Permission Checker', () => {
       expect(result.matchedRule?.id).toBe('default:allow-bash-global');
     });
 
-    test('host_bash with no user rule returns prompt in strict mode', async () => {
+    test('host_bash auto-allows low risk in strict mode (default allow rule is a matching rule)', async () => {
       testConfig.permissions.mode = 'strict';
       const result = await check('host_bash', { command: 'ls' }, '/tmp');
-      expect(result.decision).toBe('prompt');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.id).toBe('default:allow-host_bash-global');
     });
 
-    test('medium-risk host_bash with no matching rule returns prompt in strict mode', async () => {
+    test('high-risk host_bash (rm) with no matching rule returns prompt in strict mode', async () => {
       testConfig.permissions.mode = 'strict';
       const result = await check('host_bash', { command: 'rm file.txt' }, '/tmp');
       expect(result.decision).toBe('prompt');
@@ -1568,8 +1583,8 @@ describe('Permission Checker', () => {
     });
 
     test('medium-risk tool with allow rule is NOT affected by allowHighRisk', async () => {
-      addRule('bash', 'rm *', '/tmp', 'allow', 100);
-      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      addRule('bash', 'chmod *', '/tmp', 'allow', 100);
+      const result = await check('bash', { command: 'chmod 644 file.txt' }, '/tmp');
       expect(result.decision).toBe('allow');
       expect(result.reason).toContain('Matched trust rule');
       // No mention of high-risk in the reason
@@ -1639,8 +1654,8 @@ describe('Permission Checker', () => {
 
     test('strict mode: medium-risk with matching allow rule auto-allows', async () => {
       testConfig.permissions.mode = 'strict';
-      addRule('bash', 'rm *', '/tmp', 'allow');
-      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      addRule('bash', 'chmod *', '/tmp', 'allow');
+      const result = await check('bash', { command: 'chmod 644 file.txt' }, '/tmp');
       expect(result.decision).toBe('allow');
       expect(result.reason).toContain('Matched trust rule');
     });
@@ -2416,10 +2431,11 @@ describe('Permission Checker', () => {
         expect(result.matchedRule?.id).toBe('default:allow-bash-global');
       });
 
-      test('low-risk host_bash with no user rule prompts in strict mode', async () => {
+      test('low-risk host_bash auto-allows in strict mode (default allow rule is a matching rule)', async () => {
         testConfig.permissions.mode = 'strict';
         const result = await check('host_bash', { command: 'echo hello' }, '/tmp');
-        expect(result.decision).toBe('prompt');
+        expect(result.decision).toBe('allow');
+        expect(result.matchedRule?.id).toBe('default:allow-host_bash-global');
       });
 
       test('low-risk file_read with no rule prompts in strict mode', async () => {
@@ -2481,10 +2497,10 @@ describe('Permission Checker', () => {
     //    target-scoped. ───────────────────────────────────────────────
 
     describe('Invariant 4: host execution approvals are explicit and target-scoped', () => {
-      test('host_bash prompts by default (no implicit allow)', async () => {
+      test('host_bash auto-allows low risk via default allow rule', async () => {
         const result = await check('host_bash', { command: 'ls' }, '/tmp');
-        expect(result.decision).toBe('prompt');
-        expect(result.matchedRule?.id).toBe('default:ask-host_bash-global');
+        expect(result.decision).toBe('allow');
+        expect(result.matchedRule?.id).toBe('default:allow-host_bash-global');
       });
 
       test('host_file_read prompts by default (no implicit allow)', async () => {
@@ -2531,11 +2547,11 @@ describe('Permission Checker', () => {
         expect(matchResult.matchedRule?.id).toBe('inv4-target-scoped');
 
         // Different target — the target-scoped rule should NOT match;
-        // falls back to the default host_bash ask rule (prompt)
+        // falls back to the default host_bash allow rule (auto-allows medium risk)
         const noMatchResult = await check('host_bash', { command: 'run script.js' }, '/tmp', {
           executionTarget: '/usr/local/bin/bun',
         });
-        expect(noMatchResult.decision).toBe('prompt');
+        expect(noMatchResult.decision).toBe('allow');
         expect(noMatchResult.matchedRule?.id).not.toBe('inv4-target-scoped');
       });
     });
@@ -2605,7 +2621,7 @@ describe('Permission Checker', () => {
       test('wildcard allow rule matches any command in legacy mode', async () => {
         testConfig.permissions.mode = 'legacy';
         addRule('bash', '*', 'everywhere');
-        const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+        const result = await check('bash', { command: 'chmod 644 file.txt' }, '/tmp');
         expect(result.decision).toBe('allow');
         expect(result.matchedRule).toBeDefined();
       });
@@ -2613,7 +2629,7 @@ describe('Permission Checker', () => {
       test('wildcard allow rule matches any command in strict mode', async () => {
         testConfig.permissions.mode = 'strict';
         addRule('bash', '*', 'everywhere');
-        const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+        const result = await check('bash', { command: 'chmod 644 file.txt' }, '/tmp');
         expect(result.decision).toBe('allow');
         expect(result.matchedRule).toBeDefined();
       });
@@ -2739,7 +2755,7 @@ describe('Permission Checker', () => {
         const templates = getDefaultRuleTemplates();
         expect(Array.isArray(templates)).toBe(true);
         expect(templates.some((t) => t.id.includes('extra-'))).toBe(false);
-        expect(templates.some((t) => t.id === 'default:allow-bash-global')).toBe(false);
+        expect(templates.some((t) => t.id === 'default:allow-bash-global')).toBe(true);
       } finally {
         testConfig.skills = originalSkills;
         testConfig.sandbox = originalSandbox;
@@ -2967,8 +2983,8 @@ describe('bash network_mode=proxied force prompt', () => {
   });
 
   test('non-proxied bash with trust rule follows normal flow', async () => {
-    addRule('bash', 'rm *', '/tmp');
-    const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+    addRule('bash', 'chmod *', '/tmp');
+    const result = await check('bash', { command: 'chmod 644 file.txt' }, '/tmp');
     expect(result.decision).toBe('allow');
     expect(result.reason).not.toContain('Proxied network mode');
   });
@@ -3260,10 +3276,10 @@ describe('workspace mode — auto-allow workspace-scoped operations', () => {
     expect(result.reason).toContain('ask rule');
   });
 
-  test('host_bash → prompt (default ask rule matches)', async () => {
+  test('host_bash → allow (default allow rule matches)', async () => {
     const result = await check('host_bash', { command: 'ls' }, workspaceDir);
-    expect(result.decision).toBe('prompt');
-    expect(result.reason).toContain('ask rule');
+    expect(result.decision).toBe('allow');
+    expect(result.reason).toContain('Matched trust rule');
   });
 
   // ── explicit rules still take precedence in workspace mode ──
@@ -3443,20 +3459,20 @@ describe('integration regressions (PR 11)', () => {
   });
 
   test('raw legacy rule still works alongside new action key system', async () => {
-    // Use medium-risk commands (rm) so they aren't auto-allowed by low-risk classification.
+    // Use medium-risk commands (chmod) so they aren't auto-allowed by low-risk classification.
     // Disable sandbox so the catch-all "**" rule doesn't interfere.
     testConfig.sandbox.enabled = false;
     try { rmSync(join(checkerTestDir, 'protected', 'trust.json')); } catch { /* may not exist */ }
     clearCache();
     try {
-      addRule('bash', 'rm file.txt', 'everywhere');
+      addRule('bash', 'chmod 644 file.txt', 'everywhere');
 
       // Exact match still works
-      const r1 = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      const r1 = await check('bash', { command: 'chmod 644 file.txt' }, '/tmp');
       expect(r1.decision).toBe('allow');
 
-      // Different rm argument should not match this exact raw rule
-      const r2 = await check('bash', { command: 'rm other.txt' }, '/tmp');
+      // Different chmod argument should not match this exact raw rule
+      const r2 = await check('bash', { command: 'chmod 755 other.txt' }, '/tmp');
       expect(r2.decision).not.toBe('allow');
     } finally {
       testConfig.sandbox.enabled = true;

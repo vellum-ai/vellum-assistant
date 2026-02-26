@@ -44,6 +44,7 @@ export function appendReleaseBlock(
 /** Extracts all version strings from release markers found in `content`. */
 export function extractReleaseIds(content: string): string[] {
   const ids: string[] = [];
+  MARKER_REGEX.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = MARKER_REGEX.exec(content)) !== null) {
     ids.push(match[1]);

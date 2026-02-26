@@ -188,6 +188,11 @@ function getStartupLockPath(): string {
 function acquireStartupLock(): boolean {
   const lockPath = getStartupLockPath();
   try {
+    // Ensure the root directory exists before attempting the lock file write.
+    // On a first-time run, getRootDir() may not exist yet, and writeFileSync
+    // with 'wx' would throw ENOENT — which the catch block misinterprets as
+    // "lock already held."
+    mkdirSync(getRootDir(), { recursive: true });
     // O_CREAT | O_EXCL — fails atomically if the file already exists.
     writeFileSync(lockPath, String(Date.now()), { flag: 'wx' });
     return true;
@@ -226,12 +231,16 @@ export async function startDaemon(): Promise<{
     const lockWaitMs = 10_000;
     const lockInterval = 200;
     let lockWaited = 0;
+    let lockAcquired = false;
     while (lockWaited < lockWaitMs) {
       await new Promise((r) => setTimeout(r, lockInterval));
       lockWaited += lockInterval;
-      if (acquireStartupLock()) break;
+      if (acquireStartupLock()) {
+        lockAcquired = true;
+        break;
+      }
     }
-    if (lockWaited >= lockWaitMs) {
+    if (!lockAcquired) {
       // Timed out waiting for the lock — re-check status in case the
       // other caller succeeded.
       const recheck = await getDaemonStatus();

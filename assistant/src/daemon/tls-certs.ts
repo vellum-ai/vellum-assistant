@@ -152,20 +152,25 @@ export async function ensureTlsCert(): Promise<{ cert: string; key: string; fing
   }
 
   if (status === 'approaching_expiry') {
-    // Buffer existing cert/key/fingerprint before attempting renewal.
-    // generateNewCert() overwrites key.pem in-place, so if it fails mid-flight
-    // (e.g., key written but cert generation fails), reading from disk in the
-    // catch block would return a mismatched key/cert pair.
-    const [existingCert, existingKey, existingFp] = await Promise.all([
-      readFile(certPath, 'utf-8'),
-      readFile(keyPath, 'utf-8'),
-      readFile(fpPath, 'utf-8'),
-    ]);
     try {
-      return await generateNewCert(tlsDir, certPath, keyPath, fpPath);
+      // Buffer existing cert/key/fingerprint before attempting renewal.
+      // generateNewCert() overwrites key.pem in-place, so if it fails mid-flight
+      // (e.g., key written but cert generation fails), reading from disk in the
+      // catch block would return a mismatched key/cert pair.
+      const [existingCert, existingKey, existingFp] = await Promise.all([
+        readFile(certPath, 'utf-8'),
+        readFile(keyPath, 'utf-8'),
+        readFile(fpPath, 'utf-8'),
+      ]);
+      try {
+        return await generateNewCert(tlsDir, certPath, keyPath, fpPath);
+      } catch (err) {
+        log.warn({ err }, 'Proactive TLS renewal failed, continuing with existing certificate');
+        return { cert: existingCert, key: existingKey, fingerprint: existingFp.trim() };
+      }
     } catch (err) {
-      log.warn({ err }, 'Proactive TLS renewal failed, continuing with existing certificate');
-      return { cert: existingCert, key: existingKey, fingerprint: existingFp.trim() };
+      log.warn({ err }, 'Failed to read existing TLS cert for buffering, attempting regeneration');
+      return await generateNewCert(tlsDir, certPath, keyPath, fpPath);
     }
   }
 

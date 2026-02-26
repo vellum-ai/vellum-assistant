@@ -4,7 +4,7 @@ Design for how the daemon notifies clients of bearer token rotation and how clie
 
 ## Current State
 
-The daemon's HTTP bearer token is generated at startup and persisted to `~/.vellum/http-token` (mode 0600). Clients read this file at connection time:
+The daemon's HTTP bearer token is resolved at startup and persisted to `~/.vellum/http-token` (mode 0600). The startup token resolution order is: (1) the `VELLUM_RUNTIME_PROXY_BEARER_TOKEN` env var if set, (2) the existing token read from `~/.vellum/http-token` if the file is readable and non-empty, (3) a newly generated random token as a last resort. Clients read this file at connection time:
 
 - **macOS (local)**: Reads `~/.vellum/http-token` from disk via `resolveHttpTokenPath()` / `readHttpToken()`. Has direct filesystem access to the token file.
 - **iOS (remote)**: Receives the bearer token during the QR-code pairing flow. The token is stored in the iOS Keychain and used for all subsequent HTTP/SSE requests.
@@ -176,6 +176,28 @@ private rotateToken(revoke: boolean): string {
   return newToken;
 }
 ```
+
+**Failure semantics — routine vs. revocation**:
+
+The two rotation modes have deliberately different failure ordering to match their security requirements:
+
+| | Routine (`revoke: false`) | Revocation (`revoke: true`) |
+|---|---|---|
+| **Order** | Persist to disk first, then update in-memory state | Update in-memory state first, then persist to disk |
+| **Disk write failure** | Rotation aborts cleanly — in-memory auth state is untouched, clients keep working with the old token | Old token is already invalidated in memory; the API endpoint returns an error to the caller |
+| **Rationale** | Availability: don't lock out clients if persistence fails | Security: a potentially compromised token must never remain valid, even briefly |
+
+**Revocation disk-write failure in detail**: If `writeTokenToDisk` throws after the in-memory switch during revocation, the system enters a degraded state:
+
+1. **In-memory state**: `currentToken` holds the new (unpersisted) token. The old token is rejected. All old-token SSE connections have been terminated.
+2. **Disk state**: `~/.vellum/http-token` still contains the old (now-invalid) token.
+3. **API response**: The `POST /v1/auth/rotate-token` endpoint returns an error indicating the persistence failure. The response body includes the new token so the caller can manually persist or distribute it if needed.
+4. **Client impact by platform**:
+   - **macOS**: Re-reading the token file yields the stale old token, which is rejected (401). Recovery requires a daemon restart (which generates a fresh token and persists it) or a successful retry of the rotation API call.
+   - **iOS**: Already disconnected (old-token SSE terminated). Cannot recover until the daemon restarts or the rotation is retried successfully, at which point re-pairing is required.
+   - **Chrome extension**: Same as iOS — the pasted token is stale and rejected.
+5. **Daemon restart recovery**: A daemon restart does **not** automatically heal this state. At startup, the daemon first checks for the `VELLUM_RUNTIME_PROXY_BEARER_TOKEN` env var, then tries to read the existing token from `~/.vellum/http-token`, and only generates a new random token if both are unavailable (see `assistant/src/daemon/lifecycle.ts`, lines 110-124). In the degraded state described here — where the disk still holds the old (now-invalid) token — a restart would reload that stale token, making it the active bearer token again. To actually recover, the operator must either: (a) manually delete or overwrite `~/.vellum/http-token` before restarting the daemon, (b) set `VELLUM_RUNTIME_PROXY_BEARER_TOKEN` to a known-good value, or (c) successfully retry the `POST /v1/auth/rotate-token` endpoint while the daemon is still running with the new in-memory token.
+6. **Why this is acceptable**: Revocation is a security-critical operation triggered when the old token is suspected compromised. The invariant — "a compromised token must not remain valid" — takes precedence over client convenience. The degraded state requires manual intervention but disk write failures are rare in practice (permissions, disk full), and the API response includes the new token so the caller can retry or manually persist it.
 
 **SSE event emission** (routine rotation only): The `token_rotated` event is published to `assistantEventHub` as a `ServerMessage`, reaching all connected SSE subscribers across all conversations. This event is never emitted during revocation rotations.
 

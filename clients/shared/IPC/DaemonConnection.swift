@@ -46,7 +46,10 @@ extension DaemonClient {
             //
             // Skip this check for custom socket transports (VELLUM_DAEMON_SOCKET) —
             // SSH-forwarded or external sockets have no local PID file.
-            let isCustomSocket = ProcessInfo.processInfo.environment["VELLUM_DAEMON_SOCKET"] != nil
+            let isCustomSocket: Bool = {
+                guard let v = ProcessInfo.processInfo.environment["VELLUM_DAEMON_SOCKET"] else { return false }
+                return !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }()
             if !isCustomSocket, FileManager.default.fileExists(atPath: path), !Self.isDaemonProcessAlive() {
                 log.warning("Stale daemon socket detected — PID is dead, removing socket at \(path, privacy: .public)")
                 // Only remove the path if it is actually a Unix socket, not a regular file.
