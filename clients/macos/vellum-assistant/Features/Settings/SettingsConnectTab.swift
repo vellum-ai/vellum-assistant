@@ -1860,7 +1860,7 @@ struct SettingsConnectTab: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(spinning ? VColor.accent : VColor.textMuted)
                         .rotationEffect(.degrees(spinning ? 360 : 0))
-                        .animation(spinning ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: spinning)
+                        .animation(spinning ? .linear(duration: 1).repeatForever(autoreverses: false) : nil, value: spinning)
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
