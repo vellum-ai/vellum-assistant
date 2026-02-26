@@ -16,12 +16,22 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @Published var threads: [ThreadModel] = []
     @Published var hasMoreThreads: Bool = false
     @Published var isLoadingMoreThreads: Bool = false
+    private struct AssistantActivitySnapshot: Equatable {
+        let messageId: UUID
+        let textLength: Int
+        let toolCallCount: Int
+        let completedToolCallCount: Int
+        let surfaceCount: Int
+        let isStreaming: Bool
+    }
     /// Tracks the number of rows already fetched from the daemon so pagination
     /// offsets stay correct even when the client filters out some sessions.
     var serverOffset: Int = 0
     @Published var activeThreadId: UUID? {
         didSet {
             if let activeThreadId {
+                let activeViewModel = getOrCreateViewModel(for: activeThreadId)
+                activeViewModel?.ensureMessageLoopStarted()
                 sessionRestorer.loadHistoryIfNeeded(threadId: activeThreadId)
                 // Only persist the active thread ID if we're not in the middle of restoration.
                 // During init and session restoration, the didSet fires multiple times and would
@@ -32,7 +42,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 // Notify the daemon so it rebinds the socket to this thread's session.
                 // Without this, socketToSession stays stale after thread switches,
                 // causing ownership checks (e.g. subagent abort) to fail.
-                if let sessionId = getOrCreateViewModel(for: activeThreadId)?.sessionId {
+                if let sessionId = activeViewModel?.sessionId {
                     do {
                         try daemonClient.send(IPCSessionSwitchRequest(sessionId: sessionId))
                     } catch {
@@ -64,11 +74,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private var activeViewModelCancellable: AnyCancellable?
     /// Subscriptions to per-thread busy-state changes (isSending, isThinking, pendingQueuedCount).
     private var busyStateCancellables: [UUID: Set<AnyCancellable>] = [:]
-    /// Subscription to the latest assistant message ID per thread.
-    /// Used to mark inactive threads as unseen when a new assistant reply arrives.
+    /// Subscription to assistant activity per thread.
+    /// Used to mark inactive threads as unseen when assistant output changes.
     private var assistantActivityCancellables: [UUID: AnyCancellable] = [:]
-    /// Last observed assistant message ID per thread.
-    private var latestAssistantMessageIds: [UUID: UUID] = [:]
+    /// Last observed assistant activity snapshot per thread.
+    private var latestAssistantActivitySnapshots: [UUID: AssistantActivitySnapshot] = [:]
     /// Cached set of thread IDs whose ChatViewModel indicates active processing.
     @Published private(set) var busyThreadIds: Set<UUID> = []
 
@@ -776,11 +786,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// keeping at most `maxCachedViewModels` entries in the dictionary.
     private func evictStaleCachedViewModels() {
         while chatViewModels.count > maxCachedViewModels {
-            // Find the oldest entry in vmAccessOrder that is not the active thread.
-            guard let victim = vmAccessOrder.first(where: { $0 != activeThreadId && chatViewModels[$0] != nil }) else {
+            // Find the oldest non-active, non-busy VM so we never cancel an in-flight response
+            // just because the user switched threads.
+            guard let victim = vmAccessOrder.first(where: {
+                guard $0 != activeThreadId, let vm = chatViewModels[$0] else { return false }
+                return !vm.isSending && !vm.isThinking && vm.pendingQueuedCount == 0
+            }) else {
                 break
             }
-            chatViewModels[victim]?.stopGenerating()
             chatViewModels.removeValue(forKey: victim)
             unsubscribeFromBusyState(for: victim)
             vmAccessOrder.removeAll { $0 == victim }
@@ -863,31 +876,46 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         busyStateCancellables[threadId] = subs
     }
 
-    /// Subscribe to the latest assistant message ID for a thread.
-    /// When it changes and the thread is not active, mark that thread unseen.
+    /// Subscribe to assistant activity for a thread.
+    /// Any change to the latest assistant message's rendered content marks
+    /// inactive threads unseen, including mid-stream continuation updates.
     private func subscribeToAssistantActivity(for threadId: UUID, viewModel: ChatViewModel) {
         assistantActivityCancellables[threadId]?.cancel()
-        if let latestAssistantMessageId = viewModel.messages.reversed().first(where: { $0.role == .assistant })?.id {
-            latestAssistantMessageIds[threadId] = latestAssistantMessageId
+        if let snapshot = latestAssistantActivitySnapshot(in: viewModel.messages) {
+            latestAssistantActivitySnapshots[threadId] = snapshot
         } else {
-            latestAssistantMessageIds.removeValue(forKey: threadId)
+            latestAssistantActivitySnapshots.removeValue(forKey: threadId)
         }
 
         assistantActivityCancellables[threadId] = viewModel.messageManager.$messages
-            .map { $0.reversed().first(where: { $0.role == .assistant })?.id }
+            .map { [weak self] messages in
+                self?.latestAssistantActivitySnapshot(in: messages)
+            }
             .removeDuplicates()
-            .sink { [weak self] latestAssistantMessageId in
+            .sink { [weak self] latestSnapshot in
                 guard let self else { return }
-                let previousAssistantMessageId = self.latestAssistantMessageIds[threadId]
-                if let latestAssistantMessageId {
-                    self.latestAssistantMessageIds[threadId] = latestAssistantMessageId
+                let previousSnapshot = self.latestAssistantActivitySnapshots[threadId]
+                if let latestSnapshot {
+                    self.latestAssistantActivitySnapshots[threadId] = latestSnapshot
                 } else {
-                    self.latestAssistantMessageIds.removeValue(forKey: threadId)
+                    self.latestAssistantActivitySnapshots.removeValue(forKey: threadId)
                 }
-                guard previousAssistantMessageId != latestAssistantMessageId,
-                      latestAssistantMessageId != nil else { return }
+                guard previousSnapshot != latestSnapshot,
+                      latestSnapshot != nil else { return }
                 self.handleAssistantMessageArrival(threadId: threadId)
             }
+    }
+
+    private func latestAssistantActivitySnapshot(in messages: [ChatMessage]) -> AssistantActivitySnapshot? {
+        guard let message = messages.reversed().first(where: { $0.role == .assistant }) else { return nil }
+        return AssistantActivitySnapshot(
+            messageId: message.id,
+            textLength: message.text.count,
+            toolCallCount: message.toolCalls.count,
+            completedToolCallCount: message.toolCalls.filter(\.isComplete).count,
+            surfaceCount: message.inlineSurfaces.count,
+            isStreaming: message.isStreaming
+        )
     }
 
     /// Remove busy-state subscriptions for a thread (e.g. on archive/close).
@@ -895,7 +923,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         busyStateCancellables.removeValue(forKey: threadId)
         assistantActivityCancellables[threadId]?.cancel()
         assistantActivityCancellables.removeValue(forKey: threadId)
-        latestAssistantMessageIds.removeValue(forKey: threadId)
+        latestAssistantActivitySnapshots.removeValue(forKey: threadId)
         busyThreadIds.remove(threadId)
     }
 
@@ -923,6 +951,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Mark assistant activity on a thread as seen/unseen depending on whether
     /// that thread is currently active.
     private func handleAssistantMessageArrival(threadId: UUID) {
+        // Skip during thread restoration — loadHistoryIfNeeded populates
+        // messages which triggers the Combine publisher, but those are
+        // historical messages, not fresh assistant replies. Without this
+        // guard the handler would clear real unread state on app launch.
+        guard !isRestoringThreads else { return }
         guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
         updateLastInteracted(threadId: threadId)
         if threadId == activeThreadId {

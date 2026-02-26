@@ -1102,6 +1102,13 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Start the daemon message stream if this chat has a bound session and
+    /// no active loop yet.
+    public func ensureMessageLoopStarted() {
+        guard sessionId != nil, messageLoopTask == nil else { return }
+        startMessageLoop()
+    }
+
     /// Send a message to the daemon without showing a user bubble in the chat.
     /// Used for automated actions like inline model picker selections.
     /// Returns `true` if the message was sent (or a session bootstrap was started),
