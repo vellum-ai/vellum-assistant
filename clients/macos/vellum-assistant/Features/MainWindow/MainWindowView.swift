@@ -129,8 +129,8 @@ struct MainWindowView: View {
     }
 
     private func pageURL(for appId: String) -> URL? {
-        guard let port = daemonClient.httpPort else { return nil }
-        return URL(string: "http://localhost:\(port)/pages/\(appId)")
+        let gatewayBaseUrl = settingsStore.localGatewayTarget
+        return URL(string: "\(gatewayBaseUrl)/pages/\(appId)")
     }
 
     func publishPage(html: String, title: String?, appId: String? = nil) {
