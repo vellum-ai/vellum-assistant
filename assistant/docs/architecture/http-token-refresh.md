@@ -40,7 +40,7 @@ interface TokenRotatedMessage {
 
 **Grace period**: The daemon accepts both old and new tokens for a configurable grace window (default: 30 seconds) after emitting the event. This gives slow clients time to process the event and switch tokens. After the grace period, only the new token is valid.
 
-**Sequence diagram**:
+**Sequence diagram (routine rotation)**:
 
 ```mermaid
 sequenceDiagram
@@ -59,6 +59,24 @@ sequenceDiagram
     Client->>Daemon: Reconnect SSE with new token
     Note over Daemon: Grace period expires
     Daemon->>Daemon: Reject old token (401)
+```
+
+**Sequence diagram (revocation rotation)**:
+
+```mermaid
+sequenceDiagram
+    participant Trigger as Security Event
+    participant Daemon as Daemon
+    participant SSE as SSE Stream
+    participant Client as iOS / Chrome Client
+
+    Trigger->>Daemon: Rotate token (revoke: true)
+    Daemon->>Daemon: Generate new token, write to ~/.vellum/http-token
+    Daemon->>Daemon: Immediately invalidate old token
+    Daemon->>SSE: Terminate all old-token connections
+    Note over SSE: No token_rotated event emitted
+    Client->>Daemon: Next request with old token → 401
+    Client->>Client: Trigger fallback recovery (re-pair / re-read / re-paste)
 ```
 
 ### 2. Client 401 Recovery (Stale Token Detection)
@@ -81,27 +99,39 @@ When a client receives a `401 Unauthorized` response:
 
 The token can be rotated via:
 
-| Trigger | Description | Current | Proposed |
-|---------|-------------|---------|----------|
-| Manual (macOS Settings) | User clicks "Regenerate Bearer Token" | Yes (kills daemon) | Graceful rotation via daemon API |
-| API endpoint | `POST /v1/auth/rotate-token` | No | New endpoint |
-| Periodic rotation | Automatic rotation on a configurable schedule | No | Future consideration |
-| Security event | Forced rotation after suspicious activity | No | Future consideration |
+| Trigger | Description | Current | Proposed | Mode |
+|---------|-------------|---------|----------|------|
+| Manual (macOS Settings) | User clicks "Regenerate Bearer Token" | Yes (kills daemon) | Graceful rotation via daemon API | Routine |
+| API endpoint | `POST /v1/auth/rotate-token` | No | New endpoint | Routine (default) or Revocation (`revoke: true`) |
+| Periodic rotation | Automatic rotation on a configurable schedule | No | Future consideration | Routine |
+| Security event | Forced rotation after suspicious activity | No | Future consideration | Revocation |
 
 **`POST /v1/auth/rotate-token`** (new endpoint):
 
-Allows programmatic token rotation without restarting the daemon. The daemon:
+Allows programmatic token rotation without restarting the daemon.
+
+Request body (optional): `{ "revoke": boolean }` (default: `false`).
+
+**Routine mode** (`revoke: false`, default):
 1. Generates a new random token.
 2. Writes it to `~/.vellum/http-token`.
 3. Emits the `token_rotated` SSE event with grace period.
 4. Starts accepting both tokens during the grace period.
 5. After grace period, rejects the old token.
 
+**Revocation mode** (`revoke: true`):
+1. Generates a new random token.
+2. Writes it to `~/.vellum/http-token`.
+3. Immediately invalidates the old token (no grace period).
+4. Terminates all SSE connections authenticated with the old token.
+5. Does **not** emit `token_rotated` -- the new token is never sent to old-token sessions.
+6. Clients must recover via their platform-specific fallback (re-read from disk, re-pair, or re-paste).
+
 This eliminates the current "kill and restart" approach for token rotation.
 
 ### 4. Daemon-Side Implementation
 
-**Grace period token validation**: During the grace period, `verifyBearerToken()` accepts either the old or new token. The `RuntimeHttpServer` holds both tokens:
+**Grace period token validation**: During routine rotation, `verifyBearerToken()` accepts either the old or new token. The `RuntimeHttpServer` holds both tokens:
 
 ```typescript
 // Conceptual extension to RuntimeHttpServer
@@ -117,9 +147,29 @@ private isValidToken(provided: string): boolean {
   }
   return false;
 }
+
+// Routine rotation: set grace period, emit event
+private rotateToken(revoke: boolean): string {
+  const newToken = generateToken();
+  if (revoke) {
+    // Revocation: immediate invalidation, no SSE push
+    this.currentToken = newToken;
+    this.previousToken = null;
+    this.graceDeadline = null;
+    this.terminateOldTokenSSEConnections();
+  } else {
+    // Routine: grace period + SSE notification
+    this.previousToken = this.currentToken;
+    this.currentToken = newToken;
+    this.graceDeadline = Date.now() + GRACE_PERIOD_MS;
+    this.emitTokenRotatedEvent(newToken, this.graceDeadline);
+  }
+  writeTokenToDisk(newToken);
+  return newToken;
+}
 ```
 
-**SSE event emission**: The `token_rotated` event is published to `assistantEventHub` as a `ServerMessage`, reaching all connected SSE subscribers across all conversations.
+**SSE event emission** (routine rotation only): The `token_rotated` event is published to `assistantEventHub` as a `ServerMessage`, reaching all connected SSE subscribers across all conversations. This event is never emitted during revocation rotations.
 
 ### 5. iOS Client Implementation
 
@@ -155,8 +205,19 @@ if http.statusCode == 401 {
 
 ### 6. Security Considerations
 
-- **Token in SSE stream**: The new token is transmitted over the SSE connection, which is already authenticated with the old (still-valid) token. The connection is local (loopback) or over TLS via the gateway. An attacker who can read the SSE stream already has the current token, so transmitting the new token does not expand the attack surface.
-- **Grace period length**: 30 seconds is long enough for clients to process the event but short enough to limit the window where a compromised old token remains valid.
+- **Rotation modes**: Token rotation has two distinct modes with different security requirements:
+
+  1. **Routine rotation** (manual refresh, periodic schedule): The old token is not compromised -- the goal is seamless credential rollover. The SSE `token_rotated` event delivers the new token to connected clients, and the grace period allows them to transition. This is safe because the SSE channel is authenticated, and any session holding the old token is a legitimate client.
+
+  2. **Revocation rotation** (security event, suspected compromise): The old token may be in the hands of an attacker. In this mode, the daemon **must not** push the replacement token to old-token SSE sessions -- doing so would hand the new credential to the very sessions being revoked. Instead:
+     - The daemon immediately invalidates the old token (no grace period).
+     - All SSE connections authenticated with the old token are terminated.
+     - The `POST /v1/auth/rotate-token` endpoint accepts an optional `revoke: true` flag to select this mode.
+     - Legitimate clients recover via their fallback path: macOS re-reads `~/.vellum/http-token` from disk; iOS prompts for re-pairing; Chrome extension prompts for a new token.
+
+  The `token_rotated` SSE event is only emitted during routine rotations. The rotation trigger determines the mode.
+
+- **Grace period length**: 30 seconds is long enough for clients to process the event but short enough to limit the window where both tokens are valid. Only applies to routine rotations.
 - **No token in logs**: The `token_rotated` event payload must be excluded from any server-side event logging. Use the existing log-redaction patterns.
 - **Constant-time comparison**: The existing `verifyBearerToken()` using `timingSafeEqual` continues to be used for both old and new token checks during the grace period.
 
