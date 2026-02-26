@@ -158,4 +158,82 @@ describe('syncUpdateBulletinOnStartup', () => {
     const active: string[] = JSON.parse(raw!);
     expect(active).toContain('1.0.0');
   });
+
+  it('marks active releases as completed when UPDATES.md is deleted', () => {
+    // Pre-populate active releases in the store
+    store.set('updates:active_releases', JSON.stringify(['0.8.0', '0.9.0']));
+
+    // Workspace file does not exist — simulates the assistant having deleted it
+    const workspacePath = join(tempDir, 'UPDATES.md');
+    expect(existsSync(workspacePath)).toBe(false);
+
+    syncUpdateBulletinOnStartup();
+
+    // Active set should be cleared (except for the newly-added current release)
+    const activeRaw = store.get('updates:active_releases');
+    expect(activeRaw).toBeDefined();
+    const active: string[] = JSON.parse(activeRaw!);
+    // The old releases should not be in the active set
+    expect(active).not.toContain('0.8.0');
+    expect(active).not.toContain('0.9.0');
+
+    // The old releases should now be completed
+    const completedRaw = store.get('updates:completed_releases');
+    expect(completedRaw).toBeDefined();
+    const completed: string[] = JSON.parse(completedRaw!);
+    expect(completed).toContain('0.8.0');
+    expect(completed).toContain('0.9.0');
+  });
+
+  it('does not recreate completed release after deletion', () => {
+    // First run — creates the workspace file and marks 1.0.0 active
+    syncUpdateBulletinOnStartup();
+    const workspacePath = join(tempDir, 'UPDATES.md');
+    expect(existsSync(workspacePath)).toBe(true);
+
+    // Simulate assistant deleting the file to signal completion
+    rmSync(workspacePath);
+    expect(existsSync(workspacePath)).toBe(false);
+
+    // Second run — deletion-completion should mark 1.0.0 completed
+    syncUpdateBulletinOnStartup();
+
+    // The file should NOT be recreated since the release is now completed
+    expect(existsSync(workspacePath)).toBe(false);
+  });
+
+  it('merges pending old block with new release block', () => {
+    const workspacePath = join(tempDir, 'UPDATES.md');
+    // Pre-create workspace file with an old release block
+    const oldContent =
+      '<!-- vellum-update-release:0.9.0 -->\nOld release notes for 0.9.0.\n<!-- /vellum-update-release:0.9.0 -->\n';
+    writeFileSync(workspacePath, oldContent, 'utf-8');
+
+    syncUpdateBulletinOnStartup();
+
+    const content = readFileSync(workspacePath, 'utf-8');
+    // Both old and new release blocks should be present
+    expect(content).toContain('<!-- vellum-update-release:0.9.0 -->');
+    expect(content).toContain('Old release notes for 0.9.0.');
+    expect(content).toContain('<!-- vellum-update-release:1.0.0 -->');
+  });
+
+  it('idempotent on repeated sync calls', () => {
+    // First call
+    syncUpdateBulletinOnStartup();
+    const workspacePath = join(tempDir, 'UPDATES.md');
+    const afterFirst = readFileSync(workspacePath, 'utf-8');
+
+    // Second call
+    syncUpdateBulletinOnStartup();
+    const afterSecond = readFileSync(workspacePath, 'utf-8');
+
+    expect(afterSecond).toBe(afterFirst);
+
+    // Third call for good measure
+    syncUpdateBulletinOnStartup();
+    const afterThird = readFileSync(workspacePath, 'utf-8');
+
+    expect(afterThird).toBe(afterFirst);
+  });
 });
