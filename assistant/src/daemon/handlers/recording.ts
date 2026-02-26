@@ -444,9 +444,15 @@ export async function finalizeAndPublishRecording(params: {
   if (!filePath) {
     // No file path — recording stopped without producing a file
     log.warn({ recordingId, conversationId }, 'Recording stopped without file path');
+    const errorText = 'Recording stopped but no file was produced.';
+    conversationStore.addMessage(
+      conversationId,
+      'assistant',
+      JSON.stringify([{ type: 'text', text: errorText }]),
+    );
     ctx.send(notifySocket, {
       type: 'assistant_text_delta',
-      text: 'Recording stopped but no file was produced.',
+      text: errorText,
       sessionId: conversationId,
     });
     ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
@@ -475,9 +481,15 @@ export async function finalizeAndPublishRecording(params: {
   }
   if (!resolvedPath.startsWith(resolvedAllowedDir + path.sep) && resolvedPath !== resolvedAllowedDir) {
     log.warn({ recordingId, filePath, allowedDir, resolvedAllowedDir }, 'Recording file path outside allowed directory — rejecting');
+    const errorText = 'Recording file is unavailable or expired.';
+    conversationStore.addMessage(
+      conversationId,
+      'assistant',
+      JSON.stringify([{ type: 'text', text: errorText }]),
+    );
     ctx.send(notifySocket, {
       type: 'assistant_text_delta',
-      text: 'Recording file is unavailable or expired.',
+      text: errorText,
       sessionId: conversationId,
     });
     ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
@@ -487,9 +499,15 @@ export async function finalizeAndPublishRecording(params: {
   try {
     if (!existsSync(resolvedPath)) {
       log.error({ recordingId, filePath }, 'Recording file does not exist');
+      const errorText = 'Recording failed to save.';
+      conversationStore.addMessage(
+        conversationId,
+        'assistant',
+        JSON.stringify([{ type: 'text', text: errorText }]),
+      );
       ctx.send(notifySocket, {
         type: 'assistant_text_delta',
-        text: 'Recording failed to save.',
+        text: errorText,
         sessionId: conversationId,
       });
       ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
@@ -501,9 +519,15 @@ export async function finalizeAndPublishRecording(params: {
 
     if (sizeBytes === 0) {
       log.error({ recordingId, filePath }, 'Recording file is zero-length — treating as failed');
+      const errorText = 'Recording failed to save.';
+      conversationStore.addMessage(
+        conversationId,
+        'assistant',
+        JSON.stringify([{ type: 'text', text: errorText }]),
+      );
       ctx.send(notifySocket, {
         type: 'assistant_text_delta',
-        text: 'Recording failed to save.',
+        text: errorText,
         sessionId: conversationId,
       });
       ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
@@ -523,10 +547,11 @@ export async function finalizeAndPublishRecording(params: {
     // Always create a new assistant message for the recording attachment.
     // Reusing the last assistant message would attach the recording to an
     // unrelated older message after reload.
+    const msgText = 'Screen recording complete. Your recording has been saved.';
     const newMsg = conversationStore.addMessage(
       conversationId,
       'assistant',
-      JSON.stringify([{ type: 'text', text: 'Screen recording attached.' }]),
+      JSON.stringify([{ type: 'text', text: msgText }]),
     );
     const messageId = newMsg.id;
     log.info({ recordingId, conversationId, messageId }, 'Created assistant message for recording attachment');
@@ -551,7 +576,7 @@ export async function finalizeAndPublishRecording(params: {
     // Notify the client via the reporting socket
     ctx.send(notifySocket, {
       type: 'assistant_text_delta',
-      text: 'Screen recording complete. Your recording has been saved.',
+      text: msgText,
       sessionId: conversationId,
     });
     ctx.send(notifySocket, {
@@ -570,9 +595,15 @@ export async function finalizeAndPublishRecording(params: {
     return { success: true, messageId };
   } catch (err) {
     log.error({ err, recordingId, filePath }, 'Failed to create attachment for standalone recording');
+    const errorText = 'Recording saved but failed to attach to conversation.';
+    conversationStore.addMessage(
+      conversationId,
+      'assistant',
+      JSON.stringify([{ type: 'text', text: errorText }]),
+    );
     ctx.send(notifySocket, {
       type: 'assistant_text_delta',
-      text: 'Recording saved but failed to attach to conversation.',
+      text: errorText,
       sessionId: conversationId,
     });
     ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
