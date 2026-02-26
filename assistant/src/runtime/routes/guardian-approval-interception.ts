@@ -11,6 +11,7 @@ import {
   updateApprovalDecision,
   type GuardianApprovalRequest,
 } from '../../memory/channel-guardian-store.js';
+import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import { getLogger } from '../../util/logger.js';
 import { runApprovalConversationTurn } from '../approval-conversation-turn.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
@@ -950,6 +951,47 @@ async function handleAccessRequestApproval(
       assistantId,
       bearerToken,
     });
+
+    // Emit both guardian_decision and denied signals so all lifecycle
+    // observers are notified of the denial.
+    const deniedPayload = {
+      sourceChannel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
+      requesterChatId: approval.requesterChatId,
+      decidedByExternalUserId,
+      decision: 'denied' as const,
+    };
+
+    void emitNotificationSignal({
+      sourceEventName: 'ingress.trusted_contact.guardian_decision',
+      sourceChannel: approval.channel,
+      sourceSessionId: approval.conversationId,
+      assistantId,
+      attentionHints: {
+        requiresAction: false,
+        urgency: 'medium',
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: deniedPayload,
+      dedupeKey: `trusted-contact:guardian-decision:${approval.id}`,
+    });
+
+    void emitNotificationSignal({
+      sourceEventName: 'ingress.trusted_contact.denied',
+      sourceChannel: approval.channel,
+      sourceSessionId: approval.conversationId,
+      assistantId,
+      attentionHints: {
+        requiresAction: false,
+        urgency: 'low',
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: deniedPayload,
+      dedupeKey: `trusted-contact:denied:${approval.id}`,
+    });
+
     return { handled: true, type: 'guardian_decision_applied' };
   }
 
@@ -973,6 +1015,52 @@ async function handleAccessRequestApproval(
     assistantId,
     bearerToken,
   });
+
+  // Emit guardian_decision (approved) signal
+  void emitNotificationSignal({
+    sourceEventName: 'ingress.trusted_contact.guardian_decision',
+    sourceChannel: approval.channel,
+    sourceSessionId: approval.conversationId,
+    assistantId,
+    attentionHints: {
+      requiresAction: false,
+      urgency: 'medium',
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      sourceChannel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
+      requesterChatId: approval.requesterChatId,
+      decidedByExternalUserId,
+      decision: 'approved',
+    },
+    dedupeKey: `trusted-contact:guardian-decision:${approval.id}`,
+  });
+
+  // Emit verification_sent signal — the code has been created and
+  // delivered to the guardian for out-of-band relay to the requester.
+  if (decisionResult.verificationSessionId) {
+    void emitNotificationSignal({
+      sourceEventName: 'ingress.trusted_contact.verification_sent',
+      sourceChannel: approval.channel,
+      sourceSessionId: approval.conversationId,
+      assistantId,
+      attentionHints: {
+        requiresAction: false,
+        urgency: 'low',
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        sourceChannel: approval.channel,
+        requesterExternalUserId: approval.requesterExternalUserId,
+        requesterChatId: approval.requesterChatId,
+        verificationSessionId: decisionResult.verificationSessionId,
+      },
+      dedupeKey: `trusted-contact:verification-sent:${decisionResult.verificationSessionId}`,
+    });
+  }
 
   return { handled: true, type: 'guardian_decision_applied' };
 }
