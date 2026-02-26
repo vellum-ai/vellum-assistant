@@ -11,6 +11,9 @@ const log = getLogger('http-request');
 
 /**
  * Wrap a request handler to log request metadata and response timing.
+ *
+ * The handler may return `undefined` for WebSocket upgrades (Bun consumes
+ * the request and there is no HTTP response to send).
  */
 export async function withRequestLogging(
   req: Request,
@@ -34,6 +37,17 @@ export async function withRequestLogging(
   }
 
   const latencyMs = Math.round(performance.now() - start);
+
+  // WebSocket upgrades return undefined — log and pass through without
+  // dereferencing response properties.
+  if (!response) {
+    log.info(
+      { method, path, latencyMs },
+      `${method} ${path} -> ws-upgrade (${latencyMs}ms)`,
+    );
+    return response;
+  }
+
   const status = response.status;
 
   const logData = {
