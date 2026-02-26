@@ -161,19 +161,19 @@ export async function startDaemon(): Promise<{
     throw new DaemonError('Failed to start daemon: no PID returned');
   }
 
-  writePid(pid);
-
-  // Wait for socket to appear
+  // Wait for socket to appear before writing the PID file. Writing it
+  // earlier would leave an orphaned PID file if the daemon crashes during
+  // initialization — callers would think the daemon is still running.
   const timeouts = readDaemonTimeouts();
   const maxWait = timeouts.startupSocketWaitMs;
   const interval = 100;
   let waited = 0;
   while (waited < maxWait) {
     if (existsSync(socketPath)) {
+      writePid(pid);
       return { pid, alreadyRunning: false };
     }
     if (childExited) {
-      cleanupPidFile();
       const stderr = readFileSync(stderrPath, 'utf-8').trim();
       const detail = stderr
         ? `\n${stderr}`
