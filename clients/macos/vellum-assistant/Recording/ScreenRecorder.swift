@@ -419,12 +419,12 @@ final class ScreenRecorder: NSObject {
     /// When true, incoming sample buffers are silently dropped instead of being
     /// appended to the writer. The SCStream keeps running so resume is instant.
     /// Thread-safe: read on the output queue, written from MainActor.
-    var isPaused: Bool {
+    nonisolated var isPaused: Bool {
         get { pauseLock.withLock { _isPaused } }
         set { pauseLock.withLock { _isPaused = newValue } }
     }
-    private var _isPaused = false
-    private let pauseLock = NSLock()
+    private nonisolated(unsafe) var _isPaused = false
+    private nonisolated(unsafe) let pauseLock = NSLock()
 
     /// Background queue for processing sample buffers from ScreenCaptureKit.
     private let outputQueue = DispatchQueue(label: "com.vellum.screen-recorder.output", qos: .userInitiated)
