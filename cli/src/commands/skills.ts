@@ -170,49 +170,6 @@ async function fetchSkillContent(skillId: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Frontmatter parsing (minimal inline version)
-// ---------------------------------------------------------------------------
-
-interface ParsedFrontmatter {
-  fields: Record<string, string>;
-  body: string;
-}
-
-function parseFrontmatter(content: string): ParsedFrontmatter | null {
-  const lines = content.split("\n");
-  if (lines[0]?.trim() !== "---") return null;
-
-  let endIdx = -1;
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i].trim() === "---") {
-      endIdx = i;
-      break;
-    }
-  }
-  if (endIdx === -1) return null;
-
-  const fields: Record<string, string> = {};
-  for (let i = 1; i < endIdx; i++) {
-    const line = lines[i];
-    const colonIdx = line.indexOf(":");
-    if (colonIdx === -1) continue;
-    const key = line.substring(0, colonIdx).trim();
-    let value = line.substring(colonIdx + 1).trim();
-    // Strip surrounding quotes
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    fields[key] = value;
-  }
-
-  const body = lines.slice(endIdx + 1).join("\n").trimStart();
-  return { fields, body };
-}
-
-// ---------------------------------------------------------------------------
 // Managed skill installation
 // ---------------------------------------------------------------------------
 
