@@ -1,4 +1,4 @@
-import { chmodSync, readFileSync,statSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync,statSync } from 'node:fs';
 import * as net from 'node:net';
 import { join } from 'node:path';
 import * as tls from 'node:tls';
@@ -20,12 +20,13 @@ import { getSubagentManager } from '../subagent/index.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { getLocalIPv4 } from '../util/network-info.js';
-import { getSandboxWorkingDir, getSocketPath, getTCPHost, getTCPPort, isIOSPairingEnabled,isTCPEnabled, removeSocketFile } from '../util/platform.js';
+import { getSandboxWorkingDir, getSocketPath, getTCPHost, getTCPPort, getWorkspacePromptPath, isIOSPairingEnabled,isTCPEnabled, removeSocketFile } from '../util/platform.js';
 import { registerDaemonCallbacks } from '../work-items/work-item-runner.js';
 import { AuthManager } from './auth-manager.js';
 import { ComputerUseSession } from './computer-use-session.js';
 import { ConfigWatcher } from './config-watcher.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
+import { parseIdentityFields } from './handlers/identity.js';
 import { cleanupRecordingsOnDisconnect } from './handlers/recording.js';
 import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 import { IpcSender } from './ipc-handler.js';
@@ -226,6 +227,25 @@ export class DaemonServer {
     );
   }
 
+  private broadcastIdentityChanged(): void {
+    try {
+      const identityPath = getWorkspacePromptPath('IDENTITY.md');
+      if (!existsSync(identityPath)) return;
+      const content = readFileSync(identityPath, 'utf-8');
+      const fields = parseIdentityFields(content);
+      this.broadcast({
+        type: 'identity_changed',
+        name: fields.name,
+        role: fields.role,
+        personality: fields.personality,
+        emoji: fields.emoji,
+        home: fields.home,
+      });
+    } catch (err) {
+      log.error({ err }, 'Failed to broadcast identity change');
+    }
+  }
+
   // ── Server lifecycle ────────────────────────────────────────────────
 
   async start(): Promise<void> {
@@ -255,7 +275,10 @@ export class DaemonServer {
       });
     }, 5 * 60 * 1000);
 
-    this.configWatcher.start(() => this.evictSessionsForReload());
+    this.configWatcher.start(
+      () => this.evictSessionsForReload(),
+      () => this.broadcastIdentityChanged(),
+    );
     this.auth.initToken();
 
     let tlsCreds: { cert: string; key: string; fingerprint: string } | null = null;

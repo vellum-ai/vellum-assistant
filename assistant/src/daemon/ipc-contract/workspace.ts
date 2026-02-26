@@ -112,6 +112,16 @@ export interface ToolNamesListResponse {
   schemas?: Record<string, ToolInputSchema>;
 }
 
+/** Server push — broadcast when IDENTITY.md changes on disk. */
+export interface IdentityChanged {
+  type: 'identity_changed';
+  name: string;
+  role: string;
+  personality: string;
+  emoji: string;
+  home: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _WorkspaceClientMessages =
@@ -126,4 +136,5 @@ export type _WorkspaceServerMessages =
   | WorkspaceFileReadResponse
   | IdentityGetResponse
   | ToolPermissionSimulateResponse
-  | ToolNamesListResponse;
+  | ToolNamesListResponse
+  | IdentityChanged;
