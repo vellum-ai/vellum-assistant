@@ -228,12 +228,13 @@ describe('restart_cancelled status', () => {
     const startMsg = sent.filter((m) => m.type === 'recording_start').pop();
     sent.length = 0;
 
-    // Client sends restart_cancelled (picker was closed)
+    // Client sends restart_cancelled (picker was closed) with the correct operation token
     const cancelStatus: RecordingStatus = {
       type: 'recording_status',
       sessionId: startMsg!.recordingId as string,
       status: 'restart_cancelled',
       attachToConversationId: conversationId,
+      operationToken: restartResult.operationToken,
     };
     recordingHandlers.recording_status(cancelStatus, fakeSocket, ctx);
 
@@ -259,7 +260,7 @@ describe('restart_cancelled status', () => {
     ctx.socketToSession.set(fakeSocket, conversationId);
 
     handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
-    handleRecordingRestart(conversationId, fakeSocket, ctx);
+    const restartResult = handleRecordingRestart(conversationId, fakeSocket, ctx);
 
     // Before cancel: not idle (mid-restart)
     expect(isRecordingIdle()).toBe(false);
@@ -270,6 +271,7 @@ describe('restart_cancelled status', () => {
       sessionId: startMsg!.recordingId as string,
       status: 'restart_cancelled',
       attachToConversationId: conversationId,
+      operationToken: restartResult.operationToken,
     };
     recordingHandlers.recording_status(cancelStatus, fakeSocket, ctx);
 
@@ -339,6 +341,39 @@ describe('stale completion guard (operation token)', () => {
 
     // Should have been accepted — restart token cleared
     expect(getActiveRestartToken()).toBeNull();
+  });
+
+  test('allows tokenless recording_status during active restart (old recording ack)', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+    const conversationId = 'conv-tokenless-1';
+    ctx.socketToSession.set(fakeSocket, conversationId);
+
+    // Start recording -> restart (creates operation token)
+    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    const restartResult = handleRecordingRestart(conversationId, fakeSocket, ctx);
+    expect(restartResult.initiated).toBe(true);
+
+    const startMsgs = sent.filter((m) => m.type === 'recording_start');
+    const oldStartMsg = startMsgs[0]; // first recording_start = original/old recording
+    sent.length = 0;
+
+    // Simulate a tokenless "stopped" status arriving during the restart.
+    // This represents the OLD recording's stopped ack — it was started before
+    // the restart was initiated, so it has no operationToken. This MUST be
+    // allowed through for the deferred restart pattern to work.
+    const tokenlessStatus: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: oldStartMsg!.recordingId as string,
+      status: 'stopped',
+      attachToConversationId: conversationId,
+      // No operationToken — from old recording, should be allowed
+    };
+    recordingHandlers.recording_status(tokenlessStatus, fakeSocket, ctx);
+
+    // Should have been allowed through — the stopped handler processes normally
+    // (emits text delta about recording stopped/no file)
+    const textDeltas = sent.filter((m) => m.type === 'assistant_text_delta');
+    expect(textDeltas.length).toBeGreaterThan(0);
   });
 
   test('no ghost state after restart stop/start handoff', () => {
@@ -670,18 +705,19 @@ describe('failure during restart', () => {
     ctx.socketToSession.set(fakeSocket, conversationId);
 
     handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
-    handleRecordingRestart(conversationId, fakeSocket, ctx);
+    const restartResult = handleRecordingRestart(conversationId, fakeSocket, ctx);
 
     const startMsg = sent.filter((m) => m.type === 'recording_start').pop();
     sent.length = 0;
 
-    // Simulate new recording failing
+    // Simulate new recording failing (with the correct operation token)
     const failedStatus: RecordingStatus = {
       type: 'recording_status',
       sessionId: startMsg!.recordingId as string,
       status: 'failed',
       error: 'Permission denied',
       attachToConversationId: conversationId,
+      operationToken: restartResult.operationToken,
     };
     recordingHandlers.recording_status(failedStatus, fakeSocket, ctx);
 

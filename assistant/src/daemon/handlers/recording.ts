@@ -417,8 +417,13 @@ async function handleRecordingStatus(
   }
 
   // ── Operation token validation for restart race hardening ──
-  // If a restart is in progress and the status callback carries a token,
-  // reject it if the token doesn't match the active restart token.
+  // Only reject when BOTH sides have tokens AND they don't match. This means
+  // the status is from a DIFFERENT restart cycle (stale token mismatch).
+  // Tokenless statuses must be allowed through because during a restart cycle,
+  // the old recording's stopped/failed callbacks arrive without a token — they
+  // were started before the restart was initiated. These tokenless callbacks
+  // are legitimate and necessary for the deferred restart pattern (triggering
+  // the new recording_start after the old recording's stopped ack).
   if (msg.operationToken && activeRestartToken && msg.operationToken !== activeRestartToken) {
     log.warn(
       { recordingId, expectedToken: activeRestartToken, receivedToken: msg.operationToken },
