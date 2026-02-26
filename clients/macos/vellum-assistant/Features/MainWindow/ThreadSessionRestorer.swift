@@ -183,6 +183,12 @@ final class ThreadSessionRestorer {
 
         var restoredThreads: [ThreadModel] = []
         for session in recentSessions {
+            // Skip sessions that already have a local thread (e.g. created by
+            // createNotificationThread before the session list response arrived).
+            // Without this, the same conversation can appear twice when
+            // defaultThreadIsEmpty is false and the existing threads are appended.
+            guard !delegate.threads.contains(where: { $0.sessionId == session.id }) else { continue }
+
             let kind: ThreadKind = session.threadType == "private" ? .private : .standard
 
             // Preserve user-set titles: if a thread with this session already

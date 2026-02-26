@@ -304,6 +304,13 @@ extension AppDelegate {
                 return false
             }
             threadManager.activeThreadId = thread.id
+            // Clear unseen state when deep-linking into a conversation.
+            // selectThread's unseen-clear is guarded by id != previousActiveId,
+            // which is false when activeThreadId was already set above, so we
+            // must clear it explicitly here to keep the dock badge accurate.
+            if let idx = threadManager.threads.firstIndex(where: { $0.sessionId == conversationId }) {
+                threadManager.threads[idx].hasUnseenLatestAssistantMessage = false
+            }
             return true
         }
 
