@@ -80,6 +80,14 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
             | sed 's/.*"\(.*\)"/\1/' || true)
     fi
 
+    # Fall back to any valid codesigning identity (e.g. self-signed)
+    if [ -z "$SIGN_IDENTITY" ]; then
+        SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+            | grep -v "valid identities found" \
+            | head -1 \
+            | sed 's/.*"\(.*\)"/\1/' || true)
+    fi
+
     # Fall back to adhoc signing (no certificate)
     if [ -z "$SIGN_IDENTITY" ]; then
         SIGN_IDENTITY="-"
