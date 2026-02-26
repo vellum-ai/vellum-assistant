@@ -59,14 +59,21 @@ extension ChatBubble {
             lastStreamingInlineMarkdown = (text, result)
             return result
         }
+        // Skip caching for very long text to avoid a single huge entry
+        // evicting many smaller, more frequently accessed entries.
+        if text.count > maxCacheableTextLength { return result }
         if inlineMarkdownCache.count >= maxCacheSize {
             // Evict the least-recently-used entry (lowest accessTime).
             if let lruKey = inlineMarkdownCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                estimatedCacheBytes -= estimatedBytes(for: lruKey)
                 inlineMarkdownCache.removeValue(forKey: lruKey)
             }
         }
         lruCounter += 1
+        let cost = estimatedBytes(for: text)
         inlineMarkdownCache[text] = (result, lruCounter)
+        estimatedCacheBytes += cost
+        evictIfOverBudget()
         return result
     }
 
@@ -90,14 +97,21 @@ extension ChatBubble {
             lastStreamingSegments = (text, result)
             return result
         }
+        // Skip caching for very long text to avoid a single huge entry
+        // evicting many smaller, more frequently accessed entries.
+        if text.count > maxCacheableTextLength { return result }
         if segmentCache.count >= maxCacheSize {
             // Evict the least-recently-used entry (lowest accessTime).
             if let lruKey = segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                estimatedCacheBytes -= estimatedBytes(for: lruKey)
                 segmentCache.removeValue(forKey: lruKey)
             }
         }
         lruCounter += 1
+        let cost = estimatedBytes(for: text)
         segmentCache[text] = (result, lruCounter)
+        estimatedCacheBytes += cost
+        evictIfOverBudget()
         return result
     }
 
@@ -145,14 +159,22 @@ extension ChatBubble {
             return parsed
         }
 
+        // Skip caching for very long text to avoid a single huge entry
+        // evicting many smaller, more frequently accessed entries.
+        if trimmed.count > Self.maxCacheableTextLength { return parsed }
+
         // Store in cache with LRU eviction
         if Self.markdownCache.count >= Self.maxCacheSize {
             if let lruKey = Self.markdownCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                Self.estimatedCacheBytes -= Self.estimatedBytes(for: lruKey)
                 Self.markdownCache.removeValue(forKey: lruKey)
             }
         }
         Self.lruCounter += 1
+        let cost = Self.estimatedBytes(for: trimmed)
         Self.markdownCache[trimmed] = (parsed, Self.lruCounter)
+        Self.estimatedCacheBytes += cost
+        Self.evictIfOverBudget()
 
         return parsed
     }

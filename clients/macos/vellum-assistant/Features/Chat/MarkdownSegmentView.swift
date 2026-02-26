@@ -130,15 +130,47 @@ struct MarkdownSegmentView: View {
     /// Keyed by a hash of the segment descriptions so identical segment
     /// arrays return the cached value instead of re-parsing markdown and
     /// re-creating `AttributedString` on every SwiftUI body evaluation.
-    /// Each entry stores (value, accessTime) for LRU eviction.
-    @MainActor private static var attributedStringCache: [Int: (value: AttributedString, accessTime: Int)] = [:]
+    /// Each entry stores (value, accessTime, estimatedBytes) for LRU eviction
+    /// and byte-budget enforcement.
+    @MainActor private static var attributedStringCache: [Int: (value: AttributedString, accessTime: Int, estimatedBytes: Int)] = [:]
     @MainActor private static var lruCounter: Int = 0
     private static let attributedStringCacheLimit = 200
+
+    // MARK: - Cache Guardrails
+
+    private static let maxCacheableTextLength = 10_000
+    private static let maxCacheBytes = 5_000_000
+    @MainActor static var estimatedCacheBytes: Int = 0
 
     /// Clears the attributed string cache.  Called when switching threads
     /// or archiving a conversation to reclaim memory.
     static func clearAttributedStringCache() {
         attributedStringCache.removeAll()
+        estimatedCacheBytes = 0
+    }
+
+    /// Rough character count of the text content within a segment array.
+    private static func segmentTextLength(_ segments: [MarkdownSegment]) -> Int {
+        segments.reduce(0) { total, seg in
+            switch seg {
+            case .text(let t): return total + t.count
+            case .heading(_, let t): return total + t.count
+            case .codeBlock(_, let c): return total + c.count
+            case .list(let items): return total + items.reduce(0) { $0 + $1.text.count }
+            case .table(let h, let r): return total + h.joined().count + r.flatMap { $0 }.joined().count
+            case .image, .horizontalRule: return total
+            }
+        }
+    }
+
+    /// Evicts the oldest entries until `estimatedCacheBytes` drops below
+    /// `maxCacheBytes`.
+    @MainActor private static func evictIfOverBudget() {
+        while estimatedCacheBytes > maxCacheBytes {
+            guard let lruKey = attributedStringCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key else { break }
+            let entry = attributedStringCache.removeValue(forKey: lruKey)
+            estimatedCacheBytes -= entry?.estimatedBytes ?? 0
+        }
     }
 
     /// Builds (or retrieves from cache) a single AttributedString from
@@ -158,20 +190,29 @@ struct MarkdownSegmentView: View {
 
         if let cached = Self.attributedStringCache[cacheKey] {
             Self.lruCounter += 1
-            Self.attributedStringCache[cacheKey] = (cached.value, Self.lruCounter)
+            Self.attributedStringCache[cacheKey] = (cached.value, Self.lruCounter, cached.estimatedBytes)
             return cached.value
         }
 
         let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, zoomScale: zoomScale)
 
+        // Skip caching for very long segment groups to avoid a single huge
+        // entry evicting many smaller, more frequently accessed entries.
+        let textLen = Self.segmentTextLength(segments)
+        if textLen > Self.maxCacheableTextLength { return result }
+
         // Evict the least-recently-used entry when the cache is full.
         if Self.attributedStringCache.count >= Self.attributedStringCacheLimit {
             if let lruKey = Self.attributedStringCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
-                Self.attributedStringCache.removeValue(forKey: lruKey)
+                let evicted = Self.attributedStringCache.removeValue(forKey: lruKey)
+                Self.estimatedCacheBytes -= evicted?.estimatedBytes ?? 0
             }
         }
         Self.lruCounter += 1
-        Self.attributedStringCache[cacheKey] = (result, Self.lruCounter)
+        let cost = textLen * 3
+        Self.attributedStringCache[cacheKey] = (result, Self.lruCounter, cost)
+        Self.estimatedCacheBytes += cost
+        Self.evictIfOverBudget()
         return result
     }
 

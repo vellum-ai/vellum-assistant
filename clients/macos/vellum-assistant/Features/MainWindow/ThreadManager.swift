@@ -400,6 +400,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         ChatBubble.segmentCache.removeAll()
         ChatBubble.markdownCache.removeAll()
         ChatBubble.inlineMarkdownCache.removeAll()
+        ChatBubble.estimatedCacheBytes = 0
         ChatBubble.lastStreamingSegments = nil
         ChatBubble.lastStreamingInlineMarkdown = nil
         ChatBubble.lastStreamingMarkdown = nil
