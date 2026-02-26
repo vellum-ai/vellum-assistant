@@ -14,7 +14,6 @@ final class SessionOverlayWindow {
     private var stateContainer: NSView?
     private var guidanceContainer: NSView?
     private var controlsContainer: NSView?
-    private var stateScrollView: NSScrollView?
     private var spinner: NSProgressIndicator?
     private var guidanceField: NSTextField?
 
@@ -110,32 +109,10 @@ final class SessionOverlayWindow {
         stack.addArrangedSubview(divider)
         divider.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
-        // State content (wrapped in scroll view)
+        // State content
         let stateView = buildStateContent(session.state)
         self.stateContainer = stateView
-
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .noBorder
-        scrollView.drawsBackground = false
-
-        let clipView = NSClipView()
-        clipView.drawsBackground = false
-        scrollView.contentView = clipView
-        scrollView.documentView = stateView
-        stateView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            stateView.topAnchor.constraint(equalTo: clipView.topAnchor),
-            stateView.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
-            stateView.trailingAnchor.constraint(equalTo: clipView.trailingAnchor),
-        ])
-        scrollView.heightAnchor.constraint(lessThanOrEqualToConstant: 400).isActive = true
-        self.stateScrollView = scrollView
-
-        stack.addArrangedSubview(scrollView)
-        scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        stack.addArrangedSubview(stateView)
 
         // Guidance input
         let guidance = buildGuidanceInput()
@@ -610,26 +587,22 @@ final class SessionOverlayWindow {
     // MARK: - Update
 
     private func updateState(_ state: SessionState) {
-        guard let stateScrollView else { return }
+        guard let stateContainer else { return }
 
         // Stop any running spinner
         spinner?.stopAnimation(nil)
         spinner = nil
 
-        // Replace state content as the scroll view's document view
-        let newState = buildStateContent(state)
-        newState.translatesAutoresizingMaskIntoConstraints = false
-        stateScrollView.documentView = newState
+        // Replace state content in parent stack
+        if let parent = stateContainer.superview as? NSStackView,
+           let index = parent.arrangedSubviews.firstIndex(of: stateContainer) {
+            parent.removeArrangedSubview(stateContainer)
+            stateContainer.removeFromSuperview()
 
-        if let clipView = stateScrollView.contentView as? NSClipView {
-            NSLayoutConstraint.activate([
-                newState.topAnchor.constraint(equalTo: clipView.topAnchor),
-                newState.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
-                newState.trailingAnchor.constraint(equalTo: clipView.trailingAnchor),
-            ])
+            let newState = buildStateContent(state)
+            parent.insertArrangedSubview(newState, at: index)
+            self.stateContainer = newState
         }
-
-        self.stateContainer = newState
 
         // Update guidance visibility
         updateGuidanceVisibility()
