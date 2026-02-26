@@ -22,6 +22,10 @@ struct SettingsParentalTab: View {
     @State private var newAppEntry: String = ""
     @State private var newWidgetEntry: String = ""
 
+    // -- Apps & Widgets unified allowlist add sheets --
+    @State private var showingAddAppSheet: Bool = false
+    @State private var showingAddWidgetSheet: Bool = false
+
     // -- Local UI state --
     @State private var isLoading: Bool = false
     @State private var errorMessage: String?
@@ -71,11 +75,9 @@ struct SettingsParentalTab: View {
                     pinSection
                     contentRestrictionsSection
                     toolCategorySection
-                    // Allowlist section is only editable from the parental profile
+                    // Allowlist and activity log are only visible to the parent
                     if settingsStore.activeProfile == "parental" {
-                        appAllowlistSection
-                        widgetAllowlistSection
-                        // Activity log is only visible to the parent
+                        appsAndWidgetsSection
                         activityLogSection
                     }
                 } else {
@@ -162,6 +164,28 @@ struct SettingsParentalTab: View {
                     }
                 },
                 daemonClient: daemonClient
+            )
+        }
+        .sheet(isPresented: $showingAddAppSheet) {
+            AddAllowlistItemSheet(
+                placeholder: "App name",
+                title: "Add App",
+                onAdd: { name in
+                    guard !name.isEmpty, !allowedApps.contains(name) else { return }
+                    updateAllowlist(apps: allowedApps + [name], widgets: nil)
+                },
+                onDismiss: { showingAddAppSheet = false }
+            )
+        }
+        .sheet(isPresented: $showingAddWidgetSheet) {
+            AddAllowlistItemSheet(
+                placeholder: "Widget name",
+                title: "Add Widget",
+                onAdd: { name in
+                    guard !name.isEmpty, !allowedWidgets.contains(name) else { return }
+                    updateAllowlist(apps: nil, widgets: allowedWidgets + [name])
+                },
+                onDismiss: { showingAddWidgetSheet = false }
             )
         }
     }
@@ -264,8 +288,10 @@ struct SettingsParentalTab: View {
                         showingPINSheet = true
                     }
                 }
+                Spacer()
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }
@@ -301,23 +327,29 @@ struct SettingsParentalTab: View {
                 .textSelection(.enabled)
 
             ForEach(ContentTopic.allCases) { topic in
-                HStack {
-                    Text(topic.displayName)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { contentRestrictions.contains(topic.rawValue) },
-                        set: { enabled in
-                            var updated = contentRestrictions
-                            if enabled { updated.insert(topic.rawValue) } else { updated.remove(topic.rawValue) }
-                            updateContentRestrictions(Array(updated))
-                        }
-                    ))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .accessibilityLabel(topic.displayName)
-                    .disabled(isLoading)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack {
+                        Text(topic.displayName)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { contentRestrictions.contains(topic.rawValue) },
+                            set: { enabled in
+                                var updated = contentRestrictions
+                                if enabled { updated.insert(topic.rawValue) } else { updated.remove(topic.rawValue) }
+                                updateContentRestrictions(Array(updated))
+                            }
+                        ))
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .accessibilityLabel(topic.displayName)
+                        .disabled(isLoading)
+                    }
+                    Text(topic.description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .textSelection(.enabled)
                 }
             }
         }
@@ -386,36 +418,40 @@ struct SettingsParentalTab: View {
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    // MARK: - App Allowlist Section
+    // MARK: - Apps & Widgets Unified Allowlist Section
 
-    private var appAllowlistSection: some View {
+    private var appsAndWidgetsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("App Allowlist")
+            Text("Apps & Widgets")
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Apps not on this list are blocked for the Child profile.")
+            Text("Child profile can only access enabled apps and widgets.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
 
-            HStack(spacing: VSpacing.xs) {
-                TextField("App name", text: $newAppEntry)
-                    .textFieldStyle(.roundedBorder)
-                    .font(VFont.body)
-                VButton(label: "Add", style: .primary) {
-                    let entry = newAppEntry.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !entry.isEmpty, !allowedApps.contains(entry) else { return }
-                    let updated = allowedApps + [entry]
-                    newAppEntry = ""
-                    updateAllowlist(apps: updated, widgets: nil)
+            // Apps subsection
+            HStack {
+                Text("Apps")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button {
+                    showingAddAppSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.accent)
                 }
-                .disabled(isLoading || newAppEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add app")
+                .disabled(isLoading)
             }
 
             if allowedApps.isEmpty {
-                Text("No apps allowed — all apps are blocked for the Child profile.")
+                Text("No apps configured — all apps are blocked.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .textSelection(.enabled)
@@ -427,55 +463,48 @@ struct SettingsParentalTab: View {
                             .foregroundColor(VColor.textSecondary)
                             .textSelection(.enabled)
                         Spacer()
-                        // "×" button removes the app from the allowlist, effectively disallowing it
-                        Button {
-                            let updated = allowedApps.filter { $0 != app }
-                            updateAllowlist(apps: updated, widgets: nil)
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Remove \(app) from allowlist")
+                        Toggle("", isOn: Binding(
+                            get: { allowedApps.contains(app) },
+                            set: { enabled in
+                                if !enabled {
+                                    // Optimistically remove the app so the toggle disappears
+                                    // immediately rather than snapping back to "on"
+                                    allowedApps = allowedApps.filter { $0 != app }
+                                    updateAllowlist(apps: allowedApps, widgets: nil)
+                                }
+                            }
+                        ))
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .accessibilityLabel("\(app) allowed")
                         .disabled(isLoading)
                     }
                 }
             }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
 
-    // MARK: - Widget Allowlist Section
+            Divider()
+                .padding(.vertical, VSpacing.xs)
 
-    private var widgetAllowlistSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Widget Allowlist")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            Text("Widgets not on this list are blocked for the Child profile.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-
-            HStack(spacing: VSpacing.xs) {
-                TextField("Widget name", text: $newWidgetEntry)
-                    .textFieldStyle(.roundedBorder)
-                    .font(VFont.body)
-                VButton(label: "Add", style: .primary) {
-                    let entry = newWidgetEntry.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !entry.isEmpty, !allowedWidgets.contains(entry) else { return }
-                    let updated = allowedWidgets + [entry]
-                    newWidgetEntry = ""
-                    updateAllowlist(apps: nil, widgets: updated)
+            // Widgets subsection
+            HStack {
+                Text("Widgets")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button {
+                    showingAddWidgetSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.accent)
                 }
-                .disabled(isLoading || newWidgetEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add widget")
+                .disabled(isLoading)
             }
 
             if allowedWidgets.isEmpty {
-                Text("No widgets allowed — all widgets are blocked for the Child profile.")
+                Text("No widgets configured — all widgets are blocked.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .textSelection(.enabled)
@@ -487,21 +516,26 @@ struct SettingsParentalTab: View {
                             .foregroundColor(VColor.textSecondary)
                             .textSelection(.enabled)
                         Spacer()
-                        // "×" button removes the widget from the allowlist, effectively disallowing it
-                        Button {
-                            let updated = allowedWidgets.filter { $0 != widget }
-                            updateAllowlist(apps: nil, widgets: updated)
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Remove \(widget) from allowlist")
+                        Toggle("", isOn: Binding(
+                            get: { allowedWidgets.contains(widget) },
+                            set: { enabled in
+                                if !enabled {
+                                    // Optimistically remove the widget so the toggle disappears
+                                    // immediately rather than snapping back to "on"
+                                    allowedWidgets = allowedWidgets.filter { $0 != widget }
+                                    updateAllowlist(apps: nil, widgets: allowedWidgets)
+                                }
+                            }
+                        ))
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .accessibilityLabel("\(widget) allowed")
                         .disabled(isLoading)
                     }
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }
@@ -891,7 +925,12 @@ struct SettingsParentalTab: View {
                     allowedWidgets: widgets
                 )
             } catch {
-                await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
+                // Transport/connection error — no response will arrive, so restore state from daemon.
+                await MainActor.run {
+                    isLoading = false
+                    errorMessage = error.localizedDescription
+                    loadAllowlist()
+                }
                 return
             }
 
@@ -1663,6 +1702,16 @@ private enum ContentTopic: String, CaseIterable, Identifiable {
         case .drugs: return "Drugs & Controlled Substances"
         }
     }
+
+    var description: String {
+        switch self {
+        case .violence: return "Violent or graphic content"
+        case .adult_content: return "Explicit or mature content"
+        case .political: return "Political topics and debates"
+        case .gambling: return "Gambling and betting content"
+        case .drugs: return "Drug-related content"
+        }
+    }
 }
 
 private enum ToolCategory: String, CaseIterable, Identifiable {
@@ -1689,6 +1738,49 @@ private enum ToolCategory: String, CaseIterable, Identifiable {
         case .shell: return "Bash commands, terminal access."
         case .file_write: return "Creating, editing, or deleting files."
         }
+    }
+}
+
+// MARK: - Add Allowlist Item Sheet
+
+/// Sheet shown when the parent taps the + button in the Apps or Widgets subsection.
+/// Accepts a single name and calls `onAdd` with the trimmed value.
+@MainActor
+private struct AddAllowlistItemSheet: View {
+    let placeholder: String
+    let title: String
+    let onAdd: (String) -> Void
+    let onDismiss: () -> Void
+
+    @State private var name: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            Text(title)
+                .font(VFont.headline)
+                .foregroundColor(VColor.textPrimary)
+
+            TextField(placeholder, text: $name)
+                .textFieldStyle(.roundedBorder)
+                .font(VFont.body)
+
+            HStack {
+                Spacer()
+                VButton(label: "Cancel", style: .secondary) {
+                    onDismiss()
+                }
+                VButton(label: "Add", style: .primary) {
+                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    onAdd(trimmed)
+                    onDismiss()
+                }
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(VSpacing.xl)
+        .frame(width: 300)
+        .background(VColor.background)
     }
 }
 
