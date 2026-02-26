@@ -5,6 +5,7 @@ import {
   createCallSessionsTables,
   createChannelGuardianTables,
   createContactsAndTriageTables,
+  createConversationAttentionTables,
   createCoreIndexes,
   createCoreTables,
   createExternalConversationBindingsTables,
@@ -91,6 +92,9 @@ export function initializeDb(): void {
   // 17. Messages FTS (full-text search over message content)
   createMessagesFts(database);
   migrateMessagesFtsBackfill(database);
+
+  // 18. Conversation attention (seen-state tracking)
+  createConversationAttentionTables(database);
 
   validateMigrationState(database);
 }

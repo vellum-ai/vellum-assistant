@@ -46,6 +46,7 @@ export { runLateMigrations } from './113-late-migrations.js';
 export { createNotificationTables } from './114-notifications.js';
 export { createSequenceTables } from './115-sequences.js';
 export { createMessagesFts } from './116-messages-fts.js';
+export { createConversationAttentionTables } from './117-conversation-attention.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

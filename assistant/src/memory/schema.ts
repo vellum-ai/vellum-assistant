@@ -1006,3 +1006,47 @@ export const notificationDeliveries = sqliteTable('notification_deliveries', {
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+// ── Conversation Attention ───────────────────────────────────────────
+
+export const conversationAttentionEvents = sqliteTable('conversation_attention_events', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  assistantId: text('assistant_id').notNull(),
+  sourceChannel: text('source_channel').notNull(),
+  signalType: text('signal_type').notNull(),
+  confidence: text('confidence').notNull(),
+  source: text('source').notNull(),
+  evidenceText: text('evidence_text'),
+  metadataJson: text('metadata_json').notNull().default('{}'),
+  observedAt: integer('observed_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+}, (table) => [
+  index('idx_conv_attn_events_conv_observed').on(table.conversationId, table.observedAt),
+  index('idx_conv_attn_events_assistant_observed').on(table.assistantId, table.observedAt),
+  index('idx_conv_attn_events_channel_observed').on(table.sourceChannel, table.observedAt),
+]);
+
+export const conversationAssistantAttentionState = sqliteTable('conversation_assistant_attention_state', {
+  conversationId: text('conversation_id')
+    .primaryKey()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  assistantId: text('assistant_id').notNull(),
+  latestAssistantMessageId: text('latest_assistant_message_id'),
+  latestAssistantMessageAt: integer('latest_assistant_message_at'),
+  lastSeenAssistantMessageId: text('last_seen_assistant_message_id'),
+  lastSeenAssistantMessageAt: integer('last_seen_assistant_message_at'),
+  lastSeenEventAt: integer('last_seen_event_at'),
+  lastSeenConfidence: text('last_seen_confidence'),
+  lastSeenSignalType: text('last_seen_signal_type'),
+  lastSeenSourceChannel: text('last_seen_source_channel'),
+  lastSeenSource: text('last_seen_source'),
+  lastSeenEvidenceText: text('last_seen_evidence_text'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+}, (table) => [
+  index('idx_conv_attn_state_assistant_latest_msg').on(table.assistantId, table.latestAssistantMessageAt),
+  index('idx_conv_attn_state_assistant_last_seen').on(table.assistantId, table.lastSeenAssistantMessageAt),
+]);

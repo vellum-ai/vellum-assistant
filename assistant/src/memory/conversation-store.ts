@@ -10,6 +10,7 @@ import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 import { getLogger } from '../util/logger.js';
 import { createRowMapper } from '../util/row-mapper.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
+import { projectAssistantMessage } from './conversation-attention-store.js';
 import { getDb, rawAll, rawExec,rawGet } from './db.js';
 import { indexMessageNow } from './indexer.js';
 import { channelInboundEvents, conversations, llmRequestLogs,memoryEmbeddings, memoryItemEntities, memoryItems, memoryItemSources, memorySegments, messageAttachments, messages, toolInvocations } from './schema.js';
@@ -306,6 +307,19 @@ export function addMessage(conversationId: string, role: string, content: string
       }, config.memory);
     } catch (err) {
       log.warn({ err, conversationId, messageId: message.id }, 'Failed to index message for memory');
+    }
+  }
+
+  if (role === 'assistant') {
+    try {
+      projectAssistantMessage({
+        conversationId,
+        assistantId: 'self',
+        messageId: message.id,
+        messageAt: message.createdAt,
+      });
+    } catch (err) {
+      log.warn({ err, conversationId, messageId: message.id }, 'Failed to project assistant message for attention tracking');
     }
   }
 
