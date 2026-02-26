@@ -340,6 +340,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     limit: 20,
     maxMessagesPerConversation: 3,
   },
+  message_content_request: {
+    type: 'message_content_request',
+    sessionId: 'sess-001',
+    messageId: 'msg-001',
+  },
   ipc_blob_probe: {
     type: 'ipc_blob_probe',
     probeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
@@ -841,6 +846,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         ],
       },
     ],
+  },
+  message_content_response: {
+    type: 'message_content_response',
+    sessionId: 'sess-001',
+    messageId: 'msg-001',
+    text: 'Full message content here',
+    toolCalls: [{ name: 'bash', result: 'output', input: { command: 'ls' } }],
   },
   error: {
     type: 'error',

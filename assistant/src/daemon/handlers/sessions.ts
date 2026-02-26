@@ -21,6 +21,7 @@ import type {
   ConversationSearchRequest,
   DeleteQueuedMessage,
   HistoryRequest,
+  MessageContentRequest,
   RegenerateRequest,
   SandboxSetRequest,
   SecretResponse,
@@ -737,17 +738,37 @@ export function handleHistoryRequest(
         })))
       : m.surfaces;
 
+    // Apply text truncation when maxTextChars is set
+    let wasTruncated = false;
+    let text = m.text;
+    if (msg.maxTextChars !== undefined && text.length > msg.maxTextChars) {
+      text = text.slice(0, msg.maxTextChars) + ' \u2026 [truncated]';
+      wasTruncated = true;
+    }
+
+    // Apply tool result truncation when maxToolResultChars is set
+    const truncatedToolCalls = msg.maxToolResultChars !== undefined && filteredToolCalls.length > 0
+      ? filteredToolCalls.map((tc) => {
+        if (tc.result !== undefined && tc.result.length > msg.maxToolResultChars!) {
+          wasTruncated = true;
+          return { ...tc, result: tc.result.slice(0, msg.maxToolResultChars!) + ' \u2026 [truncated]' };
+        }
+        return tc;
+      })
+      : filteredToolCalls;
+
     return {
       ...(m.id ? { id: m.id } : {}),
       role: m.role,
-      text: m.text,
+      text,
       timestamp: m.timestamp,
-      ...(filteredToolCalls.length > 0 ? { toolCalls: filteredToolCalls, toolCallsBeforeText: m.toolCallsBeforeText } : {}),
+      ...(truncatedToolCalls.length > 0 ? { toolCalls: truncatedToolCalls, toolCallsBeforeText: m.toolCallsBeforeText } : {}),
       ...(attachments ? { attachments } : {}),
       ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
       ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
       ...(filteredSurfaces.length > 0 ? { surfaces: filteredSurfaces } : {}),
       ...(m.subagentNotification ? { subagentNotification: m.subagentNotification } : {}),
+      ...(wasTruncated ? { wasTruncated: true } : {}),
     };
   });
 
@@ -888,6 +909,45 @@ export function handleConversationSearch(
   });
 }
 
+export function handleMessageContentRequest(
+  msg: MessageContentRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const dbMessage = conversationStore.getMessageById(msg.messageId, msg.sessionId);
+  if (!dbMessage) {
+    ctx.send(socket, { type: 'error', message: `Message ${msg.messageId} not found in session ${msg.sessionId}` });
+    return;
+  }
+
+  let text: string | undefined;
+  let toolCalls: Array<{ name: string; result?: string; input?: Record<string, unknown> }> | undefined;
+
+  try {
+    const content = JSON.parse(dbMessage.content);
+    const rendered = renderHistoryContent(content);
+    text = rendered.text || undefined;
+    if (rendered.toolCalls.length > 0) {
+      toolCalls = rendered.toolCalls.map((tc) => ({
+        name: tc.name,
+        input: tc.input,
+        ...(tc.result !== undefined ? { result: tc.result } : {}),
+      }));
+    }
+  } catch {
+    // Raw text content (not JSON)
+    text = dbMessage.content || undefined;
+  }
+
+  ctx.send(socket, {
+    type: 'message_content_response',
+    sessionId: msg.sessionId,
+    messageId: msg.messageId,
+    ...(text !== undefined ? { text } : {}),
+    ...(toolCalls ? { toolCalls } : {}),
+  });
+}
+
 export const sessionHandlers = defineHandlers({
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
@@ -900,6 +960,7 @@ export const sessionHandlers = defineHandlers({
   cancel: handleCancel,
   delete_queued_message: handleDeleteQueuedMessage,
   history_request: handleHistoryRequest,
+  message_content_request: handleMessageContentRequest,
   undo: handleUndo,
   regenerate: handleRegenerate,
   usage_request: handleUsageRequest,

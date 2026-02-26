@@ -526,6 +526,14 @@ exports[`IPC message snapshots ClientMessage types conversation_search serialize
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types message_content_request serializes to expected JSON 1`] = `
+{
+  "messageId": "msg-001",
+  "sessionId": "sess-001",
+  "type": "message_content_request",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types ipc_blob_probe serializes to expected JSON 1`] = `
 {
   "nonceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -1096,6 +1104,49 @@ exports[`IPC message snapshots ClientMessage types notification_intent_result se
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types recording_status serializes to expected JSON 1`] = `
+{
+  "sessionId": "rec-001",
+  "status": "started",
+  "type": "recording_status",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_config serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "type": "heartbeat_config",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_runs_list serializes to expected JSON 1`] = `
+{
+  "type": "heartbeat_runs_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_run_now serializes to expected JSON 1`] = `
+{
+  "type": "heartbeat_run_now",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_checklist_read serializes to expected JSON 1`] = `
+{
+  "type": "heartbeat_checklist_read",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types heartbeat_checklist_write serializes to expected JSON 1`] = `
+{
+  "content": 
+"- [ ] Check email
+- [ ] Review PRs"
+,
+  "type": "heartbeat_checklist_write",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -1308,6 +1359,24 @@ exports[`IPC message snapshots ServerMessage types conversation_search_response 
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types message_content_response serializes to expected JSON 1`] = `
+{
+  "messageId": "msg-001",
+  "sessionId": "sess-001",
+  "text": "Full message content here",
+  "toolCalls": [
+    {
+      "input": {
+        "command": "ls",
+      },
+      "name": "bash",
+      "result": "output",
+    },
+  ],
+  "type": "message_content_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types error serializes to expected JSON 1`] = `
 {
   "message": "Something went wrong",
@@ -1360,6 +1429,7 @@ exports[`IPC message snapshots ServerMessage types model_info serializes to expe
 
 exports[`IPC message snapshots ServerMessage types history_response serializes to expected JSON 1`] = `
 {
+  "hasMore": false,
   "messages": [
     {
       "role": "user",
@@ -2932,5 +3002,70 @@ exports[`IPC message snapshots ServerMessage types approved_device_remove_respon
 {
   "success": true,
   "type": "approved_device_remove_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types recording_start serializes to expected JSON 1`] = `
+{
+  "recordingId": "rec-001",
+  "type": "recording_start",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types recording_stop serializes to expected JSON 1`] = `
+{
+  "recordingId": "rec-001",
+  "type": "recording_stop",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_config_response serializes to expected JSON 1`] = `
+{
+  "activeHoursEnd": 17,
+  "activeHoursStart": 9,
+  "enabled": true,
+  "intervalMs": 3600000,
+  "nextRunAt": 1700003600000,
+  "success": true,
+  "type": "heartbeat_config_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_runs_list_response serializes to expected JSON 1`] = `
+{
+  "runs": [
+    {
+      "createdAt": 1700000000000,
+      "id": "hb-run-001",
+      "result": "All systems nominal",
+      "title": "Morning heartbeat",
+    },
+  ],
+  "type": "heartbeat_runs_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_run_now_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "heartbeat_run_now_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_checklist_response serializes to expected JSON 1`] = `
+{
+  "content": 
+"- [ ] Check email
+- [ ] Review PRs"
+,
+  "isDefault": false,
+  "type": "heartbeat_checklist_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types heartbeat_checklist_write_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "heartbeat_checklist_write_response",
 }
 `;

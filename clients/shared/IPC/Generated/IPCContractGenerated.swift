@@ -1956,8 +1956,12 @@ public struct IPCHistoryRequest: Codable, Sendable {
     public let includeSurfaceData: Bool?
     /// Shorthand: 'light' = all include flags false (default), 'full' = all include flags true.
     public let mode: String?
+    /// Truncate message text fields beyond this character limit. When omitted, full text is returned.
+    public let maxTextChars: Double?
+    /// Truncate tool result strings beyond this character limit. When omitted, full results are returned.
+    public let maxToolResultChars: Double?
 
-    public init(type: String, sessionId: String, limit: Double? = nil, beforeTimestamp: Double? = nil, beforeMessageId: String? = nil, includeAttachments: Bool? = nil, includeToolImages: Bool? = nil, includeSurfaceData: Bool? = nil, mode: String? = nil) {
+    public init(type: String, sessionId: String, limit: Double? = nil, beforeTimestamp: Double? = nil, beforeMessageId: String? = nil, includeAttachments: Bool? = nil, includeToolImages: Bool? = nil, includeSurfaceData: Bool? = nil, mode: String? = nil, maxTextChars: Double? = nil, maxToolResultChars: Double? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.limit = limit
@@ -1967,6 +1971,8 @@ public struct IPCHistoryRequest: Codable, Sendable {
         self.includeToolImages = includeToolImages
         self.includeSurfaceData = includeSurfaceData
         self.mode = mode
+        self.maxTextChars = maxTextChars
+        self.maxToolResultChars = maxToolResultChars
     }
 }
 
@@ -2008,8 +2014,10 @@ public struct IPCHistoryResponseMessage: Codable, Sendable {
     public let surfaces: [IPCHistoryResponseSurface]?
     /// Present when this message is a subagent lifecycle notification (completed/failed/aborted).
     public let subagentNotification: IPCHistoryResponseMessageSubagentNotification?
+    /// True when text or tool result content was truncated due to maxTextChars/maxToolResultChars.
+    public let wasTruncated: Bool?
 
-    public init(id: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [IPCHistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [IPCUserMessageAttachment]? = nil, textSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [IPCHistoryResponseSurface]? = nil, subagentNotification: IPCHistoryResponseMessageSubagentNotification? = nil) {
+    public init(id: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [IPCHistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [IPCUserMessageAttachment]? = nil, textSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [IPCHistoryResponseSurface]? = nil, subagentNotification: IPCHistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
         self.id = id
         self.role = role
         self.text = text
@@ -2021,6 +2029,7 @@ public struct IPCHistoryResponseMessage: Codable, Sendable {
         self.contentOrder = contentOrder
         self.surfaces = surfaces
         self.subagentNotification = subagentNotification
+        self.wasTruncated = wasTruncated
     }
 }
 
@@ -2658,6 +2667,46 @@ public struct IPCMessageComplete: Codable, Sendable {
         self.type = type
         self.sessionId = sessionId
         self.attachments = attachments
+    }
+}
+
+public struct IPCMessageContentRequest: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let messageId: String
+
+    public init(type: String, sessionId: String, messageId: String) {
+        self.type = type
+        self.sessionId = sessionId
+        self.messageId = messageId
+    }
+}
+
+public struct IPCMessageContentResponse: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let messageId: String
+    public let text: String?
+    public let toolCalls: [IPCMessageContentResponseToolCall]?
+
+    public init(type: String, sessionId: String, messageId: String, text: String? = nil, toolCalls: [IPCMessageContentResponseToolCall]? = nil) {
+        self.type = type
+        self.sessionId = sessionId
+        self.messageId = messageId
+        self.text = text
+        self.toolCalls = toolCalls
+    }
+}
+
+public struct IPCMessageContentResponseToolCall: Codable, Sendable {
+    public let name: String
+    public let result: String?
+    public let input: [String: AnyCodable]?
+
+    public init(name: String, result: String? = nil, input: [String: AnyCodable]? = nil) {
+        self.name = name
+        self.result = result
+        self.input = input
     }
 }
 

@@ -102,6 +102,24 @@ export interface HistoryRequest {
   includeSurfaceData?: boolean;
   /** Shorthand: 'light' = all include flags false (default), 'full' = all include flags true. */
   mode?: 'light' | 'full';
+  /** Truncate message text fields beyond this character limit. When omitted, full text is returned. */
+  maxTextChars?: number;
+  /** Truncate tool result strings beyond this character limit. When omitted, full results are returned. */
+  maxToolResultChars?: number;
+}
+
+export interface MessageContentRequest {
+  type: 'message_content_request';
+  sessionId: string;
+  messageId: string;
+}
+
+export interface MessageContentResponse {
+  type: 'message_content_response';
+  sessionId: string;
+  messageId: string;
+  text?: string;
+  toolCalls?: Array<{ name: string; result?: string; input?: Record<string, unknown> }>;
 }
 
 export interface UndoRequest {
@@ -276,6 +294,8 @@ export interface HistoryResponse {
       error?: string;
       conversationId?: string;
     };
+    /** True when text or tool result content was truncated due to maxTextChars/maxToolResultChars. */
+    wasTruncated?: boolean;
   }>;
   /** Whether older messages exist beyond the returned page. */
   hasMore: boolean;
@@ -362,7 +382,8 @@ export type _SessionsClientMessages =
   | SessionSwitchRequest
   | SessionRenameRequest
   | SessionsClearRequest
-  | ConversationSearchRequest;
+  | ConversationSearchRequest
+  | MessageContentRequest;
 
 export type _SessionsServerMessages =
   | AuthResult
@@ -381,4 +402,5 @@ export type _SessionsServerMessages =
   | SessionTitleUpdated
   | SessionListResponse
   | SessionsClearResponse
-  | ConversationSearchResponse;
+  | ConversationSearchResponse
+  | MessageContentResponse;
