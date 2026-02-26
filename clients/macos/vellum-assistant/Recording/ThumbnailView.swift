@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import VellumAssistantShared
 
 /// Reusable thumbnail view that renders a source preview with proper
 /// fallback states for all `PreviewStatus` values.
@@ -41,6 +42,11 @@ struct ThumbnailView: View {
             }
         }
         .frame(width: size.width, height: size.height)
+        .onChange(of: previewStatus) { _, newValue in
+            if newValue != .loading {
+                isPulsing = false
+            }
+        }
     }
 
     // MARK: - Substates
