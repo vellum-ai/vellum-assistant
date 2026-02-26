@@ -74,16 +74,21 @@ const log = getLogger('runtime-http');
  *   1. `/guardian_verify <code>` (legacy command format)
  *   2. `/guardian_verify@BotName <code>` (Telegram group format)
  *   3. A bare 6-digit numeric code as the entire message
- * Returns the verification code if recognized, or undefined otherwise.
+ * Returns `{ code, isExplicitCommand }` if recognized, or undefined otherwise.
+ * `isExplicitCommand` is true for legacy /guardian_verify commands (explicit
+ * intent) and false for bare codes (which need additional gating to avoid
+ * intercepting normal 6-digit messages like zip codes or PINs).
  */
-function parseGuardianVerifyCommand(content: string): string | undefined {
+function parseGuardianVerifyCommand(content: string): { code: string; isExplicitCommand: boolean } | undefined {
   // Legacy /guardian_verify command format
   const commandMatch = content.match(/^\/guardian_verify(?:@\S+)?\s+(\S+)/);
-  if (commandMatch) return commandMatch[1];
+  if (commandMatch) return { code: commandMatch[1], isExplicitCommand: true };
 
   // Bare 6-digit numeric code
   const bareMatch = content.match(/^\d{6}$/);
-  return bareMatch?.[0];
+  if (bareMatch) return { code: bareMatch[0], isExplicitCommand: false };
+
+  return undefined;
 }
 
 export async function handleChannelInbound(
@@ -192,8 +197,8 @@ export async function handleChannelInbound(
 
   // /guardian_verify must bypass the ACL membership check — users without a
   // member record need to verify before they can be recognized as members.
-  const guardianVerifyCode = parseGuardianVerifyCommand(trimmedContent);
-  const isGuardianVerifyCommand = guardianVerifyCode !== undefined;
+  const guardianVerifyParsed = parseGuardianVerifyCommand(trimmedContent);
+  const isGuardianVerifyCommand = guardianVerifyParsed !== undefined;
 
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
   // hasn't been verified yet and needs to complete the bootstrap handshake.
@@ -592,15 +597,28 @@ export async function handleChannelInbound(
   // delivered via template-driven deterministic messages and the command
   // is short-circuited — it NEVER enters the agent pipeline. This
   // prevents verification commands from producing agent-generated copy.
+  //
+  // Bare 6-digit codes are only intercepted when there is actually a
+  // pending challenge or active outbound session for this channel.
+  // Without this guard, normal 6-digit messages (zip codes, PINs, etc.)
+  // would be swallowed by the verification handler and never reach the
+  // agent pipeline.  Legacy /guardian_verify commands are always
+  // intercepted because the explicit command prefix signals clear intent.
+  const shouldInterceptVerification = guardianVerifyParsed !== undefined &&
+    (guardianVerifyParsed.isExplicitCommand ||
+     !!getPendingChallenge(canonicalAssistantId, sourceChannel) ||
+     !!findActiveSession(canonicalAssistantId, sourceChannel));
+
   if (
     !result.duplicate &&
-    guardianVerifyCode !== undefined &&
+    shouldInterceptVerification &&
+    guardianVerifyParsed !== undefined &&
     body.senderExternalUserId
   ) {
     const verifyResult = validateAndConsumeChallenge(
       canonicalAssistantId,
       sourceChannel,
-      guardianVerifyCode,
+      guardianVerifyParsed.code,
       body.senderExternalUserId,
       externalChatId,
       body.senderUsername,

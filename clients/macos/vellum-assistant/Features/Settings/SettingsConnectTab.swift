@@ -1498,28 +1498,32 @@ struct SettingsConnectTab: View {
     private func guardianInstructionSubtext(channel: String) -> String {
         if channel == "telegram" {
             let handle = store.telegramBotUsername.map { "@\($0)" } ?? "your bot"
-            return "Message \(handle) with the below command within the next 10 minutes"
+            return "Message \(handle) with the below code within the next 10 minutes"
         } else if channel == "voice" {
             let number = store.twilioPhoneNumber ?? "your assistant"
             return "Call \(number) and say the six-digit code below within the next 10 minutes"
         } else {
             let number = store.twilioPhoneNumber ?? "your assistant"
-            return "Text \(number) with the below command within the next 10 minutes"
+            return "Text \(number) with the below code within the next 10 minutes"
         }
     }
 
-    /// Extracts the `/guardian_verify <hex>` command from a raw instruction string.
+    /// Extracts a guardian verification code from a raw instruction string.
+    /// Supports two formats:
+    ///   1. Legacy `/guardian_verify <hex>` command
+    ///   2. "six-digit code: 123456" (used by all channels now)
     private func extractGuardianCommand(from instruction: String) -> String? {
-        guard let range = instruction.range(of: #"`?/guardian_verify\s+[0-9a-fA-F]+`?"#, options: .regularExpression) else {
-            return nil
+        // Try legacy /guardian_verify command format first
+        if let range = instruction.range(of: #"`?/guardian_verify\s+[0-9a-fA-F]+`?"#, options: .regularExpression) {
+            return String(instruction[range]).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
         }
-        return String(instruction[range]).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
+        // Fall back to six-digit code format (all channels now use 6-digit numeric codes)
+        return extractSixDigitCode(from: instruction)
     }
 
-    /// Extracts a six-digit verification code from voice-style instruction text.
-    /// Voice instructions use a format like "...six-digit code: 123456..." instead of the
-    /// `/guardian_verify <hex>` command used by Telegram and SMS channels.
-    private func extractVoiceGuardianCode(from instruction: String) -> String? {
+    /// Extracts a six-digit verification code from instruction text.
+    /// Matches the format "six-digit code: 123456" used by all channels.
+    private func extractSixDigitCode(from instruction: String) -> String? {
         guard let range = instruction.range(of: #"six-digit code:\s*(\d{6})"#, options: .regularExpression) else {
             return nil
         }
@@ -1533,11 +1537,10 @@ struct SettingsConnectTab: View {
 
     @ViewBuilder
     private func guardianInstructionView(channel: String, instruction: String) -> some View {
-        // Voice uses a different instruction format ("six-digit code: 123456") vs
-        // Telegram/SMS which use "/guardian_verify <hex>".
-        let command: String? = channel == "voice"
-            ? extractVoiceGuardianCode(from: instruction)
-            : extractGuardianCommand(from: instruction)
+        // All channels now use 6-digit numeric codes. extractGuardianCommand
+        // handles both the legacy /guardian_verify format and the new
+        // "six-digit code: 123456" format.
+        let command: String? = extractGuardianCommand(from: instruction)
         let isCopied = guardianCommandCopiedChannel == channel
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {

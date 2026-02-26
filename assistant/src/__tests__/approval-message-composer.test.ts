@@ -127,14 +127,12 @@ describe('approval-message-composer', () => {
       expect(msg).toContain('Code did not match.');
     });
 
-    test('guardian_verify_challenge_setup includes verifyCommand and ttlSeconds', () => {
+    test('guardian_verify_challenge_setup includes verifyCommand in six-digit code format', () => {
       const msg = getFallbackMessage({
         scenario: 'guardian_verify_challenge_setup',
-        verifyCommand: '/verify abc123',
-        ttlSeconds: 30,
+        verifyCommand: '123456',
       });
-      expect(msg).toContain('/verify abc123');
-      expect(msg).toContain('30');
+      expect(msg).toContain('six-digit code: 123456');
     });
   });
 
@@ -195,16 +193,14 @@ describe('approval-message-composer', () => {
   // -----------------------------------------------------------------------
 
   describe('verification scenario resilience', () => {
-    test('guardian_verify_challenge_setup includes verify command and TTL', () => {
+    test('guardian_verify_challenge_setup includes verify code', () => {
       const msg = composeApprovalMessage({
         scenario: 'guardian_verify_challenge_setup',
-        verifyCommand: '/guardian_verify abc123def456',
-        ttlSeconds: 600,
+        verifyCommand: '987654',
       });
       expect(typeof msg).toBe('string');
       expect(msg.length).toBeGreaterThan(0);
-      expect(msg).toContain('/guardian_verify abc123def456');
-      expect(msg).toContain('600');
+      expect(msg).toContain('six-digit code: 987654');
     });
 
     test('guardian_verify_failed includes failure reason', () => {

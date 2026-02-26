@@ -216,13 +216,17 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
     case 'guardian_verify_failed':
       return `Verification failed. ${context.failureReason ?? 'Please try again.'}`;
 
-    case 'guardian_verify_challenge_setup':
+    case 'guardian_verify_challenge_setup': {
+      // All channels now use 6-digit numeric codes. The instruction must
+      // include the code so the macOS client (and other consumers) can
+      // parse it from the instruction text.  The "six-digit code: <code>"
+      // format is shared across channels for consistency.
+      const code = context.verifyCommand ?? 'the verification code';
       if (context.channel === 'voice') {
-        // Voice challenges use a six-digit numeric code that can be spoken aloud
-        const code = context.verifyCommand ?? 'the verification code';
         return `To complete guardian verification, speak or enter the six-digit code: ${code}.`;
       }
-      return `To complete guardian verification, reply in the channel with the code you were given.`;
+      return `To complete guardian verification, send the six-digit code: ${code}.`;
+    }
 
     case 'guardian_verify_status_bound':
       return 'A guardian is currently active for this channel.';
