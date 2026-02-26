@@ -960,6 +960,51 @@ describe('SMS guardian verify intercept', () => {
 
     deliverSpy.mockRestore();
   });
+
+  test('64-char hex verification codes are intercepted when a pending challenge exists', async () => {
+    const { createHash, randomBytes } = await import('node:crypto');
+    const { createChallenge } = await import('../memory/channel-guardian-store.js');
+
+    const secret = randomBytes(32).toString('hex');
+    const challengeHash = createHash('sha256').update(secret).digest('hex');
+    createChallenge({
+      id: `challenge-hex-${Date.now()}`,
+      assistantId: 'self',
+      channel: 'sms',
+      challengeHash,
+      expiresAt: Date.now() + 600_000,
+    });
+
+    let processMessageCalled = false;
+    const processMessage = async () => {
+      processMessageCalled = true;
+      return { messageId: 'msg-hex-not-verify' };
+    };
+
+    const req = new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gateway-Origin': TEST_BEARER_TOKEN,
+      },
+      body: JSON.stringify({
+        sourceChannel: 'sms',
+        interface: 'sms',
+        externalChatId: 'sms-chat-hex-message',
+        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
+        content: secret,
+        senderExternalUserId: 'sms-user-hex',
+        replyCallbackUrl: 'https://gateway.test/deliver',
+      }),
+    });
+
+    const res = await handleChannelInbound(req, processMessage, TEST_BEARER_TOKEN);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.guardianVerification).toBe('verified');
+    expect(processMessageCalled).toBe(false);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

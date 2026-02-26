@@ -3702,13 +3702,13 @@ describe('M1–M4 hardening coverage', () => {
   // ── M2: bootstrap sessions use high-entropy hex secrets ──
 
   test('bootstrap (pending_bootstrap) sessions use high-entropy hex secrets, identity-bound use 6-digit numeric', () => {
-    // Pending bootstrap: high-entropy hex (32 bytes = 64 hex chars)
     const bootstrapResult = createOutboundSession({
       assistantId: 'asst-entropy',
       channel: 'telegram',
       identityBindingStatus: 'pending_bootstrap',
       destinationAddress: '@testuser',
     });
+    // Pending bootstrap: high-entropy hex (32 bytes = 64 hex chars)
     expect(bootstrapResult.secret.length).toBe(64);
     expect(bootstrapResult.secret).toMatch(/^[a-f0-9]{64}$/);
 
