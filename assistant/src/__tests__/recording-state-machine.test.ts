@@ -367,7 +367,7 @@ describe('stale completion guard (operation token)', () => {
     expect(textDeltas).toHaveLength(0);
 
     // Active restart token should still be set (not cleared by stale completion)
-    expect(getActiveRestartToken()).toBe(restartResult.operationToken);
+    expect(getActiveRestartToken()).toBe(restartResult.operationToken!);
   });
 
   test('accepts recording_status with matching operation token', () => {
@@ -429,10 +429,13 @@ describe('stale completion guard (operation token)', () => {
     };
     recordingHandlers.recording_status(tokenlessStatus, fakeSocket, ctx);
 
-    // Should have been allowed through — the stopped handler processes normally
-    // (emits text delta about recording stopped/no file)
+    // Should have triggered the deferred restart start (not emitted text deltas)
+    const newStartMsgs = sent.filter((m) => m.type === 'recording_start');
+    expect(newStartMsgs).toHaveLength(1);
+
+    // No text deltas — the stopped handler short-circuited to deferred restart
     const textDeltas = sent.filter((m) => m.type === 'assistant_text_delta');
-    expect(textDeltas.length).toBeGreaterThan(0);
+    expect(textDeltas).toHaveLength(0);
   });
 
   test('no ghost state after restart stop/start handoff', () => {
@@ -483,7 +486,7 @@ describe('handleRecordingPause', () => {
 
     const result = handleRecordingPause(conversationId, ctx);
 
-    expect(result).toBe(recordingId);
+    expect(result).toBe(recordingId!);
     expect(sent).toHaveLength(1);
     expect(sent[0].type).toBe('recording_pause');
     expect(sent[0].recordingId).toBe(recordingId);
@@ -505,7 +508,7 @@ describe('handleRecordingPause', () => {
     sent.length = 0;
 
     const result = handleRecordingPause('conv-other-pause', ctx);
-    expect(result).toBe(recordingId);
+    expect(result).toBe(recordingId!);
   });
 });
 
@@ -525,7 +528,7 @@ describe('handleRecordingResume', () => {
 
     const result = handleRecordingResume(conversationId, ctx);
 
-    expect(result).toBe(recordingId);
+    expect(result).toBe(recordingId!);
     expect(sent).toHaveLength(1);
     expect(sent[0].type).toBe('recording_resume');
     expect(sent[0].recordingId).toBe(recordingId);
