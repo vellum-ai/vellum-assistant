@@ -91,6 +91,7 @@ export const memoryItems = sqliteTable('memory_items', {
 }, (table) => [
   index('idx_memory_items_scope_id').on(table.scopeId),
   index('idx_memory_items_fingerprint').on(table.fingerprint),
+  index('idx_memory_items_scope_id_status').on(table.scopeId, table.status),
 ]);
 
 export const memoryItemSources = sqliteTable('memory_item_sources', {
