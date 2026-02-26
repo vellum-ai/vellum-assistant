@@ -17,11 +17,11 @@ import { getLogger } from '../util/logger.js';
 import { type BroadcastFn, VellumAdapter } from './adapters/macos.js';
 import { TelegramAdapter } from './adapters/telegram.js';
 import { NotificationBroadcaster,type ThreadCreatedInfo } from './broadcaster.js';
-import { evaluateSignal } from './decision-engine.js';
+import { enforceRoutingIntent, evaluateSignal } from './decision-engine.js';
 import { type DeterministicCheckContext, runDeterministicChecks } from './deterministic-checks.js';
 import { createEvent, updateEventDedupeKey } from './events-store.js';
 import { dispatchDecision } from './runtime-dispatch.js';
-import type { AttentionHints, NotificationSignal } from './signal.js';
+import type { AttentionHints, NotificationSignal, RoutingIntent } from './signal.js';
 import type { NotificationChannel, NotificationDeliveryResult } from './types.js';
 
 const log = getLogger('emit-signal');
@@ -125,6 +125,10 @@ export interface EmitSignalParams {
   attentionHints: AttentionHints;
   /** Arbitrary context payload passed to the decision engine. */
   contextPayload?: Record<string, unknown>;
+  /** Routing intent from the source (e.g. reminder). Controls post-decision channel enforcement. */
+  routingIntent?: RoutingIntent;
+  /** Free-form hints from the source for the decision engine. */
+  routingHints?: Record<string, unknown>;
   /** Optional deduplication key. */
   dedupeKey?: string;
   /**
@@ -167,6 +171,8 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
     sourceEventName: params.sourceEventName,
     contextPayload: params.contextPayload ?? {},
     attentionHints: params.attentionHints,
+    routingIntent: params.routingIntent,
+    routingHints: params.routingHints,
   };
 
   try {
@@ -195,7 +201,10 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
 
     // Step 2: Evaluate the signal through the decision engine
     const connectedChannels = getConnectedChannels(assistantId);
-    const decision = await evaluateSignal(signal, connectedChannels);
+    let decision = await evaluateSignal(signal, connectedChannels);
+
+    // Step 2.5: Enforce routing intent policy (fire-time guard)
+    decision = enforceRoutingIntent(decision, signal.routingIntent, connectedChannels);
 
     // Persist model-generated dedupeKey back to the event row so future
     // signals can deduplicate against it (the event was created with
