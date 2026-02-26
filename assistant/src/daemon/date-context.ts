@@ -11,6 +11,10 @@ export interface TemporalContextOptions {
   nowMs?: number;
   /** IANA timezone (e.g. "America/New_York"). Defaults to host timezone. */
   timeZone?: string;
+  /** IANA timezone for the daemon host clock (defaults to process local timezone). */
+  hostTimeZone?: string;
+  /** IANA timezone inferred from user profile/memory (if available). */
+  userTimeZone?: string | null;
   /** Number of future days to list (default 14, hard-capped at 14). */
   horizonDays?: number;
 }
@@ -19,6 +23,62 @@ const MAX_OUTPUT_CHARS = 1500;
 const MAX_HORIZON_ENTRIES = 14;
 
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+const TIMEZONE_SUBJECT_LINE_RE = /^\s*-\s*time\s*zone\s*:\s*(.+)$/i;
+const TIMEZONE_SUBJECT_COMPACT_RE = /^\s*-\s*timezone\s*:\s*(.+)$/i;
+const TIMEZONE_TOKEN_RE = /\b(?:[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)+|UTC|GMT)\b/g;
+
+function normalizeOffsetToken(offsetToken: string): string {
+  if (offsetToken === 'GMT' || offsetToken === 'UTC') {
+    return '+00:00';
+  }
+  const match = /^(?:GMT|UTC)([+-])(\d{1,2})(?::?(\d{2}))?$/i.exec(offsetToken);
+  if (!match) {
+    return '+00:00';
+  }
+  const [, sign, hours, minutes] = match;
+  return `${sign}${hours.padStart(2, '0')}:${(minutes ?? '00').padStart(2, '0')}`;
+}
+
+function canonicalizeTimeZone(timeZone: string): string | null {
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
+
+function extractTimeZoneCandidates(text: string): string[] {
+  const matches = text.match(TIMEZONE_TOKEN_RE) ?? [];
+  return matches.map((token) => token.trim()).filter((token) => token.length > 0);
+}
+
+/**
+ * Extract a valid user timezone from compiled `<dynamic-user-profile>` text.
+ *
+ * Prefers explicit `timezone:` profile lines, then falls back to scanning the
+ * full profile body for valid IANA timezone identifiers.
+ */
+export function extractUserTimeZoneFromDynamicProfile(profileText: string): string | null {
+  const trimmed = profileText.trim();
+  if (trimmed.length === 0) return null;
+
+  const candidateTexts: string[] = [];
+  for (const line of trimmed.split('\n')) {
+    const match = line.match(TIMEZONE_SUBJECT_LINE_RE) ?? line.match(TIMEZONE_SUBJECT_COMPACT_RE);
+    if (match) {
+      candidateTexts.push(match[1]);
+    }
+  }
+  candidateTexts.push(trimmed);
+
+  for (const text of candidateTexts) {
+    for (const token of extractTimeZoneCandidates(text)) {
+      const canonical = canonicalizeTimeZone(token);
+      if (canonical) return canonical;
+    }
+  }
+  return null;
+}
 
 /**
  * Get the local date parts for a given instant in the specified timezone.
@@ -53,6 +113,33 @@ function formatLocalDate(date: Date, timeZone: string): string {
 }
 
 /**
+ * Format a Date as local ISO 8601 with timezone offset in the given timezone.
+ */
+function formatLocalIsoWithOffset(date: Date, timeZone: string): string {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZoneName: 'shortOffset',
+  });
+  const parts = fmt.formatToParts(date);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  const offset = normalizeOffsetToken(get('timeZoneName'));
+  const year = get('year');
+  const month = get('month');
+  const day = get('day');
+  const hour = get('hour');
+  const minute = get('minute');
+  const second = get('second');
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}${offset}`;
+}
+
+/**
  * Advance a date by `days` calendar days in the given timezone.
  *
  * Computes the local date, adds days to the day component, then anchors
@@ -84,7 +171,16 @@ function addDays(date: Date, days: number, timeZone: string): Date {
  */
 export function buildTemporalContext(options: TemporalContextOptions = {}): string {
   const now = new Date(options.nowMs ?? Date.now());
-  const timeZone = options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const resolvedHostTimeZone = canonicalizeTimeZone(
+    options.hostTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+  ) ?? 'UTC';
+  const resolvedUserTimeZone = options.userTimeZone
+    ? canonicalizeTimeZone(options.userTimeZone)
+    : null;
+  const resolvedTimeZone = options.timeZone
+    ? canonicalizeTimeZone(options.timeZone)
+    : null;
+  const timeZone = resolvedTimeZone ?? resolvedUserTimeZone ?? resolvedHostTimeZone;
   const horizonDays = Math.min(options.horizonDays ?? MAX_HORIZON_ENTRIES, MAX_HORIZON_ENTRIES);
 
   const todayParts = localDateParts(now, timeZone);
@@ -114,6 +210,12 @@ export function buildTemporalContext(options: TemporalContextOptions = {}): stri
     `<temporal_context>`,
     `Today: ${todayStr} (${todayWeekday})`,
     `Timezone: ${timeZone}`,
+    `Current local time: ${formatLocalIsoWithOffset(now, timeZone)}`,
+    `Current UTC time: ${now.toISOString()}`,
+    `Clock source: daemon host machine`,
+    `Daemon host timezone: ${resolvedHostTimeZone}`,
+    `User timezone: ${resolvedUserTimeZone ?? 'unknown'}`,
+    `Timezone source: ${resolvedUserTimeZone ? 'user_profile_memory' : 'daemon_host_fallback'}`,
     ``,
     `Week definitions: work week = Monday–Friday, weekend = Saturday–Sunday`,
     ``,
