@@ -198,7 +198,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             return
         }
 
-        let thread = ThreadModel(title: title, sessionId: conversationId)
+        var thread = ThreadModel(title: title, sessionId: conversationId)
+        thread.source = "notification"
+        thread.hasUnseenLatestAssistantMessage = true
         let viewModel = makeViewModel()
         viewModel.sessionId = conversationId
         // Start the message loop so the view model receives streamed messages

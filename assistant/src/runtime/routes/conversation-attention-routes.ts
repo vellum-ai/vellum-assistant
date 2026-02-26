@@ -15,9 +15,11 @@ export function handleListConversationAttention(url: URL): Response {
   const stateParam = url.searchParams.get('state') ?? 'all';
   const sourceParam = url.searchParams.get('source') ?? 'all';
   const channel = url.searchParams.get('channel') ?? undefined;
-  const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 20), 1), 100);
+  const rawLimit = Number(url.searchParams.get('limit') ?? 20);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 20;
   const beforeParam = url.searchParams.get('before');
-  const before = beforeParam ? Number(beforeParam) : undefined;
+  const rawBefore = beforeParam ? Number(beforeParam) : undefined;
+  const before = rawBefore !== undefined && Number.isFinite(rawBefore) ? rawBefore : undefined;
 
   if (!['seen', 'unseen', 'all'].includes(stateParam)) {
     return Response.json({ error: 'Invalid state parameter. Must be seen, unseen, or all.' }, { status: 400 });

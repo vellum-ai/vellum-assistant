@@ -503,6 +503,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                         source: "notification-action",
                         evidenceText: "User clicked View on notification"
                     )
+                    // Clear local unseen state so sidebar dot disappears immediately
+                    if let threadIdx = self.mainWindow?.threadManager.threads.firstIndex(where: { $0.sessionId == conversationId }) {
+                        self.mainWindow?.threadManager.threads[threadIdx].hasUnseenLatestAssistantMessage = false
+                    }
                 } else {
                     self.showMainWindow()
                 }
