@@ -401,6 +401,16 @@ export async function processMessage(
     let matchedDelivery = (pendingDeliveries.length === 1 && totalCrossStateCount === 1) ? pendingDeliveries[0] : null;
     let answerText = content;
 
+    // Strip the request code prefix from the answer text when the single
+    // pending delivery is auto-matched (content may include a code prefix
+    // if the guardian uses it out of habit after a previous disambiguation round).
+    if (matchedDelivery) {
+      const req = getGuardianActionRequest(matchedDelivery.requestId);
+      if (req && content.toUpperCase().startsWith(req.requestCode)) {
+        answerText = content.slice(req.requestCode.length).trim();
+      }
+    }
+
     // Multiple deliveries across any state: require request code prefix for disambiguation
     if (!matchedDelivery && pendingDeliveries.length >= 1) {
       for (const d of pendingDeliveries) {
@@ -556,38 +566,52 @@ export async function processMessage(
       }
 
       if (!matchedExpired) {
-        const guardianIfCtx = session.getTurnInterfaceContext();
-        const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum', assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum', provenanceActorRole: 'guardian' as const };
-        const userMsg = createUserMessage(content, attachments);
-        const persisted = await conversationStore.addMessage(
-          session.conversationId,
-          'user',
-          JSON.stringify(userMsg.content),
-          guardianChannelMeta,
-        );
-        session.messages.push(userMsg);
+        // Before disambiguating, check if the code matches a follow-up or
+        // pending delivery. If so, fall through to let those handlers process it.
+        let matchesFollowupState = false;
+        for (const d of [...expCrossStateFollowup, ...expCrossStatePending]) {
+          const req = getGuardianActionRequest(d.requestId);
+          if (req && content.toUpperCase().startsWith(req.requestCode)) {
+            matchesFollowupState = true;
+            break;
+          }
+        }
 
-        // Include codes from all states so the guardian sees all options
-        const allExpiredDeliveries = [...expiredDeliveries, ...expCrossStatePending, ...expCrossStateFollowup];
-        const codes = allExpiredDeliveries
-          .map((d) => { const req = getGuardianActionRequest(d.requestId); return req ? req.requestCode : null; })
-          .filter((code): code is string => typeof code === 'string' && code.length > 0);
-        const disambiguationText = await composeGuardianActionMessageGenerative(
-          { scenario: 'guardian_expired_disambiguation', requestCodes: codes },
-          { requiredKeywords: codes },
-          _guardianActionCopyGenerator,
-        );
-        const disambiguationMsg = createAssistantMessage(disambiguationText);
-        await conversationStore.addMessage(
-          session.conversationId,
-          'assistant',
-          JSON.stringify(disambiguationMsg.content),
-          guardianChannelMeta,
-        );
-        session.messages.push(disambiguationMsg);
-        onEvent({ type: 'assistant_text_delta', text: disambiguationText });
-        onEvent({ type: 'message_complete', sessionId: session.conversationId });
-        return persisted.id;
+        if (!matchesFollowupState) {
+          const guardianIfCtx = session.getTurnInterfaceContext();
+          const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum', assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum', provenanceActorRole: 'guardian' as const };
+          const userMsg = createUserMessage(content, attachments);
+          const persisted = await conversationStore.addMessage(
+            session.conversationId,
+            'user',
+            JSON.stringify(userMsg.content),
+            guardianChannelMeta,
+          );
+          session.messages.push(userMsg);
+
+          // Include codes from all states so the guardian sees all options
+          const allExpiredDeliveries = [...expiredDeliveries, ...expCrossStatePending, ...expCrossStateFollowup];
+          const codes = allExpiredDeliveries
+            .map((d) => { const req = getGuardianActionRequest(d.requestId); return req ? req.requestCode : null; })
+            .filter((code): code is string => typeof code === 'string' && code.length > 0);
+          const disambiguationText = await composeGuardianActionMessageGenerative(
+            { scenario: 'guardian_expired_disambiguation', requestCodes: codes },
+            { requiredKeywords: codes },
+            _guardianActionCopyGenerator,
+          );
+          const disambiguationMsg = createAssistantMessage(disambiguationText);
+          await conversationStore.addMessage(
+            session.conversationId,
+            'assistant',
+            JSON.stringify(disambiguationMsg.content),
+            guardianChannelMeta,
+          );
+          session.messages.push(disambiguationMsg);
+          onEvent({ type: 'assistant_text_delta', text: disambiguationText });
+          onEvent({ type: 'message_complete', sessionId: session.conversationId });
+          return persisted.id;
+        }
+        // Code matched a follow-up or pending delivery — fall through to those handlers
       }
     }
 
@@ -687,38 +711,53 @@ export async function processMessage(
       }
 
       if (!matchedFollowup) {
-        const guardianIfCtx = session.getTurnInterfaceContext();
-        const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum', assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum', provenanceActorRole: 'guardian' as const };
-        const userMsg = createUserMessage(content, attachments);
-        const persisted = await conversationStore.addMessage(
-          session.conversationId,
-          'user',
-          JSON.stringify(userMsg.content),
-          guardianChannelMeta,
-        );
-        session.messages.push(userMsg);
+        // Before disambiguating, check if the code matches an expired or
+        // pending delivery. If so, fall through to let the normal agent loop
+        // handle it (expired/pending blocks already ran and didn't match).
+        let matchesOtherFollowupState = false;
+        for (const d of [...fuCrossStateExpired, ...fuCrossStatePending]) {
+          const req = getGuardianActionRequest(d.requestId);
+          if (req && content.toUpperCase().startsWith(req.requestCode)) {
+            matchesOtherFollowupState = true;
+            break;
+          }
+        }
 
-        // Include codes from all states so the guardian sees all options
-        const allFollowupDeliveries = [...followupDeliveries, ...fuCrossStatePending, ...fuCrossStateExpired];
-        const codes = allFollowupDeliveries
-          .map((d) => { const req = getGuardianActionRequest(d.requestId); return req ? req.requestCode : null; })
-          .filter((code): code is string => typeof code === 'string' && code.length > 0);
-        const disambiguationText = await composeGuardianActionMessageGenerative(
-          { scenario: 'guardian_followup_disambiguation', requestCodes: codes },
-          { requiredKeywords: codes },
-          _guardianActionCopyGenerator,
-        );
-        const disambiguationMsg = createAssistantMessage(disambiguationText);
-        await conversationStore.addMessage(
-          session.conversationId,
-          'assistant',
-          JSON.stringify(disambiguationMsg.content),
-          guardianChannelMeta,
-        );
-        session.messages.push(disambiguationMsg);
-        onEvent({ type: 'assistant_text_delta', text: disambiguationText });
-        onEvent({ type: 'message_complete', sessionId: session.conversationId });
-        return persisted.id;
+        if (!matchesOtherFollowupState) {
+          const guardianIfCtx = session.getTurnInterfaceContext();
+          const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum', assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum', provenanceActorRole: 'guardian' as const };
+          const userMsg = createUserMessage(content, attachments);
+          const persisted = await conversationStore.addMessage(
+            session.conversationId,
+            'user',
+            JSON.stringify(userMsg.content),
+            guardianChannelMeta,
+          );
+          session.messages.push(userMsg);
+
+          // Include codes from all states so the guardian sees all options
+          const allFollowupDeliveries = [...followupDeliveries, ...fuCrossStatePending, ...fuCrossStateExpired];
+          const codes = allFollowupDeliveries
+            .map((d) => { const req = getGuardianActionRequest(d.requestId); return req ? req.requestCode : null; })
+            .filter((code): code is string => typeof code === 'string' && code.length > 0);
+          const disambiguationText = await composeGuardianActionMessageGenerative(
+            { scenario: 'guardian_followup_disambiguation', requestCodes: codes },
+            { requiredKeywords: codes },
+            _guardianActionCopyGenerator,
+          );
+          const disambiguationMsg = createAssistantMessage(disambiguationText);
+          await conversationStore.addMessage(
+            session.conversationId,
+            'assistant',
+            JSON.stringify(disambiguationMsg.content),
+            guardianChannelMeta,
+          );
+          session.messages.push(disambiguationMsg);
+          onEvent({ type: 'assistant_text_delta', text: disambiguationText });
+          onEvent({ type: 'message_complete', sessionId: session.conversationId });
+          return persisted.id;
+        }
+        // Code matched an expired or pending delivery — fall through to agent loop
       }
     }
 
