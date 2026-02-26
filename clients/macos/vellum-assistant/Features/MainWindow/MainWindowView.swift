@@ -836,10 +836,9 @@ struct MainWindowView: View {
         }()
         let isHovered = sidebar.isHoveredThread == thread.id
         let isBusy = threadManager.isThreadBusy(thread.id)
-        // Reserve trailing space for overlay icons so text doesn't jitter on state changes.
-        // Hovered: pin(20) + xs(4) + archive(20) + xs(4) padding on each side = 52
-        // Busy or pinned (not hovered): same as hovered to keep layout stable
-        let hasTrailingIcons = isHovered || isBusy || thread.isPinned
+        // Reserve trailing space when hovered for archive button overlay.
+        let hasTrailingIcon = isHovered || sidebar.threadPendingDeletion == thread.id
+        // Always reserve 20pt leading slot so text never shifts.
         Button(action: {
             if case .appEditing(let appId, _) = windowState.selection {
                 // Stay in editing mode, just switch the thread
@@ -852,6 +851,42 @@ struct MainWindowView: View {
             }
         }) {
             HStack(spacing: VSpacing.xs) {
+                // Leading icon: pin button (hovered) > spinner (busy) > pin indicator (pinned)
+                if isHovered {
+                    Button {
+                        if thread.isPinned {
+                            threadManager.unpinThread(id: thread.id)
+                        } else {
+                            threadManager.pinThread(id: thread.id)
+                        }
+                    } label: {
+                        Image(systemName: thread.isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
+                            .rotationEffect(.degrees(-45))
+                            .frame(width: 20, height: 20)
+                            .background(VColor.backgroundSubtle)
+                            .clipShape(Circle())
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
+                } else if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 20, height: 20)
+                } else if thread.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .rotationEffect(.degrees(-45))
+                        .frame(width: 20, height: 20)
+                        .background(VColor.backgroundSubtle)
+                        .clipShape(Circle())
+                } else {
+                    Color.clear
+                        .frame(width: 20, height: 20)
+                }
                 if thread.kind == .private {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10, weight: .medium))
@@ -865,8 +900,8 @@ struct MainWindowView: View {
                     .help(thread.title)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, VSpacing.md)
-            .padding(.trailing, hasTrailingIcons ? (VSpacing.xs + 20 + VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
+            .padding(.leading, VSpacing.xs)
+            .padding(.trailing, hasTrailingIcon ? (VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .background {
                 if isSelected {
@@ -900,58 +935,21 @@ struct MainWindowView: View {
                 .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
-            } else if isHovered {
-                HStack(spacing: VSpacing.xs) {
-                    Button {
-                        if thread.isPinned {
-                            threadManager.unpinThread(id: thread.id)
-                        } else {
-                            threadManager.pinThread(id: thread.id)
-                        }
-                    } label: {
-                        Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
-                            .rotationEffect(.degrees(-45))
-                            .frame(width: 20, height: 20)
-                            .background(VColor.backgroundSubtle)
-                            .clipShape(Circle())
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
-
-                    if threadManager.visibleThreads.count > 1 {
-                        Button {
-                            sidebar.threadPendingDeletion = thread.id
-                        } label: {
-                            Image(systemName: "archivebox")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(VColor.textSecondary)
-                                .frame(width: 20, height: 20)
-                                .background(VColor.backgroundSubtle)
-                                .clipShape(Circle())
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Archive \(thread.title)")
-                    }
+            } else if isHovered && threadManager.visibleThreads.count > 1 {
+                Button {
+                    sidebar.threadPendingDeletion = thread.id
+                } label: {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(width: 20, height: 20)
+                        .background(VColor.backgroundSubtle)
+                        .clipShape(Circle())
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
-            } else if isBusy {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 20, height: 20)
-                    .padding(.trailing, VSpacing.xs + 20 + VSpacing.xs)
-            } else if thread.isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(VColor.textMuted)
-                    .rotationEffect(.degrees(-45))
-                    .frame(width: 20, height: 20)
-                    .background(VColor.backgroundSubtle)
-                    .clipShape(Circle())
-                    .padding(.trailing, VSpacing.xs + 20 + VSpacing.xs)
+                .accessibilityLabel("Archive \(thread.title)")
             }
         }
         .padding(.horizontal, VSpacing.sm)
@@ -1134,8 +1132,9 @@ struct MainWindowView: View {
                                 .font(VFont.caption)
                                 .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, 20)
-                                .padding(.vertical, VSpacing.xs)
+                                .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
+                                .padding(.top, VSpacing.sm)
+                                .padding(.bottom, VSpacing.xs)
                         }
                         .buttonStyle(.plain)
                     }
@@ -1172,8 +1171,9 @@ struct MainWindowView: View {
                                     .font(VFont.caption)
                                     .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.leading, 20)
-                                    .padding(.vertical, VSpacing.xs)
+                                    .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
+                                    .padding(.top, VSpacing.sm)
+                                    .padding(.bottom, VSpacing.xs)
                             }
                             .buttonStyle(.plain)
                         }
