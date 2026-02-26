@@ -342,6 +342,11 @@ export class Session {
     this.traceEmitter.updateSender(sendToClient);
   }
 
+  /** Returns the current sendToClient reference for identity comparison. */
+  getCurrentSender(): (msg: ServerMessage) => void {
+    return this.sendToClient;
+  }
+
   setSandboxOverride(enabled: boolean | undefined): void {
     this.sandboxOverride = enabled;
   }

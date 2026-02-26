@@ -368,7 +368,7 @@ export function getNextMessage(conversationId: string, afterTimestamp: number, e
       gte(messages.createdAt, afterTimestamp),
       ne(messages.id, excludeMessageId),
     ))
-    .orderBy(asc(messages.createdAt))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
     .limit(1)
     .get();
   return row ? parseMessage(row) : null;

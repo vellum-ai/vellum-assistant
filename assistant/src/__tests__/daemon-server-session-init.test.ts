@@ -31,6 +31,12 @@ let lastCreatedWorkingDir: string | undefined;
 let lastCreatedMemoryPolicy: MockMemoryPolicy | undefined;
 let lastCreateConversationArgs: unknown;
 
+// Module-level test hooks checked by MockSession.runAgentLoop. Using module
+// variables instead of class fields avoids the shadowing issue where class
+// field declarations create own-properties that mask prototype assignments.
+let mockConfirmationToEmitDuringLoop: Record<string, unknown> | undefined;
+let mockMidLoopCallback: ((session: MockSession) => void) | undefined;
+
 class MockSession {
   public readonly conversationId: string;
   public memoryPolicy: MockMemoryPolicy;
@@ -39,12 +45,11 @@ class MockSession {
   public lastUpdateClientSender: ((msg: Record<string, unknown>) => void) | undefined;
   public lastRunAgentLoopOptions: { skipPreMessageRollback?: boolean; isInteractive?: boolean } | undefined;
   public updateClientHistory: Array<{ hasNoClient: boolean }> = [];
-  /** When set, runAgentLoop will invoke onEvent with this message during execution. */
-  public confirmationToEmitDuringLoop: Record<string, unknown> | undefined;
   public setSandboxOverrideCalls = 0;
   private stale = false;
   private processing = false;
   public guardianContext: Record<string, unknown> | null = null;
+  private _currentSender: ((msg: Record<string, unknown>) => void) | undefined;
 
   constructor(
     conversationId: string,
@@ -69,6 +74,11 @@ class MockSession {
     this.lastUpdateClientSender = sender;
     this.lastUpdateClientHasNoClient = hasNoClient;
     this.updateClientHistory.push({ hasNoClient });
+    this._currentSender = sender;
+  }
+
+  getCurrentSender(): ((msg: Record<string, unknown>) => void) | undefined {
+    return this._currentSender;
   }
 
   setSandboxOverride(): void {
@@ -135,8 +145,11 @@ class MockSession {
     options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
   ): Promise<void> {
     this.lastRunAgentLoopOptions = options;
-    if (this.confirmationToEmitDuringLoop) {
-      onEvent(this.confirmationToEmitDuringLoop);
+    if (mockConfirmationToEmitDuringLoop) {
+      onEvent(mockConfirmationToEmitDuringLoop);
+    }
+    if (mockMidLoopCallback) {
+      mockMidLoopCallback(this);
     }
     this.processing = false;
   }
@@ -297,6 +310,8 @@ describe('DaemonServer initial session hydration', () => {
     lastCreatedWorkingDir = undefined;
     lastCreatedMemoryPolicy = undefined;
     lastCreateConversationArgs = undefined;
+    mockConfirmationToEmitDuringLoop = undefined;
+    mockMidLoopCallback = undefined;
     pendingInteractions.clear();
   });
 
@@ -594,7 +609,7 @@ describe('DaemonServer initial session hydration', () => {
 
     // Pre-configure the mock to emit a confirmation_request during runAgentLoop,
     // simulating a tool requesting approval while the session is interactive.
-    MockSession.prototype.confirmationToEmitDuringLoop = {
+    mockConfirmationToEmitDuringLoop = {
       type: 'confirmation_request',
       requestId: 'req-interactive-1',
       toolName: 'notify_desktop',
@@ -614,7 +629,7 @@ describe('DaemonServer initial session hydration', () => {
       'telegram',
     );
 
-    MockSession.prototype.confirmationToEmitDuringLoop = undefined;
+    mockConfirmationToEmitDuringLoop = undefined;
 
     const session = internal.sessions.get(conversation.id);
     expect(session).toBeDefined();
@@ -636,5 +651,74 @@ describe('DaemonServer initial session hydration', () => {
     expect(interaction).toBeDefined();
     expect(interaction?.kind).toBe('confirmation');
     expect(interaction?.conversationId).toBe(conversation.id);
+  });
+
+  test('finally block does not overwrite IPC client that connected during interactive agent loop (processMessage)', async () => {
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+
+    const ipcSender = (_msg: Record<string, unknown>) => {};
+
+    // Simulate a real IPC client connecting mid-loop by rebinding the session
+    // sender during runAgentLoop execution.
+    mockMidLoopCallback = (session) => {
+      session.updateClient(ipcSender, false);
+    };
+
+    await server.processMessage(
+      conversation.id,
+      'hello',
+      undefined,
+      { isInteractive: true },
+      'telegram',
+      'telegram',
+    );
+
+    mockMidLoopCallback = undefined;
+
+    const session = internal.sessions.get(conversation.id);
+    expect(session).toBeDefined();
+
+    // The finally block should NOT have reset the sender because the session's
+    // current sender was rebound to ipcSender mid-loop, which differs from the
+    // onEvent callback originally set for the interactive path.
+    expect(session!.getCurrentSender()).toBe(ipcSender);
+    expect(session!.lastUpdateClientHasNoClient).toBe(false);
+  });
+
+  test('finally block does not overwrite IPC client that connected during interactive agent loop (persistAndProcessMessage)', async () => {
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+
+    const ipcSender = (_msg: Record<string, unknown>) => {};
+
+    // Simulate a real IPC client connecting mid-loop by rebinding the session
+    // sender during runAgentLoop execution.
+    mockMidLoopCallback = (session) => {
+      session.updateClient(ipcSender, false);
+    };
+
+    const { messageId } = await server.persistAndProcessMessage(
+      conversation.id,
+      'hello',
+      undefined,
+      { isInteractive: true },
+      'telegram',
+      'telegram',
+    );
+    expect(messageId).toBe('msg-1');
+
+    // persistAndProcessMessage fires the loop in the background; wait for it.
+    await new Promise((r) => setTimeout(r, 50));
+
+    mockMidLoopCallback = undefined;
+
+    const session = internal.sessions.get(conversation.id);
+    expect(session).toBeDefined();
+
+    // The finally block should NOT have reset the sender because the session's
+    // current sender was rebound to ipcSender mid-loop.
+    expect(session!.getCurrentSender()).toBe(ipcSender);
+    expect(session!.lastUpdateClientHasNoClient).toBe(false);
   });
 });
