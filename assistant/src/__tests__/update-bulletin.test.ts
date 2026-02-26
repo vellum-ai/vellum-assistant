@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -255,6 +255,30 @@ describe('syncUpdateBulletinOnStartup', () => {
 
     const entries = readdirSync(tempDir);
     const tmpFiles = entries.filter((e) => e.includes('.tmp.'));
+    expect(tmpFiles).toHaveLength(0);
+  });
+
+  it('preserves existing file when atomic write fails', () => {
+    const workspacePath = join(tempDir, 'UPDATES.md');
+    const originalContent = '<!-- vellum-update-release:0.9.0 -->\nOriginal content.\n';
+    writeFileSync(workspacePath, originalContent, 'utf-8');
+
+    // Make tempDir read-only so the temp file creation fails.
+    // On macOS/Linux, 0o555 prevents new file creation inside the directory.
+    chmodSync(tempDir, 0o555);
+    try {
+      expect(() => syncUpdateBulletinOnStartup()).toThrow();
+    } finally {
+      chmodSync(tempDir, 0o755);
+    }
+
+    // Original content should be preserved (atomic write never renamed over it)
+    const content = readFileSync(workspacePath, 'utf-8');
+    expect(content).toBe(originalContent);
+
+    // No temp file leftovers
+    const entries = readdirSync(tempDir);
+    const tmpFiles = entries.filter((e: string) => e.includes('.tmp.'));
     expect(tmpFiles).toHaveLength(0);
   });
 });
