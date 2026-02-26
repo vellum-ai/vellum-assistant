@@ -445,11 +445,15 @@ export async function finalizeAndPublishRecording(params: {
     // No file path — recording stopped without producing a file
     log.warn({ recordingId, conversationId }, 'Recording stopped without file path');
     const errorText = 'Recording stopped but no file was produced.';
-    conversationStore.addMessage(
-      conversationId,
-      'assistant',
-      JSON.stringify([{ type: 'text', text: errorText }]),
-    );
+    try {
+      conversationStore.addMessage(
+        conversationId,
+        'assistant',
+        JSON.stringify([{ type: 'text', text: errorText }]),
+      );
+    } catch (persistErr) {
+      log.warn({ err: persistErr, recordingId, conversationId }, 'Failed to persist recording error message');
+    }
     ctx.send(notifySocket, {
       type: 'assistant_text_delta',
       text: errorText,
@@ -482,11 +486,15 @@ export async function finalizeAndPublishRecording(params: {
   if (!resolvedPath.startsWith(resolvedAllowedDir + path.sep) && resolvedPath !== resolvedAllowedDir) {
     log.warn({ recordingId, filePath, allowedDir, resolvedAllowedDir }, 'Recording file path outside allowed directory — rejecting');
     const errorText = 'Recording file is unavailable or expired.';
-    conversationStore.addMessage(
-      conversationId,
-      'assistant',
-      JSON.stringify([{ type: 'text', text: errorText }]),
-    );
+    try {
+      conversationStore.addMessage(
+        conversationId,
+        'assistant',
+        JSON.stringify([{ type: 'text', text: errorText }]),
+      );
+    } catch (persistErr) {
+      log.warn({ err: persistErr, recordingId, conversationId }, 'Failed to persist recording error message');
+    }
     ctx.send(notifySocket, {
       type: 'assistant_text_delta',
       text: errorText,
@@ -500,11 +508,15 @@ export async function finalizeAndPublishRecording(params: {
     if (!existsSync(resolvedPath)) {
       log.error({ recordingId, filePath }, 'Recording file does not exist');
       const errorText = 'Recording failed to save.';
-      conversationStore.addMessage(
-        conversationId,
-        'assistant',
-        JSON.stringify([{ type: 'text', text: errorText }]),
-      );
+      try {
+        conversationStore.addMessage(
+          conversationId,
+          'assistant',
+          JSON.stringify([{ type: 'text', text: errorText }]),
+        );
+      } catch (persistErr) {
+        log.warn({ err: persistErr, recordingId, conversationId }, 'Failed to persist recording error message');
+      }
       ctx.send(notifySocket, {
         type: 'assistant_text_delta',
         text: errorText,
@@ -520,11 +532,15 @@ export async function finalizeAndPublishRecording(params: {
     if (sizeBytes === 0) {
       log.error({ recordingId, filePath }, 'Recording file is zero-length — treating as failed');
       const errorText = 'Recording failed to save.';
-      conversationStore.addMessage(
-        conversationId,
-        'assistant',
-        JSON.stringify([{ type: 'text', text: errorText }]),
-      );
+      try {
+        conversationStore.addMessage(
+          conversationId,
+          'assistant',
+          JSON.stringify([{ type: 'text', text: errorText }]),
+        );
+      } catch (persistErr) {
+        log.warn({ err: persistErr, recordingId, conversationId }, 'Failed to persist recording error message');
+      }
       ctx.send(notifySocket, {
         type: 'assistant_text_delta',
         text: errorText,
@@ -596,11 +612,15 @@ export async function finalizeAndPublishRecording(params: {
   } catch (err) {
     log.error({ err, recordingId, filePath }, 'Failed to create attachment for standalone recording');
     const errorText = 'Recording saved but failed to attach to conversation.';
-    conversationStore.addMessage(
-      conversationId,
-      'assistant',
-      JSON.stringify([{ type: 'text', text: errorText }]),
-    );
+    try {
+      conversationStore.addMessage(
+        conversationId,
+        'assistant',
+        JSON.stringify([{ type: 'text', text: errorText }]),
+      );
+    } catch (persistErr) {
+      log.warn({ err: persistErr, recordingId, conversationId }, 'Failed to persist recording error message');
+    }
     ctx.send(notifySocket, {
       type: 'assistant_text_delta',
       text: errorText,
