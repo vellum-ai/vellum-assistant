@@ -126,6 +126,6 @@ describe('TelegramAdapter', () => {
       }),
       makeDestination(),
     );
-    expect(deliveryCalls[2]?.payload.text).toBe('watcher.escalation');
+    expect(deliveryCalls[2]?.payload.text).toBe('watcher escalation');
   });
 });

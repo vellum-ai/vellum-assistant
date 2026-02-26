@@ -11,6 +11,7 @@ import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { deliverChannelReply } from '../../runtime/gateway-client.js';
 import { getLogger } from '../../util/logger.js';
 import { readHttpToken } from '../../util/platform.js';
+import { nonEmpty } from '../copy-composer.js';
 import { isThreadSeedSane } from '../thread-seed-composer.js';
 import type {
   ChannelAdapter,
@@ -21,12 +22,6 @@ import type {
 } from '../types.js';
 
 const log = getLogger('notif-adapter-telegram');
-
-function nonEmpty(value: string | undefined): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
 
 function resolveTelegramMessageText(payload: ChannelDeliveryPayload): string {
   const deliveryText = nonEmpty(payload.copy.deliveryText);
@@ -42,7 +37,7 @@ function resolveTelegramMessageText(payload: ChannelDeliveryPayload): string {
   const title = nonEmpty(payload.copy.title);
   if (title) return title;
 
-  return payload.sourceEventName;
+  return payload.sourceEventName.replace(/[._]/g, ' ');
 }
 
 export class TelegramAdapter implements ChannelAdapter {
