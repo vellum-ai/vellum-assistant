@@ -1234,6 +1234,10 @@ extension IPCSkillsInspectResponseData {
 /// Backed by generated `IPCSkillsInspectResponse`.
 public typealias SkillsInspectResponseMessage = IPCSkillsInspectResponse
 
+/// Attention state metadata for a conversation's latest assistant message.
+/// Backed by generated `IPCAssistantAttention`.
+public typealias AssistantAttention = IPCAssistantAttention
+
 /// Response containing the list of past sessions.
 /// Backed by generated `IPCSessionListResponse`.
 public typealias SessionListResponseMessage = IPCSessionListResponse

@@ -351,7 +351,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 sessionId: session.id,
                 isArchived: isSessionArchived(session.id),
                 kind: session.threadType == "private" ? .private : .standard,
-                source: session.source
+                source: session.source,
+                hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
             )
             // VM creation is lazy — getOrCreateViewModel() will instantiate
             // when the thread is first accessed (e.g. selected by the user).
@@ -397,6 +398,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // SwiftUI's onChange cycle calls selectThread with the same id).
         if id != previousActiveId, let sessionId = thread.sessionId {
             emitConversationSeenSignal(conversationId: sessionId)
+            if let idx = threads.firstIndex(where: { $0.id == id }) {
+                threads[idx].hasUnseenLatestAssistantMessage = false
+            }
         }
     }
 
@@ -652,6 +656,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
            let thread = threads.first(where: { $0.id == id }),
            let sessionId = thread.sessionId {
             emitConversationSeenSignal(conversationId: sessionId)
+            if let idx = threads.firstIndex(where: { $0.id == id }) {
+                threads[idx].hasUnseenLatestAssistantMessage = false
+            }
         }
     }
 

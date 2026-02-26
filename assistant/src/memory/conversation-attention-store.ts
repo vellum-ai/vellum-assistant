@@ -11,7 +11,7 @@ import { v4 as uuid } from 'uuid';
 
 import { getLogger } from '../util/logger.js';
 import { getDb } from './db.js';
-import { conversationAssistantAttentionState, conversationAttentionEvents, messages } from './schema.js';
+import { conversationAssistantAttentionState, conversationAttentionEvents, conversations, messages } from './schema.js';
 
 const log = getLogger('conversation-attention-store');
 
@@ -322,6 +322,7 @@ export interface ListConversationAttentionParams {
   assistantId: string;
   state?: AttentionFilterState;
   sourceChannel?: string;
+  source?: string;
   limit?: number;
   before?: number;
 }
@@ -337,6 +338,7 @@ export function listConversationAttention(
     assistantId,
     state: filterState = 'all',
     sourceChannel,
+    source,
     limit = 50,
     before,
   } = params;
@@ -346,6 +348,10 @@ export function listConversationAttention(
 
   if (sourceChannel) {
     conditions.push(eq(conversationAssistantAttentionState.lastSeenSourceChannel, sourceChannel));
+  }
+
+  if (source) {
+    conditions.push(eq(conversations.source, source));
   }
 
   if (before !== undefined) {
@@ -375,9 +381,34 @@ export function listConversationAttention(
     );
   }
 
-  const rows = db
-    .select()
-    .from(conversationAssistantAttentionState)
+  let query = db
+    .select({
+      conversationId: conversationAssistantAttentionState.conversationId,
+      assistantId: conversationAssistantAttentionState.assistantId,
+      latestAssistantMessageId: conversationAssistantAttentionState.latestAssistantMessageId,
+      latestAssistantMessageAt: conversationAssistantAttentionState.latestAssistantMessageAt,
+      lastSeenAssistantMessageId: conversationAssistantAttentionState.lastSeenAssistantMessageId,
+      lastSeenAssistantMessageAt: conversationAssistantAttentionState.lastSeenAssistantMessageAt,
+      lastSeenEventAt: conversationAssistantAttentionState.lastSeenEventAt,
+      lastSeenConfidence: conversationAssistantAttentionState.lastSeenConfidence,
+      lastSeenSignalType: conversationAssistantAttentionState.lastSeenSignalType,
+      lastSeenSourceChannel: conversationAssistantAttentionState.lastSeenSourceChannel,
+      lastSeenSource: conversationAssistantAttentionState.lastSeenSource,
+      lastSeenEvidenceText: conversationAssistantAttentionState.lastSeenEvidenceText,
+      createdAt: conversationAssistantAttentionState.createdAt,
+      updatedAt: conversationAssistantAttentionState.updatedAt,
+    })
+    .from(conversationAssistantAttentionState);
+
+  // Join with conversations table when filtering by source
+  if (source) {
+    query = query.innerJoin(
+      conversations,
+      eq(conversationAssistantAttentionState.conversationId, conversations.id),
+    ) as typeof query;
+  }
+
+  const rows = query
     .where(and(...conditions))
     .orderBy(desc(conversationAssistantAttentionState.latestAssistantMessageAt))
     .limit(limit)
