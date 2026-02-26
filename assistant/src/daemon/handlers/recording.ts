@@ -526,7 +526,7 @@ async function handleRecordingStatus(
             if (notifySocket) {
               ctx.send(notifySocket, {
                 type: 'assistant_text_delta',
-                text: 'Recording file is unavailable or expired.',
+                text: 'Recording failed to save.',
                 sessionId: conversationId,
               });
               ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
@@ -534,6 +534,19 @@ async function handleRecordingStatus(
           } else {
             const stat = statSync(resolvedPath);
             const sizeBytes = stat.size;
+
+            if (sizeBytes === 0) {
+              log.error({ recordingId, filePath: msg.filePath }, 'Recording file is zero-length — treating as failed');
+              if (notifySocket) {
+                ctx.send(notifySocket, {
+                  type: 'assistant_text_delta',
+                  text: 'Recording failed to save.',
+                  sessionId: conversationId,
+                });
+                ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+              }
+              break;
+            }
             const filename = path.basename(resolvedPath);
 
             // Infer MIME type from extension

@@ -1104,7 +1104,25 @@ final class ScreenRecorder: NSObject {
             durationMs = 0
         }
 
+        // Verify the output file exists and has non-zero size before
+        // reporting success. A zero-length file indicates a silent write
+        // failure that the writer status check above may not catch.
+        guard FileManager.default.fileExists(atPath: finalURL.path) else {
+            log.error("Stop: output file missing after finalization — \(finalURL.path, privacy: .public)")
+            cleanUpWriter()
+            clearTelemetryState()
+            throw RecorderError.invalidOutputFile
+        }
+
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: finalURL.path)[.size] as? Int) ?? 0
+
+        guard fileSize > 0 else {
+            log.error("Stop: output file is zero-length — discarding as invalid")
+            try? FileManager.default.removeItem(at: finalURL)
+            cleanUpWriter()
+            clearTelemetryState()
+            throw RecorderError.invalidOutputFile
+        }
 
         RecordingTelemetry.logStop(durationMs: durationMs, fileSize: fileSize, status: .success)
 

@@ -406,14 +406,130 @@ describe('recordingHandlers.recording_status', () => {
     // No attachment should have been created
     expect(mockAttachments.length).toBe(0);
 
-    // Client should be notified that the file is unavailable
+    // Client should be notified that the recording failed to save
     const textDeltas = sent.filter((m) => m.type === 'assistant_text_delta');
     expect(textDeltas.length).toBeGreaterThanOrEqual(1);
-    expect(textDeltas[0].text).toContain('unavailable');
+    expect(textDeltas[0].text).toContain('Recording failed to save');
 
     const completes = sent.filter((m) => m.type === 'message_complete');
     expect(completes.length).toBeGreaterThanOrEqual(1);
     expect(completes[0].sessionId).toBe(conversationId);
+  });
+
+  test('handles stopped status with zero-length file — treated as failure', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+    const conversationId = 'conv-status-zero-file';
+
+    ctx.socketToSession.set(fakeSocket, conversationId);
+    mockFileExists = true;
+    mockFileSize = 0;
+
+    const recordingId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    expect(recordingId).not.toBeNull();
+    sent.length = 0;
+
+    const statusMsg: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: recordingId!,
+      status: 'stopped',
+      filePath: '/tmp/recording-empty.mov',
+      durationMs: 2000,
+    };
+
+    expect(() => {
+      recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+    }).not.toThrow();
+
+    // No attachment should have been created for a zero-length file
+    expect(mockAttachments.length).toBe(0);
+
+    // Client should be told the recording failed to save
+    const textDeltas = sent.filter((m) => m.type === 'assistant_text_delta');
+    expect(textDeltas.length).toBeGreaterThanOrEqual(1);
+    expect(textDeltas[0].text).toContain('Recording failed to save');
+
+    // Should NOT contain the success message
+    const hasSuccessMessage = textDeltas.some(
+      (m) => typeof m.text === 'string' && m.text.includes('recording complete')
+    );
+    expect(hasSuccessMessage).toBe(false);
+
+    const completes = sent.filter((m) => m.type === 'message_complete');
+    expect(completes.length).toBeGreaterThanOrEqual(1);
+    expect(completes[0].sessionId).toBe(conversationId);
+  });
+
+  test('successful finalization — attachment created and success message sent', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+    const conversationId = 'conv-status-success';
+
+    ctx.socketToSession.set(fakeSocket, conversationId);
+    mockFileExists = true;
+    mockFileSize = 4096;
+
+    const recordingId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    expect(recordingId).not.toBeNull();
+    sent.length = 0;
+
+    const statusMsg: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: recordingId!,
+      status: 'stopped',
+      filePath: '/tmp/recording-good.mov',
+      durationMs: 5000,
+    };
+
+    recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+
+    // Attachment should have been created
+    expect(mockAttachments.length).toBe(1);
+    expect(mockAttachments[0].sizeBytes).toBe(4096);
+
+    // Success message should be present
+    const textDeltas = sent.filter((m) => m.type === 'assistant_text_delta');
+    expect(textDeltas.length).toBeGreaterThanOrEqual(1);
+    expect(textDeltas[0].text).toContain('Screen recording complete');
+
+    // Should NOT contain failure message
+    const hasFailureMessage = textDeltas.some(
+      (m) => typeof m.text === 'string' && m.text.includes('Recording failed')
+    );
+    expect(hasFailureMessage).toBe(false);
+  });
+
+  test('failed finalization — failure status sent and no success message', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+    const conversationId = 'conv-status-fail-final';
+
+    ctx.socketToSession.set(fakeSocket, conversationId);
+
+    const recordingId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    expect(recordingId).not.toBeNull();
+    sent.length = 0;
+
+    // Client reports failure (writer finalization error)
+    const statusMsg: RecordingStatus = {
+      type: 'recording_status',
+      sessionId: recordingId!,
+      status: 'failed',
+      error: 'Video writer finished with non-completed status 3',
+    };
+
+    recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+
+    // No attachment should have been created
+    expect(mockAttachments.length).toBe(0);
+
+    // Should send failure message, not success
+    const textDeltas = sent.filter((m) => m.type === 'assistant_text_delta');
+    expect(textDeltas.length).toBeGreaterThanOrEqual(1);
+    expect(textDeltas[0].text).toContain('Recording failed');
+
+    // Should NOT contain the success message
+    const hasSuccessMessage = textDeltas.some(
+      (m) => typeof m.text === 'string' && m.text.includes('recording complete')
+    );
+    expect(hasSuccessMessage).toBe(false);
   });
 
   test('handles failed status and notifies client', () => {
