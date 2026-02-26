@@ -174,7 +174,9 @@ final class PermissionPromptOverlay {
             case .both:
                 title = "Permissions Required"
                 body = "Push-to-talk requires microphone and speech recognition access. You can grant access in System Settings. (Triggered by \(keyName) key)"
-                openSettings = { PermissionManager.openMicrophoneSettings() }
+                openSettings = {
+                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")!)
+                }
             }
 
             return (
