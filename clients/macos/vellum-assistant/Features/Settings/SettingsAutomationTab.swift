@@ -1,18 +1,78 @@
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - Heartbeat Settings Tab
-
+/// Automation settings tab — reminders, scheduled tasks, and heartbeat monitoring.
 @MainActor
-struct HeartbeatSettingsTab: View {
+struct SettingsAutomationTab: View {
     var daemonClient: DaemonClient?
+    @Binding var showingReminders: Bool
+    @Binding var showingScheduledTasks: Bool
 
-    // -- Config state --
-    @State private var isEnabled: Bool = false
-    @State private var intervalMs: Double = 3_600_000
-    @State private var activeHoursStart: Double? = nil
-    @State private var activeHoursEnd: Double? = nil
-    @State private var nextRunAt: Int? = nil
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xl) {
+            // Reminders section (from old Schedules tab)
+            if daemonClient != nil {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Reminders")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Manage Reminders")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Text("View and manage one-shot reminders created by the assistant")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        VButton(label: "Manage...", style: .tertiary) {
+                            showingReminders = true
+                        }
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
+
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Scheduled Tasks")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Manage Scheduled Tasks")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Text("View and manage recurring tasks (cron and RRULE schedules)")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        VButton(label: "Manage...", style: .tertiary) {
+                            showingScheduledTasks = true
+                        }
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
+            }
+
+            // Heartbeat section (checklist + runs, minus configCard)
+            HeartbeatAutomationSection(daemonClient: daemonClient)
+        }
+    }
+}
+
+// MARK: - Heartbeat Automation Section
+
+/// Heartbeat monitoring section for the Automation tab.
+/// Shows the checklist and recent runs (excludes the configuration card
+/// which is managed via conversation with the assistant).
+@MainActor
+struct HeartbeatAutomationSection: View {
+    var daemonClient: DaemonClient?
 
     // -- Checklist state --
     @State private var checklistContent: String = ""
@@ -26,12 +86,8 @@ struct HeartbeatSettingsTab: View {
     // -- Expansion state --
     @State private var expandedRunId: String?
 
-    // -- Loading --
-    @State private var isLoading: Bool = true
-
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            configCard
             checklistCard
             runsCard
         }
@@ -39,83 +95,12 @@ struct HeartbeatSettingsTab: View {
         .onDisappear { clearCallbacks() }
     }
 
-    // MARK: - Configuration Card (read-only)
-
-    private var configCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Configuration")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            // Status
-            HStack {
-                Text("Status")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                Text(isEnabled ? "Enabled" : "Disabled")
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(isEnabled ? VColor.success : VColor.textMuted)
-            }
-
-            if isEnabled {
-                Divider().background(VColor.surfaceBorder)
-
-                // Interval
-                HStack {
-                    Text("Check every")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Spacer()
-                    Text(formatInterval(intervalMs))
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
-                }
-
-                // Active hours
-                if let start = activeHoursStart, let end = activeHoursEnd {
-                    Divider().background(VColor.surfaceBorder)
-                    HStack {
-                        Text("Active hours")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        Text("\(formatHour(Int(start))) – \(formatHour(Int(end)))")
-                            .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textPrimary)
-                    }
-                }
-
-                // Next run status
-                if let nextRun = nextRunAt, nextRun > 0 {
-                    Divider().background(VColor.surfaceBorder)
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "clock")
-                            .font(.system(size: 12))
-                            .foregroundColor(VColor.textMuted)
-                        Text("Next run ~\(formatTimestamp(nextRun))")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                }
-            }
-
-            Divider().background(VColor.surfaceBorder)
-
-            Text("Ask the assistant to change heartbeat settings.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
     // MARK: - Checklist Card
 
     private var checklistCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             HStack {
-                Text("Checklist")
+                Text("Heartbeat Checklist")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
@@ -155,7 +140,7 @@ struct HeartbeatSettingsTab: View {
     private var runsCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             HStack {
-                Text("Recent Runs")
+                Text("Heartbeat Runs")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
@@ -287,27 +272,6 @@ struct HeartbeatSettingsTab: View {
         .frame(width: 70, alignment: .leading)
     }
 
-    private func formatInterval(_ ms: Double) -> String {
-        let minutes = Int(ms / 60_000)
-        if minutes < 60 {
-            return "\(minutes) min"
-        }
-        let hours = minutes / 60
-        let remainingMinutes = minutes % 60
-        if remainingMinutes == 0 {
-            return hours == 1 ? "1 hour" : "\(hours) hours"
-        }
-        return "\(hours)h \(remainingMinutes)m"
-    }
-
-    private func formatHour(_ hour: Int) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h a"
-        let calendar = Calendar.current
-        let date = calendar.date(from: DateComponents(hour: hour)) ?? Date()
-        return formatter.string(from: date)
-    }
-
     private func formatTimestamp(_ ms: Int) -> String {
         let date = Date(timeIntervalSince1970: Double(ms) / 1000.0)
         let formatter = DateFormatter()
@@ -319,22 +283,11 @@ struct HeartbeatSettingsTab: View {
     // MARK: - Data Loading
 
     private func loadAll() {
-        try? daemonClient?.sendHeartbeatConfigGet()
         try? daemonClient?.sendHeartbeatChecklistRead()
         try? daemonClient?.sendHeartbeatRunsList(limit: 20)
     }
 
     private func setupCallbacks() {
-        daemonClient?.onHeartbeatConfigResponse = { response in
-            Task { @MainActor in
-                self.isEnabled = response.enabled
-                self.intervalMs = response.intervalMs
-                self.activeHoursStart = response.activeHoursStart
-                self.activeHoursEnd = response.activeHoursEnd
-                self.nextRunAt = response.nextRunAt
-                self.isLoading = false
-            }
-        }
         daemonClient?.onHeartbeatChecklistResponse = { response in
             Task { @MainActor in
                 self.checklistContent = response.content
@@ -360,7 +313,6 @@ struct HeartbeatSettingsTab: View {
     }
 
     private func clearCallbacks() {
-        daemonClient?.onHeartbeatConfigResponse = nil
         daemonClient?.onHeartbeatChecklistResponse = nil
         daemonClient?.onHeartbeatRunsListResponse = nil
         daemonClient?.onHeartbeatRunNowResponse = nil
