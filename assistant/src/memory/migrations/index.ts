@@ -32,6 +32,7 @@ export { migrateChannelInboundDeliveredSegments } from './029-channel-inbound-de
 export { migrateGuardianActionFollowup } from './030-guardian-action-followup.js';
 export { migrateGuardianVerificationPurpose } from './030-guardian-verification-purpose.js';
 export { migrateConversationsThreadTypeIndex } from './031-conversations-thread-type-index.js';
+export { migrateGuardianDeliveryConversationIndex } from './032-guardian-delivery-conversation-index.js';
 export { createCoreTables } from './100-core-tables.js';
 export { createWatchersAndLogsTables } from './101-watchers-and-logs.js';
 export { addCoreColumns } from './102-alter-table-columns.js';
