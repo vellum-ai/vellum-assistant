@@ -19,7 +19,7 @@ type RelaySocketData = {
  * frames between Twilio and the runtime's /v1/calls/relay endpoint.
  */
 export function createTwilioRelayWebsocketHandler(config: GatewayConfig) {
-  return function handleUpgrade(req: Request, server: import("bun").Server<RelaySocketData>): Response | undefined {
+  return function handleUpgrade(req: Request, server: import("bun").Server<unknown>): Response | undefined {
     const url = new URL(req.url);
     const callSessionId = url.searchParams.get("callSessionId");
 

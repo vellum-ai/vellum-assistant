@@ -8,7 +8,7 @@
 
 import type { ExtensionCommand, ExtensionResponse, ExtensionHeartbeat } from '../../../assistant/src/browser-extension-relay/protocol.js';
 
-const DEFAULT_RELAY_PORT = 7821;
+const DEFAULT_RELAY_PORT = 7830;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
