@@ -315,6 +315,49 @@ describe('scoped-approval-grants / tool_signature scope', () => {
     });
     expect(result.ok).toBe(false);
   });
+
+  test('consume by tool signature only consumes one grant when multiple match', () => {
+    const digest = computeToolApprovalDigest('bash', { cmd: 'ls' });
+
+    // Create a wildcard grant (no executionChannel) and a channel-specific grant.
+    // Both match when executionChannel='telegram', but only one should be consumed.
+    const wildcardGrant = createScopedApprovalGrant(
+      grantParams({
+        scopeMode: 'tool_signature',
+        toolName: 'bash',
+        inputDigest: digest,
+        executionChannel: null,
+      }),
+    );
+    const specificGrant = createScopedApprovalGrant(
+      grantParams({
+        scopeMode: 'tool_signature',
+        toolName: 'bash',
+        inputDigest: digest,
+        executionChannel: 'telegram',
+      }),
+    );
+
+    const result = consumeScopedApprovalGrantByToolSignature({
+      toolName: 'bash',
+      inputDigest: digest,
+      consumingRequestId: 'c1',
+      executionChannel: 'telegram',
+    });
+    expect(result.ok).toBe(true);
+    // The most specific grant (channel-specific) should be consumed first
+    expect(result.grant!.id).toBe(specificGrant.id);
+
+    // The wildcard grant should still be active and consumable
+    const second = consumeScopedApprovalGrantByToolSignature({
+      toolName: 'bash',
+      inputDigest: digest,
+      consumingRequestId: 'c2',
+      executionChannel: 'sms',
+    });
+    expect(second.ok).toBe(true);
+    expect(second.grant!.id).toBe(wildcardGrant.id);
+  });
 });
 
 // ===========================================================================
@@ -398,6 +441,22 @@ describe('scoped-approval-grants / revoke', () => {
 
     const result = consumeScopedApprovalGrantByRequestId('req-revoke', 'c1');
     expect(result.ok).toBe(false);
+  });
+
+  test('revokeScopedApprovalGrantsForContext throws when no context filters are provided', () => {
+    // Create a grant to ensure the guard is not based on empty results
+    createScopedApprovalGrant(
+      grantParams({ scopeMode: 'request_id', requestId: 'req-guard', callSessionId: 'call-guard' }),
+    );
+
+    // Empty object: all fields undefined
+    expect(() => revokeScopedApprovalGrantsForContext({})).toThrow(
+      'revokeScopedApprovalGrantsForContext requires at least one context filter',
+    );
+
+    // The grant should still be active (not revoked)
+    const result = consumeScopedApprovalGrantByRequestId('req-guard', 'c1');
+    expect(result.ok).toBe(true);
   });
 });
 

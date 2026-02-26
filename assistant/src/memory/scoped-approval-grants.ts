@@ -262,6 +262,26 @@ export function consumeScopedApprovalGrantByToolSignature(
     conditions.push(sql`${scopedApprovalGrants.requesterExternalUserId} IS NULL`);
   }
 
+  // Select a single matching grant to consume (prefer most specific: fewest NULL scope fields).
+  // This avoids burning multiple grants when a wildcard grant and a specific grant both match.
+  const candidate = db
+    .select({ id: scopedApprovalGrants.id })
+    .from(scopedApprovalGrants)
+    .where(and(...conditions))
+    .orderBy(
+      // Prefer grants with more non-null context fields (most specific first)
+      sql`(CASE WHEN ${scopedApprovalGrants.executionChannel} IS NOT NULL THEN 1 ELSE 0 END
+         + CASE WHEN ${scopedApprovalGrants.conversationId} IS NOT NULL THEN 1 ELSE 0 END
+         + CASE WHEN ${scopedApprovalGrants.callSessionId} IS NOT NULL THEN 1 ELSE 0 END
+         + CASE WHEN ${scopedApprovalGrants.requesterExternalUserId} IS NOT NULL THEN 1 ELSE 0 END) DESC`,
+    )
+    .limit(1)
+    .get();
+
+  if (!candidate) {
+    return { ok: false, grant: null };
+  }
+
   db.update(scopedApprovalGrants)
     .set({
       status: 'consumed',
@@ -269,10 +289,16 @@ export function consumeScopedApprovalGrantByToolSignature(
       consumedByRequestId: params.consumingRequestId,
       updatedAt: currentTime,
     })
-    .where(and(...conditions))
+    .where(
+      and(
+        eq(scopedApprovalGrants.id, candidate.id),
+        eq(scopedApprovalGrants.status, 'active'),
+      ),
+    )
     .run();
 
   if (rawChanges() === 0) {
+    // CAS failed — another consumer raced and won
     return { ok: false, grant: null };
   }
 
@@ -280,14 +306,7 @@ export function consumeScopedApprovalGrantByToolSignature(
   const row = db
     .select()
     .from(scopedApprovalGrants)
-    .where(
-      and(
-        eq(scopedApprovalGrants.toolName, params.toolName),
-        eq(scopedApprovalGrants.inputDigest, params.inputDigest),
-        eq(scopedApprovalGrants.status, 'consumed'),
-        eq(scopedApprovalGrants.consumedByRequestId, params.consumingRequestId),
-      ),
-    )
+    .where(eq(scopedApprovalGrants.id, candidate.id))
     .get();
 
   return { ok: true, grant: row ? rowToGrant(row) : null };
@@ -356,6 +375,11 @@ export function revokeScopedApprovalGrantsForContext(params: RevokeContextParams
   }
   if (params.requestChannel !== undefined) {
     conditions.push(eq(scopedApprovalGrants.requestChannel, params.requestChannel));
+  }
+
+  // Guard: at least one context filter must be provided to avoid revoking ALL active grants
+  if (conditions.length === 1) {
+    throw new Error('revokeScopedApprovalGrantsForContext requires at least one context filter');
   }
 
   db.update(scopedApprovalGrants)
