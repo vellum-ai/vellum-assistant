@@ -512,8 +512,8 @@ export class Session {
   }
 
 
-  drainQueue(reason: QueueDrainReason = 'loop_complete'): void {
-    drainQueueImpl(this as ProcessSessionContext, reason);
+  drainQueue(reason: QueueDrainReason = 'loop_complete'): Promise<void> {
+    return drainQueueImpl(this as ProcessSessionContext, reason);
   }
 
   async processMessage(
