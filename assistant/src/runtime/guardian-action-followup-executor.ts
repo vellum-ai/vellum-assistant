@@ -55,16 +55,14 @@ export type FollowupExecutionResult =
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the counterparty (the external person who called in) from the
- * original call session. For inbound calls, the counterparty is fromNumber.
- * For outbound calls initiated by the assistant, the counterparty is toNumber.
+ * Resolve the counterparty (the external person) from the original call
+ * session. The counterparty depends on call direction:
  *
- * Heuristic: if the call session's assistant owns the toNumber (typical for
- * inbound calls where toNumber = Twilio number), the counterparty is
- * fromNumber. Otherwise (outbound calls), the counterparty is toNumber.
- * Since guardian action requests always originate from inbound voice calls
- * (callers asking questions that need guardian approval), the counterparty
- * is reliably the fromNumber.
+ *   - **Inbound calls** (`initiatedFromConversationId` is null): the
+ *     counterparty is `fromNumber` (the external caller).
+ *   - **Outbound calls** (`initiatedFromConversationId` is set): the
+ *     counterparty is `toNumber` (the callee), because `fromNumber` is
+ *     the assistant's own Twilio number.
  */
 export function resolveCounterparty(callSessionId: string): CounterpartyInfo | null {
   const session = getCallSession(callSessionId);
@@ -73,11 +71,11 @@ export function resolveCounterparty(callSessionId: string): CounterpartyInfo | n
     return null;
   }
 
-  // Guardian action requests come from inbound calls where fromNumber is the
-  // external caller. This is the person we want to call back or message.
-  const phoneNumber = session.fromNumber;
+  // Outbound calls set initiatedFromConversationId; inbound calls leave it null.
+  const isOutbound = session.initiatedFromConversationId != null;
+  const phoneNumber = isOutbound ? session.toNumber : session.fromNumber;
   if (!phoneNumber) {
-    log.warn({ callSessionId }, 'Cannot resolve counterparty: no fromNumber on call session');
+    log.warn({ callSessionId, isOutbound }, 'Cannot resolve counterparty: no phone number on call session');
     return null;
   }
 
@@ -101,13 +99,18 @@ async function executeMessageBack(
   generator?: GuardianActionCopyGenerator,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    // Generate the outbound SMS text using the composer
+    // Generate the outbound SMS text using the composer.
+    // callerIdentifier identifies who provided the answer (the guardian),
+    // not the counterparty receiving the SMS.
+    const guardianLabel = request.answeredByChannel
+      ? `the guardian (via ${request.answeredByChannel})`
+      : 'the guardian';
     const messageText = await composeGuardianActionMessageGenerative(
       {
         scenario: 'outbound_message_copy',
         questionText: request.questionText,
         lateAnswerText: request.lateAnswerText ?? undefined,
-        callerIdentifier: counterparty.displayIdentifier,
+        callerIdentifier: guardianLabel,
       },
       {},
       generator,

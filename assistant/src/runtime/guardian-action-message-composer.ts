@@ -177,11 +177,13 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
       return 'That request has already expired. No further action is needed.';
 
     case 'outbound_message_copy':
-      return context.callerIdentifier && context.questionText
-        ? `Hi, ${context.callerIdentifier} tried to reach you earlier and asked: "${context.questionText}". Please reply when you get a chance.`
-        : context.questionText
-          ? `Someone tried to reach you earlier and asked: "${context.questionText}". Please reply when you get a chance.`
-          : 'Someone tried to reach you earlier. Please reply when you get a chance.';
+      if (context.lateAnswerText && context.questionText) {
+        return `Hi, we have an update regarding your earlier question: "${context.questionText}". The answer is: "${context.lateAnswerText}".`;
+      }
+      if (context.questionText) {
+        return `Hi, we have an update regarding your earlier question: "${context.questionText}". Please reply if you need anything else.`;
+      }
+      return 'Hi, we have an update regarding your earlier inquiry. Please reply if you need anything else.';
 
     case 'followup_message_sent':
       return context.counterpartyPhone

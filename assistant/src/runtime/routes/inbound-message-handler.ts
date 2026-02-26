@@ -1041,8 +1041,10 @@ export async function handleChannelInbound(
             );
 
             // Apply the disposition to the follow-up state machine
+            let transitionSucceeded = false;
             if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-              progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition);
+              const transitioned = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition);
+              transitionSucceeded = transitioned != null;
             } else if (turnResult.disposition === 'decline') {
               finalizeFollowup(followupRequest.id, 'declined');
             }
@@ -1062,7 +1064,10 @@ export async function handleChannelInbound(
             // Execute the action and send a completion/failure reply (fire-and-forget).
             // The initial reply above acknowledges the guardian's choice; this
             // follow-up message confirms whether the action succeeded.
-            if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
+            // Only execute if the state transition succeeded — a null return
+            // from progressFollowupState means a concurrent handler already
+            // moved the request, and executing here would cause duplicates.
+            if (transitionSucceeded && (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back')) {
               void (async () => {
                 try {
                   const execResult = await executeFollowupAction(
