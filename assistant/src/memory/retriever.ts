@@ -470,18 +470,26 @@ function formatRecallResult(
     1,
     Math.floor(options?.maxInjectTokensOverride ?? config.memory.retrieval.maxInjectTokens),
   );
-  const selected = trimToTokenBudget(merged, maxInjectTokens, config.memory.retrieval.injectionFormat);
+
+  // Reserve token budget for the degradation notice so it doesn't push
+  // injected text over maxInjectTokens when appended after trimming.
+  const degradationNotice = collected.semanticSearchFailed
+    ? '[Note: Semantic search is currently unavailable. Memory recall is limited to lexical and recency matching — results may be incomplete or miss semantically relevant memories.]'
+    : undefined;
+  const noticeTokenCost = degradationNotice
+    ? estimateTextTokens(degradationNotice) + 2 // +2 for '\n\n' separator
+    : 0;
+  const candidateBudget = Math.max(1, maxInjectTokens - noticeTokenCost);
+
+  const selected = trimToTokenBudget(merged, candidateBudget, config.memory.retrieval.injectionFormat);
   markItemUsage(selected);
 
   let injectedText = buildInjectedText(selected, config.memory.retrieval.injectionFormat);
 
-  // Surface degradation notice in the injected text so the model knows
-  // semantic search is unavailable and recall quality may be reduced.
-  if (collected.semanticSearchFailed) {
-    const notice = '[Note: Semantic search is currently unavailable. Memory recall is limited to lexical and recency matching — results may be incomplete or miss semantically relevant memories.]';
+  if (degradationNotice) {
     injectedText = injectedText.length > 0
-      ? injectedText + '\n\n' + notice
-      : notice;
+      ? injectedText + '\n\n' + degradationNotice
+      : degradationNotice;
   }
 
   const topCandidates: MemoryRecallCandiateDebug[] = selected.slice(0, 10).map((c) => ({
