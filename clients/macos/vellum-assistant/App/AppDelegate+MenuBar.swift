@@ -187,12 +187,12 @@ extension AppDelegate {
         }
     }
 
-    @objc func handleConversationZoomIn() { routeZoomIntent(.conversationZoomIn) }
-    @objc func handleConversationZoomOut() { routeZoomIntent(.conversationZoomOut) }
-    @objc func handleConversationZoomReset() { routeZoomIntent(.conversationZoomReset) }
-    @objc func handleWindowZoomIn() { routeZoomIntent(.windowZoomIn) }
-    @objc func handleWindowZoomOut() { routeZoomIntent(.windowZoomOut) }
-    @objc func handleWindowZoomReset() { routeZoomIntent(.windowZoomReset) }
+    @objc public func handleConversationZoomIn() { routeZoomIntent(.conversationZoomIn) }
+    @objc public func handleConversationZoomOut() { routeZoomIntent(.conversationZoomOut) }
+    @objc public func handleConversationZoomReset() { routeZoomIntent(.conversationZoomReset) }
+    @objc public func handleWindowZoomIn() { routeZoomIntent(.windowZoomIn) }
+    @objc public func handleWindowZoomOut() { routeZoomIntent(.windowZoomOut) }
+    @objc public func handleWindowZoomReset() { routeZoomIntent(.windowZoomReset) }
 
     // MARK: - Menu Item Validation
 
