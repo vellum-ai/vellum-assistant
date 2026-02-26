@@ -10,11 +10,10 @@
  * needs for a routing decision, not full conversation contents.
  */
 
-import { and, desc, eq, isNotNull } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 
 import { getDb } from '../memory/db.js';
-import { countPendingByConversation } from '../memory/guardian-approvals.js';
-import { conversations, notificationDeliveries, notificationDecisions, notificationEvents } from '../memory/schema.js';
+import { channelGuardianApprovalRequests, conversations, notificationDeliveries, notificationDecisions, notificationEvents } from '../memory/schema.js';
 import { getLogger } from '../util/logger.js';
 import type { NotificationChannel } from './types.js';
 
@@ -148,23 +147,29 @@ function buildCandidatesForChannel(
 
     seen.add(row.conversationId);
 
-    const candidate: ThreadCandidate = {
+    candidates.push({
       conversationId: row.conversationId,
       title: row.convTitle,
       updatedAt: row.convUpdatedAt,
       latestSourceEventName: row.sourceEventName ?? null,
       channel: channel,
-    };
-
-    // Enrich with guardian context
-    const guardianContext = buildGuardianContext(row.conversationId, assistantId);
-    if (guardianContext) {
-      candidate.guardianContext = guardianContext;
-    }
-
-    candidates.push(candidate);
+    });
 
     if (candidates.length >= MAX_CANDIDATES_PER_CHANNEL) break;
+  }
+
+  // Batch-enrich all candidates with guardian context in a single query
+  if (candidates.length > 0) {
+    const pendingCounts = batchCountPendingByConversation(
+      candidates.map((c) => c.conversationId),
+      assistantId,
+    );
+    for (const candidate of candidates) {
+      const pendingCount = pendingCounts.get(candidate.conversationId) ?? 0;
+      if (pendingCount > 0) {
+        candidate.guardianContext = { pendingUnresolvedRequestCount: pendingCount };
+      }
+    }
   }
 
   return candidates;
@@ -173,24 +178,47 @@ function buildCandidatesForChannel(
 // -- Guardian context enrichment ----------------------------------------------
 
 /**
- * Build guardian-specific context for a candidate conversation.
- * Returns null when there is no guardian-relevant data.
+ * Batch-count pending guardian approval requests for multiple conversations
+ * in a single query. Returns a map from conversationId to pending count
+ * (only entries with count > 0 are included).
  */
-function buildGuardianContext(
-  conversationId: string,
+function batchCountPendingByConversation(
+  conversationIds: string[],
   assistantId: string,
-): GuardianCandidateContext | null {
+): Map<string, number> {
+  const result = new Map<string, number>();
+  if (conversationIds.length === 0) return result;
+
   try {
-    const pendingCount = countPendingByConversation(conversationId, assistantId);
-    if (pendingCount > 0) {
-      return { pendingUnresolvedRequestCount: pendingCount };
+    const db = getDb();
+
+    const rows = db
+      .select({
+        conversationId: channelGuardianApprovalRequests.conversationId,
+        count: count(),
+      })
+      .from(channelGuardianApprovalRequests)
+      .where(
+        and(
+          inArray(channelGuardianApprovalRequests.conversationId, conversationIds),
+          eq(channelGuardianApprovalRequests.status, 'pending'),
+          eq(channelGuardianApprovalRequests.assistantId, assistantId),
+        ),
+      )
+      .groupBy(channelGuardianApprovalRequests.conversationId)
+      .all();
+
+    for (const row of rows) {
+      if (row.count > 0) {
+        result.set(row.conversationId, row.count);
+      }
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    log.warn({ err: errMsg, conversationId }, 'Failed to query guardian context for candidate');
+    log.warn({ err: errMsg }, 'Failed to batch-query guardian context for candidates');
   }
 
-  return null;
+  return result;
 }
 
 // -- Prompt serialization -----------------------------------------------------
