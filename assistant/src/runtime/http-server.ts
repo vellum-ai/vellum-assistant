@@ -157,6 +157,7 @@ export type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
   GuardianActionCopyGenerator,
+  GuardianFollowUpConversationGenerator,
   MessageProcessor,
   NonBlockingMessageProcessor,
   RuntimeAttachmentMetadata,
@@ -169,6 +170,7 @@ import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
   GuardianActionCopyGenerator,
+  GuardianFollowUpConversationGenerator,
   MessageProcessor,
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
@@ -193,6 +195,7 @@ export class RuntimeHttpServer {
   private approvalCopyGenerator?: ApprovalCopyGenerator;
   private approvalConversationGenerator?: ApprovalConversationGenerator;
   private guardianActionCopyGenerator?: GuardianActionCopyGenerator;
+  private guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
   private interfacesDir: string | null;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
@@ -211,6 +214,7 @@ export class RuntimeHttpServer {
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
     this.guardianActionCopyGenerator = options.guardianActionCopyGenerator;
+    this.guardianFollowUpConversationGenerator = options.guardianFollowUpConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
   }
@@ -740,7 +744,7 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
         const gatewayOriginSecret = getRuntimeGatewayOriginSecret();
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator, this.guardianActionCopyGenerator);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator, this.guardianActionCopyGenerator, this.guardianFollowUpConversationGenerator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') return await handleChannelDeliveryAck(req);

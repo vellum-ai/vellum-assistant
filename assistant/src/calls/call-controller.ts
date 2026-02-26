@@ -11,6 +11,7 @@
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import {
+  getDeliveriesByRequestId,
   getPendingRequestByCallSessionId,
   markTimedOutWithReason,
 } from '../memory/guardian-action-store.js';
@@ -26,7 +27,10 @@ import {
   recordCallEvent,
   updateCallSession,
 } from './call-store.js';
+import { getGatewayInternalBaseUrl } from '../config/env.js';
+import { readHttpToken } from '../util/platform.js';
 import { dispatchGuardianQuestion } from './guardian-dispatch.js';
+import { sendGuardianExpiryNotices } from './guardian-action-sweep.js';
 import type { RelayConnection } from './relay-server.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
 import { startVoiceTurn, type VoiceTurnHandle } from './voice-session-bridge.js';
@@ -574,13 +578,23 @@ export class CallController {
 
             log.info({ callSessionId: this.callSessionId }, 'User consultation timed out');
 
-            // Mark the linked guardian action request as timed out
+            // Mark the linked guardian action request as timed out and
+            // send expiry notices to guardian destinations. Deliveries
+            // must be captured before markTimedOutWithReason changes
+            // their status.
             const pendingActionRequest = getPendingRequestByCallSessionId(this.callSessionId);
             if (pendingActionRequest) {
+              const deliveries = getDeliveriesByRequestId(pendingActionRequest.id);
               markTimedOutWithReason(pendingActionRequest.id, 'call_timeout');
               log.info(
                 { callSessionId: this.callSessionId, requestId: pendingActionRequest.id },
                 'Marked guardian action request as timed out',
+              );
+              sendGuardianExpiryNotices(
+                deliveries,
+                pendingActionRequest.assistantId,
+                getGatewayInternalBaseUrl(),
+                readHttpToken() ?? undefined,
               );
             }
 
