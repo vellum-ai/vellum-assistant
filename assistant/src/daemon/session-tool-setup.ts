@@ -55,6 +55,8 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   headlessLock?: boolean;
   /** When set, this session is executing a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
+  /** Guardian actor role for the session — propagated into ToolContext for control-plane policy enforcement. */
+  guardianActorRole?: 'guardian' | 'non-guardian' | 'unverified_channel';
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -105,6 +107,7 @@ export function createToolExecutor(
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
+      guardianActorRole: ctx.guardianActorRole,
       onOutput,
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,

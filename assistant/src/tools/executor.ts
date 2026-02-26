@@ -15,6 +15,7 @@ import { PermissionDeniedError,ToolError } from '../util/errors.js';
 import { pathExists, safeStatSync } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
 import { resolveExecutionTarget } from './execution-target.js';
+import { enforceGuardianOnlyPolicy } from './guardian-control-plane-policy.js';
 import { executeWithTimeout,safeTimeoutMs } from './execution-timeout.js';
 import { buildPolicyContext } from './policy-context.js';
 import { getAllTools,getTool } from './registry.js';
@@ -109,6 +110,34 @@ export class ToolExecutor {
         durationMs,
       });
       return { content: 'This tool is blocked by parental control settings.', isError: true };
+    }
+
+    // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.
+    const guardianCheck = enforceGuardianOnlyPolicy(name, input, context.guardianActorRole);
+    if (guardianCheck.denied) {
+      log.warn({
+        toolName: name,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        actorRole: context.guardianActorRole,
+        reason: 'guardian_only_policy',
+      }, 'Guardian-only policy blocked tool invocation');
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent(context, {
+        type: 'permission_denied',
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel,
+        decision: 'deny',
+        reason: guardianCheck.reason!,
+        durationMs,
+      });
+      return { content: guardianCheck.reason!, isError: true };
     }
 
     // Gate tools not active for the current turn
