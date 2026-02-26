@@ -37,8 +37,8 @@ export async function executeTaskListShow(
     const filtered = statusFilter !== undefined;
 
     if (count === 0) {
-      const suffix = filtered ? 'no items matching filter.' : 'no tasks queued.';
-      return { content: `Opened Tasks window \u2014 ${suffix}`, isError: false };
+      const suffix = filtered ? 'No items matching that filter.' : 'No tasks queued.';
+      return { content: suffix, isError: false };
     }
 
     const label = filtered
@@ -47,7 +47,7 @@ export async function executeTaskListShow(
 
     const taskList = formatTaskList(items);
 
-    return { content: `Opened Tasks window (${label}).\n\nCurrent tasks:\n${taskList}`, isError: false };
+    return { content: `Task queue (${label}):\n${taskList}`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: ${msg}`, isError: true };

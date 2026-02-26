@@ -182,8 +182,6 @@ function buildTaskScheduleReminderRoutingSection(): string {
     '',
     'If an error says "entity mismatch", read the corrective action and selector fields it provides to pick the right tool.',
     '',
-    '### task_list_show UI note',
-    'When you call `task_list_show`, the Tasks window opens automatically. Present a brief summary in chat — do NOT also create a separate surface/UI (`ui_show` or `app_create`) to display the task queue.',
   ].join('\n');
 }
 

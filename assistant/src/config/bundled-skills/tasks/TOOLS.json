@@ -82,7 +82,7 @@
     },
     {
       "name": "task_list_show",
-      "description": "List the user's Task Queue (work items) with their status, priority, and last run info. Use this when the user says \"show my tasks\", \"what's in my queue\", \"what's on my task list\", or similar.",
+      "description": "List the user's Task Queue (work items) with their status, priority, and last run info. Use this when the user says \"show my tasks\", \"what's in my queue\", \"what's on my task list\", or similar. Present the results as a summary in the conversation.",
       "category": "tasks",
       "risk": "low",
       "input_schema": {
@@ -153,7 +153,7 @@
     },
     {
       "name": "task_list_update",
-      "description": "Update an existing task in the Task Queue. Can change priority, notes, status, or sort order. Identifies the task by work item ID, task ID, task name, or title.",
+      "description": "Update an existing task in the Task Queue. Can change priority, notes, status (including marking as done), or sort order. Identifies the task by work item ID, task ID, task name, or title.",
       "category": "tasks",
       "risk": "low",
       "input_schema": {
@@ -185,8 +185,8 @@
           },
           "status": {
             "type": "string",
-            "enum": ["queued", "running", "awaiting_review", "failed", "cancelled", "archived"],
-            "description": "New status for the work item"
+            "enum": ["queued", "running", "awaiting_review", "done", "failed", "cancelled", "archived"],
+            "description": "New status for the work item. To mark a task as done, it must currently be in 'awaiting_review' status."
           },
           "sort_index": {
             "type": "number",
