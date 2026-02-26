@@ -21,6 +21,7 @@ export type HttpErrorCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'CONFLICT'
+  | 'GONE'
   | 'RATE_LIMITED'
   | 'UNPROCESSABLE_ENTITY'
   | 'INTERNAL_ERROR'
@@ -69,4 +70,24 @@ export function httpError(
     error: { code, message, ...(details !== undefined ? { details } : {}) },
   };
   return Response.json(body, { status });
+}
+
+/**
+ * Derive the appropriate `HttpErrorCode` from an HTTP status code.
+ * Useful when domain functions return a numeric status and a generic error
+ * message — this maps the status to a semantically correct error code.
+ */
+export function httpErrorCodeFromStatus(status: number): HttpErrorCode {
+  switch (status) {
+    case 400: return 'BAD_REQUEST';
+    case 401: return 'UNAUTHORIZED';
+    case 403: return 'FORBIDDEN';
+    case 404: return 'NOT_FOUND';
+    case 409: return 'CONFLICT';
+    case 410: return 'GONE';
+    case 422: return 'UNPROCESSABLE_ENTITY';
+    case 429: return 'RATE_LIMITED';
+    case 503: return 'SERVICE_UNAVAILABLE';
+    default:  return 'INTERNAL_ERROR';
+  }
 }
