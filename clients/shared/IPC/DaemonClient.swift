@@ -371,6 +371,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `parental_control_allowlist_update_response` message.
     public var onParentalControlAllowlistUpdateResponse: ((ParentalControlAllowlistUpdateResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `parental_control_approval_create_response` message.
+    public var onParentalControlApprovalCreateResponse: ((ParentalControlApprovalCreateResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `parental_control_approval_list_response` message.
+    public var onParentalControlApprovalListResponse: ((ParentalControlApprovalListResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `parental_control_approval_respond_response` message.
+    public var onParentalControlApprovalRespondResponse: ((ParentalControlApprovalRespondResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `twitter_integration_config_response` message.
     public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
 
@@ -1459,6 +1468,21 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Update the app and/or widget allowlist. PIN is required when parental controls are enabled.
     public func sendParentalControlAllowlistUpdate(pin: String? = nil, allowedApps: [String]? = nil, allowedWidgets: [String]? = nil) throws {
         try send(ParentalControlAllowlistUpdateRequestMessage(pin: pin, allowedApps: allowedApps, allowedWidgets: allowedWidgets))
+    }
+
+    /// Create an approval request from the child profile (e.g., request permission to use a blocked tool).
+    public func sendParentalControlApprovalCreate(toolName: String, reason: String) throws {
+        try send(ParentalControlApprovalCreateRequestMessage(toolName: toolName, reason: reason))
+    }
+
+    /// Retrieve all approval requests. Intended for the parent profile.
+    public func sendParentalControlApprovalList() throws {
+        try send(ParentalControlApprovalListRequestMessage())
+    }
+
+    /// Respond to an approval request. PIN is required when parental controls are enabled and a PIN is set.
+    public func sendParentalControlApprovalRespond(requestId: String, decision: String, pin: String? = nil) throws {
+        try send(ParentalControlApprovalRespondRequestMessage(requestId: requestId, decision: decision, pin: pin))
     }
 
     // MARK: - Heartbeat

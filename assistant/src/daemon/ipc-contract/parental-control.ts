@@ -154,6 +154,48 @@ export interface ParentalControlAllowlistUpdateResponse {
   error?: string;
 }
 
+// Create approval request (called from child profile context)
+export interface ParentalControlApprovalCreateRequest {
+  type: 'parental_control_approval_create'
+  toolName: string
+  reason: string
+}
+export interface ParentalControlApprovalCreateResponse {
+  type: 'parental_control_approval_create_response'
+  success: boolean
+  requestId: string
+  error?: string
+}
+
+// List approval requests (parent only - requires PIN or unlocked state)
+export interface ParentalControlApprovalListRequest {
+  type: 'parental_control_approval_list'
+}
+export interface ParentalControlApprovalListResponse {
+  type: 'parental_control_approval_list_response'
+  requests: Array<{
+    id: string
+    toolName: string
+    reason: string
+    status: string
+    createdAt: string
+    resolvedAt?: string
+  }>
+}
+
+// Respond to approval request (parent only - requires PIN)
+export interface ParentalControlApprovalRespondRequest {
+  type: 'parental_control_approval_respond'
+  requestId: string
+  decision: 'approve_always' | 'approve_once' | 'reject'
+  pin?: string
+}
+export interface ParentalControlApprovalRespondResponse {
+  type: 'parental_control_approval_respond_response'
+  success: boolean
+  error?: string
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _ParentalControlClientMessages =
@@ -164,7 +206,10 @@ export type _ParentalControlClientMessages =
   | ParentalControlProfileGetRequest
   | ParentalControlProfileSwitchRequest
   | ParentalControlAllowlistGetRequest
-  | ParentalControlAllowlistUpdateRequest;
+  | ParentalControlAllowlistUpdateRequest
+  | ParentalControlApprovalCreateRequest
+  | ParentalControlApprovalListRequest
+  | ParentalControlApprovalRespondRequest;
 
 export type _ParentalControlServerMessages =
   | ParentalControlGetResponse
@@ -174,4 +219,7 @@ export type _ParentalControlServerMessages =
   | ParentalControlProfileGetResponse
   | ParentalControlProfileSwitchResponse
   | ParentalControlAllowlistGetResponse
-  | ParentalControlAllowlistUpdateResponse;
+  | ParentalControlAllowlistUpdateResponse
+  | ParentalControlApprovalCreateResponse
+  | ParentalControlApprovalListResponse
+  | ParentalControlApprovalRespondResponse;

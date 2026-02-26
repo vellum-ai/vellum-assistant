@@ -2326,6 +2326,9 @@ public enum ServerMessage: Decodable, Sendable {
     case parentalControlProfileSwitchResponse(ParentalControlProfileSwitchResponseMessage)
     case parentalControlAllowlistGetResponse(ParentalControlAllowlistGetResponseMessage)
     case parentalControlAllowlistUpdateResponse(ParentalControlAllowlistUpdateResponseMessage)
+    case parentalControlApprovalCreateResponse(ParentalControlApprovalCreateResponseMessage)
+    case parentalControlApprovalListResponse(ParentalControlApprovalListResponseMessage)
+    case parentalControlApprovalRespondResponse(ParentalControlApprovalRespondResponseMessage)
     case conversationSearchResponse(ConversationSearchResponseMessage)
     case pairingApprovalRequest(PairingApprovalRequestMessage)
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
@@ -2742,6 +2745,15 @@ public enum ServerMessage: Decodable, Sendable {
         case "parental_control_allowlist_update_response":
             let message = try ParentalControlAllowlistUpdateResponseMessage(from: decoder)
             self = .parentalControlAllowlistUpdateResponse(message)
+        case "parental_control_approval_create_response":
+            let message = try ParentalControlApprovalCreateResponseMessage(from: decoder)
+            self = .parentalControlApprovalCreateResponse(message)
+        case "parental_control_approval_list_response":
+            let message = try ParentalControlApprovalListResponseMessage(from: decoder)
+            self = .parentalControlApprovalListResponse(message)
+        case "parental_control_approval_respond_response":
+            let message = try ParentalControlApprovalRespondResponseMessage(from: decoder)
+            self = .parentalControlApprovalRespondResponse(message)
         case "conversation_search_response":
             let message = try ConversationSearchResponseMessage(from: decoder)
             self = .conversationSearchResponse(message)
@@ -2947,6 +2959,48 @@ extension IPCParentalControlAllowlistUpdateRequest {
 /// Result of an allowlist update operation.
 /// Backed by generated `IPCParentalControlAllowlistUpdateResponse`.
 public typealias ParentalControlAllowlistUpdateResponseMessage = IPCParentalControlAllowlistUpdateResponse
+
+/// Create an approval request (called from child profile context).
+/// Backed by generated `IPCParentalControlApprovalCreateRequest`.
+public typealias ParentalControlApprovalCreateRequestMessage = IPCParentalControlApprovalCreateRequest
+
+extension IPCParentalControlApprovalCreateRequest {
+    public init(toolName: String, reason: String) {
+        self.init(type: "parental_control_approval_create", toolName: toolName, reason: reason)
+    }
+}
+
+/// Result of creating an approval request.
+/// Backed by generated `IPCParentalControlApprovalCreateResponse`.
+public typealias ParentalControlApprovalCreateResponseMessage = IPCParentalControlApprovalCreateResponse
+
+/// List pending approval requests (parent only).
+/// Backed by generated `IPCParentalControlApprovalListRequest`.
+public typealias ParentalControlApprovalListRequestMessage = IPCParentalControlApprovalListRequest
+
+extension IPCParentalControlApprovalListRequest {
+    public init() {
+        self.init(type: "parental_control_approval_list")
+    }
+}
+
+/// Approval requests list response.
+/// Backed by generated `IPCParentalControlApprovalListResponse`.
+public typealias ParentalControlApprovalListResponseMessage = IPCParentalControlApprovalListResponse
+
+/// Respond to an approval request (parent only, requires PIN).
+/// Backed by generated `IPCParentalControlApprovalRespondRequest`.
+public typealias ParentalControlApprovalRespondRequestMessage = IPCParentalControlApprovalRespondRequest
+
+extension IPCParentalControlApprovalRespondRequest {
+    public init(requestId: String, decision: String, pin: String? = nil) {
+        self.init(type: "parental_control_approval_respond", requestId: requestId, decision: decision, pin: pin)
+    }
+}
+
+/// Result of responding to an approval request.
+/// Backed by generated `IPCParentalControlApprovalRespondResponse`.
+public typealias ParentalControlApprovalRespondResponseMessage = IPCParentalControlApprovalRespondResponse
 
 // MARK: - Layout Config Wire Types
 // Defined here temporarily; canonical home is LayoutConfig.swift (M1 / #2973)

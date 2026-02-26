@@ -42,6 +42,15 @@ struct SettingsParentalTab: View {
     @State private var showingProfileSwitchSheet: Bool = false
     @State private var profileSwitchError: String? = nil
 
+    // -- Child: request permission sheet --
+    @State private var showingRequestPermissionSheet: Bool = false
+    @State private var requestToolName: String = ""
+    @State private var requestReason: String = ""
+    @State private var requestSent: Bool = false
+
+    // -- Parent: pending approvals --
+    @State private var pendingRequests: [ApprovalRequestItem] = []
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             // Header + enable toggle
@@ -51,6 +60,16 @@ struct SettingsParentalTab: View {
                 // Profile switcher — always visible when parental controls are enabled,
                 // regardless of lock state (switching to child doesn't need unlock).
                 profileSwitcherSection
+
+                if settingsStore.activeProfile == "child" {
+                    // Child-side: allow the child to request permission for a blocked tool
+                    requestPermissionSection
+                }
+
+                if settingsStore.activeProfile == "parental" {
+                    // Parent-side: review and respond to pending permission requests
+                    pendingApprovalsSection
+                }
 
                 if isUnlocked || !hasPIN {
                     pinSection
@@ -131,6 +150,19 @@ struct SettingsParentalTab: View {
                     }
                 },
                 daemonClient: daemonClient
+            )
+        }
+        .sheet(isPresented: $showingRequestPermissionSheet) {
+            RequestPermissionSheet(
+                toolName: $requestToolName,
+                reason: $requestReason,
+                onSend: { sendPermissionRequest() },
+                onDismiss: {
+                    showingRequestPermissionSheet = false
+                    requestToolName = ""
+                    requestReason = ""
+                    requestSent = false
+                }
             )
         }
     }
@@ -545,6 +577,216 @@ struct SettingsParentalTab: View {
         .vCard(background: VColor.surfaceSubtle)
     }
 
+    // MARK: - Request Permission Section (child profile)
+
+    private var requestPermissionSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Request Permission")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Ask your parent to approve a blocked action.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            VButton(label: "Request Parent Permission", style: .secondary) {
+                requestToolName = ""
+                requestReason = ""
+                requestSent = false
+                showingRequestPermissionSheet = true
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    private func sendPermissionRequest() {
+        let toolName = requestToolName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reason = requestReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !toolName.isEmpty else { return }
+
+        let stream = daemonClient?.subscribe()
+        Task {
+            do {
+                try daemonClient?.sendParentalControlApprovalCreate(toolName: toolName, reason: reason)
+            } catch {
+                await MainActor.run {
+                    showingRequestPermissionSheet = false
+                }
+                return
+            }
+
+            let _: ParentalControlApprovalCreateResponseMessage? = await withTaskGroup(of: ParentalControlApprovalCreateResponseMessage?.self) { group in
+                group.addTask {
+                    guard let stream else { return nil }
+                    for await message in stream {
+                        if case .parentalControlApprovalCreateResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            await MainActor.run {
+                requestSent = true
+                showingRequestPermissionSheet = false
+            }
+        }
+    }
+
+    // MARK: - Pending Approvals Section (parental profile)
+
+    private var pendingApprovalsSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack {
+                Text("Pending Approvals")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button("Refresh") {
+                    loadPendingApprovals()
+                }
+                .buttonStyle(.plain)
+                .font(VFont.caption)
+                .foregroundColor(VColor.accent)
+            }
+
+            Text("Review and respond to permission requests from the child profile.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            let pending = pendingRequests.filter { $0.status == "pending" }
+            if pending.isEmpty {
+                Text("No pending requests.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .padding(.top, VSpacing.xs)
+            } else {
+                ForEach(pending) { request in
+                    approvalRequestRow(request)
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    private func approvalRequestRow(_ request: ApprovalRequestItem) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text(request.toolName)
+                .font(VFont.bodyMedium)
+                .foregroundColor(VColor.textPrimary)
+            Text(request.reason)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Approve Always", style: .primary) {
+                    respondToRequest(request, decision: "approve_always")
+                }
+                VButton(label: "Approve Once", style: .secondary) {
+                    respondToRequest(request, decision: "approve_once")
+                }
+                VButton(label: "Reject", style: .danger) {
+                    respondToRequest(request, decision: "reject")
+                }
+            }
+        }
+        .padding(.top, VSpacing.xs)
+    }
+
+    private func loadPendingApprovals() {
+        let stream = daemonClient?.subscribe()
+        Task {
+            do {
+                try daemonClient?.sendParentalControlApprovalList()
+            } catch {
+                return
+            }
+
+            let response: ParentalControlApprovalListResponseMessage? = await withTaskGroup(of: ParentalControlApprovalListResponseMessage?.self) { group in
+                group.addTask {
+                    guard let stream else { return nil }
+                    for await message in stream {
+                        if case .parentalControlApprovalListResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            await MainActor.run {
+                if let r = response {
+                    pendingRequests = r.requests.map { item in
+                        ApprovalRequestItem(
+                            id: item.id,
+                            toolName: item.toolName,
+                            reason: item.reason,
+                            status: item.status,
+                            createdAt: item.createdAt,
+                            resolvedAt: item.resolvedAt
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func respondToRequest(_ request: ApprovalRequestItem, decision: String) {
+        let stream = daemonClient?.subscribe()
+        let pin = unlockedPIN
+        Task {
+            do {
+                try daemonClient?.sendParentalControlApprovalRespond(
+                    requestId: request.id,
+                    decision: decision,
+                    pin: pin
+                )
+            } catch {
+                return
+            }
+
+            let _: ParentalControlApprovalRespondResponseMessage? = await withTaskGroup(of: ParentalControlApprovalRespondResponseMessage?.self) { group in
+                group.addTask {
+                    guard let stream else { return nil }
+                    for await message in stream {
+                        if case .parentalControlApprovalRespondResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            await MainActor.run {
+                // Refresh the list after responding
+                loadPendingApprovals()
+            }
+        }
+    }
+
     // MARK: - Daemon interactions
 
     private func loadSettings() {
@@ -589,6 +831,10 @@ struct SettingsParentalTab: View {
                     hasPIN = r.has_pin
                     contentRestrictions = Set(r.content_restrictions)
                     blockedToolCategories = Set(r.blocked_tool_categories)
+                    // Also load pending approvals when on the parental profile
+                    if settingsStore.activeProfile == "parental" {
+                        loadPendingApprovals()
+                    }
                 } else {
                     errorMessage = "No response from daemon."
                 }
@@ -1187,6 +1433,64 @@ private struct ProfileSwitchSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Approval Request Model
+
+/// Local model for a parental approval request received from the daemon.
+struct ApprovalRequestItem: Identifiable {
+    let id: String
+    let toolName: String
+    let reason: String
+    let status: String
+    let createdAt: String
+    let resolvedAt: String?
+}
+
+// MARK: - Request Permission Sheet
+
+/// Sheet presented to the child profile user to compose and send a permission request.
+@MainActor
+private struct RequestPermissionSheet: View {
+    @Binding var toolName: String
+    @Binding var reason: String
+    let onSend: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            Text("Request Parent Permission")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Describe the tool or action you'd like permission for, and explain why you need it.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            TextField("Tool / action name (e.g. bash, web search)", text: $toolName)
+                .textFieldStyle(.roundedBorder)
+                .font(VFont.body)
+
+            TextField("Reason (e.g. need to run a homework script)", text: $reason)
+                .textFieldStyle(.roundedBorder)
+                .font(VFont.body)
+
+            HStack {
+                Spacer()
+                VButton(label: "Cancel", style: .secondary) {
+                    onDismiss()
+                }
+                VButton(label: "Send Request", style: .primary) {
+                    onSend()
+                }
+                .disabled(toolName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(VSpacing.xl)
+        .frame(width: 360)
+        .background(VColor.background)
     }
 }
 

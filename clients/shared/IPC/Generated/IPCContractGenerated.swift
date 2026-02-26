@@ -3129,6 +3129,40 @@ public struct IPCParentalControlAllowlistGetRequest: Codable, Sendable {
     }
 }
 
+public struct IPCParentalControlApprovalCreateRequest: Codable, Sendable {
+    public let type: String
+    public let toolName: String
+    public let reason: String
+
+    public init(type: String, toolName: String, reason: String) {
+        self.type = type
+        self.toolName = toolName
+        self.reason = reason
+    }
+}
+
+public struct IPCParentalControlApprovalCreateResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let requestId: String
+    public let error: String?
+
+    public init(type: String, success: Bool, requestId: String, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.requestId = requestId
+        self.error = error
+    }
+}
+
+public struct IPCParentalControlApprovalListRequest: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
 public struct IPCParentalControlAllowlistGetResponse: Codable, Sendable {
     public let type: String
     public let allowedApps: [String]
@@ -3171,6 +3205,60 @@ public struct IPCParentalControlAllowlistUpdateResponse: Codable, Sendable {
         self.success = success
         self.allowedApps = allowedApps
         self.allowedWidgets = allowedWidgets
+        self.error = error
+    }
+}
+
+public struct IPCParentalControlApprovalListResponse: Codable, Sendable {
+    public let type: String
+    public let requests: [IPCParentalControlApprovalListResponseRequest]
+
+    public init(type: String, requests: [IPCParentalControlApprovalListResponseRequest]) {
+        self.type = type
+        self.requests = requests
+    }
+}
+
+public struct IPCParentalControlApprovalListResponseRequest: Codable, Sendable {
+    public let id: String
+    public let toolName: String
+    public let reason: String
+    public let status: String
+    public let createdAt: String
+    public let resolvedAt: String?
+
+    public init(id: String, toolName: String, reason: String, status: String, createdAt: String, resolvedAt: String? = nil) {
+        self.id = id
+        self.toolName = toolName
+        self.reason = reason
+        self.status = status
+        self.createdAt = createdAt
+        self.resolvedAt = resolvedAt
+    }
+}
+
+public struct IPCParentalControlApprovalRespondRequest: Codable, Sendable {
+    public let type: String
+    public let requestId: String
+    public let decision: String
+    public let pin: String?
+
+    public init(type: String, requestId: String, decision: String, pin: String? = nil) {
+        self.type = type
+        self.requestId = requestId
+        self.decision = decision
+        self.pin = pin
+    }
+}
+
+public struct IPCParentalControlApprovalRespondResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, success: Bool, error: String? = nil) {
+        self.type = type
+        self.success = success
         self.error = error
     }
 }
