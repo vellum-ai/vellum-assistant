@@ -722,8 +722,13 @@ struct MainWindowView: View {
             if let activeId = threadManager.activeThreadId {
                 windowState.persistentThreadId = activeId
             }
+            // Sync thread list profile filter with the current active profile
+            threadManager.activeProfile = settingsStore.activeProfile
             requestHomeBaseDashboardIfNeeded()
             daemonClient.startSSE()
+        }
+        .onChange(of: settingsStore.activeProfile) { _, newProfile in
+            threadManager.activeProfile = newProfile
         }
         .onDisappear {
             copyThread.cancel()
@@ -1533,9 +1538,9 @@ private struct ProfileSwitcherSidebarRow: View {
     @State private var isHovered = false
 
     private var isParental: Bool { activeProfile == "parental" }
-    private var avatarIcon: String { isParental ? "person.crop.circle.fill" : "figure.child.circle.fill" }
+    private var avatarIcon: String { isParental ? "crown.fill" : "figure.child" }
     private var avatarColor: Color { isParental ? VColor.accent : VColor.success }
-    private var profileLabel: String { isParental ? "Parental" : "Child" }
+    private var profileLabel: String { isParental ? "Parental Mode" : "Child Mode" }
 
     var body: some View {
         Button(action: onSwitch) {
@@ -1565,7 +1570,7 @@ private struct ProfileSwitcherSidebarRow: View {
         .buttonStyle(.plain)
         .padding(.horizontal, isExpanded ? VSpacing.sm : VSpacing.xs)
         .padding(.bottom, VSpacing.sm)
-        .help(isExpanded ? "Switch profile" : "\(profileLabel) profile — tap to switch")
+        .help(isExpanded ? "Switch profile" : "\(profileLabel) — tap to switch")
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
@@ -1638,6 +1643,47 @@ private enum SwitchStep: Equatable {
     case switching
 }
 
+/// iPhone-style PIN entry field: shows N circles that fill as digits are typed.
+/// An invisible TextField underneath captures keyboard input.
+@MainActor
+private struct PINCircleField: View {
+    @Binding var text: String
+    var count: Int = 6
+
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ForEach(0..<count, id: \.self) { index in
+                Circle()
+                    .fill(index < text.count ? VColor.accent : Color.clear)
+                    .overlay(
+                        Circle().strokeBorder(
+                            index < text.count ? VColor.accent : VColor.textMuted,
+                            lineWidth: 2
+                        )
+                    )
+                    .frame(width: 18, height: 18)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .overlay(
+            TextField("", text: $text)
+                .font(.system(size: 1))
+                .opacity(0.01)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .focused($focused)
+                .onChange(of: text) { _, newValue in
+                    let filtered = String(newValue.filter { $0.isNumber }.prefix(count))
+                    if filtered != newValue { text = filtered }
+                }
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
+        .onAppear { focused = true }
+    }
+}
+
 /// Sheet shown when switching between parental and child profiles.
 /// Handles both directions: parental→child (no PIN) and child→parental (PIN required).
 /// Animates between an overview step and a PIN entry step for the child→parental flow.
@@ -1660,47 +1706,42 @@ private struct ProfileSwitchModal: View {
         VStack(spacing: VSpacing.xl) {
             // Profile transition header
             HStack(spacing: VSpacing.md) {
-                VStack(spacing: VSpacing.xxs) {
-                    Image(systemName: isChildToParental ? "figure.child.circle.fill" : "person.crop.circle.fill")
-                        .font(.system(size: 36))
-                        .foregroundColor(isChildToParental ? VColor.success : VColor.accent)
-                    Text(isChildToParental ? "Child" : "Parental")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
+                profileAvatarColumn(isParental: !isChildToParental)
                 Image(systemName: "arrow.right")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(VColor.textMuted)
-                VStack(spacing: VSpacing.xxs) {
-                    Image(systemName: isChildToParental ? "person.crop.circle.fill" : "figure.child.circle.fill")
-                        .font(.system(size: 36))
-                        .foregroundColor(isChildToParental ? VColor.accent : VColor.success)
-                    Text(isChildToParental ? "Parental" : "Child")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
+                profileAvatarColumn(isParental: isChildToParental)
             }
             .frame(maxWidth: .infinity, alignment: .center)
 
-            if step == .overview {
+            // Fixed-height content area so the modal doesn't resize between steps
+            ZStack {
                 overviewContent
+                    .opacity(step == .overview ? 1 : 0)
+                    .allowsHitTesting(step == .overview)
                     .transition(.asymmetric(
                         insertion: .move(edge: .leading).combined(with: .opacity),
                         removal: .move(edge: .leading).combined(with: .opacity)
                     ))
-            } else if step == .enterPIN {
+
                 pinContent
+                    .opacity(step == .enterPIN ? 1 : 0)
+                    .allowsHitTesting(step == .enterPIN)
                     .transition(.asymmetric(
                         insertion: .move(edge: .trailing).combined(with: .opacity),
                         removal: .move(edge: .trailing).combined(with: .opacity)
                     ))
-            } else {
+
                 switchingContent
+                    .opacity(step == .switching ? 1 : 0)
+                    .allowsHitTesting(step == .switching)
                     .transition(.opacity)
             }
+            .frame(maxWidth: .infinity)
         }
         .padding(VSpacing.xl)
         .frame(width: 340)
+        .fixedSize(horizontal: true, vertical: true)
         .background(VColor.background)
         .animation(VAnimation.standard, value: step)
     }
@@ -1718,10 +1759,16 @@ private struct ProfileSwitchModal: View {
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            // Placeholder to match PIN entry height (circles + padding)
+            Color.clear.frame(height: 18 + VSpacing.xs * 2)
+
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
+            } else {
+                // Reserve space for error message to match PIN step height
+                Text(" ").font(VFont.caption)
             }
 
             HStack {
@@ -1749,15 +1796,20 @@ private struct ProfileSwitchModal: View {
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            SecureField("6-digit PIN", text: $pin)
-                .textFieldStyle(.roundedBorder)
-                .font(VFont.body)
-                .onSubmit { if pin.count == 6 { performSwitch() } }
+            PINCircleField(text: $pin)
+                .padding(.vertical, VSpacing.xs)
+                .onChange(of: pin) { _, newValue in
+                    // Auto-submit when all 6 digits are entered
+                    if newValue.count == 6 { performSwitch() }
+                }
 
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
+            } else {
+                // Reserve space for error message to avoid height jump
+                Text(" ").font(VFont.caption)
             }
 
             HStack {
@@ -1786,6 +1838,23 @@ private struct ProfileSwitchModal: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, VSpacing.xl)
+    }
+
+    @ViewBuilder
+    private func profileAvatarColumn(isParental: Bool) -> some View {
+        VStack(spacing: VSpacing.xs) {
+            ZStack {
+                Circle()
+                    .fill(isParental ? VColor.accent.opacity(0.15) : VColor.success.opacity(0.15))
+                    .frame(width: 52, height: 52)
+                Image(systemName: isParental ? "crown.fill" : "figure.child")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundColor(isParental ? VColor.accent : VColor.success)
+            }
+            Text(isParental ? "Parental Mode" : "Child Mode")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+        }
     }
 
     private func performSwitch() {
