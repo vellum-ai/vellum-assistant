@@ -140,7 +140,7 @@ final class PermissionPromptOverlay {
         for kind: PromptKind,
         onGrantAccess: @escaping () -> Void,
         onDismiss: @escaping () -> Void
-    ) -> (title: String, body: String, primaryTitle: String, primaryAction: @escaping () -> Void, secondaryTitle: String, secondaryAction: @escaping () -> Void) {
+    ) -> (title: String, body: String, primaryTitle: String, primaryAction: () -> Void, secondaryTitle: String, secondaryAction: () -> Void) {
         switch kind {
         case .notDetermined(let keyName):
             return (
