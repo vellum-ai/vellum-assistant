@@ -127,6 +127,15 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 100,
   };
 
+  const updatesDeleteRule: DefaultRuleTemplate = {
+    id: 'default:allow-bash-rm-updates',
+    tool: 'bash',
+    pattern: 'rm UPDATES.md',
+    scope: workspaceDir,
+    decision: 'allow',
+    priority: 100,
+  };
+
   // Skill source directories — writing or editing skill source files should
   // require explicit user approval so a compromised agent loop cannot silently
   // modify skill code to escalate privileges.
@@ -248,6 +257,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     ...managedSkillRules,
     ...workspacePromptRules,
     bootstrapDeleteRule,
+    updatesDeleteRule,
     ...skillSourceMutationRules,
     skillLoadRule,
     browserNavigateRule,
