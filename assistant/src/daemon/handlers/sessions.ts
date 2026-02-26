@@ -238,21 +238,27 @@ export async function handleUserMessage(
       rlog.info({ action, source: 'commandIntent' }, 'Recording command intent received in user_message');
       if (action === 'start') {
         const recordingId = handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
+        const responseText = recordingId ? 'Starting screen recording.' : 'A recording is already active.';
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: recordingId ? 'Starting screen recording.' : 'A recording is already active.',
+          text: responseText,
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         return;
       } else if (action === 'stop') {
         const stopped = handleRecordingStop(msg.sessionId, ctx) !== undefined;
+        const responseText = stopped ? 'Stopping the recording.' : 'No active recording to stop.';
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+          text: responseText,
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         return;
       } else if (action === 'restart') {
         const restartResult = handleRecordingRestart(msg.sessionId, socket, ctx);
@@ -262,24 +268,32 @@ export async function handleUserMessage(
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: restartResult.responseText }]));
         return;
       } else if (action === 'pause') {
         const paused = handleRecordingPause(msg.sessionId, ctx) !== undefined;
+        const responseText = paused ? 'Pausing the recording.' : 'No active recording to pause.';
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: paused ? 'Pausing the recording.' : 'No active recording to pause.',
+          text: responseText,
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         return;
       } else if (action === 'resume') {
         const resumed = handleRecordingResume(msg.sessionId, ctx) !== undefined;
+        const responseText = resumed ? 'Resuming the recording.' : 'No active recording to resume.';
         ctx.send(socket, {
           type: 'assistant_text_delta',
-          text: resumed ? 'Resuming the recording.' : 'No active recording to resume.',
+          text: responseText,
           sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+        conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         return;
       } else {
         // Unrecognized action — fall through to normal text handling
@@ -312,6 +326,8 @@ export async function handleUserMessage(
             sessionId: msg.sessionId,
           });
           ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+          conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+          conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
           return;
         }
       }
@@ -383,6 +399,8 @@ export async function handleUserMessage(
                 sessionId: msg.sessionId,
               });
               ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+              conversationStore.addMessage(msg.sessionId, 'user', JSON.stringify([{ type: 'text', text: messageText }]));
+              conversationStore.addMessage(msg.sessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
               return;
             }
           }
