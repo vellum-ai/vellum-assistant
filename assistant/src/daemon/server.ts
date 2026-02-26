@@ -230,8 +230,7 @@ export class DaemonServer {
   private broadcastIdentityChanged(): void {
     try {
       const identityPath = getWorkspacePromptPath('IDENTITY.md');
-      if (!existsSync(identityPath)) return;
-      const content = readFileSync(identityPath, 'utf-8');
+      const content = existsSync(identityPath) ? readFileSync(identityPath, 'utf-8') : '';
       const fields = parseIdentityFields(content);
       this.broadcast({
         type: 'identity_changed',
