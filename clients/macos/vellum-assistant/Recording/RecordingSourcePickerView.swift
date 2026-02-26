@@ -64,7 +64,7 @@ struct RecordingSourcePickerView: View {
         }
         .frame(
             width: 420,
-            height: 640
+            height: 740
         )
         .background(VColor.background)
         .task {
@@ -176,7 +176,7 @@ struct RecordingSourcePickerView: View {
                 }
             }
             .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.vertical, VSpacing.md)
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
@@ -243,7 +243,7 @@ struct RecordingSourcePickerView: View {
                 }
             }
             .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.vertical, VSpacing.md)
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
@@ -285,6 +285,7 @@ struct RecordingSourcePickerView: View {
                 }
             }
             .toggleStyle(.switch)
+            .tint(VColor.success)
             .padding(.horizontal, VSpacing.xl)
 
             if #available(macOS 14, *) {
@@ -298,6 +299,7 @@ struct RecordingSourcePickerView: View {
                     }
                 }
                 .toggleStyle(.switch)
+                .tint(VColor.success)
                 .padding(.horizontal, VSpacing.xl)
             }
 
