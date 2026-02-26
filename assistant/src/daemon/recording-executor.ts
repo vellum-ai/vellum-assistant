@@ -26,6 +26,8 @@ export interface RecordingExecutionOutput {
   pendingStart?: boolean;
   /** Whether a recording stop should be/was initiated */
   pendingStop?: boolean;
+  /** Whether handleRecordingStart succeeded (true) or was rejected (false). Only set for start_only / start_and_stop_only. */
+  recordingStarted?: boolean;
 }
 
 export function executeRecordingIntent(
@@ -45,6 +47,7 @@ export function executeRecordingIntent(
       );
       return {
         handled: true,
+        recordingStarted: !!recordingId,
         responseText: recordingId
           ? 'Starting screen recording.'
           : 'A recording is already active.',
@@ -85,6 +88,7 @@ export function executeRecordingIntent(
       );
       return {
         handled: true,
+        recordingStarted: !!recordingId,
         responseText: recordingId
           ? 'Stopping current recording and starting a new one.'
           : 'Stopping the recording.',

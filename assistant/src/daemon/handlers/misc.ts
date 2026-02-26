@@ -136,7 +136,7 @@ export async function handleTaskSubmit(
         ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
 
         // If recording rejected, unbind socket
-        if (execResult.responseText === 'A recording is already active.') {
+        if (execResult.recordingStarted === false) {
           ctx.socketToSession.delete(socket);
         }
 
