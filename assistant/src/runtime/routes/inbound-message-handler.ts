@@ -837,6 +837,27 @@ export async function handleChannelInbound(
       approvalConversationGenerator,
     });
 
+    // ── Telegram inferred seen for callback early returns ──
+    // Callback queries always return early from this approval interception
+    // block (either handled or stale_ignored), so inferTelegramSeen must
+    // run here before those returns. Callback data is system-generated
+    // (e.g. "apr:<requestId>:<action>"), not user-typed, so secret ingress
+    // concerns do not apply — safe to record as evidenceText without the
+    // secret gate that protects the normal message path below.
+    if (sourceChannel === 'telegram' && hasCallbackData) {
+      try {
+        inferTelegramSeen({
+          assistantId: canonicalAssistantId,
+          externalChatId,
+          hasCallbackData,
+          callbackData: body.callbackData,
+          content: trimmedContent,
+        });
+      } catch (err) {
+        log.warn({ err, externalChatId }, 'Failed to record inferred telegram seen signal (callback)');
+      }
+    }
+
     if (approvalResult.handled) {
       return Response.json({
         accepted: true,
