@@ -12,7 +12,7 @@ enum ViewSelection: Equatable {
 /// Cross-view UI state for the main window, extracted from `MainWindowView`
 /// to make it explicit, injectable, and easier to preview.
 @MainActor
-final class MainWindowState: ObservableObject {
+public final class MainWindowState: ObservableObject {
     @AppStorage("lastActivePanel") private var lastActivePanelString: String?
     @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = false
     @AppStorage("chatDockOpen") private var chatDockOpen = false
@@ -87,7 +87,7 @@ final class MainWindowState: ObservableObject {
     /// a live conversation alongside the panel).
     /// Used by zoom intent routing to decide whether Cmd+/- should
     /// target conversation text zoom or fall through to window zoom.
-    var isConversationVisible: Bool {
+    public var isConversationVisible: Bool {
         switch selection {
         case .thread, .none, .appEditing: return true
         case .panel(let panelType):
