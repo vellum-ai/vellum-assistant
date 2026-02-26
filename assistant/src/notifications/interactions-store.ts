@@ -20,6 +20,20 @@ import type {
   NotificationDeliverySummary,
 } from './types.js';
 
+// -- Vellum view sources ------------------------------------------------------
+
+/**
+ * Sources that represent the user actually opening or viewing the notification
+ * in a vellum-controlled interface. Only interactions from these sources are
+ * eligible to set `viewed_at` on the delivery summary — other explicit signals
+ * (e.g. future non-vellum integrations) should only set `seen_at`.
+ */
+export const VELLUM_VIEW_SOURCES: ReadonlySet<InteractionSource> = new Set<InteractionSource>([
+  'macos_notification_view_action',
+  'macos_conversation_opened',
+  'vellum_thread_opened',
+]);
+
 // -- Row type -----------------------------------------------------------------
 
 export interface NotificationDeliveryInteractionRow {
@@ -130,8 +144,12 @@ export function recordNotificationDeliveryInteraction(
       summaryUpdates.seenEvidenceText = params.evidenceText ?? null;
     }
 
-    // viewed_at: only set for explicit vellum view interactions
-    if (params.interactionType === 'viewed' && params.confidence === 'explicit') {
+    // viewed_at: only set for explicit vellum view interactions from known sources
+    if (
+      params.interactionType === 'viewed' &&
+      params.confidence === 'explicit' &&
+      VELLUM_VIEW_SOURCES.has(params.source)
+    ) {
       summaryUpdates.viewedAt = params.occurredAt;
     }
 
