@@ -15,6 +15,7 @@ import {
   getPendingRequestByCallSessionId,
   markTimedOutWithReason,
 } from '../memory/guardian-action-store.js';
+import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
 import { getLogger } from '../util/logger.js';
 import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
@@ -430,6 +431,17 @@ export class CallController {
     this.abortCurrentTurn();
     this.currentTurnPromise = null;
     unregisterCallController(this.callSessionId);
+
+    // Revoke any scoped approval grants bound to this call session
+    try {
+      const revoked = revokeScopedApprovalGrantsForContext({ callSessionId: this.callSessionId });
+      if (revoked > 0) {
+        log.info({ callSessionId: this.callSessionId, revokedCount: revoked }, 'Revoked scoped grants on call end');
+      }
+    } catch (err) {
+      log.warn({ err, callSessionId: this.callSessionId }, 'Failed to revoke scoped grants on call end');
+    }
+
     log.info({ callSessionId: this.callSessionId }, 'CallController destroyed');
   }
 
@@ -568,6 +580,7 @@ export class CallController {
         // Start the voice turn through the session bridge
         startVoiceTurn({
           conversationId: this.conversationId,
+          callSessionId: this.callSessionId,
           content,
           assistantId: this.assistantId,
           guardianContext: this.guardianContext ?? undefined,

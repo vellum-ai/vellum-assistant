@@ -13,6 +13,7 @@ import { getTwilioStatusCallbackUrl,getTwilioVoiceWebhookUrl } from '../inbound/
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import { queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { upsertBinding } from '../memory/external-conversation-store.js';
+import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
 import { isGuardian } from '../runtime/channel-guardian-service.js';
 import { getSecureKey } from '../security/secure-keys.js';
 import { getLogger } from '../util/logger.js';
@@ -488,6 +489,13 @@ export async function cancelCall(input: CancelCallInput): Promise<{ ok: true; se
 
   // Expire any pending questions so they don't linger
   expirePendingQuestions(callSessionId);
+
+  // Revoke any scoped approval grants bound to this call session
+  try {
+    revokeScopedApprovalGrantsForContext({ callSessionId });
+  } catch (err) {
+    log.warn({ err, callSessionId }, 'Failed to revoke scoped grants on call cancel');
+  }
 
   // Re-check final status: a concurrent transition (e.g. Twilio callback) may have
   // moved the session to a terminal state before our update, causing it to be skipped.

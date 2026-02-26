@@ -18,7 +18,9 @@ import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { consumeScopedApprovalGrantByToolSignature } from '../memory/scoped-approval-grants.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
+import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 
@@ -81,6 +83,8 @@ export interface VoiceRunEventSink {
 export interface VoiceTurnOptions {
   /** The conversation ID for this voice call's session. */
   conversationId: string;
+  /** The call session ID for scoped grant matching. */
+  callSessionId?: string;
   /** The transcribed caller utterance or synthetic marker. */
   content: string;
   /** Assistant scope for multi-assistant channels. */
@@ -339,9 +343,38 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
   session.updateClient((msg: ServerMessage) => {
     if (msg.type === 'confirmation_request') {
       if (autoDeny) {
+        // Before auto-denying, check if a guardian from another channel
+        // has pre-approved this exact tool invocation via a scoped grant.
+        const inputDigest = computeToolApprovalDigest(msg.toolName, msg.input);
+        const consumeResult = consumeScopedApprovalGrantByToolSignature({
+          toolName: msg.toolName,
+          inputDigest,
+          consumingRequestId: msg.requestId,
+          executionChannel: 'voice',
+          conversationId: opts.conversationId,
+          callSessionId: opts.callSessionId,
+          requesterExternalUserId: opts.guardianContext?.requesterExternalUserId,
+        });
+
+        if (consumeResult.ok) {
+          log.info(
+            { turnId, toolName: msg.toolName, grantId: consumeResult.grant?.id },
+            'Consumed scoped grant — allowing non-guardian voice confirmation',
+          );
+          session.handleConfirmationResponse(
+            msg.requestId,
+            'allow',
+            undefined,
+            undefined,
+            `Permission approved for "${msg.toolName}": guardian pre-approved via scoped grant.`,
+          );
+          publishToHub(msg);
+          return;
+        }
+
         log.info(
           { turnId, toolName: msg.toolName },
-          'Auto-denying confirmation request for voice turn (forceStrictSideEffects)',
+          'Auto-denying confirmation request for voice turn (no matching scoped grant)',
         );
         session.handleConfirmationResponse(
           msg.requestId,

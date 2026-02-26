@@ -12,6 +12,7 @@ import type { ServerWebSocket } from 'bun';
 
 import { getConfig } from '../config/loader.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
 import {
   getPendingChallenge,
   validateAndConsumeChallenge,
@@ -351,6 +352,14 @@ export class RelayConnection {
     }
 
     expirePendingQuestions(this.callSessionId);
+
+    // Revoke any scoped approval grants bound to this call session
+    try {
+      revokeScopedApprovalGrantsForContext({ callSessionId: this.callSessionId });
+    } catch (err) {
+      log.warn({ err, callSessionId: this.callSessionId }, 'Failed to revoke scoped grants on transport close');
+    }
+
     persistCallCompletionMessage(session.conversationId, this.callSessionId).catch((err) => {
       log.error({ err, conversationId: session.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
     });
