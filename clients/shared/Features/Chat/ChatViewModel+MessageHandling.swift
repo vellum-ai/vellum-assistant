@@ -1153,8 +1153,10 @@ extension ChatViewModel {
                 targetMsgIndex = msgIndex
                 targetTcIndex = tcIndex
             } else {
-                // Fallback: search backward for any assistant message with incomplete tool calls
-                for i in messages.indices.reversed() {
+                // Fallback: search backward for assistant messages with incomplete tool calls,
+                // but only within the current turn (after the last user message).
+                let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) ?? 0
+                for i in stride(from: messages.count - 1, through: lastUserIndex, by: -1) {
                     guard messages[i].role == .assistant else { continue }
                     if let tcIndex = messages[i].toolCalls.lastIndex(where: { !$0.isComplete }) {
                         targetMsgIndex = i
