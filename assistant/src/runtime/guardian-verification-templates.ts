@@ -79,29 +79,24 @@ export interface ChannelVerifyReplyVars {
 // ---------------------------------------------------------------------------
 
 const templates: Record<TextVerifyTemplateKey, (vars: GuardianVerifyTemplateVars) => string> = {
-  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST]: (vars) => {
-    const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Guardian verification requested. Reply with the code you were given.`;
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST]: (_vars) => {
+    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given.';
   },
 
-  [GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND]: (vars) => {
-    const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Guardian verification requested. Reply with the code you were given. (resent)`;
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND]: (_vars) => {
+    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given. (resent)';
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED]: (_vars) => {
-    const prefix = _vars.assistantName ? `[${_vars.assistantName}] ` : '';
-    return `${prefix}This channel is already verified. No further action is needed.`;
+    return 'This channel is already verified. No further action is needed.';
   },
 
-  [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST]: (vars) => {
-    const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Guardian verification requested. Reply with the code you were given.`;
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST]: (_vars) => {
+    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given.';
   },
 
-  [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND]: (vars) => {
-    const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Guardian verification requested. Reply with the code you were given. (resent)`;
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND]: (_vars) => {
+    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given. (resent)';
   },
 };
 
@@ -141,7 +136,7 @@ type VoiceTemplateKey =
 
 const voiceTemplates: Record<VoiceTemplateKey, (vars: GuardianVerifyVoiceTemplateVars) => string> = {
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO]: (vars) =>
-    `You are receiving a verification call. Please enter your ${vars.codeDigits}-digit verification code using your keypad.`,
+    `You are receiving a guardian verification call for your Vellum assistant. Please enter your ${vars.codeDigits}-digit verification code using your keypad.`,
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_RETRY]: (_vars) =>
     'That code was incorrect. Please try again.',
