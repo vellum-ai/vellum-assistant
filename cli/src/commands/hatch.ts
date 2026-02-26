@@ -1,5 +1,6 @@
+import { execSync } from "child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync } from "fs";
-import { homedir, userInfo } from "os";
+import { homedir, platform, userInfo } from "os";
 import { join } from "path";
 
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
@@ -401,6 +402,7 @@ function installCLISymlink(): void {
   try {
     // Use lstatSync (not existsSync) to detect dangling symlinks —
     // existsSync follows symlinks and returns false for broken links.
+    let needsRemove = false;
     try {
       const stats = lstatSync(symlinkPath);
       if (!stats.isSymbolicLink()) {
@@ -410,21 +412,42 @@ function installCLISymlink(): void {
       // Already a symlink — skip if it already points to our binary
       const dest = readlinkSync(symlinkPath);
       if (dest === cliBinary) return;
-      // Stale or dangling symlink — remove before creating new one
-      unlinkSync(symlinkPath);
+      // Stale or dangling symlink — needs removal before creating new one
+      needsRemove = true;
     } catch (e) {
       if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") throw e;
       // Path doesn't exist — proceed to create symlink
     }
 
     const dir = "/usr/local/bin";
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+    const dirExists = existsSync(dir);
+
+    // First attempt: create dir + symlink without elevation
+    try {
+      if (needsRemove) unlinkSync(symlinkPath);
+      if (!dirExists) mkdirSync(dir, { recursive: true });
+      symlinkSync(cliBinary, symlinkPath);
+      console.log(`   Symlinked ${symlinkPath} → ${cliBinary}`);
+      return;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException)?.code !== "EACCES" && (e as NodeJS.ErrnoException)?.code !== "EPERM") throw e;
+      // Permission denied — fall through to elevated attempt on macOS
     }
-    symlinkSync(cliBinary, symlinkPath);
+
+    // Second attempt (macOS only): use osascript to request admin privileges.
+    // On some Macs /usr/local doesn't exist and creating it requires root.
+    if (platform() !== "darwin") throw new Error("elevated symlink only supported on macOS");
+
+    const shellCommands: string[] = [];
+    if (needsRemove) shellCommands.push(`rm -f '${symlinkPath}'`);
+    if (!dirExists) shellCommands.push(`mkdir -p '${dir}'`);
+    shellCommands.push(`ln -sf '${cliBinary}' '${symlinkPath}'`);
+    const script = shellCommands.join(" && ");
+
+    execSync(`osascript -e 'do shell script "${script}" with administrator privileges'`);
     console.log(`   Symlinked ${symlinkPath} → ${cliBinary}`);
   } catch {
-    // Permission denied or other error — not critical
+    // Permission denied, user cancelled admin prompt, or other error — not critical
     console.log(`   ⚠ Could not create symlink at ${symlinkPath} (run with sudo or create manually)`);
   }
 }
