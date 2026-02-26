@@ -1072,8 +1072,10 @@ public struct IPCCuObservation: Codable, Sendable {
     public let executionError: String?
     public let axTreeBlob: IPCIpcBlobRef?
     public let screenshotBlob: IPCIpcBlobRef?
+    /// Free-form guidance from the user, injected mid-turn to steer the agent.
+    public let userGuidance: String?
 
-    public init(type: String, sessionId: String, axTree: String? = nil, axDiff: String? = nil, secondaryWindows: String? = nil, screenshot: String? = nil, screenshotWidthPx: Double? = nil, screenshotHeightPx: Double? = nil, screenWidthPt: Double? = nil, screenHeightPt: Double? = nil, coordinateOrigin: String? = nil, captureDisplayId: Double? = nil, executionResult: String? = nil, executionError: String? = nil, axTreeBlob: IPCIpcBlobRef? = nil, screenshotBlob: IPCIpcBlobRef? = nil) {
+    public init(type: String, sessionId: String, axTree: String? = nil, axDiff: String? = nil, secondaryWindows: String? = nil, screenshot: String? = nil, screenshotWidthPx: Double? = nil, screenshotHeightPx: Double? = nil, screenWidthPt: Double? = nil, screenHeightPt: Double? = nil, coordinateOrigin: String? = nil, captureDisplayId: Double? = nil, executionResult: String? = nil, executionError: String? = nil, axTreeBlob: IPCIpcBlobRef? = nil, screenshotBlob: IPCIpcBlobRef? = nil, userGuidance: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.axTree = axTree
@@ -1090,6 +1092,7 @@ public struct IPCCuObservation: Codable, Sendable {
         self.executionError = executionError
         self.axTreeBlob = axTreeBlob
         self.screenshotBlob = screenshotBlob
+        self.userGuidance = userGuidance
     }
 }
 

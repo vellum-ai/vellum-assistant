@@ -42,6 +42,8 @@ export interface CuObservation {
   executionError?: string;
   axTreeBlob?: IpcBlobRef;
   screenshotBlob?: IpcBlobRef;
+  /** Free-form guidance from the user, injected mid-turn to steer the agent. */
+  userGuidance?: string;
 }
 
 export interface TaskSubmit {

@@ -173,7 +173,8 @@ extension IPCCuObservation {
         executionResult: String?,
         executionError: String?,
         axTreeBlob: IPCIpcBlobRef? = nil,
-        screenshotBlob: IPCIpcBlobRef? = nil
+        screenshotBlob: IPCIpcBlobRef? = nil,
+        userGuidance: String? = nil
     ) {
         self.init(
             type: "cu_observation",
@@ -191,7 +192,8 @@ extension IPCCuObservation {
             executionResult: executionResult,
             executionError: executionError,
             axTreeBlob: axTreeBlob,
-            screenshotBlob: screenshotBlob
+            screenshotBlob: screenshotBlob,
+            userGuidance: userGuidance
         )
     }
 }

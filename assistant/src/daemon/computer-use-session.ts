@@ -688,6 +688,12 @@ export class ComputerUseSession {
   private buildObservationResultContent(obs: CuObservation, hadPreviousAXTree: boolean): string {
     const parts: string[] = [];
 
+    // Surface user guidance prominently so the model sees it first
+    if (obs.userGuidance) {
+      parts.push(`USER GUIDANCE: ${obs.userGuidance}`);
+      parts.push('');
+    }
+
     if (obs.executionResult) {
       parts.push(obs.executionResult);
       parts.push('');
@@ -852,6 +858,12 @@ export class ComputerUseSession {
           `WARNING: You have repeated the exact same action (${recent[0].toolName}) ${LOOP_DETECTION_WINDOW} times in a row. You MUST try a completely different approach or call computer_use_done with an explanation of why you are stuck.`,
         );
       }
+    }
+
+    // Surface user guidance prominently
+    if (obs.userGuidance) {
+      textParts.push('');
+      textParts.push(`USER GUIDANCE: ${obs.userGuidance}`);
     }
 
     // Prompt for next action

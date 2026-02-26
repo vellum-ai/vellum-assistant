@@ -12,11 +12,13 @@ final class SessionOverlayWindow {
     private var headerLabel: NSTextField?
     private var taskLabel: NSTextField?
     private var stateContainer: NSView?
+    private var guidanceContainer: NSView?
     private var controlsContainer: NSView?
     private var spinner: NSProgressIndicator?
+    private var guidanceField: NSTextField?
 
-    private let panelWidth: CGFloat = 340
-    private let padding: CGFloat = 14
+    private let panelWidth: CGFloat = 440
+    private let padding: CGFloat = 16
     private let sectionSpacing: CGFloat = 14 // VSpacing.md + VSpacing.xxs
 
     init(session: ComputerUseSession) {
@@ -107,10 +109,38 @@ final class SessionOverlayWindow {
         stack.addArrangedSubview(divider)
         divider.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
-        // State content
+        // State content (wrapped in scroll view)
         let stateView = buildStateContent(session.state)
         self.stateContainer = stateView
-        stack.addArrangedSubview(stateView)
+
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+
+        let clipView = NSClipView()
+        clipView.drawsBackground = false
+        scrollView.contentView = clipView
+        scrollView.documentView = stateView
+        stateView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            stateView.topAnchor.constraint(equalTo: clipView.topAnchor),
+            stateView.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
+            stateView.trailingAnchor.constraint(equalTo: clipView.trailingAnchor),
+        ])
+        scrollView.heightAnchor.constraint(lessThanOrEqualToConstant: 400).isActive = true
+
+        stack.addArrangedSubview(scrollView)
+        scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        // Guidance input
+        let guidance = buildGuidanceInput()
+        self.guidanceContainer = guidance
+        stack.addArrangedSubview(guidance)
+        guidance.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        updateGuidanceVisibility()
 
         // Controls
         let controls = buildControls()
@@ -231,7 +261,7 @@ final class SessionOverlayWindow {
             bar.translatesAutoresizingMaskIntoConstraints = false
             bar.widthAnchor.constraint(equalToConstant: 3).isActive = true
 
-            let reasoningLabel = makeLabel(reasoning, font: .systemFont(ofSize: 11), color: .labelColor, maxLines: 3)
+            let reasoningLabel = makeLabel(reasoning, font: .systemFont(ofSize: 13), color: .labelColor)
             reasoningLabel.translatesAutoresizingMaskIntoConstraints = false
 
             let wrapper = NSView()
@@ -256,7 +286,7 @@ final class SessionOverlayWindow {
             wrapper.widthAnchor.constraint(equalTo: vstack.widthAnchor).isActive = true
         }
 
-        let actionLabel = makeLabel(lastAction, font: .systemFont(ofSize: 11), color: .secondaryLabelColor, maxLines: 2)
+        let actionLabel = makeLabel(lastAction, font: .systemFont(ofSize: 13), color: .secondaryLabelColor)
         vstack.addArrangedSubview(actionLabel)
 
         return vstack
@@ -508,25 +538,98 @@ final class SessionOverlayWindow {
         }
     }
 
+    // MARK: - Guidance Input
+
+    private func buildGuidanceInput() -> NSView {
+        let container = NSView()
+
+        let hstack = NSStackView()
+        hstack.orientation = .horizontal
+        hstack.spacing = 8
+        hstack.translatesAutoresizingMaskIntoConstraints = false
+
+        let field = NSTextField()
+        field.placeholderString = "Steer the agent..."
+        field.font = NSFont.systemFont(ofSize: 13)
+        field.textColor = .labelColor
+        field.backgroundColor = NSColor(white: 0.2, alpha: 1.0)
+        field.isBordered = false
+        field.isBezeled = true
+        field.bezelStyle = .roundedBezel
+        field.cell?.wraps = false
+        field.cell?.isScrollable = true
+        field.target = buttonTarget
+        field.action = #selector(SessionOverlayButtonTarget.sendGuidanceClicked)
+        self.guidanceField = field
+
+        let sendBtn = NSButton()
+        if let img = NSImage(systemSymbolName: "arrow.up.circle.fill", accessibilityDescription: "Send guidance") {
+            sendBtn.image = img
+        }
+        sendBtn.isBordered = false
+        sendBtn.target = buttonTarget
+        sendBtn.action = #selector(SessionOverlayButtonTarget.sendGuidanceClicked)
+        sendBtn.widthAnchor.constraint(equalToConstant: 20).isActive = true
+        sendBtn.heightAnchor.constraint(equalToConstant: 20).isActive = true
+
+        hstack.addArrangedSubview(field)
+        hstack.addArrangedSubview(sendBtn)
+
+        container.addSubview(hstack)
+        NSLayoutConstraint.activate([
+            hstack.topAnchor.constraint(equalTo: container.topAnchor),
+            hstack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            hstack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            hstack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+
+        return container
+    }
+
+    func sendGuidance() {
+        guard let field = guidanceField else { return }
+        let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        session.pendingUserGuidance = text
+        field.stringValue = ""
+    }
+
+    private func updateGuidanceVisibility() {
+        let showGuidance: Bool
+        switch session.state {
+        case .running, .thinking, .paused:
+            showGuidance = true
+        default:
+            showGuidance = false
+        }
+        guidanceContainer?.isHidden = !showGuidance
+    }
+
     // MARK: - Update
 
     private func updateState(_ state: SessionState) {
-        guard let stateContainer, let controlsContainer else { return }
+        guard let stateContainer else { return }
 
         // Stop any running spinner
         spinner?.stopAnimation(nil)
         spinner = nil
 
-        // Replace state content
-        if let parent = stateContainer.superview as? NSStackView,
-           let index = parent.arrangedSubviews.firstIndex(of: stateContainer) {
-            parent.removeArrangedSubview(stateContainer)
+        // Replace state content inside the scroll view's clip view
+        let newState = buildStateContent(state)
+        if let scrollDocView = stateContainer.superview {
             stateContainer.removeFromSuperview()
-
-            let newState = buildStateContent(state)
-            parent.insertArrangedSubview(newState, at: index)
+            scrollDocView.addSubview(newState)
+            newState.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                newState.topAnchor.constraint(equalTo: scrollDocView.topAnchor),
+                newState.leadingAnchor.constraint(equalTo: scrollDocView.leadingAnchor),
+                newState.trailingAnchor.constraint(equalTo: scrollDocView.trailingAnchor),
+            ])
             self.stateContainer = newState
         }
+
+        // Update guidance visibility
+        updateGuidanceVisibility()
 
         // Replace controls
         updateControls()
@@ -640,7 +743,9 @@ final class SessionOverlayWindow {
     // MARK: - Button Target
 
     private lazy var buttonTarget: SessionOverlayButtonTarget = {
-        SessionOverlayButtonTarget(session: session)
+        let target = SessionOverlayButtonTarget(session: session)
+        target.overlayWindow = self
+        return target
     }()
 }
 
@@ -648,6 +753,7 @@ final class SessionOverlayWindow {
 
 private class SessionOverlayButtonTarget: NSObject {
     private let session: ComputerUseSession
+    weak var overlayWindow: SessionOverlayWindow?
 
     init(session: ComputerUseSession) {
         self.session = session
@@ -660,6 +766,7 @@ private class SessionOverlayButtonTarget: NSObject {
     @MainActor @objc func resumeClicked() { session.resume() }
     @MainActor @objc func undoClicked() { session.undo() }
     @MainActor @objc func autoApproveClicked() { session.autoApproveTools.toggle() }
+    @MainActor @objc func sendGuidanceClicked() { overlayWindow?.sendGuidance() }
 }
 
 // MARK: - Background View
