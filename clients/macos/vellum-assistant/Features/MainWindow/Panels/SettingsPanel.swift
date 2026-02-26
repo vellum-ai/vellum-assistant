@@ -1001,9 +1001,9 @@ struct SettingsPanel: View {
 
                 Spacer()
 
-                Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle.fill")
+                Image(systemName: granted ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 16))
-                    .foregroundColor(granted ? VColor.success : VColor.error)
+                    .foregroundColor(granted ? VColor.success : VColor.textMuted)
             }
             .padding(VSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
