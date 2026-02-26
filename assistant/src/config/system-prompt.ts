@@ -322,6 +322,10 @@ function buildInChatConfigurationSection(): string {
     '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
     '',
     '**Never tell the user to go to Settings to enter a value.** The Settings page is for reviewing and updating existing configuration, not for initial setup. Always prefer the in-chat flow for first-time configuration.',
+    '',
+    '### Avatar Customisation',
+    '',
+    'You can change your avatar appearance using the `set_avatar` tool. When the user asks to change, update, or customise your avatar, use `set_avatar` with a `description` parameter describing the desired appearance (e.g. "a friendly purple cat with green eyes wearing a tiny hat"). The tool generates an avatar image via DALL-E and updates all connected clients automatically. Requires an OpenAI API key.',
   ].join('\n');
 }
 

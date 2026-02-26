@@ -2332,6 +2332,7 @@ public enum ServerMessage: Decodable, Sendable {
     case recordingStart(IPCRecordingStart)
     case recordingStop(IPCRecordingStop)
     case clientSettingsUpdate(IPCClientSettingsUpdate)
+    case avatarUpdated(IPCAvatarUpdated)
     case heartbeatConfigResponse(IPCHeartbeatConfigResponse)
     case heartbeatRunsListResponse(IPCHeartbeatRunsListResponse)
     case heartbeatRunNowResponse(IPCHeartbeatRunNowResponse)
@@ -2756,6 +2757,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "client_settings_update":
             let message = try IPCClientSettingsUpdate(from: decoder)
             self = .clientSettingsUpdate(message)
+        case "avatar_updated":
+            let message = try IPCAvatarUpdated(from: decoder)
+            self = .avatarUpdated(message)
         case "heartbeat_config_response":
             let message = try IPCHeartbeatConfigResponse(from: decoder)
             self = .heartbeatConfigResponse(message)

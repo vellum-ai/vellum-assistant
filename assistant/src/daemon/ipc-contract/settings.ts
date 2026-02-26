@@ -20,7 +20,14 @@ export interface ClientSettingsUpdate {
   value: string;
 }
 
+/** Sent by the daemon after the avatar image has been regenerated and saved to disk. */
+export interface AvatarUpdated {
+  type: 'avatar_updated';
+  /** Absolute path to the updated avatar image file. */
+  avatarPath: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _SettingsClientMessages = VoiceConfigUpdateRequest;
-export type _SettingsServerMessages = ClientSettingsUpdate;
+export type _SettingsServerMessages = ClientSettingsUpdate | AvatarUpdated;
