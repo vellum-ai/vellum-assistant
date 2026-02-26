@@ -1,5 +1,4 @@
 import SwiftUI
-import VellumAssistantShared
 
 /// A compact indicator showing that live system audio transcription is active.
 /// Includes a pulsing dot and a toggle button to start/stop listening.
