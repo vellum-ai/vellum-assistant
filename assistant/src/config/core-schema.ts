@@ -45,6 +45,11 @@ export const RateLimitConfigSchema = z.object({
     .default(0),
 });
 
+export const CustomSecretPatternSchema = z.object({
+  label: z.string({ error: 'secretDetection.customPatterns[].label must be a string' }),
+  pattern: z.string({ error: 'secretDetection.customPatterns[].pattern must be a string' }),
+});
+
 export const SecretDetectionConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'secretDetection.enabled must be a boolean' })
@@ -65,6 +70,9 @@ export const SecretDetectionConfigSchema = z.object({
   blockIngress: z
     .boolean({ error: 'secretDetection.blockIngress must be a boolean' })
     .default(true),
+  customPatterns: z
+    .array(CustomSecretPatternSchema)
+    .optional(),
 });
 
 export const PermissionsConfigSchema = z.object({
@@ -293,6 +301,7 @@ export const UiConfigSchema = z.object({
 
 export type TimeoutConfig = z.infer<typeof TimeoutConfigSchema>;
 export type RateLimitConfig = z.infer<typeof RateLimitConfigSchema>;
+export type CustomSecretPattern = z.infer<typeof CustomSecretPatternSchema>;
 export type SecretDetectionConfig = z.infer<typeof SecretDetectionConfigSchema>;
 export type PermissionsConfig = z.infer<typeof PermissionsConfigSchema>;
 export type AuditLogConfig = z.infer<typeof AuditLogConfigSchema>;

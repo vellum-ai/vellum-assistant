@@ -1,6 +1,6 @@
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
-import { scanText } from './secret-scanner.js';
+import { compileCustomPatterns, scanText } from './secret-scanner.js';
 
 const log = getLogger('secret-ingress');
 
@@ -37,7 +37,10 @@ export function checkIngressForSecrets(content: string): IngressCheckResult {
   }
 
   const entropyConfig = { enabled: true, base64Threshold: config.secretDetection.entropyThreshold };
-  const matches = scanText(content, entropyConfig);
+  const compiledCustom = config.secretDetection.customPatterns?.length
+    ? compileCustomPatterns(config.secretDetection.customPatterns)
+    : undefined;
+  const matches = scanText(content, entropyConfig, compiledCustom);
 
   if (matches.length === 0) {
     return { blocked: false, detectedTypes: [] };

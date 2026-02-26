@@ -8,7 +8,7 @@ import { addRule } from '../permissions/trust-store.js';
 import { RiskLevel } from '../permissions/types.js';
 import { isToolBlocked } from '../security/parental-control-store.js';
 import { redactSensitiveFields } from '../security/redaction.js';
-import { redactSecrets,scanText } from '../security/secret-scanner.js';
+import { compileCustomPatterns,redactSecrets,scanText } from '../security/secret-scanner.js';
 import { TokenExpiredError } from '../security/token-manager.js';
 import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 import { PermissionDeniedError,ToolError } from '../util/errors.js';
@@ -526,13 +526,16 @@ export class ToolExecutor {
       const sdConfig = getConfig().secretDetection;
       if (sdConfig.enabled && !execResult.isError) {
         const entropyConfig = { enabled: true, base64Threshold: sdConfig.entropyThreshold };
-        const contentMatches = scanText(execResult.content, entropyConfig);
+        const compiledCustom = sdConfig.customPatterns?.length
+          ? compileCustomPatterns(sdConfig.customPatterns)
+          : undefined;
+        const contentMatches = scanText(execResult.content, entropyConfig, compiledCustom);
         const diffMatches = execResult.diff
-          ? scanText(execResult.diff.newContent, entropyConfig)
+          ? scanText(execResult.diff.newContent, entropyConfig, compiledCustom)
           : [];
         const blockMatches = (execResult.contentBlocks ?? []).flatMap((block) => {
-          if (block.type === 'text') return scanText(block.text, entropyConfig);
-          if (block.type === 'file' && block.extracted_text) return scanText(block.extracted_text, entropyConfig);
+          if (block.type === 'text') return scanText(block.text, entropyConfig, compiledCustom);
+          if (block.type === 'file' && block.extracted_text) return scanText(block.extracted_text, entropyConfig, compiledCustom);
           return [];
         });
         const allMatches = [...contentMatches, ...diffMatches, ...blockMatches];
@@ -558,20 +561,20 @@ export class ToolExecutor {
           });
 
           if (sdConfig.action === 'redact') {
-            execResult.content = redactSecrets(execResult.content, entropyConfig);
+            execResult.content = redactSecrets(execResult.content, entropyConfig, compiledCustom);
             if (execResult.diff) {
               execResult.diff = {
                 ...execResult.diff,
-                newContent: redactSecrets(execResult.diff.newContent, entropyConfig),
+                newContent: redactSecrets(execResult.diff.newContent, entropyConfig, compiledCustom),
               };
             }
             if (execResult.contentBlocks) {
               execResult.contentBlocks = execResult.contentBlocks.map((block) => {
                 if (block.type === 'text') {
-                  return { ...block, text: redactSecrets(block.text, entropyConfig) };
+                  return { ...block, text: redactSecrets(block.text, entropyConfig, compiledCustom) };
                 }
                 if (block.type === 'file' && block.extracted_text) {
-                  return { ...block, extracted_text: redactSecrets(block.extracted_text, entropyConfig) };
+                  return { ...block, extracted_text: redactSecrets(block.extracted_text, entropyConfig, compiledCustom) };
                 }
                 return block;
               });
