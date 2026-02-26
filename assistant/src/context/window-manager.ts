@@ -267,8 +267,30 @@ export class ContextWindowManager {
       summaryCalls += 1;
     }
 
+    // Extract user-uploaded image blocks from compacted messages so they
+    // remain accessible to the assistant in subsequent turns. Tool-result
+    // screenshots are NOT preserved — only top-level image blocks in user
+    // messages, which represent intentional user uploads.
+    const preservedImageBlocks: ContentBlock[] = [];
+    for (const msg of compactableMessages) {
+      if (msg.role !== 'user') continue;
+      for (const block of msg.content) {
+        if (block.type === 'image') {
+          preservedImageBlocks.push(block);
+        }
+      }
+    }
+
+    const summaryMessage = createContextSummaryMessage(summary);
+    if (preservedImageBlocks.length > 0) {
+      summaryMessage.content.push(
+        { type: 'text', text: '[The following images were uploaded by the user in earlier messages and are preserved for reference.]' },
+        ...preservedImageBlocks,
+      );
+    }
+
     const compactedMessages = [
-      createContextSummaryMessage(summary),
+      summaryMessage,
       ...messages.slice(keepPlan.keepFromIndex),
     ];
     const estimatedInputTokens = estimatePromptTokens(
