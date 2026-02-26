@@ -103,6 +103,30 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         XCTAssertTrue(updated.hasUnseenLatestAssistantMessage)
     }
 
+    func testActiveThreadEmitsSeenSignalEvenWhenAlreadySeen() {
+        guard let threadId = threadManager.activeThreadId,
+              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }),
+              let vm = threadManager.chatViewModel(for: threadId) else {
+            XCTFail("Expected active thread and view model")
+            return
+        }
+
+        threadManager.threads[index].sessionId = "session-realtime"
+        threadManager.threads[index].hasUnseenLatestAssistantMessage = false
+        vm.sessionId = "session-realtime"
+
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Streaming reply", sessionId: "session-realtime")))
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "session-realtime")))
+
+        waitForPropagation()
+
+        XCTAssertFalse(threadManager.threads[index].hasUnseenLatestAssistantMessage)
+
+        let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        XCTAssertFalse(seenSignals.isEmpty, "Seen signal should be emitted even when thread was already marked as seen")
+        XCTAssertEqual(seenSignals.last?.conversationId, "session-realtime")
+    }
+
     func testActiveThreadAssistantReplyClearsUnseenAndEmitsSeenSignal() {
         guard let threadId = threadManager.activeThreadId,
               let index = threadManager.threads.firstIndex(where: { $0.id == threadId }),

@@ -952,11 +952,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// that thread is currently active.
     private func handleAssistantMessageArrival(threadId: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
-        let wasUnseen = threads[index].hasUnseenLatestAssistantMessage
         updateLastInteracted(threadId: threadId)
         if threadId == activeThreadId {
             threads[index].hasUnseenLatestAssistantMessage = false
-            if wasUnseen, let sessionId = threads[index].sessionId {
+            if let sessionId = threads[index].sessionId {
                 emitConversationSeenSignal(conversationId: sessionId)
             }
         } else {
