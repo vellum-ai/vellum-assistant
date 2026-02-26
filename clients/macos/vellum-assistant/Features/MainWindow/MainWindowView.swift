@@ -62,7 +62,6 @@ struct MainWindowView: View {
     @State var sharing = SharingState()
     @State private var sidebar = SidebarInteractionState()
     @State private var copyThread = CopyThreadState()
-    @State private var requestedHomeBaseAtLaunch = false
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
     /// Stores the thread ID the user was on before entering temporary chat,
@@ -77,8 +76,6 @@ struct MainWindowView: View {
     private let sidebarCollapsedWidth: CGFloat = 52
     @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 400
     @AppStorage("appPanelWidth") var appPanelWidth: Double = -1
-    @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = false
-    @AppStorage("homeBaseDashboardAutoEnabled") private var homeBaseDashboardAutoEnabled: Bool = false
     let daemonClient: DaemonClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
@@ -292,44 +289,6 @@ struct MainWindowView: View {
         }
     }
 
-    private func requestHomeBaseDashboardIfNeeded() {
-        guard !isBootstrapOnboardingActive else { return }
-        // Auto-enable the dashboard once after bootstrap completes.
-        // Uses a one-time sentinel so users can later disable it without
-        // having it force-re-enabled on every launch.
-        if !homeBaseDashboardAutoEnabled {
-            homeBaseDashboardAutoEnabled = true
-            homeBaseDashboardDefaultEnabled = true
-        }
-        guard homeBaseDashboardDefaultEnabled else { return }
-        guard daemonClient.isConnected else { return }
-        guard !requestedHomeBaseAtLaunch else { return }
-        guard !windowState.isDynamicExpanded else {
-            requestedHomeBaseAtLaunch = true
-            return
-        }
-
-        daemonClient.onHomeBaseGetResponse = { response in
-            guard let homeBase = response.homeBase else { return }
-            if self.windowState.isDynamicExpanded { return }
-            if let activePanel = self.windowState.activePanel, activePanel != .generated {
-                return
-            }
-            self.appListManager.recordAppOpen(
-                id: homeBase.appId,
-                name: homeBase.preview.title,
-                icon: homeBase.preview.icon
-            )
-            try? self.daemonClient.sendAppOpen(appId: homeBase.appId)
-        }
-
-        do {
-            try daemonClient.sendHomeBaseGet(ensureLinked: true)
-            requestedHomeBaseAtLaunch = true
-        } catch {
-            // Leave false so reconnect can retry.
-        }
-    }
 
     /// Resolve display names for thread export.
     private func resolveParticipantNames() -> ChatTranscriptFormatter.ParticipantNames {
@@ -385,9 +344,6 @@ struct MainWindowView: View {
         }
         if turnCount >= 8 {
             DeterministicEvolutionEngine.applyMilestone(.soulDiscussed, to: evoState)
-        }
-        if turnCount >= 10 {
-            DeterministicEvolutionEngine.applyMilestone(.homeBaseCreated, to: evoState)
         }
 
         // Resolve updated traits into appearance
@@ -513,19 +469,6 @@ struct MainWindowView: View {
                         applyBootstrapMilestones(turnCount: turnCount, messages: viewModel.messages, evoState: evoState)
                         lastAppliedBootstrapTurn = turnCount
                     }
-                }
-                requestHomeBaseDashboardIfNeeded()
-            }
-            // Poll for bootstrap completion so the dashboard is enabled even when
-            // BOOTSTRAP.md is deleted via tool execution that only mutates
-            // existing messages in place (no message-ID change to trigger
-            // the .onChange above). The task exits once the auto-enable flag
-            // is set, ensuring zero overhead after first-launch bootstrap.
-            .task {
-                while !homeBaseDashboardAutoEnabled {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    guard !Task.isCancelled else { return }
-                    requestHomeBaseDashboardIfNeeded()
                 }
             }
             .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
@@ -701,7 +644,6 @@ struct MainWindowView: View {
             if let activeId = threadManager.activeThreadId {
                 windowState.persistentThreadId = activeId
             }
-            requestHomeBaseDashboardIfNeeded()
             daemonClient.startSSE()
         }
         .onDisappear {
@@ -713,7 +655,6 @@ struct MainWindowView: View {
         }
         .onReceive(daemonClient.$isConnected) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
-            requestHomeBaseDashboardIfNeeded()
         }
         .onChange(of: selectedThreadId) { _, newId in
             if let newId = newId {
@@ -861,8 +802,8 @@ struct MainWindowView: View {
                         .frame(width: 20, height: 20)
                 } else if thread.hasUnseenLatestAssistantMessage && !isHovered {
                     Circle()
-                        .fill(Amber._500)
-                        .frame(width: 8, height: 8)
+                        .fill(Color(hex: 0xE86B40))
+                        .frame(width: 6, height: 6)
                         .frame(width: 20, height: 20)
                         .transition(.opacity)
                 } else if isHovered || thread.isPinned {
@@ -1203,14 +1144,11 @@ struct MainWindowView: View {
 
             // MARK: Pinned Apps (above nav items)
             if !appListManager.pinnedApps.isEmpty {
-                ScrollView {
-                    VStack(spacing: VSpacing.sm) {
-                        ForEach(appListManager.pinnedApps) { app in
-                            sidebarPinnedAppRow(app)
-                        }
+                VStack(spacing: VSpacing.sm) {
+                    ForEach(appListManager.pinnedApps) { app in
+                        sidebarPinnedAppRow(app)
                     }
                 }
-                .frame(maxHeight: 200)
 
                 VColor.divider
                     .frame(height: 1)
@@ -1329,14 +1267,11 @@ struct MainWindowView: View {
 
             // MARK: Pinned Apps (collapsed)
             if !appListManager.pinnedApps.isEmpty {
-                ScrollView {
-                    VStack(spacing: VSpacing.sm) {
-                        ForEach(appListManager.pinnedApps) { app in
-                            sidebarPinnedAppIcon(app)
-                        }
+                VStack(spacing: VSpacing.sm) {
+                    ForEach(appListManager.pinnedApps) { app in
+                        sidebarPinnedAppIcon(app)
                     }
                 }
-                .frame(maxHeight: 200)
 
                 VColor.divider
                     .frame(height: 1)
