@@ -129,7 +129,7 @@ final class RecordingManager: ObservableObject {
             // guard above to cancel a recording that actually succeeded on a later config.
             recorder.onStreamError = { [weak self] recorderError in
                 guard let self else { return }
-                let message = recorderError.localizedDescription ?? "Unknown stream error"
+                let message = recorderError.localizedDescription
                 log.error("Stream error during recording session \(sessionId, privacy: .public): \(message, privacy: .public)")
 
                 self.state = .failed(message)

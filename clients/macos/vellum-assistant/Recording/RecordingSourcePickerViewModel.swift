@@ -404,7 +404,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                 let totalDisplaySources = self.displays.count
                 await withTaskGroup(of: (UInt32, NSImage?, PreviewStatus, Int, Bool).self) { group in
                     for display in self.displays {
-                        group.addTask { [thumbnailProvider] in
+                        group.addTask { [thumbnailProvider = self.thumbnailProvider] in
                             // Check cancellation before starting each capture
                             guard !Task.isCancelled else {
                                 return (display.id, nil, PreviewStatus.failed(.cancelled), 0, false)
@@ -461,7 +461,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                 let totalWindowSources = self.windows.count
                 await withTaskGroup(of: (Int, NSImage?, PreviewStatus, Int, Bool).self) { group in
                     for window in self.windows {
-                        group.addTask { [thumbnailProvider] in
+                        group.addTask { [thumbnailProvider = self.thumbnailProvider] in
                             guard !Task.isCancelled else {
                                 return (window.id, nil, PreviewStatus.failed(.cancelled), 0, false)
                             }

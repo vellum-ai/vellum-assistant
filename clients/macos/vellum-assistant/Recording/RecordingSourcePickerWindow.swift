@@ -80,7 +80,9 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
             object: newWindow,
             queue: .main
         ) { [weak self] _ in
-            self?.viewModel?.updateCurrentDisplay()
+            Task { @MainActor in
+                self?.viewModel?.updateCurrentDisplay()
+            }
         }
     }
 

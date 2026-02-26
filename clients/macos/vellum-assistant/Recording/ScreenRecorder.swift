@@ -424,7 +424,7 @@ final class ScreenRecorder: NSObject {
         set { pauseLock.withLock { _isPaused = newValue } }
     }
     private nonisolated(unsafe) var _isPaused = false
-    private nonisolated(unsafe) let pauseLock = NSLock()
+    private let pauseLock = NSLock()
 
     /// Background queue for processing sample buffers from ScreenCaptureKit.
     private let outputQueue = DispatchQueue(label: "com.vellum.screen-recorder.output", qos: .userInitiated)
