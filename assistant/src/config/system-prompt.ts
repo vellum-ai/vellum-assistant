@@ -93,11 +93,14 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
 
   const looksPath = getWorkspacePromptPath('LOOKS.md');
 
+  const updatesPath = getWorkspacePromptPath('UPDATES.md');
+
   const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
   const user = readPromptFile(userPath);
   const looks = readPromptFile(looksPath);
   const bootstrap = readPromptFile(bootstrapPath);
+  const updates = readPromptFile(updatesPath);
 
   // ── Core sections (all tiers) ──
   const parts: string[] = [];
@@ -110,6 +113,11 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
       '# First-Run Ritual\n\n'
       + 'BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n'
       + bootstrap,
+    );
+  }
+  if (updates) {
+    parts.push(
+      '## Recent Updates\n\n' + updates,
     );
   }
   parts.push(buildConfigSection());
