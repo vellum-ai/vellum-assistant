@@ -81,7 +81,7 @@ function computeSignature(
 
 describe("SMS ingress cannot bypass gateway boundary", () => {
   test("rejects SMS webhook without X-Twilio-Signature header", async () => {
-    const handler = createTwilioSmsWebhookHandler(makeConfig());
+    const { handler } = createTwilioSmsWebhookHandler(makeConfig());
     const req = new Request("http://localhost:7830/webhooks/twilio/sms", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -92,7 +92,7 @@ describe("SMS ingress cannot bypass gateway boundary", () => {
   });
 
   test("rejects SMS webhook with forged signature", async () => {
-    const handler = createTwilioSmsWebhookHandler(makeConfig());
+    const { handler } = createTwilioSmsWebhookHandler(makeConfig());
     const req = new Request("http://localhost:7830/webhooks/twilio/sms", {
       method: "POST",
       headers: {
@@ -106,7 +106,7 @@ describe("SMS ingress cannot bypass gateway boundary", () => {
   });
 
   test("rejects SMS webhook when auth token is not configured (fail-closed)", async () => {
-    const handler = createTwilioSmsWebhookHandler(
+    const { handler } = createTwilioSmsWebhookHandler(
       makeConfig({ twilioAuthToken: undefined }),
     );
     const req = new Request("http://localhost:7830/webhooks/twilio/sms", {
@@ -119,7 +119,7 @@ describe("SMS ingress cannot bypass gateway boundary", () => {
   });
 
   test("rejects SMS webhook with signature signed by wrong auth token", async () => {
-    const handler = createTwilioSmsWebhookHandler(makeConfig());
+    const { handler } = createTwilioSmsWebhookHandler(makeConfig());
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
       Body: "hello",
@@ -152,7 +152,7 @@ describe("SMS ingress cannot bypass gateway boundary", () => {
   });
 
   test("rejects non-POST methods", async () => {
-    const handler = createTwilioSmsWebhookHandler(makeConfig());
+    const { handler } = createTwilioSmsWebhookHandler(makeConfig());
     const req = new Request("http://localhost:7830/webhooks/twilio/sms", {
       method: "GET",
     });
@@ -161,7 +161,7 @@ describe("SMS ingress cannot bypass gateway boundary", () => {
   });
 
   test("rejects SMS webhook with empty body (no MessageSid)", async () => {
-    const handler = createTwilioSmsWebhookHandler(makeConfig());
+    const { handler } = createTwilioSmsWebhookHandler(makeConfig());
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params: Record<string, string> = {};
     const signature = computeSignature(url, params, AUTH_TOKEN);
@@ -180,7 +180,7 @@ describe("SMS ingress cannot bypass gateway boundary", () => {
   });
 
   test("rejects oversized SMS webhook payload", async () => {
-    const handler = createTwilioSmsWebhookHandler(
+    const { handler } = createTwilioSmsWebhookHandler(
       makeConfig({ maxWebhookPayloadBytes: 50 }),
     );
     const req = new Request("http://localhost:7830/webhooks/twilio/sms", {
@@ -201,7 +201,7 @@ describe("SMS ingress signature validation with INGRESS_PUBLIC_BASE_URL", () => 
   test("validates signature against configured ingress URL as primary candidate", async () => {
     const publicBase = "https://sms-tunnel.example.com";
     const config = makeConfig({ ingressPublicBaseUrl: publicBase });
-    const handler = createTwilioSmsWebhookHandler(config);
+    const { handler } = createTwilioSmsWebhookHandler(config);
 
     // Twilio signs against the public URL
     const publicUrl = `${publicBase}/webhooks/twilio/sms`;
@@ -232,7 +232,7 @@ describe("SMS ingress signature validation with INGRESS_PUBLIC_BASE_URL", () => 
     const config = makeConfig({
       ingressPublicBaseUrl: "https://correct-tunnel.example.com",
     });
-    const handler = createTwilioSmsWebhookHandler(config);
+    const { handler } = createTwilioSmsWebhookHandler(config);
 
     // Attacker signs against a different URL
     const wrongUrl = "https://attacker.example.com/webhooks/twilio/sms";
@@ -259,7 +259,7 @@ describe("SMS ingress signature validation with INGRESS_PUBLIC_BASE_URL", () => 
 
   test("local-dev fallback: signature against local URL validates when no ingress configured", async () => {
     const config = makeConfig({ ingressPublicBaseUrl: undefined });
-    const handler = createTwilioSmsWebhookHandler(config);
+    const { handler } = createTwilioSmsWebhookHandler(config);
 
     // In local dev, Twilio signs against the raw request URL
     const localUrl = "http://localhost:7830/webhooks/twilio/sms";
