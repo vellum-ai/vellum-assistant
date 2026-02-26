@@ -385,12 +385,15 @@ export function validateThreadActions(
     if (action.action === 'start_new') {
       result[channel] = { action: 'start_new' };
     } else if (action.action === 'reuse_existing') {
-      const conversationId = action.conversationId;
-      if (typeof conversationId !== 'string' || !conversationId.trim()) {
+      const rawConversationId = action.conversationId;
+      if (typeof rawConversationId !== 'string' || !rawConversationId.trim()) {
         log.warn({ channel }, 'LLM returned reuse_existing without conversationId — downgrading to start_new');
         result[channel] = { action: 'start_new' };
         continue;
       }
+
+      // Normalize: the LLM may return a valid ID with leading/trailing whitespace
+      const conversationId = rawConversationId.trim();
 
       // Strict validation: the conversationId must exist in the candidate set
       const candidateIds = validCandidateIds.get(channel);
