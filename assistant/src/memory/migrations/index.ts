@@ -29,6 +29,7 @@ export { migrateGuardianBootstrapToken } from './027-guardian-bootstrap-token.js
 export { migrateNotificationDeliveryPairingColumns } from './027-notification-delivery-pairing-columns.js';
 export { migrateCallSessionMode } from './028-call-session-mode.js';
 export { migrateChannelInboundDeliveredSegments } from './029-channel-inbound-delivered-segments.js';
+export { migrateGuardianActionFollowup } from './030-guardian-action-followup.js';
 export { createCoreTables } from './100-core-tables.js';
 export { createWatchersAndLogsTables } from './101-watchers-and-logs.js';
 export { addCoreColumns } from './102-alter-table-columns.js';

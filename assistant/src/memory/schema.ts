@@ -827,6 +827,12 @@ export const guardianActionRequests = sqliteTable('guardian_action_requests', {
   answeredByExternalUserId: text('answered_by_external_user_id'),
   answeredAt: integer('answered_at'),
   expiresAt: integer('expires_at').notNull(),
+  expiredReason: text('expired_reason'),                            // call_timeout | sweep_timeout | cancelled
+  followupState: text('followup_state').notNull().default('none'),  // none | awaiting_guardian_choice | dispatching | completed | declined | failed
+  lateAnswerText: text('late_answer_text'),
+  lateAnsweredAt: integer('late_answered_at'),
+  followupAction: text('followup_action'),                          // call_back | message_back | decline
+  followupCompletedAt: integer('followup_completed_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
