@@ -189,9 +189,9 @@ graph TD
 
 **Data tables:** `watchers` (config, watermark, status, error tracking) and `watcher_events` (detected events, dedup on `(watcher_id, external_id)`, disposition tracking).
 
-## Task Queue — Queued Task Execution and Review
+## Task Queue — Conversation-Managed Task Execution
 
-The Task Queue builds on top of the existing Tasks system to provide an ordered execution pipeline with human-in-the-loop review.
+The Task Queue provides an ordered execution pipeline with human-in-the-loop review. Task management happens entirely through conversation — the user creates, updates, runs, and reviews tasks by talking to the assistant. There is no standalone Tasks UI window.
 
 ### Terminology
 
@@ -258,19 +258,6 @@ flowchart TD
         DB[(SQLite)]
     end
 
-    subgraph "Daemon IPC Handlers"
-        HC[handleWorkItemCreate]
-        HU[handleWorkItemUpdate]
-        HCo[handleWorkItemComplete]
-        HR[handleWorkItemRunTask]
-        BC[tasks_changed broadcast]
-    end
-
-    subgraph "Client (iOS / conversation-managed)"
-        TW[TasksView]
-        DC[DaemonClient]
-    end
-
     TLA -->|"if_exists check"| DUPE
     DUPE -->|"no match"| WIS
     DUPE -->|"match found → reuse/update"| TLU
@@ -278,80 +265,10 @@ flowchart TD
     RWI --> WIS
     TLS --> WIS
     WIS --> DB
-
-    HC --> WIS
-    HU --> WIS
-    HCo --> WIS
-    HR --> WIS
-    HC --> BC
-    HU --> BC
-    HCo --> BC
-    HR --> BC
-
-    BC -->|"via socket"| DC
-    DC -->|"onTasksChanged"| TW
-    TW -->|"debounced refetch (300ms)"| DC
 ```
 
 **Key behaviors:**
 
+- **Conversation-first management** — All task operations (create, update, run, review, delete) are performed through natural language conversation with the assistant, which invokes the model tools (`task_list_add`, `task_list_update`, `task_list_show`) on the user's behalf.
 - **`task_list_update`** uses `resolveWorkItem` to find the target work item by work item ID, task ID, or title (case-insensitive exact match). When multiple items match by task ID or title, the resolver applies a deterministic tie-break (lowest priority tier, then earliest `createdAt`).
 - **`task_list_add`** has duplicate prevention via the `if_exists` parameter (default: `reuse_existing`). Before creating, it calls `findActiveWorkItemsByTitle` to check for active items with the same title. If a match is found, the tool either returns the existing item (`reuse_existing`), updates it in place (`update_existing`), or proceeds to create a duplicate (`create_duplicate`).
-- **All daemon work-item handlers** (`handleWorkItemCreate`, `handleWorkItemUpdate`, `handleWorkItemComplete`, `handleWorkItemRunTask`) emit a `tasks_changed` broadcast after mutations via `ctx.broadcast({ type: 'tasks_changed' })`. They also emit the more specific `work_item_status_changed` with the affected item's current state.
-- **Task UI clients** (e.g. the iOS `TasksView`) subscribe to both `tasks_changed` and `work_item_status_changed` callbacks on `DaemonClient`. Both trigger a debounced refetch (300ms) so rapid successive mutations coalesce into a single re-fetch. The macOS standalone Tasks window was removed; tasks on macOS are now conversation-managed.
-
-### IPC Messages
-
-**Client → Server:**
-
-| Message | Purpose |
-|---------|---------|
-| `work_items_list` | List work items, filterable by status |
-| `work_item_get` | Fetch a single work item with full details |
-| `work_item_create` | Create a new work item pointing to a Task |
-| `work_item_update` | Update title, notes, priority, or sort order |
-| `work_item_complete` | Mark an item as `done` after review |
-| `work_item_run_task` | Trigger execution of a queued work item |
-| `work_item_delete` | Delete a work item from the queue |
-
-**Server → Client (push):**
-
-| Message | Purpose |
-|---------|---------|
-| `work_item_status_changed` | Notify the client when a work item transitions state (includes item snapshot) |
-| `tasks_changed` | Lightweight broadcast after any work-item mutation; triggers client-side refetch |
-
-### Run-Button State Machine
-
-When the user clicks "Run" on a queued work item, the button follows a deterministic state machine:
-
-```
-idle (visible) → in-flight (hidden) → success/failure → re-enabled (via refetch)
-```
-
-**Sequence:**
-
-1. **Idle** — The run button is visible only when `item.status == "queued"`. The task row renders it conditionally based on the `WorkItemStatus` enum.
-2. **In-flight** — The client sends `work_item_run_task` with the work item ID. The daemon validates the request, sets the item's status to `running`, and returns `work_item_run_task_response` with `success: true`. It then broadcasts `work_item_status_changed` and `tasks_changed`. The client's debounced refetch picks up the `running` status, which hides the run button and shows a spinner in the status column.
-3. **Completion** — The daemon executes the task asynchronously. On success, the item transitions to `awaiting_review`; on failure, to `failed`. Both trigger another `work_item_status_changed` + `tasks_changed` broadcast, which the client refetches and renders accordingly (showing a "Reviewed" button for `awaiting_review`, or the run button again for `failed` to allow retry).
-
-**Error handling in `work_item_run_task_response`:**
-
-The response includes a typed `errorCode` field (`WorkItemRunTaskErrorCode`) so the client can deterministically decide what to do without parsing error strings:
-
-| `errorCode` | Meaning | Client behavior |
-|-------------|---------|-----------------|
-| `not_found` | Work item does not exist (deleted concurrently) | Refetch removes the stale row |
-| `already_running` | Item is already executing | No-op; status column already shows spinner |
-| `invalid_status` | Item is `done` or `archived` and cannot be run | Refetch updates the row to reflect terminal status |
-| `no_task` | The associated Task template was deleted | Refetch; row may show an error state |
-
-In all error cases, the subsequent `tasks_changed` broadcast triggers a refetch that brings the UI back to a consistent state, so the button is never stuck in a disabled/hidden state without a path to recovery.
-
-### Delete Flow
-
-Deletion uses optimistic UI with rollback:
-
-1. **Optimistic removal** — The view model's `removeTask()` snapshots the current `items` array, then immediately removes the target item with animation.
-2. **IPC request** — Sends `work_item_delete` with the item ID. The daemon looks up the item; if found, deletes it and responds with `work_item_delete_response { success: true }`, then broadcasts `tasks_changed`.
-3. **Failure rollback** — If the send throws (socket error), the view model restores the snapshot with animation. If the daemon responds with `success: false` (item not found), the `onWorkItemDeleteResponse` callback triggers a full refetch to reconcile.
