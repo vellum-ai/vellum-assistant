@@ -374,11 +374,21 @@ export class RelayConnection {
       updateCallSession(this.callSessionId, updates);
     }
 
+    // Omit potentially sensitive keys from customParameters before persisting
+    // to the call_events table. Only allow known-safe keys through.
+    const safeCustomParameters = msg.customParameters
+      ? Object.fromEntries(
+          Object.entries(msg.customParameters).filter(
+            ([key]) => !key.toLowerCase().includes('secret'),
+          ),
+        )
+      : undefined;
+
     recordCallEvent(this.callSessionId, 'call_connected', {
       callSid: msg.callSid,
       from: msg.from,
       to: msg.to,
-      customParameters: msg.customParameters,
+      customParameters: safeCustomParameters,
     });
 
     // Inbound calls skip callee verification — verification is an

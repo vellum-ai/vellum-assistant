@@ -15,6 +15,14 @@ enum RecordingTelemetry {
 
     // MARK: - Error Categories
 
+    /// Coarse error category for preview capture telemetry.
+    enum PreviewErrorCategory: String {
+        case captureFailed = "capture_failed"
+        case blankFrame = "blank_frame"
+        case sourceGone = "source_gone"
+        case cancelled = "cancelled"
+    }
+
     /// Coarse error category for telemetry grouping.
     enum ErrorCategory: String {
         case dimension
@@ -161,6 +169,100 @@ enum RecordingTelemetry {
             from=\(fromConfig, privacy: .public), \
             to=\(toConfig, privacy: .public), \
             reason=\(reason, privacy: .public)
+            """)
+    }
+
+    // MARK: - Preview Telemetry
+
+    /// Log when a source preview thumbnail is successfully generated.
+    ///
+    /// - Parameters:
+    ///   - sourceType: The type of source ("display" or "window").
+    ///   - sourceId: The identifier of the source (display ID or window ID).
+    ///   - latencyMs: Time taken to generate the preview in milliseconds.
+    ///   - fromCache: Whether the thumbnail was served from cache.
+    static func logPreviewGenerated(
+        sourceType: String,
+        sourceId: String,
+        latencyMs: Int,
+        fromCache: Bool
+    ) {
+        log.info("""
+            preview.generated: \
+            sourceType=\(sourceType, privacy: .public), \
+            sourceId=\(sourceId, privacy: .public), \
+            latencyMs=\(latencyMs), \
+            fromCache=\(fromCache)
+            """)
+    }
+
+    /// Log when a source preview thumbnail capture fails.
+    ///
+    /// - Parameters:
+    ///   - sourceType: The type of source ("display" or "window").
+    ///   - sourceId: The identifier of the source.
+    ///   - category: The category of failure.
+    ///   - latencyMs: Time elapsed before the failure in milliseconds.
+    static func logPreviewFailed(
+        sourceType: String,
+        sourceId: String,
+        category: PreviewErrorCategory,
+        latencyMs: Int
+    ) {
+        log.error("""
+            preview.failed: \
+            sourceType=\(sourceType, privacy: .public), \
+            sourceId=\(sourceId, privacy: .public), \
+            category=\(category.rawValue, privacy: .public), \
+            latencyMs=\(latencyMs)
+            """)
+    }
+
+    /// Log when a source preview capture is cancelled.
+    ///
+    /// - Parameters:
+    ///   - sourceType: The type of source ("display" or "window").
+    ///   - sourceId: The identifier of the source.
+    ///   - reason: Why the preview was cancelled (e.g. "scope_switch").
+    static func logPreviewCancelled(
+        sourceType: String,
+        sourceId: String,
+        reason: String
+    ) {
+        log.info("""
+            preview.cancelled: \
+            sourceType=\(sourceType, privacy: .public), \
+            sourceId=\(sourceId, privacy: .public), \
+            reason=\(reason, privacy: .public)
+            """)
+    }
+
+    /// Log an aggregate summary of preview activity for the picker session.
+    /// Called when the picker is dismissed.
+    ///
+    /// - Parameters:
+    ///   - totalAttempted: Total number of preview captures attempted.
+    ///   - succeeded: Number of successful captures.
+    ///   - failed: Number of failed captures.
+    ///   - cancelled: Number of cancelled captures.
+    ///   - avgLatencyMs: Average latency across all completed (success + fail) captures.
+    ///   - cacheHitRate: Fraction of successful captures served from cache (0.0–1.0).
+    static func logPreviewSessionSummary(
+        totalAttempted: Int,
+        succeeded: Int,
+        failed: Int,
+        cancelled: Int,
+        avgLatencyMs: Int,
+        cacheHitRate: Double
+    ) {
+        log.info("""
+            preview.session_summary: \
+            attempted=\(totalAttempted), \
+            succeeded=\(succeeded), \
+            failed=\(failed), \
+            cancelled=\(cancelled), \
+            avgLatencyMs=\(avgLatencyMs), \
+            cacheHitRate=\(String(format: "%.2f", cacheHitRate), privacy: .public)
             """)
     }
 }

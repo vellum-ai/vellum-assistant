@@ -2,6 +2,8 @@ import type * as net from 'node:net';
 
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
+import * as pendingInteractions from '../runtime/pending-interactions.js';
+
 interface MockMemoryPolicy {
   scopeId: string;
   includeDefaultFallback: boolean;
@@ -33,9 +35,16 @@ class MockSession {
   public readonly conversationId: string;
   public memoryPolicy: MockMemoryPolicy;
   public updateClientCalls = 0;
+  public lastUpdateClientHasNoClient: boolean | undefined;
+  public lastUpdateClientSender: ((msg: Record<string, unknown>) => void) | undefined;
+  public lastRunAgentLoopOptions: { skipPreMessageRollback?: boolean; isInteractive?: boolean } | undefined;
+  public updateClientHistory: Array<{ hasNoClient: boolean }> = [];
+  /** When set, runAgentLoop will invoke onEvent with this message during execution. */
+  public confirmationToEmitDuringLoop: Record<string, unknown> | undefined;
   public setSandboxOverrideCalls = 0;
   private stale = false;
   private processing = false;
+  public guardianContext: Record<string, unknown> | null = null;
 
   constructor(
     conversationId: string,
@@ -55,8 +64,11 @@ class MockSession {
 
   async loadFromDb(): Promise<void> {}
 
-  updateClient(): void {
+  updateClient(sender?: (msg: Record<string, unknown>) => void, hasNoClient = false): void {
     this.updateClientCalls += 1;
+    this.lastUpdateClientSender = sender;
+    this.lastUpdateClientHasNoClient = hasNoClient;
+    this.updateClientHistory.push({ hasNoClient });
   }
 
   setSandboxOverride(): void {
@@ -88,6 +100,52 @@ class MockSession {
   handleConfirmationResponse(): void {}
 
   async processMessage(): Promise<void> {}
+
+  setAssistantId(): void {}
+
+  setGuardianContext(ctx: Record<string, unknown> | null): void {
+    this.guardianContext = ctx;
+  }
+
+  setChannelCapabilities(): void {}
+
+  setCommandIntent(): void {}
+
+  setTurnChannelContext(): void {}
+
+  getTurnChannelContext(): null {
+    return null;
+  }
+
+  setTurnInterfaceContext(): void {}
+
+  getTurnInterfaceContext(): null {
+    return null;
+  }
+
+  persistUserMessage(): string {
+    this.processing = true;
+    return 'msg-1';
+  }
+
+  async runAgentLoop(
+    _content: string,
+    _messageId: string,
+    onEvent: (msg: Record<string, unknown>) => void,
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
+  ): Promise<void> {
+    this.lastRunAgentLoopOptions = options;
+    if (this.confirmationToEmitDuringLoop) {
+      onEvent(this.confirmationToEmitDuringLoop);
+    }
+    this.processing = false;
+  }
+
+  setPreactivatedSkillIds(): void {}
+
+  getMessages(): Array<Record<string, unknown>> {
+    return [];
+  }
 
   undo(): number {
     return 1;
@@ -141,6 +199,9 @@ mock.module('../config/loader.js', () => ({
     rateLimit: {
       maxRequestsPerMinute: 0,
       maxTokensPerSession: 0,
+    },
+    secretDetection: {
+      enabled: false,
     },
   }),
   loadRawConfig: () => ({}),
@@ -236,6 +297,7 @@ describe('DaemonServer initial session hydration', () => {
     lastCreatedWorkingDir = undefined;
     lastCreatedMemoryPolicy = undefined;
     lastCreateConversationArgs = undefined;
+    pendingInteractions.clear();
   });
 
   test('hydrates latest session before session_info so undo works after reconnect', async () => {
@@ -524,5 +586,55 @@ describe('DaemonServer initial session hydration', () => {
       includeDefaultFallback: true,
       strictSideEffects: true,
     });
+  });
+
+  test('interactive HTTP processing marks no-socket sessions interactive and registers confirmation prompts', async () => {
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+
+    // Pre-configure the mock to emit a confirmation_request during runAgentLoop,
+    // simulating a tool requesting approval while the session is interactive.
+    MockSession.prototype.confirmationToEmitDuringLoop = {
+      type: 'confirmation_request',
+      requestId: 'req-interactive-1',
+      toolName: 'notify_desktop',
+      input: { title: 'Weather' },
+      riskLevel: 'high',
+      allowlistOptions: [{ label: 'notify_desktop:*', description: 'notify_desktop:*', pattern: 'notify_desktop:*' }],
+      scopeOptions: [{ label: 'everywhere', scope: 'everywhere' }],
+      persistentDecisionsAllowed: true,
+    };
+
+    await server.processMessage(
+      conversation.id,
+      'send me a notification',
+      undefined,
+      { isInteractive: true },
+      'telegram',
+      'telegram',
+    );
+
+    MockSession.prototype.confirmationToEmitDuringLoop = undefined;
+
+    const session = internal.sessions.get(conversation.id);
+    expect(session).toBeDefined();
+    expect(session!.lastRunAgentLoopOptions?.isInteractive).toBe(true);
+
+    // Verify the session was marked interactive during the loop, then restored.
+    // updateClientHistory: [0] = initial no-socket creation (hasNoClient: true),
+    //                      [1] = interactive override (hasNoClient: false),
+    //                      [2] = reset after loop (hasNoClient: true)
+    expect(session!.updateClientHistory.length).toBeGreaterThanOrEqual(3);
+    expect(session!.updateClientHistory[1].hasNoClient).toBe(false);
+    expect(session!.updateClientHistory[2].hasNoClient).toBe(true);
+
+    // After the loop completes, the session is restored to no-client state.
+    expect(session!.lastUpdateClientHasNoClient).toBe(true);
+
+    // The pending interaction was registered during the loop.
+    const interaction = pendingInteractions.get('req-interactive-1');
+    expect(interaction).toBeDefined();
+    expect(interaction?.kind).toBe('confirmation');
+    expect(interaction?.conversationId).toBe(conversation.id);
   });
 });

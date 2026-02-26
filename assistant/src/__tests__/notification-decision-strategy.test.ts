@@ -62,6 +62,7 @@ describe('notification decision strategy', () => {
       expect(copy.vellum).toBeDefined();
       expect(copy.vellum!.body).toBe('Take out the trash');
       expect(copy.vellum!.title).toBe('Reminder');
+      expect(copy.telegram!.deliveryText).toBe('Take out the trash');
     });
 
     test('schedule.complete template uses name from payload', () => {
@@ -91,6 +92,7 @@ describe('notification decision strategy', () => {
       expect(copy.vellum!.title).toBe('Notification');
       expect(copy.vellum!.body).toContain('Urgent:');
       expect(copy.vellum!.body).toContain('action required');
+      expect(copy.telegram!.deliveryText).toBe(copy.telegram!.body);
     });
 
     test('unknown event name without urgency produces clean generic copy', () => {
@@ -124,6 +126,9 @@ describe('notification decision strategy', () => {
       // Both channels get the same copy
       expect(copy.vellum!.title).toBe(copy.telegram!.title);
       expect(copy.vellum!.body).toBe(copy.telegram!.body);
+      // Telegram gets a dedicated chat message field; vellum does not.
+      expect(copy.telegram!.deliveryText).toBe(copy.telegram!.body);
+      expect(copy.vellum!.deliveryText).toBeUndefined();
     });
 
     test('empty payload falls back to default text in template', () => {
