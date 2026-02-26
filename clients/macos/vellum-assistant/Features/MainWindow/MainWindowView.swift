@@ -65,6 +65,7 @@ struct MainWindowView: View {
     @State private var requestedHomeBaseAtLaunch = false
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
+    @State private var showingProfileSwitchSheet: Bool = false
     /// Stores the thread ID the user was on before entering temporary chat,
     /// so we can restore it when they exit instead of jumping to visibleThreads.first
     /// (which may be a pinned thread unrelated to what they were doing).
@@ -643,7 +644,9 @@ struct MainWindowView: View {
                 }
                 .overlay {
                     // Click-outside-to-dismiss background for control center drawer
-                    if sidebar.showControlCenterDrawer {
+                    // Must mirror the same condition as the drawer itself: hidden in child profile
+                    let isChildProfile = settingsStore.isParentalEnabled && settingsStore.activeProfile == "child"
+                    if sidebar.showControlCenterDrawer && !isChildProfile {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture {
@@ -654,8 +657,9 @@ struct MainWindowView: View {
                     }
                 }
                 .overlay(alignment: .bottomLeading) {
-                    // Control center drawer rendered at top level so it floats above all content
-                    if sidebar.showControlCenterDrawer {
+                    // Control center drawer — never shown for child profile
+                    let isChildProfile = settingsStore.isParentalEnabled && settingsStore.activeProfile == "child"
+                    if sidebar.showControlCenterDrawer && !isChildProfile {
                         let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
                         let drawerX = sidebarExpanded
                             ? 16 + VSpacing.sm
@@ -1089,6 +1093,24 @@ struct MainWindowView: View {
         } message: {
             Text("Enter a new name for this thread")
         }
+        .sheet(isPresented: $showingProfileSwitchSheet) {
+            ProfileSwitchSheet(
+                targetProfile: "parental",
+                currentProfile: settingsStore.activeProfile,
+                onComplete: { result in
+                    switch result {
+                    case .success(let pin):
+                        Task {
+                            await settingsStore.switchProfile(to: "parental", pin: pin)
+                            showingProfileSwitchSheet = false
+                        }
+                    case .failure:
+                        break
+                    }
+                },
+                daemonClient: daemonClient
+            )
+        }
     }
 
     // MARK: - Home Base Helpers
@@ -1213,14 +1235,34 @@ struct MainWindowView: View {
 
             Spacer(minLength: VSpacing.sm)
 
-            // Control Center row (fixed)
-            ControlCenterRow(
-                onToggle: {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                        sidebar.showControlCenterDrawer.toggle()
+            // Control Center row (fixed) — hidden for child profile since children
+            // cannot access settings. The profile switcher below remains always visible.
+            let isChildProfile = settingsStore.isParentalEnabled && settingsStore.activeProfile == "child"
+            if !isChildProfile {
+                ControlCenterRow(
+                    onToggle: {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                            sidebar.showControlCenterDrawer.toggle()
+                        }
                     }
-                }
-            )
+                )
+            }
+
+            // Profile switcher row — always visible when parental controls are active,
+            // even in child mode, so the child can always switch back to parental.
+            if settingsStore.isParentalEnabled {
+                ProfileSwitcherSidebarRow(
+                    activeProfile: settingsStore.activeProfile,
+                    isExpanded: true,
+                    onSwitch: {
+                        if settingsStore.activeProfile == "parental" {
+                            Task { await settingsStore.switchProfile(to: "child", pin: nil) }
+                        } else {
+                            showingProfileSwitchSheet = true
+                        }
+                    }
+                )
+            }
         }
     }
 
@@ -1250,10 +1292,29 @@ struct MainWindowView: View {
 
             Spacer()
 
-            SidebarNavRow(icon: "gearshape", label: "Control Center", isActive: false, isExpanded: false) {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                    sidebar.showControlCenterDrawer.toggle()
+            // Control Center row — hidden for child profile
+            let isChildProfile = settingsStore.isParentalEnabled && settingsStore.activeProfile == "child"
+            if !isChildProfile {
+                SidebarNavRow(icon: "gearshape", label: "Control Center", isActive: false, isExpanded: false) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                        sidebar.showControlCenterDrawer.toggle()
+                    }
                 }
+            }
+
+            // Profile switcher icon — always visible when parental controls are active
+            if settingsStore.isParentalEnabled {
+                ProfileSwitcherSidebarRow(
+                    activeProfile: settingsStore.activeProfile,
+                    isExpanded: false,
+                    onSwitch: {
+                        if settingsStore.activeProfile == "parental" {
+                            Task { await settingsStore.switchProfile(to: "child", pin: nil) }
+                        } else {
+                            showingProfileSwitchSheet = true
+                        }
+                    }
+                )
             }
 
             Spacer().frame(height: 0)
@@ -1470,6 +1531,56 @@ private struct ControlCenterRow: View {
         )
         .padding(.horizontal, VSpacing.sm)
         .padding(.bottom, VSpacing.sm)
+    }
+}
+
+/// A sidebar row (or icon-only button when collapsed) for switching between
+/// parental and child profiles. Always visible when parental controls are on,
+/// including in child mode — so the child can always switch back to parental.
+private struct ProfileSwitcherSidebarRow: View {
+    let activeProfile: String
+    var isExpanded: Bool = true
+    let onSwitch: () -> Void
+    @State private var isHovered = false
+
+    private var isParental: Bool { activeProfile == "parental" }
+    private var avatarIcon: String { isParental ? "person.crop.circle.fill" : "figure.child.circle.fill" }
+    private var avatarColor: Color { isParental ? VColor.accent : VColor.success }
+    private var profileLabel: String { isParental ? "Parental" : "Child" }
+
+    var body: some View {
+        Button(action: onSwitch) {
+            HStack(spacing: isExpanded ? VSpacing.sm : 0) {
+                Image(systemName: avatarIcon)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(avatarColor)
+                    .frame(width: 18)
+                if isExpanded {
+                    Text(profileLabel)
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            .padding(.leading, isExpanded ? VSpacing.md : 0)
+            .padding(.trailing, isExpanded ? VSpacing.sm : 0)
+            .padding(.vertical, VSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
+            .background(isHovered ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700).opacity(0.5) : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, isExpanded ? VSpacing.sm : VSpacing.xs)
+        .padding(.bottom, VSpacing.sm)
+        .help(isExpanded ? "Switch profile" : "\(profileLabel) profile — tap to switch")
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
     }
 }
 
