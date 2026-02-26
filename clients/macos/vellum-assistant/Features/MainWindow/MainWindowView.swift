@@ -766,14 +766,17 @@ struct MainWindowView: View {
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected: Bool = {
-            // Any panel selection deselects all threads
-            if case .panel = windowState.selection {
+            switch windowState.selection {
+            case .panel:
                 return false
+            case .thread(let id):
+                return id == thread.id
+            case .appEditing(_, let threadId):
+                return threadId == thread.id
+            case .app, .none:
+                // No explicit thread in selection; fall back to the persistent thread.
+                return thread.id == windowState.persistentThreadId
             }
-            if thread.id == windowState.persistentThreadId { return true }
-            if case .thread(let id) = windowState.selection, id == thread.id { return true }
-            if case .appEditing(_, let threadId) = windowState.selection, threadId == thread.id { return true }
-            return false
         }()
         let isHovered = sidebar.isHoveredThread == thread.id
         let isBusy = threadManager.isThreadBusy(thread.id)
