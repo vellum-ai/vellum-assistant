@@ -696,6 +696,83 @@ export function getExpiredDeliveryByConversation(conversationId: string): Guardi
   }
 }
 
+/**
+ * Look up deliveries for requests in `awaiting_guardian_choice` follow-up state.
+ * Used by inbound message routing to intercept guardian follow-up replies
+ * on channel paths (Telegram, SMS).
+ */
+export function getFollowupDeliveriesByDestination(
+  assistantId: string,
+  channel: string,
+  chatId: string,
+): GuardianActionDelivery[] {
+  try {
+    const db = getDb();
+
+    const rows = db
+      .select({
+        delivery: guardianActionDeliveries,
+      })
+      .from(guardianActionDeliveries)
+      .innerJoin(
+        guardianActionRequests,
+        eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
+      )
+      .where(
+        and(
+          eq(guardianActionRequests.assistantId, assistantId),
+          eq(guardianActionRequests.status, 'expired'),
+          eq(guardianActionRequests.followupState, 'awaiting_guardian_choice'),
+          eq(guardianActionDeliveries.destinationChannel, channel),
+          eq(guardianActionDeliveries.destinationChatId, chatId),
+          eq(guardianActionDeliveries.status, 'expired'),
+        ),
+      )
+      .all();
+
+    return rows.map((r) => rowToDelivery(r.delivery));
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no such table')) {
+      log.warn({ err }, 'guardian tables not yet created');
+      return [];
+    }
+    throw err;
+  }
+}
+
+/**
+ * Look up a delivery for a request in `awaiting_guardian_choice` follow-up
+ * state by destination conversation ID (for mac channel routing).
+ */
+export function getFollowupDeliveryByConversation(conversationId: string): GuardianActionDelivery | null {
+  try {
+    const db = getDb();
+    const rows = db
+      .select({ delivery: guardianActionDeliveries })
+      .from(guardianActionDeliveries)
+      .innerJoin(
+        guardianActionRequests,
+        eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
+      )
+      .where(
+        and(
+          eq(guardianActionDeliveries.destinationConversationId, conversationId),
+          eq(guardianActionDeliveries.status, 'expired'),
+          eq(guardianActionRequests.status, 'expired'),
+          eq(guardianActionRequests.followupState, 'awaiting_guardian_choice'),
+        ),
+      )
+      .all();
+    return rows.length > 0 ? rowToDelivery(rows[0].delivery) : null;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no such table')) {
+      log.warn({ err }, 'guardian tables not yet created');
+      return null;
+    }
+    throw err;
+  }
+}
+
 export function updateDeliveryStatus(
   deliveryId: string,
   status: GuardianActionDeliveryStatus,

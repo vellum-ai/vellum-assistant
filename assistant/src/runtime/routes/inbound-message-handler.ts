@@ -17,9 +17,12 @@ import { recordConversationSeenSignal } from '../../memory/conversation-attentio
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import {
+  finalizeFollowup,
   getExpiredDeliveriesByDestination,
+  getFollowupDeliveriesByDestination,
   getGuardianActionRequest,
   getPendingDeliveriesByDestination,
+  progressFollowupState,
   resolveGuardianActionRequest,
   startFollowupFromExpiredRequest,
 } from '../../memory/guardian-action-store.js';
@@ -56,8 +59,10 @@ import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
   GuardianActionCopyGenerator,
+  GuardianFollowUpConversationGenerator,
   MessageProcessor,
 } from '../http-types.js';
+import { processGuardianFollowUpTurn } from '../guardian-action-conversation-turn.js';
 import { composeGuardianActionMessageGenerative } from '../guardian-action-message-composer.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import {
@@ -97,6 +102,7 @@ export async function handleChannelInbound(
   approvalCopyGenerator?: ApprovalCopyGenerator,
   approvalConversationGenerator?: ApprovalConversationGenerator,
   guardianActionCopyGenerator?: GuardianActionCopyGenerator,
+  guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator,
 ): Promise<Response> {
   // Reject requests that lack valid gateway-origin proof. This ensures
   // channel inbound messages can only arrive via the gateway (which
@@ -958,6 +964,70 @@ export async function handleChannelInbound(
               });
             }
           }
+        }
+      }
+    }
+  }
+
+  // ── Guardian follow-up conversation interception ──
+  // When a request is in `awaiting_guardian_choice` state, the guardian has
+  // already been asked "call back or send a message?". Their next message
+  // is the reply to that prompt — route it through the conversation engine
+  // to classify their intent.
+  if (
+    !result.duplicate &&
+    !hasCallbackData &&
+    trimmedContent.length > 0 &&
+    body.senderExternalUserId &&
+    replyCallbackUrl
+  ) {
+    const followupDeliveries = getFollowupDeliveriesByDestination(canonicalAssistantId, sourceChannel, externalChatId);
+    if (followupDeliveries.length > 0) {
+      const validFollowup = followupDeliveries.filter(
+        (d) => d.destinationExternalUserId === body.senderExternalUserId,
+      );
+
+      // Use first valid delivery (multiple awaiting_guardian_choice for same
+      // guardian+chat is unlikely but we handle it gracefully)
+      const matchedFollowup = validFollowup[0];
+      if (matchedFollowup) {
+        const followupRequest = getGuardianActionRequest(matchedFollowup.requestId);
+
+        if (followupRequest && followupRequest.followupState === 'awaiting_guardian_choice') {
+          const turnResult = await processGuardianFollowUpTurn(
+            {
+              questionText: followupRequest.questionText,
+              lateAnswerText: followupRequest.lateAnswerText ?? '',
+              guardianReply: trimmedContent,
+            },
+            guardianFollowUpConversationGenerator,
+          );
+
+          // Apply the disposition to the follow-up state machine
+          if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
+            progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition);
+          } else if (turnResult.disposition === 'decline') {
+            finalizeFollowup(followupRequest.id, 'declined');
+          }
+          // keep_pending: no state change — guardian can reply again
+
+          // Deliver the generated reply to the guardian
+          try {
+            await deliverChannelReply(replyCallbackUrl, {
+              chatId: externalChatId,
+              text: turnResult.replyText,
+              assistantId,
+            }, bearerToken);
+          } catch (err) {
+            log.error({ err, externalChatId }, 'Failed to deliver guardian follow-up conversation reply');
+          }
+
+          return Response.json({
+            accepted: true,
+            duplicate: false,
+            eventId: result.eventId,
+            guardianFollowUp: turnResult.disposition,
+          });
         }
       }
     }

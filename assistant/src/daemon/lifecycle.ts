@@ -46,7 +46,7 @@ import {
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
 import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
-import { createGuardianActionCopyGenerator } from './guardian-action-generators.js';
+import { createGuardianActionCopyGenerator, createGuardianFollowUpConversationGenerator } from './guardian-action-generators.js';
 import { cleanupPidFile,writePid } from './daemon-control.js';
 import { initPairingHandlers } from './handlers/pairing.js';
 import { installCliLaunchers } from './install-cli-launchers.js';
@@ -284,6 +284,7 @@ export async function runDaemon(): Promise<void> {
     approvalCopyGenerator: createApprovalCopyGenerator(),
     approvalConversationGenerator: createApprovalConversationGenerator(),
     guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
+    guardianFollowUpConversationGenerator: createGuardianFollowUpConversationGenerator(),
     sendMessageDeps: {
       getOrCreateSession: (conversationId) =>
         server.getSessionForMessages(conversationId),
