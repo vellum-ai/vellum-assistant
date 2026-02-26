@@ -266,8 +266,8 @@ flowchart TD
         BC[tasks_changed broadcast]
     end
 
-    subgraph "macOS Client"
-        TW[TasksWindowView]
+    subgraph "Client (iOS / conversation-managed)"
+        TW[TasksView]
         DC[DaemonClient]
     end
 
@@ -298,7 +298,7 @@ flowchart TD
 - **`task_list_update`** uses `resolveWorkItem` to find the target work item by work item ID, task ID, or title (case-insensitive exact match). When multiple items match by task ID or title, the resolver applies a deterministic tie-break (lowest priority tier, then earliest `createdAt`).
 - **`task_list_add`** has duplicate prevention via the `if_exists` parameter (default: `reuse_existing`). Before creating, it calls `findActiveWorkItemsByTitle` to check for active items with the same title. If a match is found, the tool either returns the existing item (`reuse_existing`), updates it in place (`update_existing`), or proceeds to create a duplicate (`create_duplicate`).
 - **All daemon work-item handlers** (`handleWorkItemCreate`, `handleWorkItemUpdate`, `handleWorkItemComplete`, `handleWorkItemRunTask`) emit a `tasks_changed` broadcast after mutations via `ctx.broadcast({ type: 'tasks_changed' })`. They also emit the more specific `work_item_status_changed` with the affected item's current state.
-- **The macOS Tasks window** (`TasksWindowView`) subscribes to both `tasks_changed` and `work_item_status_changed` callbacks on `DaemonClient`. Both trigger a debounced refetch (300ms) so rapid successive mutations coalesce into a single re-fetch.
+- **Task UI clients** (e.g. the iOS `TasksView`) subscribe to both `tasks_changed` and `work_item_status_changed` callbacks on `DaemonClient`. Both trigger a debounced refetch (300ms) so rapid successive mutations coalesce into a single re-fetch. The macOS standalone Tasks window was removed; tasks on macOS are now conversation-managed.
 
 ### IPC Messages
 
@@ -331,7 +331,7 @@ idle (visible) → in-flight (hidden) → success/failure → re-enabled (via re
 
 **Sequence:**
 
-1. **Idle** — The run button is visible only when `item.status == "queued"`. The `TasksWindowRow` renders it conditionally based on the `WorkItemStatus` enum.
+1. **Idle** — The run button is visible only when `item.status == "queued"`. The task row renders it conditionally based on the `WorkItemStatus` enum.
 2. **In-flight** — The client sends `work_item_run_task` with the work item ID. The daemon validates the request, sets the item's status to `running`, and returns `work_item_run_task_response` with `success: true`. It then broadcasts `work_item_status_changed` and `tasks_changed`. The client's debounced refetch picks up the `running` status, which hides the run button and shows a spinner in the status column.
 3. **Completion** — The daemon executes the task asynchronously. On success, the item transitions to `awaiting_review`; on failure, to `failed`. Both trigger another `work_item_status_changed` + `tasks_changed` broadcast, which the client refetches and renders accordingly (showing a "Reviewed" button for `awaiting_review`, or the run button again for `failed` to allow retry).
 
@@ -352,6 +352,6 @@ In all error cases, the subsequent `tasks_changed` broadcast triggers a refetch 
 
 Deletion uses optimistic UI with rollback:
 
-1. **Optimistic removal** — `TasksWindowViewModel.removeTask()` snapshots the current `items` array, then immediately removes the target item with animation.
+1. **Optimistic removal** — The view model's `removeTask()` snapshots the current `items` array, then immediately removes the target item with animation.
 2. **IPC request** — Sends `work_item_delete` with the item ID. The daemon looks up the item; if found, deletes it and responds with `work_item_delete_response { success: true }`, then broadcasts `tasks_changed`.
 3. **Failure rollback** — If the send throws (socket error), the view model restores the snapshot with animation. If the daemon responds with `success: false` (item not found), the `onWorkItemDeleteResponse` callback triggers a full refetch to reconcile.

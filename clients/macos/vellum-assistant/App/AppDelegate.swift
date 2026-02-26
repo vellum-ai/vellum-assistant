@@ -149,7 +149,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var authManager: AuthManager { services.authManager }
     public var mainWindow: MainWindow?
     var bundleConfirmationWindow: BundleConfirmationWindow?
-    private var tasksWindow: TasksWindow?
+
     private var pairingApprovalWindow: PairingApprovalWindow?
     /// Window shown during first-launch bootstrap when daemon is slow to start.
     private var bootstrapInterstitialWindow: NSWindow?
@@ -1222,12 +1222,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     }
 
     private func setupSurfaceManager() {
-        // Let SurfaceManager check whether the standalone Tasks window is already
-        // showing so it can suppress duplicate task queue surfaces from the LLM.
-        surfaceManager.isTasksWindowVisible = { [weak self] in
-            self?.tasksWindow?.isVisible ?? false
-        }
-
         // Wire daemon surface messages to SurfaceManager (or BrowserPiPManager for browser_view)
         daemonClient.onSurfaceShow = { [weak self] msg in
             guard let self else { return }
@@ -2183,30 +2177,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     @objc public func showSettingsWindow(_ sender: Any?) {
         showMainWindow()
         mainWindow?.windowState.selection = .panel(.settings)
-    }
-
-    // MARK: - Tasks Window
-
-    @objc func showTasksWindow() {
-        NSApp.setActivationPolicy(.regular)
-        if tasksWindow == nil {
-            let window = TasksWindow(daemonClient: daemonClient)
-            window.onOpenInChat = { [weak self] conversationId, workItemId, title in
-                guard let self, !self.isBootstrapping else { return }
-                self.mainWindow?.threadManager.createTaskRunThread(
-                    conversationId: conversationId,
-                    workItemId: workItemId,
-                    title: title
-                )
-                if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == conversationId }) {
-                    self.mainWindow?.threadManager.activeThreadId = thread.id
-                }
-                self.showMainWindow()
-            }
-            tasksWindow = window
-        }
-        tasksWindow?.show()
-        refreshDockConversationBadge()
     }
 
     // MARK: - Application Lifecycle

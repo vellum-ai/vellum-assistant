@@ -54,7 +54,7 @@ All UI and feature code lives in `Features/`, organized by domain:
 | `Sharing/` | Content sharing and export |
 | `Surfaces/` | Daemon surface rendering (HTML/JSON overlays) |
 | `TaskInput/` | Quick task input popover |
-| `Tasks/` | Task management UI |
+
 | `Voice/` | Voice input UI (VoiceTranscriptionWindow) |
 
 **Main window layout** (`MainWindowView`):
