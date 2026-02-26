@@ -485,6 +485,8 @@ export async function processMessage(
         // Follow-up already started or conflict — send stale message
         const staleText = await composeGuardianActionMessageGenerative(
           { scenario: 'guardian_stale_expired' },
+          {},
+          _guardianActionCopyGenerator,
         );
         const staleMsg = createAssistantMessage(staleText);
         conversationStore.addMessage(
@@ -548,7 +550,7 @@ export async function processMessage(
 
       const replyText = stateApplied
         ? turnResult.replyText
-        : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_followup' });
+        : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_followup' }, {}, _guardianActionCopyGenerator);
       const replyMsg = createAssistantMessage(replyText);
       conversationStore.addMessage(
         session.conversationId,
