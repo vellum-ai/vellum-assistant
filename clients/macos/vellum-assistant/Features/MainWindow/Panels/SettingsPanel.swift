@@ -1,16 +1,44 @@
 import SwiftUI
 import VellumAssistantShared
 
-enum SettingsTab: String, CaseIterable {
-    case connect = "Connect"
-    case integrations = "Integrations"
-    case trust = "Trust"
-    case reminders = "Schedules"
-    case heartbeat = "Heartbeat"
+enum SettingsTab: String {
+    case account = "Account"
+    case channels = "Channels"
+    case modelsAndServices = "Models & Services"
     case voice = "Voice"
+    case permissions = "Permissions"
+    case automation = "Automation"
     case appearance = "Appearance"
-    case advanced = "Advanced"
     case parental = "Parental"
+    case advanced = "Advanced"
+
+    /// Tabs shown in the sidebar. Advanced is only visible in dev mode.
+    static func visibleTabs(isDevMode: Bool) -> [SettingsTab] {
+        var tabs: [SettingsTab] = [
+            .account, .channels, .modelsAndServices, .voice,
+            .permissions, .automation, .appearance, .parental
+        ]
+        if isDevMode {
+            tabs.append(.advanced)
+        }
+        return tabs
+    }
+
+    /// Maps legacy tab names (from IPC or saved state) to current tabs.
+    static func fromLegacyRawValue(_ value: String) -> SettingsTab? {
+        // Try current values first
+        if let tab = SettingsTab(rawValue: value) { return tab }
+        // Map legacy names
+        switch value {
+        case "Connect": return .account
+        case "Integrations": return .modelsAndServices
+        case "Trust": return .permissions
+        case "Schedules": return .automation
+        case "Heartbeat": return .automation
+        case "Advanced": return .advanced
+        default: return nil
+        }
+    }
 }
 
 @MainActor
@@ -45,8 +73,7 @@ struct SettingsPanel: View {
     @State private var showModelDropdown = false
     @State private var mouseDownMonitor: Any?
     @State private var modelDropdownFrame: CGRect = .zero
-    @State private var selectedTab: SettingsTab = .connect
-    @State private var testerModel: ToolPermissionTesterModel?
+    @State private var selectedTab: SettingsTab = .account
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -92,9 +119,6 @@ struct SettingsPanel: View {
             store.refreshIngressConfig()
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
-            if testerModel == nil, let dc = daemonClient {
-                testerModel = ToolPermissionTesterModel(daemonClient: dc)
-            }
             if let pending = store.pendingSettingsTab {
                 selectedTab = pending
                 store.pendingSettingsTab = nil
@@ -180,7 +204,7 @@ struct SettingsPanel: View {
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            ForEach(SettingsTab.allCases, id: \.self) { tab in
+            ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -195,29 +219,24 @@ struct SettingsPanel: View {
     @ViewBuilder
     private var selectedTabContent: some View {
         switch selectedTab {
-        case .connect:
-            SettingsConnectTab(store: store, daemonClient: daemonClient, authManager: authManager)
-        case .integrations:
+        case .account:
+            SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
+        case .channels:
+            SettingsChannelsTab(store: store, daemonClient: daemonClient)
+        case .modelsAndServices:
             integrationsContent
-        case .trust:
-            trustContent
-        case .reminders:
-            remindersContent
-        case .heartbeat:
-            HeartbeatSettingsTab(daemonClient: daemonClient)
         case .voice:
             VoiceSettingsView(store: store)
+        case .permissions:
+            permissionsContent
+        case .automation:
+            SettingsAutomationTab(daemonClient: daemonClient, showingReminders: $showingReminders, showingScheduledTasks: $showingScheduledTasks)
         case .appearance:
             SettingsAppearanceTab(store: store)
-        case .advanced:
-            SettingsAdvancedTab(
-                store: store,
-                threadManager: threadManager,
-                onClose: onClose,
-                daemonClient: daemonClient
-            )
         case .parental:
             SettingsParentalTab(daemonClient: daemonClient)
+        case .advanced:
+            SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
         }
     }
 
@@ -640,11 +659,11 @@ struct SettingsPanel: View {
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    // MARK: - Trust Tab
+    // MARK: - Permissions Tab
 
-    private var trustContent: some View {
+    private var permissionsContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            // PERMISSIONS section
+            // PERMISSIONS section (OS permissions)
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("Permissions")
                     .font(VFont.sectionTitle)
@@ -735,83 +754,27 @@ struct SettingsPanel: View {
                 .vCard(background: VColor.surfaceSubtle)
             }
 
-            // PERMISSION SIMULATOR section
-            if let model = testerModel {
-                ToolPermissionTesterView(model: model)
-            }
-
-            // PRIVACY & SECURITY section
+            // COMPUTER USAGE section (moved from Advanced)
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Privacy & Security")
+                Text("Computer Usage")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                VStack(alignment: .leading, spacing: 0) {
-                    privacyBullet(icon: "eye.slash", text: "AI only runs when you explicitly trigger it")
-                    Divider().background(VColor.surfaceBorder)
-                    privacyBullet(icon: "lock.shield", text: "API key stored in macOS Keychain")
-                    Divider().background(VColor.surfaceBorder)
-                    privacyBullet(icon: "xmark.shield", text: "Your data is not used to train AI models")
-                    Divider().background(VColor.surfaceBorder)
-                    privacyBullet(icon: "internaldrive", text: "Session logs and knowledge stored locally on your Mac")
+                HStack {
+                    Text("Max Steps per Session")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    VInfoTooltip("Maximum number of tool-use steps the assistant can take in a single session")
+                    Spacer()
+                    Text("\(Int(store.maxSteps))")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textSecondary)
                 }
+
+                VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
-        }
-    }
-
-    // MARK: - Reminders Tab
-
-    private var remindersContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
-            if daemonClient != nil {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Reminders")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    HStack {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Manage Reminders")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Text("View and manage one-shot reminders created by the assistant")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        VButton(label: "Manage...", style: .tertiary) {
-                            showingReminders = true
-                        }
-                    }
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Scheduled Tasks")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    HStack {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Manage Scheduled Tasks")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Text("View and manage recurring tasks (cron and RRULE schedules)")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        VButton(label: "Manage...", style: .tertiary) {
-                            showingScheduledTasks = true
-                        }
-                    }
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-            }
         }
     }
 
@@ -1017,21 +980,6 @@ struct SettingsPanel: View {
                 await refreshPermissionStatus()
             }
         }
-    }
-
-    // MARK: - Privacy Bullet
-
-    private func privacyBullet(icon: String, text: String) -> some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(systemName: icon)
-                .font(.system(size: 12))
-                .foregroundColor(VColor.textMuted)
-                .frame(width: 16)
-            Text(text)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-        }
-        .padding(.vertical, VSpacing.md)
     }
 
 }
