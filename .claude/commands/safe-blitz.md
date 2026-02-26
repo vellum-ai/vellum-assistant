@@ -444,7 +444,7 @@ Proceed to step 4d.
 
 After all milestones are merged and their individual reviews are clean, run one final recursive sweep on the entire feature branch.
 
-Read and follow `.claude/phases/sweep.md` with `--namespace <namespace>`. Unless `--auto` was passed, this is where the user-facing pause happens: **"All milestones complete. Run final sweep for review feedback?"**
+Read and follow `.claude/phases/sweep.md` with `--namespace <namespace>`. **Always skip the approval prompt** — safe-blitz already has review gates on every milestone, so an extra pause before the final sweep is unnecessary. Behave as if `--auto` was always passed for this step, regardless of whether the user passed `--auto`.
 
 This final sweep catches:
 - Any cross-milestone issues that individual per-milestone feedback loops missed
