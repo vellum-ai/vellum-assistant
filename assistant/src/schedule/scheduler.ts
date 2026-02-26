@@ -2,7 +2,7 @@ import { createConversation } from '../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { invalidateAssistantInferredItemsForConversation } from '../memory/task-memory-cleanup.js';
 import { runSequencesOnce } from '../sequence/engine.js';
-import { claimDueReminders, completeReminder, failReminder, setReminderConversationId } from '../tools/reminder/reminder-store.js';
+import { claimDueReminders, completeReminder, failReminder, setReminderConversationId, type RoutingIntent } from '../tools/reminder/reminder-store.js';
 import { getLogger } from '../util/logger.js';
 import { runWatchersOnce, type WatcherEscalator,type WatcherNotifier } from '../watcher/engine.js';
 import { hasSetConstructs } from './recurrence-engine.js';
@@ -19,7 +19,13 @@ export type ScheduleMessageProcessor = (
   message: string,
 ) => Promise<unknown>;
 
-export type ReminderNotifier = (reminder: { id: string; label: string; message: string }) => void;
+export type ReminderNotifier = (reminder: {
+  id: string;
+  label: string;
+  message: string;
+  routingIntent: RoutingIntent;
+  routingHints: Record<string, unknown>;
+}) => void;
 
 export type ScheduleNotifier = (schedule: { id: string; name: string }) => void;
 
@@ -165,7 +171,13 @@ async function runScheduleOnce(
     } else {
       try {
         log.info({ reminderId: reminder.id, label: reminder.label }, 'Firing reminder notification');
-        notifyReminder({ id: reminder.id, label: reminder.label, message: reminder.message });
+        notifyReminder({
+          id: reminder.id,
+          label: reminder.label,
+          message: reminder.message,
+          routingIntent: reminder.routingIntent,
+          routingHints: reminder.routingHints,
+        });
         completeReminder(reminder.id);
       } catch (err) {
         log.warn({ err, reminderId: reminder.id }, 'Reminder notification failed, reverting to pending');

@@ -185,6 +185,8 @@ export async function runDaemon(): Promise<void> {
           label: reminder.label,
           message: reminder.message,
         },
+        routingIntent: reminder.routingIntent,
+        routingHints: reminder.routingHints,
         dedupeKey: `reminder:${reminder.id}`,
       });
     },

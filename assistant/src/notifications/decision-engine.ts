@@ -18,7 +18,7 @@ import type { ModelIntent } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
-import type { NotificationSignal } from './signal.js';
+import type { NotificationSignal, RoutingIntent } from './signal.js';
 import type { NotificationChannel, NotificationDecision, RenderedChannelCopy } from './types.js';
 
 const log = getLogger('notification-decision-engine');
@@ -56,6 +56,12 @@ function buildSystemPrompt(
     `- For low-urgency background events, suppress unless they match user preferences.`,
     `- Generate a stable dedupeKey derived from the signal context so duplicate signals can be suppressed.`,
     ``,
+    `Routing intent (when present in the signal):`,
+    `- \`all_channels\`: The source explicitly requests notification on ALL connected channels.`,
+    `- \`multi_channel\`: The source prefers 2+ channels when 2+ are connected.`,
+    `- \`single_channel\`: Default routing behavior — use your best judgment (no override).`,
+    `When a routing intent is present, respect it in your channel selection. A post-decision guard will enforce the intent.`,
+    ``,
     `Copy guidelines (three distinct outputs):`,
     `- \`title\` and \`body\` are for native notification popups (e.g. vellum desktop/mobile) — keep them short and glanceable (title ≤ 8 words, body ≤ 2 sentences).`,
     `- \`deliveryText\` is the channel-native message for chat channels (e.g. telegram). It must read naturally as a standalone message.`,
@@ -89,6 +95,14 @@ function buildUserPrompt(signal: NotificationSignal): string {
 
   if (signal.attentionHints.deadlineAt) {
     parts.push(`Deadline: ${new Date(signal.attentionHints.deadlineAt).toISOString()}`);
+  }
+
+  if (signal.routingIntent && signal.routingIntent !== 'single_channel') {
+    parts.push(`Routing intent: ${signal.routingIntent}`);
+  }
+
+  if (signal.routingHints && Object.keys(signal.routingHints).length > 0) {
+    parts.push(`Routing hints: ${JSON.stringify(signal.routingHints)}`);
   }
 
   const payloadStr = JSON.stringify(signal.contextPayload);
@@ -375,6 +389,61 @@ async function classifyWithLLM(
   } finally {
     cleanup();
   }
+}
+
+// ── Post-decision routing intent enforcement ───────────────────────────
+
+/**
+ * Enforce routing intent policy on a decision after the LLM has produced it.
+ * This is a fire-time guard: it overrides channel selection to match the
+ * routing intent specified by the signal source (e.g. a reminder).
+ *
+ * - `all_channels`: force selected channels to all connected channels.
+ * - `multi_channel`: ensure at least 2 channels when 2+ are connected.
+ * - `single_channel`: no override (default behavior).
+ */
+export function enforceRoutingIntent(
+  decision: NotificationDecision,
+  routingIntent: RoutingIntent | undefined,
+  connectedChannels: NotificationChannel[],
+): NotificationDecision {
+  if (!routingIntent || routingIntent === 'single_channel') {
+    return decision;
+  }
+
+  if (!decision.shouldNotify) {
+    return decision;
+  }
+
+  if (routingIntent === 'all_channels') {
+    // Force all connected channels
+    if (connectedChannels.length > 0) {
+      const enforced = { ...decision };
+      enforced.selectedChannels = [...connectedChannels];
+      enforced.reasoningSummary = `${decision.reasoningSummary} [routing_intent=all_channels enforced: ${connectedChannels.join(', ')}]`;
+      log.info(
+        { routingIntent, connectedChannels, originalChannels: decision.selectedChannels },
+        'Routing intent enforcement: all_channels → forced all connected channels',
+      );
+      return enforced;
+    }
+  }
+
+  if (routingIntent === 'multi_channel') {
+    // Ensure at least 2 channels when 2+ are connected
+    if (connectedChannels.length >= 2 && decision.selectedChannels.length < 2) {
+      const enforced = { ...decision };
+      enforced.selectedChannels = [...connectedChannels];
+      enforced.reasoningSummary = `${decision.reasoningSummary} [routing_intent=multi_channel enforced: expanded to ${connectedChannels.join(', ')}]`;
+      log.info(
+        { routingIntent, connectedChannels, originalChannels: decision.selectedChannels },
+        'Routing intent enforcement: multi_channel → expanded to all connected channels',
+      );
+      return enforced;
+    }
+  }
+
+  return decision;
 }
 
 // ── Persistence ────────────────────────────────────────────────────────

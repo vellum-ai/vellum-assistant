@@ -15,13 +15,15 @@ import { getDeliverableChannels } from '../channels/config.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import { getLogger } from '../util/logger.js';
 import { type BroadcastFn, VellumAdapter } from './adapters/macos.js';
+import { SmsAdapter } from './adapters/sms.js';
 import { TelegramAdapter } from './adapters/telegram.js';
 import { NotificationBroadcaster,type ThreadCreatedInfo } from './broadcaster.js';
-import { evaluateSignal } from './decision-engine.js';
+import { enforceRoutingIntent, evaluateSignal } from './decision-engine.js';
+import { updateDecision } from './decisions-store.js';
 import { type DeterministicCheckContext, runDeterministicChecks } from './deterministic-checks.js';
 import { createEvent, updateEventDedupeKey } from './events-store.js';
 import { dispatchDecision } from './runtime-dispatch.js';
-import type { AttentionHints, NotificationSignal } from './signal.js';
+import type { AttentionHints, NotificationSignal, RoutingIntent } from './signal.js';
 import type { NotificationChannel, NotificationDeliveryResult } from './types.js';
 
 const log = getLogger('emit-signal');
@@ -46,6 +48,7 @@ function getBroadcaster(): NotificationBroadcaster {
   if (!broadcasterInstance) {
     const adapters = [
       new TelegramAdapter(),
+      new SmsAdapter(),
     ];
     if (registeredBroadcastFn) {
       adapters.unshift(new VellumAdapter(registeredBroadcastFn));
@@ -90,6 +93,7 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         channels.push(channel);
         break;
       case 'telegram':
+      case 'sms':
         // Only report binding-based channels as connected when there is
         // an active guardian binding for this assistant. Without a
         // binding, the destination resolver will fail to resolve a
@@ -125,6 +129,10 @@ export interface EmitSignalParams {
   attentionHints: AttentionHints;
   /** Arbitrary context payload passed to the decision engine. */
   contextPayload?: Record<string, unknown>;
+  /** Routing intent from the source (e.g. reminder). Controls post-decision channel enforcement. */
+  routingIntent?: RoutingIntent;
+  /** Free-form hints from the source for the decision engine. */
+  routingHints?: Record<string, unknown>;
   /** Optional deduplication key. */
   dedupeKey?: string;
   /**
@@ -167,6 +175,8 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
     sourceEventName: params.sourceEventName,
     contextPayload: params.contextPayload ?? {},
     attentionHints: params.attentionHints,
+    routingIntent: params.routingIntent,
+    routingHints: params.routingHints,
   };
 
   try {
@@ -195,7 +205,29 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
 
     // Step 2: Evaluate the signal through the decision engine
     const connectedChannels = getConnectedChannels(assistantId);
-    const decision = await evaluateSignal(signal, connectedChannels);
+    let decision = await evaluateSignal(signal, connectedChannels);
+
+    // Step 2.5: Enforce routing intent policy (fire-time guard)
+    const preEnforcementDecision = decision;
+    decision = enforceRoutingIntent(decision, signal.routingIntent, connectedChannels);
+
+    // Re-persist the decision if routing intent enforcement changed it,
+    // so the stored decision row matches what is actually dispatched.
+    if (decision !== preEnforcementDecision && decision.persistedDecisionId) {
+      try {
+        updateDecision(decision.persistedDecisionId, {
+          selectedChannels: decision.selectedChannels,
+          reasoningSummary: decision.reasoningSummary,
+          validationResults: {
+            dedupeKey: decision.dedupeKey,
+            channelCount: decision.selectedChannels.length,
+            hasCopy: Object.keys(decision.renderedCopy).length > 0,
+          },
+        });
+      } catch (err) {
+        log.warn({ err, signalId }, 'Failed to re-persist decision after routing intent enforcement');
+      }
+    }
 
     // Persist model-generated dedupeKey back to the event row so future
     // signals can deduplicate against it (the event was created with

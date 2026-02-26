@@ -51,22 +51,6 @@ describe('reminder-store', () => {
     expect(r.updatedAt).toBeGreaterThan(0);
   });
 
-  test('insertReminder defaults routingIntent to single_channel when omitted', () => {
-    const r = insertReminder({
-      label: 'No routing',
-      message: 'Should default',
-      fireAt: Date.now() + 60_000,
-      mode: 'notify',
-    });
-
-    expect(r.routingIntent).toBe('single_channel');
-    expect(r.routingHints).toEqual({});
-
-    const fetched = getReminder(r.id);
-    expect(fetched!.routingIntent).toBe('single_channel');
-    expect(fetched!.routingHints).toEqual({});
-  });
-
   test('insertReminder persists routing metadata', () => {
     const r = insertReminder({
       label: 'Multi-channel',
@@ -83,6 +67,22 @@ describe('reminder-store', () => {
     const fetched = getReminder(r.id);
     expect(fetched!.routingIntent).toBe('all_channels');
     expect(fetched!.routingHints).toEqual({ preferred: ['telegram', 'sms'] });
+  });
+
+  test('insertReminder defaults routingIntent to single_channel when omitted', () => {
+    const r = insertReminder({
+      label: 'No routing',
+      message: 'Should default',
+      fireAt: Date.now() + 60_000,
+      mode: 'notify',
+    });
+
+    expect(r.routingIntent).toBe('single_channel');
+    expect(r.routingHints).toEqual({});
+
+    const fetched = getReminder(r.id);
+    expect(fetched!.routingIntent).toBe('single_channel');
+    expect(fetched!.routingHints).toEqual({});
   });
 
   // ── getReminder ─────────────────────────────────────────────────────
@@ -157,9 +157,9 @@ describe('reminder-store', () => {
 
   // ── claimDueReminders ──────────────────────────────────────────────
 
-  test('claimDueReminders claims reminders where fireAt <= now', () => {
+  test('claimDueReminders claims reminders where fireAt <= now and preserves routing', () => {
     const now = Date.now();
-    insertReminder({ label: 'Past', message: 'x', fireAt: now - 5000, mode: 'notify' });
+    insertReminder({ label: 'Past', message: 'x', fireAt: now - 5000, mode: 'notify', routingIntent: 'all_channels', routingHints: { foo: 'bar' } });
     insertReminder({ label: 'Future', message: 'y', fireAt: now + 60_000, mode: 'notify' });
 
     const claimed = claimDueReminders(now);
@@ -167,6 +167,8 @@ describe('reminder-store', () => {
     expect(claimed[0].label).toBe('Past');
     expect(claimed[0].status).toBe('firing');
     expect(claimed[0].firedAt).toBe(now);
+    expect(claimed[0].routingIntent).toBe('all_channels');
+    expect(claimed[0].routingHints).toEqual({ foo: 'bar' });
   });
 
   test('claimDueReminders skips already-fired reminders', () => {

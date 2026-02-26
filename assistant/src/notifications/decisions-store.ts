@@ -79,6 +79,30 @@ export function createDecision(params: CreateDecisionParams): NotificationDecisi
   };
 }
 
+export interface UpdateDecisionParams {
+  selectedChannels?: string[];
+  reasoningSummary?: string;
+  validationResults?: Record<string, unknown>;
+}
+
+/** Update an existing decision row (e.g. after routing intent enforcement). */
+export function updateDecision(id: string, params: UpdateDecisionParams): void {
+  const db = getDb();
+  const updates: Record<string, unknown> = {};
+  if (params.selectedChannels !== undefined) {
+    updates.selectedChannels = JSON.stringify(params.selectedChannels);
+  }
+  if (params.reasoningSummary !== undefined) {
+    updates.reasoningSummary = params.reasoningSummary;
+  }
+  if (params.validationResults !== undefined) {
+    updates.validationResults = JSON.stringify(params.validationResults);
+  }
+  if (Object.keys(updates).length === 0) return;
+
+  db.update(notificationDecisions).set(updates).where(eq(notificationDecisions.id, id)).run();
+}
+
 /** Fetch a single decision by ID. */
 export function getDecisionById(id: string): NotificationDecisionRow | null {
   const db = getDb();

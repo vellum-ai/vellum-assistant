@@ -246,13 +246,14 @@ describe('reminder tool', () => {
       fire_at: future,
       label: 'Test reminder',
       message: 'Test message',
+      routing_intent: 'all_channels',
     });
 
     const result = executeReminderList();
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Test reminder');
     expect(result.content).toContain('pending');
-    expect(result.content).toContain('routing: single_channel');
+    expect(result.content).toContain('routing: all_channels');
   });
 
   // ── cancel ──────────────────────────────────────────────────────────
