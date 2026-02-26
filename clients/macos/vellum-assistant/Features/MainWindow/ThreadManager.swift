@@ -705,6 +705,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
     }
 
+    /// Clear the local unseen flag and notify the daemon that the conversation
+    /// has been seen. Use this from call-sites that bypass `selectThread` (e.g.
+    /// deep-link navigation in `openConversationThread`) where the `id != previousActiveId`
+    /// guard would skip the signal.
+    internal func markConversationSeen(threadId: UUID) {
+        guard let idx = threads.firstIndex(where: { $0.id == threadId }) else { return }
+        threads[idx].hasUnseenLatestAssistantMessage = false
+        if let sessionId = threads[idx].sessionId {
+            emitConversationSeenSignal(conversationId: sessionId)
+        }
+    }
+
     // MARK: - Private
 
     /// Send a `conversation_seen_signal` IPC message to the daemon.

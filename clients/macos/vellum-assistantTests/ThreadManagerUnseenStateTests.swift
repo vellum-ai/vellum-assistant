@@ -229,9 +229,39 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         }
         XCTAssertEqual(threadManager.unseenVisibleConversationCount, 1)
 
-        // Select the unseen thread — should clear its unseen flag
+        sentMessages.removeAll()
+
+        // Select the unseen thread — should clear its unseen flag and emit seen signal
         threadManager.selectThread(id: firstId)
         XCTAssertEqual(threadManager.unseenVisibleConversationCount, 0)
+
+        let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        XCTAssertFalse(seenSignals.isEmpty, "selectThread should emit a seen signal to the daemon")
+        XCTAssertEqual(seenSignals.last?.conversationId, "session-first")
+    }
+
+    func testMarkConversationSeenEmitsSignalAndClearsFlag() {
+        guard let threadId = threadManager.activeThreadId,
+              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
+            XCTFail("Expected an initial active thread")
+            return
+        }
+
+        threadManager.threads[index].sessionId = "session-mark-seen"
+        threadManager.threads[index].hasUnseenLatestAssistantMessage = true
+        XCTAssertEqual(threadManager.unseenVisibleConversationCount, 1)
+
+        sentMessages.removeAll()
+
+        threadManager.markConversationSeen(threadId: threadId)
+
+        XCTAssertFalse(threadManager.threads[index].hasUnseenLatestAssistantMessage,
+                       "markConversationSeen should clear the unseen flag")
+        XCTAssertEqual(threadManager.unseenVisibleConversationCount, 0)
+
+        let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        XCTAssertFalse(seenSignals.isEmpty, "markConversationSeen should emit a seen signal to the daemon")
+        XCTAssertEqual(seenSignals.last?.conversationId, "session-mark-seen")
     }
 
     func testActiveThreadAssistantReplyClearsUnseenAndEmitsSeenSignal() {
