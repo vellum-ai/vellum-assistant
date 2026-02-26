@@ -218,7 +218,7 @@ The app token is validated by format only — it must start with `xapp-`.
 
 **Connection status:**
 
-The `GET` endpoint reports `connected: true` only when both `hasBotToken` and `hasAppToken` are true. If only one token is stored, a `warning` field describes which token is missing.
+Both `GET` and `POST` endpoints report `connected: true` only when both `hasBotToken` and `hasAppToken` are true. The `POST` endpoint additionally returns a `warning` field when only one token is stored, describing which token is missing.
 
 **Key source files:**
 
