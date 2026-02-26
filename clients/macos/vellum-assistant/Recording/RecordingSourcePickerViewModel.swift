@@ -300,6 +300,9 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                 }
             }
         }
+
+        // Reload previews for the refreshed source list
+        await loadPreviews()
     }
 
     // MARK: - Update Current Display
