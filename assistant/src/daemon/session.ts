@@ -426,6 +426,14 @@ export class Session {
     return this.prompter.hasPendingRequest(requestId);
   }
 
+  hasAnyPendingConfirmation(): boolean {
+    return this.prompter.hasPending;
+  }
+
+  denyAllPendingConfirmations(): void {
+    this.prompter.denyAllPending();
+  }
+
   hasPendingSecret(requestId: string): boolean {
     return this.secretPrompter.hasPendingRequest(requestId);
   }

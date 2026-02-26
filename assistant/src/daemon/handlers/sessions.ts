@@ -442,6 +442,14 @@ export async function handleUserMessage(
       }
     }
 
+    // If the session has a pending tool confirmation, auto-deny it so the
+    // agent can process the user's follow-up message instead.  The agent
+    // will see the denial and can re-request the tool if still needed.
+    if (session.hasAnyPendingConfirmation()) {
+      rlog.info('Auto-denying pending confirmation(s) due to new user message');
+      session.denyAllPendingConfirmations();
+    }
+
     dispatchUserMessage(
       messageText,
       msg.attachments ?? [],

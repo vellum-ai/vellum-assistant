@@ -114,6 +114,23 @@ export class PermissionPrompter {
     pending.resolve({ decision, selectedPattern, selectedScope, decisionContext });
   }
 
+  /**
+   * Deny all pending confirmation prompts at once. Used when a new user
+   * message arrives while confirmations are outstanding — the agent will
+   * see the denial and can re-request if still needed.
+   */
+  denyAllPending(): void {
+    for (const [requestId, pending] of this.pending) {
+      clearTimeout(pending.timer);
+      this.pending.delete(requestId);
+      pending.resolve({ decision: 'deny', decisionContext: 'auto_denied_new_user_message' });
+    }
+  }
+
+  get hasPending(): boolean {
+    return this.pending.size > 0;
+  }
+
   dispose(): void {
     for (const [, pending] of this.pending) {
       clearTimeout(pending.timer);
