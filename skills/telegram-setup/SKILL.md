@@ -38,7 +38,8 @@ After the token is collected, call the composite setup endpoint which validates 
 ```bash
 curl -sf -X POST http://localhost:7821/v1/integrations/telegram/setup \
   -H "Authorization: Bearer $(cat ~/.vellum/http-token)" \
-  -H "Content-Type: application/json"
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
 
 This endpoint automatically:
