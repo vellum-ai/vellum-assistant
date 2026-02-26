@@ -154,7 +154,7 @@ build_binaries() {
 
     # CLI
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli" --external react-devtools-core
+        "$SCRIPT_DIR/cli-bin" "vellum-cli"
 
     # Gateway
     build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
@@ -312,7 +312,7 @@ if [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
 fi
 if [ "$CLI_BIN_NEEDS_BUILD" = true ]; then
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli" --external react-devtools-core
+        "$SCRIPT_DIR/cli-bin" "vellum-cli"
 fi
 
 # Also rebuild if CLI binary changed or newly added
