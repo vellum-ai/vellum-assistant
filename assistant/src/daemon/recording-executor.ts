@@ -87,19 +87,20 @@ export function executeRecordingIntent(
       };
 
     case 'start_and_stop_only': {
-      handleRecordingStop(context.conversationId, context.ctx);
-      const recordingId = handleRecordingStart(
+      // Route through handleRecordingRestart which properly cleans up maps
+      // between stop and start, preventing the "already active" guard from
+      // blocking the new recording.
+      const restartResult = handleRecordingRestart(
         context.conversationId,
-        { promptForSource: true },
         context.socket,
         context.ctx,
       );
       return {
         handled: true,
-        recordingStarted: !!recordingId,
-        responseText: recordingId
+        recordingStarted: restartResult.initiated,
+        responseText: restartResult.initiated
           ? 'Stopping current recording and starting a new one.'
-          : 'Stopping the recording.',
+          : restartResult.responseText,
       };
     }
 
@@ -107,8 +108,7 @@ export function executeRecordingIntent(
       return {
         handled: false,
         remainderText: result.remainder,
-        pendingStart: true,
-        pendingStop: true,
+        pendingRestart: true,
       };
 
     case 'restart_only': {

@@ -323,13 +323,15 @@ export async function handleUserMessage(
         messageText = msg.content;
 
         // Execute the recording side effects that executeRecordingIntent deferred
-        if (intentResult.kind === 'stop_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder') {
+        if (intentResult.kind === 'stop_with_remainder') {
           handleRecordingStop(msg.sessionId, ctx);
         }
-        if (intentResult.kind === 'start_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder') {
+        if (intentResult.kind === 'start_with_remainder') {
           handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
         }
-        if (intentResult.kind === 'restart_with_remainder') {
+        // start_and_stop_with_remainder is semantically a restart — route through
+        // handleRecordingRestart which properly cleans up maps between stop and start.
+        if (intentResult.kind === 'restart_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder') {
           handleRecordingRestart(msg.sessionId, socket, ctx);
         }
 

@@ -260,9 +260,11 @@ export async function handleTaskSubmit(
       if (intentResult.kind === 'start_with_remainder' || intentResult.kind === 'stop_with_remainder' ||
           intentResult.kind === 'start_and_stop_with_remainder' || intentResult.kind === 'restart_with_remainder') {
         // Defer recording action until after classifier creates the final conversation
-        pendingRecordingStart = intentResult.kind === 'start_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder';
-        pendingRecordingStop = intentResult.kind === 'stop_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder';
-        pendingRecordingRestart = intentResult.kind === 'restart_with_remainder';
+        pendingRecordingStart = intentResult.kind === 'start_with_remainder';
+        pendingRecordingStop = intentResult.kind === 'stop_with_remainder';
+        // start_and_stop_with_remainder is semantically a restart — route through
+        // handleRecordingRestart which properly cleans up maps between stop and start.
+        pendingRecordingRestart = intentResult.kind === 'restart_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder';
         (msg as { task: string }).task = intentResult.remainder;
         rlog.info({ remaining: intentResult.remainder }, 'Recording intent deferred, continuing with remaining text');
       }

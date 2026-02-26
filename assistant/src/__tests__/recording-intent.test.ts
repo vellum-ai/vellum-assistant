@@ -509,10 +509,20 @@ describe('executeRecordingIntent', () => {
   // Mock the recording handlers module
   const mockHandleRecordingStart = mock((): string | null => 'mock-recording-id');
   const mockHandleRecordingStop = mock((): string | undefined => 'mock-recording-id');
+  const mockHandleRecordingRestart = mock((): { initiated: boolean; operationToken?: string; responseText: string } => ({
+    initiated: true,
+    operationToken: 'mock-token',
+    responseText: 'Restarting screen recording.',
+  }));
+  const mockHandleRecordingPause = mock((): string | undefined => 'mock-recording-id');
+  const mockHandleRecordingResume = mock((): string | undefined => 'mock-recording-id');
 
   mock.module('../daemon/handlers/recording.js', () => ({
     handleRecordingStart: mockHandleRecordingStart,
     handleRecordingStop: mockHandleRecordingStop,
+    handleRecordingRestart: mockHandleRecordingRestart,
+    handleRecordingPause: mockHandleRecordingPause,
+    handleRecordingResume: mockHandleRecordingResume,
   }));
 
   // Dynamically import so the mock takes effect
@@ -533,10 +543,23 @@ describe('executeRecordingIntent', () => {
     await setupPromise;
     mockHandleRecordingStart.mockReset();
     mockHandleRecordingStop.mockReset();
+    mockHandleRecordingRestart.mockReset();
+    mockHandleRecordingPause.mockReset();
+    mockHandleRecordingResume.mockReset();
     // Default: start succeeds (returns recording ID)
     mockHandleRecordingStart.mockReturnValue('mock-recording-id');
     // Default: stop succeeds (returns recording ID)
     mockHandleRecordingStop.mockReturnValue('mock-recording-id');
+    // Default: restart succeeds
+    mockHandleRecordingRestart.mockReturnValue({
+      initiated: true,
+      operationToken: 'mock-token',
+      responseText: 'Restarting screen recording.',
+    });
+    // Default: pause succeeds
+    mockHandleRecordingPause.mockReturnValue('mock-recording-id');
+    // Default: resume succeeds
+    mockHandleRecordingResume.mockReturnValue('mock-recording-id');
   });
 
   test('none → returns { handled: false }', () => {
@@ -607,10 +630,9 @@ describe('executeRecordingIntent', () => {
     });
   });
 
-  test('start_and_stop_only → calls both stop and start, returns handled', () => {
+  test('start_and_stop_only → routes through handleRecordingRestart, returns handled', () => {
     const result = executeRecordingIntent({ kind: 'start_and_stop_only' }, mockContext);
-    expect(mockHandleRecordingStop).toHaveBeenCalledTimes(1);
-    expect(mockHandleRecordingStart).toHaveBeenCalledTimes(1);
+    expect(mockHandleRecordingRestart).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       handled: true,
       recordingStarted: true,
@@ -618,19 +640,21 @@ describe('executeRecordingIntent', () => {
     });
   });
 
-  test('start_and_stop_only when start fails → returns handled with stop-only text', () => {
-    mockHandleRecordingStart.mockReturnValue(null);
+  test('start_and_stop_only when restart fails → returns handled with restart failure text', () => {
+    mockHandleRecordingRestart.mockReturnValue({
+      initiated: false,
+      responseText: 'No active recording to restart.',
+    });
     const result = executeRecordingIntent({ kind: 'start_and_stop_only' }, mockContext);
-    expect(mockHandleRecordingStop).toHaveBeenCalledTimes(1);
-    expect(mockHandleRecordingStart).toHaveBeenCalledTimes(1);
+    expect(mockHandleRecordingRestart).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       handled: true,
       recordingStarted: false,
-      responseText: 'Stopping the recording.',
+      responseText: 'No active recording to restart.',
     });
   });
 
-  test('start_and_stop_with_remainder → returns not handled with remainder and both pending flags', () => {
+  test('start_and_stop_with_remainder → returns not handled with remainder and pendingRestart', () => {
     const result = executeRecordingIntent(
       { kind: 'start_and_stop_with_remainder', remainder: 'open Safari' },
       mockContext,
@@ -638,8 +662,7 @@ describe('executeRecordingIntent', () => {
     expect(result).toEqual({
       handled: false,
       remainderText: 'open Safari',
-      pendingStart: true,
-      pendingStop: true,
+      pendingRestart: true,
     });
   });
 
