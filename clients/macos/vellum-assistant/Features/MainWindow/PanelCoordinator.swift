@@ -758,7 +758,7 @@ struct ActiveChatViewWrapper: View {
                 viewModel.rehydrateMessage(id: messageId)
             },
             subagentDetailStore: viewModel.subagentDetailStore,
-            daemonHttpPort: daemonClient.httpPort,
+            resolveHttpPort: daemonClient.httpPortResolver,
             isHistoryLoaded: viewModel.isHistoryLoaded,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },

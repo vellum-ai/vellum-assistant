@@ -5,30 +5,101 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "InlineVideoAttachment")
 
+// MARK: - Failure State Buckets
+
+/// Deterministic failure categories for video playback.
+/// Each bucket has a clear UI treatment and recovery path.
+enum VideoPlaybackFailure: Equatable {
+    /// Daemon not connected or HTTP port not available.
+    /// Recovery: retry when daemon reconnects (auto) or on user tap (manual).
+    case port_missing
+
+    /// HTTP request to daemon failed (network error, 4xx/5xx).
+    /// Recovery: retry on user tap.
+    case fetch_failed(String)
+
+    /// Content fetched but not playable (corrupt file, wrong format, bad base64).
+    /// Recovery: open in external player as fallback.
+    case invalid_media
+
+    var userMessage: String {
+        switch self {
+        case .port_missing:
+            return "Reconnecting to daemon..."
+        case .fetch_failed(let detail):
+            return detail.isEmpty ? "Could not fetch video" : detail
+        case .invalid_media:
+            return "Could not play video"
+        }
+    }
+
+    /// Whether this failure is eligible for automatic retry on daemon reconnect.
+    var isRetryableOnReconnect: Bool {
+        if case .port_missing = self { return true }
+        return false
+    }
+}
+
+// MARK: - View
+
 /// Inline video player for file-based video attachments (e.g. video/mp4).
 ///
 /// Decodes base64 attachment data to a temp file and plays it with native
 /// AVPlayerView. Uses a click-to-play pattern to avoid auto-playing videos
 /// on scroll. Supports lazy-loading large attachments via the daemon HTTP API.
+///
+/// Resolves the daemon HTTP port at fetch time (not at view init) to avoid
+/// stale port snapshots after daemon restarts. On `port_missing` failures,
+/// retries up to 3 times with 1s delays before showing the error state.
+/// Listens for `daemonDidReconnect` to auto-retry `port_missing` failures.
 struct InlineVideoAttachmentView: View {
     let attachment: ChatAttachment
-    let daemonHttpPort: Int?
+    /// Resolves the current daemon HTTP port at call time.
+    /// Returns nil when the daemon is not connected or the port is unavailable.
+    let resolveHttpPort: () -> Int?
 
     @State private var player: AVPlayer?
     @State private var isPlaying = false
     @State private var isLoading = false
-    @State private var failed = false
+    @State private var failure: VideoPlaybackFailure?
     @State private var videoAspectRatio: CGFloat
     @State private var isHovering = false
     @State private var isSaving = false
     @State private var thumbnailImage: NSImage?
+    /// Tracks whether a user-initiated retry has already failed, so the next
+    /// tap on the failed tile opens the external player instead of retrying again.
+    @State private var hasRetriedOnce = false
 
+    // Backward-compatible initializer that accepts a static port snapshot.
+    // Used by callers that haven't migrated to the closure-based API yet.
     init(attachment: ChatAttachment, daemonHttpPort: Int?) {
         self.attachment = attachment
-        self.daemonHttpPort = daemonHttpPort
+        let port = daemonHttpPort
+        self.resolveHttpPort = { port }
 
         if let img = attachment.thumbnailImage {
-            // Use pixel dimensions for accurate aspect ratio (immune to DPI metadata).
+            var w: CGFloat = 0
+            var h: CGFloat = 0
+            if let rep = img.representations.first {
+                w = CGFloat(rep.pixelsWide)
+                h = CGFloat(rep.pixelsHigh)
+            }
+            if w <= 0 || h <= 0 {
+                w = img.size.width
+                h = img.size.height
+            }
+            _videoAspectRatio = State(initialValue: w > 0 && h > 0 ? w / h : 3.0 / 4.0)
+            _thumbnailImage = State(initialValue: img)
+        } else {
+            _videoAspectRatio = State(initialValue: 3.0 / 4.0)
+        }
+    }
+
+    init(attachment: ChatAttachment, resolveHttpPort: @escaping () -> Int?) {
+        self.attachment = attachment
+        self.resolveHttpPort = resolveHttpPort
+
+        if let img = attachment.thumbnailImage {
             var w: CGFloat = 0
             var h: CGFloat = 0
             if let rep = img.representations.first {
@@ -55,8 +126,8 @@ struct InlineVideoAttachmentView: View {
                         .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 0.5)
                 )
 
-            if failed {
-                failedView
+            if let failure {
+                failedView(failure)
             } else if isLoading {
                 loadingView
             } else if let player, isPlaying {
@@ -66,7 +137,7 @@ struct InlineVideoAttachmentView: View {
                 placeholderView
             }
 
-            if !failed && !isLoading && isHovering {
+            if failure == nil && !isLoading && isHovering {
                 Button(action: saveVideo) {
                     if isSaving {
                         ProgressView()
@@ -91,6 +162,14 @@ struct InlineVideoAttachmentView: View {
             player?.pause()
             player = nil
             isPlaying = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .daemonDidReconnect)) { _ in
+            // Auto-retry playback when daemon reconnects and the current failure
+            // is port_missing (the most common transient failure).
+            guard let failure, failure.isRetryableOnReconnect else { return }
+            self.failure = nil
+            hasRetriedOnce = false
+            prepareAndPlay()
         }
     }
 
@@ -138,19 +217,68 @@ struct InlineVideoAttachmentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var failedView: some View {
+    private func failedView(_ failure: VideoPlaybackFailure) -> some View {
         VStack(spacing: VSpacing.xs) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 20))
-                .foregroundStyle(VColor.textSecondary)
+            if case .port_missing = failure {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 20))
+                    .foregroundStyle(VColor.textSecondary)
+            } else {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(VColor.textSecondary)
+            }
 
-            Text("Could not play video")
+            Text(failure.userMessage)
                 .font(VFont.caption)
                 .foregroundStyle(VColor.textSecondary)
+
+            if case .port_missing = failure {
+                Text("Tap to retry")
+                    .font(VFont.small)
+                    .foregroundStyle(VColor.textMuted)
+            } else if case .invalid_media = failure {
+                Text("Tap to open externally")
+                    .font(VFont.small)
+                    .foregroundStyle(VColor.textMuted)
+            } else {
+                Text(hasRetriedOnce ? "Tap to open externally" : "Tap to retry")
+                    .font(VFont.small)
+                    .foregroundStyle(VColor.textMuted)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
+            handleFailedTileTap(failure)
+        }
+    }
+
+    // MARK: - Failure Tap Handling
+
+    /// Failed tile tap retries playback first; external-open is a fallback
+    /// only after retry fails or for non-retryable failures.
+    private func handleFailedTileTap(_ failure: VideoPlaybackFailure) {
+        switch failure {
+        case .port_missing:
+            // Always retry for port_missing — daemon may have reconnected.
+            self.failure = nil
+            hasRetriedOnce = false
+            prepareAndPlay()
+
+        case .fetch_failed:
+            if hasRetriedOnce {
+                // Second tap: fall back to external player.
+                openInExternalPlayer()
+            } else {
+                // First tap: retry playback.
+                self.failure = nil
+                hasRetriedOnce = true
+                prepareAndPlay()
+            }
+
+        case .invalid_media:
+            // Media is fundamentally broken; skip retry, open externally.
             openInExternalPlayer()
         }
     }
@@ -239,6 +367,13 @@ struct InlineVideoAttachmentView: View {
             }
         }
 
+        // Verify the file is actually playable before handing it to AVPlayer.
+        let isPlayable = (try? await asset.load(.isPlayable)) ?? false
+        guard isPlayable else {
+            await MainActor.run { failure = .invalid_media }
+            return
+        }
+
         let avPlayer = AVPlayer(url: fileURL)
         await MainActor.run {
             self.player = avPlayer
@@ -249,7 +384,7 @@ struct InlineVideoAttachmentView: View {
 
     private func playFromBase64(_ base64: String) async {
         guard let data = Data(base64Encoded: base64) else {
-            await MainActor.run { failed = true }
+            await MainActor.run { failure = .invalid_media }
             return
         }
 
@@ -257,33 +392,59 @@ struct InlineVideoAttachmentView: View {
         do {
             try data.write(to: fileURL)
         } catch {
-            await MainActor.run { failed = true }
+            await MainActor.run { failure = .invalid_media }
             return
         }
 
         await playFromFile(fileURL)
     }
 
+    /// Fetch attachment content from the daemon HTTP API with retry logic.
+    ///
+    /// For `port_missing` failures, retries up to 3 times with 1s delays
+    /// because the daemon may be mid-restart and the port will appear shortly.
     private func fetchAndPlay() {
-        guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
-            failed = true
+        guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
+            failure = .invalid_media
             return
         }
 
         isLoading = true
         Task {
-            do {
-                let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
-                let fileURL = safeTempURL()
-                try data.write(to: fileURL)
-                await MainActor.run { isLoading = false }
-                await playFromFile(fileURL)
-            } catch {
-                log.error("Failed to fetch attachment \(attachmentId): \(error.localizedDescription)")
-                await MainActor.run {
-                    isLoading = false
-                    failed = true
+            // Retry loop: resolve port at each attempt to pick up daemon restarts.
+            let maxRetries = 3
+            var lastError: VideoPlaybackFailure?
+
+            for attempt in 0..<maxRetries {
+                if attempt > 0 {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s between retries
                 }
+
+                guard let port = resolveHttpPort() else {
+                    lastError = .port_missing
+                    log.info("Port missing on attempt \(attempt + 1)/\(maxRetries) for attachment \(attachmentId)")
+                    continue
+                }
+
+                do {
+                    let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
+                    let fileURL = safeTempURL()
+                    try data.write(to: fileURL)
+                    await MainActor.run { isLoading = false }
+                    await playFromFile(fileURL)
+                    return
+                } catch {
+                    log.error("Fetch attempt \(attempt + 1)/\(maxRetries) failed for \(attachmentId): \(error.localizedDescription)")
+                    lastError = .fetch_failed(error.localizedDescription)
+                    // Only retry on port_missing; fetch_failed errors are typically
+                    // not transient (4xx/5xx, auth issues) so retrying wastes time.
+                    break
+                }
+            }
+
+            await MainActor.run {
+                isLoading = false
+                failure = lastError ?? .port_missing
             }
         }
     }
@@ -315,7 +476,7 @@ struct InlineVideoAttachmentView: View {
                 await MainActor.run { isSaving = false }
             }
         } else if attachment.isLazyLoad {
-            guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
+            guard let port = resolveHttpPort(), let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
                 isSaving = false
                 return
             }
@@ -345,7 +506,7 @@ struct InlineVideoAttachmentView: View {
         if let fileURL = cachedFileURL {
             NSWorkspace.shared.open(fileURL)
         } else if attachment.isLazyLoad {
-            guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else { return }
+            guard let port = resolveHttpPort(), let attachmentId = attachment.id.isEmpty ? nil : attachment.id else { return }
             isLoading = true
             Task {
                 do {

@@ -16,7 +16,9 @@ struct MessageListView: View {
     let onDismissDocumentWidget: ((String) -> Void)?
     let onReportMessage: ((String?) -> Void)?
     let mediaEmbedSettings: MediaEmbedResolverSettings?
-    let daemonHttpPort: Int?
+    /// Resolves the daemon HTTP port at call time so lazy-loaded video
+    /// attachments always use the latest port after daemon restarts.
+    var resolveHttpPort: (() -> Int?) = { nil }
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
@@ -209,7 +211,7 @@ struct MessageListView: View {
                                 onReportMessage: onReportMessage,
                                 onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
                                 mediaEmbedSettings: mediaEmbedSettings,
-                                daemonHttpPort: daemonHttpPort,
+                                resolveHttpPort: resolveHttpPort,
                                 showAvatar: !previousIsAssistant,
                                 isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                                 activeSurfaceId: activeSurfaceId
