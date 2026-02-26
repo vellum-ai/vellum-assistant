@@ -199,9 +199,10 @@ final class ThreadSessionRestorer {
                 .title
             let title = existingTitle ?? session.title
 
+            let effectiveCreatedAt = session.createdAt ?? session.updatedAt
             let thread = ThreadModel(
                 title: title,
-                createdAt: Date(timeIntervalSince1970: TimeInterval(session.createdAt) / 1000.0),
+                createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 sessionId: session.id,
                 isArchived: delegate.isSessionArchived(session.id),
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),

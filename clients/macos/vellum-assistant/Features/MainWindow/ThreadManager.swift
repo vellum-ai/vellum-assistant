@@ -384,9 +384,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             // Skip sessions that already have a thread
             guard !threads.contains(where: { $0.sessionId == session.id }) else { continue }
 
+            let effectiveCreatedAt = session.createdAt ?? session.updatedAt
             let thread = ThreadModel(
                 title: session.title,
-                createdAt: Date(timeIntervalSince1970: TimeInterval(session.createdAt) / 1000.0),
+                createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 sessionId: session.id,
                 isArchived: isSessionArchived(session.id),
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
