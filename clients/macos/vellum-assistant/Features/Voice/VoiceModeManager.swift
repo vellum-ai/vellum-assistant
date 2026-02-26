@@ -241,11 +241,11 @@ final class VoiceModeManager: ObservableObject {
         voiceService.resetStreamingTTS()
 
         Task {
-            let text = await voiceService.stopRecordingAndGetTranscription()
-            // Capture context sequentially on the MainActor after recording
-            // stops. The .processing state transition above already prevents
-            // further transcription, so there is no recording-window concern.
+            // Capture context on MainActor before awaiting transcription so it
+            // reflects the app the user was looking at when they spoke, not
+            // whatever app may be frontmost after the async wait completes.
             let ctx = DictationContextCapture.capture()
+            let text = await voiceService.stopRecordingAndGetTranscription()
             let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
             guard !trimmed.isEmpty, let chatViewModel else {
