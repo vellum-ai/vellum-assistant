@@ -627,6 +627,7 @@ export class RuntimeHttpServer {
             return {
               id: c.id,
               title: c.title ?? 'Untitled',
+              createdAt: c.createdAt,
               updatedAt: c.updatedAt,
               threadType: c.threadType === 'private' ? 'private' : 'standard',
               source: c.source ?? 'user',

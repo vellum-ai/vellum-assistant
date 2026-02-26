@@ -386,9 +386,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
             let thread = ThreadModel(
                 title: session.title,
-                createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
+                createdAt: Date(timeIntervalSince1970: TimeInterval(session.createdAt) / 1000.0),
                 sessionId: session.id,
                 isArchived: isSessionArchived(session.id),
+                lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 kind: session.threadType == "private" ? .private : .standard,
                 source: session.source,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
