@@ -1,17 +1,31 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Wake word settings tab — enable/disable wake word listening,
-/// configure keyword phrase, and conversation timeout.
-struct WakeWordSettingsView: View {
+/// Voice settings tab — configure push-to-talk activation key,
+/// enable/disable wake word listening, configure keyword phrase,
+/// and conversation timeout.
+struct VoiceSettingsView: View {
+    @AppStorage("activationKey") private var activationKey: String = "fn"
     @AppStorage("wakeWordEnabled") private var wakeWordEnabled: Bool = false
     @AppStorage("wakeWordTimeoutSeconds") private var wakeWordTimeoutSeconds: Int = 30
     @AppStorage("wakeWordKeyword") private var wakeWordKeyword: String = "computer"
 
     private let suggestedKeywords = ["computer", "jarvis", "hey vellum", "assistant"]
 
+    private var selectedActivationKey: ActivationKey {
+        ActivationKey(rawValue: activationKey) ?? .fn
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
+            // Push to Talk
+            pttDivider
+            pttStatusSection
+            pttKeyPicker
+            pttPrivacyNote
+
+            // Wake Word
+            wakeWordDivider
             statusSection
             educationHero
             howItWorksSteps
@@ -21,6 +35,109 @@ struct WakeWordSettingsView: View {
             keywordSection
             timeoutSection
             privacyNote
+        }
+    }
+
+    // MARK: - PTT Section Divider
+
+    private var pttDivider: some View {
+        HStack(spacing: VSpacing.md) {
+            Text("PUSH TO TALK")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(VColor.textMuted)
+                .tracking(1)
+
+            Rectangle()
+                .fill(VColor.surfaceBorder)
+                .frame(height: 1)
+        }
+    }
+
+    // MARK: - PTT Status
+
+    private var pttStatusSection: some View {
+        HStack(spacing: VSpacing.sm) {
+            Circle()
+                .fill(selectedActivationKey != .none ? VColor.success : VColor.textMuted)
+                .frame(width: 8, height: 8)
+
+            Text(selectedActivationKey != .none ? "Activation key: \(selectedActivationKey.displayName)" : "Push to talk disabled")
+                .font(VFont.body)
+                .foregroundColor(selectedActivationKey != .none ? VColor.success : VColor.textSecondary)
+
+            Spacer()
+        }
+        .padding(VSpacing.lg)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(selectedActivationKey != .none ? VColor.success.opacity(0.08) : VColor.surfaceSubtle)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .strokeBorder(selectedActivationKey != .none ? VColor.success.opacity(0.2) : VColor.surfaceBorder, lineWidth: 1)
+                )
+        )
+    }
+
+    // MARK: - PTT Key Picker
+
+    private var pttKeyPicker: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Activation key")
+                .font(VFont.bodyMedium)
+                .foregroundColor(VColor.textPrimary)
+
+            HStack(spacing: VSpacing.sm) {
+                ForEach(ActivationKey.allCases, id: \.rawValue) { key in
+                    Button(key.displayName) {
+                        activationKey = key.rawValue
+                    }
+                    .buttonStyle(.plain)
+                    .font(VFont.caption)
+                    .foregroundColor(selectedActivationKey == key ? .white : VColor.textMuted)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+                    .background(
+                        Capsule()
+                            .fill(selectedActivationKey == key ? Forest._700 : VColor.surface)
+                    )
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(selectedActivationKey == key ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
+                    )
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - PTT Privacy Note
+
+    private var pttPrivacyNote: some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 10))
+                .foregroundColor(VColor.textMuted)
+
+            Text("Hold the activation key to dictate text or start a voice conversation. Uses on-device speech recognition.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .lineSpacing(2)
+        }
+    }
+
+    // MARK: - Wake Word Section Divider
+
+    private var wakeWordDivider: some View {
+        HStack(spacing: VSpacing.md) {
+            Text("WAKE WORD")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(VColor.textMuted)
+                .tracking(1)
+
+            Rectangle()
+                .fill(VColor.surfaceBorder)
+                .frame(height: 1)
         }
     }
 
