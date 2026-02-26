@@ -147,6 +147,84 @@ The `check-pr-reviews` script reports **cumulative** review status — it counts
 
 Repeat steps 1-5 until the exit condition: either `approved` aggregate status, 3-minute timeout with no new reviews after a fix push, or the cycle counter has reached 3.
 
+#### 5c. Check for and resolve merge conflicts with main
+
+After the feedback loop exits (whether by approval, timeout, or cycle limit), check whether the PR branch has fallen behind main in a way that creates merge conflicts. Resolving these proactively ensures the PR is mergeable when the user is ready to merge.
+
+**Step 1: Check for merge conflicts between the PR branch and main.**
+
+```bash
+git fetch origin main $PR_BRANCH
+git merge-tree --write-tree origin/$PR_BRANCH origin/main > /dev/null 2>&1
+```
+
+- If exit code is **0**: No conflicts. Skip to Step 6.
+- If exit code is **non-zero**: Conflicts exist. Proceed to Step 2.
+
+**Step 2: Rebase the PR branch on main.**
+
+1. Create a worktree from the PR branch:
+   ```bash
+   .claude/worktree create safe-do/<slug>-rebase origin/$PR_BRANCH
+   ```
+
+2. Spawn a `general-purpose` agent to rebase and resolve conflicts. Use this prompt:
+
+   ```
+   You are rebasing a PR branch onto the latest main to resolve merge conflicts.
+
+   ## Project context
+   Read AGENTS.md in the repo root for project conventions and structure.
+
+   ## Repo-specific gotchas
+   - `tail` and `head` may not be available in the shell. Don't pipe to them.
+
+   ## Your worktree
+   <absolute path to worktree>
+   ALL work happens here. Do NOT touch the main repo.
+
+   ## Your task
+   Rebase the current branch (`<PR_BRANCH>`) onto `origin/main` and resolve all merge conflicts.
+
+   ## Workflow
+   1. In the worktree, rebase onto main:
+      ```bash
+      cd <worktree>
+      git rebase origin/main
+      ```
+   2. If there are conflicts, resolve each one:
+      - Examine each conflicted file and understand the intent of both sides
+      - Produce a correct resolution that preserves the PR's changes on top of the updated main
+      - Stage resolved files and continue the rebase:
+        ```bash
+        git add -A
+        git rebase --continue
+        ```
+      - Repeat for each conflicting commit
+   3. After the rebase completes (whether clean or with resolved conflicts), force-push the PR branch:
+      ```bash
+      git push --force-with-lease origin HEAD:<PR_BRANCH>
+      ```
+   4. Send a message to "lead" with:
+      - Whether the rebase was clean or had conflicts
+      - A summary of which files had conflicts and how they were resolved
+      - Any concerns about the resolution
+   ```
+
+3. When the agent finishes, remove the worktree:
+   ```bash
+   .claude/worktree remove safe-do/<slug>-rebase --delete-branch
+   ```
+
+4. Fetch the updated PR branch:
+   ```bash
+   git fetch origin $PR_BRANCH
+   ```
+
+Log: `"Rebased PR branch on latest main to resolve merge conflicts."`
+
+Proceed to Step 6.
+
 #### Feedback agent prompt
 
 This template is used for feedback tasks during the review loop (Step 5b). Instead of creating a new PR, the agent pushes fixes directly to the PR branch.
