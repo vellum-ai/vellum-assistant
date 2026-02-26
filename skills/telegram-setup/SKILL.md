@@ -72,7 +72,7 @@ curl -sf -X POST http://localhost:7821/v1/integrations/guardian/challenge \
   -d '{"channel":"telegram"}'
 ```
 
-2. The response includes `secret` and `instruction`. Display the `secret` code to the user. Tell them: "You'll receive a message from your Telegram bot asking for a verification code. Reply to that message with the code shown here."
+2. The response includes a 6-digit `secret` code and `instruction`. Display the 6-digit code to the user. Tell them: "You'll receive a message from your Telegram bot asking for a verification code. Reply to that message with this 6-digit code."
 
 3. Wait for the user to confirm they have replied with the code. The verification happens automatically when the bot receives the code — the channel inbound handler validates it and creates the guardian binding.
 
