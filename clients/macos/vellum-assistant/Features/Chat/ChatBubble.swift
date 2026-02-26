@@ -43,7 +43,7 @@ struct ChatBubble: View {
         hasCopyableText || canReportMessage
     }
     private var showOverflowMenu: Bool {
-        hasOverflowActions && (isHovered || showCopyConfirmation)
+        hasOverflowActions && !message.isStreaming && (isHovered || showCopyConfirmation)
     }
 
     /// Composite identity for the `.task` modifier so it re-runs when either
@@ -77,7 +77,6 @@ struct ChatBubble: View {
 
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
-        let overflowOffset: CGFloat = message.isError ? -(24 + VSpacing.sm) : (24 + VSpacing.sm)
         return content()
             .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
             .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
@@ -88,14 +87,6 @@ struct ChatBubble: View {
             )
             .overlay {
                 bubbleBorderOverlay
-            }
-            .overlay(alignment: isUser ? .topLeading : .topTrailing) {
-                if hasOverflowActions {
-                    overflowMenuButton
-                        .opacity(showOverflowMenu ? 1 : 0)
-                        .animation(VAnimation.fast, value: showOverflowMenu)
-                        .offset(x: isUser ? -(24 + VSpacing.sm) : overflowOffset)
-                }
             }
             .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
     }
@@ -184,19 +175,17 @@ struct ChatBubble: View {
                     if !isUser {
                         trailingStatus
                     }
+
+                    if hasOverflowActions {
+                        overflowMenuButton
+                            .opacity(showOverflowMenu ? 1 : 0)
+                            .animation(VAnimation.fast, value: showOverflowMenu)
+                    }
                 }
                 // Prevent LazyVStack from compressing the bubble height, which causes the
                 // trailing tool-chip to overlap long text content.
                 .fixedSize(horizontal: false, vertical: true)
                 .contextMenu {}
-                .overlay(alignment: .topTrailing) {
-                    if !isUser && !shouldShowBubble && !hasInterleavedContent && hasOverflowActions {
-                        overflowMenuButton
-                            .opacity(showOverflowMenu ? 1 : 0)
-                            .animation(VAnimation.fast, value: showOverflowMenu)
-                            .offset(x: 24 + VSpacing.sm)
-                    }
-                }
                 .overlay(alignment: .topLeading) {
                     if !isUser && showAvatar {
                         Image(nsImage: appearance.chatAvatarImage)
