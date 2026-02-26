@@ -1216,7 +1216,6 @@ export function buildSchema(): Record<string, unknown> {
         },
         SlackDeliverRequest: {
           type: "object",
-          required: ["chatId", "text"],
           description: "Request to deliver a message to a Slack channel. Accepts either `chatId` or `to` (alias) as the Slack channel ID.",
           properties: {
             chatId: { type: "string", description: "Slack channel ID to deliver the message to" },
@@ -1224,6 +1223,10 @@ export function buildSchema(): Record<string, unknown> {
             text: { type: "string", description: "Text content to send", minLength: 1 },
             assistantId: { type: "string", description: "Optional assistant ID" },
           },
+          allOf: [
+            { anyOf: [{ required: ["chatId"] }, { required: ["to"] }] },
+            { required: ["text"] },
+          ],
         },
         SlackDeliverOk: {
           type: "object",
