@@ -134,6 +134,7 @@ describe('guardian-verify-setup skill — voice auto-followup', () => {
       .split('\n')
       .filter((line) => /^\s*-\s+\*\*Voice\*\*/.test(line))
       .join('\n');
+    expect(voiceBullet).not.toHaveLength(0);
     expect(voiceBullet).not.toContain('wait for the user to confirm');
     expect(voiceBullet).not.toContain('ask the user if it worked');
   });
