@@ -46,8 +46,8 @@ import {
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
 import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
-import { createGuardianActionCopyGenerator } from './guardian-action-generators.js';
 import { cleanupPidFile,writePid } from './daemon-control.js';
+import { createGuardianActionCopyGenerator } from './guardian-action-generators.js';
 import { initPairingHandlers } from './handlers/pairing.js';
 import { installCliLaunchers } from './install-cli-launchers.js';
 import type { ServerMessage } from './ipc-protocol.js';
