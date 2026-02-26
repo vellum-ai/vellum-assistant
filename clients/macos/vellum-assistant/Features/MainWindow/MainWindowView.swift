@@ -1673,6 +1673,7 @@ private struct PINCircleField: View {
                 .opacity(0.01)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .focused($focused)
+                .focusEffectDisabled()
                 .onChange(of: text) { _, newValue in
                     let filtered = String(newValue.filter { $0.isNumber }.prefix(count))
                     if filtered != newValue { text = filtered }
