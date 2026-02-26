@@ -154,6 +154,44 @@ export function readSkillVersion(id: string): string | null {
   }
 }
 
+// ─── Provenance metadata ──────────────────────────────────────────────────────
+
+export interface SkillProvenance {
+  provider: string;
+  source: string;
+  skillId: string;
+  sourceUrl: string;
+  auditSnapshot?: {
+    overallRisk: string;
+    dimensions: Array<{
+      provider: string;
+      risk: string;
+      analyzedAt: string;
+    }>;
+    capturedAt: string;
+  };
+}
+
+function getProvenancePath(id: string): string {
+  return join(getManagedSkillDir(id), '.provenance.json');
+}
+
+/**
+ * Read the provenance metadata for a managed skill, if present.
+ * Returns null when no provenance file exists or it cannot be parsed.
+ */
+export function readSkillProvenance(id: string): SkillProvenance | null {
+  const provenancePath = getProvenancePath(id);
+  if (!existsSync(provenancePath)) return null;
+  try {
+    const raw = readFileSync(provenancePath, 'utf-8');
+    return JSON.parse(raw) as SkillProvenance;
+  } catch {
+    log.warn({ id }, 'Failed to parse provenance metadata for managed skill');
+    return null;
+  }
+}
+
 // ─── Create / Delete ─────────────────────────────────────────────────────────
 
 export interface CreateManagedSkillParams {
