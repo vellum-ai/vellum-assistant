@@ -1129,9 +1129,11 @@ function notifyGuardianOfAccessRequest(params: {
   }
 
   const senderIdentifier = senderName || senderUsername || senderExternalUserId;
+  const requestId = `access-req-${canonicalAssistantId}-${sourceChannel}-${senderExternalUserId}-${Date.now()}`;
 
   createApprovalRequest({
     runId: `ingress-access-request-${Date.now()}`,
+    requestId,
     conversationId: `access-req-${sourceChannel}-${senderExternalUserId}`,
     assistantId: canonicalAssistantId,
     channel: sourceChannel,
@@ -1157,6 +1159,7 @@ function notifyGuardianOfAccessRequest(params: {
       visibleInSourceNow: false,
     },
     contextPayload: {
+      requestId,
       sourceChannel,
       externalChatId,
       senderExternalUserId,
