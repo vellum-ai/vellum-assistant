@@ -168,12 +168,13 @@ describe('handleRecordingRestart', () => {
     expect(startMsgs[0].operationToken).toBe(result.operationToken);
   });
 
-  test('returns "no active recording" when nothing is recording', () => {
+  test('returns "no active recording" with reason when nothing is recording', () => {
     const { ctx, fakeSocket } = createCtx();
 
     const result = handleRecordingRestart('conv-no-rec', fakeSocket, ctx);
 
     expect(result.initiated).toBe(false);
+    expect(result.reason).toBe('no_active_recording');
     expect(result.responseText).toBe('No active recording to restart.');
   });
 
@@ -687,5 +688,105 @@ describe('failure during restart', () => {
     // Restart state should be cleaned up
     expect(getActiveRestartToken()).toBeNull();
     expect(isRecordingIdle()).toBe(true);
+  });
+});
+
+// ─── start_and_stop_only from idle state ─────────────────────────────────────
+
+describe('start_and_stop_only fallback to plain start when idle', () => {
+  beforeEach(() => {
+    __resetRecordingState();
+  });
+
+  test('falls back to handleRecordingStart when no active recording', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+    const conversationId = 'conv-stop-start-idle';
+    ctx.socketToSession.set(fakeSocket, conversationId);
+
+    // No recording is active — start_and_stop_only should fall back to a
+    // plain start rather than returning "No active recording to restart."
+    const result = executeRecordingIntent(
+      { kind: 'start_and_stop_only' },
+      { conversationId, socket: fakeSocket, ctx },
+    );
+
+    expect(result.handled).toBe(true);
+    expect(result.recordingStarted).toBe(true);
+    expect(result.responseText).toBe('Starting screen recording.');
+
+    // Should have sent only a recording_start (no stop since nothing was active)
+    const stopMsgs = sent.filter((m) => m.type === 'recording_stop');
+    const startMsgs = sent.filter((m) => m.type === 'recording_start');
+    expect(stopMsgs).toHaveLength(0);
+    expect(startMsgs).toHaveLength(1);
+  });
+
+  test('goes through restart when a recording is active', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+    const conversationId = 'conv-stop-start-active';
+    ctx.socketToSession.set(fakeSocket, conversationId);
+
+    // Start a recording first
+    const originalId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    expect(originalId).not.toBeNull();
+    sent.length = 0;
+
+    // Now start_and_stop_only should go through handleRecordingRestart
+    const result = executeRecordingIntent(
+      { kind: 'start_and_stop_only' },
+      { conversationId, socket: fakeSocket, ctx },
+    );
+
+    expect(result.handled).toBe(true);
+    expect(result.recordingStarted).toBe(true);
+    expect(result.responseText).toBe('Stopping current recording and starting a new one.');
+
+    // Should have sent both stop and start (restart flow)
+    const stopMsgs = sent.filter((m) => m.type === 'recording_stop');
+    const startMsgs = sent.filter((m) => m.type === 'recording_start');
+    expect(stopMsgs).toHaveLength(1);
+    expect(startMsgs).toHaveLength(1);
+  });
+});
+
+// ─── start_and_stop_with_remainder from idle state ───────────────────────────
+
+describe('start_and_stop_with_remainder fallback to plain start when idle', () => {
+  beforeEach(() => {
+    __resetRecordingState();
+  });
+
+  test('sets pendingStart (not pendingRestart) when no active recording', () => {
+    const { ctx, fakeSocket } = createCtx();
+    const conversationId = 'conv-rem-idle';
+
+    const result = executeRecordingIntent(
+      { kind: 'start_and_stop_with_remainder', remainder: 'do something' },
+      { conversationId, socket: fakeSocket, ctx },
+    );
+
+    expect(result.handled).toBe(false);
+    expect(result.pendingStart).toBe(true);
+    expect(result.pendingRestart).toBeUndefined();
+    expect(result.remainderText).toBe('do something');
+  });
+
+  test('sets pendingRestart when a recording is active', () => {
+    const { ctx, fakeSocket } = createCtx();
+    const conversationId = 'conv-rem-active';
+    ctx.socketToSession.set(fakeSocket, conversationId);
+
+    // Start a recording first
+    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+
+    const result = executeRecordingIntent(
+      { kind: 'start_and_stop_with_remainder', remainder: 'do something' },
+      { conversationId, socket: fakeSocket, ctx },
+    );
+
+    expect(result.handled).toBe(false);
+    expect(result.pendingRestart).toBe(true);
+    expect(result.pendingStart).toBeUndefined();
+    expect(result.remainderText).toBe('do something');
   });
 });

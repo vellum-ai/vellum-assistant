@@ -12,6 +12,7 @@ import {
   handleRecordingResume,
   handleRecordingStart,
   handleRecordingStop,
+  isRecordingIdle,
 } from './handlers/recording.js';
 import type { RecordingIntentResult } from './recording-intent.js';
 
@@ -95,6 +96,28 @@ export function executeRecordingIntent(
         context.socket,
         context.ctx,
       );
+
+      // When there was no active recording to restart, fall back to a plain
+      // start — the user said "stop and start" but nothing was recording, so
+      // the stop is a no-op and we just start a new recording.
+      // Only fall back for this specific reason; "restart_in_progress" should
+      // not start a duplicate recording.
+      if (!restartResult.initiated && restartResult.reason === 'no_active_recording') {
+        const recordingId = handleRecordingStart(
+          context.conversationId,
+          { promptForSource: true },
+          context.socket,
+          context.ctx,
+        );
+        return {
+          handled: true,
+          recordingStarted: !!recordingId,
+          responseText: recordingId
+            ? 'Starting screen recording.'
+            : 'A recording is already active.',
+        };
+      }
+
       return {
         handled: true,
         recordingStarted: restartResult.initiated,
@@ -105,10 +128,14 @@ export function executeRecordingIntent(
     }
 
     case 'start_and_stop_with_remainder':
+      // When there's no active recording, fall back to a plain start rather
+      // than a restart — the stop is a no-op and we just need to start.
       return {
         handled: false,
         remainderText: result.remainder,
-        pendingRestart: true,
+        ...(isRecordingIdle()
+          ? { pendingStart: true }
+          : { pendingRestart: true }),
       };
 
     case 'restart_only': {

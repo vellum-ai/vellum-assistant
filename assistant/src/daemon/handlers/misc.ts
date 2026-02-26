@@ -25,7 +25,7 @@ import { executeRecordingIntent } from '../recording-executor.js';
 import { resolveRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { handleCuSessionCreate } from './computer-use.js';
-import { handleRecordingPause, handleRecordingRestart, handleRecordingResume, handleRecordingStart, handleRecordingStop } from './recording.js';
+import { handleRecordingPause, handleRecordingRestart, handleRecordingResume, handleRecordingStart, handleRecordingStop, isRecordingIdle } from './recording.js';
 import { defineHandlers, type HandlerContext,log, renderHistoryContent, wireEscalationHandler } from './shared.js';
 
 // ─── Task submit handler ────────────────────────────────────────────────────
@@ -260,11 +260,21 @@ export async function handleTaskSubmit(
       if (intentResult.kind === 'start_with_remainder' || intentResult.kind === 'stop_with_remainder' ||
           intentResult.kind === 'start_and_stop_with_remainder' || intentResult.kind === 'restart_with_remainder') {
         // Defer recording action until after classifier creates the final conversation
-        pendingRecordingStart = intentResult.kind === 'start_with_remainder';
         pendingRecordingStop = intentResult.kind === 'stop_with_remainder';
         // start_and_stop_with_remainder is semantically a restart — route through
         // handleRecordingRestart which properly cleans up maps between stop and start.
-        pendingRecordingRestart = intentResult.kind === 'restart_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder';
+        // However, when there's no active recording the stop is a no-op, so fall
+        // back to a plain start instead of restart.
+        if (intentResult.kind === 'start_and_stop_with_remainder') {
+          if (isRecordingIdle()) {
+            pendingRecordingStart = true;
+          } else {
+            pendingRecordingRestart = true;
+          }
+        } else {
+          pendingRecordingStart = intentResult.kind === 'start_with_remainder';
+          pendingRecordingRestart = intentResult.kind === 'restart_with_remainder';
+        }
         (msg as { task: string }).task = intentResult.remainder;
         rlog.info({ remaining: intentResult.remainder }, 'Recording intent deferred, continuing with remaining text');
       }

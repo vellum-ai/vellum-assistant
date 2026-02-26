@@ -166,6 +166,8 @@ export interface RecordingRestartResult {
   operationToken?: string;
   /** Response text for the user. */
   responseText: string;
+  /** When initiated is false, explains why the restart could not proceed. */
+  reason?: 'no_active_recording' | 'restart_in_progress';
 }
 
 /**
@@ -199,6 +201,7 @@ export function handleRecordingRestart(
       log.info({ conversationId }, 'Restart requested while another restart is pending');
       return {
         initiated: false,
+        reason: 'restart_in_progress',
         responseText: 'A restart is already in progress.',
       };
     }
@@ -206,6 +209,7 @@ export function handleRecordingRestart(
     log.info({ conversationId }, 'Restart requested but no active recording to stop');
     return {
       initiated: false,
+      reason: 'no_active_recording',
       responseText: 'No active recording to restart.',
     };
   }
