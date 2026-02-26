@@ -67,13 +67,14 @@ struct SettingsParentalTab: View {
                     pendingApprovalsSection
                 }
 
+                // Profile switcher — always visible when parental controls are enabled,
+                // regardless of lock state (switching to child doesn't need unlock).
+                profileSwitcherSection
+
                 if isUnlocked || !hasPIN {
                     pinSection
                     contentRestrictionsSection
                     toolCategorySection
-                    // Profile switcher appears after the Control Center restriction sections so
-                    // the parent sees the full restriction context before switching profiles.
-                    profileSwitcherSection
                     // Allowlist section is only editable from the parental profile
                     if settingsStore.activeProfile == "parental" {
                         appAllowlistSection
