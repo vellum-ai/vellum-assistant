@@ -171,6 +171,10 @@ public final class SettingsStore: ObservableObject {
     /// Read-only gateway target derived from daemon config (GATEWAY_PORT env var, default 7830).
     @Published var localGatewayTarget: String = "http://127.0.0.1:7830"
 
+    /// Set to `true` once the first ingress config IPC response arrives, so the
+    /// view layer can defer diagnostics until the real config values are available.
+    @Published var ingressConfigLoaded: Bool = false
+
     // MARK: - Connection Health Check State
 
     @Published var gatewayReachable: Bool?
@@ -400,6 +404,7 @@ public final class SettingsStore: ObservableObject {
                     // with the optimistic value — it's a stale get response.
                     // Skip updating enabled to prevent the toggle from bouncing.
                     self.ingressPublicBaseUrl = response.publicBaseUrl
+                    self.ingressConfigLoaded = true
                     return
                 }
                 self.pendingIngressEnabled = nil
@@ -414,6 +419,7 @@ public final class SettingsStore: ObservableObject {
                 self.pendingIngressUrl = nil
                 self.pendingIngressEnabled = nil
             }
+            self.ingressConfigLoaded = true
         }
 
         // Wire up platform config IPC response

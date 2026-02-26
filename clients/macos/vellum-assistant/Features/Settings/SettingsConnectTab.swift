@@ -89,8 +89,6 @@ struct SettingsConnectTab: View {
             store.refreshChannelGuardianStatus(channel: "sms")
             store.refreshChannelGuardianStatus(channel: "voice")
             gatewayExpanded = store.ingressPublicBaseUrl.isEmpty
-            Task { await store.testGatewayOnly() }
-            Task { await store.testTunnelOnly() }
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
             if !isGatewayUrlFocused {
@@ -119,6 +117,11 @@ struct SettingsConnectTab: View {
                 voiceSetupExpanded = false
                 voiceNumberPickerExpanded = false
             }
+        }
+        .onChange(of: store.ingressConfigLoaded) { _, loaded in
+            guard loaded else { return }
+            Task { await store.testGatewayOnly() }
+            Task { await store.testTunnelOnly() }
         }
         .alert("Regenerate Bearer Token", isPresented: $showingRegenerateConfirmation) {
             Button("Cancel", role: .cancel) {}
