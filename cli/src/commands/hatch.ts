@@ -555,8 +555,8 @@ function installCLISymlink(): void {
       if (dest === cliBinary) return;
       // Stale or dangling symlink — remove before creating new one
       unlinkSync(symlinkPath);
-    } catch (e: any) {
-      if (e?.code !== "ENOENT") throw e;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") throw e;
       // Path doesn't exist — proceed to create symlink
     }
 
