@@ -45,8 +45,44 @@ describe('reminder-store', () => {
     expect(r.status).toBe('pending');
     expect(r.firedAt).toBeNull();
     expect(r.conversationId).toBeNull();
+    expect(r.routingIntent).toBe('single_channel');
+    expect(r.routingHints).toEqual({});
     expect(r.createdAt).toBeGreaterThan(0);
     expect(r.updatedAt).toBeGreaterThan(0);
+  });
+
+  test('insertReminder defaults routingIntent to single_channel when omitted', () => {
+    const r = insertReminder({
+      label: 'No routing',
+      message: 'Should default',
+      fireAt: Date.now() + 60_000,
+      mode: 'notify',
+    });
+
+    expect(r.routingIntent).toBe('single_channel');
+    expect(r.routingHints).toEqual({});
+
+    const fetched = getReminder(r.id);
+    expect(fetched!.routingIntent).toBe('single_channel');
+    expect(fetched!.routingHints).toEqual({});
+  });
+
+  test('insertReminder persists routing metadata', () => {
+    const r = insertReminder({
+      label: 'Multi-channel',
+      message: 'Deliver everywhere',
+      fireAt: Date.now() + 60_000,
+      mode: 'notify',
+      routingIntent: 'all_channels',
+      routingHints: { preferred: ['telegram', 'sms'] },
+    });
+
+    expect(r.routingIntent).toBe('all_channels');
+    expect(r.routingHints).toEqual({ preferred: ['telegram', 'sms'] });
+
+    const fetched = getReminder(r.id);
+    expect(fetched!.routingIntent).toBe('all_channels');
+    expect(fetched!.routingHints).toEqual({ preferred: ['telegram', 'sms'] });
   });
 
   // ── getReminder ─────────────────────────────────────────────────────
@@ -71,12 +107,14 @@ describe('reminder-store', () => {
 
   // ── listReminders ──────────────────────────────────────────────────
 
-  test('listReminders returns all reminders', () => {
+  test('listReminders returns all reminders with routing metadata', () => {
     insertReminder({ label: 'A', message: 'a', fireAt: Date.now() + 60_000, mode: 'notify' });
-    insertReminder({ label: 'B', message: 'b', fireAt: Date.now() + 120_000, mode: 'execute' });
+    insertReminder({ label: 'B', message: 'b', fireAt: Date.now() + 120_000, mode: 'execute', routingIntent: 'multi_channel' });
 
     const all = listReminders();
     expect(all).toHaveLength(2);
+    expect(all[0].routingIntent).toBe('single_channel');
+    expect(all[1].routingIntent).toBe('multi_channel');
   });
 
   test('listReminders with pendingOnly filters to pending only', () => {

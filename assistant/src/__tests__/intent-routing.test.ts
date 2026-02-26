@@ -225,3 +225,69 @@ describe('cross-tool routing consistency', () => {
     expect(reminderCreateDef.description).toContain('add to my queue');
   });
 });
+
+// =====================================================================
+// 4. Guardian verification routing section in system prompt
+// =====================================================================
+
+describe('Guardian verification routing section in system prompt', () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
+  });
+
+  test('system prompt includes the guardian verification routing heading', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('## Routing: Guardian Verification');
+  });
+
+  test('routing section includes trigger phrase "verify guardian"', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('verify guardian');
+  });
+
+  test('routing section includes trigger phrase "set guardian for SMS"', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('set guardian for SMS');
+  });
+
+  test('routing section includes trigger phrase "verify my Telegram account"', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('verify my Telegram account');
+  });
+
+  test('routing section includes trigger phrase "verify voice channel"', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('verify voice channel');
+  });
+
+  test('routing section includes trigger phrase "verify my phone number"', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('verify my phone number');
+  });
+
+  test('routing section includes trigger phrase "set up guardian verification"', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('set up guardian verification');
+  });
+
+  test('routing section references the guardian-verify-setup skill', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('guardian-verify-setup');
+  });
+
+  test('routing section mentions all three channels', () => {
+    const prompt = buildSystemPrompt();
+    // The section should mention sms, voice, and telegram as supported channels
+    const routingStart = prompt.indexOf('## Routing: Guardian Verification');
+    const routingSection = prompt.substring(routingStart, routingStart + 1000);
+    expect(routingSection).toContain('sms');
+    expect(routingSection).toContain('voice');
+    expect(routingSection).toContain('telegram');
+  });
+});

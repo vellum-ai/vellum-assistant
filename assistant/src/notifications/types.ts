@@ -70,6 +70,8 @@ export interface ChannelAdapter {
 export interface RenderedChannelCopy {
   title: string;
   body: string;
+  /** Channel-native delivery text (e.g. Telegram chat message body). */
+  deliveryText?: string;
   threadTitle?: string;
   threadSeedMessage?: string;
 }

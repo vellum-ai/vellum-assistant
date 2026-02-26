@@ -19,6 +19,12 @@ function str(value: unknown, fallback: string): string {
   return fallback;
 }
 
+export function nonEmpty(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 // Templates keyed by dot-separated sourceEventName strings matching producers.
 const TEMPLATES: Record<string, CopyTemplate> = {
   'reminder.fired': (payload) => ({
@@ -82,8 +88,8 @@ const TEMPLATES: Record<string, CopyTemplate> = {
  * engine's LLM path is unavailable.
  *
  * Returns a map of channel -> RenderedChannelCopy for the requested channels.
- * All channels currently receive the same template output; per-channel
- * customisation can be layered on later.
+ * Base title/body content comes from templates, then channel-specific
+ * defaults are applied (for example Telegram deliveryText).
  */
 export function composeFallbackCopy(
   signal: NotificationSignal,
@@ -97,9 +103,39 @@ export function composeFallbackCopy(
 
   const result: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {};
   for (const ch of channels) {
-    result[ch] = { ...baseCopy };
+    result[ch] = applyChannelDefaults(ch, baseCopy, signal);
   }
   return result;
+}
+
+function applyChannelDefaults(
+  channel: NotificationChannel,
+  baseCopy: RenderedChannelCopy,
+  signal: NotificationSignal,
+): RenderedChannelCopy {
+  const copy: RenderedChannelCopy = { ...baseCopy };
+
+  if (channel === 'telegram') {
+    copy.deliveryText = buildTelegramFallbackDeliveryText(baseCopy, signal);
+  }
+
+  return copy;
+}
+
+function buildTelegramFallbackDeliveryText(
+  baseCopy: RenderedChannelCopy,
+  signal: NotificationSignal,
+): string {
+  const explicit = nonEmpty(baseCopy.deliveryText);
+  if (explicit) return explicit;
+
+  const body = nonEmpty(baseCopy.body);
+  if (body) return body;
+
+  const title = nonEmpty(baseCopy.title);
+  if (title) return title;
+
+  return signal.sourceEventName.replace(/[._]/g, ' ');
 }
 
 /**

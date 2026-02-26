@@ -296,4 +296,99 @@ describe('composeThreadSeed', () => {
       expect(seed).not.toMatch(/^\[/);
     });
   });
+
+  describe('empty copy fallback', () => {
+    test('falls back to event name when both title and body are empty', () => {
+      const signal = makeSignal({ sourceEventName: 'reminder.fired' });
+      const copy = makeCopy({ title: '', body: '' });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed).toBe('Reminder fired');
+    });
+
+    test('falls back to event name when title is "Notification" and body is empty', () => {
+      const signal = makeSignal({ sourceEventName: 'schedule.complete' });
+      const copy = makeCopy({ title: 'Notification', body: '' });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed).toBe('Schedule complete');
+    });
+
+    test('uses context payload "message" field in fallback when available', () => {
+      const signal = makeSignal({
+        sourceEventName: 'reminder.fired',
+        contextPayload: { message: 'Take out the trash' },
+      });
+      const copy = makeCopy({ title: '', body: '' });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed).toBe('Reminder fired: Take out the trash');
+    });
+
+    test('uses context payload "summary" field in fallback', () => {
+      const signal = makeSignal({
+        sourceEventName: 'activity.complete',
+        contextPayload: { summary: 'Deployed v2.3.1 successfully' },
+      });
+      const copy = makeCopy({ title: '', body: '' });
+      const seed = composeThreadSeed(signal, 'telegram' as NotificationChannel, copy);
+      expect(seed).toBe('Activity complete: Deployed v2.3.1 successfully');
+    });
+
+    test('uses context payload "questionText" field for guardian events', () => {
+      const signal = makeSignal({
+        sourceEventName: 'guardian.question',
+        contextPayload: { questionText: 'What is the gate code?' },
+      });
+      const copy = makeCopy({ title: '', body: '' });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed).toBe('Guardian question: What is the gate code?');
+    });
+
+    test('fallback is consistent across rich and compact channels', () => {
+      const signal = makeSignal({
+        sourceEventName: 'reminder.fired',
+        contextPayload: { message: 'Call the doctor' },
+      });
+      const copy = makeCopy({ title: '', body: '' });
+      const richSeed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      const compactSeed = composeThreadSeed(signal, 'telegram' as NotificationChannel, copy);
+      // Both should produce the same context-based fallback
+      expect(richSeed).toBe(compactSeed);
+    });
+
+    test('fallback handles whitespace-only copy', () => {
+      const signal = makeSignal({ sourceEventName: 'watcher.notification' });
+      const copy = makeCopy({ title: '   ', body: '  ' });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed).toBe('Watcher notification');
+    });
+
+    test('fallback never produces blank content', () => {
+      const signal = makeSignal({
+        sourceEventName: 'unknown.event',
+        contextPayload: {},
+      });
+      const copy = makeCopy({ title: '', body: '' });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed.trim().length).toBeGreaterThan(0);
+    });
+
+    test('uses context payload "senderIdentifier" for escalation events', () => {
+      const signal = makeSignal({
+        sourceEventName: 'ingress.escalation',
+        contextPayload: { senderIdentifier: 'Alice' },
+      });
+      const copy = makeCopy({ title: '', body: '' });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed).toBe('Ingress escalation: Alice');
+    });
+
+    test('prefers "message" over "summary" in context payload', () => {
+      const signal = makeSignal({
+        sourceEventName: 'test.event',
+        contextPayload: { message: 'Primary message', summary: 'Secondary summary' },
+      });
+      const copy = makeCopy({ title: '', body: '' });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      expect(seed).toBe('Test event: Primary message');
+    });
+  });
 });

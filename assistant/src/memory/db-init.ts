@@ -5,6 +5,7 @@ import {
   createCallSessionsTables,
   createChannelGuardianTables,
   createContactsAndTriageTables,
+  createConversationAttentionTables,
   createCoreIndexes,
   createCoreTables,
   createExternalConversationBindingsTables,
@@ -20,6 +21,7 @@ import {
   migrateGuardianBootstrapToken,
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
+  migrateReminderRoutingIntent,
   runComplexMigrations,
   runLateMigrations,
   validateMigrationState,
@@ -91,6 +93,12 @@ export function initializeDb(): void {
   // 17. Messages FTS (full-text search over message content)
   createMessagesFts(database);
   migrateMessagesFtsBackfill(database);
+
+  // 18. Conversation attention (seen-state tracking)
+  createConversationAttentionTables(database);
+
+  // 19. Reminder routing metadata (routing_intent + routing_hints_json columns)
+  migrateReminderRoutingIntent(database);
 
   validateMigrationState(database);
 }

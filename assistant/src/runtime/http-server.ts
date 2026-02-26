@@ -29,6 +29,7 @@ import {
 } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import { PairingStore } from '../daemon/pairing-store.js';
+import { type Confidence, type SignalType, getAttentionStateByConversationIds, recordConversationSeenSignal } from '../memory/conversation-attention-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as externalConversationStore from '../memory/external-conversation-store.js';
 import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
@@ -94,6 +95,7 @@ import {
   handleListContacts,
   handleMergeContacts,
 } from './routes/contact-routes.js';
+import { handleListConversationAttention } from './routes/conversation-attention-routes.js';
 // Route handlers — grouped by domain
 import {
   handleGetSuggestion,
@@ -104,13 +106,16 @@ import {
 import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
 import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
 import {
+  handleCancelOutbound,
   handleClearTelegramConfig,
   handleCreateGuardianChallenge,
   handleGetGuardianStatus,
   handleGetTelegramConfig,
+  handleResendOutbound,
   handleSetTelegramCommands,
   handleSetTelegramConfig,
   handleSetupTelegram,
+  handleStartOutbound,
 } from './routes/integration-routes.js';
 import type { PairingHandlerContext } from './routes/pairing-routes.js';
 // Extracted route handlers
@@ -535,18 +540,28 @@ export class RuntimeHttpServer {
         const offset = Number(url.searchParams.get('offset') ?? 0);
         const conversations = conversationStore.listConversations(limit, false, offset);
         const totalCount = conversationStore.countConversations();
-        const bindings = externalConversationStore.getBindingsForConversations(
-          conversations.map((c) => c.id),
-        );
+        const conversationIds = conversations.map((c) => c.id);
+        const bindings = externalConversationStore.getBindingsForConversations(conversationIds);
+        const attentionStates = getAttentionStateByConversationIds(conversationIds);
         return Response.json({
           sessions: conversations.map((c) => {
             const binding = bindings.get(c.id);
             const originChannel = parseChannelId(c.originChannel);
+            const attn = attentionStates.get(c.id);
+            const assistantAttention = attn ? {
+              hasUnseenLatestAssistantMessage: attn.latestAssistantMessageAt !== null &&
+                (attn.lastSeenAssistantMessageAt === null || attn.lastSeenAssistantMessageAt < attn.latestAssistantMessageAt),
+              ...(attn.latestAssistantMessageAt !== null ? { latestAssistantMessageAt: attn.latestAssistantMessageAt } : {}),
+              ...(attn.lastSeenAssistantMessageAt !== null ? { lastSeenAssistantMessageAt: attn.lastSeenAssistantMessageAt } : {}),
+              ...(attn.lastSeenConfidence !== null ? { lastSeenConfidence: attn.lastSeenConfidence } : {}),
+              ...(attn.lastSeenSignalType !== null ? { lastSeenSignalType: attn.lastSeenSignalType } : {}),
+            } : undefined;
             return {
               id: c.id,
               title: c.title ?? 'Untitled',
               updatedAt: c.updatedAt,
               threadType: c.threadType === 'private' ? 'private' : 'standard',
+              source: c.source ?? 'user',
               ...(binding ? {
                 channelBinding: {
                   sourceChannel: binding.sourceChannel,
@@ -557,10 +572,36 @@ export class RuntimeHttpServer {
                 },
               } : {}),
               ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
+              ...(assistantAttention ? { assistantAttention } : {}),
             };
           }),
           hasMore: offset + conversations.length < totalCount,
         });
+      }
+
+      if (endpoint === 'conversations/attention' && req.method === 'GET') return handleListConversationAttention(url);
+
+      if (endpoint === 'conversations/seen' && req.method === 'POST') {
+        const body = await req.json() as Record<string, unknown>;
+        const conversationId = body.conversationId as string | undefined;
+        if (!conversationId) return Response.json({ error: 'Missing conversationId' }, { status: 400 });
+        try {
+          recordConversationSeenSignal({
+            conversationId,
+            assistantId: 'self',
+            sourceChannel: (body.sourceChannel as string) ?? 'vellum',
+            signalType: (body.signalType as string ?? 'macos_conversation_opened') as SignalType,
+            confidence: (body.confidence as string ?? 'explicit') as Confidence,
+            source: (body.source as string) ?? 'http-api',
+            evidenceText: body.evidenceText as string | undefined,
+            metadata: body.metadata as Record<string, unknown> | undefined,
+            observedAt: body.observedAt as number | undefined,
+          });
+          return Response.json({ ok: true });
+        } catch (err) {
+          log.error({ err, conversationId }, 'POST /v1/conversations/seen: failed');
+          return Response.json({ error: 'Failed to record seen signal' }, { status: 500 });
+        }
       }
 
       if (endpoint === 'messages' && req.method === 'GET') return handleListMessages(url, this.interfacesDir);
@@ -596,6 +637,9 @@ export class RuntimeHttpServer {
       // Integrations — Guardian verification
       if (endpoint === 'integrations/guardian/challenge' && req.method === 'POST') return await handleCreateGuardianChallenge(req);
       if (endpoint === 'integrations/guardian/status' && req.method === 'GET') return handleGetGuardianStatus(url);
+      if (endpoint === 'integrations/guardian/outbound/start' && req.method === 'POST') return await handleStartOutbound(req);
+      if (endpoint === 'integrations/guardian/outbound/resend' && req.method === 'POST') return await handleResendOutbound(req);
+      if (endpoint === 'integrations/guardian/outbound/cancel' && req.method === 'POST') return await handleCancelOutbound(req);
 
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);

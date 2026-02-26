@@ -4,9 +4,8 @@ import SwiftUI
 ///
 /// Uses a non-interactive view with `.help()` so the tooltip appears on
 /// hover without introducing a focusable button to VoiceOver or keyboard
-/// navigation. The `.accessibilityHidden(true)` keeps it out of the
-/// accessibility tree entirely — the adjacent label already conveys the
-/// context, and the tooltip text is supplementary.
+/// navigation. The tooltip text is exposed as an accessibility label so
+/// VoiceOver users can hear the supplementary information.
 ///
 /// Usage:
 /// ```swift
@@ -29,7 +28,8 @@ public struct VInfoTooltip: View {
             .frame(width: 16, height: 16)
             .contentShape(Rectangle())
             .help(tooltip)
-            .accessibilityHidden(true)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(tooltip)
     }
 }
 

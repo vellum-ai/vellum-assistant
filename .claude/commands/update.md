@@ -196,7 +196,12 @@ PY
    fi
    ```
 
-8. Build and launch the macOS app from source with gateway pinned to local `gateway/`:
+8. Build the macOS app from source synchronously (wait for build to complete before launching to avoid opening a stale build), then launch with file-watching in the background:
+   ```bash
+   REPO_ROOT="$(pwd)"
+   cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh
+   ```
+
    ```bash
    REPO_ROOT="$(pwd)"
    cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh run &

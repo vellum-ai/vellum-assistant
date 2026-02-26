@@ -321,6 +321,27 @@ Guardian verification and ingress membership are complementary but independent s
 | `src/memory/ingress-member-store.ts` | Member CRUD: `findMember`, `upsertMember`, `revokeMember`, `blockMember` |
 | `src/memory/ingress-invite-store.ts` | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record) |
 | `src/memory/channel-guardian-store.ts` | Persistence for guardian bindings, verification challenges, and approval requests |
+| `src/runtime/guardian-outbound-actions.ts` | Shared business logic for outbound verification (start/resend/cancel) |
+| `src/runtime/routes/integration-routes.ts` | HTTP route handlers for outbound guardian verification endpoints |
+
+### Chat-Initiated Guardian Verification
+
+Guardian verification can also be initiated through normal desktop chat. When the user asks the assistant to set up guardian verification, the conversational routing layer loads the `guardian-verify-setup` skill, which guides the flow:
+
+1. Confirm which channel to verify (SMS, voice, or Telegram).
+2. Collect the destination (phone number or Telegram handle/chat ID).
+3. Call the outbound HTTP endpoints to start, resend, or cancel verification.
+4. Guide the user through the verification lifecycle conversationally.
+
+**Outbound HTTP Endpoints** (available when the runtime HTTP server is running):
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/integrations/guardian/outbound/start` | POST | Start outbound verification. Body: `{ channel, destination?, assistantId?, rebind? }` |
+| `/v1/integrations/guardian/outbound/resend` | POST | Resend verification code. Body: `{ channel, assistantId? }` |
+| `/v1/integrations/guardian/outbound/cancel` | POST | Cancel active session. Body: `{ channel, assistantId? }` |
+
+These endpoints share the same business logic as the IPC-based verification flow via `guardian-outbound-actions.ts`.
 
 ## Channel Readiness
 

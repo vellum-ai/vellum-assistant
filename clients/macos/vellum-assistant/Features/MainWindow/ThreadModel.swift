@@ -18,8 +18,9 @@ struct ThreadModel: Identifiable, Hashable {
     var lastInteractedAt: Date
     var kind: ThreadKind
     var source: String?
+    var hasUnseenLatestAssistantMessage: Bool = false
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil, hasUnseenLatestAssistantMessage: Bool = false) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -30,6 +31,7 @@ struct ThreadModel: Identifiable, Hashable {
         self.lastInteractedAt = lastInteractedAt ?? createdAt
         self.kind = kind
         self.source = source
+        self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
     }
 
     /// Whether this thread was created by a schedule or reminder trigger.

@@ -18,6 +18,27 @@ This skill manages the full Twilio lifecycle:
 
 All operations go through the `twilio_config` IPC handler on the daemon, which validates inputs, stores credentials securely, and manages phone number state.
 
+### Multi-Assistant Setups
+
+In a multi-assistant environment (multiple assistants sharing the same daemon), some `twilio_config` actions are **assistant-scoped** while others are **global** (shared across all assistants):
+
+**Global actions** (ignore `assistantId` — credentials are shared across all assistants):
+- `set_credentials` — Stores Account SID and Auth Token in global secure storage (`credential:twilio:*` keys). All assistants share the same Twilio account credentials.
+- `clear_credentials` — Removes the globally stored Account SID and Auth Token. This affects all assistants.
+
+**Assistant-scoped actions** (use `assistantId` to scope phone number configuration per assistant):
+- `get` — Returns the phone number assigned to the specified assistant (falls back to the legacy global number if no per-assistant mapping exists).
+- `assign_number` — Assigns a phone number to a specific assistant via the per-assistant mapping.
+- `provision_number` — Provisions a new number and assigns it to the specified assistant.
+- `list_numbers` — Lists all phone numbers on the shared Twilio account (uses global credentials).
+
+Include `assistantId` in assistant-scoped actions whenever:
+- Multiple assistants share the same Twilio account but use different phone numbers
+- You want to ensure configuration changes only affect a specific assistant
+- The user has explicitly selected or referenced a particular assistant
+
+All IPC examples below include the optional `assistantId` field in assistant-scoped actions. Omit it in single-assistant setups. For global actions (`set_credentials`, `clear_credentials`), the `assistantId` field is accepted but ignored.
+
 ## Step 1: Check Current Configuration
 
 First, check whether Twilio is already configured by sending the `twilio_config` IPC message with `action: "get"`:
@@ -25,7 +46,8 @@ First, check whether Twilio is already configured by sending the `twilio_config`
 ```json
 {
   "type": "twilio_config",
-  "action": "get"
+  "action": "get",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -62,6 +84,8 @@ After both credentials are collected, retrieve them from secure storage and pass
 
 Both `accountSid` and `authToken` are required — the daemon validates the credentials against the Twilio API before storing them. If credentials are invalid, the daemon returns an error. Tell the user and ask them to re-enter via the secure prompt.
 
+**Note:** `set_credentials` is a global operation — credentials are stored once and shared across all assistants. The `assistantId` field is accepted but ignored.
+
 ## Step 3: Get a Phone Number
 
 The assistant needs a phone number to make calls and send SMS. There are two paths:
@@ -75,7 +99,8 @@ If the user wants to buy a new number through Twilio, send:
   "type": "twilio_config",
   "action": "provision_number",
   "areaCode": "415",
-  "country": "US"
+  "country": "US",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -100,7 +125,8 @@ If the user already has a Twilio phone number, first list available numbers:
 ```json
 {
   "type": "twilio_config",
-  "action": "list_numbers"
+  "action": "list_numbers",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -112,7 +138,8 @@ Then assign the chosen number:
 {
   "type": "twilio_config",
   "action": "assign_number",
-  "phoneNumber": "+14155551234"
+  "phoneNumber": "+14155551234",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -132,7 +159,8 @@ Then assign it through the IPC:
 {
   "type": "twilio_config",
   "action": "assign_number",
-  "phoneNumber": "+14155551234"
+  "phoneNumber": "+14155551234",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -171,6 +199,44 @@ Confirm:
 
 Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}. This number is used for both voice calls and SMS messaging."**
 
+## Step 5.5: Guardian Verification (SMS and Voice)
+
+Now link the user's phone number as the trusted guardian for SMS and/or voice channels. Tell the user: "Now let's verify your guardian identity. This links your phone number as the trusted guardian for messaging and calls."
+
+Install and load the **guardian-verify-setup** skill to handle the verification flow:
+
+- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
+- Then call `skill_load` with `skill: "guardian-verify-setup"`.
+
+The guardian-verify-setup skill manages the full outbound verification flow for **one channel at a time** (sms, voice, or telegram). Each invocation handles:
+- Collecting the user's phone number as the destination (accepts any common format -- the API normalizes to E.164)
+- Starting the outbound verification session via `POST /v1/integrations/guardian/outbound/start`
+- For **SMS**: sending a 6-digit code to the phone number that the user must reply with from the SMS channel
+- For **voice**: calling the phone number and providing a code for the user to enter via their phone's keypad
+- Checking guardian status to confirm the binding was created
+- Handling resend, cancel, and error cases
+
+**If the user wants to verify both SMS and voice**, load the skill twice -- once for SMS and once for voice. Each channel requires its own separate verification session.
+
+Tell the user: *"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted guardian. We'll verify one channel at a time."*
+
+After the guardian-verify-setup skill completes verification for a channel, load it again for the next channel if needed. Once all desired channels are verified (or the user skips), continue to Step 6.
+
+**Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
+
+To re-check guardian status later, query the channel(s) that were verified:
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+# Check SMS guardian status
+curl -s http://localhost:7821/v1/integrations/guardian/status?channel=sms \
+  -H "Authorization: Bearer $TOKEN"
+# Check voice guardian status
+curl -s http://localhost:7821/v1/integrations/guardian/status?channel=voice \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Check the status for whichever channel(s) the user actually verified (SMS, voice, or both). Report the guardian verification result per channel: **"Guardian identity — SMS: {verified | not configured}, Voice: {verified | not configured}."**
+
 ## Step 6: Enable Features
 
 Now that Twilio is configured, the user can enable the features that depend on it:
@@ -194,7 +260,9 @@ If the user wants to disconnect Twilio, send:
 }
 ```
 
-This removes the stored Account SID and Auth Token. Your phone number assignment will be preserved. Voice calls and SMS will stop working until credentials are reconfigured.
+This removes the stored Account SID and Auth Token. Phone number assignments are preserved. Voice calls and SMS will stop working until credentials are reconfigured.
+
+**Note:** `clear_credentials` is a global operation — it removes credentials for all assistants, not just the current one. The `assistantId` field is accepted but ignored. In multi-assistant setups, warn the user that clearing credentials will affect all assistants sharing this Twilio account.
 
 ## Troubleshooting
 

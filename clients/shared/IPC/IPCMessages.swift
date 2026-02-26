@@ -1234,6 +1234,10 @@ extension IPCSkillsInspectResponseData {
 /// Backed by generated `IPCSkillsInspectResponse`.
 public typealias SkillsInspectResponseMessage = IPCSkillsInspectResponse
 
+/// Attention state metadata for a conversation's latest assistant message.
+/// Backed by generated `IPCAssistantAttention`.
+public typealias AssistantAttention = IPCAssistantAttention
+
 /// Response containing the list of past sessions.
 /// Backed by generated `IPCSessionListResponse`.
 public typealias SessionListResponseMessage = IPCSessionListResponse
@@ -2129,6 +2133,31 @@ public typealias EnvVarsResponseMessage = IPCEnvVarsResponse
 extension IPCSessionSwitchRequest {
     public init(sessionId: String) {
         self.init(type: "session_switch", sessionId: sessionId)
+    }
+}
+
+extension IPCConversationSeenSignal {
+    public init(
+        conversationId: String,
+        sourceChannel: String,
+        signalType: String,
+        confidence: String,
+        source: String,
+        evidenceText: String? = nil,
+        observedAt: Int? = nil,
+        metadata: [String: AnyCodable]? = nil
+    ) {
+        self.init(
+            type: "conversation_seen_signal",
+            conversationId: conversationId,
+            sourceChannel: sourceChannel,
+            signalType: signalType,
+            confidence: confidence,
+            source: source,
+            evidenceText: evidenceText,
+            observedAt: observedAt,
+            metadata: metadata
+        )
     }
 }
 

@@ -38,7 +38,8 @@ After the token is collected, call the composite setup endpoint which validates 
 ```bash
 curl -sf -X POST http://localhost:7821/v1/integrations/telegram/setup \
   -H "Authorization: Bearer $(cat ~/.vellum/http-token)" \
-  -H "Content-Type: application/json"
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
 
 This endpoint automatically:
@@ -63,22 +64,22 @@ If the webhook secret changes (e.g., secret rotation), the gateway's credential 
 
 Now link the user's Telegram account as the trusted guardian for this bot. Tell the user: "Now let's verify your guardian identity. This links your Telegram account as the trusted guardian for this bot."
 
-1. Create a verification challenge:
+Install and load the **guardian-verify-setup** skill to handle the verification flow:
 
-```bash
-curl -sf -X POST http://localhost:7821/v1/integrations/guardian/challenge \
-  -H "Authorization: Bearer $(cat ~/.vellum/http-token)" \
-  -H "Content-Type: application/json" \
-  -d '{"channel":"telegram"}'
-```
+- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
+- Then call `skill_load` with `skill: "guardian-verify-setup"`.
 
-2. The response includes a 6-digit `secret` code and `instruction`. Display the 6-digit code to the user. Tell them: "Open your chat with the Telegram bot and send this 6-digit code as a message."
+The guardian-verify-setup skill manages the full outbound verification flow for Telegram, including:
+- Collecting the user's Telegram chat ID or @handle as the destination
+- Starting the outbound verification session via `POST /v1/integrations/guardian/outbound/start` with `channel: "telegram"`
+- Handling the bootstrap deep-link flow when the user provides an @handle (the response includes a `telegramBootstrapUrl` that the user must click before receiving the code)
+- Guiding the user to send the verification code back in the Telegram bot chat
+- Checking guardian status to confirm the binding was created
+- Handling resend, cancel, and error cases
 
-3. Wait for the user to confirm they have replied with the code. The verification happens automatically when the bot receives the code — the channel inbound handler validates it and creates the guardian binding.
+Tell the user: *"I've loaded the guardian verification guide. It will walk you through linking your Telegram account as the trusted guardian."*
 
-4. If the user confirms success: "Guardian verified! Your Telegram account is now the trusted guardian for this bot."
-
-5. If the user reports failure or the challenge times out (10 minutes): "The verification code may have expired. Let's generate a new one." Then repeat from substep 1.
+After the guardian-verify-setup skill completes (or the user skips), continue to Step 5.
 
 **Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 5 without blocking.
 
@@ -103,7 +104,7 @@ curl -sf http://localhost:7821/v1/integrations/guardian/status?channel=telegram 
 If the binding is absent and the user said they completed the verification:
 
 1. Tell the user the verification does not appear to have succeeded.
-2. Offer to generate a new challenge (repeat Step 4, substep 1).
+2. Offer to re-run the guardian-verify-setup skill (repeat Step 4).
 3. Only proceed to Step 7 once binding state is confirmed or the user explicitly skips guardian verification.
 
 ### Step 7: Report Success
@@ -112,8 +113,10 @@ Summarize what was done:
 - Bot verified and credentials stored securely
 - Webhook registration: handled automatically by the gateway
 - Bot commands registered: /new
-- Guardian identity verified (if completed and binding confirmed)
+- Guardian identity: {verified | not configured}
+- Guardian verification status: {verified via outbound flow | skipped}
 - Routing configuration validated
+- To re-check guardian status later, use: `curl -sf http://localhost:7821/v1/integrations/guardian/status?channel=telegram -H "Authorization: Bearer $(cat ~/.vellum/http-token)"`
 
 The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration or webhook registration is needed. If the webhook secret changes later, the gateway's credential watcher will automatically re-register the webhook. If the ingress URL changes (e.g., tunnel restart), the assistant daemon triggers an immediate internal reconcile so the webhook re-registers automatically without a gateway restart.
 
@@ -144,5 +147,5 @@ The following steps still require **manual** action:
 |------|---------|
 | Bot token from @BotFather | User must create a bot and provide the token via secure prompt |
 | Bot configuration and command registration | Configured via the setup skill (Step 2 above) using the `/v1/integrations/telegram/setup` endpoint |
-| Guardian verification | User replies with the verification code in the bot's Telegram chat (Step 4 above) |
+| Guardian verification | Handled via the guardian-verify-setup skill using the outbound verification flow (Step 4 above) |
 | Multi-assistant routing | Requires manual `GATEWAY_ASSISTANT_ROUTING_JSON` configuration |

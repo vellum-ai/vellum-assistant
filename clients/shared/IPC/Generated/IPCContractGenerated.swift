@@ -373,6 +373,23 @@ public struct IPCAppUpdatePreviewResponse: Codable, Sendable {
     }
 }
 
+/// Attention state metadata for a conversation's latest assistant message.
+public struct IPCAssistantAttention: Codable, Sendable {
+    public let hasUnseenLatestAssistantMessage: Bool
+    public let latestAssistantMessageAt: Int?
+    public let lastSeenAssistantMessageAt: Int?
+    public let lastSeenConfidence: String?
+    public let lastSeenSignalType: String?
+
+    public init(hasUnseenLatestAssistantMessage: Bool, latestAssistantMessageAt: Int? = nil, lastSeenAssistantMessageAt: Int? = nil, lastSeenConfidence: String? = nil, lastSeenSignalType: String? = nil) {
+        self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
+        self.latestAssistantMessageAt = latestAssistantMessageAt
+        self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
+        self.lastSeenConfidence = lastSeenConfidence
+        self.lastSeenSignalType = lastSeenSignalType
+    }
+}
+
 public struct IPCAssistantInboxEscalationRequest: Codable, Sendable {
     public let type: String
     public let action: String
@@ -1090,6 +1107,31 @@ public struct IPCConversationSearchResultItem: Codable, Sendable {
         self.conversationTitle = conversationTitle
         self.conversationUpdatedAt = conversationUpdatedAt
         self.matchingMessages = matchingMessages
+    }
+}
+
+/// Client signal indicating the user has seen a conversation (e.g. opened it or clicked a notification).
+public struct IPCConversationSeenSignal: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let sourceChannel: String
+    public let signalType: String
+    public let confidence: String
+    public let source: String
+    public let evidenceText: String?
+    public let observedAt: Int?
+    public let metadata: [String: AnyCodable]?
+
+    public init(type: String, conversationId: String, sourceChannel: String, signalType: String, confidence: String, source: String, evidenceText: String? = nil, observedAt: Int? = nil, metadata: [String: AnyCodable]? = nil) {
+        self.type = type
+        self.conversationId = conversationId
+        self.sourceChannel = sourceChannel
+        self.signalType = signalType
+        self.confidence = confidence
+        self.source = source
+        self.evidenceText = evidenceText
+        self.observedAt = observedAt
+        self.metadata = metadata
     }
 }
 
@@ -3735,8 +3777,10 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let channelBinding: IPCChannelBinding?
     public let conversationOriginChannel: String?
     public let conversationOriginInterface: String?
+    /// Attention state metadata for a conversation's latest assistant message.
+    public let assistantAttention: IPCAssistantAttention?
 
-    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil) {
+    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: IPCAssistantAttention? = nil) {
         self.id = id
         self.title = title
         self.updatedAt = updatedAt
@@ -3745,6 +3789,7 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
         self.channelBinding = channelBinding
         self.conversationOriginChannel = conversationOriginChannel
         self.conversationOriginInterface = conversationOriginInterface
+        self.assistantAttention = assistantAttention
     }
 }
 

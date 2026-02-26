@@ -2,6 +2,8 @@ import type * as net from 'node:net';
 
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
+import * as pendingInteractions from '../runtime/pending-interactions.js';
+
 interface MockMemoryPolicy {
   scopeId: string;
   includeDefaultFallback: boolean;
@@ -29,13 +31,25 @@ let lastCreatedWorkingDir: string | undefined;
 let lastCreatedMemoryPolicy: MockMemoryPolicy | undefined;
 let lastCreateConversationArgs: unknown;
 
+// Module-level test hooks checked by MockSession.runAgentLoop. Using module
+// variables instead of class fields avoids the shadowing issue where class
+// field declarations create own-properties that mask prototype assignments.
+let mockConfirmationToEmitDuringLoop: Record<string, unknown> | undefined;
+let mockMidLoopCallback: ((session: MockSession) => void) | undefined;
+
 class MockSession {
   public readonly conversationId: string;
   public memoryPolicy: MockMemoryPolicy;
   public updateClientCalls = 0;
+  public lastUpdateClientHasNoClient: boolean | undefined;
+  public lastUpdateClientSender: ((msg: Record<string, unknown>) => void) | undefined;
+  public lastRunAgentLoopOptions: { skipPreMessageRollback?: boolean; isInteractive?: boolean } | undefined;
+  public updateClientHistory: Array<{ hasNoClient: boolean }> = [];
   public setSandboxOverrideCalls = 0;
   private stale = false;
   private processing = false;
+  public guardianContext: Record<string, unknown> | null = null;
+  private _currentSender: ((msg: Record<string, unknown>) => void) | undefined;
 
   constructor(
     conversationId: string,
@@ -55,8 +69,16 @@ class MockSession {
 
   async loadFromDb(): Promise<void> {}
 
-  updateClient(): void {
+  updateClient(sender?: (msg: Record<string, unknown>) => void, hasNoClient = false): void {
     this.updateClientCalls += 1;
+    this.lastUpdateClientSender = sender;
+    this.lastUpdateClientHasNoClient = hasNoClient;
+    this.updateClientHistory.push({ hasNoClient });
+    this._currentSender = sender;
+  }
+
+  getCurrentSender(): ((msg: Record<string, unknown>) => void) | undefined {
+    return this._currentSender;
   }
 
   setSandboxOverride(): void {
@@ -88,6 +110,55 @@ class MockSession {
   handleConfirmationResponse(): void {}
 
   async processMessage(): Promise<void> {}
+
+  setAssistantId(): void {}
+
+  setGuardianContext(ctx: Record<string, unknown> | null): void {
+    this.guardianContext = ctx;
+  }
+
+  setChannelCapabilities(): void {}
+
+  setCommandIntent(): void {}
+
+  setTurnChannelContext(): void {}
+
+  getTurnChannelContext(): null {
+    return null;
+  }
+
+  setTurnInterfaceContext(): void {}
+
+  getTurnInterfaceContext(): null {
+    return null;
+  }
+
+  persistUserMessage(): string {
+    this.processing = true;
+    return 'msg-1';
+  }
+
+  async runAgentLoop(
+    _content: string,
+    _messageId: string,
+    onEvent: (msg: Record<string, unknown>) => void,
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
+  ): Promise<void> {
+    this.lastRunAgentLoopOptions = options;
+    if (mockConfirmationToEmitDuringLoop) {
+      onEvent(mockConfirmationToEmitDuringLoop);
+    }
+    if (mockMidLoopCallback) {
+      mockMidLoopCallback(this);
+    }
+    this.processing = false;
+  }
+
+  setPreactivatedSkillIds(): void {}
+
+  getMessages(): Array<Record<string, unknown>> {
+    return [];
+  }
 
   undo(): number {
     return 1;
@@ -141,6 +212,9 @@ mock.module('../config/loader.js', () => ({
     rateLimit: {
       maxRequestsPerMinute: 0,
       maxTokensPerSession: 0,
+    },
+    secretDetection: {
+      enabled: false,
     },
   }),
   loadRawConfig: () => ({}),
@@ -236,6 +310,9 @@ describe('DaemonServer initial session hydration', () => {
     lastCreatedWorkingDir = undefined;
     lastCreatedMemoryPolicy = undefined;
     lastCreateConversationArgs = undefined;
+    mockConfirmationToEmitDuringLoop = undefined;
+    mockMidLoopCallback = undefined;
+    pendingInteractions.clear();
   });
 
   test('hydrates latest session before session_info so undo works after reconnect', async () => {
@@ -524,5 +601,124 @@ describe('DaemonServer initial session hydration', () => {
       includeDefaultFallback: true,
       strictSideEffects: true,
     });
+  });
+
+  test('interactive HTTP processing marks no-socket sessions interactive and registers confirmation prompts', async () => {
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+
+    // Pre-configure the mock to emit a confirmation_request during runAgentLoop,
+    // simulating a tool requesting approval while the session is interactive.
+    mockConfirmationToEmitDuringLoop = {
+      type: 'confirmation_request',
+      requestId: 'req-interactive-1',
+      toolName: 'notify_desktop',
+      input: { title: 'Weather' },
+      riskLevel: 'high',
+      allowlistOptions: [{ label: 'notify_desktop:*', description: 'notify_desktop:*', pattern: 'notify_desktop:*' }],
+      scopeOptions: [{ label: 'everywhere', scope: 'everywhere' }],
+      persistentDecisionsAllowed: true,
+    };
+
+    await server.processMessage(
+      conversation.id,
+      'send me a notification',
+      undefined,
+      { isInteractive: true },
+      'telegram',
+      'telegram',
+    );
+
+    mockConfirmationToEmitDuringLoop = undefined;
+
+    const session = internal.sessions.get(conversation.id);
+    expect(session).toBeDefined();
+    expect(session!.lastRunAgentLoopOptions?.isInteractive).toBe(true);
+
+    // Verify the session was marked interactive during the loop, then restored.
+    // updateClientHistory: [0] = initial no-socket creation (hasNoClient: true),
+    //                      [1] = interactive override (hasNoClient: false),
+    //                      [2] = reset after loop (hasNoClient: true)
+    expect(session!.updateClientHistory.length).toBeGreaterThanOrEqual(3);
+    expect(session!.updateClientHistory[1].hasNoClient).toBe(false);
+    expect(session!.updateClientHistory[2].hasNoClient).toBe(true);
+
+    // After the loop completes, the session is restored to no-client state.
+    expect(session!.lastUpdateClientHasNoClient).toBe(true);
+
+    // The pending interaction was registered during the loop.
+    const interaction = pendingInteractions.get('req-interactive-1');
+    expect(interaction).toBeDefined();
+    expect(interaction?.kind).toBe('confirmation');
+    expect(interaction?.conversationId).toBe(conversation.id);
+  });
+
+  test('finally block does not overwrite IPC client that connected during interactive agent loop (processMessage)', async () => {
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+
+    const ipcSender = (_msg: Record<string, unknown>) => {};
+
+    // Simulate a real IPC client connecting mid-loop by rebinding the session
+    // sender during runAgentLoop execution.
+    mockMidLoopCallback = (session) => {
+      session.updateClient(ipcSender, false);
+    };
+
+    await server.processMessage(
+      conversation.id,
+      'hello',
+      undefined,
+      { isInteractive: true },
+      'telegram',
+      'telegram',
+    );
+
+    mockMidLoopCallback = undefined;
+
+    const session = internal.sessions.get(conversation.id);
+    expect(session).toBeDefined();
+
+    // The finally block should NOT have reset the sender because the session's
+    // current sender was rebound to ipcSender mid-loop, which differs from the
+    // onEvent callback originally set for the interactive path.
+    expect(session!.getCurrentSender()).toBe(ipcSender);
+    expect(session!.lastUpdateClientHasNoClient).toBe(false);
+  });
+
+  test('finally block does not overwrite IPC client that connected during interactive agent loop (persistAndProcessMessage)', async () => {
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+
+    const ipcSender = (_msg: Record<string, unknown>) => {};
+
+    // Simulate a real IPC client connecting mid-loop by rebinding the session
+    // sender during runAgentLoop execution.
+    mockMidLoopCallback = (session) => {
+      session.updateClient(ipcSender, false);
+    };
+
+    const { messageId } = await server.persistAndProcessMessage(
+      conversation.id,
+      'hello',
+      undefined,
+      { isInteractive: true },
+      'telegram',
+      'telegram',
+    );
+    expect(messageId).toBe('msg-1');
+
+    // persistAndProcessMessage fires the loop in the background; wait for it.
+    await new Promise((r) => setTimeout(r, 50));
+
+    mockMidLoopCallback = undefined;
+
+    const session = internal.sessions.get(conversation.id);
+    expect(session).toBeDefined();
+
+    // The finally block should NOT have reset the sender because the session's
+    // current sender was rebound to ipcSender mid-loop.
+    expect(session!.getCurrentSender()).toBe(ipcSender);
+    expect(session!.lastUpdateClientHasNoClient).toBe(false);
   });
 });

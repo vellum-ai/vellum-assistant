@@ -390,26 +390,28 @@ describe('guardian service challenge validation', () => {
 
     expect(result.challengeId).toBeDefined();
     expect(result.secret).toBeDefined();
-    expect(result.secret.length).toBe(6); // 6-digit numeric code
+    expect(result.secret.length).toBe(64); // 32-byte hex — high-entropy for unbound inbound challenges
+    expect(result.secret).toMatch(/^[0-9a-f]{64}$/);
     expect(result.verifyCommand).toBe(result.secret);
     expect(result.ttlSeconds).toBe(600);
     expect(result.instruction).toBeDefined();
     expect(result.instruction.length).toBeGreaterThan(0);
-    expect(result.instruction).toContain('code you were given');
+    // Hex codes use generic "send the code:" format
+    expect(result.instruction).toContain(`the code: ${result.secret}`);
   });
 
   test('createVerificationChallenge produces a non-empty instruction for telegram channel', () => {
     const result = createVerificationChallenge('asst-1', 'telegram');
     expect(result.instruction).toBeDefined();
     expect(result.instruction.length).toBeGreaterThan(0);
-    expect(result.instruction).toContain('code you were given');
+    expect(result.instruction).toContain(`the code: ${result.secret}`);
   });
 
   test('createVerificationChallenge produces a non-empty instruction for sms channel', () => {
     const result = createVerificationChallenge('asst-1', 'sms');
     expect(result.instruction).toBeDefined();
     expect(result.instruction.length).toBeGreaterThan(0);
-    expect(result.instruction).toContain('code you were given');
+    expect(result.instruction).toContain(`the code: ${result.secret}`);
   });
 
   test('validateAndConsumeChallenge succeeds with correct secret', () => {
@@ -1547,24 +1549,23 @@ describe('voice guardian challenge generation', () => {
     resetTables();
   });
 
-  test('createVerificationChallenge for voice returns a six-digit numeric secret', () => {
+  test('createVerificationChallenge for voice returns a high-entropy hex secret', () => {
     const result = createVerificationChallenge('asst-1', 'voice');
 
     expect(result.challengeId).toBeDefined();
     expect(result.secret).toBeDefined();
-    expect(result.secret).toMatch(/^\d{6}$/);
-    // Zero-padded: "079316" is valid, so check string length not numeric range
-    expect(result.secret.length).toBe(6);
+    expect(result.secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.secret.length).toBe(64);
   });
 
-  test('createVerificationChallenge for non-voice returns 6-digit numeric secret', () => {
+  test('createVerificationChallenge for non-voice returns high-entropy hex secret', () => {
     const result = createVerificationChallenge('asst-1', 'telegram');
 
-    expect(result.secret.length).toBe(6);
-    expect(result.secret).toMatch(/^\d{6}$/);
+    expect(result.secret.length).toBe(64);
+    expect(result.secret).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  test('voice challenge verifyCommand contains the six-digit secret', () => {
+  test('voice challenge verifyCommand contains the hex secret', () => {
     const result = createVerificationChallenge('asst-1', 'voice');
 
     expect(result.verifyCommand).toBe(result.secret);
@@ -1573,7 +1574,9 @@ describe('voice guardian challenge generation', () => {
   test('voice challenge instruction contains voice-specific copy', () => {
     const result = createVerificationChallenge('asst-1', 'voice');
 
-    expect(result.instruction).toContain('six-digit code');
+    // Inbound challenges use high-entropy hex, so the voice template says
+    // "enter the code" rather than "six-digit code".
+    expect(result.instruction).toContain('enter the code');
     expect(result.instruction).toContain(result.secret);
   });
 
@@ -1581,10 +1584,9 @@ describe('voice guardian challenge generation', () => {
     const result1 = createVerificationChallenge('asst-1', 'voice');
     const result2 = createVerificationChallenge('asst-2', 'voice');
 
-    // While technically they could collide, the probability is ~1/900000
-    // so this is a reasonable smoke test for randomness
-    expect(result1.secret).toMatch(/^\d{6}$/);
-    expect(result2.secret).toMatch(/^\d{6}$/);
+    // High-entropy hex secrets: collision probability is negligible
+    expect(result1.secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(result2.secret).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test('voice ttlSeconds is 600 (10 minutes)', () => {
@@ -1935,7 +1937,7 @@ describe('IPC handler voice guardian verification', () => {
     resetTables();
   });
 
-  test('create_challenge for voice returns a six-digit secret', () => {
+  test('create_challenge for voice returns a high-entropy hex secret', () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: 'guardian_verification',
@@ -1950,9 +1952,9 @@ describe('IPC handler voice guardian verification', () => {
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.secret).toBeDefined();
-    expect(resp!.secret).toMatch(/^\d{6}$/);
+    expect(resp!.secret).toMatch(/^[0-9a-f]{64}$/);
     expect(resp!.instruction).toBeDefined();
-    expect(resp!.instruction).toContain('six-digit code');
+    expect(resp!.instruction).toContain('enter the code');
     expect(resp!.channel).toBe('voice');
   });
 
@@ -3272,23 +3274,23 @@ describe('outbound Telegram verification', () => {
     expect(revoked).toBeNull();
   });
 
-  test('telegram template includes verification instruction without code', () => {
+  test('telegram template includes verification code in message', () => {
     const msg = composeVerificationTelegram(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
       { code: 'abc123', expiresInMinutes: 10 },
     );
-    // Should ask user to reply with code but NOT include the actual code
-    expect(msg).toContain('code you were given');
-    expect(msg).not.toContain('abc123');
+    // Code must be visible in-channel for bootstrap flows where the app cannot display it
+    expect(msg).toContain('abc123');
+    expect(msg).toContain('/guardian_verify abc123');
   });
 
-  test('telegram resend template includes (resent) suffix', () => {
+  test('telegram resend template includes code and (resent) suffix', () => {
     const msg = composeVerificationTelegram(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND,
       { code: 'xyz789', expiresInMinutes: 5 },
     );
-    expect(msg).toContain('code you were given');
-    expect(msg).not.toContain('xyz789');
+    expect(msg).toContain('xyz789');
+    expect(msg).toContain('/guardian_verify xyz789');
     expect(msg).toContain('(resent)');
   });
 
@@ -3298,8 +3300,7 @@ describe('outbound Telegram verification', () => {
       { code: '999999', expiresInMinutes: 10, assistantName: 'MyBot' },
     );
     expect(msg).toContain('Vellum assistant');
-    // Code should NOT appear in the message
-    expect(msg).not.toContain('999999');
+    expect(msg).toContain('999999');
   });
 
   test('start_outbound for telegram with missing destination fails', () => {
