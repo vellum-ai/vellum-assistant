@@ -522,6 +522,7 @@ public final class ChatViewModel: ObservableObject {
         }
 
         messages[idx].wasTruncated = false
+        messages[idx].isContentStripped = false
     }
 
     // MARK: - Message Trimming
