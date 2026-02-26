@@ -1002,6 +1002,37 @@ export const notificationDeliveries = sqliteTable('notification_deliveries', {
   clientDeliveryStatus: text('client_delivery_status'),
   clientDeliveryError: text('client_delivery_error'),
   clientDeliveryAt: integer('client_delivery_at'),
+  // Interaction summary columns (populated transactionally by interactions-store)
+  seenAt: integer('seen_at'),
+  seenConfidence: text('seen_confidence'),
+  seenSource: text('seen_source'),
+  seenEvidenceText: text('seen_evidence_text'),
+  viewedAt: integer('viewed_at'),
+  lastInteractionAt: integer('last_interaction_at'),
+  lastInteractionType: text('last_interaction_type'),
+  lastInteractionConfidence: text('last_interaction_confidence'),
+  lastInteractionSource: text('last_interaction_source'),
+  lastInteractionEvidenceText: text('last_interaction_evidence_text'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+export const notificationDeliveryInteractions = sqliteTable('notification_delivery_interactions', {
+  id: text('id').primaryKey(),
+  notificationDeliveryId: text('notification_delivery_id')
+    .notNull()
+    .references(() => notificationDeliveries.id, { onDelete: 'cascade' }),
+  assistantId: text('assistant_id').notNull(),
+  channel: text('channel').notNull(),
+  interactionType: text('interaction_type').notNull(),
+  confidence: text('confidence').notNull(),
+  source: text('source').notNull(),
+  evidenceText: text('evidence_text'),
+  metadataJson: text('metadata_json').notNull().default('{}'),
+  occurredAt: integer('occurred_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+}, (table) => [
+  index('idx_ndi_delivery_occurred').on(table.notificationDeliveryId, table.occurredAt),
+  index('idx_ndi_assistant_occurred').on(table.assistantId, table.occurredAt),
+  index('idx_ndi_channel_occurred').on(table.channel, table.occurredAt),
+]);

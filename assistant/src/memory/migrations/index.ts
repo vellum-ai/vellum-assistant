@@ -45,6 +45,7 @@ export { createMessagesFts } from './116-messages-fts.js';
 export { migrateGuardianVerificationSessions } from './026-guardian-verification-sessions.js';
 export { migrateGuardianBootstrapToken } from './027-guardian-bootstrap-token.js';
 export { migrateCallSessionMode } from './028-call-session-mode.js';
+export { migrateNotificationDeliveryInteractions } from './029-notification-delivery-interactions.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
