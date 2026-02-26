@@ -390,13 +390,17 @@ export class RuntimeHttpServer {
       }
     }
 
-    // Per-bearer-token rate limiting for /v1/* endpoints, with per-IP fallback
-    // for unauthenticated requests (lower limits to reduce abuse surface).
+    // Per-client-IP rate limiting for /v1/* endpoints. Authenticated requests
+    // get a higher limit; unauthenticated requests get a lower limit to reduce
+    // abuse surface. We key on IP rather than bearer token because the gateway
+    // uses a single shared token for all proxied requests, which would collapse
+    // all users into one bucket.
     if (path.startsWith('/v1/')) {
+      const clientIp = extractClientIp(req, server);
       const token = extractBearerToken(req);
       const result = token
-        ? apiRateLimiter.check(token)
-        : ipRateLimiter.check(extractClientIp(req, server));
+        ? apiRateLimiter.check(clientIp)
+        : ipRateLimiter.check(clientIp);
       if (!result.allowed) {
         return rateLimitResponse(result);
       }

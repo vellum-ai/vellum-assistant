@@ -1,5 +1,5 @@
-// Per-bearer-token sliding-window rate limiter for /v1/* API endpoints.
-// Tracks request counts per token and returns 429 when the limit is exceeded.
+// Per-client-IP sliding-window rate limiter for /v1/* API endpoints.
+// Tracks request counts per key and returns 429 when the limit is exceeded.
 // Follows the same sliding-window pattern as gateway/src/auth-rate-limiter.ts.
 
 import type { HttpErrorResponse } from '../http-errors.js';
@@ -33,9 +33,9 @@ export class TokenRateLimiter {
    * Check whether the request should be allowed and record it.
    * Returns rate limit metadata for response headers.
    */
-  check(token: string): RateLimitResult {
+  check(key: string): RateLimitResult {
     const now = Date.now();
-    let timestamps = this.requests.get(token);
+    let timestamps = this.requests.get(key);
 
     if (!timestamps) {
       if (this.requests.size >= this.maxTrackedKeys) {
@@ -46,7 +46,7 @@ export class TokenRateLimiter {
         }
       }
       timestamps = [];
-      this.requests.set(token, timestamps);
+      this.requests.set(key, timestamps);
     }
 
     const cutoff = now - this.windowMs;
@@ -82,12 +82,12 @@ export class TokenRateLimiter {
 
   private evictStale(now: number): void {
     const cutoff = now - this.windowMs;
-    for (const [token, timestamps] of this.requests) {
+    for (const [key, timestamps] of this.requests) {
       while (timestamps.length > 0 && timestamps[0] <= cutoff) {
         timestamps.shift();
       }
       if (timestamps.length === 0) {
-        this.requests.delete(token);
+        this.requests.delete(key);
       }
     }
   }
@@ -125,7 +125,7 @@ export function rateLimitResponse(result: RateLimitResult): Response {
   });
 }
 
-/** Singleton rate limiter for the runtime HTTP API (per-bearer-token). */
+/** Singleton rate limiter for authenticated /v1/* requests (per-client-IP). */
 export const apiRateLimiter = new TokenRateLimiter();
 
 /** Singleton rate limiter for unauthenticated requests (per-IP, lower limits). */
