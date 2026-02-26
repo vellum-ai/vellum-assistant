@@ -1781,6 +1781,44 @@ struct SettingsConnectTab: View {
     }
 
 
+    // MARK: - Spinning Refresh Icon
+
+    /// Standalone view for a continuously-rotating refresh icon.
+    ///
+    /// Uses `.task(id:)` to drive the rotation loop so that stopping
+    /// the animation is reliable (the task is cancelled when `isSpinning`
+    /// changes, which cleanly exits the animation loop).  The previous
+    /// `.animation(.repeatForever, value:)` + `nil` pattern has a known
+    /// SwiftUI bug where the repeating animation can persist after the
+    /// driving value becomes false.
+    private struct SpinningRefreshIcon: View {
+        let isSpinning: Bool
+
+        @State private var angle: Double = 0
+
+        var body: some View {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isSpinning ? VColor.accent : VColor.textMuted)
+                .rotationEffect(.degrees(angle))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+                .task(id: isSpinning) {
+                    if isSpinning {
+                        angle = 0
+                        while !Task.isCancelled {
+                            withAnimation(.linear(duration: 1)) {
+                                angle += 360
+                            }
+                            try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        }
+                    } else {
+                        angle = 0
+                    }
+                }
+        }
+    }
+
     // MARK: - Connection Status Helpers
 
     private struct ConnectionStatusInfo {
@@ -1884,13 +1922,7 @@ struct SettingsConnectTab: View {
                         refreshSpinning.remove(label)
                     }
                 } label: {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(spinning ? VColor.accent : VColor.textMuted)
-                        .rotationEffect(.degrees(spinning ? 360 : 0))
-                        .animation(spinning ? .linear(duration: 1).repeatForever(autoreverses: false) : nil, value: spinning)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
+                    SpinningRefreshIcon(isSpinning: spinning)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Refresh \(label) status")
