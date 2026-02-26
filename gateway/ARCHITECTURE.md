@@ -176,7 +176,7 @@ All channel ingress paths canonicalize the `assistantId` via `normalizeAssistant
 
 The inbound message handler (`inbound-message-handler.ts`) accepts verification codes in two formats:
 
-- **Bare code**: A 64-character hex string (SMS/Telegram) or 6-digit numeric code (voice) sent as the entire message body. This is the primary flow — the user receives a channel message asking them to reply with the code they were given, and simply replies with the code.
+- **Bare code**: A 6-digit numeric code sent as the entire message body. This is the primary flow — the user receives a channel message asking them to reply with the code they were given, and simply replies with the code.
 - **Legacy command**: `/guardian_verify <code>` (or `/guardian_verify@BotName <code>` for Telegram group chats). This format is still accepted for backward compatibility but is no longer the recommended flow.
 
 #### Explicit Rebind Policy
