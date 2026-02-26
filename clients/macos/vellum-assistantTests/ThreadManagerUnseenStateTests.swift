@@ -127,6 +127,113 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         XCTAssertEqual(seenSignals.last?.conversationId, "session-realtime")
     }
 
+    func testUnseenVisibleConversationCountExcludesArchivedThreads() {
+        // Start with the initial thread created by setUp
+        guard let threadId = threadManager.activeThreadId,
+              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
+            XCTFail("Expected an initial active thread")
+            return
+        }
+
+        // Seed a user message so createThread doesn't skip
+        threadManager.chatViewModel(for: threadId)?.messages.append(ChatMessage(role: .user, text: "Seed"))
+
+        // Switch away so the initial thread becomes inactive
+        threadManager.createThread()
+        XCTAssertNotEqual(threadManager.activeThreadId, threadId)
+
+        // Mark the initial thread as unseen
+        if let idx = threadManager.threads.firstIndex(where: { $0.id == threadId }) {
+            threadManager.threads[idx].hasUnseenLatestAssistantMessage = true
+        }
+        XCTAssertEqual(threadManager.unseenVisibleConversationCount, 1)
+
+        // Archive it — count should drop to 0
+        threadManager.archiveThread(id: threadId)
+        XCTAssertEqual(threadManager.unseenVisibleConversationCount, 0)
+    }
+
+    func testUnseenVisibleConversationCountExcludesPrivateThreads() {
+        // Create a private thread (this switches activeThreadId to the private thread)
+        threadManager.createPrivateThread()
+        guard let privateId = threadManager.activeThreadId,
+              let idx = threadManager.threads.firstIndex(where: { $0.id == privateId }) else {
+            XCTFail("Expected a private thread")
+            return
+        }
+
+        // Mark the private thread as unseen
+        threadManager.threads[idx].hasUnseenLatestAssistantMessage = true
+
+        // Private threads are excluded from the visible count
+        XCTAssertEqual(threadManager.unseenVisibleConversationCount, 0)
+    }
+
+    func testUnseenVisibleConversationCountIncludesMultipleUnseen() {
+        // Start with the initial thread
+        guard let firstId = threadManager.activeThreadId else {
+            XCTFail("Expected an initial active thread")
+            return
+        }
+        // Seed a user message so createThread actually creates a new one
+        threadManager.chatViewModel(for: firstId)?.messages.append(ChatMessage(role: .user, text: "Seed"))
+
+        // Create a second thread
+        threadManager.createThread()
+        guard let secondId = threadManager.activeThreadId, secondId != firstId else {
+            XCTFail("Expected a different second thread")
+            return
+        }
+        // Seed the second thread too
+        threadManager.chatViewModel(for: secondId)?.messages.append(ChatMessage(role: .user, text: "Seed"))
+
+        // Create a third thread (becomes active)
+        threadManager.createThread()
+        guard let thirdId = threadManager.activeThreadId, thirdId != secondId else {
+            XCTFail("Expected a different third thread")
+            return
+        }
+
+        // Mark first and second as unseen
+        if let idx = threadManager.threads.firstIndex(where: { $0.id == firstId }) {
+            threadManager.threads[idx].hasUnseenLatestAssistantMessage = true
+        }
+        if let idx = threadManager.threads.firstIndex(where: { $0.id == secondId }) {
+            threadManager.threads[idx].hasUnseenLatestAssistantMessage = true
+        }
+
+        XCTAssertEqual(threadManager.unseenVisibleConversationCount, 2)
+    }
+
+    func testSelectingThreadDecrementsUnseenCount() {
+        // Start with the initial thread
+        guard let firstId = threadManager.activeThreadId else {
+            XCTFail("Expected an initial active thread")
+            return
+        }
+        // Seed so createThread proceeds
+        threadManager.chatViewModel(for: firstId)?.messages.append(ChatMessage(role: .user, text: "Seed"))
+
+        // Create a second thread (becomes active)
+        threadManager.createThread()
+        guard let secondId = threadManager.activeThreadId, secondId != firstId else {
+            XCTFail("Expected a different second thread")
+            return
+        }
+
+        // Mark the first (inactive) thread as unseen and give it a sessionId
+        // (selectThread only clears unseen when sessionId is present)
+        if let idx = threadManager.threads.firstIndex(where: { $0.id == firstId }) {
+            threadManager.threads[idx].hasUnseenLatestAssistantMessage = true
+            threadManager.threads[idx].sessionId = "session-first"
+        }
+        XCTAssertEqual(threadManager.unseenVisibleConversationCount, 1)
+
+        // Select the unseen thread — should clear its unseen flag
+        threadManager.selectThread(id: firstId)
+        XCTAssertEqual(threadManager.unseenVisibleConversationCount, 0)
+    }
+
     func testActiveThreadAssistantReplyClearsUnseenAndEmitsSeenSignal() {
         guard let threadId = threadManager.activeThreadId,
               let index = threadManager.threads.firstIndex(where: { $0.id == threadId }),
