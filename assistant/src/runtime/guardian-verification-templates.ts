@@ -80,23 +80,23 @@ export interface ChannelVerifyReplyVars {
 
 const templates: Record<TextVerifyTemplateKey, (vars: GuardianVerifyTemplateVars) => string> = {
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST]: (_vars) => {
-    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given.';
+    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given, or use /guardian_verify <code>.';
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND]: (_vars) => {
-    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given. (resent)';
+    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given, or use /guardian_verify <code>. (resent)';
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED]: (_vars) => {
     return 'This channel is already verified. No further action is needed.';
   },
 
-  [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST]: (_vars) => {
-    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given.';
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST]: (vars) => {
+    return `Vellum assistant guardian verification requested. Your code is: ${vars.code}. Reply with this code or use /guardian_verify ${vars.code}`;
   },
 
-  [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND]: (_vars) => {
-    return 'Vellum assistant guardian verification requested. Reply with the 6-digit code you were given. (resent)';
+  [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND]: (vars) => {
+    return `Vellum assistant guardian verification requested. Your code is: ${vars.code}. Reply with this code or use /guardian_verify ${vars.code} (resent)`;
   },
 };
 
