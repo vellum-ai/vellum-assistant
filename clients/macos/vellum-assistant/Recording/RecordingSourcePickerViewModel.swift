@@ -130,14 +130,19 @@ final class RecordingSourcePickerViewModel: ObservableObject {
     /// Resize the picker window to fit the current number of source items.
     ///
     /// Keeps the window's top edge fixed while adjusting the height.
+    /// Converts the desired content height to frame height so the calculation
+    /// is correct regardless of title-bar style.
     func updateWindowSize() {
         guard let window = pickerWindow else { return }
         let sourceCount = captureScope == .display ? displays.count : windows.count
-        let idealHeight = Self.idealWindowHeight(sourceCount: sourceCount)
+        let idealContentHeight = Self.idealWindowHeight(sourceCount: sourceCount)
+
+        let contentRect = NSRect(x: 0, y: 0, width: window.frame.width, height: idealContentHeight)
+        let targetFrameHeight = window.frameRect(forContentRect: contentRect).height
 
         var frame = window.frame
-        frame.origin.y += frame.size.height - idealHeight
-        frame.size.height = idealHeight
+        frame.origin.y += frame.size.height - targetFrameHeight
+        frame.size.height = targetFrameHeight
         window.setFrame(frame, display: true, animate: true)
     }
 
