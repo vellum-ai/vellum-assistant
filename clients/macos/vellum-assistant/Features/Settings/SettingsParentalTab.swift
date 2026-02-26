@@ -460,7 +460,7 @@ struct SettingsParentalTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("When non-empty, only listed apps can be used in child mode. Leave empty to allow all apps.")
+            Text("Apps not on this list are blocked for the Child profile.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -481,7 +481,7 @@ struct SettingsParentalTab: View {
             }
 
             if allowedApps.isEmpty {
-                Text("No apps restricted — all apps allowed.")
+                Text("No apps allowed — all apps are blocked for the Child profile.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .textSelection(.enabled)
@@ -493,10 +493,16 @@ struct SettingsParentalTab: View {
                             .foregroundColor(VColor.textSecondary)
                             .textSelection(.enabled)
                         Spacer()
-                        VButton(label: "Remove", style: .danger) {
+                        // "×" button removes the app from the allowlist, effectively disallowing it
+                        Button {
                             let updated = allowedApps.filter { $0 != app }
                             updateAllowlist(apps: updated, widgets: nil)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(VColor.textMuted)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(app) from allowlist")
                         .disabled(isLoading)
                     }
                 }
@@ -514,7 +520,7 @@ struct SettingsParentalTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("When non-empty, only listed widgets can be used in child mode. Leave empty to allow all widgets.")
+            Text("Widgets not on this list are blocked for the Child profile.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -535,7 +541,7 @@ struct SettingsParentalTab: View {
             }
 
             if allowedWidgets.isEmpty {
-                Text("No widgets restricted — all widgets allowed.")
+                Text("No widgets allowed — all widgets are blocked for the Child profile.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .textSelection(.enabled)
@@ -547,10 +553,16 @@ struct SettingsParentalTab: View {
                             .foregroundColor(VColor.textSecondary)
                             .textSelection(.enabled)
                         Spacer()
-                        VButton(label: "Remove", style: .danger) {
+                        // "×" button removes the widget from the allowlist, effectively disallowing it
+                        Button {
                             let updated = allowedWidgets.filter { $0 != widget }
                             updateAllowlist(apps: nil, widgets: updated)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(VColor.textMuted)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(widget) from allowlist")
                         .disabled(isLoading)
                     }
                 }
