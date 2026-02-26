@@ -29,8 +29,12 @@ function atomicWriteFileSync(filePath: string, content: string): void {
       if (lstatSync(filePath, { throwIfNoEntry: false })?.isSymbolicLink()) {
         targetPath = realpathSync(filePath);
       }
-    } catch {
-      // Dangling symlink — fall back to writing through the symlink path
+    } catch (err: unknown) {
+      // Dangling symlink — fall back to writing through the symlink path.
+      // Only swallow ENOENT (dangling target); re-throw ELOOP, EACCES, I/O faults, etc.
+      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw err;
+      }
     }
     renameSync(tmpPath, targetPath);
   } catch (err) {
