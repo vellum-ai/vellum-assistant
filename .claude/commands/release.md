@@ -1,6 +1,6 @@
 Cut a new release by triggering the Release workflow via GitHub Actions workflow dispatch.
 
-The user may pass `$ARGUMENTS` as the version (e.g. `0.2.0` or `v0.2.0`). If not provided, auto-increment the patch version from the latest tag.
+The user may pass `$ARGUMENTS` as the bump type: `patch`, `minor`, or `major`. If not provided, default to `patch`.
 
 ## Steps
 
@@ -10,19 +10,31 @@ The user may pass `$ARGUMENTS` as the version (e.g. `0.2.0` or `v0.2.0`). If not
 git checkout main && git pull
 ```
 
-### 2. Determine the version
+### 2. Determine the bump + next version
 
-If the user provided `$ARGUMENTS`, use it as the version (strip leading `v` if present).
+If the user provided `$ARGUMENTS`, treat it as the bump type (`patch`, `minor`, or `major`). Otherwise default to `patch`.
 
-If no version was provided, find the latest tag and auto-increment the patch version:
+Compute the next version from the latest tag:
 
 ```bash
-git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"
+BUMP_TYPE="${ARGUMENTS:-patch}"
+LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+LATEST_VERSION=${LATEST_TAG#v}
+IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+
+case "$BUMP_TYPE" in
+  major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+  minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+  patch) PATCH=$((PATCH + 1)) ;;
+  *) echo "Invalid bump type: $BUMP_TYPE (expected patch|minor|major)"; exit 1 ;;
+esac
+
+NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+
+echo "About to release v$NEXT_VERSION (bump: $BUMP_TYPE, previous: $LATEST_TAG)"
 ```
 
-For example: `v0.1.1` → `v0.1.2`, `v1.2.3` → `v1.2.4`.
-
-Show the user the version you're about to release and ask for confirmation before proceeding.
+Ask for confirmation before proceeding.
 
 ### 3. Check for existing tag
 
@@ -38,7 +50,7 @@ If the tag already exists, stop and tell the user.
 gh workflow run release.yml \
   --repo vellum-ai/vellum-assistant \
   --ref main \
-  --field version=<version>
+  --field bump=<patch|minor|major>
 ```
 
 This triggers the unified Release workflow which automatically handles:
