@@ -1074,24 +1074,121 @@ struct MainWindowView: View {
         }
     }
 
-    // MARK: - Home Base Helpers
+    // MARK: - Pinned App Helpers
 
-    /// Whether the Home Base nav item should appear active.
-    private var homeBaseIsActive: Bool {
-        if case .app(let appId) = windowState.selection {
-            return appListManager.displayApps.first(where: { $0.id == appId })?.name.caseInsensitiveCompare("Home Base") == .orderedSame
+    /// A pinned app row for the expanded sidebar — small icon + app name.
+    @ViewBuilder
+    private func sidebarPinnedAppRow(_ app: AppListManager.AppItem) -> some View {
+        Button(action: {
+            windowState.selection = .app(app.id)
+            openAppInWorkspace(app: app)
+        }) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: app.sfSymbol ?? "square.grid.2x2")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
+                    .frame(width: 16, height: 16)
+                Text(app.name)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer()
+            }
+            .padding(.leading, VSpacing.md)
+            .padding(.trailing, VSpacing.sm)
+            .padding(.vertical, VSpacing.sm)
+            .background(
+                isAppSurfaceActive(appId: app.id)
+                    ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700)
+                    : sidebar.isHoveredApp == app.id
+                        ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700).opacity(0.5)
+                        : Color.clear
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
         }
-        return windowState.activePanel == .directory
+        .buttonStyle(.plain)
+        .padding(.horizontal, VSpacing.sm)
+        .onHover { hovering in
+            if hovering {
+                sidebar.isHoveredApp = app.id
+                NSCursor.pointingHand.push()
+            } else {
+                if sidebar.isHoveredApp == app.id { sidebar.isHoveredApp = nil }
+                NSCursor.pop()
+            }
+        }
+        .contextMenu {
+            Button(app.isPinned ? "Unpin" : "Pin to Top") {
+                if app.isPinned {
+                    appListManager.unpinApp(id: app.id)
+                } else {
+                    appListManager.pinApp(id: app.id)
+                }
+            }
+            Button("Open") {
+                openAppInWorkspace(app: app)
+            }
+            Divider()
+            Button("Remove from Recents", role: .destructive) {
+                appListManager.removeApp(id: app.id)
+            }
+        }
+        .draggable(app.id)
     }
 
-    /// Open the Home Base app directly, or show the directory as fallback.
-    private func openHomeBaseApp() {
-        if let homeBase = appListManager.displayApps.first(where: { $0.name.caseInsensitiveCompare("Home Base") == .orderedSame }) {
-            try? daemonClient.sendAppOpen(appId: homeBase.id)
-            windowState.selection = .app(homeBase.id)
-        } else {
-            // No Home Base app exists — fall back to directory
-            windowState.togglePanel(.directory)
+    /// A pinned app icon button for the collapsed sidebar.
+    @ViewBuilder
+    private func sidebarPinnedAppIcon(_ app: AppListManager.AppItem) -> some View {
+        Button(action: {
+            windowState.selection = .app(app.id)
+            openAppInWorkspace(app: app)
+        }) {
+            Image(systemName: app.sfSymbol ?? "square.grid.2x2")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
+                .frame(width: 18)
+                .padding(.vertical, VSpacing.sm)
+                .frame(maxWidth: .infinity)
+                .background(
+                    isAppSurfaceActive(appId: app.id)
+                        ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700)
+                        : sidebar.isHoveredApp == app.id
+                            ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700).opacity(0.5)
+                            : Color.clear
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, VSpacing.xs)
+        .help(app.name)
+        .accessibilityLabel(app.name)
+        .onHover { hovering in
+            if hovering {
+                sidebar.isHoveredApp = app.id
+                NSCursor.pointingHand.push()
+            } else {
+                if sidebar.isHoveredApp == app.id { sidebar.isHoveredApp = nil }
+                NSCursor.pop()
+            }
+        }
+        .contextMenu {
+            Button(app.isPinned ? "Unpin" : "Pin to Top") {
+                if app.isPinned {
+                    appListManager.unpinApp(id: app.id)
+                } else {
+                    appListManager.pinApp(id: app.id)
+                }
+            }
+            Button("Open") {
+                openAppInWorkspace(app: app)
+            }
+            Divider()
+            Button("Remove from Recents", role: .destructive) {
+                appListManager.removeApp(id: app.id)
+            }
         }
     }
 
@@ -1100,10 +1197,24 @@ struct MainWindowView: View {
         VStack(spacing: VSpacing.sm) {
             Spacer().frame(height: 0)
 
-            // MARK: Nav Items (fixed)
-            SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: homeBaseIsActive) {
-                openHomeBaseApp()
+            // MARK: Pinned Apps (above nav items)
+            if !appListManager.pinnedApps.isEmpty {
+                ScrollView {
+                    VStack(spacing: VSpacing.sm) {
+                        ForEach(appListManager.pinnedApps) { app in
+                            sidebarPinnedAppRow(app)
+                        }
+                    }
+                }
+                .frame(maxHeight: 200)
+
+                VColor.divider
+                    .frame(height: 1)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
             }
+
+            // MARK: Nav Items (fixed)
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence) {
                 windowState.togglePanel(.intelligence)
             }
@@ -1212,9 +1323,22 @@ struct MainWindowView: View {
         VStack(spacing: VSpacing.sm) {
             Spacer().frame(height: 0)
 
-            SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: homeBaseIsActive, isExpanded: false) {
-                openHomeBaseApp()
+            // MARK: Pinned Apps (collapsed)
+            if !appListManager.pinnedApps.isEmpty {
+                ScrollView {
+                    VStack(spacing: VSpacing.sm) {
+                        ForEach(appListManager.pinnedApps) { app in
+                            sidebarPinnedAppIcon(app)
+                        }
+                    }
+                }
+                .frame(maxHeight: 200)
+
+                VColor.divider
+                    .frame(height: 1)
+                    .padding(.horizontal, VSpacing.xs)
             }
+
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
                 windowState.togglePanel(.intelligence)
             }
