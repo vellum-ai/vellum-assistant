@@ -172,14 +172,12 @@ The guardian system adds a cryptographic trust layer for channel-based interacti
 
 All channel ingress paths canonicalize the `assistantId` via `normalizeAssistantId()` (from `util/platform.ts`) before any DB operations. The system uses `"self"` as the canonical single-tenant identifier, but callers may pass the real assistant name (e.g., `"vellum-true-eel"`) or `"self"` depending on context. `normalizeAssistantId()` maps any known lockfile assistant ID to `"self"`, ensuring consistent DB key usage regardless of how the caller identifies the assistant. This canonicalization runs at every ingress boundary: the guardian IPC handler (`config-channels.ts`), the guardian context resolver, the relay server, and the inbound message handler.
 
-#### Guardian Verify Command Parsing
+#### Guardian Verify Code Parsing
 
-The `/guardian_verify` command supports two formats to accommodate Telegram's bot command convention:
+The inbound message handler (`inbound-message-handler.ts`) accepts verification codes in two formats:
 
-- `/guardian_verify <code>` -- standard format
-- `/guardian_verify@BotName <code>` -- Telegram auto-appends the bot's username to commands in group chats
-
-The inbound message handler (`inbound-message-handler.ts`) normalizes both formats: it strips the `@BotName` suffix and collapses whitespace before extracting the verification token. This means users can verify from group chats without needing to manually edit the command.
+- **Bare code**: A 64-character hex string (SMS/Telegram) or 6-digit numeric code (voice) sent as the entire message body. This is the primary flow — the user receives a channel message asking them to reply with the code they were given, and simply replies with the code.
+- **Legacy command**: `/guardian_verify <code>` (or `/guardian_verify@BotName <code>` for Telegram group chats). This format is still accepted for backward compatibility but is no longer the recommended flow.
 
 #### Explicit Rebind Policy
 
@@ -204,8 +202,8 @@ sequenceDiagram
     Desktop->>Daemon: guardian_verify IPC (action: create_challenge)
     Daemon->>Daemon: Generate random secret, hash (SHA-256), store challenge (10min TTL)
     Daemon-->>Desktop: Return secret + instruction
-    Desktop-->>User: Display: "Send /guardian_verify <secret> to the bot"
-    User->>TG: /guardian_verify <secret>
+    Desktop-->>User: Display verification code
+    User->>TG: <replies with code>
     TG->>GW: POST /webhooks/telegram (webhook secret validated)
     GW->>GW: Verify webhook secret, normalize update
     GW->>Daemon: POST /v1/channels/inbound (X-Gateway-Origin proof)
@@ -218,7 +216,7 @@ sequenceDiagram
     GW->>TG: sendMessage: "You are now the guardian"
 ```
 
-The raw secret is shown only once in the desktop UI. Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused. Rate limiting (5 invalid attempts per 15-minute window, 30-minute lockout) protects against brute-force attacks.
+The raw secret is shown only once in the desktop UI and delivered to the channel in an outbound message prompting the user to reply with it. Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused. Rate limiting (5 invalid attempts per 15-minute window, 30-minute lockout) protects against brute-force attacks.
 
 #### Inbound Message Decision Chain
 
@@ -248,13 +246,13 @@ flowchart TD
     HAS_BINDING -- No --> DENY_ESCALATE["Deny: escalate_no_guardian"]
     HAS_BINDING -- Yes --> CREATE_APPROVAL["Create approval request<br/>+ notify guardian (dual-surface)"]
 
-    ESCALATE_CHECK -- No --> VERIFY_CHECK{"Starts with<br/>/guardian_verify?"}
+    ESCALATE_CHECK -- No --> VERIFY_CHECK{"Guardian verify<br/>code or command?"}
     VERIFY_CHECK -- Yes --> VERIFY["Validate challenge<br/>→ create guardian binding"]
     VERIFY_CHECK -- No --> ROLE_RESOLVE["Resolve actor role<br/>(guardian-context-resolver)"]
     ROLE_RESOLVE --> APPROVAL_INTERCEPT["Approval interception<br/>+ message processing"]
 ```
 
-This ordering ensures that ingress ACL decisions are finalized before any agent processing occurs. The `/guardian_verify` command is intercepted after ACL enforcement but before the agent loop, so it never triggers inference.
+This ordering ensures that ingress ACL decisions are finalized before any agent processing occurs. Guardian verification codes (bare codes or the legacy `/guardian_verify` command) are intercepted after ACL enforcement but before the agent loop, so they never trigger inference.
 
 #### Actor Role Resolution
 

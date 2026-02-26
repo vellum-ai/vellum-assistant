@@ -119,19 +119,17 @@ export function createVerificationChallenge(
     createdBySessionId: sessionId,
   });
 
-  const verifyCommand = `/guardian_verify ${secret}`;
   const ttlSeconds = CHALLENGE_TTL_MS / 1000;
 
   return {
     challengeId,
     secret,
-    verifyCommand,
+    verifyCommand: secret,
     ttlSeconds,
     instruction: composeApprovalMessage({
       scenario: 'guardian_verify_challenge_setup',
       channel,
-      verifyCommand,
-      ttlSeconds,
+      verifyCommand: secret,
     }),
   };
 }
