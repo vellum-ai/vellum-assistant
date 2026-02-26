@@ -1881,16 +1881,29 @@ public final class ChatViewModel: ObservableObject {
             let toolsBeforeText = item.toolCallsBeforeText ?? true
             if let historyToolCalls = item.toolCalls {
                 toolCalls = historyToolCalls.map { tc in
+                    // Truncate tool result for memory safety
+                    let truncatedResult: String? = {
+                        guard let result = tc.result else { return nil }
+                        return result.count > 2000 ? String(result.prefix(2000)) + "...[truncated]" : result
+                    }()
+
+                    // Discard base64 image data that fails to decode — don't retain failed base64
+                    let validImageData: String? = {
+                        guard let imgData = tc.imageData else { return nil }
+                        let decoded = ToolCallData.decodeImage(from: imgData)
+                        return decoded != nil ? imgData : nil
+                    }()
+
                     var toolCall = ToolCallData(
                         toolName: tc.name,
                         inputSummary: summarizeToolInput(tc.input),
                         inputFull: "",
                         inputRawValue: extractToolInput(tc.input),
-                        result: tc.result,
+                        result: truncatedResult,
                         isError: tc.isError ?? false,
                         isComplete: true,
                         arrivedBeforeText: toolsBeforeText,
-                        imageData: tc.imageData
+                        imageData: validImageData
                     )
                     // Defer expensive formatting — store the raw dict for lazy computation
                     // when the user expands the tool call chip. Cap the raw dict size
