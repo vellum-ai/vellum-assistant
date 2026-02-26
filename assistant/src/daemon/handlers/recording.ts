@@ -456,8 +456,10 @@ async function handleRecordingStatus(
       log.info({ recordingId, conversationId }, 'Standalone recording confirmed started by client');
 
       // If this was part of a restart cycle, clear the pending restart state
-      // now that the new recording has successfully started.
-      if (activeRestartToken && pendingRestartByConversation.get(conversationId) === activeRestartToken) {
+      // now that the new recording has successfully started. Gate on matching
+      // operationToken to prevent a stale tokenless 'started' from an old
+      // recording from prematurely clearing the restart state.
+      if (activeRestartToken && msg.operationToken === activeRestartToken && pendingRestartByConversation.get(conversationId) === activeRestartToken) {
         pendingRestartByConversation.delete(conversationId);
         activeRestartToken = null;
         log.info({ recordingId, conversationId }, 'Restart cycle complete — new recording started');

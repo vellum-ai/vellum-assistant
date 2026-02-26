@@ -98,6 +98,7 @@ extension AppDelegate {
                         type: "recording_status",
                         sessionId: recordingId,
                         status: "restart_cancelled",
+                        attachToConversationId: attachToConversationId,
                         operationToken: operationToken
                     )
                     try? self?.daemonClient.send(statusMsg)
