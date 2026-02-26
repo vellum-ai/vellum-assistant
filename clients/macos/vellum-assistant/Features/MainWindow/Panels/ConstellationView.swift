@@ -142,27 +142,66 @@ func inferCategory(_ skill: SkillInfo) -> SkillCategory {
     return .knowledge
 }
 
-// MARK: - Radial Node Types
+// MARK: - Sub-Category Definitions
 
-/// Represents a node positioned in the radial graph layout.
-private struct RadialNode: Identifiable {
-    let id: String
-    let position: CGPoint
-    let kind: RadialNodeKind
+private struct SubCategoryDef {
+    let label: String
+    let emoji: String
+    let skillIds: Set<String>
 }
 
-private enum RadialNodeKind {
+private let subCategoryMap: [SkillCategory: [SubCategoryDef]] = [
+    .communication: [
+        SubCategoryDef(label: "Messaging", emoji: "\u{1F4AC}", skillIds: ["messaging", "agentmail", "email-setup"]),
+        SubCategoryDef(label: "Calling", emoji: "\u{1F4DE}", skillIds: ["phone-calls", "notifications"]),
+        SubCategoryDef(label: "People", emoji: "\u{1F465}", skillIds: ["contacts", "followups"]),
+    ],
+    .productivity: [
+        SubCategoryDef(label: "Planning", emoji: "\u{1F4C5}", skillIds: ["google-calendar", "schedule", "reminder"]),
+        SubCategoryDef(label: "Work", emoji: "\u{1F4CB}", skillIds: ["document", "tasks", "playbooks"]),
+    ],
+    .development: [
+        SubCategoryDef(label: "Coding", emoji: "\u{1F4BB}", skillIds: ["claude-code", "typescript-eval", "frontend-design"]),
+        SubCategoryDef(label: "Dev Tools", emoji: "\u{1F527}", skillIds: ["api-mapping", "cli-discover", "subagent", "app-builder"]),
+    ],
+    .automation: [
+        SubCategoryDef(label: "Control", emoji: "\u{1F3AE}", skillIds: ["computer-use", "macos-automation", "browser"]),
+        SubCategoryDef(label: "Triggers", emoji: "\u{23F0}", skillIds: ["watcher", "time-based-actions"]),
+    ],
+    .webSocial: [
+        SubCategoryDef(label: "Social", emoji: "\u{1F4F1}", skillIds: ["twitter", "influencer"]),
+        SubCategoryDef(label: "Services", emoji: "\u{1F6D2}", skillIds: ["amazon", "doordash", "restaurant-reservation"]),
+    ],
+    .knowledge: [
+        SubCategoryDef(label: "Learning", emoji: "\u{1F9E0}", skillIds: ["knowledge-graph", "skills-catalog", "self-upgrade"]),
+        SubCategoryDef(label: "Daily", emoji: "\u{2600}\u{FE0F}", skillIds: ["start-the-day", "weather"]),
+    ],
+]
+
+// MARK: - Tree Node Types
+
+private enum TreeNodeKind {
+    case center
     case category(SkillCategory)
+    case subCategory(label: String, emoji: String, category: SkillCategory)
     case skill(OrbitItem)
+}
+
+private struct TreeNode: Identifiable {
+    let id: String
+    let kind: TreeNodeKind
+    let parentId: String?
+    let depth: Int // 0=center, 1=category, 2=subCategory or skill, 3=skill under subCategory
+    var position: CGPoint
+    let radius: CGFloat
 }
 
 // MARK: - Edge Line
 
-/// Represents a connection line between two nodes.
 private struct EdgeLine: Identifiable {
     let id: String
-    let from: CGPoint
-    let to: CGPoint
+    let fromId: String
+    let toId: String
     let color: Color
 }
 
@@ -175,15 +214,17 @@ private struct CategoryNodeView: View {
     @State private var isHovered = false
 
     var body: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: 4) {
             Image(systemName: category.icon)
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: 24, weight: .bold))
                 .foregroundColor(category.color)
 
             Text(category.displayName)
-                .font(VFont.captionMedium)
+                .font(VFont.bodyMedium)
                 .foregroundColor(VColor.textPrimary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: size * 0.85)
         }
         .frame(width: size, height: size)
         .background(
@@ -193,6 +234,50 @@ private struct CategoryNodeView: View {
         .overlay(
             Circle()
                 .stroke(category.color.opacity(isHovered ? 0.85 : 0.55), lineWidth: isHovered ? 2.5 : 2)
+        )
+        .clipShape(Circle())
+        .contentShape(Circle())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
+// MARK: - Sub-Category Node View
+
+private struct SubCategoryNodeView: View {
+    let label: String
+    let emoji: String
+    let category: SkillCategory
+    let size: CGFloat
+
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(emoji)
+                .font(.system(size: 16))
+
+            Text(label)
+                .font(VFont.small)
+                .foregroundColor(VColor.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: size * 0.85)
+        }
+        .frame(width: size, height: size)
+        .background(
+            Circle()
+                .fill(category.color.opacity(isHovered ? 0.20 : 0.10))
+        )
+        .overlay(
+            Circle()
+                .stroke(
+                    category.color.opacity(isHovered ? 0.70 : 0.40),
+                    style: StrokeStyle(lineWidth: isHovered ? 2 : 1.5, dash: [6, 4])
+                )
         )
         .clipShape(Circle())
         .contentShape(Circle())
@@ -216,22 +301,23 @@ private struct SkillNodeView: View {
     private var isTappable: Bool { onTap != nil }
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 3) {
             if let emoji = item.emoji, !emoji.isEmpty {
                 Text(emoji)
-                    .font(.system(size: 18))
+                    .font(.system(size: 22))
             } else {
                 Image(systemName: item.icon)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: 18, weight: .medium))
                     .foregroundColor(item.color)
             }
 
             Text(item.label)
-                .font(VFont.small)
+                .font(VFont.caption)
                 .foregroundColor(VColor.textPrimary)
-                .lineLimit(1)
+                .lineLimit(2)
                 .truncationMode(.tail)
-                .frame(maxWidth: size * 0.85)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: size * 0.82)
         }
         .frame(width: size, height: size)
         .background(
@@ -274,10 +360,16 @@ private enum AnimationPhase: Equatable {
     case hidden
     case center
     case categories
+    case subCategories
     case complete
 
     var centerVisible: Bool { self != .hidden }
-    var categoriesVisible: Bool { self == .categories || self == .complete }
+    var categoriesVisible: Bool {
+        self == .categories || self == .subCategories || self == .complete
+    }
+    var subCategoriesVisible: Bool {
+        self == .subCategories || self == .complete
+    }
     var skillsVisible: Bool { self == .complete }
 }
 
@@ -337,6 +429,263 @@ private struct SkillPopoverView: View {
     }
 }
 
+// MARK: - Overlap Resolution
+
+/// Pushes a proposed position away from any overlapping existing nodes.
+/// Iterates until no overlaps remain or max attempts reached.
+private func resolveOverlap(
+    proposed: CGPoint,
+    nodeRadius: CGFloat,
+    existingNodes: [TreeNode],
+    gap: CGFloat
+) -> CGPoint {
+    var pos = proposed
+
+    for _ in 0..<30 {
+        var worstOverlap: CGFloat = 0
+        var pushX: CGFloat = 0
+        var pushY: CGFloat = 0
+
+        for existing in existingNodes {
+            let dx = pos.x - existing.position.x
+            let dy = pos.y - existing.position.y
+            let dist = sqrt(dx * dx + dy * dy)
+            let minDist = nodeRadius + existing.radius + gap
+            let overlap = minDist - dist
+            if overlap > worstOverlap {
+                worstOverlap = overlap
+                if dist < 0.1 {
+                    // Coincident nodes — push in an arbitrary direction
+                    pushX = overlap + 1
+                    pushY = 0
+                } else {
+                    // Push directly away from the overlapping node
+                    pushX = dx / dist * (overlap + 1)
+                    pushY = dy / dist * (overlap + 1)
+                }
+            }
+        }
+
+        if worstOverlap <= 0 { break }
+        pos.x += pushX
+        pos.y += pushY
+    }
+
+    return pos
+}
+
+// MARK: - Hierarchical Radial Tree Layout
+
+/// Builds a deterministic hierarchical radial tree from category groups.
+/// Each category's subtree stays within its angular sector to prevent cross-category overlap.
+/// Skills are placed in compact grids extending outward from their parent.
+/// Every node is checked against all previously-placed nodes to prevent overlap.
+private func buildTree(center: CGPoint, groups: [CategoryGroup]) -> (nodes: [TreeNode], edges: [EdgeLine]) {
+    var nodes: [TreeNode] = []
+    var edges: [EdgeLine] = []
+
+    let centerSize: CGFloat = 90
+    let catSize: CGFloat = 80
+    let subCatSize: CGFloat = 56
+    let skillSize: CGFloat = 64
+    let nodeGap: CGFloat = 10
+
+    let centerToCatRadius: CGFloat = 200
+    let catToSubCatRadius: CGFloat = 110
+    let skillOutwardDist: CGFloat = 90
+
+    // Center node
+    nodes.append(TreeNode(
+        id: "__center__",
+        kind: .center,
+        parentId: nil,
+        depth: 0,
+        position: center,
+        radius: centerSize / 2
+    ))
+
+    guard !groups.isEmpty else { return (nodes, edges) }
+
+    let catCount = groups.count
+    let sectorAngle = 2 * .pi / CGFloat(catCount)
+
+    for (catIdx, group) in groups.enumerated() {
+        let catAngle = -.pi / 2 + CGFloat(catIdx) * sectorAngle
+
+        let catId = "cat-\(group.category.rawValue)"
+        let catPos = resolveOverlap(
+            proposed: CGPoint(
+                x: center.x + centerToCatRadius * cos(catAngle),
+                y: center.y + centerToCatRadius * sin(catAngle)
+            ),
+            nodeRadius: catSize / 2,
+            existingNodes: nodes,
+            gap: nodeGap
+        )
+
+        nodes.append(TreeNode(
+            id: catId,
+            kind: .category(group.category),
+            parentId: "__center__",
+            depth: 1,
+            position: catPos,
+            radius: catSize / 2
+        ))
+
+        edges.append(EdgeLine(
+            id: "edge-center-\(group.category.rawValue)",
+            fromId: "__center__",
+            toId: catId,
+            color: group.category.color
+        ))
+
+        if let subCats = subCategoryMap[group.category], !subCats.isEmpty {
+            var subGroupItems: [(def: SubCategoryDef, items: [OrbitItem])] = []
+            var assignedIds: Set<String> = []
+
+            for subCat in subCats {
+                let matching = group.items.filter { subCat.skillIds.contains($0.id) }
+                if !matching.isEmpty {
+                    subGroupItems.append((def: subCat, items: matching))
+                    matching.forEach { assignedIds.insert($0.id) }
+                }
+            }
+
+            let unmatched = group.items.filter { !assignedIds.contains($0.id) }
+            if !unmatched.isEmpty {
+                if subGroupItems.isEmpty {
+                    placeSkillCluster(
+                        items: group.items, parentId: catId, parentPos: catPos,
+                        outwardAngle: catAngle, outwardDist: skillOutwardDist,
+                        childSize: skillSize, gap: nodeGap, depth: 2,
+                        category: group.category, edgePrefix: group.category.rawValue,
+                        nodes: &nodes, edges: &edges
+                    )
+                    continue
+                } else {
+                    subGroupItems[subGroupItems.count - 1].items.append(contentsOf: unmatched)
+                }
+            }
+
+            // Subcategory spread: use 55% of sector to leave gap between adjacent categories
+            let subCatCount = subGroupItems.count
+            let maxSubSpread = sectorAngle * 0.55
+            let subSpread: CGFloat = subCatCount <= 1 ? 0 : min(maxSubSpread, CGFloat(subCatCount - 1) * 0.35)
+
+            for (subIdx, subGroup) in subGroupItems.enumerated() {
+                let subAngle: CGFloat
+                if subCatCount == 1 {
+                    subAngle = catAngle
+                } else {
+                    let t = CGFloat(subIdx) / CGFloat(subCatCount - 1) - 0.5
+                    subAngle = catAngle + t * subSpread * 2
+                }
+
+                let subCatId = "subcat-\(group.category.rawValue)-\(subIdx)"
+                let subCatPos = resolveOverlap(
+                    proposed: CGPoint(
+                        x: catPos.x + catToSubCatRadius * cos(subAngle),
+                        y: catPos.y + catToSubCatRadius * sin(subAngle)
+                    ),
+                    nodeRadius: subCatSize / 2,
+                    existingNodes: nodes,
+                    gap: nodeGap
+                )
+
+                nodes.append(TreeNode(
+                    id: subCatId,
+                    kind: .subCategory(label: subGroup.def.label, emoji: subGroup.def.emoji, category: group.category),
+                    parentId: catId,
+                    depth: 2,
+                    position: subCatPos,
+                    radius: subCatSize / 2
+                ))
+
+                edges.append(EdgeLine(
+                    id: "edge-\(group.category.rawValue)-sub-\(subIdx)",
+                    fromId: catId,
+                    toId: subCatId,
+                    color: group.category.color
+                ))
+
+                placeSkillCluster(
+                    items: subGroup.items, parentId: subCatId, parentPos: subCatPos,
+                    outwardAngle: subAngle, outwardDist: skillOutwardDist,
+                    childSize: skillSize, gap: nodeGap, depth: 3,
+                    category: group.category, edgePrefix: subCatId,
+                    nodes: &nodes, edges: &edges
+                )
+            }
+        } else {
+            placeSkillCluster(
+                items: group.items, parentId: catId, parentPos: catPos,
+                outwardAngle: catAngle, outwardDist: skillOutwardDist,
+                childSize: skillSize, gap: nodeGap, depth: 2,
+                category: group.category, edgePrefix: group.category.rawValue,
+                nodes: &nodes, edges: &edges
+            )
+        }
+    }
+
+    return (nodes, edges)
+}
+
+/// Place skill nodes in a compact cluster extending outward from their parent.
+/// Items wrap into rows of 3, each row extending further outward, with staggering
+/// to create a tight hex-grid-like packing. Each node is checked for overlap with
+/// all previously-placed nodes and pushed away if necessary.
+private func placeSkillCluster(
+    items: [OrbitItem], parentId: String, parentPos: CGPoint,
+    outwardAngle: CGFloat, outwardDist: CGFloat,
+    childSize: CGFloat, gap: CGFloat, depth: Int,
+    category: SkillCategory, edgePrefix: String,
+    nodes: inout [TreeNode], edges: inout [EdgeLine]
+) {
+    guard !items.isEmpty else { return }
+
+    let spacing = childSize + gap
+    let outX = cos(outwardAngle)
+    let outY = sin(outwardAngle)
+    let perpX = -outY
+    let perpY = outX
+
+    // Max 3 per row to keep perpendicular spread narrow
+    let maxPerRow = 3
+    let rowDepthGap = spacing * 0.88
+
+    for (idx, item) in items.enumerated() {
+        let row = idx / maxPerRow
+        let col = idx % maxPerRow
+        let colsInRow = min(maxPerRow, items.count - row * maxPerRow)
+
+        let perpOffset = (CGFloat(col) - CGFloat(colsInRow - 1) / 2) * spacing
+        // Stagger odd rows by half-spacing for hex packing
+        let stagger: CGFloat = (row % 2 == 1 && colsInRow < maxPerRow) ? spacing * 0.5 : 0
+        let outOffset = outwardDist + CGFloat(row) * rowDepthGap
+
+        let proposed = CGPoint(
+            x: parentPos.x + outOffset * outX + (perpOffset + stagger) * perpX,
+            y: parentPos.y + outOffset * outY + (perpOffset + stagger) * perpY
+        )
+
+        let pos = resolveOverlap(
+            proposed: proposed,
+            nodeRadius: childSize / 2,
+            existingNodes: nodes,
+            gap: gap
+        )
+
+        nodes.append(TreeNode(
+            id: item.id, kind: .skill(item), parentId: parentId,
+            depth: depth, position: pos, radius: childSize / 2
+        ))
+        edges.append(EdgeLine(
+            id: "edge-\(edgePrefix)-skill-\(idx)",
+            fromId: parentId, toId: item.id, color: category.color
+        ))
+    }
+}
+
 // MARK: - Constellation View
 
 struct ConstellationView: View {
@@ -355,12 +704,22 @@ struct ConstellationView: View {
     @State private var selectedSkillItem: OrbitItem?
     @State private var selectedNodeId: String?
 
-    // Radial layout constants
-    private let categoryRadius: CGFloat = 180
-    private let skillRadiusBase: CGFloat = 120
-    private let categoryNodeSize: CGFloat = 60
-    private let skillNodeSize: CGFloat = 44
-    private let centerAvatarSize: CGFloat = 80
+    // Node sizes
+    private let categoryNodeSize: CGFloat = 80
+    private let skillNodeSize: CGFloat = 64
+    private let centerAvatarSize: CGFloat = 90
+    private let subCatNodeSize: CGFloat = 56
+
+    /// Tree layout positions, keyed by node ID.
+    @State private var treePositions: [String: CGPoint] = [:]
+    /// Tree nodes for rendering.
+    @State private var treeNodes: [TreeNode] = []
+    /// Tree edges for rendering.
+    @State private var treeEdges: [EdgeLine] = []
+    /// Per-node drag offsets keyed by node ID.
+    @State private var nodeDragOffsets: [String: CGSize] = [:]
+    /// Accumulated drag offset for the node currently being dragged.
+    @State private var activeNodeDrag: (id: String, offset: CGSize)?
 
     private var existingFiles: [WorkspaceFileNode] {
         workspaceFiles.filter { $0.exists }
@@ -379,9 +738,8 @@ struct ConstellationView: View {
         var categoryMap: [SkillCategory: [OrbitItem]] = [:]
         for skill in skills {
             let cat = inferCategory(skill)
-            let idx = categoryMap[cat]?.count ?? 0
             let item = OrbitItem(
-                id: "\(cat.rawValue)-\(idx)",
+                id: skill.id,
                 label: skill.name,
                 icon: cat.icon,
                 emoji: skill.emoji,
@@ -407,111 +765,72 @@ struct ConstellationView: View {
         return result
     }
 
-    /// Computes the angular span allocated to each category based on its skill count,
-    /// ensuring categories with more skills get proportionally more space to avoid overlaps.
-    private func categoryAngles(for groups: [CategoryGroup]) -> [(group: CategoryGroup, angle: CGFloat)] {
-        guard !groups.isEmpty else { return [] }
-
-        let totalItems = groups.reduce(0) { $0 + max($1.items.count, 1) }
-        var result: [(group: CategoryGroup, angle: CGFloat)] = []
-        var currentAngle: CGFloat = -.pi / 2 // Start from top
-
-        for group in groups {
-            let weight = CGFloat(max(group.items.count, 1)) / CGFloat(totalItems)
-            let sectorAngle = weight * 2 * .pi
-            let midAngle = currentAngle + sectorAngle / 2
-            result.append((group: group, angle: midAngle))
-            currentAngle += sectorAngle
+    /// Computes tree layout synchronously and populates all state vars.
+    private func computeLayout(center: CGPoint) {
+        let result = buildTree(center: center, groups: groups)
+        treeNodes = result.nodes
+        treeEdges = result.edges
+        var positions: [String: CGPoint] = [:]
+        for node in result.nodes {
+            positions[node.id] = node.position
         }
-
-        return result
+        treePositions = positions
     }
 
-    /// Builds the full set of radial nodes and edge lines for the graph.
-    private func buildGraph(center: CGPoint) -> (nodes: [RadialNode], edges: [EdgeLine]) {
-        let layoutGroups = groups
-        let angles = categoryAngles(for: layoutGroups)
-        var nodes: [RadialNode] = []
-        var edges: [EdgeLine] = []
+    /// Recomputes layout and runs the staggered reveal animation.
+    private func layoutAndAnimate(viewSize: CGSize) {
+        let center = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        computeLayout(center: center)
+        nodeDragOffsets.removeAll()
+        activeNodeDrag = nil
 
-        for entry in angles {
-            let group = entry.group
-            let angle = entry.angle
-
-            // Category node position on the first ring
-            let catX = center.x + categoryRadius * cos(angle)
-            let catY = center.y + categoryRadius * sin(angle)
-            let catPos = CGPoint(x: catX, y: catY)
-
-            nodes.append(RadialNode(
-                id: "cat-\(group.category.rawValue)",
-                position: catPos,
-                kind: .category(group.category)
-            ))
-
-            // Edge from center to category
-            edges.append(EdgeLine(
-                id: "edge-center-\(group.category.rawValue)",
-                from: center,
-                to: catPos,
-                color: group.category.color
-            ))
-
-            // Skill nodes fanned around their parent category
-            let itemCount = group.items.count
-            guard itemCount > 0 else { continue }
-
-            // Calculate the angular sector this category owns
-            let totalItems = layoutGroups.reduce(0) { $0 + max($1.items.count, 1) }
-            let sectorWeight = CGFloat(max(itemCount, 1)) / CGFloat(totalItems)
-            let sectorAngle = sectorWeight * 2 * .pi
-
-            // Fan spread: use most of the sector but leave some padding
-            let fanSpread = min(sectorAngle * 0.75, CGFloat(itemCount - 1) * 0.35 + 0.1)
-
-            // Determine skill radius — push outward slightly for larger groups
-            let skillRadius = skillRadiusBase + CGFloat(min(itemCount, 8)) * 5
-
-            for (skillIdx, item) in group.items.enumerated() {
-                let skillAngle: CGFloat
-                if itemCount == 1 {
-                    // Single skill: place directly outward from category
-                    skillAngle = angle
-                } else {
-                    // Distribute evenly within the fan
-                    let t = CGFloat(skillIdx) / CGFloat(itemCount - 1) - 0.5
-                    skillAngle = angle + t * fanSpread
-                }
-
-                let skillX = catX + skillRadius * cos(skillAngle)
-                let skillY = catY + skillRadius * sin(skillAngle)
-                let skillPos = CGPoint(x: skillX, y: skillY)
-
-                nodes.append(RadialNode(
-                    id: item.id,
-                    position: skillPos,
-                    kind: .skill(item)
-                ))
-
-                // Edge from category to skill
-                edges.append(EdgeLine(
-                    id: "edge-\(group.category.rawValue)-\(skillIdx)",
-                    from: catPos,
-                    to: skillPos,
-                    color: group.category.color
-                ))
+        // Reset animation phase and stagger reveal
+        phase = .hidden
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                phase = .center
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                phase = .categories
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                phase = .subCategories
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                phase = .complete
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            fitAll(viewSize: viewSize)
+        }
+    }
 
-        return (nodes, edges)
+    /// Returns the effective position for a node, using tree positions + drag offset.
+    private func effectivePosition(forId nodeId: String) -> CGPoint {
+        let base = treePositions[nodeId] ?? .zero
+        let stored = nodeDragOffsets[nodeId] ?? .zero
+        let active = (activeNodeDrag?.id == nodeId) ? activeNodeDrag!.offset : .zero
+        return CGPoint(
+            x: base.x + (stored.width + active.width) / zoomScale,
+            y: base.y + (stored.height + active.height) / zoomScale
+        )
     }
 
     /// Computes zoom and pan to fit all nodes in the viewport with padding.
     private func fitAll(viewSize: CGSize) {
         let center = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-        let graph = buildGraph(center: center)
 
-        guard !graph.nodes.isEmpty else {
+        if treePositions.isEmpty {
+            computeLayout(center: center)
+        }
+
+        guard !treePositions.isEmpty else {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
                 zoomScale = 1.0
                 baseZoomScale = 1.0
@@ -526,20 +845,14 @@ struct ConstellationView: View {
         var minY = CGFloat.infinity
         var maxY = -CGFloat.infinity
 
-        for node in graph.nodes {
-            minX = min(minX, node.position.x)
-            maxX = max(maxX, node.position.x)
-            minY = min(minY, node.position.y)
-            maxY = max(maxY, node.position.y)
+        for (_, pos) in treePositions {
+            minX = min(minX, pos.x)
+            maxX = max(maxX, pos.x)
+            minY = min(minY, pos.y)
+            maxY = max(maxY, pos.y)
         }
 
-        // Include center point
-        minX = min(minX, center.x)
-        maxX = max(maxX, center.x)
-        minY = min(minY, center.y)
-        maxY = max(maxY, center.y)
-
-        let padding: CGFloat = 80
+        let padding: CGFloat = 120
         let contentWidth = (maxX - minX) + padding * 2
         let contentHeight = (maxY - minY) + padding * 2
 
@@ -561,6 +874,22 @@ struct ConstellationView: View {
             panOffset = CGSize(width: targetPanX, height: targetPanY)
             dragOffset = .zero
         }
+    }
+
+    /// Shared drag gesture for any draggable node.
+    private func nodeDragGesture(nodeId: String) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                activeNodeDrag = (id: nodeId, offset: value.translation)
+            }
+            .onEnded { value in
+                let prev = nodeDragOffsets[nodeId] ?? .zero
+                nodeDragOffsets[nodeId] = CGSize(
+                    width: prev.width + value.translation.width,
+                    height: prev.height + value.translation.height
+                )
+                activeNodeDrag = nil
+            }
     }
 
     var body: some View {
@@ -586,21 +915,17 @@ struct ConstellationView: View {
                         }
                 }
 
-                // Skill popover overlay — derive position from current layout so it
-                // tracks the node even after panel resize or recenter.
+                // Skill popover overlay
                 if let selected = selectedSkillItem, let nodeId = selectedNodeId {
                     let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let currentGraph = buildGraph(center: canvasCenter)
+                    let nodePos = effectivePosition(forId: nodeId)
+                    let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    let scaledX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
+                    let scaledY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
 
-                    if let nodePos = currentGraph.nodes.first(where: { $0.id == nodeId })?.position {
-                        let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                        let scaledX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
-                        let scaledY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
-
-                        SkillPopoverView(item: selected)
-                            .position(x: scaledX, y: scaledY)
-                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                    }
+                    SkillPopoverView(item: selected)
+                        .position(x: scaledX, y: scaledY)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
             }
                 .frame(width: proxy.size.width, height: proxy.size.height)
@@ -638,26 +963,10 @@ struct ConstellationView: View {
                         }
                 )
                 .onAppear {
-                    // Staggered animation: center -> categories -> skills
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                            phase = .center
-                        }
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                            phase = .categories
-                        }
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                            phase = .complete
-                        }
-                    }
-                    // Auto-fit into viewport after animation settles
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                        fitAll(viewSize: proxy.size)
-                    }
+                    layoutAndAnimate(viewSize: proxy.size)
+                }
+                .onChange(of: skills.count) { _, _ in
+                    layoutAndAnimate(viewSize: proxy.size)
                 }
                 #if os(macOS)
                 .onKeyPress(.escape) {
@@ -729,9 +1038,6 @@ struct ConstellationView: View {
 
     @ViewBuilder
     private func canvas(size: CGSize) -> some View {
-        let center = CGPoint(x: size.width / 2, y: size.height / 2)
-        let graph = buildGraph(center: center)
-
         ZStack {
             // Background radial glow
             RadialGradient(
@@ -742,32 +1048,50 @@ struct ConstellationView: View {
             )
 
             // Edge lines drawn first (behind nodes)
-            Canvas { context, _ in
-                for edge in graph.edges {
-                    var path = Path()
-                    path.move(to: edge.from)
-                    path.addLine(to: edge.to)
-                    context.stroke(
-                        path,
-                        with: .color(edge.color.opacity(phase.categoriesVisible ? 0.25 : 0.0)),
-                        lineWidth: 1.5
-                    )
+            // Uses SwiftUI Path shapes instead of Canvas so edges are never clipped
+            // to the view bounds — they extend as far as the nodes go.
+            ForEach(treeEdges) { edge in
+                Path { path in
+                    let fromPos = effectivePosition(forId: edge.fromId)
+                    let toPos = effectivePosition(forId: edge.toId)
+                    path.move(to: fromPos)
+                    path.addLine(to: toPos)
                 }
+                .stroke(edge.color.opacity(phase.categoriesVisible ? 0.45 : 0.0), lineWidth: 1.5)
+                .allowsHitTesting(false)
             }
-            .allowsHitTesting(false)
             .animation(.easeInOut(duration: 0.4), value: phase)
 
-            // Category and skill nodes
-            ForEach(Array(graph.nodes.enumerated()), id: \.element.id) { idx, node in
+            // Tree nodes — each node is individually draggable.
+            ForEach(Array(treeNodes.enumerated()), id: \.element.id) { idx, node in
+                let nodeId = node.id
+                let effPos = effectivePosition(forId: nodeId)
+
                 switch node.kind {
+                case .center:
+                    EmptyView() // Center avatar is rendered separately below
+
                 case .category(let category):
                     CategoryNodeView(category: category, size: categoryNodeSize)
-                        .position(node.position)
+                        .position(effPos)
+                        .gesture(nodeDragGesture(nodeId: nodeId))
                         .scaleEffect(phase.categoriesVisible ? 1 : 0.3)
                         .opacity(phase.categoriesVisible ? 1 : 0)
                         .animation(
                             .spring(response: 0.45, dampingFraction: 0.7)
                                 .delay(Double(idx) * 0.04),
+                            value: phase
+                        )
+
+                case .subCategory(let label, let emoji, let category):
+                    SubCategoryNodeView(label: label, emoji: emoji, category: category, size: subCatNodeSize)
+                        .position(effPos)
+                        .gesture(nodeDragGesture(nodeId: nodeId))
+                        .scaleEffect(phase.subCategoriesVisible ? 1 : 0.3)
+                        .opacity(phase.subCategoriesVisible ? 1 : 0)
+                        .animation(
+                            .spring(response: 0.45, dampingFraction: 0.7)
+                                .delay(Double(idx) * 0.03),
                             value: phase
                         )
 
@@ -791,7 +1115,8 @@ struct ConstellationView: View {
                                 }
                                 : nil
                     )
-                    .position(node.position)
+                    .position(effPos)
+                    .gesture(nodeDragGesture(nodeId: nodeId))
                     .scaleEffect(phase.skillsVisible ? 1 : 0.4)
                     .opacity(phase.skillsVisible ? 1 : 0)
                     .animation(
@@ -816,7 +1141,7 @@ struct ConstellationView: View {
                         .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
                 )
                 .allowsHitTesting(false)
-                .position(center)
+                .position(effectivePosition(forId: "__center__"))
                 .scaleEffect(phase.centerVisible ? 1 : 0.6)
                 .opacity(phase.centerVisible ? 1 : 0)
                 .animation(
