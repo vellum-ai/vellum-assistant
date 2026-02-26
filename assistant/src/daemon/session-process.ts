@@ -249,23 +249,13 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
     session.preactivatedSkillIds = [slashResult.skillId];
   }
 
-  // Guardian verification intent: when slash didn't rewrite, check if the
-  // user is requesting a direct guardian verification setup. On match,
-  // rewrite the content into a deterministic model instruction and
-  // preactivate the guardian-verify-setup skill so the agent loop loads
-  // it immediately without producing conceptual preambles.
+  // Guardian verification intent interception for queued messages
   if (slashResult.kind === 'passthrough') {
     const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
     if (guardianIntent.kind === 'direct_setup') {
-      const channelClause = guardianIntent.channelHint
-        ? ` The user specified channel: ${guardianIntent.channelHint}.`
-        : '';
-      resolvedContent =
-        `[System: The user wants to set up guardian verification.${channelClause} ` +
-        'Load the guardian-verify-setup skill and begin the setup flow immediately. ' +
-        'Do not give a conceptual explanation first.]';
+      log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent intercepted in queue — forcing skill flow');
+      resolvedContent = guardianIntent.rewrittenContent;
       session.preactivatedSkillIds = ['guardian-verify-setup'];
-      log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent detected (queued) — forcing skill activation');
     }
   }
 
@@ -471,23 +461,15 @@ export async function processMessage(
     session.preactivatedSkillIds = [slashResult.skillId];
   }
 
-  // Guardian verification intent: when slash didn't rewrite, check if the
-  // user is requesting a direct guardian verification setup. On match,
-  // rewrite the content into a deterministic model instruction and
-  // preactivate the guardian-verify-setup skill so the agent loop loads
-  // it immediately without producing conceptual preambles.
+  // Guardian verification intent interception — force direct guardian
+  // verification requests into the guardian-verify-setup skill flow on
+  // the first turn, avoiding conceptual preambles from the agent.
   if (slashResult.kind === 'passthrough') {
     const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
     if (guardianIntent.kind === 'direct_setup') {
-      const channelClause = guardianIntent.channelHint
-        ? ` The user specified channel: ${guardianIntent.channelHint}.`
-        : '';
-      resolvedContent =
-        `[System: The user wants to set up guardian verification.${channelClause} ` +
-        'Load the guardian-verify-setup skill and begin the setup flow immediately. ' +
-        'Do not give a conceptual explanation first.]';
+      log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent intercepted — forcing skill flow');
+      resolvedContent = guardianIntent.rewrittenContent;
       session.preactivatedSkillIds = ['guardian-verify-setup'];
-      log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent detected — forcing skill activation');
     }
   }
 
