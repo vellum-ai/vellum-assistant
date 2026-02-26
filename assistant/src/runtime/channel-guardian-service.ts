@@ -9,7 +9,7 @@
 import { createHash,randomBytes } from 'crypto';
 import { v4 as uuid } from 'uuid';
 
-import type { GuardianBinding, IdentityBindingStatus,SessionStatus, VerificationChallenge } from '../memory/channel-guardian-store.js';
+import type { GuardianBinding, IdentityBindingStatus, SessionStatus, VerificationChallenge, VerificationPurpose } from '../memory/channel-guardian-store.js';
 import {
   bindSessionIdentity as storeBindSessionIdentity,
   consumeChallenge,
@@ -62,7 +62,8 @@ export interface CreateChallengeResult {
 }
 
 export type ValidateChallengeResult =
-  | { success: true; bindingId: string }
+  | { success: true; bindingId: string; verificationType: 'guardian' }
+  | { success: true; verificationType: 'trusted_contact' }
   | { success: false; reason: string };
 
 // ---------------------------------------------------------------------------
@@ -272,6 +273,15 @@ export function validateAndConsumeChallenge(
   // Reset the rate-limit counter on success
   resetRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
 
+  // Trusted contact verification sessions (created by the access request
+  // approval flow) should NOT create a guardian binding — the requester is
+  // becoming a trusted contact, not a guardian. The explicit verificationPurpose
+  // field distinguishes this from guardian outbound verification which also uses
+  // identity-bound sessions.
+  if (challenge.verificationPurpose === 'trusted_contact') {
+    return { success: true, verificationType: 'trusted_contact' };
+  }
+
   // Reject if a different user already holds the guardian binding
   const existingBinding = getActiveBinding(assistantId, channel);
   if (existingBinding && existingBinding.guardianExternalUserId !== actorExternalUserId) {
@@ -302,7 +312,7 @@ export function validateAndConsumeChallenge(
     metadataJson: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
   });
 
-  return { success: true, bindingId: binding.id };
+  return { success: true, bindingId: binding.id, verificationType: 'guardian' };
 }
 
 /**
@@ -396,6 +406,7 @@ export function createOutboundSession(params: {
   maxAttempts?: number;
   sessionId?: string;
   bootstrapTokenHash?: string;
+  verificationPurpose?: VerificationPurpose;
 }): CreateOutboundSessionResult {
   // Use high-entropy hex for unbound bootstrap sessions to prevent brute-force;
   // 6-digit numeric codes are only safe when identity is already bound.
@@ -421,6 +432,7 @@ export function createOutboundSession(params: {
     destinationAddress: params.destinationAddress,
     codeDigits: params.codeDigits,
     maxAttempts: params.maxAttempts,
+    verificationPurpose: params.verificationPurpose,
     bootstrapTokenHash: params.bootstrapTokenHash,
   });
 

@@ -9,7 +9,9 @@ import {
   getPendingApprovalForRequest,
   getUnresolvedApprovalForRequest,
   updateApprovalDecision,
+  type GuardianApprovalRequest,
 } from '../../memory/channel-guardian-store.js';
+import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import { getLogger } from '../../util/logger.js';
 import { runApprovalConversationTurn } from '../approval-conversation-turn.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
@@ -28,6 +30,14 @@ import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
 } from '../http-types.js';
+import {
+  handleAccessRequestDecision,
+  deliverVerificationCodeToGuardian,
+  notifyRequesterOfApproval,
+  notifyRequesterOfDenial,
+  notifyRequesterOfDeliveryFailure,
+  type DeliveryResult,
+} from './access-request-decision.js';
 import {
   buildGuardianDenyContext,
   type GuardianContext,
@@ -182,6 +192,21 @@ export async function handleApprovalInterception(
           callbackDecision = { ...callbackDecision, action: 'approve_once' };
         }
 
+        // Access request approvals don't have a pending interaction in the
+        // session tracker, so they need a separate decision path that creates
+        // a verification session instead of resuming an agent loop.
+        if (guardianApproval.toolName === 'ingress_access_request') {
+          const accessResult = await handleAccessRequestApproval(
+            guardianApproval,
+            callbackDecision.action === 'reject' ? 'deny' : 'approve',
+            senderExternalUserId,
+            replyCallbackUrl,
+            assistantId,
+            bearerToken,
+          );
+          return accessResult;
+        }
+
         // Apply the decision to the underlying session using the requester's
         // conversation context
         const result = handleChannelDecision(
@@ -300,6 +325,19 @@ export async function handleApprovalInterception(
             log.error({ err, externalChatId }, 'Failed to deliver guardian identity mismatch notice for engine target');
           }
           return { handled: true, type: 'guardian_decision_applied' };
+        }
+
+        // Access request approvals need a separate decision path.
+        if (targetApproval.toolName === 'ingress_access_request') {
+          const accessResult = await handleAccessRequestApproval(
+            targetApproval,
+            decisionAction === 'reject' ? 'deny' : 'approve',
+            senderExternalUserId,
+            replyCallbackUrl,
+            assistantId,
+            bearerToken,
+          );
+          return accessResult;
         }
 
         const engineDecision: ApprovalDecisionResult = {
@@ -439,6 +477,19 @@ export async function handleApprovalInterception(
               log.error({ err, externalChatId }, 'Failed to deliver guardian identity mismatch notice (legacy path)');
             }
             return { handled: true, type: 'guardian_decision_applied' };
+          }
+
+          // Access request approvals need a separate decision path.
+          if (targetLegacyApproval.toolName === 'ingress_access_request') {
+            const accessResult = await handleAccessRequestApproval(
+              targetLegacyApproval,
+              legacyGuardianDecision.action === 'reject' ? 'deny' : 'approve',
+              senderExternalUserId,
+              replyCallbackUrl,
+              assistantId,
+              bearerToken,
+            );
+            return accessResult;
           }
 
           const result = handleChannelDecision(
@@ -861,4 +912,174 @@ export async function handleApprovalInterception(
   }
 
   return { handled: true, type: 'assistant_turn' };
+}
+
+// ---------------------------------------------------------------------------
+// Access request decision helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a guardian's decision on an `ingress_access_request` approval.
+ * Delegates to the access-request-decision module and orchestrates
+ * notification delivery.
+ *
+ * On approve: creates a verification session, delivers the code to the
+ * guardian, and notifies the requester to expect a code.
+ *
+ * On deny: marks the request as denied and notifies the requester.
+ */
+async function handleAccessRequestApproval(
+  approval: GuardianApprovalRequest,
+  action: 'approve' | 'deny',
+  decidedByExternalUserId: string,
+  replyCallbackUrl: string,
+  assistantId: string,
+  bearerToken?: string,
+): Promise<ApprovalInterceptionResult> {
+  const decisionResult = handleAccessRequestDecision(
+    approval,
+    action,
+    decidedByExternalUserId,
+  );
+
+  if (decisionResult.type === 'stale' || decisionResult.type === 'idempotent') {
+    return { handled: true, type: 'stale_ignored' };
+  }
+
+  if (decisionResult.type === 'denied') {
+    await notifyRequesterOfDenial({
+      replyCallbackUrl,
+      requesterChatId: approval.requesterChatId,
+      assistantId,
+      bearerToken,
+    });
+
+    // Emit both guardian_decision and denied signals so all lifecycle
+    // observers are notified of the denial.
+    const deniedPayload = {
+      sourceChannel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
+      requesterChatId: approval.requesterChatId,
+      decidedByExternalUserId,
+      decision: 'denied' as const,
+    };
+
+    void emitNotificationSignal({
+      sourceEventName: 'ingress.trusted_contact.guardian_decision',
+      sourceChannel: approval.channel,
+      sourceSessionId: approval.conversationId,
+      assistantId,
+      attentionHints: {
+        requiresAction: false,
+        urgency: 'medium',
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: deniedPayload,
+      dedupeKey: `trusted-contact:guardian-decision:${approval.id}`,
+    });
+
+    void emitNotificationSignal({
+      sourceEventName: 'ingress.trusted_contact.denied',
+      sourceChannel: approval.channel,
+      sourceSessionId: approval.conversationId,
+      assistantId,
+      attentionHints: {
+        requiresAction: false,
+        urgency: 'low',
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: deniedPayload,
+      dedupeKey: `trusted-contact:denied:${approval.id}`,
+    });
+
+    return { handled: true, type: 'guardian_decision_applied' };
+  }
+
+  // Approved: deliver the verification code to the guardian and notify the requester.
+  const requesterIdentifier = approval.requesterExternalUserId;
+
+  let codeDelivered = true;
+  if (decisionResult.verificationCode) {
+    const deliveryResult: DeliveryResult = await deliverVerificationCodeToGuardian({
+      replyCallbackUrl,
+      guardianChatId: approval.guardianChatId,
+      requesterIdentifier,
+      verificationCode: decisionResult.verificationCode,
+      assistantId,
+      bearerToken,
+    });
+    if (!deliveryResult.ok) {
+      log.error(
+        { reason: deliveryResult.reason, approvalId: approval.id },
+        'Skipping requester notification — verification code was not delivered to guardian',
+      );
+      codeDelivered = false;
+    }
+  }
+
+  if (codeDelivered) {
+    await notifyRequesterOfApproval({
+      replyCallbackUrl,
+      requesterChatId: approval.requesterChatId,
+      assistantId,
+      bearerToken,
+    });
+  } else {
+    // Let the requester know something went wrong without revealing details
+    await notifyRequesterOfDeliveryFailure({
+      replyCallbackUrl,
+      requesterChatId: approval.requesterChatId,
+      assistantId,
+      bearerToken,
+    });
+  }
+
+  // Emit guardian_decision (approved) signal
+  void emitNotificationSignal({
+    sourceEventName: 'ingress.trusted_contact.guardian_decision',
+    sourceChannel: approval.channel,
+    sourceSessionId: approval.conversationId,
+    assistantId,
+    attentionHints: {
+      requiresAction: false,
+      urgency: 'medium',
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      sourceChannel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
+      requesterChatId: approval.requesterChatId,
+      decidedByExternalUserId,
+      decision: 'approved',
+    },
+    dedupeKey: `trusted-contact:guardian-decision:${approval.id}`,
+  });
+
+  // Only emit verification_sent when the code was actually delivered to the guardian.
+  if (decisionResult.verificationSessionId && codeDelivered) {
+    void emitNotificationSignal({
+      sourceEventName: 'ingress.trusted_contact.verification_sent',
+      sourceChannel: approval.channel,
+      sourceSessionId: approval.conversationId,
+      assistantId,
+      attentionHints: {
+        requiresAction: false,
+        urgency: 'low',
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        sourceChannel: approval.channel,
+        requesterExternalUserId: approval.requesterExternalUserId,
+        requesterChatId: approval.requesterChatId,
+        verificationSessionId: decisionResult.verificationSessionId,
+      },
+      dedupeKey: `trusted-contact:verification-sent:${decisionResult.verificationSessionId}`,
+    });
+  }
+
+  return { handled: true, type: 'guardian_decision_applied' };
 }

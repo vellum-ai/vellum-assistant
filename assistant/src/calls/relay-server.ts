@@ -675,7 +675,7 @@ export class RelayConnection {
         : 'guardian_voice_verification_succeeded';
 
       recordCallEvent(this.callSessionId, eventName, {
-        bindingId: result.bindingId,
+        bindingId: 'bindingId' in result ? result.bindingId : undefined,
       });
       log.info(
         { callSessionId: this.callSessionId, isOutbound },
