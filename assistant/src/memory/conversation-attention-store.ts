@@ -347,7 +347,7 @@ export function listConversationAttention(
   const conditions = [eq(conversationAssistantAttentionState.assistantId, assistantId)];
 
   if (sourceChannel) {
-    conditions.push(eq(conversationAssistantAttentionState.lastSeenSourceChannel, sourceChannel));
+    conditions.push(eq(conversations.originChannel, sourceChannel));
   }
 
   if (source) {
@@ -400,8 +400,8 @@ export function listConversationAttention(
     })
     .from(conversationAssistantAttentionState);
 
-  // Join with conversations table when filtering by source
-  if (source) {
+  // Join with conversations table when filtering by source or sourceChannel
+  if (source || sourceChannel) {
     query = query.innerJoin(
       conversations,
       eq(conversationAssistantAttentionState.conversationId, conversations.id),

@@ -851,7 +851,7 @@ struct MainWindowView: View {
             }
         }) {
             HStack(spacing: VSpacing.xs) {
-                // Leading icon: pin button (hovered) > spinner (busy) > pin indicator (pinned)
+                // Leading icon: pin button (hovered) > spinner (busy) > pin indicator (pinned) > unseen dot
                 if isHovered {
                     Button {
                         if thread.isPinned {
@@ -883,6 +883,11 @@ struct MainWindowView: View {
                         .frame(width: 20, height: 20)
                         .background(VColor.backgroundSubtle)
                         .clipShape(Circle())
+                } else if thread.source == "notification" && thread.hasUnseenLatestAssistantMessage {
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 8, height: 8)
+                        .frame(width: 20, height: 20)
                 } else {
                     Color.clear
                         .frame(width: 20, height: 20)
