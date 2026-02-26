@@ -554,7 +554,7 @@ export class RuntimeHttpServer {
     const twilioSubpath = resolvedTwilioSubpath;
 
     if (GATEWAY_ONLY_BLOCKED_SUBPATHS.has(twilioSubpath)) {
-      return httpError('NOT_FOUND', 'Direct webhook access disabled. Use the gateway.', 410);
+      return httpError('GONE', 'Direct webhook access disabled. Use the gateway.', 410);
     }
 
     const validation = await validateTwilioWebhook(req);
