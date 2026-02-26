@@ -473,6 +473,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `recording_stop` message.
     public var onRecordingStop: ((IPCRecordingStop) -> Void)?
 
+    /// Called when the daemon sends a `client_settings_update` message.
+    public var onClientSettingsUpdate: ((IPCClientSettingsUpdate) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages

@@ -1103,6 +1103,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             self.handleRecordingResume(msg)
         }
 
+        // Handle client_settings_update from daemon: write to UserDefaults and post notification
+        daemonClient.onClientSettingsUpdate = { msg in
+            UserDefaults.standard.set(msg.value, forKey: msg.key)
+            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
+        }
+
         // Restart DaemonClient connection when the health monitor relaunches
         // the daemon process so we don't wait for the backoff timer to expire.
         assistantCli.onDaemonRestarted = { [weak self] in
@@ -1879,6 +1885,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         }
         voiceInput?.start()
+
+        // Restart key monitors when the activation key is changed remotely via IPC
+        NotificationCenter.default.addObserver(
+            forName: .activationKeyChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.voiceInput?.restartKeyMonitors()
+        }
     }
 
     // MARK: - Wake Word Coordinator

@@ -27,6 +27,7 @@ export * from './ipc-contract/pairing.js';
 export * from './ipc-contract/parental-control.js';
 export * from './ipc-contract/schedules.js';
 export * from './ipc-contract/sessions.js';
+export * from './ipc-contract/settings.js';
 export * from './ipc-contract/shared.js';
 export * from './ipc-contract/skills.js';
 export * from './ipc-contract/subagents.js';
@@ -50,6 +51,7 @@ import type { _PairingClientMessages, _PairingServerMessages } from './ipc-contr
 import type { _ParentalControlClientMessages, _ParentalControlServerMessages } from './ipc-contract/parental-control.js';
 import type { _SchedulesClientMessages, _SchedulesServerMessages } from './ipc-contract/schedules.js';
 import type { _SessionsClientMessages, _SessionsServerMessages } from './ipc-contract/sessions.js';
+import type { _SettingsServerMessages } from './ipc-contract/settings.js';
 import type { _SkillsClientMessages, _SkillsServerMessages } from './ipc-contract/skills.js';
 import type { _SubagentsClientMessages, _SubagentsServerMessages } from './ipc-contract/subagents.js';
 import type { _SurfacesClientMessages, _SurfacesServerMessages } from './ipc-contract/surfaces.js';
@@ -107,6 +109,7 @@ export type ServerMessage =
   | _MemoryServerMessages
   | _WorkspaceServerMessages
   | _SchedulesServerMessages
+  | _SettingsServerMessages
   | _DiagnosticsServerMessages
   | _ParentalControlServerMessages
   | _InboxServerMessages

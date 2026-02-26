@@ -914,6 +914,21 @@ public struct IPCChannelReadinessResponseSnapshotRemoteCheck: Codable, Sendable 
     }
 }
 
+/// Sent by the daemon to update a client-side setting (e.g. activation key).
+public struct IPCClientSettingsUpdate: Codable, Sendable {
+    public let type: String
+    /// The setting key to update (e.g. "activationKey").
+    public let key: String
+    /// The new value for the setting.
+    public let value: String
+
+    public init(type: String, key: String, value: String) {
+        self.type = type
+        self.key = key
+        self.value = value
+    }
+}
+
 /// Structured command intent — bypasses text parsing when present.
 public struct IPCCommandIntent: Codable, Sendable {
     public let domain: String
