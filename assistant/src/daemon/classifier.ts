@@ -11,7 +11,12 @@ export type InteractionType = 'computer_use' | 'text_qa';
  * Classify a user task as computer_use or text_qa using an LLM tool-use call,
  * falling back to a heuristic if the API call fails or no API key is available.
  */
-export async function classifyInteraction(task: string): Promise<InteractionType> {
+export async function classifyInteraction(task: string, source?: 'voice' | 'text'): Promise<InteractionType> {
+  if (source === 'voice') {
+    log.info({ source }, 'Voice source detected, skipping classification — routing to text_qa');
+    return 'text_qa';
+  }
+
   const provider = getConfiguredProvider();
   if (!provider) {
     log.warn('No configured provider available, falling back to heuristic classification');
