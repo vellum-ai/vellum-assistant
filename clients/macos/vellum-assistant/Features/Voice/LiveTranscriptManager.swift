@@ -42,6 +42,9 @@ final class LiveTranscriptManager: ObservableObject {
     /// Reference to the wake word monitor so we can pause/resume it.
     private weak var audioMonitor: AlwaysOnAudioMonitor?
 
+    /// Reference to voice mode manager so we skip wake word resume while voice mode is active.
+    private weak var voiceModeManager: VoiceModeManager?
+
     /// Rolling buffer duration — discard segments older than this.
     private static let bufferDuration: TimeInterval = 10 * 60 // 10 minutes
 
@@ -62,6 +65,12 @@ final class LiveTranscriptManager: ObservableObject {
     /// (e.g. wake word coordinator is set up after the main window).
     func setAudioMonitor(_ monitor: AlwaysOnAudioMonitor) {
         self.audioMonitor = monitor
+    }
+
+    /// Late-bind the voice mode manager so we can check whether voice mode
+    /// is active before resuming the wake word monitor.
+    func setVoiceModeManager(_ manager: VoiceModeManager) {
+        self.voiceModeManager = manager
     }
 
     // MARK: - Public API
@@ -218,6 +227,14 @@ final class LiveTranscriptManager: ObservableObject {
     private func resumeWakeWordIfNeeded() {
         guard let monitor = audioMonitor else { return }
         guard UserDefaults.standard.bool(forKey: "wakeWordEnabled") else { return }
+
+        // Don't resume wake word if voice mode is active — it uses
+        // SFSpeechRecognizer too and macOS only allows one active
+        // recognition task per process.
+        if let voiceModeManager, voiceModeManager.state != .off {
+            log.info("Skipping wake word resume — voice mode is active")
+            return
+        }
 
         // Delay to let audio engine fully release
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak monitor] in
