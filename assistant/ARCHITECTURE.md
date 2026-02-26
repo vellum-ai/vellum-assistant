@@ -126,6 +126,55 @@ These can be set via environment variables or stored in the credential vault (ke
 
 **SMS Compliance & Admin**: The `twilio_config` IPC contract extends beyond credential and number management with compliance and admin actions: `sms_compliance_status` detects toll-free vs local number type and fetches verification status; `sms_submit_tollfree_verification`, `sms_update_tollfree_verification`, and `sms_delete_tollfree_verification` manage the Twilio toll-free verification lifecycle; `release_number` removes a phone number from the Twilio account and clears all local references. All compliance actions validate required fields and Twilio enum values before calling the API.
 
+### Trusted Contact Access (Channel-Agnostic)
+
+External users who are not the guardian can gain access to the assistant through a guardian-mediated verification flow. The flow is channel-agnostic — it works identically on Telegram, SMS, voice, and any future channel.
+
+**Full design doc:** [`docs/trusted-contact-access.md`](docs/trusted-contact-access.md)
+
+**Flow summary:**
+1. Unknown user messages the assistant on any channel.
+2. Ingress ACL (`inbound-message-handler.ts`) rejects the message and emits an `ingress.access_request` notification signal to the guardian.
+3. Guardian approves or denies via callback button or conversational intent (routed through `guardian-approval-interception.ts`).
+4. On approval, an identity-bound verification session with a 6-digit code is created (`access-request-decision.ts` → `channel-guardian-service.ts`).
+5. Guardian gives the code to the requester out-of-band.
+6. Requester enters the code; identity binding is verified, the challenge is consumed, and an active member record is created in `assistant_ingress_members`.
+7. All subsequent messages are accepted through the ingress ACL.
+
+**Channel-agnostic design:** The entire flow operates on abstract `ChannelId` and `externalUserId`/`externalChatId` fields. Identity binding adapts per channel: Telegram uses chat IDs, SMS/voice use E.164 phone numbers, HTTP API uses caller-provided identity. No channel-specific branching exists in the trusted contact code paths.
+
+**Lifecycle states:** `requested → pending_guardian → verification_pending → active | denied | expired`
+
+**Notification signals:** The flow emits signals at each lifecycle transition via `emitNotificationSignal()`:
+- `ingress.access_request` — non-member denied, guardian notified
+- `ingress.trusted_contact.guardian_decision` — guardian approved or denied
+- `ingress.trusted_contact.verification_sent` — code created and delivered
+- `ingress.trusted_contact.activated` — requester verified, member active
+- `ingress.trusted_contact.denied` — guardian explicitly denied
+
+**HTTP API (for management):**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/ingress/members` | GET | List trusted contacts (filterable by channel, status, policy) |
+| `/v1/ingress/members` | POST | Upsert a member (add/update trusted contact) |
+| `/v1/ingress/members/:id` | DELETE | Revoke a trusted contact |
+| `/v1/ingress/members/:id/block` | POST | Block a member |
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL, non-member rejection, verification code interception |
+| `src/runtime/routes/access-request-decision.ts` | Guardian decision → verification session creation |
+| `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler |
+| `src/runtime/channel-guardian-service.ts` | Verification challenge lifecycle, identity binding, rate limiting |
+| `src/runtime/routes/ingress-routes.ts` | HTTP API handlers for member/invite management |
+| `src/runtime/ingress-service.ts` | Business logic for member CRUD |
+| `src/memory/ingress-member-store.ts` | Member record persistence |
+| `src/memory/channel-guardian-store.ts` | Approval request and verification challenge persistence |
+| `src/config/vellum-skills/trusted-contacts/SKILL.md` | Skill teaching the assistant to manage contacts via HTTP API |
+
 ---
 
 
