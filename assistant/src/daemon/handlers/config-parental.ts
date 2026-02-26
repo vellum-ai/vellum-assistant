@@ -1,6 +1,12 @@
 import * as net from 'node:net';
 
 import {
+  createApprovalRequest,
+  listApprovalRequests,
+  respondToApprovalRequest,
+  type ApprovalDecision,
+} from '../../security/parental-approval-store.js';
+import {
   clearPIN,
   getActiveProfile,
   getParentalControlSettings,
@@ -14,6 +20,9 @@ import { getLogger } from '../../util/logger.js';
 import type {
   ParentalControlAllowlistGetRequest,
   ParentalControlAllowlistUpdateRequest,
+  ParentalControlApprovalCreateRequest,
+  ParentalControlApprovalListRequest,
+  ParentalControlApprovalRespondRequest,
   ParentalControlGetRequest,
   ParentalControlProfileGetRequest,
   ParentalControlProfileSwitchRequest,
@@ -291,6 +300,104 @@ export function handleParentalControlAllowlistUpdate(
   });
 }
 
+export function handleParentalControlApprovalCreate(
+  msg: ParentalControlApprovalCreateRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const entry = createApprovalRequest(msg.toolName, msg.reason)
+    ctx.send(socket, {
+      type: 'parental_control_approval_create_response',
+      success: true,
+      requestId: entry.id,
+    })
+  } catch (err) {
+    log.error({ err }, 'Failed to create approval request')
+    ctx.send(socket, {
+      type: 'parental_control_approval_create_response',
+      success: false,
+      requestId: '',
+      error: err instanceof Error ? err.message : 'Internal error',
+    })
+  }
+}
+
+export function handleParentalControlApprovalList(
+  msg: ParentalControlApprovalListRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const settings = getParentalControlSettings()
+  const pinExists = hasPIN()
+
+  // Listing pending requests is a parent-only operation; enforce the same PIN
+  // gate used by the respond handler to prevent child-mode clients from reading
+  // pending request details (tool names and reasons).
+  if (settings.enabled && pinExists) {
+    if (!msg.pin || !verifyPIN(msg.pin)) {
+      ctx.send(socket, {
+        type: 'parental_control_approval_list_response',
+        requests: [],
+        error: 'PIN required to list approval requests',
+      })
+      return
+    }
+  }
+
+  const requests = listApprovalRequests()
+  ctx.send(socket, {
+    type: 'parental_control_approval_list_response',
+    requests,
+  })
+}
+
+export function handleParentalControlApprovalRespond(
+  msg: ParentalControlApprovalRespondRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const settings = getParentalControlSettings()
+  const pinExists = hasPIN()
+
+  // PIN is required when parental controls are enabled and a PIN has been set
+  if (settings.enabled && pinExists) {
+    if (!msg.pin || !verifyPIN(msg.pin)) {
+      ctx.send(socket, {
+        type: 'parental_control_approval_respond_response',
+        success: false,
+        error: 'PIN required to respond to approval requests',
+      })
+      return
+    }
+  }
+
+  const VALID_DECISIONS: ReadonlyArray<string> = ['approve_always', 'approve_once', 'reject']
+  if (!VALID_DECISIONS.includes(msg.decision as string)) {
+    ctx.send(socket, {
+      type: 'parental_control_approval_respond_response',
+      success: false,
+      error: 'Invalid decision value',
+    })
+    return
+  }
+
+  const updated = respondToApprovalRequest(msg.requestId, msg.decision as Exclude<ApprovalDecision, 'pending'>)
+  if (!updated) {
+    ctx.send(socket, {
+      type: 'parental_control_approval_respond_response',
+      success: false,
+      error: 'Approval request not found or already resolved',
+    })
+    return
+  }
+
+  ctx.send(socket, {
+    type: 'parental_control_approval_respond_response',
+    success: true,
+  })
+}
+
 export const parentalControlHandlers = defineHandlers({
   parental_control_get: handleParentalControlGet,
   parental_control_verify_pin: handleParentalControlVerifyPin,
@@ -300,4 +407,7 @@ export const parentalControlHandlers = defineHandlers({
   parental_control_profile_switch: handleParentalControlProfileSwitch,
   parental_control_allowlist_get: handleParentalControlAllowlistGet,
   parental_control_allowlist_update: handleParentalControlAllowlistUpdate,
+  parental_control_approval_create: handleParentalControlApprovalCreate,
+  parental_control_approval_list: handleParentalControlApprovalList,
+  parental_control_approval_respond: handleParentalControlApprovalRespond,
 });

@@ -3178,6 +3178,29 @@ exports[`IPC message snapshots ClientMessage types parental_control_allowlist_up
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types parental_control_approval_create serializes to expected JSON 1`] = `
+{
+  "reason": "Need to run a script for homework",
+  "toolName": "bash",
+  "type": "parental_control_approval_create",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types parental_control_approval_list serializes to expected JSON 1`] = `
+{
+  "type": "parental_control_approval_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types parental_control_approval_respond serializes to expected JSON 1`] = `
+{
+  "decision": "approve_once",
+  "pin": "123456",
+  "requestId": "req-001",
+  "type": "parental_control_approval_respond",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types parental_control_profile_get_response serializes to expected JSON 1`] = `
 {
   "activeProfile": "parental",
@@ -3219,5 +3242,35 @@ exports[`IPC message snapshots ServerMessage types parental_control_allowlist_up
   ],
   "success": true,
   "type": "parental_control_allowlist_update_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types parental_control_approval_create_response serializes to expected JSON 1`] = `
+{
+  "requestId": "req-001",
+  "success": true,
+  "type": "parental_control_approval_create_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types parental_control_approval_list_response serializes to expected JSON 1`] = `
+{
+  "requests": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "id": "req-001",
+      "reason": "Need to run homework script",
+      "status": "pending",
+      "toolName": "bash",
+    },
+  ],
+  "type": "parental_control_approval_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types parental_control_approval_respond_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "parental_control_approval_respond_response",
 }
 `;

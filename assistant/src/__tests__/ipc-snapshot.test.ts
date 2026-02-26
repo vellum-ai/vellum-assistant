@@ -666,6 +666,20 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     allowedApps: ['Safari', 'Calculator'],
     allowedWidgets: ['weather', 'clock'],
   },
+  parental_control_approval_create: {
+    type: 'parental_control_approval_create',
+    toolName: 'bash',
+    reason: 'Need to run a script for homework',
+  },
+  parental_control_approval_list: {
+    type: 'parental_control_approval_list',
+  },
+  parental_control_approval_respond: {
+    type: 'parental_control_approval_respond',
+    requestId: 'req-001',
+    decision: 'approve_once',
+    pin: '123456',
+  },
   ingress_invite: {
     type: 'ingress_invite',
     action: 'create',
@@ -1925,6 +1939,25 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     allowedApps: ['Safari', 'Calculator'],
     allowedWidgets: ['weather', 'clock'],
+  },
+  parental_control_approval_create_response: {
+    type: 'parental_control_approval_create_response',
+    success: true,
+    requestId: 'req-001',
+  },
+  parental_control_approval_list_response: {
+    type: 'parental_control_approval_list_response',
+    requests: [{
+      id: 'req-001',
+      toolName: 'bash',
+      reason: 'Need to run homework script',
+      status: 'pending',
+      createdAt: '2024-01-01T00:00:00.000Z',
+    }],
+  },
+  parental_control_approval_respond_response: {
+    type: 'parental_control_approval_respond_response',
+    success: true,
   },
   ingress_invite_response: {
     type: 'ingress_invite_response',
