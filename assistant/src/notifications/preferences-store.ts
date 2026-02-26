@@ -10,7 +10,7 @@
 import { desc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getDb } from '../memory/db.js';
+import { getDb, rawChanges } from '../memory/db.js';
 import { notificationPreferences } from '../memory/schema.js';
 
 // ── Row type ────────────────────────────────────────────────────────────
@@ -107,13 +107,13 @@ export function updatePreference(id: string, params: UpdatePreferenceParams): bo
   if (params.appliesWhen !== undefined) updates.appliesWhenJson = JSON.stringify(params.appliesWhen);
   if (params.priority !== undefined) updates.priority = params.priority;
 
-  const result = db
+  db
     .update(notificationPreferences)
     .set(updates)
     .where(eq(notificationPreferences.id, id))
-    .run() as unknown as { changes?: number };
+    .run();
 
-  return (result.changes ?? 0) > 0;
+  return rawChanges() > 0;
 }
 
 // ── Delete ──────────────────────────────────────────────────────────────
@@ -121,12 +121,12 @@ export function updatePreference(id: string, params: UpdatePreferenceParams): bo
 export function deletePreference(id: string): boolean {
   const db = getDb();
 
-  const result = db
+  db
     .delete(notificationPreferences)
     .where(eq(notificationPreferences.id, id))
-    .run() as unknown as { changes?: number };
+    .run();
 
-  return (result.changes ?? 0) > 0;
+  return rawChanges() > 0;
 }
 
 // ── Get by ID ───────────────────────────────────────────────────────────

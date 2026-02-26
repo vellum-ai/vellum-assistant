@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getDb } from '../memory/db.js';
+import { getDb, rawChanges } from '../memory/db.js';
 import { watcherEvents,watchers } from '../memory/schema.js';
 import { truncate } from '../util/truncate.js';
 import { DEFAULT_POLL_INTERVAL_MS } from './constants.js';
@@ -142,8 +142,8 @@ export function updateWatcher(
 
 export function deleteWatcher(id: string): boolean {
   const db = getDb();
-  const result = db.delete(watchers).where(eq(watchers.id, id)).run() as unknown as { changes?: number };
-  return (result.changes ?? 0) > 0;
+  db.delete(watchers).where(eq(watchers.id, id)).run();
+  return rawChanges() > 0;
 }
 
 // ── Claim / Complete ────────────────────────────────────────────────
@@ -167,7 +167,7 @@ export function claimDueWatchers(now: number): Watcher[] {
 
   const claimed: Watcher[] = [];
   for (const row of candidates) {
-    const result = db
+    db
       .update(watchers)
       .set({ status: 'polling', updatedAt: now })
       .where(and(
@@ -175,9 +175,9 @@ export function claimDueWatchers(now: number): Watcher[] {
         eq(watchers.nextPollAt, row.nextPollAt),
         eq(watchers.status, 'idle'),
       ))
-      .run() as unknown as { changes?: number };
+      .run();
 
-    if ((result.changes ?? 0) === 0) continue;
+    if (rawChanges() === 0) continue;
     claimed.push(parseWatcherRow({ ...row, status: 'polling', updatedAt: now }));
   }
   return claimed;
@@ -271,12 +271,12 @@ export function setWatcherConversationId(id: string, conversationId: string): vo
  */
 export function resetStuckWatchers(): number {
   const db = getDb();
-  const result = db
+  db
     .update(watchers)
     .set({ status: 'idle', updatedAt: Date.now() })
     .where(eq(watchers.status, 'polling'))
-    .run() as unknown as { changes?: number };
-  return result.changes ?? 0;
+    .run();
+  return rawChanges();
 }
 
 // ── Watcher Events ──────────────────────────────────────────────────

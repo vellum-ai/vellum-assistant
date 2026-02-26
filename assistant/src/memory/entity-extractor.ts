@@ -4,7 +4,7 @@ import type { MemoryEntityConfig } from '../config/types.js';
 import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
-import { getDb } from './db.js';
+import { getDb, rawAll } from './db.js';
 import { memoryEntities, memoryEntityRelations, memoryItemEntities } from './schema.js';
 
 const log = getLogger('memory-entity-extractor');
@@ -426,20 +426,15 @@ function parseExtractedRelations(
 function findEntityCandidates(nameOrAlias: string): Array<typeof memoryEntities.$inferSelect> {
   const normalized = normalizeEntityName(nameOrAlias);
   if (!normalized) return [];
-  const db = getDb();
   const nameLower = normalized.toLowerCase();
 
-  const raw = (db as unknown as {
-    $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } };
-  }).$client;
-
-  return raw.query(`
+  return rawAll<typeof memoryEntities.$inferSelect>(`
     SELECT DISTINCT me.* FROM memory_entities me
     WHERE LOWER(me.name) = ?
     UNION
     SELECT DISTINCT me.* FROM memory_entities me, json_each(me.aliases) je
     WHERE me.aliases IS NOT NULL AND LOWER(je.value) = ?
-  `).all(nameLower, nameLower) as Array<typeof memoryEntities.$inferSelect>;
+  `, nameLower, nameLower);
 }
 
 /**

@@ -181,10 +181,10 @@ function makeHubPublisher(
       });
     }
 
-    const msgRecord = msg as unknown as Record<string, unknown>;
+    // ServerMessage is a large union; sessionId exists on most but not all variants.
     const msgSessionId =
-      'sessionId' in msg && typeof msgRecord.sessionId === 'string'
-        ? (msgRecord.sessionId as string)
+      'sessionId' in msg && typeof (msg as { sessionId?: unknown }).sessionId === 'string'
+        ? (msg as { sessionId: string }).sessionId
         : undefined;
     const resolvedSessionId = msgSessionId ?? conversationId;
     const event = buildAssistantEvent('self', msg, resolvedSessionId);

@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
-import { getDb, getSqlite, rawAll } from './db.js';
+import { getDb, getSqlite, rawAll, rawChanges } from './db.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { memoryItemConflicts, memoryItems } from './schema.js';
 import { clampUnitInterval } from './validation.js';
@@ -241,15 +241,15 @@ export function listPendingConflictDetails(
 
 export function markConflictAsked(conflictId: string, askedAt = Date.now()): boolean {
   const db = getDb();
-  const result = db.update(memoryItemConflicts)
+  db.update(memoryItemConflicts)
     .set({
       lastAskedAt: askedAt,
       updatedAt: askedAt,
     })
     .where(eq(memoryItemConflicts.id, conflictId))
-    .run() as unknown as { changes?: number };
+    .run();
 
-  return (result.changes ?? 0) > 0;
+  return rawChanges() > 0;
 }
 
 export function resolveConflict(conflictId: string, input: ResolveConflictInput): MemoryItemConflict | null {
