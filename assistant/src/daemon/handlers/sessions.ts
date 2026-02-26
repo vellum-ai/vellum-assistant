@@ -226,6 +226,29 @@ export async function handleUserMessage(
       }
     }
 
+    // ── Structured command intent (bypasses text parsing) ──────────────────
+    if (config.daemon.standaloneRecording && msg.commandIntent?.domain === 'screen_recording') {
+      const action = msg.commandIntent.action;
+      rlog.info({ action, source: 'commandIntent' }, 'Recording command intent received');
+      if (action === 'start') {
+        const recordingId = handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
+        ctx.send(socket, {
+          type: 'assistant_text_delta',
+          text: recordingId ? 'Starting screen recording.' : 'A recording is already active.',
+          sessionId: msg.sessionId,
+        });
+      } else if (action === 'stop') {
+        const stopped = handleRecordingStop(msg.sessionId, ctx) !== undefined;
+        ctx.send(socket, {
+          type: 'assistant_text_delta',
+          text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+          sessionId: msg.sessionId,
+        });
+      }
+      ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+      return;
+    }
+
     // ── Standalone recording intent interception ──────────────────────────
     if (config.daemon.standaloneRecording && messageText) {
       const name = getAssistantName();
