@@ -16,6 +16,7 @@ jobs:
     if: contains(github.event.pull_request.labels.*.name, 'preview')
     name: Lint, Type Check & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: gateway
