@@ -18,10 +18,6 @@ describe('direct guardian setup phrases trigger forced routing', () => {
     'set me as guardian for telegram',
     'set me up as guardian',
     'set me up as your guardian',
-    'verify my phone number',
-    'verify my phone',
-    'verify my Telegram account',
-    'verify voice channel',
     'set up guardian verification',
     'setup guardian verification',
     'guardian verification setup',
@@ -102,7 +98,27 @@ describe('non-guardian messages are not intercepted', () => {
 });
 
 // =====================================================================
-// 4. Slash commands are never intercepted
+// 4. Ambiguous verify phrases without guardian context => no forced routing
+// =====================================================================
+
+describe('ambiguous verify phrases without guardian context do NOT trigger forced routing', () => {
+  const ambiguousPhrases = [
+    'verify my phone number',
+    'verify my phone',
+    'verify my Telegram account',
+    'verify voice channel',
+  ];
+
+  for (const phrase of ambiguousPhrases) {
+    test(`"${phrase}" => none`, () => {
+      const result = resolveGuardianVerificationIntent(phrase);
+      expect(result.kind).toBe('none');
+    });
+  }
+});
+
+// =====================================================================
+// 5. Slash commands are never intercepted
 // =====================================================================
 
 describe('slash commands are never intercepted', () => {
@@ -122,7 +138,7 @@ describe('slash commands are never intercepted', () => {
 });
 
 // =====================================================================
-// 5. Channel hint extraction
+// 6. Channel hint extraction
 // =====================================================================
 
 describe('channel hint extraction', () => {
@@ -136,7 +152,7 @@ describe('channel hint extraction', () => {
   });
 
   test('detects voice channel hint', () => {
-    const result = resolveGuardianVerificationIntent('verify voice channel');
+    const result = resolveGuardianVerificationIntent('set me as guardian for voice');
     expect(result.kind).toBe('direct_setup');
     if (result.kind === 'direct_setup') {
       expect(result.channelHint).toBe('voice');
@@ -145,7 +161,7 @@ describe('channel hint extraction', () => {
   });
 
   test('detects Telegram channel hint', () => {
-    const result = resolveGuardianVerificationIntent('verify my Telegram account');
+    const result = resolveGuardianVerificationIntent('set me as guardian for telegram');
     expect(result.kind).toBe('direct_setup');
     if (result.kind === 'direct_setup') {
       expect(result.channelHint).toBe('telegram');

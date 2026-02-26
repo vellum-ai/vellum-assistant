@@ -19,7 +19,6 @@ const DIRECT_SETUP_PATTERNS: RegExp[] = [
   /\bset\s+(?:me\s+as\s+)?guardian\b/i,
   /\bguardian\s+verif(?:y|ication)\s*(?:setup|set\s*up)?\b/i,
   /\bset\s*up\s+guardian\s+verif(?:y|ication)\b/i,
-  /\bverify\s+(?:my\s+)?(?:phone\s+(?:number)?|telegram(?:\s+account)?|voice\s+channel)\b/i,
   /\b(?:help\s+me\s+)?set\s+(?:myself\s+)?(?:up\s+)?as\s+(?:your\s+)?guardian\s+(?:for|via|by|over|on|through)\s+/i,
   /\bguardian\s+(?:for|via|by|over|on|through)\s+(?:sms|text|phone|voice|telegram|call)\b/i,
   /\bbecome\s+(?:your\s+|the\s+)?guardian\b/i,
