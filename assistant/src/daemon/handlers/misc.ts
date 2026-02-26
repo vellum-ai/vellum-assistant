@@ -89,7 +89,7 @@ export async function handleTaskSubmit(
           sessionId: conversation.id,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
-        conversationStore.addMessage(conversation.id, 'user', JSON.stringify([{ type: 'text', text: msg.task }]));
+        conversationStore.addMessage(conversation.id, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(conversation.id, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         if (!recordingId) ctx.socketToSession.delete(socket);
         return;
@@ -109,7 +109,7 @@ export async function handleTaskSubmit(
           sessionId: activeSessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task }]));
+        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         return;
       } else if (action === 'restart') {
@@ -127,7 +127,7 @@ export async function handleTaskSubmit(
           sessionId: activeSessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task }]));
+        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: restartResult.responseText }]));
         return;
       } else if (action === 'pause') {
@@ -146,7 +146,7 @@ export async function handleTaskSubmit(
           sessionId: activeSessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task }]));
+        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         return;
       } else if (action === 'resume') {
@@ -165,7 +165,7 @@ export async function handleTaskSubmit(
           sessionId: activeSessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task }]));
+        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         return;
       } else {
@@ -199,7 +199,7 @@ export async function handleTaskSubmit(
         ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
         ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: conversation.id });
         ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
-        conversationStore.addMessage(conversation.id, 'user', JSON.stringify([{ type: 'text', text: msg.task }]));
+        conversationStore.addMessage(conversation.id, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(conversation.id, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
 
         // If recording rejected, unbind socket
@@ -229,7 +229,7 @@ export async function handleTaskSubmit(
         ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
         ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: activeSessionId });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task }]));
+        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
         return;
       }
@@ -252,7 +252,7 @@ export async function handleTaskSubmit(
         ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
         ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: activeSessionId });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task }]));
+        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
         return;
       }
@@ -276,7 +276,7 @@ export async function handleTaskSubmit(
         ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
         ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: activeSessionId });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task }]));
+        conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
         return;
       }
@@ -343,7 +343,7 @@ export async function handleTaskSubmit(
                 sessionId: activeSessionId,
               });
               ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-              conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task }]));
+              conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
               conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
 
               // If recording was rejected (e.g. already active), unbind the
