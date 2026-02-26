@@ -374,6 +374,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func selectThread(id: UUID) {
         guard let thread = threads.first(where: { $0.id == id }) else { return }
 
+        let previousActiveId = activeThreadId
         trimPreviousThreadIfNeeded(nextThreadId: id)
 
         // Re-create the ViewModel if it was LRU-evicted.
@@ -389,6 +390,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // Switching threads is a natural point to shed cached render
         // artefacts from the previous conversation.
         Self.clearRenderCaches()
+
+        // Emit explicit seen signal for user-initiated thread selection.
+        // Skip if this thread was already active to avoid duplicate signals
+        // (e.g. when openConversationThread sets activeThreadId directly and
+        // SwiftUI's onChange cycle calls selectThread with the same id).
+        if id != previousActiveId, let sessionId = thread.sessionId {
+            emitConversationSeenSignal(conversationId: sessionId)
+        }
     }
 
     // MARK: - Render Cache Management
@@ -632,11 +641,36 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func activateThread(_ id: UUID) {
+        let previousActiveId = activeThreadId
         trimPreviousThreadIfNeeded(nextThreadId: id)
         activeThreadId = id
+
+        // Emit explicit seen signal for user-initiated thread activation.
+        if id != previousActiveId,
+           let thread = threads.first(where: { $0.id == id }),
+           let sessionId = thread.sessionId {
+            emitConversationSeenSignal(conversationId: sessionId)
+        }
     }
 
     // MARK: - Private
+
+    /// Send a `conversation_seen_signal` IPC message to the daemon.
+    private func emitConversationSeenSignal(conversationId: String) {
+        let signal = IPCConversationSeenSignal(
+            conversationId: conversationId,
+            sourceChannel: "vellum",
+            signalType: "macos_conversation_opened",
+            confidence: "explicit",
+            source: "ui-navigation",
+            evidenceText: "User opened conversation in app"
+        )
+        do {
+            try daemonClient.send(signal)
+        } catch {
+            log.warning("Failed to send conversation_seen_signal for \(conversationId): \(error.localizedDescription)")
+        }
+    }
 
     /// Trim the previously active thread's view model to shed memory before
     /// switching to a different thread. Skipped when the VM hasn't loaded

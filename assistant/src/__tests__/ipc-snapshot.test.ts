@@ -686,6 +686,17 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     deliveryId: 'delivery-001',
     success: true,
   },
+  conversation_seen_signal: {
+    type: 'conversation_seen_signal',
+    conversationId: 'conv-001',
+    sourceChannel: 'vellum',
+    signalType: 'macos_notification_view',
+    confidence: 'explicit',
+    source: 'notification-action',
+    evidenceText: 'User clicked View on notification',
+    observedAt: 1700000000000,
+    metadata: { notificationCategory: 'NOTIFICATION_INTENT' },
+  },
   recording_status: {
     type: 'recording_status',
     sessionId: 'rec-001',
