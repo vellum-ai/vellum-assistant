@@ -180,8 +180,10 @@ struct SettingsPanel: View {
 
     @ViewBuilder
     private var selectedTabContent: some View {
-        if store.isParentalEnabled && store.activeProfile == "child" {
-            // Child profile: show restricted placeholder instead of any settings content
+        // In child mode, only the Parental tab is accessible so the parent can
+        // enter their PIN and switch back to the parental profile. All other
+        // tabs are replaced with a restricted placeholder.
+        if store.isParentalEnabled && store.activeProfile == "child" && selectedTab != .parental {
             childRestrictedPlaceholder
         } else {
             switch selectedTab {

@@ -619,12 +619,14 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
-        // Wire up parental control get response — pick up activeProfile from the initial settings load.
+        // Wire up parental control get response — pick up activeProfile and isParentalEnabled
+        // from the initial settings load so the settings gate is correctly seeded on cold start.
         daemonClient?.onParentalControlGetResponse = { [weak self] response in
             guard let self else { return }
             if let profile = response.activeProfile {
                 self.activeProfile = profile
             }
+            self.isParentalEnabled = response.enabled
         }
 
         // Wire up profile get response.
@@ -673,6 +675,16 @@ public final class SettingsStore: ObservableObject {
             try daemonClient?.sendParentalControlProfileGet()
         } catch {
             log.error("Failed to send parental control profile get request: \(error)")
+        }
+
+        // Eagerly fetch parental control settings on init so isParentalEnabled is
+        // populated before the user can attempt to open the Settings panel. Without
+        // this, the cold-start gate in AppDelegate.showSettingsWindow always sees
+        // the default false value and allows settings access in child mode.
+        do {
+            try daemonClient?.sendParentalControlGet()
+        } catch {
+            log.error("Failed to send parental control get request on init: \(error)")
         }
 
         // Ingress config is refreshed by onAppear in SettingsPanel,
