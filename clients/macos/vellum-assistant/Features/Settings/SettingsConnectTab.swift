@@ -752,8 +752,9 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.error)
             }
 
-            // Guardian row (only when credentials exist)
-            if store.twilioHasCredentials {
+            // Guardian row (only when credentials and a phone number are assigned —
+            // voice verification initiates an outbound call which requires a valid caller number)
+            if store.twilioHasCredentials && store.twilioPhoneNumber != nil {
                 Divider().background(VColor.surfaceBorder)
                 guardianStatusRow(channel: "voice")
             }
