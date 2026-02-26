@@ -4,7 +4,7 @@ This document owns public-ingress and channel webhook architecture. The repo-lev
 
 ## Ingress Boundary Architecture — Gateway-Only Public Ingress
 
-All external webhook endpoints (Telegram, Twilio, OAuth, future channels) are handled exclusively by the gateway. The runtime never exposes webhook ingress. The runtime-proxy explicitly blocks forwarding of `/webhooks/*` paths.
+All external webhook endpoints (Telegram, Twilio, WhatsApp, OAuth) and persistent channel connections (Slack Socket Mode) are handled exclusively by the gateway. The runtime never exposes webhook ingress. The runtime-proxy explicitly blocks forwarding of `/webhooks/*` paths.
 
 This boundary is enforced at three layers:
 
@@ -18,6 +18,7 @@ Internet
   +-- Twilio ----------> Gateway POST /webhooks/twilio/*    --> Runtime /v1/internal/twilio/*
   +-- OAuth Provider ---> Gateway GET  /webhooks/oauth/callback --> Runtime /v1/internal/oauth/callback
   +-- Telegram --------> Gateway POST /webhooks/telegram    --> Runtime /v1/channels/inbound
+  +-- Slack ------------> Gateway (Socket Mode WebSocket)   --> Runtime /v1/channels/inbound
   |
   +-- Tunnel (ngrok, Cloudflare, etc.)
        |
@@ -433,6 +434,58 @@ In single-assistant mode (the default local deployment), routing is automaticall
 - `GATEWAY_DEFAULT_ASSISTANT_ID` is set to the current assistant's ID
 
 In multi-assistant mode, the operator must configure `GATEWAY_ASSISTANT_ROUTING_JSON` to map specific chat/user IDs to assistant IDs.
+
+### Slack Channel (Socket Mode)
+
+The Slack channel enables inbound and outbound messaging via Slack's Socket Mode API. Unlike Telegram, SMS, and WhatsApp which use HTTP webhook ingress, Slack uses a persistent WebSocket connection — no public ingress URL is required.
+
+**Connection lifecycle** (`apps.connections.open`):
+
+1. The gateway calls `POST https://slack.com/api/apps.connections.open` with the Slack app-level token (`xapp-...`) to obtain a WebSocket URL.
+2. A `SlackSocketModeClient` opens the WebSocket and maintains a single active connection.
+3. On connection, the client resets its reconnect counter. On close or error, it schedules a reconnect with capped exponential backoff (1s base, 30s max) plus 0-50% jitter.
+4. Slack may send a `disconnect` envelope to request a reconnect (e.g., server rotation). The client handles this by closing the current socket and reconnecting immediately (attempt counter reset to 0).
+
+**Event processing** (inbound):
+
+1. Every Socket Mode envelope is ACKed immediately by echoing `{ envelope_id }` back on the WebSocket — this is required by Slack regardless of whether the event is processed.
+2. Only `events_api` envelopes with `app_mention` events are processed in MVP. Other envelope types (slash commands, interactive payloads) are ACKed but ignored.
+3. Events are deduplicated by `event_id` using an in-memory `Map<string, number>` with a 24-hour TTL. A periodic cleanup sweep runs every hour to evict expired entries.
+4. The `normalizeSlackAppMention()` function strips leading bot-mention tokens (`<@U...>`) from the message text and produces a `GatewayInboundEventV1` with `sourceChannel: "slack"`, using the Slack channel ID as `externalChatId` and the sender's user ID as `externalUserId`.
+5. Routing uses the standard `resolveAssistant()` chain (chat_id -> user_id -> default/reject). Events that cannot be routed are dropped.
+6. The normalized event is forwarded to the runtime via `POST /v1/channels/inbound` with Slack-specific transport hints and a `replyCallbackUrl` pointing to `/deliver/slack`.
+
+**Egress** (`POST /deliver/slack`):
+
+1. The runtime calls the gateway's `/deliver/slack` endpoint with `{ chatId, text }` or `{ to, text }` (alias). The `chatId` field maps to the Slack channel ID where the reply should be posted.
+2. The gateway authenticates the request via bearer token (same fail-closed model as other deliver endpoints).
+3. The gateway posts the message via `POST https://slack.com/api/chat.postMessage` using the bot token.
+4. Threading is supported via a `threadTs` query parameter on the deliver URL. When present, replies are posted as thread replies to the specified message timestamp.
+
+**Credential management:**
+
+The Slack channel requires two tokens:
+
+| Token | Format | Purpose |
+|-------|--------|---------|
+| App token | `xapp-...` | Used for `apps.connections.open` to establish the Socket Mode WebSocket connection |
+| Bot token | `xbot-...` / `xoxb-...` | Used for `chat.postMessage` to send outbound messages and for `auth.test` validation |
+
+Both tokens are stored in secure storage (`credential:slack_channel:app_token`, `credential:slack_channel:bot_token`) via the assistant's Slack channel config endpoints (see `assistant/ARCHITECTURE.md`). The gateway reads them via its `credential-reader` module using the same keychain-first fallback strategy as Telegram credentials.
+
+**Auto-reconnect behavior:**
+
+The Socket Mode client auto-reconnects on any WebSocket close or error. The backoff schedule is: `min(1000 * 2^attempt, 30000)` + random jitter. After a successful connection, the attempt counter resets. Slack-initiated disconnects (envelope `type: "disconnect"`) trigger an immediate reconnect with no backoff.
+
+**Key modules:**
+
+| Module | Purpose |
+|--------|---------|
+| `gateway/src/slack/socket-mode.ts` | `SlackSocketModeClient` — WebSocket lifecycle, ACK, dedup, auto-reconnect |
+| `gateway/src/slack/normalize.ts` | `normalizeSlackAppMention()` — event normalization and bot-mention stripping |
+| `gateway/src/http/routes/slack-deliver.ts` | `/deliver/slack` — outbound message delivery via `chat.postMessage` |
+
+**Limitations (MVP):** Text-only — attachments are rejected. Only `app_mention` events are processed (direct messages to the bot are not handled). Rich approval UI (inline buttons) is not supported.
 
 ---
 
