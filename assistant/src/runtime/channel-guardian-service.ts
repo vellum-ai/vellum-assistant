@@ -9,7 +9,7 @@
 import { createHash,randomBytes } from 'crypto';
 import { v4 as uuid } from 'uuid';
 
-import type { GuardianBinding, IdentityBindingStatus,SessionStatus, VerificationChallenge } from '../memory/channel-guardian-store.js';
+import type { GuardianBinding, IdentityBindingStatus, SessionStatus, VerificationChallenge, VerificationPurpose } from '../memory/channel-guardian-store.js';
 import {
   bindSessionIdentity as storeBindSessionIdentity,
   consumeChallenge,
@@ -273,11 +273,12 @@ export function validateAndConsumeChallenge(
   // Reset the rate-limit counter on success
   resetRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
 
-  // Identity-bound outbound sessions (from the trusted contact access flow)
-  // should NOT create a guardian binding — the requester is becoming a trusted
-  // contact, not a guardian. Only unbound inbound challenges (guardian
-  // verification) create guardian bindings.
-  if (hasExpectedIdentity && challenge.identityBindingStatus === 'bound') {
+  // Trusted contact verification sessions (created by the access request
+  // approval flow) should NOT create a guardian binding — the requester is
+  // becoming a trusted contact, not a guardian. The explicit verificationPurpose
+  // field distinguishes this from guardian outbound verification which also uses
+  // identity-bound sessions.
+  if (challenge.verificationPurpose === 'trusted_contact') {
     return { success: true, verificationType: 'trusted_contact' };
   }
 
@@ -405,6 +406,7 @@ export function createOutboundSession(params: {
   maxAttempts?: number;
   sessionId?: string;
   bootstrapTokenHash?: string;
+  verificationPurpose?: VerificationPurpose;
 }): CreateOutboundSessionResult {
   // Use high-entropy hex for unbound bootstrap sessions to prevent brute-force;
   // 6-digit numeric codes are only safe when identity is already bound.
@@ -430,6 +432,7 @@ export function createOutboundSession(params: {
     destinationAddress: params.destinationAddress,
     codeDigits: params.codeDigits,
     maxAttempts: params.maxAttempts,
+    verificationPurpose: params.verificationPurpose,
     bootstrapTokenHash: params.bootstrapTokenHash,
   });
 

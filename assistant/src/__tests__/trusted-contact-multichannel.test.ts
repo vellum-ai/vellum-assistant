@@ -234,6 +234,7 @@ for (const config of CHANNEL_CONFIGS) {
         expectedChatId: config.externalChatId,
         identityBindingStatus: 'bound',
         destinationAddress: config.externalChatId,
+        verificationPurpose: 'trusted_contact',
       });
 
       const result = validateAndConsumeChallenge(
@@ -324,6 +325,7 @@ describe('SMS identity binding with E.164 phone numbers', () => {
       expectedChatId: phone,
       identityBindingStatus: 'bound',
       destinationAddress: phone,
+      verificationPurpose: 'trusted_contact',
     });
 
     // Verify with matching phone identity

@@ -388,6 +388,7 @@ describe('trusted contact activated notification signal', () => {
       expectedChatId: 'chat-123',
       identityBindingStatus: 'bound',
       destinationAddress: 'chat-123',
+      verificationPurpose: 'trusted_contact',
     });
 
     // Requester enters the verification code
@@ -460,6 +461,7 @@ describe('trusted contact activated notification signal', () => {
       expectedChatId: 'chat-123',
       identityBindingStatus: 'bound',
       destinationAddress: 'chat-123',
+      verificationPurpose: 'trusted_contact',
     });
 
     const verifyReq = buildInboundRequest({
