@@ -133,7 +133,11 @@ export async function sweepFailedEvents(
           ? payload.externalChatId
           : undefined;
         if (externalChatId) {
-          const startFromSegment = channelDeliveryStore.getDeliveredSegmentCount(event.id);
+          // processMessage above generated a fresh assistant response, so any
+          // previously tracked segment progress belongs to the old response and
+          // must not carry over. Reset to 0 so we deliver all segments of the
+          // new response.
+          channelDeliveryStore.updateDeliveredSegmentCount(event.id, 0);
           await deliverReplyViaCallback(
             event.conversationId,
             externalChatId,
@@ -141,7 +145,7 @@ export async function sweepFailedEvents(
             bearerToken,
             assistantId,
             {
-              startFromSegment,
+              startFromSegment: 0,
               onSegmentDelivered: (count) =>
                 channelDeliveryStore.updateDeliveredSegmentCount(event.id, count),
             },
