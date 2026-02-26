@@ -645,7 +645,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard let previousId = activeThreadId, previousId != nextThreadId,
               let vm = chatViewModels[previousId],
               vm.isHistoryLoaded,
-              !vm.isSending, !vm.isThinking else { return }
+              !vm.isSending, !vm.isThinking, !vm.isLoadingMoreMessages else { return }
         vm.trimForBackground()
     }
 
