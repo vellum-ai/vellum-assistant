@@ -401,7 +401,9 @@ public final class ChatViewModel: ObservableObject {
     /// True while a previous-page load is in progress (brief async delay for UX).
     @Published public var isLoadingMoreMessages: Bool = false
 
-    /// Timeout task that resets `isLoadingMoreMessages` if the daemon never responds.
+    /// Timeout task that logs a warning if the daemon takes too long to respond
+    /// to a pagination request. The flag is intentionally NOT cleared here —
+    /// see the comment in `loadPreviousMessagePage()` for rationale.
     private var loadMoreTimeoutTask: Task<Void, Never>?
 
     /// The subset of messages that are actually displayed (excludes subagent notifications
@@ -460,13 +462,20 @@ public final class ChatViewModel: ObservableObject {
         // All local messages are visible — fetch the next page from the daemon.
         guard hasMoreHistory, let cursor = historyCursor, let sessionId else { return false }
         isLoadingMoreMessages = true
-        // Safety timeout: if the daemon drops the connection or never responds,
-        // reset the flag so the user can retry.
+        // Safety timeout: log a warning if the daemon is slow, but do NOT
+        // clear isLoadingMoreMessages here. Callers (ThreadSessionRestorer,
+        // IOSThreadStore) use `vm.isLoadingMoreMessages` to decide whether
+        // a history response is a pagination load. If the timeout clears the
+        // flag before the response arrives, the late-but-valid response is
+        // misclassified as an initial load and replaces all messages instead
+        // of prepending. The flag is properly cleared by populateFromHistory
+        // when the response arrives, or by reconnect/thread-switch logic if
+        // the daemon disconnects.
         loadMoreTimeoutTask?.cancel()
         loadMoreTimeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 15_000_000_000) // 15 seconds
-            guard let self, self.isLoadingMoreMessages else { return }
-            self.isLoadingMoreMessages = false
+            try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
+            guard let self, !Task.isCancelled, self.isLoadingMoreMessages else { return }
+            log.warning("Pagination request still pending after 30s — daemon may be unresponsive")
         }
         onLoadMoreHistory?(sessionId, cursor)
         // The loading indicator is cleared by populateFromHistory when the response arrives.
@@ -478,6 +487,9 @@ public final class ChatViewModel: ObservableObject {
         displayedMessageCount = Self.messagePageSize
         historyCursor = nil
         hasMoreHistory = false
+        loadMoreTimeoutTask?.cancel()
+        loadMoreTimeoutTask = nil
+        isLoadingMoreMessages = false
     }
 
     // MARK: - On-Demand Content Rehydration
@@ -2161,6 +2173,7 @@ public final class ChatViewModel: ObservableObject {
         messageLoopTask?.cancel()
         streamingFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
+        loadMoreTimeoutTask?.cancel()
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which
         // cannot be referenced from nonisolated deinit. Both tasks use [weak self],
