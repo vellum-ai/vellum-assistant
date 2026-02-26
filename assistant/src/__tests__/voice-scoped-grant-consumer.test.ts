@@ -482,4 +482,90 @@ describe('voice scoped grant consumer', () => {
       .all();
     expect(otherActive.length).toBe(1);
   });
+
+  test('grants with null callSessionId are revoked by conversationId', () => {
+    const db = getDb();
+    const testConversationId = 'conv-revoke-by-conversation';
+
+    // Simulate the guardian-approval-interception minting path which sets
+    // callSessionId: null but always sets conversationId
+    createScopedApprovalGrant(grantParams({
+      callSessionId: null,
+      conversationId: testConversationId,
+    }));
+    createScopedApprovalGrant(grantParams({
+      callSessionId: null,
+      conversationId: 'other-conversation',
+    }));
+
+    // Verify both grants are active
+    const allActive = db.select()
+      .from(scopedApprovalGrants)
+      .where(eq(scopedApprovalGrants.status, 'active'))
+      .all();
+    expect(allActive.length).toBe(2);
+
+    // callSessionId-based revocation should miss grants with null callSessionId
+    // because the filter matches on the column value, not NULL
+    const revokedByCallSession = revokeScopedApprovalGrantsForContext({ callSessionId: CALL_SESSION_ID });
+    expect(revokedByCallSession).toBe(0);
+
+    // conversationId-based revocation catches the grant
+    const revokedByConversation = revokeScopedApprovalGrantsForContext({ conversationId: testConversationId });
+    expect(revokedByConversation).toBe(1);
+
+    // The target conversation's grant should be revoked
+    const revokedAfter = db.select()
+      .from(scopedApprovalGrants)
+      .where(and(
+        eq(scopedApprovalGrants.conversationId, testConversationId),
+        eq(scopedApprovalGrants.status, 'revoked'),
+      ))
+      .all();
+    expect(revokedAfter.length).toBe(1);
+
+    // The other conversation's grant should still be active
+    const otherActive = db.select()
+      .from(scopedApprovalGrants)
+      .where(and(
+        eq(scopedApprovalGrants.conversationId, 'other-conversation'),
+        eq(scopedApprovalGrants.status, 'active'),
+      ))
+      .all();
+    expect(otherActive.length).toBe(1);
+  });
+
+  test('non-guardian with grant for different assistantId: auto-denied', async () => {
+    // Create a grant scoped to a different assistant
+    createScopedApprovalGrant(grantParams({
+      assistantId: 'other-assistant',
+    }));
+
+    const mockData = createMockSession();
+    setupBridgeDeps(() => mockData.session);
+
+    const guardianContext: GuardianRuntimeContext = {
+      sourceChannel: 'voice',
+      actorRole: 'non-guardian',
+      requesterExternalUserId: 'caller-123',
+    };
+
+    await startVoiceTurn({
+      conversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      content: 'test utterance',
+      assistantId: ASSISTANT_ID,
+      guardianContext,
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const decision = mockData.getConfirmationDecision();
+    expect(decision).not.toBeNull();
+    expect(decision!.decision).toBe('deny');
+  });
 });

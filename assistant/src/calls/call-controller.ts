@@ -432,11 +432,15 @@ export class CallController {
     this.currentTurnPromise = null;
     unregisterCallController(this.callSessionId);
 
-    // Revoke any scoped approval grants bound to this call session
+    // Revoke any scoped approval grants bound to this call session.
+    // Revoke by both callSessionId and conversationId because the
+    // guardian-approval-interception minting path sets callSessionId: null
+    // but always sets conversationId.
     try {
-      const revoked = revokeScopedApprovalGrantsForContext({ callSessionId: this.callSessionId });
+      let revoked = revokeScopedApprovalGrantsForContext({ callSessionId: this.callSessionId });
+      revoked += revokeScopedApprovalGrantsForContext({ conversationId: this.conversationId });
       if (revoked > 0) {
-        log.info({ callSessionId: this.callSessionId, revokedCount: revoked }, 'Revoked scoped grants on call end');
+        log.info({ callSessionId: this.callSessionId, conversationId: this.conversationId, revokedCount: revoked }, 'Revoked scoped grants on call end');
       }
     } catch (err) {
       log.warn({ err, callSessionId: this.callSessionId }, 'Failed to revoke scoped grants on call end');

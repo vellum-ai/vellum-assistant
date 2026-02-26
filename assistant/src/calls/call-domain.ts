@@ -490,9 +490,13 @@ export async function cancelCall(input: CancelCallInput): Promise<{ ok: true; se
   // Expire any pending questions so they don't linger
   expirePendingQuestions(callSessionId);
 
-  // Revoke any scoped approval grants bound to this call session
+  // Revoke any scoped approval grants bound to this call session.
+  // Revoke by both callSessionId and conversationId because the
+  // guardian-approval-interception minting path sets callSessionId: null
+  // but always sets conversationId.
   try {
     revokeScopedApprovalGrantsForContext({ callSessionId });
+    revokeScopedApprovalGrantsForContext({ conversationId: session.conversationId });
   } catch (err) {
     log.warn({ err, callSessionId }, 'Failed to revoke scoped grants on call cancel');
   }

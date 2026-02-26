@@ -202,6 +202,7 @@ export interface ConsumeByToolSignatureParams {
   inputDigest: string;
   consumingRequestId: string;
   /** Optional context constraints — only matched when the grant has a non-null value */
+  assistantId?: string;
   executionChannel?: string;
   conversationId?: string;
   callSessionId?: string;
@@ -239,6 +240,12 @@ export function consumeScopedApprovalGrantByToolSignature(
     eq(scopedApprovalGrants.status, 'active'),
     sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
   ];
+
+  // assistantId is always set on grants — scope consumption to the current
+  // assistant so grants minted for one assistant cannot be consumed by another.
+  if (params.assistantId !== undefined) {
+    conditions.push(eq(scopedApprovalGrants.assistantId, params.assistantId));
+  }
 
   // Context constraints: grant field must be NULL (any) or match exactly
   if (params.executionChannel !== undefined) {

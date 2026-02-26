@@ -350,6 +350,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
           toolName: msg.toolName,
           inputDigest,
           consumingRequestId: msg.requestId,
+          assistantId: opts.assistantId,
           executionChannel: 'voice',
           conversationId: opts.conversationId,
           callSessionId: opts.callSessionId,
