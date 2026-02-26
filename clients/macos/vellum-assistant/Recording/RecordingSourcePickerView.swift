@@ -54,7 +54,13 @@ struct RecordingSourcePickerView: View {
                     .foregroundColor(VColor.textSecondary)
                 Spacer()
             } else {
+                // Absorb extra vertical space between preview and source list
+                // so the source list sits close to the bottom bar.
+                Spacer(minLength: VSpacing.sm)
+                    .layoutPriority(-1)
+
                 sourceList
+                    .layoutPriority(1)
             }
 
             Divider()
@@ -101,40 +107,48 @@ struct RecordingSourcePickerView: View {
 
     // MARK: - Source List
 
+    /// The rows of source items (display or window) without a scroll wrapper.
     @ViewBuilder
-    private var sourceList: some View {
-        ScrollView {
-            VStack(spacing: VSpacing.xs) {
-                switch viewModel.captureScope {
-                case .display:
-                    ForEach(viewModel.displays) { display in
-                        displayRow(
-                            display: display,
-                            isSelected: viewModel.selectedDisplayId == display.id
-                        ) {
-                            viewModel.selectedDisplayId = display.id
-                        }
-                    }
-                    if viewModel.displays.isEmpty {
-                        emptyState("No displays available")
-                    }
-
-                case .window:
-                    ForEach(viewModel.windows) { window in
-                        windowRow(
-                            window: window,
-                            isSelected: viewModel.selectedWindowId == window.id
-                        ) {
-                            viewModel.selectedWindowId = window.id
-                        }
-                    }
-                    if viewModel.windows.isEmpty {
-                        emptyState("No windows available")
+    private var sourceListContent: some View {
+        VStack(spacing: VSpacing.xs) {
+            switch viewModel.captureScope {
+            case .display:
+                ForEach(viewModel.displays) { display in
+                    displayRow(
+                        display: display,
+                        isSelected: viewModel.selectedDisplayId == display.id
+                    ) {
+                        viewModel.selectedDisplayId = display.id
                     }
                 }
+                if viewModel.displays.isEmpty {
+                    emptyState("No displays available")
+                }
+
+            case .window:
+                ForEach(viewModel.windows) { window in
+                    windowRow(
+                        window: window,
+                        isSelected: viewModel.selectedWindowId == window.id
+                    ) {
+                        viewModel.selectedWindowId = window.id
+                    }
+                }
+                if viewModel.windows.isEmpty {
+                    emptyState("No windows available")
+                }
             }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.xs)
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.xs)
+    }
+
+    /// Source list that hugs content when items fit, scrolls when they overflow.
+    @ViewBuilder
+    private var sourceList: some View {
+        ViewThatFits(in: .vertical) {
+            sourceListContent
+            ScrollView { sourceListContent }
         }
     }
 
