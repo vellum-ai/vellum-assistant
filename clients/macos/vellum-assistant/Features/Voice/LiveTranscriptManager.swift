@@ -80,7 +80,10 @@ final class LiveTranscriptManager: ObservableObject {
                 try await audioCapture.start()
 
                 // If stopListening() was called while we were awaiting, bail out
-                guard self.status == .starting, self.startGeneration == currentGeneration else { return }
+                guard self.status == .starting, self.startGeneration == currentGeneration else {
+                    self.audioCapture.stop()
+                    return
+                }
 
                 guard transcriptionEngine.start() else {
                     log.error("Transcription engine failed to start")

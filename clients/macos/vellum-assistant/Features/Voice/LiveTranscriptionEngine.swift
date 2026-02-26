@@ -76,7 +76,7 @@ final class LiveTranscriptionEngine {
         }
 
         self.speechRecognizer = recognizer
-        isRunning = true
+        engineQueue.sync { isRunning = true }
         consecutiveFailures = 0
 
         startRecognitionSession()
@@ -88,14 +88,14 @@ final class LiveTranscriptionEngine {
 
     func stop() {
         guard isRunning else { return }
-        isRunning = false
+        engineQueue.sync { isRunning = false }
 
         restartTimer?.invalidate()
         restartTimer = nil
 
         tearDownSession()
         speechRecognizer = nil
-        audioConverter = nil
+        engineQueue.sync { audioConverter = nil }
 
         log.info("LiveTranscriptionEngine stopped")
     }
@@ -169,7 +169,7 @@ final class LiveTranscriptionEngine {
             request.requiresOnDeviceRecognition = true
         }
         request.addsPunctuation = true
-        self.recognitionRequest = request
+        engineQueue.sync { self.recognitionRequest = request }
 
         sessionGeneration += 1
         let currentGeneration = sessionGeneration
@@ -224,8 +224,10 @@ final class LiveTranscriptionEngine {
     }
 
     private func tearDownSession() {
-        recognitionRequest?.endAudio()
-        recognitionRequest = nil
+        engineQueue.sync {
+            recognitionRequest?.endAudio()
+            recognitionRequest = nil
+        }
         recognitionTask?.cancel()
         recognitionTask = nil
     }
