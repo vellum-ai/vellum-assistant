@@ -95,4 +95,38 @@ final class ThreadManagerBusyStateTests: XCTestCase {
         XCTAssertFalse(threadManager.isThreadBusy(threadId), "Thread should not be busy after all states return to idle")
         XCTAssertTrue(threadManager.busyThreadIds.isEmpty)
     }
+
+    func testLRUEvictionSkipsBusyBackgroundThread() {
+        guard let originalThreadId = threadManager.activeThreadId else {
+            XCTFail("Expected initial active thread")
+            return
+        }
+
+        for _ in 0..<9 {
+            threadManager.activeViewModel?.messages.append(ChatMessage(role: .user, text: "seed"))
+            threadManager.createThread()
+        }
+
+        guard let busyVm = threadManager.existingChatViewModel(for: originalThreadId) else {
+            XCTFail("Expected original thread view model")
+            return
+        }
+        busyVm.isSending = true
+
+        let expBusy = expectation(description: "busy thread marked")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { expBusy.fulfill() }
+        wait(for: [expBusy], timeout: 1.0)
+        XCTAssertTrue(threadManager.isThreadBusy(originalThreadId))
+
+        // Trigger one more creation to force an LRU eviction pass.
+        threadManager.activeViewModel?.messages.append(ChatMessage(role: .user, text: "seed"))
+        threadManager.createThread()
+
+        let expEvict = expectation(description: "eviction pass complete")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { expEvict.fulfill() }
+        wait(for: [expEvict], timeout: 1.0)
+
+        XCTAssertNotNil(threadManager.existingChatViewModel(for: originalThreadId), "Busy thread should not be evicted")
+        XCTAssertTrue(threadManager.isThreadBusy(originalThreadId), "Busy state should be preserved after eviction pass")
+    }
 }
