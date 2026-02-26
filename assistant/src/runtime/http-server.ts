@@ -25,6 +25,7 @@ import { parseChannelId } from '../channels/types.js';
 import {
   getGatewayInternalBaseUrl,
   getRuntimeGatewayOriginSecret,
+  hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
@@ -303,7 +304,9 @@ export class RuntimeHttpServer {
 
     this.pairingStore.start();
 
-    if (isHttpAuthDisabled()) {
+    if (hasUngatedHttpAuthDisabled()) {
+      log.warn('DISABLE_HTTP_AUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and HTTP authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.');
+    } else if (isHttpAuthDisabled()) {
       log.warn('DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All API endpoints are accessible without a bearer token. Do not use in production.');
     }
 
@@ -448,7 +451,7 @@ export class RuntimeHttpServer {
       );
     }
 
-    if ((process.env.DISABLE_HTTP_AUTH ?? '').toLowerCase() !== 'true' && this.bearerToken) {
+    if (!isHttpAuthDisabled() && this.bearerToken) {
       const wsUrl = new URL(req.url);
       const token = wsUrl.searchParams.get('token');
       if (!token || !verifyBearerToken(token, this.bearerToken)) {

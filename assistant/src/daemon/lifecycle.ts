@@ -46,7 +46,7 @@ import {
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
 import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
-import { hasNoAuthOverride } from './connection-policy.js';
+import { hasNoAuthOverride, hasUngatedNoAuthOverride } from './connection-policy.js';
 import { cleanupPidFile,writePid } from './daemon-control.js';
 import { createGuardianActionCopyGenerator } from './guardian-action-generators.js';
 import { initPairingHandlers } from './handlers/pairing.js';
@@ -79,7 +79,9 @@ export async function runDaemon(): Promise<void> {
   loadDotEnv();
   validateEnv();
 
-  if (hasNoAuthOverride()) {
+  if (hasUngatedNoAuthOverride()) {
+    log.warn('VELLUM_DAEMON_NOAUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.');
+  } else if (hasNoAuthOverride()) {
     log.warn('VELLUM_DAEMON_NOAUTH is set — IPC authentication is DISABLED. This should only be used for development or SSH-forwarded sockets. Do not use in production.');
   }
 
