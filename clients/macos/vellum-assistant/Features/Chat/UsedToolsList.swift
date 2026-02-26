@@ -317,7 +317,7 @@ private struct UsedToolsRow: View {
             }
         }
         .animation(VAnimation.fast, value: isExpanded)
-        .onChange(of: isExpanded) { newValue in
+        .onChange(of: isExpanded) { _, newValue in
             // Populate the cache *before* the expanded body evaluates so that
             // `resolvedInputFull` returns the formatted input on the very first
             // render of the expanded section — avoiding a visible flash/pop-in
@@ -330,7 +330,7 @@ private struct UsedToolsRow: View {
                 }
             }
         }
-        .onChange(of: toolCall.inputFull) { _ in
+        .onChange(of: toolCall.inputFull) {
             // Invalidate the cached formatted input so the next render picks up
             // the fresh (rehydrated) value instead of the stale truncated one.
             cachedInputFull = nil
