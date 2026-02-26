@@ -93,6 +93,8 @@ struct IntelligencePanel: View {
                 onCustomizeAvatar: onCustomizeAvatar,
                 daemonClient: daemonClient
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
 
         case .installedSkills:
             ScrollView {
