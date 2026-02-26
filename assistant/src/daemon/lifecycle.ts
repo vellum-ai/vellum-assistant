@@ -17,6 +17,7 @@ import {
 } from '../config/env.js';
 import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
+import { syncUpdateBulletinOnStartup } from '../config/update-bulletin.js';
 import { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
@@ -138,6 +139,12 @@ export async function runDaemon(): Promise<void> {
     }
     initializeDb();
     log.info('Daemon startup: DB initialized');
+
+    try {
+      syncUpdateBulletinOnStartup();
+    } catch (err) {
+      log.warn({ err }, 'Bulletin sync failed — continuing startup');
+    }
 
     // Recover orphaned work items that were left in 'running' state when the
     // daemon previously crashed or was killed mid-task.
