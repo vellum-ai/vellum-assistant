@@ -174,7 +174,7 @@ final class ThreadSessionRestorer {
         // (e.g. Telegram). External channel-bound sessions belong to their own
         // lane and should not appear in the desktop conversation list.
         let recentSessions = response.sessions.filter {
-            $0.threadType != "private" && ($0.channelBinding?.sourceChannel == nil || $0.channelBinding?.sourceChannel == "voice")
+            $0.threadType != "private" && $0.channelBinding?.sourceChannel == nil
         }
 
         let defaultThreadIsEmpty = delegate.threads.count == 1

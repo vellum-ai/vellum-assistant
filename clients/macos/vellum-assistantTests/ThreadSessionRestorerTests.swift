@@ -105,11 +105,11 @@ private func makeSessionListResponse(sessions: [(id: String, title: String, upda
 }
 
 /// Build an IPCHistoryResponse via JSON round-trip.
-private func makeHistoryResponse(sessionId: String, messages: [(role: String, text: String)]) -> HistoryResponseMessage {
+private func makeHistoryResponse(sessionId: String, messages: [(role: String, text: String)], hasMore: Bool = false) -> HistoryResponseMessage {
     let msgDicts = messages.map { msg -> [String: Any] in
         ["role": msg.role, "text": msg.text, "timestamp": 1000.0]
     }
-    let dict: [String: Any] = ["type": "history_response", "sessionId": sessionId, "messages": msgDicts]
+    let dict: [String: Any] = ["type": "history_response", "sessionId": sessionId, "messages": msgDicts, "hasMore": hasMore]
     let data = try! JSONSerialization.data(withJSONObject: dict)
     return try! JSONDecoder().decode(HistoryResponseMessage.self, from: data)
 }
@@ -517,6 +517,60 @@ struct ThreadSessionRestorerTests {
         #expect(delegate.threads[0].kind == .standard)
         #expect(delegate.threads[0].sessionId == nil)
         #expect(delegate.createThreadCallCount == 1)
+    }
+
+    @Test @MainActor
+    func voiceBoundSessionIsExcludedFromRestore() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        let defaultThread = ThreadModel()
+        delegate.threads = [defaultThread]
+        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+
+        let response = makeSessionListResponse(sessions: [
+            (id: "s1", title: "Voice Call", updatedAt: 2000, threadType: nil,
+             channelBinding: ["sourceChannel": "voice", "externalChatId": "call-123"]),
+        ])
+        restorer.handleSessionListResponse(response)
+
+        // Voice-bound session filtered out; empty default removed; new thread created
+        #expect(delegate.threads.count == 1)
+        #expect(delegate.threads[0].kind == .standard)
+        #expect(delegate.threads[0].sessionId == nil)
+        #expect(delegate.createThreadCallCount == 1)
+    }
+
+    @Test @MainActor
+    func mixedDesktopVoiceAndTelegramRestoresOnlyDesktop() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        let defaultThread = ThreadModel()
+        delegate.threads = [defaultThread]
+        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+
+        let response = makeSessionListResponse(sessions: [
+            (id: "s1", title: "Desktop Chat", updatedAt: 4000, threadType: nil, channelBinding: nil),
+            (id: "s2", title: "Telegram Chat", updatedAt: 3000, threadType: nil,
+             channelBinding: ["sourceChannel": "telegram", "externalChatId": "789"]),
+            (id: "s3", title: "Voice Call", updatedAt: 2000, threadType: nil,
+             channelBinding: ["sourceChannel": "voice", "externalChatId": "call-456"]),
+            (id: "s4", title: "Another Desktop Chat", updatedAt: 1000, threadType: nil, channelBinding: nil),
+        ])
+        restorer.handleSessionListResponse(response)
+
+        // Only the two desktop sessions should be restored
+        #expect(delegate.threads.count == 2)
+        #expect(delegate.threads[0].sessionId == "s1")
+        #expect(delegate.threads[0].title == "Desktop Chat")
+        #expect(delegate.threads[1].sessionId == "s4")
+        #expect(delegate.threads[1].title == "Another Desktop Chat")
+        #expect(delegate.createThreadCallCount == 0)
     }
 
     @Test @MainActor
