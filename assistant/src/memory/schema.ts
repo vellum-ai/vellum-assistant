@@ -864,7 +864,9 @@ export const guardianActionDeliveries = sqliteTable('guardian_action_deliveries'
   lastError: text('last_error'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  index('idx_guardian_action_deliveries_dest_conversation').on(table.destinationConversationId),
+]);
 
 // ── Assistant Inbox ──────────────────────────────────────────────────
 
