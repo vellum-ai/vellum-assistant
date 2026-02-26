@@ -49,6 +49,13 @@ const HARDCODED_PORT_PATTERNS = [
 const RUNTIME_PORT_URL_PATTERN =
   'http://.*RUNTIME_HTTP_PORT|RUNTIME_HTTP_PORT.*http://';
 
+/**
+ * Pattern that catches localhost/loopback /v1 URLs built with an interpolated
+ * port variable (e.g. `http://localhost:${port}/v1/...`).
+ */
+const INTERPOLATED_LOCALHOST_V1_PATTERN =
+  'http://(localhost|127\\.0\\.0\\.1):\\$\\{[^}]+\\}/v1/';
+
 function isTestFile(filePath: string): boolean {
   return (
     filePath.includes('/__tests__/') ||
@@ -131,6 +138,40 @@ describe('gateway-only API consumption guard', () => {
     if (violations.length > 0) {
       const message = [
         'Found non-allowlisted files constructing URLs with RUNTIME_HTTP_PORT.',
+        'All API requests must target gateway URLs — see AGENTS.md "Gateway-Only API Consumption".',
+        '',
+        'Violations:',
+        ...violations.map((f) => `  - ${f}`),
+        '',
+        'To fix: migrate the reference to use gateway URLs.',
+        'If this is an intentional exception, add it to the ALLOWLIST in gateway-only-guard.test.ts.',
+      ].join('\n');
+
+      expect(violations, message).toEqual([]);
+    }
+  });
+
+  test('no non-allowlisted files construct localhost /v1 URLs with interpolated ports', () => {
+    let grepOutput = '';
+    try {
+      grepOutput = execSync(
+        `git grep -lE '${INTERPOLATED_LOCALHOST_V1_PATTERN}' -- '*.ts' '*.js' '*.swift' '*.md'`,
+        { encoding: 'utf-8', cwd: process.cwd() + '/..' },
+      ).trim();
+    } catch (err) {
+      // Exit code 1 means no matches — that's the happy path
+      if ((err as { status?: number }).status === 1) {
+        return;
+      }
+      throw err;
+    }
+
+    const files = grepOutput.split('\n').filter((f) => f.length > 0);
+    const violations = filterViolations(files);
+
+    if (violations.length > 0) {
+      const message = [
+        'Found non-allowlisted files constructing localhost /v1 URLs with interpolated ports.',
         'All API requests must target gateway URLs — see AGENTS.md "Gateway-Only API Consumption".',
         '',
         'Violations:',
