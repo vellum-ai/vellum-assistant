@@ -5,6 +5,9 @@ import {
   insertReminder,
   listReminders,
 } from './reminder-store.js';
+import type { RoutingIntent } from './reminder-store.js';
+
+const VALID_ROUTING_INTENTS: ReadonlySet<string> = new Set(['single_channel', 'multi_channel', 'all_channels']);
 
 // ── Exported execute functions ──────────────────────────────────────
 
@@ -13,6 +16,8 @@ export function executeReminderCreate(input: Record<string, unknown>): ToolExecu
   const label = input.label as string | undefined;
   const message = input.message as string | undefined;
   const mode = (input.mode as string | undefined) ?? 'notify';
+  const routingIntentRaw = (input.routing_intent as string | undefined) ?? 'single_channel';
+  const routingHints = (input.routing_hints as Record<string, unknown> | undefined) ?? undefined;
 
   if (!fireAtStr) {
     return { content: 'Error: fire_at is required for create', isError: true };
@@ -26,6 +31,10 @@ export function executeReminderCreate(input: Record<string, unknown>): ToolExecu
   if (mode !== 'notify' && mode !== 'execute') {
     return { content: 'Error: mode must be "notify" or "execute"', isError: true };
   }
+  if (!VALID_ROUTING_INTENTS.has(routingIntentRaw)) {
+    return { content: 'Error: routing_intent must be one of: single_channel, multi_channel, all_channels', isError: true };
+  }
+  const routingIntent = routingIntentRaw as RoutingIntent;
 
   // Require strict ISO 8601 with timezone offset or Z to avoid ambiguous parsing
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(fireAtStr)) {
@@ -39,10 +48,10 @@ export function executeReminderCreate(input: Record<string, unknown>): ToolExecu
     return { content: 'Error: fire_at must be in the future', isError: true };
   }
 
-  const reminder = insertReminder({ label, message, fireAt, mode });
+  const reminder = insertReminder({ label, message, fireAt, mode, routingIntent, routingHints });
 
   return {
-    content: `Reminder created.\n  ID: ${reminder.id}\n  Label: ${reminder.label}\n  Fires at: ${formatLocalDate(reminder.fireAt)}\n  Mode: ${reminder.mode}`,
+    content: `Reminder created.\n  ID: ${reminder.id}\n  Label: ${reminder.label}\n  Fires at: ${formatLocalDate(reminder.fireAt)}\n  Mode: ${reminder.mode}\n  Routing: ${reminder.routingIntent}`,
     isError: false,
   };
 }
@@ -59,7 +68,7 @@ export function executeReminderList(): ToolExecutionResult {
       : r.status === 'firing'
         ? 'firing'
         : r.status;
-    return `  - [${r.id}] "${r.label}" — ${formatLocalDate(r.fireAt)} (${r.mode}, ${status})`;
+    return `  - [${r.id}] "${r.label}" — ${formatLocalDate(r.fireAt)} (${r.mode}, ${status}, routing:${r.routingIntent})`;
   });
 
   return { content: `Reminders:\n${lines.join('\n')}`, isError: false };

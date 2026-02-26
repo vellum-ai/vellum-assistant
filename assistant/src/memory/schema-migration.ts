@@ -22,6 +22,7 @@ export {
   migrateNotificationDeliveryPairingColumns,
   migrateNotificationTablesSchema,
   migrateRemainingTableIndexes,
+  migrateReminderRoutingColumns,
   migrateRemoveAssistantIdColumns,
   migrateToolInvocationsFk,
   MIGRATION_REGISTRY,

@@ -45,8 +45,46 @@ describe('reminder-store', () => {
     expect(r.status).toBe('pending');
     expect(r.firedAt).toBeNull();
     expect(r.conversationId).toBeNull();
+    expect(r.routingIntent).toBe('single_channel');
+    expect(r.routingHints).toEqual({});
     expect(r.createdAt).toBeGreaterThan(0);
     expect(r.updatedAt).toBeGreaterThan(0);
+  });
+
+  test('insertReminder persists routing_intent and routing_hints', () => {
+    const hints = { preferred: ['telegram'], fallback: 'sms' };
+    const r = insertReminder({
+      label: 'Multi-channel',
+      message: 'Deliver to multiple channels',
+      fireAt: Date.now() + 60_000,
+      mode: 'notify',
+      routingIntent: 'multi_channel',
+      routingHints: hints,
+    });
+
+    expect(r.routingIntent).toBe('multi_channel');
+    expect(r.routingHints).toEqual(hints);
+
+    const fetched = getReminder(r.id);
+    expect(fetched).not.toBeNull();
+    expect(fetched!.routingIntent).toBe('multi_channel');
+    expect(fetched!.routingHints).toEqual(hints);
+  });
+
+  test('insertReminder defaults routing_intent to single_channel when omitted', () => {
+    const r = insertReminder({
+      label: 'Default routing',
+      message: 'No routing specified',
+      fireAt: Date.now() + 60_000,
+      mode: 'execute',
+    });
+
+    expect(r.routingIntent).toBe('single_channel');
+    expect(r.routingHints).toEqual({});
+
+    const fetched = getReminder(r.id);
+    expect(fetched!.routingIntent).toBe('single_channel');
+    expect(fetched!.routingHints).toEqual({});
   });
 
   // ── getReminder ─────────────────────────────────────────────────────
@@ -71,12 +109,15 @@ describe('reminder-store', () => {
 
   // ── listReminders ──────────────────────────────────────────────────
 
-  test('listReminders returns all reminders', () => {
+  test('listReminders returns all reminders with routing fields', () => {
     insertReminder({ label: 'A', message: 'a', fireAt: Date.now() + 60_000, mode: 'notify' });
-    insertReminder({ label: 'B', message: 'b', fireAt: Date.now() + 120_000, mode: 'execute' });
+    insertReminder({ label: 'B', message: 'b', fireAt: Date.now() + 120_000, mode: 'execute', routingIntent: 'all_channels', routingHints: { urgent: true } });
 
     const all = listReminders();
     expect(all).toHaveLength(2);
+    expect(all[0].routingIntent).toBe('single_channel');
+    expect(all[1].routingIntent).toBe('all_channels');
+    expect(all[1].routingHints).toEqual({ urgent: true });
   });
 
   test('listReminders with pendingOnly filters to pending only', () => {
@@ -119,9 +160,9 @@ describe('reminder-store', () => {
 
   // ── claimDueReminders ──────────────────────────────────────────────
 
-  test('claimDueReminders claims reminders where fireAt <= now', () => {
+  test('claimDueReminders claims reminders where fireAt <= now and preserves routing', () => {
     const now = Date.now();
-    insertReminder({ label: 'Past', message: 'x', fireAt: now - 5000, mode: 'notify' });
+    insertReminder({ label: 'Past', message: 'x', fireAt: now - 5000, mode: 'notify', routingIntent: 'all_channels', routingHints: { foo: 'bar' } });
     insertReminder({ label: 'Future', message: 'y', fireAt: now + 60_000, mode: 'notify' });
 
     const claimed = claimDueReminders(now);
@@ -129,6 +170,8 @@ describe('reminder-store', () => {
     expect(claimed[0].label).toBe('Past');
     expect(claimed[0].status).toBe('firing');
     expect(claimed[0].firedAt).toBe(now);
+    expect(claimed[0].routingIntent).toBe('all_channels');
+    expect(claimed[0].routingHints).toEqual({ foo: 'bar' });
   });
 
   test('claimDueReminders skips already-fired reminders', () => {

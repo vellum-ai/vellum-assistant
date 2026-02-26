@@ -64,6 +64,15 @@ The word "remind" is ambiguous. Route based on whether a time is specified:
 
 Use `notify` for simple alerts. Use `execute` when the reminder should trigger the assistant to do something (e.g., "in 30 minutes, check if the build passed").
 
+## Reminder Routing
+
+`reminder_create` accepts optional routing fields that control multi-channel delivery at trigger time:
+
+- **`routing_intent`** — `single_channel` (default), `multi_channel`, or `all_channels`
+- **`routing_hints`** — optional free-form JSON object with delivery hints (e.g. preferred channels, fallback order)
+
+These fields are model-authored metadata stored with the reminder and evaluated at trigger time. If omitted, the reminder defaults to `single_channel` delivery.
+
 ## Tool Summary
 
 | Tool | Timing | Recurrence | Purpose |
