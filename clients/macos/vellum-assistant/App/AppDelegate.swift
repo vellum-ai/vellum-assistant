@@ -1111,6 +1111,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         }
 
+        daemonClient.onIdentityChanged = { msg in
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .identityChanged,
+                    object: nil,
+                    userInfo: [
+                        "name": msg.name,
+                        "role": msg.role,
+                        "personality": msg.personality,
+                        "emoji": msg.emoji,
+                        "home": msg.home
+                    ]
+                )
+            }
+        }
+
         // Restart DaemonClient connection when the health monitor relaunches
         // the daemon process so we don't wait for the backoff timer to expire.
         assistantCli.onDaemonRestarted = { [weak self] in
