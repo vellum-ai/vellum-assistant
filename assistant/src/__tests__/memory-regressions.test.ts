@@ -3910,6 +3910,7 @@ describe('Memory regressions', () => {
       deferrals: 0,
       runAfter: 0,
       lastError: null,
+      startedAt: Date.now(),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -3958,7 +3959,7 @@ describe('Memory regressions', () => {
       payload: { conversationId: privConv.id },
       status: 'running' as const,
       attempts: 0, deferrals: 0, runAfter: 0, lastError: null,
-      createdAt: now, updatedAt: now,
+      startedAt: now, createdAt: now, updatedAt: now,
     }, TEST_CONFIG);
 
     // Create a standard conversation and build its summary
@@ -3990,7 +3991,7 @@ describe('Memory regressions', () => {
       payload: { conversationId: stdConv.id },
       status: 'running' as const,
       attempts: 0, deferrals: 0, runAfter: 0, lastError: null,
-      createdAt: now, updatedAt: now,
+      startedAt: now, createdAt: now, updatedAt: now,
     }, TEST_CONFIG);
 
     // Query summaries scoped to 'default' — should only include the standard one
@@ -4417,6 +4418,7 @@ describe('Memory regressions', () => {
       deferrals: 0,
       runAfter: 0,
       lastError: null,
+      startedAt: Date.now(),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -4461,6 +4463,7 @@ describe('Memory regressions', () => {
       deferrals: 0,
       runAfter: 0,
       lastError: null,
+      startedAt: Date.now(),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -4535,6 +4538,7 @@ describe('Memory regressions', () => {
         deferrals: 0,
         runAfter: 0,
         lastError: null,
+        startedAt: Date.now(),
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
