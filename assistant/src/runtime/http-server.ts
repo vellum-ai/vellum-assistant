@@ -502,7 +502,8 @@ export class RuntimeHttpServer {
     if (!upgraded) {
       return new Response('WebSocket upgrade failed', { status: 500 });
     }
-    return undefined as unknown as Response;
+    // Bun's WebSocket upgrade consumes the request — no Response is sent.
+    return undefined!;
   }
 
   private handleRelayUpgrade(req: Request, server: ReturnType<typeof Bun.serve>): Response {
@@ -519,7 +520,8 @@ export class RuntimeHttpServer {
     if (!upgraded) {
       return new Response('WebSocket upgrade failed', { status: 500 });
     }
-    return undefined as unknown as Response;
+    // Bun's WebSocket upgrade consumes the request — no Response is sent.
+    return undefined!;
   }
 
   private async handleTwilioWebhook(req: Request, path: string): Promise<Response | null> {

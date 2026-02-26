@@ -87,7 +87,7 @@ export async function handleScheduleRunNow(
         { taskId, workingDir: process.cwd(), source: 'schedule' },
         async (conversationId, message, taskRunId) => {
           const session = await ctx.getOrCreateSession(conversationId, socket, true);
-          (session as unknown as { taskRunId?: string }).taskRunId = taskRunId;
+          session.taskRunId = taskRunId;
           await session.processMessage(message, [], (event) => {
             ctx.send(socket, event);
           }, undefined, undefined, undefined, { isInteractive: false });

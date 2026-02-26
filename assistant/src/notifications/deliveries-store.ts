@@ -8,7 +8,7 @@
 
 import { and, eq } from 'drizzle-orm';
 
-import { getDb } from '../memory/db.js';
+import { getDb, rawChanges } from '../memory/db.js';
 import { notificationDeliveries } from '../memory/schema.js';
 import type { NotificationChannel, NotificationDeliveryStatus } from './types.js';
 
@@ -131,13 +131,13 @@ export function updateDeliveryStatus(
     updates.errorMessage = error.message;
   }
 
-  const result = db
+  db
     .update(notificationDeliveries)
     .set(updates)
     .where(eq(notificationDeliveries.id, id))
-    .run() as unknown as { changes?: number };
+    .run();
 
-  return (result.changes ?? 0) > 0;
+  return rawChanges() > 0;
 }
 
 /**
@@ -171,13 +171,13 @@ export function updateDeliveryClientOutcome(
     updates.clientDeliveryError = error.code;
   }
 
-  const result = db
+  db
     .update(notificationDeliveries)
     .set(updates)
     .where(eq(notificationDeliveries.id, deliveryId))
-    .run() as unknown as { changes?: number };
+    .run();
 
-  return (result.changes ?? 0) > 0;
+  return rawChanges() > 0;
 }
 
 /** List all delivery records for a given notification decision. */

@@ -153,7 +153,7 @@ export function handleIngressInvite(
       }
 
       default: {
-        ctx.send(socket, { type: 'ingress_invite_response', success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
+        ctx.send(socket, { type: 'ingress_invite_response', success: false, error: `Unknown action: ${String(msg.action)}` });
       }
     }
   } catch (err) {
@@ -264,7 +264,7 @@ export function handleIngressMember(
       }
 
       default: {
-        ctx.send(socket, { type: 'ingress_member_response', success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
+        ctx.send(socket, { type: 'ingress_member_response', success: false, error: `Unknown action: ${String(msg.action)}` });
       }
     }
   } catch (err) {
@@ -342,7 +342,7 @@ export function handleInboxEscalation(
       }
 
       default: {
-        ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
+        ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: `Unknown action: ${String(msg.action)}` });
       }
     }
   } catch (err) {

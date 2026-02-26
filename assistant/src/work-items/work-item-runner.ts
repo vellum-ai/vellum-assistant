@@ -127,8 +127,8 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
               workItemId,
               title: workItem.title,
             } as ServerMessage);
-            (session as unknown as { taskRunId?: string }).taskRunId = taskRunId;
-            (session as unknown as { headlessLock: boolean }).headlessLock = true;
+            session.taskRunId = taskRunId;
+            session.headlessLock = true;
           }
           await session.processMessage(message, [], (event) => {
             broadcast(event);
@@ -137,7 +137,7 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
       );
 
       if (session) {
-        (session as unknown as { headlessLock: boolean }).headlessLock = false;
+        session.headlessLock = false;
       }
 
       const current = getWorkItem(workItemId);
@@ -155,7 +155,7 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
       broadcast({ type: 'tasks_changed' } as ServerMessage);
     } catch (err) {
       if (session) {
-        (session as unknown as { headlessLock: boolean }).headlessLock = false;
+        session.headlessLock = false;
       }
       log.error({ err, workItemId }, 'work item background run failed');
       updateWorkItem(workItemId, {

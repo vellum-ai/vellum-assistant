@@ -117,12 +117,11 @@ export function createToolExecutor(
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
-        const serverMsg = msg as unknown as ServerMessage;
-        ctx.sendToClient(serverMsg);
-        // Auto-track ui_surface_show for history persistence, mirroring what
-        // session-surfaces.ts does when sending surfaces through its own path.
-        if (serverMsg.type === 'ui_surface_show') {
-          const s = serverMsg as unknown as UiSurfaceShow;
+        // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
+        // signature, but at runtime these are always ServerMessage instances.
+        ctx.sendToClient(msg as ServerMessage);
+        if (msg.type === 'ui_surface_show') {
+          const s = msg as unknown as UiSurfaceShow;
           ctx.currentTurnSurfaces.push({
             surfaceId: s.surfaceId,
             surfaceType: s.surfaceType,

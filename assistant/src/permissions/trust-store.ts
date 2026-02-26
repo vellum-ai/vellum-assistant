@@ -276,7 +276,9 @@ function loadFromDisk(): TrustRule[] {
         // on loaded rules would silently widen their scope to global
         // wildcards. Stripping them and re-saving prevents scope escalation.
         for (const rule of rules) {
-          const r = rule as unknown as Record<string, unknown>;
+          // Legacy v3 rules may carry principal-scoped fields that no longer
+          // exist in the TrustRule interface — cast to strip them at runtime.
+          const r = rule as Record<string, unknown>;
           if ('principalKind' in r || 'principalId' in r || 'principalVersion' in r) {
             delete r.principalKind;
             delete r.principalId;

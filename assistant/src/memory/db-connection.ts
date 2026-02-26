@@ -40,6 +40,9 @@ export function getSqlite(): Database {
  * Useful in migrations and tests that receive the Drizzle instance as a parameter.
  */
 export function getSqliteFrom(drizzleDb: DrizzleDb): Database {
+  // Drizzle's bun:sqlite adapter stores the raw Database as $client but
+  // doesn't expose it in its public type. This is the single canonical
+  // location for this cast — all callers should use getSqlite/getSqliteFrom.
   return (drizzleDb as unknown as { $client: Database }).$client;
 }
 
