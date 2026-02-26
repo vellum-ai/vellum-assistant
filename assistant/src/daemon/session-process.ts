@@ -27,6 +27,7 @@ import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import type { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
 import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
+import { resolveGuardianVerificationIntent } from './guardian-verification-intent.js';
 import { resolveSlash, type SlashContext } from './session-slash.js';
 import type { TraceEmitter } from './trace-emitter.js';
 
@@ -241,11 +242,31 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
     return;
   }
 
-  const resolvedContent = slashResult.content;
+  let resolvedContent = slashResult.content;
 
   // Preactivate skill tools when slash resolution identifies a known skill
   if (slashResult.kind === 'rewritten') {
     session.preactivatedSkillIds = [slashResult.skillId];
+  }
+
+  // Guardian verification intent: when slash didn't rewrite, check if the
+  // user is requesting a direct guardian verification setup. On match,
+  // rewrite the content into a deterministic model instruction and
+  // preactivate the guardian-verify-setup skill so the agent loop loads
+  // it immediately without producing conceptual preambles.
+  if (slashResult.kind === 'passthrough') {
+    const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
+    if (guardianIntent.kind === 'direct_setup') {
+      const channelClause = guardianIntent.channelHint
+        ? ` The user specified channel: ${guardianIntent.channelHint}.`
+        : '';
+      resolvedContent =
+        `[System: The user wants to set up guardian verification.${channelClause} ` +
+        'Load the guardian-verify-setup skill and begin the setup flow immediately. ' +
+        'Do not give a conceptual explanation first.]';
+      session.preactivatedSkillIds = ['guardian-verify-setup'];
+      log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent detected (queued) — forcing skill activation');
+    }
   }
 
   // Try to persist and run the dequeued message. If persistUserMessage
@@ -443,11 +464,31 @@ export async function processMessage(
     return persisted.id;
   }
 
-  const resolvedContent = slashResult.content;
+  let resolvedContent = slashResult.content;
 
   // Preactivate skill tools when slash resolution identifies a known skill
   if (slashResult.kind === 'rewritten') {
     session.preactivatedSkillIds = [slashResult.skillId];
+  }
+
+  // Guardian verification intent: when slash didn't rewrite, check if the
+  // user is requesting a direct guardian verification setup. On match,
+  // rewrite the content into a deterministic model instruction and
+  // preactivate the guardian-verify-setup skill so the agent loop loads
+  // it immediately without producing conceptual preambles.
+  if (slashResult.kind === 'passthrough') {
+    const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
+    if (guardianIntent.kind === 'direct_setup') {
+      const channelClause = guardianIntent.channelHint
+        ? ` The user specified channel: ${guardianIntent.channelHint}.`
+        : '';
+      resolvedContent =
+        `[System: The user wants to set up guardian verification.${channelClause} ` +
+        'Load the guardian-verify-setup skill and begin the setup flow immediately. ' +
+        'Do not give a conceptual explanation first.]';
+      session.preactivatedSkillIds = ['guardian-verify-setup'];
+      log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent detected — forcing skill activation');
+    }
   }
 
   let userMessageId: string;
