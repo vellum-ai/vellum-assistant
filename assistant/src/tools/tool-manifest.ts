@@ -12,6 +12,7 @@ import { credentialStoreTool } from './credentials/vault.js';
 import { memorySaveTool, memorySearchTool, memoryUpdateTool } from './memory/register.js';
 import type { LazyToolDescriptor } from './registry.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
+import { setAvatarTool } from './system/avatar-generator.js';
 import { voiceConfigUpdateTool } from './system/voice-config.js';
 import type { Tool } from './types.js';
 import { screenWatchTool } from './watch/screen-watch.js';
@@ -68,6 +69,7 @@ export const explicitTools: Tool[] = [
   screenWatchTool,
   vellumSkillsCatalogTool,
   voiceConfigUpdateTool,
+  setAvatarTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────

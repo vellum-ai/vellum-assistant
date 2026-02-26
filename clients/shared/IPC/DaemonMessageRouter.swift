@@ -278,6 +278,8 @@ extension DaemonClient {
             onRecordingStop?(msg)
         case .clientSettingsUpdate(let msg):
             onClientSettingsUpdate?(msg)
+        case .avatarUpdated(let msg):
+            onAvatarUpdated?(msg)
         default:
             break
         }

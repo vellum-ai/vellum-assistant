@@ -476,6 +476,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `client_settings_update` message.
     public var onClientSettingsUpdate: ((IPCClientSettingsUpdate) -> Void)?
 
+    /// Called when the daemon sends an `avatar_updated` message after regenerating the avatar.
+    public var onAvatarUpdated: ((IPCAvatarUpdated) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
