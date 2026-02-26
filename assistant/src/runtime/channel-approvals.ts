@@ -9,8 +9,6 @@
  *   3. Consume user decisions and apply them to the underlying session
  */
 
-import * as pendingInteractions from './pending-interactions.js';
-import type { PendingInteraction, ConfirmationDetails } from './pending-interactions.js';
 import { addRule } from '../permissions/trust-store.js';
 import { getTool } from '../tools/registry.js';
 import { composeApprovalMessage } from './approval-message-composer.js';
@@ -20,6 +18,7 @@ import type {
   ChannelApprovalPrompt,
 } from './channel-approval-types.js';
 import { DEFAULT_APPROVAL_ACTIONS } from './channel-approval-types.js';
+import * as pendingInteractions from './pending-interactions.js';
 
 /** Summary of a pending interaction, used by channel approval flows. */
 export interface PendingApprovalInfo {

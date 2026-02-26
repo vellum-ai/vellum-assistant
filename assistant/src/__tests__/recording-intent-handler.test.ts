@@ -1,6 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+ 
 import * as net from 'node:net';
+
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ─── Mocks (must be before any imports that depend on them) ─────────────────
 
@@ -335,7 +336,7 @@ describe('recording intent handler integration — handleTaskSubmit', () => {
 
   test('none → does NOT call handleRecordingStart/Stop, falls through to classifier', async () => {
     mockClassifyResult = 'none';
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent: _sent, fakeSocket } = createCtx();
 
     const { handleTaskSubmit } = await import('../daemon/handlers/misc.js');
     await handleTaskSubmit(

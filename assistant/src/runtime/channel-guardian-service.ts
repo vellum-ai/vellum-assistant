@@ -9,27 +9,27 @@
 import { createHash,randomBytes } from 'crypto';
 import { v4 as uuid } from 'uuid';
 
-import type { GuardianBinding, VerificationChallenge, SessionStatus, IdentityBindingStatus } from '../memory/channel-guardian-store.js';
+import type { GuardianBinding, IdentityBindingStatus,SessionStatus, VerificationChallenge } from '../memory/channel-guardian-store.js';
 import {
+  bindSessionIdentity as storeBindSessionIdentity,
   consumeChallenge,
+  countRecentSendsToDestination as storeCountRecentSendsToDestination,
   createBinding,
   createChallenge,
+  createVerificationSession,
+  findActiveSession as storeFindActiveSession,
   findPendingChallengeByHash,
   findPendingChallengeForChannel,
+  findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash,
+  findSessionByIdentity as storeFindSessionByIdentity,
   getActiveBinding,
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
-  createVerificationSession,
-  findActiveSession as storeFindActiveSession,
-  findSessionByIdentity as storeFindSessionByIdentity,
-  findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash,
-  updateSessionStatus as storeUpdateSessionStatus,
-  updateSessionDelivery as storeUpdateSessionDelivery,
-  bindSessionIdentity as storeBindSessionIdentity,
-  countRecentSendsToDestination as storeCountRecentSendsToDestination,
   revokeBinding as storeRevokeBinding,
   revokePendingChallenges as storeRevokePendingChallenges,
+  updateSessionDelivery as storeUpdateSessionDelivery,
+  updateSessionStatus as storeUpdateSessionStatus,
 } from '../memory/channel-guardian-store.js';
 import { composeApprovalMessage } from './approval-message-composer.js';
 

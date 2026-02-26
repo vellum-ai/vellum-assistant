@@ -10,7 +10,7 @@ import { getLogger } from '../../util/logger.js';
 import { deliverChannelReply } from '../gateway-client.js';
 import type { RuntimeAttachmentMetadata } from '../http-types.js';
 
-const log = getLogger('runtime-http');
+const _log = getLogger('runtime-http');
 
 // ---------------------------------------------------------------------------
 // Dead letter management

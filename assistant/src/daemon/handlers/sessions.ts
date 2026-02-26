@@ -929,7 +929,7 @@ export function handleMessageContentRequest(
     const content = JSON.parse(dbMessage.content);
     const rendered = renderHistoryContent(content);
     text = rendered.text || undefined;
-    let mergedToolCalls = rendered.toolCalls;
+    const mergedToolCalls = rendered.toolCalls;
 
     // Handle legacy conversations where tool_result blocks are stored in the
     // following user message rather than inline with the assistant message.

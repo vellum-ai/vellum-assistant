@@ -7,9 +7,9 @@ mock.module('../notifications/emit-signal.js', () => ({
 }));
 
 // Import from the new canonical location (notifications skill)
-import { run } from '../config/bundled-skills/notifications/tools/send-notification.js';
 // Backward-compat: the messaging re-export should resolve to the same function
 import { run as messagingRun } from '../config/bundled-skills/messaging/tools/send-notification.js';
+import { run } from '../config/bundled-skills/notifications/tools/send-notification.js';
 
 describe('send-notification tool', () => {
   beforeEach(() => {

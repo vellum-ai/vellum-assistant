@@ -7,12 +7,12 @@
 
 import { describe, expect, test } from 'bun:test';
 
+import type { NotificationSignal } from '../notifications/signal.js';
 import {
   composeThreadSeed,
   isThreadSeedSane,
   resolveVerbosity,
 } from '../notifications/thread-seed-composer.js';
-import type { NotificationSignal } from '../notifications/signal.js';
 import type { NotificationChannel, RenderedChannelCopy } from '../notifications/types.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────

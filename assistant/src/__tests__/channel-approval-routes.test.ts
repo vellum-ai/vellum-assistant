@@ -66,20 +66,17 @@ mock.module('../memory/ingress-member-store.js', () => ({
   }),
   updateLastSeen: () => {},
 }));
+import type { Session } from '../daemon/session.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import {
   createApprovalRequest,
   createBinding,
   getAllPendingApprovalsByGuardianChat,
-  getPendingApprovalForRequest,
-  getUnresolvedApprovalForRequest,
 } from '../memory/channel-guardian-store.js';
-import { setConversationKeyIfAbsent } from '../memory/conversation-key-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { conversations, externalConversationBindings } from '../memory/schema.js';
-import * as pendingInteractions from '../runtime/pending-interactions.js';
-import type { Session } from '../daemon/session.js';
 import * as gatewayClient from '../runtime/gateway-client.js';
+import * as pendingInteractions from '../runtime/pending-interactions.js';
 import {
   _setTestPollMaxWait,
   handleChannelInbound,
@@ -500,7 +497,7 @@ describe('empty content with callbackData bypasses validation', () => {
     const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    const sessionMock = registerPendingInteraction('req-empty-2', conversationId!, 'shell');
+    const _sessionMock = registerPendingInteraction('req-empty-2', conversationId!, 'shell');
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 

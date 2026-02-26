@@ -29,6 +29,10 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+import type { Session } from '../daemon/session.js';
+import * as trustStore from '../permissions/trust-store.js';
+import type { ApprovalDecisionResult, ChannelApprovalPrompt } from '../runtime/channel-approval-types.js';
+import type { PendingApprovalInfo } from '../runtime/channel-approvals.js';
 import {
   buildApprovalUIMetadata,
   buildGuardianApprovalPrompt,
@@ -36,11 +40,7 @@ import {
   getChannelApprovalPrompt,
   handleChannelDecision,
 } from '../runtime/channel-approvals.js';
-import type { PendingApprovalInfo } from '../runtime/channel-approvals.js';
-import type { ApprovalDecisionResult, ChannelApprovalPrompt } from '../runtime/channel-approval-types.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
-import * as trustStore from '../permissions/trust-store.js';
-import type { Session } from '../daemon/session.js';
 
 afterAll(() => {
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }

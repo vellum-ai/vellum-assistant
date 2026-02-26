@@ -2,6 +2,7 @@
  * Route handlers for attachment upload, download, and deletion.
  */
 import { existsSync } from 'node:fs';
+
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import { AttachmentUploadError, getFilePathForAttachment, validateAttachmentUpload } from '../../memory/attachments-store.js';
 

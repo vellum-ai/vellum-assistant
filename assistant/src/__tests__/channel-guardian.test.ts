@@ -76,49 +76,50 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   }
   return originalFetch(input, init as never);
 }) as typeof fetch;
+import { eq } from 'drizzle-orm';
+
+import { handleGuardianVerification, MAX_SENDS_PER_SESSION, RESEND_COOLDOWN_MS } from '../daemon/handlers/config-channels.js';
+import type { HandlerContext } from '../daemon/handlers/shared.js';
+import type { GuardianVerificationRequest, GuardianVerificationResponse } from '../daemon/ipc-contract.js';
 import {
+  bindSessionIdentity as _storeBindSessionIdentity,
   consumeChallenge,
   createApprovalRequest,
   createBinding,
   createChallenge,
+  createVerificationSession,
+  findActiveSession as storeFindActiveSession,
   findPendingChallengeByHash,
   findPendingChallengeForChannel,
+  findSessionByBootstrapTokenHash as _storeFindSessionByBootstrapTokenHash,
+  findSessionByIdentity as _storeFindSessionByIdentity,
   getActiveBinding,
   getPendingApprovalByGuardianChat,
   getPendingApprovalForRun,
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
-  createVerificationSession,
-  findActiveSession as storeFindActiveSession,
-  findSessionByIdentity as storeFindSessionByIdentity,
-  findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash,
-  updateSessionStatus as storeUpdateSessionStatus,
-  updateSessionDelivery as storeUpdateSessionDelivery,
-  bindSessionIdentity as storeBindSessionIdentity,
   revokeBinding,
   updateApprovalDecision,
+  updateSessionDelivery as storeUpdateSessionDelivery,
+  updateSessionStatus as _storeUpdateSessionStatus,
 } from '../memory/channel-guardian-store.js';
-import { eq } from 'drizzle-orm';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { channelGuardianVerificationChallenges } from '../memory/schema.js';
 import {
+  bindSessionIdentity as serviceBindSessionIdentity,
+  createOutboundSession,
   createVerificationChallenge,
+  findActiveSession as serviceFindActiveSession,
+  findSessionByIdentity as serviceFindSessionByIdentity,
   getGuardianBinding,
   getPendingChallenge,
   isGuardian,
-  revokeBinding as serviceRevokeBinding,
-  createOutboundSession,
-  findActiveSession as serviceFindActiveSession,
-  findSessionByIdentity as serviceFindSessionByIdentity,
-  updateSessionStatus as serviceUpdateSessionStatus,
-  bindSessionIdentity as serviceBindSessionIdentity,
   resolveBootstrapToken,
+  revokeBinding as serviceRevokeBinding,
+  updateSessionStatus as serviceUpdateSessionStatus,
   validateAndConsumeChallenge,
 } from '../runtime/channel-guardian-service.js';
-import { handleGuardianVerification, MAX_SENDS_PER_SESSION, RESEND_COOLDOWN_MS } from '../daemon/handlers/config-channels.js';
-import type { GuardianVerificationRequest, GuardianVerificationResponse } from '../daemon/ipc-contract.js';
-import type { HandlerContext } from '../daemon/handlers/shared.js';
 import {
   composeVerificationSms,
   composeVerificationTelegram,
@@ -3027,8 +3028,8 @@ describe('outbound Telegram verification', () => {
     expect(resp!.error).toBe('already_bound');
   });
 
-  test('bootstrap: resolveBootstrapToken finds pending_bootstrap session by token', () => {
-    const { createHash } = require('node:crypto');
+  test('bootstrap: resolveBootstrapToken finds pending_bootstrap session by token', async () => {
+    const { createHash } = await import('node:crypto');
     const token = 'test_bootstrap_token_hex';
     const tokenHash = createHash('sha256').update(token).digest('hex');
 
@@ -3050,8 +3051,8 @@ describe('outbound Telegram verification', () => {
     expect(found!.status).toBe('pending_bootstrap');
   });
 
-  test('bootstrap: resolveBootstrapToken returns null for wrong token', () => {
-    const { createHash } = require('node:crypto');
+  test('bootstrap: resolveBootstrapToken returns null for wrong token', async () => {
+    const { createHash } = await import('node:crypto');
     const token = 'test_bootstrap_token_hex';
     const tokenHash = createHash('sha256').update(token).digest('hex');
 
@@ -3071,8 +3072,8 @@ describe('outbound Telegram verification', () => {
     expect(found).toBeNull();
   });
 
-  test('bootstrap: resolveBootstrapToken returns null for expired session', () => {
-    const { createHash } = require('node:crypto');
+  test('bootstrap: resolveBootstrapToken returns null for expired session', async () => {
+    const { createHash } = await import('node:crypto');
     const token = 'test_bootstrap_token_hex';
     const tokenHash = createHash('sha256').update(token).digest('hex');
 

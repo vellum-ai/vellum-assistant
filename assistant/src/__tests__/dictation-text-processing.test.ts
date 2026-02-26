@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { expandSnippets, applyDictionary } from '../daemon/dictation-text-processing.js';
-import type { DictationSnippet, DictationDictionaryEntry } from '../daemon/dictation-profile-store.js';
+
+import type { DictationDictionaryEntry,DictationSnippet } from '../daemon/dictation-profile-store.js';
+import { applyDictionary,expandSnippets } from '../daemon/dictation-text-processing.js';
 
 describe('expandSnippets', () => {
   test('expands triggers case-insensitively with longest match winning', () => {

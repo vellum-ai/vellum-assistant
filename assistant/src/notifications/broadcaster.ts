@@ -12,8 +12,8 @@
 import { v4 as uuid } from 'uuid';
 
 import { getLogger } from '../util/logger.js';
-import { composeFallbackCopy } from './copy-composer.js';
 import { pairDeliveryWithConversation } from './conversation-pairing.js';
+import { composeFallbackCopy } from './copy-composer.js';
 import { createDelivery, updateDeliveryStatus } from './deliveries-store.js';
 import { resolveDestinations } from './destination-resolver.js';
 import type { NotificationSignal } from './signal.js';

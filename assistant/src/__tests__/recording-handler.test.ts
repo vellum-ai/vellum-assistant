@@ -1,6 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+ 
 import * as net from 'node:net';
+
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ─── Mocks (must be before any imports that depend on them) ─────────────────
 
@@ -77,6 +78,7 @@ let mockFileSize = 1024;
 
 mock.module('node:fs', () => {
   // Re-export real fs for non-mocked functions and add our overrides
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const realFs = require('fs');
   return {
     ...realFs,
@@ -94,7 +96,7 @@ mock.module('node:fs', () => {
 
 // ─── Imports (after mocks) ──────────────────────────────────────────────────
 
-import { handleRecordingStart, handleRecordingStop, recordingHandlers, __resetRecordingState } from '../daemon/handlers/recording.js';
+import { __resetRecordingState,handleRecordingStart, handleRecordingStop, recordingHandlers } from '../daemon/handlers/recording.js';
 import type { HandlerContext } from '../daemon/handlers/shared.js';
 import type { RecordingStatus } from '../daemon/ipc-contract/computer-use.js';
 import { DebouncerMap } from '../util/debounce.js';

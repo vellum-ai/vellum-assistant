@@ -11,6 +11,7 @@
 
 import { v4 as uuid } from 'uuid';
 
+import { getDeliverableChannels } from '../channels/config.js';
 import { getConfig } from '../config/loader.js';
 import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import type { ModelIntent } from '../providers/types.js';
@@ -18,7 +19,6 @@ import { getLogger } from '../util/logger.js';
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal } from './signal.js';
-import { getDeliverableChannels } from '../channels/config.js';
 import type { NotificationChannel, NotificationDecision, RenderedChannelCopy } from './types.js';
 
 const log = getLogger('notification-decision-engine');

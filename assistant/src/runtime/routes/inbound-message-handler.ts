@@ -6,11 +6,12 @@
 import { answerCall } from '../../calls/call-domain.js';
 import type { ChannelId, InterfaceId } from '../../channels/types.js';
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId, parseInterfaceId } from '../../channels/types.js';
+import { getGatewayInternalBaseUrl } from '../../config/env.js';
+import { RESEND_COOLDOWN_MS } from '../../daemon/handlers/config-channels.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import {
   createApprovalRequest,
-  updateApprovalDecision,
 } from '../../memory/channel-guardian-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
@@ -22,30 +23,27 @@ import {
 import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
-import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import { readHttpToken } from '../../util/platform.js';
-import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import {
+  bindSessionIdentity,
   createOutboundSession,
   findActiveSession,
   getGuardianBinding,
   getPendingChallenge,
-  validateAndConsumeChallenge,
   resolveBootstrapToken,
-  bindSessionIdentity,
-  updateSessionStatus,
   updateSessionDelivery,
+  updateSessionStatus,
+  validateAndConsumeChallenge,
 } from '../channel-guardian-service.js';
-import { RESEND_COOLDOWN_MS } from '../../daemon/handlers/config-channels.js';
 import { deliverChannelReply } from '../gateway-client.js';
+import { resolveGuardianContext } from '../guardian-context-resolver.js';
 import {
   composeChannelVerifyReply,
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from '../guardian-verification-templates.js';
-import { resolveGuardianContext } from '../guardian-context-resolver.js';
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -54,10 +52,8 @@ import type {
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import {
   canonicalChannelAssistantId,
-  getEffectivePollMaxWait,
   GUARDIAN_APPROVAL_TTL_MS,
   type GuardianContext,
-  RUN_POLL_INTERVAL_MS,
   stripVerificationFailurePrefix,
   toGuardianRuntimeContext,
   verifyGatewayOrigin,
@@ -515,7 +511,7 @@ export async function handleChannelInbound(
 
   // Extract channel command intent (e.g. /start from Telegram)
   const rawCommandIntent = sourceMetadata?.commandIntent;
-  let commandIntent = rawCommandIntent && typeof rawCommandIntent === 'object' && !Array.isArray(rawCommandIntent)
+  const commandIntent = rawCommandIntent && typeof rawCommandIntent === 'object' && !Array.isArray(rawCommandIntent)
     ? rawCommandIntent as Record<string, unknown>
     : undefined;
 
