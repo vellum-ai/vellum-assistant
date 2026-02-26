@@ -979,11 +979,16 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// avoids O(n) IPC calls per streaming response (one per text delta) while
     /// still advancing the server-side seen cursor.
     private func handleAssistantMessageArrival(threadId: UUID, previousSnapshot: AssistantActivitySnapshot?, currentSnapshot: AssistantActivitySnapshot) {
-        // Skip during thread restoration — loadHistoryIfNeeded populates
-        // messages which triggers the Combine publisher, but those are
-        // historical messages, not fresh assistant replies. Without this
-        // guard the handler would clear real unread state on app launch.
+        // Skip during thread restoration or history re-hydration —
+        // loadHistoryIfNeeded populates messages which triggers the Combine
+        // publisher, but those are historical messages, not fresh assistant
+        // replies. Without this guard the handler would clear real unread
+        // state on app launch, or bump threads to the top when clicking on
+        // them causes an evicted ViewModel to reload its history.
         guard !isRestoringThreads else { return }
+        if let vm = chatViewModels[threadId], vm.isLoadingHistory || !vm.isHistoryLoaded {
+            return
+        }
         guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
         updateLastInteracted(threadId: threadId)
         if threadId == activeThreadId {
