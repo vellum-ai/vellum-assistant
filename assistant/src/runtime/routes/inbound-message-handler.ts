@@ -13,6 +13,7 @@ import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import {
   createApprovalRequest,
 } from '../../memory/channel-guardian-store.js';
+import { recordConversationSeenSignal } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import {
@@ -837,6 +838,26 @@ export async function handleChannelInbound(
     });
 
     if (approvalResult.handled) {
+      // Record inferred seen signal for handled Telegram callbacks
+      if (sourceChannel === 'telegram' && hasCallbackData) {
+        try {
+          const cbPreview = body.callbackData!.length > 80
+            ? body.callbackData!.slice(0, 80) + '...'
+            : body.callbackData!;
+          recordConversationSeenSignal({
+            conversationId: result.conversationId,
+            assistantId: canonicalAssistantId,
+            signalType: 'telegram_callback',
+            confidence: 'inferred',
+            sourceChannel: 'telegram',
+            source: 'inbound-message-handler',
+            evidenceText: `User tapped callback: '${cbPreview}'`,
+          });
+        } catch (err) {
+          log.warn({ err, conversationId: result.conversationId }, 'Failed to record seen signal for Telegram callback');
+        }
+      }
+
       return Response.json({
         accepted: true,
         duplicate: false,
@@ -888,6 +909,29 @@ export async function handleChannelInbound(
     if (ingressCheck.blocked) {
       channelDeliveryStore.clearPayload(result.eventId);
       throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+    }
+
+    // Record inferred seen signal for non-duplicate Telegram inbound messages
+    if (sourceChannel === 'telegram') {
+      try {
+        const msgPreview = trimmedContent.length > 80
+          ? trimmedContent.slice(0, 80) + '...'
+          : trimmedContent;
+        const evidence = trimmedContent.length > 0
+          ? `User sent message: '${msgPreview}'`
+          : 'User sent media attachment';
+        recordConversationSeenSignal({
+          conversationId: result.conversationId,
+          assistantId: canonicalAssistantId,
+          signalType: 'telegram_inbound_message',
+          confidence: 'inferred',
+          sourceChannel: 'telegram',
+          source: 'inbound-message-handler',
+          evidenceText: evidence,
+        });
+      } catch (err) {
+        log.warn({ err, conversationId: result.conversationId }, 'Failed to record seen signal for Telegram inbound message');
+      }
     }
 
     // Fire-and-forget: process the message and deliver the reply in the background.
