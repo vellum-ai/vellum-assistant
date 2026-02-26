@@ -137,6 +137,17 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceGuardianError: String?
     @Published var voiceGuardianAlreadyBound: Bool = false
 
+    // MARK: - Channel Guardian State (Slack)
+
+    @Published var slackGuardianIdentity: String?
+    @Published var slackGuardianUsername: String?
+    @Published var slackGuardianDisplayName: String?
+    @Published var slackGuardianVerified: Bool = false
+    @Published var slackGuardianVerificationInProgress: Bool = false
+    @Published var slackGuardianInstruction: String?
+    @Published var slackGuardianError: String?
+    @Published var slackGuardianAlreadyBound: Bool = false
+
     // MARK: - Outbound Guardian Session State (Telegram)
 
     @Published var telegramOutboundSessionId: String?
@@ -161,6 +172,14 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceOutboundNextResendAt: Date?
     @Published var voiceOutboundSendCount: Int = 0
     @Published var voiceOutboundCode: String?
+
+    // MARK: - Outbound Guardian Session State (Slack)
+
+    @Published var slackOutboundSessionId: String?
+    @Published var slackOutboundExpiresAt: Date?
+    @Published var slackOutboundNextResendAt: Date?
+    @Published var slackOutboundSendCount: Int = 0
+    @Published var slackOutboundCode: String?
 
     // MARK: - Slack Channel Integration State
 
@@ -600,6 +619,28 @@ public final class SettingsStore: ObservableObject {
                     let isAlreadyBound = response.error == "already_bound"
                     self.voiceGuardianAlreadyBound = isAlreadyBound
                     self.voiceGuardianError = isAlreadyBound
+                        ? "A guardian is already bound. Revoke it first or replace it."
+                        : response.error
+                }
+            case "slack":
+                self.slackGuardianVerificationInProgress = false
+                if response.success {
+                    self.slackGuardianIdentity = response.guardianExternalUserId
+                    self.slackGuardianUsername = Self.reflectedString(response, key: "guardianUsername")
+                    self.slackGuardianDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
+                    let isVerified = response.bound ?? false
+                    self.slackGuardianVerified = isVerified
+                    if isVerified {
+                        self.slackGuardianInstruction = nil
+                    } else if let instruction = response.instruction {
+                        self.slackGuardianInstruction = instruction
+                    }
+                    self.slackGuardianError = nil
+                    self.slackGuardianAlreadyBound = false
+                } else {
+                    let isAlreadyBound = response.error == "already_bound"
+                    self.slackGuardianAlreadyBound = isAlreadyBound
+                    self.slackGuardianError = isAlreadyBound
                         ? "A guardian is already bound. Revoke it first or replace it."
                         : response.error
                 }
@@ -1185,6 +1226,11 @@ public final class SettingsStore: ObservableObject {
             voiceGuardianError = nil
             voiceGuardianAlreadyBound = false
             voiceGuardianInstruction = nil
+        case "slack":
+            slackGuardianVerificationInProgress = true
+            slackGuardianError = nil
+            slackGuardianAlreadyBound = false
+            slackGuardianInstruction = nil
         default:
             return
         }
@@ -1201,6 +1247,9 @@ public final class SettingsStore: ObservableObject {
                 case "voice":
                     voiceGuardianVerificationInProgress = false
                     voiceGuardianError = "Daemon is not connected. Reconnect and try again."
+                case "slack":
+                    slackGuardianVerificationInProgress = false
+                    slackGuardianError = "Daemon is not connected. Reconnect and try again."
                 default:
                     break
                 }
@@ -1227,6 +1276,9 @@ public final class SettingsStore: ObservableObject {
             case "voice":
                 voiceGuardianVerificationInProgress = false
                 voiceGuardianError = "Failed to start verification. Try again."
+            case "slack":
+                slackGuardianVerificationInProgress = false
+                slackGuardianError = "Failed to start verification. Try again."
             default:
                 break
             }
@@ -1246,6 +1298,9 @@ public final class SettingsStore: ObservableObject {
         case "voice":
             voiceGuardianVerificationInProgress = false
             voiceGuardianInstruction = nil
+        case "slack":
+            slackGuardianVerificationInProgress = false
+            slackGuardianInstruction = nil
         default:
             break
         }
@@ -1269,6 +1324,8 @@ public final class SettingsStore: ObservableObject {
             smsGuardianInstruction = nil
         case "voice":
             voiceGuardianInstruction = nil
+        case "slack":
+            slackGuardianInstruction = nil
         default:
             break
         }
@@ -1297,6 +1354,10 @@ public final class SettingsStore: ObservableObject {
             voiceGuardianVerificationInProgress = true
             voiceGuardianError = nil
             voiceGuardianAlreadyBound = false
+        case "slack":
+            slackGuardianVerificationInProgress = true
+            slackGuardianError = nil
+            slackGuardianAlreadyBound = false
         default:
             return
         }
@@ -1312,6 +1373,9 @@ public final class SettingsStore: ObservableObject {
                 case "voice":
                     voiceGuardianVerificationInProgress = false
                     voiceGuardianError = "Daemon is not connected. Reconnect and try again."
+                case "slack":
+                    slackGuardianVerificationInProgress = false
+                    slackGuardianError = "Daemon is not connected. Reconnect and try again."
                 default:
                     break
                 }
@@ -1335,6 +1399,9 @@ public final class SettingsStore: ObservableObject {
             case "voice":
                 voiceGuardianVerificationInProgress = false
                 voiceGuardianError = "Failed to start verification. Try again."
+            case "slack":
+                slackGuardianVerificationInProgress = false
+                slackGuardianError = "Failed to start verification. Try again."
             default:
                 break
             }
@@ -1363,6 +1430,8 @@ public final class SettingsStore: ObservableObject {
             smsGuardianVerificationInProgress = false
         case "voice":
             voiceGuardianVerificationInProgress = false
+        case "slack":
+            slackGuardianVerificationInProgress = false
         default:
             break
         }
@@ -1398,6 +1467,12 @@ public final class SettingsStore: ObservableObject {
             voiceOutboundNextResendAt = nil
             voiceOutboundSendCount = 0
             voiceOutboundCode = nil
+        case "slack":
+            slackOutboundSessionId = nil
+            slackOutboundExpiresAt = nil
+            slackOutboundNextResendAt = nil
+            slackOutboundSendCount = 0
+            slackOutboundCode = nil
         default:
             break
         }
@@ -1463,6 +1538,17 @@ public final class SettingsStore: ObservableObject {
             if let nextResendAt { voiceOutboundNextResendAt = nextResendAt }
             if let sendCount { voiceOutboundSendCount = sendCount }
             if let secret { voiceOutboundCode = secret }
+        case "slack":
+            if sessionId != slackOutboundSessionId {
+                slackOutboundNextResendAt = nil
+                slackOutboundSendCount = 0
+                slackOutboundCode = nil
+            }
+            slackOutboundSessionId = sessionId
+            if let expiresAt { slackOutboundExpiresAt = expiresAt }
+            if let nextResendAt { slackOutboundNextResendAt = nextResendAt }
+            if let sendCount { slackOutboundSendCount = sendCount }
+            if let secret { slackOutboundCode = secret }
         default:
             break
         }
@@ -1480,6 +1566,7 @@ public final class SettingsStore: ObservableObject {
             ("telegram", telegramGuardianVerificationInProgress),
             ("sms", smsGuardianVerificationInProgress),
             ("voice", voiceGuardianVerificationInProgress),
+            ("slack", slackGuardianVerificationInProgress),
         ].filter(\.1)
         if inProgressChannels.count == 1 {
             return inProgressChannels.first?.0
@@ -1502,6 +1589,8 @@ public final class SettingsStore: ObservableObject {
             smsGuardianInstruction = nil
         case "voice":
             voiceGuardianInstruction = nil
+        case "slack":
+            slackGuardianInstruction = nil
         default:
             break
         }
@@ -1532,6 +1621,12 @@ public final class SettingsStore: ObservableObject {
                 if self.voiceGuardianError == nil {
                     self.voiceGuardianError = "Timed out waiting for verification instructions. Try again."
                 }
+            case "slack":
+                self.slackGuardianVerificationInProgress = false
+                self.slackGuardianInstruction = nil
+                if self.slackGuardianError == nil {
+                    self.slackGuardianError = "Timed out waiting for verification instructions. Try again."
+                }
             default:
                 break
             }
@@ -1541,7 +1636,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     private func startGuardianStatusPolling(for channel: String) {
-        guard channel == "telegram" || channel == "sms" || channel == "voice" else { return }
+        guard channel == "telegram" || channel == "sms" || channel == "voice" || channel == "slack" else { return }
         stopGuardianStatusPolling(for: channel)
         guardianStatusPollingDeadlines[channel] = Date().addingTimeInterval(guardianStatusPollWindow)
         scheduleGuardianStatusPoll(for: channel, delay: guardianStatusPollInterval)

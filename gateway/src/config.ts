@@ -144,10 +144,25 @@ export function loadConfig(): GatewayConfig {
   const routingJson = process.env.GATEWAY_ASSISTANT_ROUTING_JSON || "{}";
   const routingEntries = parseRoutingJson(routingJson);
 
-  const defaultAssistantId =
+  // Default assistant: env var > config.json assistant.id
+  let defaultAssistantId =
     process.env.GATEWAY_DEFAULT_ASSISTANT_ID || undefined;
+  if (!defaultAssistantId) {
+    try {
+      const cfgPath = join(getRootDir(), "workspace", "config.json");
+      const raw = readFileSync(cfgPath, "utf-8");
+      const data = JSON.parse(raw);
+      if (data?.assistant?.id && typeof data.assistant.id === "string") {
+        defaultAssistantId = data.assistant.id;
+      }
+    } catch {
+      // config file may not exist yet
+    }
+  }
 
-  const unmappedPolicyRaw = process.env.GATEWAY_UNMAPPED_POLICY || "reject";
+  // When a default assistant is available, default to routing unmapped chats to it
+  const unmappedPolicyRaw = process.env.GATEWAY_UNMAPPED_POLICY
+    || (defaultAssistantId ? "default" : "reject");
   if (unmappedPolicyRaw !== "reject" && unmappedPolicyRaw !== "default") {
     throw new Error(
       `GATEWAY_UNMAPPED_POLICY must be "reject" or "default", got "${unmappedPolicyRaw}"`,

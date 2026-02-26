@@ -96,6 +96,7 @@ struct SettingsConnectTab: View {
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
             store.refreshChannelGuardianStatus(channel: "voice")
+            store.refreshChannelGuardianStatus(channel: "slack")
             store.fetchSlackChannelConfig()
             gatewayExpanded = store.ingressPublicBaseUrl.isEmpty
         }
@@ -663,6 +664,10 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.error)
             }
 
+            if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
+                Divider().background(VColor.surfaceBorder)
+                guardianStatusRow(channel: "slack")
+            }
 
         }
         .padding(VSpacing.lg)
@@ -1231,6 +1236,7 @@ struct SettingsConnectTab: View {
             case "telegram": return store.telegramGuardianIdentity
             case "sms": return store.smsGuardianIdentity
             case "voice": return store.voiceGuardianIdentity
+            case "slack": return store.slackGuardianIdentity
             default: return nil
             }
         }()
@@ -1239,6 +1245,7 @@ struct SettingsConnectTab: View {
             case "telegram": return store.telegramGuardianVerified
             case "sms": return store.smsGuardianVerified
             case "voice": return store.voiceGuardianVerified
+            case "slack": return store.slackGuardianVerified
             default: return false
             }
         }()
@@ -1247,6 +1254,7 @@ struct SettingsConnectTab: View {
             case "telegram": return store.telegramGuardianVerificationInProgress
             case "sms": return store.smsGuardianVerificationInProgress
             case "voice": return store.voiceGuardianVerificationInProgress
+            case "slack": return store.slackGuardianVerificationInProgress
             default: return false
             }
         }()
@@ -1255,6 +1263,7 @@ struct SettingsConnectTab: View {
             case "telegram": return store.telegramGuardianInstruction
             case "sms": return store.smsGuardianInstruction
             case "voice": return store.voiceGuardianInstruction
+            case "slack": return store.slackGuardianInstruction
             default: return nil
             }
         }()
@@ -1263,6 +1272,7 @@ struct SettingsConnectTab: View {
             case "telegram": return store.telegramGuardianError
             case "sms": return store.smsGuardianError
             case "voice": return store.voiceGuardianError
+            case "slack": return store.slackGuardianError
             default: return nil
             }
         }()
@@ -1271,6 +1281,7 @@ struct SettingsConnectTab: View {
             case "telegram": return store.telegramGuardianAlreadyBound
             case "sms": return store.smsGuardianAlreadyBound
             case "voice": return store.voiceGuardianAlreadyBound
+            case "slack": return store.slackGuardianAlreadyBound
             default: return false
             }
         }()
@@ -1279,6 +1290,7 @@ struct SettingsConnectTab: View {
             case "telegram": return store.telegramOutboundSessionId
             case "sms": return store.smsOutboundSessionId
             case "voice": return store.voiceOutboundSessionId
+            case "slack": return store.slackOutboundSessionId
             default: return nil
             }
         }()
@@ -1287,6 +1299,7 @@ struct SettingsConnectTab: View {
             case "telegram": return store.telegramOutboundExpiresAt
             case "sms": return store.smsOutboundExpiresAt
             case "voice": return store.voiceOutboundExpiresAt
+            case "slack": return store.slackOutboundExpiresAt
             default: return nil
             }
         }()
@@ -1295,6 +1308,7 @@ struct SettingsConnectTab: View {
             case "telegram": return store.telegramOutboundNextResendAt
             case "sms": return store.smsOutboundNextResendAt
             case "voice": return store.voiceOutboundNextResendAt
+            case "slack": return store.slackOutboundNextResendAt
             default: return nil
             }
         }()
@@ -1303,6 +1317,7 @@ struct SettingsConnectTab: View {
             case "telegram": return store.telegramOutboundSendCount
             case "sms": return store.smsOutboundSendCount
             case "voice": return store.voiceOutboundSendCount
+            case "slack": return store.slackOutboundSendCount
             default: return 0
             }
         }()
@@ -1312,6 +1327,7 @@ struct SettingsConnectTab: View {
             case "telegram": return store.telegramOutboundCode
             case "sms": return store.smsOutboundCode
             case "voice": return store.voiceOutboundCode
+            case "slack": return store.slackOutboundCode
             default: return nil
             }
         }()

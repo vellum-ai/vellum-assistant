@@ -481,16 +481,21 @@ function main() {
     }
 
     if (event.slackChannelChanged && !slackFromEnv) {
+      const newBot = event.slackChannelCredentials?.botToken;
+      const newApp = event.slackChannelCredentials?.appToken;
+      const changed = newBot !== config.slackChannelBotToken || newApp !== config.slackChannelAppToken;
       if (event.slackChannelCredentials) {
-        config.slackChannelBotToken = event.slackChannelCredentials.botToken;
-        config.slackChannelAppToken = event.slackChannelCredentials.appToken;
+        config.slackChannelBotToken = newBot;
+        config.slackChannelAppToken = newApp;
         log.info("Slack channel credentials loaded from credential vault");
       } else {
         config.slackChannelBotToken = undefined;
         config.slackChannelAppToken = undefined;
         log.info("Slack channel credentials cleared");
       }
-      startSlackSocket();
+      if (changed) {
+        startSlackSocket();
+      }
     }
   });
 
