@@ -263,7 +263,6 @@
     "notification_thread_created",
     "oauth_connect_result",
     "open_bundle_response",
-    "open_tasks_window",
     "open_url",
     "pairing_approval_request",
     "parental_control_get_response",

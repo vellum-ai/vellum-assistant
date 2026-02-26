@@ -2309,7 +2309,6 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemApprovePermissionsResponse(IPCWorkItemApprovePermissionsResponse)
     case workItemCancelResponse(IPCWorkItemCancelResponse)
     case taskRunThreadCreated(IPCTaskRunThreadCreated)
-    case openTasksWindow(OpenTasksWindowMessage)
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
     indirect case subagentEvent(SubagentEventMessage)
@@ -2687,9 +2686,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "task_run_thread_created":
             let message = try IPCTaskRunThreadCreated(from: decoder)
             self = .taskRunThreadCreated(message)
-        case "open_tasks_window":
-            let message = try OpenTasksWindowMessage(from: decoder)
-            self = .openTasksWindow(message)
         case "subagent_spawned":
             let message = try IPCSubagentSpawned(from: decoder)
             self = .subagentSpawned(message)
@@ -2802,12 +2798,6 @@ public struct BrowserCDPResponseMessage: Encodable, Sendable {
 // MARK: - App Files Changed
 
 public typealias AppFilesChangedMessage = IPCAppFilesChanged
-
-// MARK: - Open Tasks Window
-
-/// Server push — tells the client to open/focus the tasks window.
-/// Backed by generated `IPCOpenTasksWindow`.
-public typealias OpenTasksWindowMessage = IPCOpenTasksWindow
 
 // MARK: - Parental Control Messages
 

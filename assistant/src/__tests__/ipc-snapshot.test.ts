@@ -1775,9 +1775,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   tasks_changed: {
     type: 'tasks_changed',
   },
-  open_tasks_window: {
-    type: 'open_tasks_window',
-  },
   task_run_thread_created: {
     type: 'task_run_thread_created',
     conversationId: 'conv-task-run-001',

@@ -2790,12 +2790,6 @@ exports[`IPC message snapshots ServerMessage types tasks_changed serializes to e
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types open_tasks_window serializes to expected JSON 1`] = `
-{
-  "type": "open_tasks_window",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types task_run_thread_created serializes to expected JSON 1`] = `
 {
   "conversationId": "conv-task-run-001",

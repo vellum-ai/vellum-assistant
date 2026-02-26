@@ -989,10 +989,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         }
 
-        daemonClient.onOpenTasksWindow = { [weak self] in
-            self?.showTasksWindow()
-        }
-
         daemonClient.onPairingApprovalRequest = { [weak self] msg in
             guard let self else { return }
             if self.pairingApprovalWindow == nil {

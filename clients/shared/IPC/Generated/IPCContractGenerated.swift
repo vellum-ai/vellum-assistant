@@ -3073,15 +3073,6 @@ public struct IPCOpenBundleResponseSignatureResult: Codable, Sendable {
     }
 }
 
-/// Server push — tells the client to open/focus the tasks window.
-public struct IPCOpenTasksWindow: Codable, Sendable {
-    public let type: String
-
-    public init(type: String) {
-        self.type = type
-    }
-}
-
 public struct IPCOpenUrl: Codable, Sendable {
     public let type: String
     public let url: String
