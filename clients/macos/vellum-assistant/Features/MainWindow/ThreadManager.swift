@@ -95,6 +95,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
     }
 
+    /// Count of visible (non-archived, non-private) threads with unseen assistant messages.
+    /// Used by AppDelegate to drive the dock badge.
+    var unseenVisibleConversationCount: Int {
+        threads.filter { !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage }.count
+    }
+
     var archivedThreads: [ThreadModel] {
         threads.filter { $0.isArchived }
     }
