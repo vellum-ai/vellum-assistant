@@ -22,8 +22,12 @@ export function isValidE164(phone: string): boolean {
  *   - Otherwise -> return null (invalid)
  */
 export function normalizePhoneNumber(input: string): string | null {
+  // Strip optional trunk-zero notation "(0)" used in international formats
+  // like "+44 (0)20 7946 0958" before any other processing.
+  const withoutTrunkZero = input.replace(/\(0\)/g, '');
+
   // Strip formatting characters: spaces, dashes, parentheses, dots
-  const stripped = input.replace(/[\s\-().]/g, '');
+  const stripped = withoutTrunkZero.replace(/[\s\-().]/g, '');
 
   if (stripped.length === 0) return null;
 

@@ -31,6 +31,18 @@ describe('normalizePhoneNumber', () => {
     expect(normalizePhoneNumber('+44 20 7946 0958')).toBe('+442079460958');
   });
 
+  test('international with trunk-zero (0) — UK format', () => {
+    expect(normalizePhoneNumber('+44 (0)20 7946 0958')).toBe('+442079460958');
+  });
+
+  test('international with trunk-zero (0) — German format', () => {
+    expect(normalizePhoneNumber('+49 (0)30 1234 5678')).toBe('+493012345678');
+  });
+
+  test('international with trunk-zero (0) — no spaces', () => {
+    expect(normalizePhoneNumber('+44(0)2079460958')).toBe('+442079460958');
+  });
+
   test('too short — returns null', () => {
     expect(normalizePhoneNumber('123')).toBeNull();
   });
