@@ -132,17 +132,44 @@ export const apiRateLimiter = new TokenRateLimiter();
 export const ipRateLimiter = new TokenRateLimiter(DEFAULT_IP_MAX_REQUESTS, DEFAULT_IP_WINDOW_MS, MAX_TRACKED_IPS);
 
 /**
- * Extract the client IP from a request using the actual peer address.
- *
- * The runtime sits behind the gateway and should not trust X-Forwarded-For or
- * X-Real-IP headers — a client can spoof those to rotate IPs and bypass
- * per-IP rate limits. The gateway handles proxy-header trust with an explicit
- * trustProxy flag; here we always use the peer address from Bun's requestIP().
+ * Extract the client IP from a request. Only trusts proxy headers
+ * (X-Forwarded-For, X-Real-IP) when the peer IP is loopback or private,
+ * meaning the request arrived via the gateway. Direct connections from
+ * external clients use the peer IP, preventing header spoofing.
  */
 export function extractClientIp(
   req: Request,
   server: { requestIP(req: Request): { address: string } | null },
 ): string {
-  const peerIp = server.requestIP(req);
-  return peerIp?.address ?? '0.0.0.0';
+  const peerIp = server.requestIP(req)?.address ?? '0.0.0.0';
+
+  if (isTrustedPeer(peerIp)) {
+    const forwarded = req.headers.get('x-forwarded-for');
+    if (forwarded) {
+      const first = forwarded.split(',')[0].trim();
+      if (first) return first;
+    }
+
+    const realIp = req.headers.get('x-real-ip');
+    if (realIp) return realIp.trim();
+  }
+
+  return peerIp;
+}
+
+/** Returns true when the address is loopback or RFC-1918 private. */
+function isTrustedPeer(ip: string): boolean {
+  return (
+    ip === '127.0.0.1' ||
+    ip === '::1' ||
+    ip === '::ffff:127.0.0.1' ||
+    ip.startsWith('10.') ||
+    ip.startsWith('172.16.') || ip.startsWith('172.17.') || ip.startsWith('172.18.') ||
+    ip.startsWith('172.19.') || ip.startsWith('172.20.') || ip.startsWith('172.21.') ||
+    ip.startsWith('172.22.') || ip.startsWith('172.23.') || ip.startsWith('172.24.') ||
+    ip.startsWith('172.25.') || ip.startsWith('172.26.') || ip.startsWith('172.27.') ||
+    ip.startsWith('172.28.') || ip.startsWith('172.29.') || ip.startsWith('172.30.') ||
+    ip.startsWith('172.31.') ||
+    ip.startsWith('192.168.')
+  );
 }
