@@ -235,6 +235,11 @@ final class VoiceModeManager: ObservableObject {
         voiceService.resetStreamingTTS()
 
         Task {
+            // Capture frontmost app context BEFORE awaiting transcription so we
+            // capture the app the user was looking at when they spoke, not after
+            // potential app switches during transcription finalization.
+            let ctx = DictationContextCapture.capture()
+
             let text = await voiceService.stopRecordingAndGetTranscription()
             let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -252,27 +257,48 @@ final class VoiceModeManager: ObservableObject {
 
             partialTranscription = trimmed
 
-            // Capture frontmost app context so the daemon knows what the user
-            // is looking at during voice conversations (matches PTT behavior).
-            let ctx = DictationContextCapture.capture()
+            // Build the context prefix from captured app context. Sanitize
+            // attacker-controlled values (window titles, selected text) to
+            // prevent prompt injection and excessive length.
             var contextPrefix = ""
             if !ctx.appName.isEmpty {
                 var parts: [String] = ["app: \(ctx.appName)"]
                 if !ctx.windowTitle.isEmpty {
-                    parts.append("window: \"\(ctx.windowTitle)\"")
+                    let sanitizedTitle = Self.sanitize(ctx.windowTitle, maxLength: 200)
+                    parts.append("window: \"\(sanitizedTitle)\"")
                 }
                 if let selected = ctx.selectedText, !selected.isEmpty {
-                    parts.append("selected text: \"\(selected)\"")
+                    let sanitizedSelected = Self.sanitize(selected, maxLength: 500)
+                    parts.append("selected text: \"\(sanitizedSelected)\"")
                 }
                 contextPrefix = "[User's current \(parts.joined(separator: ", "))]\n"
             }
 
-            // Send the transcribed message through the daemon (full context)
+            // Pass context via pendingVoiceContextPrefix so it's injected into
+            // the daemon-bound text only — not into inputText, which is used for
+            // chat bubble display and thread auto-titling.
             chatViewModel.pendingVoiceMessage = true
-            chatViewModel.inputText = contextPrefix + trimmed
+            if !contextPrefix.isEmpty {
+                chatViewModel.pendingVoiceContextPrefix = contextPrefix
+            }
+            chatViewModel.inputText = trimmed
             chatViewModel.sendMessage()
             log.info("Voice mode: sent transcription to chat via daemon")
         }
+    }
+
+    /// Sanitize attacker-controlled text (window titles, selected text) by
+    /// truncating to a maximum length and stripping bracket patterns like
+    /// `[...]` that could be confused with instruction markers.
+    private static func sanitize(_ input: String, maxLength: Int) -> String {
+        var result = String(input.prefix(maxLength))
+        // Strip bracket patterns that could look like instruction markers
+        result = result.replacingOccurrences(
+            of: "\\[.*?\\]",
+            with: "",
+            options: .regularExpression
+        )
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Streaming TTS from daemon response
