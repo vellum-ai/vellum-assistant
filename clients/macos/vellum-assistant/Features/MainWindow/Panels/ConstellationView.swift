@@ -353,7 +353,7 @@ struct ConstellationView: View {
     @State private var zoomScale: CGFloat = 1.0
     @State private var baseZoomScale: CGFloat = 1.0
     @State private var selectedSkillItem: OrbitItem?
-    @State private var selectedNodePosition: CGPoint?
+    @State private var selectedNodeId: String?
 
     // Radial layout constants
     private let categoryRadius: CGFloat = 180
@@ -581,22 +581,26 @@ struct ConstellationView: View {
                         .onTapGesture {
                             withAnimation(VAnimation.fast) {
                                 selectedSkillItem = nil
-                                selectedNodePosition = nil
+                                selectedNodeId = nil
                             }
                         }
                 }
 
-                // Skill popover overlay
-                if let selected = selectedSkillItem, let nodePos = selectedNodePosition {
+                // Skill popover overlay — derive position from current layout so it
+                // tracks the node even after panel resize or recenter.
+                if let selected = selectedSkillItem, let nodeId = selectedNodeId {
                     let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    let currentGraph = buildGraph(center: canvasCenter)
 
-                    let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let scaledX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
-                    let scaledY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
+                    if let nodePos = currentGraph.nodes.first(where: { $0.id == nodeId })?.position {
+                        let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                        let scaledX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
+                        let scaledY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
 
-                    SkillPopoverView(item: selected)
-                        .position(x: scaledX, y: scaledY)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                        SkillPopoverView(item: selected)
+                            .position(x: scaledX, y: scaledY)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
                 }
             }
                 .frame(width: proxy.size.width, height: proxy.size.height)
@@ -660,7 +664,7 @@ struct ConstellationView: View {
                     if selectedSkillItem != nil {
                         withAnimation(VAnimation.fast) {
                             selectedSkillItem = nil
-                            selectedNodePosition = nil
+                            selectedNodeId = nil
                         }
                         return .handled
                     }
@@ -778,10 +782,10 @@ struct ConstellationView: View {
                                     withAnimation(VAnimation.fast) {
                                         if selectedSkillItem?.id == item.id {
                                             selectedSkillItem = nil
-                                            selectedNodePosition = nil
+                                            selectedNodeId = nil
                                         } else {
                                             selectedSkillItem = item
-                                            selectedNodePosition = node.position
+                                            selectedNodeId = node.id
                                         }
                                     }
                                 }
