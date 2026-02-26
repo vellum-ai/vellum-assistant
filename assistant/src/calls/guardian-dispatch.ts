@@ -9,6 +9,7 @@
 
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import {
+  countPendingRequestsByCallSessionId,
   createGuardianActionDelivery,
   createGuardianActionRequest,
   updateDeliveryStatus,
@@ -69,6 +70,12 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
       'Created guardian action request',
     );
 
+    // Count how many guardian requests are already pending for this call.
+    // This count is a candidate-affinity hint: the decision engine uses it
+    // to prefer reusing an existing thread when multiple questions arise
+    // in the same call session.
+    const activeGuardianRequestCount = countPendingRequestsByCallSessionId(callSessionId);
+
     // Route through the canonical notification pipeline. The paired vellum
     // conversation from this pipeline is the canonical guardian thread.
     let vellumDeliveryId: string | null = null;
@@ -90,6 +97,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
         callSessionId,
         questionText: pendingQuestion.questionText,
         pendingQuestionId: pendingQuestion.id,
+        activeGuardianRequestCount,
       },
       dedupeKey: `guardian:${request.id}`,
       onThreadCreated: (info) => {
