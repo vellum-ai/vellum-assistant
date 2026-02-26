@@ -364,11 +364,13 @@ final class RecordingSourcePickerViewModel: ObservableObject {
     }
 
     /// Record telemetry for a single preview result.
+    /// Only adds latency for non-cancelled results so the session average
+    /// (which divides by success + failure count) isn't inflated.
     private func recordResultTelemetry(sourceType: String, sourceId: String, status: PreviewStatus, latencyMs: Int, fromCache: Bool) {
         previewAttemptCount += 1
-        previewTotalLatencyMs += latencyMs
         switch status {
         case .loaded:
+            previewTotalLatencyMs += latencyMs
             previewSuccessCount += 1
             if fromCache { previewCacheHitCount += 1 }
             RecordingTelemetry.logPreviewGenerated(sourceType: sourceType, sourceId: sourceId, latencyMs: latencyMs, fromCache: fromCache)
@@ -377,6 +379,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
                 previewCancelCount += 1
                 RecordingTelemetry.logPreviewCancelled(sourceType: sourceType, sourceId: sourceId, reason: "task_cancelled")
             } else {
+                previewTotalLatencyMs += latencyMs
                 previewFailureCount += 1
                 RecordingTelemetry.logPreviewFailed(sourceType: sourceType, sourceId: sourceId, category: Self.errorCategory(from: reason), latencyMs: latencyMs)
             }
