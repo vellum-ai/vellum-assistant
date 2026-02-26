@@ -19,6 +19,7 @@ import {
   migrateCallSessionMode,
   migrateFkCascadeRebuilds,
   migrateChannelInboundDeliveredSegments,
+  migrateNotificationDeliveryThreadDecision,
   migrateConversationsThreadTypeIndex,
   migrateGuardianActionFollowup,
   migrateGuardianDeliveryConversationIndex,
@@ -128,6 +129,9 @@ export function initializeDb(): void {
 
   // 21. Rebuild tables to add ON DELETE CASCADE to FK constraints
   migrateFkCascadeRebuilds(database);
+
+  // 22. Thread decision audit columns on notification_deliveries
+  migrateNotificationDeliveryThreadDecision(database);
 
   validateMigrationState(database);
 }
