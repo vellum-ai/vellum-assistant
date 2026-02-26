@@ -333,4 +333,161 @@ describe('ASK_GUARDIAN canonical notification path', () => {
     expect(vellumDelivery!.status).toBe('failed');
     expect(vellumDelivery!.last_error).toContain('No vellum delivery result');
   });
+
+  test('context payload includes callSessionId and activeGuardianRequestCount for candidate-affinity', async () => {
+    const convId = 'conv-guardian-notif-affinity';
+    ensureConversation(convId);
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15550002222',
+    });
+    const pq = createPendingQuestion(session.id, 'Affinity test question');
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq,
+    });
+
+    expect(emitCalls.length).toBe(1);
+    const signalParams = emitCalls[0] as Record<string, unknown>;
+    const payload = signalParams.contextPayload as Record<string, unknown>;
+
+    // callSessionId is present for the decision engine to match candidates to the current call
+    expect(payload.callSessionId).toBe(session.id);
+    // activeGuardianRequestCount provides a hint about whether to reuse an existing thread
+    expect(typeof payload.activeGuardianRequestCount).toBe('number');
+    expect(payload.activeGuardianRequestCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('repeated guardian questions retain per-request delivery records when sharing a conversation', async () => {
+    const convId = 'conv-guardian-notif-reuse';
+    ensureConversation(convId);
+
+    const sharedConvId = 'conv-guardian-shared-thread';
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15550002222',
+    });
+
+    // First guardian question
+    const pq1 = createPendingQuestion(session.id, 'Can they enter through the side gate?');
+    mockEmitResult = {
+      signalId: 'sig-reuse-a',
+      deduplicated: false,
+      dispatched: true,
+      reason: 'ok',
+      deliveryResults: [
+        {
+          channel: 'vellum',
+          destination: 'vellum',
+          status: 'sent',
+          conversationId: sharedConvId,
+        },
+      ],
+    };
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq1,
+    });
+
+    // Second guardian question (same call, pipeline reuses the same conversation)
+    emitCalls.length = 0;
+    const pq2 = createPendingQuestion(session.id, 'What about the back door?');
+    mockEmitResult = {
+      signalId: 'sig-reuse-b',
+      deduplicated: false,
+      dispatched: true,
+      reason: 'ok',
+      deliveryResults: [
+        {
+          channel: 'vellum',
+          destination: 'vellum',
+          status: 'sent',
+          conversationId: sharedConvId,
+        },
+      ],
+    };
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq2,
+    });
+
+    // Verify: two distinct guardian_action_requests exist
+    const db = getDb();
+    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const requests = raw.query(
+      'SELECT id, question_text FROM guardian_action_requests WHERE call_session_id = ? ORDER BY created_at ASC',
+    ).all(session.id) as Array<{ id: string; question_text: string }>;
+    expect(requests).toHaveLength(2);
+    expect(requests[0].question_text).toBe('Can they enter through the side gate?');
+    expect(requests[1].question_text).toBe('What about the back door?');
+
+    // Verify: each request has its own delivery row pointing to the shared conversation
+    const deliveries = raw.query(
+      'SELECT request_id, destination_conversation_id, status FROM guardian_action_deliveries WHERE destination_conversation_id = ? ORDER BY created_at ASC',
+    ).all(sharedConvId) as Array<{ request_id: string; destination_conversation_id: string; status: string }>;
+    expect(deliveries).toHaveLength(2);
+    expect(deliveries[0].request_id).toBe(requests[0].id);
+    expect(deliveries[1].request_id).toBe(requests[1].id);
+    expect(deliveries[0].status).toBe('sent');
+    expect(deliveries[1].status).toBe('sent');
+  });
+
+  test('follow-up/timeout flow is unchanged — expired request still gets fallback delivery on no pipeline result', async () => {
+    const convId = 'conv-guardian-notif-timeout';
+    ensureConversation(convId);
+
+    // Simulate a scenario where the pipeline returns no delivery results (e.g. blocked)
+    mockEmitResult = {
+      signalId: 'sig-timeout',
+      deduplicated: false,
+      dispatched: false,
+      reason: 'blocked by deterministic checks',
+      deliveryResults: [],
+    };
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15550002222',
+    });
+    const pq = createPendingQuestion(session.id, 'Timeout scenario');
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq,
+    });
+
+    // The dispatch should still create a failed fallback delivery row
+    const db = getDb();
+    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const request = raw.query('SELECT id FROM guardian_action_requests WHERE call_session_id = ?').get(session.id) as
+      | { id: string }
+      | undefined;
+    expect(request).toBeDefined();
+
+    const delivery = raw.query(
+      'SELECT status, last_error FROM guardian_action_deliveries WHERE request_id = ? AND destination_channel = ?',
+    ).get(request!.id, 'vellum') as { status: string; last_error: string | null } | undefined;
+    expect(delivery).toBeDefined();
+    expect(delivery!.status).toBe('failed');
+    expect(delivery!.last_error).toContain('No vellum delivery result');
+  });
 });

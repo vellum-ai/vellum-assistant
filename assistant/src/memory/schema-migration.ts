@@ -20,6 +20,7 @@ export {
   migrateMemorySegmentsIndexes,
   migrateMessagesFtsBackfill,
   migrateNotificationDeliveryPairingColumns,
+  migrateNotificationDeliveryThreadDecision,
   migrateNotificationTablesSchema,
   migrateRemainingTableIndexes,
   migrateReminderRoutingIntent,
