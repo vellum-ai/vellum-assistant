@@ -1546,7 +1546,7 @@ private struct ProfileSwitcherSidebarRow: View {
         Button(action: onSwitch) {
             HStack(spacing: isExpanded ? VSpacing.sm : 0) {
                 Image(systemName: avatarIcon)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundColor(avatarColor)
                     .frame(width: 18)
                 if isExpanded {
