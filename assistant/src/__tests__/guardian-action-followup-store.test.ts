@@ -196,15 +196,18 @@ describe('guardian-action-followup-store', () => {
     expect(result!.followupAction).toBe('call_back');
   });
 
-  test('progressFollowupState valid transition: awaiting_guardian_choice -> declined', () => {
+  test('progressFollowupState rejects terminal transition: awaiting_guardian_choice -> declined', () => {
     const request = createTestRequest('conv-followup-10');
     markTimedOutWithReason(request.id, 'call_timeout');
     startFollowupFromExpiredRequest(request.id, 'Late answer');
 
+    // Terminal transitions must go through finalizeFollowup, not progressFollowupState
     const result = progressFollowupState(request.id, 'declined', 'decline');
-    expect(result).not.toBeNull();
-    expect(result!.followupState).toBe('declined');
-    expect(result!.followupAction).toBe('decline');
+    expect(result).toBeNull();
+
+    // Verify state unchanged
+    const reloaded = getGuardianActionRequest(request.id);
+    expect(reloaded!.followupState).toBe('awaiting_guardian_choice');
   });
 
   test('progressFollowupState rejects invalid transition: none -> dispatching', () => {
@@ -232,9 +235,9 @@ describe('guardian-action-followup-store', () => {
     markTimedOutWithReason(request.id, 'call_timeout');
     startFollowupFromExpiredRequest(request.id, 'Late answer');
     progressFollowupState(request.id, 'dispatching', 'call_back');
-    progressFollowupState(request.id, 'completed');
+    finalizeFollowup(request.id, 'completed');
 
-    // completed is terminal
+    // completed is terminal — progressFollowupState cannot leave it
     const result = progressFollowupState(request.id, 'dispatching');
     expect(result).toBeNull();
   });

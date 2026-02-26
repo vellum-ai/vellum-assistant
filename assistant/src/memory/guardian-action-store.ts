@@ -329,14 +329,23 @@ export function cancelGuardianActionRequest(id: string): void {
 // Follow-up lifecycle helpers
 // ---------------------------------------------------------------------------
 
-/** Valid followup_state transitions: from -> allowed next states */
+/** Valid non-terminal followup_state transitions for progressFollowupState.
+ * Terminal states (completed, declined, failed) are only reachable via
+ * finalizeFollowup, which properly sets followupCompletedAt. */
 const FOLLOWUP_TRANSITIONS: Record<FollowupState, FollowupState[]> = {
   none: ['awaiting_guardian_choice'],
-  awaiting_guardian_choice: ['dispatching', 'declined'],
-  dispatching: ['completed', 'failed'],
+  awaiting_guardian_choice: ['dispatching'],
+  dispatching: [],
   completed: [],
   declined: [],
   failed: [],
+};
+
+/** Valid terminal transitions for finalizeFollowup. Maps from current
+ * followup_state to the terminal states reachable from it. */
+const FOLLOWUP_FINALIZE_TRANSITIONS: Partial<Record<FollowupState, FollowupState[]>> = {
+  awaiting_guardian_choice: ['declined'],
+  dispatching: ['completed', 'failed'],
 };
 
 /**
@@ -460,8 +469,8 @@ export function finalizeFollowup(
   const request = getGuardianActionRequest(id);
   if (!request) return null;
 
-  const allowed = FOLLOWUP_TRANSITIONS[request.followupState];
-  if (!allowed.includes(finalState)) return null;
+  const allowed = FOLLOWUP_FINALIZE_TRANSITIONS[request.followupState];
+  if (!allowed?.includes(finalState)) return null;
 
   const db = getDb();
   const now = Date.now();
