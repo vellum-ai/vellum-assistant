@@ -1573,7 +1573,7 @@ public final class SettingsStore: ObservableObject {
             }
         } catch {
             vellumPlatformReachable = false
-            vellumPlatformError = error.localizedDescription
+            vellumPlatformError = "Could not connect"
         }
     }
 
