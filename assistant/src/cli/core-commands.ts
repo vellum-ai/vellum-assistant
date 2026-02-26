@@ -110,7 +110,7 @@ export function registerDevCommand(program: Command): void {
     .description('Run the daemon in dev mode with auto-restart on file changes')
     .action(async () => {
       const status = await getDaemonStatus();
-      if (status.running) {
+      if (status.running || status.pid) {
         log.info('Stopping existing daemon...');
         const stopResult = await stopDaemon();
         if (!stopResult.stopped && stopResult.reason === 'stop_failed') {
