@@ -83,7 +83,13 @@ curl -s -X POST http://localhost:7821/v1/integrations/guardian/outbound/resend \
   -d '{"channel": "<channel>"}'
 ```
 
-On success, tell the user a new code has been sent. On `rate_limited` error, tell them to wait before trying again (the response includes `nextResendAt` as a Unix timestamp). On `pending_bootstrap`, remind them to click the deep-link. On `no_active_session`, start a new session from Step 3.
+On success, report the next action based on the channel:
+
+- **SMS**: "I've sent a new verification code to [number]. Reply with the code from that SMS conversation to complete verification."
+- **Voice**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects — just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad."
+- **Telegram**: "I've sent a new verification code to your Telegram. Send the code back to me in the Telegram bot chat to complete verification."
+
+On `rate_limited` error, tell them to wait before trying again (the response includes `nextResendAt` as a Unix timestamp). On `pending_bootstrap`, remind them to click the deep-link. On `no_active_session`, start a new session from Step 3.
 
 ## Step 5: Handle Cancel
 
