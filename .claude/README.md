@@ -175,11 +175,10 @@ Like `/blitz` but creates a dedicated feature branch and opens a final PR into m
 
 ```
 /safe-blitz Add WebSocket transport for daemon IPC
-/safe-blitz --auto Refactor the logger
 /safe-blitz --workers 5 --branch feature/dark-mode Add dark mode support
 ```
 
-**Flags:** `--auto` (skip pauses), `--workers N` (parallel workers, default 12), `--skip-plan` (use existing "Ready" issues), `--branch NAME` (custom branch name)
+**Flags:** `--workers N` (parallel workers, default 12), `--skip-plan` (use existing "Ready" issues), `--branch NAME` (custom branch name)
 
 ### `/safe-blitz-done` - Finalize a safe-blitz
 

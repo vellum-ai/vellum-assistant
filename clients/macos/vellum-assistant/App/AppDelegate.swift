@@ -1894,7 +1894,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.voiceInput?.restartKeyMonitors()
+            Task { @MainActor in
+                self?.voiceInput?.restartKeyMonitors()
+            }
         }
     }
 

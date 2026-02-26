@@ -20,6 +20,7 @@ import {
   migrateCallSessionMode,
   migrateFkCascadeRebuilds,
   migrateChannelInboundDeliveredSegments,
+  migrateNotificationDeliveryThreadDecision,
   migrateConversationsThreadTypeIndex,
   migrateGuardianActionFollowup,
   migrateGuardianActionToolMetadata,
@@ -136,6 +137,9 @@ export function initializeDb(): void {
 
   // 22. Scoped approval grants (channel-agnostic one-time-use grants)
   createScopedApprovalGrantsTable(database);
+
+  // 23. Thread decision audit columns on notification_deliveries
+  migrateNotificationDeliveryThreadDecision(database);
 
   validateMigrationState(database);
 }

@@ -395,4 +395,124 @@ describe('guardian-dispatch', () => {
     expect(request!.tool_name).toBeNull();
     expect(request!.input_digest).toBeNull();
   });
+
+  test('includes activeGuardianRequestCount in context payload', async () => {
+    const convId = 'conv-dispatch-7';
+    ensureConversation(convId);
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15550002222',
+    });
+    const pq = createPendingQuestion(session.id, 'First question');
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq,
+    });
+
+    const signalParams = emitCalls[0] as Record<string, unknown>;
+    const payload = signalParams.contextPayload as Record<string, unknown>;
+    // The request was just created so there is 1 pending request for this session
+    expect(payload.activeGuardianRequestCount).toBe(1);
+    expect(payload.callSessionId).toBe(session.id);
+  });
+
+  test('repeated guardian questions in the same call each create per-request delivery rows even when sharing a conversation', async () => {
+    const convId = 'conv-dispatch-reuse-1';
+    ensureConversation(convId);
+
+    // Both dispatches deliver to the same vellum conversation (simulating thread reuse)
+    const sharedConversationId = 'conv-shared-guardian';
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15550002222',
+    });
+
+    // First dispatch
+    const pq1 = createPendingQuestion(session.id, 'What is the gate code?');
+    mockEmitResult = {
+      signalId: 'sig-reuse-1',
+      deduplicated: false,
+      dispatched: true,
+      reason: 'ok',
+      deliveryResults: [
+        {
+          channel: 'vellum',
+          destination: 'vellum',
+          status: 'sent',
+          conversationId: sharedConversationId,
+        },
+      ],
+    };
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq1,
+    });
+
+    // Second dispatch (same call session, same shared conversation)
+    emitCalls.length = 0;
+    const pq2 = createPendingQuestion(session.id, 'Should I let them in?');
+    mockEmitResult = {
+      signalId: 'sig-reuse-2',
+      deduplicated: false,
+      dispatched: true,
+      reason: 'ok',
+      deliveryResults: [
+        {
+          channel: 'vellum',
+          destination: 'vellum',
+          status: 'sent',
+          conversationId: sharedConversationId,
+        },
+      ],
+    };
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq2,
+    });
+
+    // Both dispatches should have created separate action requests
+    const db = getDb();
+    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const requests = raw.query(
+      'SELECT * FROM guardian_action_requests WHERE call_session_id = ? ORDER BY created_at ASC',
+    ).all(session.id) as Array<{ id: string; question_text: string }>;
+    expect(requests).toHaveLength(2);
+    expect(requests[0].question_text).toBe('What is the gate code?');
+    expect(requests[1].question_text).toBe('Should I let them in?');
+
+    // Each request should have its own delivery row, both pointing to the shared conversation
+    for (const req of requests) {
+      const delivery = raw.query(
+        'SELECT * FROM guardian_action_deliveries WHERE request_id = ? AND destination_channel = ?',
+      ).get(req.id, 'vellum') as { status: string; destination_conversation_id: string | null } | undefined;
+      expect(delivery).toBeDefined();
+      expect(delivery!.status).toBe('sent');
+      expect(delivery!.destination_conversation_id).toBe(sharedConversationId);
+    }
+
+    // Total delivery rows should be 2 (one per request), not 1
+    const allDeliveries = raw.query(
+      'SELECT * FROM guardian_action_deliveries WHERE destination_conversation_id = ?',
+    ).all(sharedConversationId) as Array<{ request_id: string }>;
+    expect(allDeliveries).toHaveLength(2);
+
+    // Second dispatch should report a higher activeGuardianRequestCount
+    const secondPayload = (emitCalls[0] as Record<string, unknown>).contextPayload as Record<string, unknown>;
+    expect(secondPayload.activeGuardianRequestCount).toBe(2);
+  });
 });

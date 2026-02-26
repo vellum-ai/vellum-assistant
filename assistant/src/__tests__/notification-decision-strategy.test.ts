@@ -3,7 +3,8 @@
  *
  * Validates that the deterministic fallback correctly classifies signals based
  * on urgency + requiresAction, that channel selection respects connected channels,
- * and that the copy-composer generates correct fallback copy for known event names.
+ * the copy-composer generates correct fallback copy for known event names, and
+ * thread action types are structurally correct.
  */
 
 import { describe, expect, test } from 'bun:test';

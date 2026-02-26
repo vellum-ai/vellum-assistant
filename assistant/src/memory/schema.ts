@@ -866,7 +866,9 @@ export const guardianActionDeliveries = sqliteTable('guardian_action_deliveries'
   lastError: text('last_error'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  index('idx_guardian_action_deliveries_dest_conversation').on(table.destinationConversationId),
+]);
 
 // ── Assistant Inbox ──────────────────────────────────────────────────
 
@@ -1020,6 +1022,9 @@ export const notificationDeliveries = sqliteTable('notification_deliveries', {
   conversationId: text('conversation_id'),
   messageId: text('message_id'),
   conversationStrategy: text('conversation_strategy'),
+  threadAction: text('thread_action'),
+  threadTargetConversationId: text('thread_target_conversation_id'),
+  threadDecisionFallbackUsed: integer('thread_decision_fallback_used'),
   clientDeliveryStatus: text('client_delivery_status'),
   clientDeliveryError: text('client_delivery_error'),
   clientDeliveryAt: integer('client_delivery_at'),

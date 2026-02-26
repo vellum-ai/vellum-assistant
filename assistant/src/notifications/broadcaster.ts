@@ -24,6 +24,7 @@ import type {
   NotificationDecision,
   NotificationDeliveryResult,
   RenderedChannelCopy,
+  ThreadAction,
 } from './types.js';
 
 const log = getLogger('notif-broadcaster');
@@ -125,8 +126,36 @@ export class NotificationBroadcaster {
         copy = fallbackCopy[channel] ?? { title: 'Notification', body: signal.sourceEventName };
       }
 
-      // Pair the delivery with a conversation before sending
-      const pairing = await pairDeliveryWithConversation(signal, channel, copy);
+      // Resolve the per-channel thread action from the decision (default: start_new)
+      const threadAction: ThreadAction | undefined = decision.threadActions?.[channel];
+
+      // Check for duplicate delivery BEFORE pairing to avoid side effects
+      // (e.g. appending seed messages to existing threads) on retry paths
+      // where a delivery row already exists.
+      const persistedDecisionId = decision.persistedDecisionId;
+      const hasPersistedDecision = typeof persistedDecisionId === 'string';
+      if (hasPersistedDecision) {
+        const existingDelivery = findDeliveryByDecisionAndChannel(persistedDecisionId, channel);
+        if (existingDelivery) {
+          log.info(
+            { channel, signalId: signal.signalId, existingDeliveryId: existingDelivery.id },
+            'Delivery already exists for this decision+channel — skipping duplicate',
+          );
+          results.push({
+            channel,
+            destination: destination.endpoint ?? channel,
+            status: 'skipped',
+            errorMessage: 'Duplicate delivery skipped',
+            conversationId: existingDelivery.conversationId ?? undefined,
+            messageId: existingDelivery.messageId ?? undefined,
+            conversationStrategy: existingDelivery.conversationStrategy ?? undefined,
+          });
+          continue;
+        }
+      }
+
+      // Pair the delivery with a conversation before sending, passing the thread action
+      const pairing = await pairDeliveryWithConversation(signal, channel, copy, { threadAction });
 
       // For the vellum channel, merge the conversationId into deep-link metadata
       // so the macOS/iOS client can navigate directly to the notification thread.
@@ -134,35 +163,41 @@ export class NotificationBroadcaster {
       if (channel === 'vellum' && pairing.conversationId) {
         deepLinkTarget = { ...deepLinkTarget, conversationId: pairing.conversationId };
 
-        // Emit notification_thread_created immediately when the vellum
-        // conversation is paired, BEFORE waiting for adapter send or other
-        // channel deliveries. This avoids a race where slow Telegram delivery
-        // delays the IPC push past the macOS deep-link retry window.
-        if (pairing.strategy === 'start_new_conversation') {
-          const threadTitle =
-            copy.threadTitle ??
-            copy.title ??
-            signal.sourceEventName;
-          const info: ThreadCreatedInfo = {
-            conversationId: pairing.conversationId,
-            title: threadTitle,
-            sourceEventName: signal.sourceEventName,
-          };
+        const threadTitle =
+          copy.threadTitle ??
+          copy.title ??
+          signal.sourceEventName;
+        const info: ThreadCreatedInfo = {
+          conversationId: pairing.conversationId,
+          title: threadTitle,
+          sourceEventName: signal.sourceEventName,
+        };
+
+        // The per-dispatch onThreadCreated callback fires whenever a vellum
+        // conversation is paired (new or reused) because callers like
+        // dispatchGuardianQuestion rely on it to create delivery bookkeeping
+        // rows before emitNotificationSignal() returns.
+        if (options?.onThreadCreated) {
+          try {
+            options.onThreadCreated(info);
+          } catch (err) {
+            log.error(
+              { err, signalId: signal.signalId },
+              'per-dispatch onThreadCreated callback failed — continuing broadcast',
+            );
+          }
+        }
+
+        // Emit notification_thread_created IPC event only when a NEW
+        // conversation was actually created. Reusing an existing thread
+        // should not fire the IPC event — the client already knows about
+        // the conversation.
+        if (pairing.createdNewConversation && pairing.strategy === 'start_new_conversation') {
           if (this.onThreadCreated) {
             try {
               this.onThreadCreated(info);
             } catch (err) {
               log.error({ err, signalId: signal.signalId }, 'onThreadCreated callback failed — continuing broadcast');
-            }
-          }
-          if (options?.onThreadCreated) {
-            try {
-              options.onThreadCreated(info);
-            } catch (err) {
-              log.error(
-                { err, signalId: signal.signalId },
-                'per-dispatch onThreadCreated callback failed — continuing broadcast',
-              );
             }
           }
         }
@@ -179,33 +214,15 @@ export class NotificationBroadcaster {
         deepLinkTarget,
       };
 
-      // Only create a delivery audit record when we have a persisted decision ID
-      // for the FK. If decision persistence failed (persistedDecisionId is
-      // undefined), we still dispatch via the adapter but skip the delivery
-      // record — using dedupeKey would violate the FK constraint.
-      const persistedDecisionId = decision.persistedDecisionId;
-      const hasPersistedDecision = typeof persistedDecisionId === 'string';
+      // Compute thread decision audit fields for the delivery record
+      const threadAudit = {
+        threadAction: threadAction?.action ?? 'start_new',
+        threadTargetConversationId: threadAction?.action === 'reuse_existing' ? threadAction.conversationId : undefined,
+        threadDecisionFallbackUsed: pairing.threadDecisionFallbackUsed,
+      };
 
       try {
         if (hasPersistedDecision) {
-          const existingDelivery = findDeliveryByDecisionAndChannel(persistedDecisionId, channel);
-          if (existingDelivery) {
-            log.info(
-              { channel, signalId: signal.signalId, existingDeliveryId: existingDelivery.id },
-              'Delivery already exists for this decision+channel — skipping duplicate',
-            );
-            results.push({
-              channel,
-              destination: destinationLabel,
-              status: 'skipped',
-              errorMessage: 'Duplicate delivery skipped',
-              conversationId: existingDelivery.conversationId ?? undefined,
-              messageId: existingDelivery.messageId ?? undefined,
-              conversationStrategy: existingDelivery.conversationStrategy ?? undefined,
-            });
-            continue;
-          }
-
           createDelivery({
             id: deliveryId,
             notificationDecisionId: persistedDecisionId,
@@ -219,6 +236,7 @@ export class NotificationBroadcaster {
             conversationId: pairing.conversationId ?? undefined,
             messageId: pairing.messageId ?? undefined,
             conversationStrategy: pairing.strategy,
+            ...threadAudit,
           });
         } else {
           log.warn(
