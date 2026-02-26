@@ -7,8 +7,6 @@
 // Internal helpers (detect/strip/classify) are kept as private utilities
 // consumed only by `resolveRecordingIntent`.
 
-type RecordingIntentClass = 'start_only' | 'stop_only' | 'mixed' | 'none';
-
 export type RecordingIntentResult =
   | { kind: 'none' }
   | { kind: 'start_only' }
@@ -368,45 +366,6 @@ function isInterrogative(text: string, dynamicNames?: string[]): boolean {
   }
 
   return false;
-}
-
-// ─── Unified classification ─────────────────────────────────────────────────
-
-/**
- * Classifies the recording intent of a user message into one of four categories:
- * - 'start_only': the prompt is purely about starting a recording
- * - 'stop_only': the prompt is purely about stopping a recording
- * - 'mixed': the prompt contains recording intent mixed with other tasks,
- *            or contains both start and stop recording patterns
- * - 'none': no recording intent detected
- *
- * If `dynamicNames` are provided, they are stripped from the beginning of the
- * text before classification (e.g., "Nova, record my screen" -> "record my screen").
- */
-function _classifyRecordingIntent(
-  taskText: string,
-  dynamicNames?: string[],
-): RecordingIntentClass {
-  const normalized =
-    dynamicNames && dynamicNames.length > 0
-      ? stripDynamicNames(taskText, dynamicNames)
-      : taskText;
-
-  const hasStart = detectRecordingIntent(normalized);
-  const hasStop = detectStopRecordingIntent(normalized);
-
-  // Both start and stop patterns present -> mixed
-  if (hasStart && hasStop) return 'mixed';
-
-  if (hasStop) {
-    return isStopRecordingOnly(normalized) ? 'stop_only' : 'mixed';
-  }
-
-  if (hasStart) {
-    return isRecordingOnly(normalized) ? 'start_only' : 'mixed';
-  }
-
-  return 'none';
 }
 
 // ─── Structured intent resolver ─────────────────────────────────────────────
