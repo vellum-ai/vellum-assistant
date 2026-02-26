@@ -32,6 +32,13 @@ export interface ParentalControlSettings {
   contentRestrictions: ParentalContentTopic[];
   blockedToolCategories: ParentalToolCategory[];
   activeProfile: 'parental' | 'child';
+  /**
+   * Set to `true` the first time parental controls are enabled and defaults
+   * have been applied. Used to distinguish "never configured" from "user
+   * explicitly chose empty restrictions", so that re-enabling after the user
+   * set both sections to None does not silently re-apply defaults.
+   */
+  initialized: boolean;
 }
 
 const DEFAULT_SETTINGS: ParentalControlSettings = {
@@ -39,6 +46,7 @@ const DEFAULT_SETTINGS: ParentalControlSettings = {
   contentRestrictions: [],
   blockedToolCategories: [],
   activeProfile: 'parental',
+  initialized: false,
 };
 
 function getSettingsPath(): string {
@@ -61,6 +69,12 @@ export function getParentalControlSettings(): ParentalControlSettings {
       blockedToolCategories: Array.isArray(parsed.blockedToolCategories) ? parsed.blockedToolCategories : [],
       // Default to "parental" for existing settings files that predate this field.
       activeProfile: parsed.activeProfile === 'child' ? 'child' : 'parental',
+      // Default to false for existing settings files that predate this field.
+      // If parental controls were already enabled, treat them as initialized so
+      // that re-enabling does not silently re-apply defaults.
+      initialized: typeof parsed.initialized === 'boolean'
+        ? parsed.initialized
+        : (typeof parsed.enabled === 'boolean' && parsed.enabled),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -86,6 +100,7 @@ export function updateParentalControlSettings(
       ? patch.blockedToolCategories
       : current.blockedToolCategories,
     activeProfile: patch.activeProfile !== undefined ? patch.activeProfile : current.activeProfile,
+    initialized: patch.initialized !== undefined ? patch.initialized : current.initialized,
   };
   saveSettings(next);
   return next;

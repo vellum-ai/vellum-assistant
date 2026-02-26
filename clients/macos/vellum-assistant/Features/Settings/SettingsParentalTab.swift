@@ -209,6 +209,7 @@ struct SettingsParentalTab: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.accent)
                 .accessibilityLabel("Select all content restrictions")
+                .disabled(isLoading)
                 Button("None") {
                     updateContentRestrictions([])
                 }
@@ -216,6 +217,7 @@ struct SettingsParentalTab: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .accessibilityLabel("Deselect all content restrictions")
+                .disabled(isLoading)
             }
 
             Text("Block responses on these topics.")
@@ -262,6 +264,7 @@ struct SettingsParentalTab: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.accent)
                 .accessibilityLabel("Select all tool restrictions")
+                .disabled(isLoading)
                 Button("None") {
                     updateToolCategories([])
                 }
@@ -269,6 +272,7 @@ struct SettingsParentalTab: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .accessibilityLabel("Deselect all tool restrictions")
+                .disabled(isLoading)
             }
 
             Text("Prevent the assistant from using these tool categories.")
