@@ -19,6 +19,13 @@ const GUARDIAN_ENDPOINT_PATHS = [
   '/v1/integrations/guardian/outbound/cancel',
 ] as const;
 
+/**
+ * Broad regex that catches any path targeting the guardian control-plane,
+ * even if the exact sub-path differs from the hardcoded list above.
+ * Anchored on a path separator so it won't match inside unrelated words.
+ */
+const GUARDIAN_PATH_REGEX = /\/v1\/integrations\/guardian\//;
+
 /** Tools whose `input.command` (string) may contain guardian endpoint paths. */
 const COMMAND_TOOLS = new Set(['bash', 'host_bash']);
 
@@ -26,13 +33,43 @@ const COMMAND_TOOLS = new Set(['bash', 'host_bash']);
 const URL_TOOLS = new Set(['network_request', 'web_fetch', 'browser_navigate']);
 
 /**
+ * Normalize a string to defeat common URL obfuscation techniques before matching:
+ * - Decode percent-encoded characters (e.g. %2F → /)
+ * - Collapse consecutive slashes into a single slash (preserving protocol://)
+ * - Lowercase everything
+ */
+function normalizeForMatching(value: string): string {
+  let normalized = value;
+  // Iteratively decode percent-encoding to handle double-encoding (%252F → %2F → /)
+  let prev = '';
+  while (prev !== normalized) {
+    prev = normalized;
+    try {
+      normalized = decodeURIComponent(normalized);
+    } catch {
+      // If decoding fails (malformed sequence), stop and use what we have
+      break;
+    }
+  }
+  // Collapse consecutive slashes (but preserve the double slash in protocol e.g. https://)
+  normalized = normalized.replace(/(?<!:)\/{2,}/g, '/');
+  return normalized.toLowerCase();
+}
+
+/**
  * Check whether a string contains any of the guardian control-plane endpoint paths.
- * Matches at the path level (not hostname-specific) to catch proxied/local variants.
+ * Normalizes the input first to catch percent-encoding, double slashes, and case
+ * variations. Also matches a broad regex pattern to catch paths that target the
+ * guardian control-plane but aren't in the exact hardcoded list.
  */
 function containsGuardianEndpointPath(value: string): boolean {
+  const normalized = normalizeForMatching(value);
+  // Check exact hardcoded paths against the normalized string
   for (const path of GUARDIAN_ENDPOINT_PATHS) {
-    if (value.includes(path)) return true;
+    if (normalized.includes(path)) return true;
   }
+  // Broad pattern match to catch any /v1/integrations/guardian/... path
+  if (GUARDIAN_PATH_REGEX.test(normalized)) return true;
   return false;
 }
 

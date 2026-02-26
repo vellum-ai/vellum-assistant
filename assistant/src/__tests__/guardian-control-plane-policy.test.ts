@@ -144,10 +144,10 @@ describe('isGuardianControlPlaneInvocation', () => {
       })).toBe(false);
     });
 
-    test('does not match similar but different paths', () => {
+    test('matches unknown sub-path under guardian control-plane (broad pattern)', () => {
       expect(isGuardianControlPlaneInvocation('bash', {
         command: 'curl http://localhost:3000/v1/integrations/guardian/other',
-      })).toBe(false);
+      })).toBe(true);
     });
 
     test('handles missing command field gracefully', () => {
@@ -253,6 +253,68 @@ describe('isGuardianControlPlaneInvocation', () => {
       expect(isGuardianControlPlaneInvocation('bash', {
         command: 'echo \'{"phone":"+1234567890"}\' | curl -X POST -d @- http://localhost:3000/v1/integrations/guardian/outbound/resend',
       })).toBe(true);
+    });
+  });
+
+  describe('obfuscation resistance', () => {
+    test('detects URL-encoded path (%2F encoding)', () => {
+      expect(isGuardianControlPlaneInvocation('bash', {
+        command: 'curl http://localhost:3000/v1/integrations%2Fguardian%2Foutbound%2Fstart',
+      })).toBe(true);
+    });
+
+    test('detects double-encoded path (%252F encoding)', () => {
+      expect(isGuardianControlPlaneInvocation('network_request', {
+        url: 'http://localhost:3000/v1/integrations%252Fguardian%252Fchallenge',
+      })).toBe(true);
+    });
+
+    test('detects double slashes in path', () => {
+      expect(isGuardianControlPlaneInvocation('bash', {
+        command: 'curl http://localhost:3000/v1/integrations//guardian/outbound/start',
+      })).toBe(true);
+    });
+
+    test('detects triple slashes in path', () => {
+      expect(isGuardianControlPlaneInvocation('network_request', {
+        url: 'http://localhost:3000/v1///integrations///guardian///status',
+      })).toBe(true);
+    });
+
+    test('detects mixed case path', () => {
+      expect(isGuardianControlPlaneInvocation('bash', {
+        command: 'curl http://localhost:3000/V1/Integrations/Guardian/Outbound/Start',
+      })).toBe(true);
+    });
+
+    test('detects ALL CAPS path', () => {
+      expect(isGuardianControlPlaneInvocation('network_request', {
+        url: 'http://localhost:3000/V1/INTEGRATIONS/GUARDIAN/CHALLENGE',
+      })).toBe(true);
+    });
+
+    test('detects combined obfuscation: URL-encoding + mixed case', () => {
+      expect(isGuardianControlPlaneInvocation('bash', {
+        command: 'curl http://localhost:3000/V1/Integrations%2FGuardian%2FOutbound%2FCancel',
+      })).toBe(true);
+    });
+
+    test('detects combined obfuscation: double slashes + URL-encoding', () => {
+      expect(isGuardianControlPlaneInvocation('network_request', {
+        url: 'http://localhost:3000/v1//integrations%2Fguardian%2Fstatus',
+      })).toBe(true);
+    });
+
+    test('detects URL-encoded path in web_fetch tool', () => {
+      expect(isGuardianControlPlaneInvocation('web_fetch', {
+        url: 'http://localhost:3000/v1/integrations%2Fguardian%2Foutbound%2Fresend',
+      })).toBe(true);
+    });
+
+    test('does not false-positive on unrelated encoded paths', () => {
+      expect(isGuardianControlPlaneInvocation('bash', {
+        command: 'curl http://localhost:3000/v1/integrations%2Fother%2Fservice',
+      })).toBe(false);
     });
   });
 });
