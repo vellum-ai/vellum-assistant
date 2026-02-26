@@ -13,7 +13,7 @@
 import { and, count, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 
 import { getDb } from '../memory/db.js';
-import { channelGuardianApprovalRequests, conversations, notificationDeliveries, notificationDecisions, notificationEvents } from '../memory/schema.js';
+import { channelGuardianApprovalRequests, conversations, notificationDecisions, notificationDeliveries, notificationEvents } from '../memory/schema.js';
 import { getLogger } from '../util/logger.js';
 import type { NotificationChannel } from './types.js';
 

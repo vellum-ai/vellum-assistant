@@ -132,6 +132,7 @@ export function createChallenge(params: {
     codeDigits: 6,
     maxAttempts: 3,
     bootstrapTokenHash: null,
+    verificationPurpose: 'guardian' as const,
     createdAt: now,
     updatedAt: now,
   };

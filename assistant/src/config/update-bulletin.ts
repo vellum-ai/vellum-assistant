@@ -1,8 +1,9 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 
+import { getWorkspacePromptPath } from '../util/platform.js';
+import { APP_VERSION } from '../version.js';
 import { stripCommentLines } from './system-prompt.js';
 import { appendReleaseBlock, hasReleaseBlock } from './update-bulletin-format.js';
-import { getTemplatePath } from './update-bulletin-template-path.js';
 import {
   addActiveRelease,
   getActiveReleases,
@@ -10,8 +11,7 @@ import {
   markReleasesCompleted,
   setActiveReleases,
 } from './update-bulletin-state.js';
-import { APP_VERSION } from '../version.js';
-import { getWorkspacePromptPath } from '../util/platform.js';
+import { getTemplatePath } from './update-bulletin-template-path.js';
 
 /**
  * Writes content to a file via a temp-file + rename to prevent partial/truncated

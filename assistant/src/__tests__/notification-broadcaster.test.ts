@@ -63,8 +63,8 @@ mock.module('../notifications/conversation-pairing.js', () => ({
   },
 }));
 
-import { NotificationBroadcaster } from '../notifications/broadcaster.js';
 import type { ThreadCreatedInfo } from '../notifications/broadcaster.js';
+import { NotificationBroadcaster } from '../notifications/broadcaster.js';
 import type { NotificationSignal } from '../notifications/signal.js';
 import type {
   ChannelAdapter,

@@ -2,8 +2,8 @@ import { getConfig } from '../config/loader.js';
 import { getHookManager } from '../hooks/manager.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { RiskLevel } from '../permissions/types.js';
-import { compileCustomPatterns, redactSecrets, scanText } from '../security/secret-scanner.js';
 import type { SecretPattern } from '../security/secret-scanner.js';
+import { compileCustomPatterns, redactSecrets, scanText } from '../security/secret-scanner.js';
 import type { ExecutionTarget, ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 
 /**

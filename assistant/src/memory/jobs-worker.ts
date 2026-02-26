@@ -2,6 +2,7 @@ import { getConfig } from '../config/loader.js';
 import type { AssistantConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { rawRun } from './db.js';
+import { reconcileFtsIndexes } from './fts-reconciler.js';
 import { backfillEntityRelationsJob,backfillJob } from './job-handlers/backfill.js';
 import { checkContradictionsJob, cleanupStaleSupersededItemsJob, pruneOldConversationsJob } from './job-handlers/cleanup.js';
 import { cleanupResolvedConflictsJob,resolvePendingConflictsForMessageJob } from './job-handlers/conflict.js';
@@ -9,7 +10,6 @@ import { cleanupResolvedConflictsJob,resolvePendingConflictsForMessageJob } from
 import { embedItemJob, embedSegmentJob, embedSummaryJob } from './job-handlers/embedding.js';
 import { extractEntitiesJob,extractItemsJob } from './job-handlers/extraction.js';
 import { deleteQdrantVectorsJob,rebuildIndexJob } from './job-handlers/index-maintenance.js';
-import { reconcileFtsIndexes } from './fts-reconciler.js';
 import { mediaProcessingJob } from './job-handlers/media-processing.js';
 import { buildConversationSummaryJob, buildGlobalSummaryJob } from './job-handlers/summarization.js';
 import {
@@ -18,7 +18,6 @@ import {
   RETRY_MAX_ATTEMPTS,
   retryDelayForAttempt,
 } from './job-utils.js';
-import { QdrantCircuitOpenError } from './qdrant-circuit-breaker.js';
 import {
   claimMemoryJobs,
   completeMemoryJob,
@@ -32,6 +31,7 @@ import {
   type MemoryJob,
   resetRunningJobsToPending,
 } from './jobs-store.js';
+import { QdrantCircuitOpenError } from './qdrant-circuit-breaker.js';
 import { bumpMemoryVersion } from './recall-cache.js';
 
 // Re-export public utilities consumed by tests and other modules
