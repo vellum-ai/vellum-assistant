@@ -117,6 +117,7 @@ export async function sweepFailedEvents(
           },
           assistantId,
           guardianContext,
+          isInteractive: guardianContext?.actorRole === 'guardian',
         },
         sourceChannel,
         sourceInterface,
