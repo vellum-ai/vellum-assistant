@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { v4 as uuid } from 'uuid';
 
 import { packageApp } from '../../bundler/app-bundler.js';
-import { getRuntimeHttpPort } from '../../config/env.js';
 import { defaultGallery } from '../../gallery/default-gallery.js';
 import { getAppDiff, getAppFileAtVersion, getAppHistory, restoreAppVersion } from '../../memory/app-git-service.js';
 import { createApp, createAppRecord, deleteAppRecord, getApp, getAppPreview, listApps, queryAppRecords, updateApp,updateAppRecord } from '../../memory/app-store.js';
@@ -368,8 +367,7 @@ export async function handleShareAppCloud(
     const bundleData = readFileSync(result.bundlePath);
     const { shareToken } = createSharedAppLink(bundleData, result.manifest);
 
-    const port = getRuntimeHttpPort() ?? 7821;
-    const shareUrl = `http://localhost:${port}/v1/apps/shared/${shareToken}`;
+    const shareUrl = `/v1/apps/shared/${shareToken}`;
 
     ctx.send(socket, {
       type: 'share_app_cloud_response',
