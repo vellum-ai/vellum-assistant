@@ -49,6 +49,7 @@ struct RecordingSourcePickerView: View {
         .background(VColor.background)
         .task {
             await viewModel.loadSources()
+            await viewModel.loadPreviews()
         }
     }
 
