@@ -3577,11 +3577,11 @@ describe('Memory regressions', () => {
   });
 
   // PR-17: addMessage() passes conversation scope to the indexer
-  test('addMessage inherits private conversation scope on memory segments', () => {
+  test('addMessage inherits private conversation scope on memory segments', async () => {
     const conv = createConversation({ title: 'Private thread', threadType: 'private' });
     expect(conv.memoryScopeId).toMatch(/^private:/);
 
-    const msg = addMessage(conv.id, 'user', 'My secret project details for the private thread.');
+    const msg = await addMessage(conv.id, 'user', 'My secret project details for the private thread.');
 
     const db = getDb();
     const segments = db
@@ -3596,11 +3596,11 @@ describe('Memory regressions', () => {
     }
   });
 
-  test('addMessage uses default scope for standard conversations', () => {
+  test('addMessage uses default scope for standard conversations', async () => {
     const conv = createConversation({ title: 'Standard thread', threadType: 'standard' });
     expect(conv.memoryScopeId).toBe('default');
 
-    const msg = addMessage(conv.id, 'user', 'Normal conversation content for testing scope defaults.');
+    const msg = await addMessage(conv.id, 'user', 'Normal conversation content for testing scope defaults.');
 
     const db = getDb();
     const segments = db
@@ -4018,7 +4018,7 @@ describe('Memory regressions', () => {
     const privScope = getConversationMemoryScopeId(privConv.id);
     expect(privScope).toMatch(/^private:/);
 
-    const privMsg = addMessage(
+    const privMsg = await addMessage(
       privConv.id,
       'user',
       'I prefer using the Zephyr framework for all backend microservices.',
@@ -4095,7 +4095,7 @@ describe('Memory regressions', () => {
     const stdScope = getConversationMemoryScopeId(stdConv.id);
     expect(stdScope).toBe('default');
 
-    const stdMsg = addMessage(
+    const stdMsg = await addMessage(
       stdConv.id,
       'user',
       'I prefer using the Obsidian editor for all my note-taking workflows.',
@@ -4558,7 +4558,7 @@ describe('Memory regressions', () => {
 
   // ── Provenance plumbing tests ────────────────────────────────────────
 
-  test('provenance fields are preserved in stored message metadata', () => {
+  test('provenance fields are preserved in stored message metadata', async () => {
     const conv = createConversation('provenance-preserve');
     const metadata = {
       userMessageChannel: 'telegram' as const,
@@ -4567,7 +4567,7 @@ describe('Memory regressions', () => {
       provenanceGuardianExternalUserId: 'guardian-123',
       provenanceRequesterIdentifier: 'Alice',
     };
-    const msg = addMessage(conv.id, 'user', 'Hello from telegram', metadata);
+    const msg = await addMessage(conv.id, 'user', 'Hello from telegram', metadata);
 
     const db = getDb();
     const stored = db
@@ -4628,7 +4628,7 @@ describe('Memory regressions', () => {
     expect(result.provenanceRequesterIdentifier).toBe('Charlie');
   });
 
-  test('indexMessageNow receives provenanceActorRole when metadata includes it', () => {
+  test('indexMessageNow receives provenanceActorRole when metadata includes it', async () => {
     const conv = createConversation('provenance-indexer');
     const metadata = {
       provenanceActorRole: 'non-guardian' as const,
@@ -4636,7 +4636,7 @@ describe('Memory regressions', () => {
     };
     // addMessage parses metadata and passes provenanceActorRole to indexMessageNow.
     // We verify indirectly: the message is persisted with metadata and segments are indexed.
-    const msg = addMessage(conv.id, 'user', 'Test provenance indexing message with enough content to segment', metadata);
+    const msg = await addMessage(conv.id, 'user', 'Test provenance indexing message with enough content to segment', metadata);
     expect(msg.id).toBeTruthy();
 
     // Verify segments were created (indexMessageNow was called successfully)
