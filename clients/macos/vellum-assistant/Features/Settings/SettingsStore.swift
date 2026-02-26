@@ -156,6 +156,16 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceOutboundSendCount: Int = 0
     @Published var voiceOutboundCode: String?
 
+    // MARK: - Slack Channel Integration State
+
+    @Published var slackChannelHasBotToken: Bool = false
+    @Published var slackChannelHasAppToken: Bool = false
+    @Published var slackChannelConnected: Bool = false
+    @Published var slackChannelBotUsername: String?
+    @Published var slackChannelTeamName: String?
+    @Published var slackChannelSaveInProgress: Bool = false
+    @Published var slackChannelError: String?
+
     // MARK: - Email Integration State
 
     @Published var assistantEmail: String?
@@ -885,6 +895,130 @@ public final class SettingsStore: ObservableObject {
             try daemonClient.sendTelegramConfig(action: "clear")
         } catch {
             log.error("Failed to send Telegram config clear: \(error)")
+        }
+    }
+
+    // MARK: - Slack Channel Actions (HTTP-first)
+
+    /// Resolves the runtime HTTP base URL and bearer token for direct HTTP calls.
+    private func resolveRuntimeHTTP() -> (baseURL: String, token: String)? {
+        let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
+            .flatMap(Int.init) ?? 7821
+        guard let token = readHttpToken() else { return nil }
+        return ("http://localhost:\(port)", token)
+    }
+
+    func fetchSlackChannelConfig() {
+        guard let http = resolveRuntimeHTTP() else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/integrations/slack/channel/config") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+        Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let httpResp = response as? HTTPURLResponse else { return }
+                if httpResp.statusCode == 200 {
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        self.slackChannelHasBotToken = json["hasBotToken"] as? Bool ?? false
+                        self.slackChannelHasAppToken = json["hasAppToken"] as? Bool ?? false
+                        self.slackChannelConnected = json["connected"] as? Bool ?? false
+                        self.slackChannelBotUsername = json["botUsername"] as? String
+                        self.slackChannelTeamName = json["teamName"] as? String
+                        self.slackChannelError = nil
+                    }
+                } else if httpResp.statusCode == 404 {
+                    self.slackChannelHasBotToken = false
+                    self.slackChannelHasAppToken = false
+                    self.slackChannelConnected = false
+                    self.slackChannelBotUsername = nil
+                    self.slackChannelTeamName = nil
+                }
+            } catch {
+                log.error("Failed to fetch Slack channel config: \(error)")
+            }
+        }
+    }
+
+    func saveSlackChannelConfig(botToken: String, appToken: String) {
+        let trimmedBot = botToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedApp = appToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBot.isEmpty, !trimmedApp.isEmpty else { return }
+        slackChannelSaveInProgress = true
+        slackChannelError = nil
+        guard let http = resolveRuntimeHTTP() else {
+            slackChannelSaveInProgress = false
+            return
+        }
+        guard let url = URL(string: "\(http.baseURL)/v1/integrations/slack/channel/config") else {
+            slackChannelSaveInProgress = false
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        let body: [String: String] = ["botToken": trimmedBot, "appToken": trimmedApp]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                self.slackChannelSaveInProgress = false
+                guard let httpResp = response as? HTTPURLResponse else { return }
+                if (200..<300).contains(httpResp.statusCode) {
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        self.slackChannelHasBotToken = json["hasBotToken"] as? Bool ?? true
+                        self.slackChannelHasAppToken = json["hasAppToken"] as? Bool ?? true
+                        self.slackChannelConnected = json["connected"] as? Bool ?? false
+                        self.slackChannelBotUsername = json["botUsername"] as? String
+                        self.slackChannelTeamName = json["teamName"] as? String
+                        self.slackChannelError = nil
+                    } else {
+                        self.slackChannelHasBotToken = true
+                        self.slackChannelHasAppToken = true
+                    }
+                } else {
+                    let errorMsg: String
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let msg = json["error"] as? String {
+                        errorMsg = msg
+                    } else {
+                        errorMsg = "HTTP \(httpResp.statusCode)"
+                    }
+                    self.slackChannelError = "Failed to save: \(errorMsg)"
+                }
+            } catch {
+                self.slackChannelSaveInProgress = false
+                self.slackChannelError = "Failed to save: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func clearSlackChannelConfig() {
+        slackChannelError = nil
+        guard let http = resolveRuntimeHTTP() else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/integrations/slack/channel/config") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+        Task {
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                guard let httpResp = response as? HTTPURLResponse else { return }
+                if (200..<300).contains(httpResp.statusCode) {
+                    self.slackChannelHasBotToken = false
+                    self.slackChannelHasAppToken = false
+                    self.slackChannelConnected = false
+                    self.slackChannelBotUsername = nil
+                    self.slackChannelTeamName = nil
+                    self.slackChannelError = nil
+                }
+            } catch {
+                log.error("Failed to clear Slack channel config: \(error)")
+            }
         }
     }
 
