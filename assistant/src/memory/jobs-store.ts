@@ -1,9 +1,12 @@
 import { and, asc, eq, inArray,lte, notInArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
 import { getDb, rawAll,rawGet } from './db.js';
 import { memoryJobs } from './schema.js';
+
+const log = getLogger('memory-jobs-store');
 
 export type MemoryJobType =
   | 'embed_segment'
@@ -298,7 +301,9 @@ export function completeMemoryJob(id: string): void {
 }
 
 /** Max times a job can be deferred before it is marked as failed. */
-const MAX_DEFERRALS = 200;
+const MAX_DEFERRALS = 50;
+/** Warn when deferrals reach 80% of the limit. */
+const DEFER_WARNING_THRESHOLD = Math.floor(MAX_DEFERRALS * 0.8);
 /** Base delay in ms for deferred jobs (grows with exponential backoff). */
 const DEFER_BASE_DELAY_MS = 30_000;
 /** Maximum delay cap for deferred jobs (5 minutes). */
@@ -328,6 +333,7 @@ export function deferMemoryJob(id: string): 'deferred' | 'failed' {
   const now = Date.now();
 
   if (deferrals >= MAX_DEFERRALS) {
+    log.error({ jobId: id, type: row.type, deferrals }, 'Job exceeded max deferrals, marking as failed');
     db.update(memoryJobs)
       .set({
         status: 'failed',
@@ -338,6 +344,10 @@ export function deferMemoryJob(id: string): 'deferred' | 'failed' {
       .where(eq(memoryJobs.id, id))
       .run();
     return 'failed';
+  }
+
+  if (deferrals >= DEFER_WARNING_THRESHOLD) {
+    log.warn({ jobId: id, type: row.type, deferrals, max: MAX_DEFERRALS }, 'Job approaching max deferral limit');
   }
 
   // Exponential backoff: 30s, 60s, 120s, ... capped at 5 minutes

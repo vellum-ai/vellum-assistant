@@ -174,7 +174,7 @@ function handleJobError(job: MemoryJob, err: unknown): void {
   if (err instanceof BackendUnavailableError) {
     const result = deferMemoryJob(job.id);
     if (result === 'failed') {
-      log.warn({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, job exceeded max deferrals');
+      log.error({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, job exceeded max deferrals');
     } else {
       log.debug({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, deferring job');
     }
