@@ -11,6 +11,18 @@ Create, list, and cancel one-time reminders. Reminders fire at a specific future
 - **notify** (default) — shows a notification to the user when the reminder fires
 - **execute** — sends the reminder message to a background assistant conversation for autonomous handling
 
+## Routing
+
+When creating a reminder, you can specify how it should be delivered at trigger time:
+
+- **`routing_intent`** — controls how many channels receive the reminder:
+  - `single_channel` (default) — deliver to the originating channel only
+  - `multi_channel` — deliver to a subset of available channels
+  - `all_channels` — deliver to every connected channel
+- **`routing_hints`** — optional free-form JSON object with hints for trigger-time routing (e.g. preferred channels, fallback order). These are model-authored and not parsed server-side.
+
+If `routing_intent` is omitted, it defaults to `single_channel`.
+
 ## Usage Notes
 
 - Use reminders ONLY for time-triggered notifications (e.g. "remind me at 3pm", "remind me in 2 hours").

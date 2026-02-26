@@ -242,6 +242,8 @@ export const reminders = sqliteTable('reminders', {
   status: text('status').notNull(),               // 'pending' | 'firing' | 'fired' | 'cancelled'
   firedAt: integer('fired_at'),
   conversationId: text('conversation_id'),
+  routingIntent: text('routing_intent').notNull().default('single_channel'),  // 'single_channel' | 'multi_channel' | 'all_channels'
+  routingHintsJson: text('routing_hints_json').notNull().default('{}'),       // free-form JSON object, model-authored
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

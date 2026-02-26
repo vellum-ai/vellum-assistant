@@ -21,6 +21,7 @@ import {
   migrateGuardianBootstrapToken,
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
+  migrateReminderRoutingColumns,
   runComplexMigrations,
   runLateMigrations,
   validateMigrationState,
@@ -95,6 +96,9 @@ export function initializeDb(): void {
 
   // 18. Conversation attention (seen-state tracking)
   createConversationAttentionTables(database);
+
+  // 19. Reminder routing columns (routing_intent, routing_hints_json)
+  migrateReminderRoutingColumns(database);
 
   validateMigrationState(database);
 }

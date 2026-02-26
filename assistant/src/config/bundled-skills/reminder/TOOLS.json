@@ -25,6 +25,15 @@
             "type": "string",
             "enum": ["notify", "execute"],
             "description": "How the reminder fires. Defaults to notify."
+          },
+          "routing_intent": {
+            "type": "string",
+            "enum": ["single_channel", "multi_channel", "all_channels"],
+            "description": "How many channels should receive the reminder at trigger time. Defaults to single_channel."
+          },
+          "routing_hints": {
+            "type": "object",
+            "description": "Optional free-form hints for trigger-time channel routing (e.g. preferred channels, fallback order). Model-authored, not parsed server-side."
           }
         },
         "required": ["fire_at", "label", "message"]
