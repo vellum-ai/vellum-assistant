@@ -156,6 +156,11 @@ export interface ConversationSearchRequest {
   maxMessagesPerConversation?: number;
 }
 
+export interface ReorderThreadsRequest {
+  type: 'reorder_threads';
+  updates: Array<{ sessionId: string; displayOrder: number; isPinned: boolean }>;
+}
+
 // === Server → Client ===
 
 export interface ConversationSearchMatchingMessage {
@@ -392,7 +397,8 @@ export type _SessionsClientMessages =
   | SessionRenameRequest
   | SessionsClearRequest
   | ConversationSearchRequest
-  | MessageContentRequest;
+  | MessageContentRequest
+  | ReorderThreadsRequest;
 
 export type _SessionsServerMessages =
   | AuthResult

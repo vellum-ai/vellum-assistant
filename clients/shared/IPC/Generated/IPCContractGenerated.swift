@@ -3487,6 +3487,28 @@ public struct IPCRemoveTrustRule: Codable, Sendable {
     }
 }
 
+public struct IPCReorderThreadsRequest: Codable, Sendable {
+    public let type: String
+    public let updates: [IPCReorderThreadsRequestUpdate]
+
+    public init(type: String, updates: [IPCReorderThreadsRequestUpdate]) {
+        self.type = type
+        self.updates = updates
+    }
+}
+
+public struct IPCReorderThreadsRequestUpdate: Codable, Sendable {
+    public let sessionId: String
+    public let displayOrder: Double
+    public let isPinned: Bool
+
+    public init(sessionId: String, displayOrder: Double, isPinned: Bool) {
+        self.sessionId = sessionId
+        self.displayOrder = displayOrder
+        self.isPinned = isPinned
+    }
+}
+
 public struct IPCRideShotgunProgress: Codable, Sendable {
     public let type: String
     public let watchId: String
