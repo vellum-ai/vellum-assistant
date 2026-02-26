@@ -646,7 +646,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         activeThreadId = id
 
         // Emit explicit seen signal for user-initiated thread activation.
-        if id != previousActiveId,
+        // Skip during session restoration to avoid false "seen" signals on bootstrap.
+        if !isRestoringThreads,
+           id != previousActiveId,
            let thread = threads.first(where: { $0.id == id }),
            let sessionId = thread.sessionId {
             emitConversationSeenSignal(conversationId: sessionId)
