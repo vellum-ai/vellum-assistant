@@ -12,6 +12,26 @@ struct TranscriptSegment: Identifiable {
     let isFinal: Bool
 }
 
+// MARK: - IPC message structs
+
+/// Sent to the daemon when live listening starts.
+private struct LiveTranscriptStartMessage: Codable {
+    let type = "live_transcript_start"
+}
+
+/// Sent to the daemon when live listening stops.
+private struct LiveTranscriptStopMessage: Codable {
+    let type = "live_transcript_stop"
+}
+
+/// Sent to the daemon for each finalized transcript segment.
+private struct LiveTranscriptUpdateMessage: Codable {
+    let type = "live_transcript_update"
+    let text: String
+    let timestamp: Double
+    let isFinal: Bool
+}
+
 /// Coordinates SystemAudioCapture and LiveTranscriptionEngine to provide
 /// continuous live transcription of system audio.
 ///
@@ -45,6 +65,9 @@ final class LiveTranscriptManager: ObservableObject {
     /// Reference to voice mode manager so we skip wake word resume while voice mode is active.
     private weak var voiceModeManager: VoiceModeManager?
 
+    /// Daemon client for sending IPC messages.
+    private weak var daemonClient: DaemonClient?
+
     /// Rolling buffer duration — discard segments older than this.
     private static let bufferDuration: TimeInterval = 10 * 60 // 10 minutes
 
@@ -71,6 +94,11 @@ final class LiveTranscriptManager: ObservableObject {
     /// is active before resuming the wake word monitor.
     func setVoiceModeManager(_ manager: VoiceModeManager) {
         self.voiceModeManager = manager
+    }
+
+    /// Late-bind the daemon client for IPC communication.
+    func setDaemonClient(_ client: DaemonClient) {
+        self.daemonClient = client
     }
 
     // MARK: - Public API
@@ -110,6 +138,7 @@ final class LiveTranscriptManager: ObservableObject {
 
                 status = .listening
                 startPruneTimer()
+                sendIPCStart()
                 log.info("Live transcription active")
             } catch {
                 // If stopListening() was called while we were awaiting, bail out
@@ -136,9 +165,11 @@ final class LiveTranscriptManager: ObservableObject {
         if !currentPartialText.isEmpty {
             let segment = TranscriptSegment(text: currentPartialText, timestamp: Date(), isFinal: true)
             segments.append(segment)
+            sendIPCUpdate(segment)
             currentPartialText = ""
         }
 
+        sendIPCStop()
         status = .idle
 
         resumeWakeWordIfNeeded()
@@ -208,7 +239,7 @@ final class LiveTranscriptManager: ObservableObject {
             if !trimmed.isEmpty {
                 let segment = TranscriptSegment(text: trimmed, timestamp: Date(), isFinal: true)
                 segments.append(segment)
-                logTranscriptForIPC(segment)
+                sendIPCUpdate(segment)
             }
             currentPartialText = ""
         } else {
@@ -216,12 +247,47 @@ final class LiveTranscriptManager: ObservableObject {
         }
     }
 
-    /// Placeholder for M2 IPC integration. For now, logs the transcript
-    /// segment locally. When IPC message types are defined, this will
-    /// send transcript updates to the daemon.
-    private func logTranscriptForIPC(_ segment: TranscriptSegment) {
-        let formatter = ISO8601DateFormatter()
-        log.info("Transcript segment [\(formatter.string(from: segment.timestamp), privacy: .public)]: \(segment.text, privacy: .public)")
+    // MARK: - IPC
+
+    private func sendIPCStart() {
+        guard let client = daemonClient else {
+            log.debug("No daemon client available for live_transcript_start")
+            return
+        }
+        do {
+            try client.send(LiveTranscriptStartMessage())
+        } catch {
+            log.error("Failed to send live_transcript_start: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func sendIPCStop() {
+        guard let client = daemonClient else {
+            log.debug("No daemon client available for live_transcript_stop")
+            return
+        }
+        do {
+            try client.send(LiveTranscriptStopMessage())
+        } catch {
+            log.error("Failed to send live_transcript_stop: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func sendIPCUpdate(_ segment: TranscriptSegment) {
+        guard let client = daemonClient else {
+            log.debug("No daemon client available for live_transcript_update")
+            return
+        }
+        do {
+            let msg = LiveTranscriptUpdateMessage(
+                text: segment.text,
+                timestamp: segment.timestamp.timeIntervalSince1970 * 1000,
+                isFinal: segment.isFinal
+            )
+            try client.send(msg)
+        } catch {
+            log.error("Failed to send live_transcript_update: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func resumeWakeWordIfNeeded() {

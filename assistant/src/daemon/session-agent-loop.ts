@@ -35,6 +35,7 @@ import {
   cleanAssistantContent,
 } from './assistant-attachments.js';
 import { buildTemporalContext, extractUserTimeZoneFromDynamicProfile } from './date-context.js';
+import { getLiveTranscriptText } from './live-transcript-store.js';
 import { deepRepairHistory,repairHistory } from './history-repair.js';
 import type { DynamicPageSurfaceData,ServerMessage, SurfaceData, SurfaceType, UsageStats } from './ipc-protocol.js';
 import {
@@ -349,6 +350,10 @@ export async function runAgentLoopImpl(
       conversationOriginInterface: getConversationOriginInterface(ctx.conversationId),
     };
 
+    // Snapshot the live transcript text for this turn so it stays stable
+    // across retries within the same agent loop invocation.
+    const liveTranscriptText = getLiveTranscriptText();
+
     const isInteractiveResolved = options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
     runMessages = applyRuntimeInjections(runMessages, {
       softConflictInstruction,
@@ -361,6 +366,7 @@ export async function runAgentLoopImpl(
       guardianContext: ctx.guardianContext ?? null,
       temporalContext,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+      liveTranscriptText,
       isNonInteractive: !isInteractiveResolved,
     });
 
@@ -480,6 +486,7 @@ export async function runAgentLoopImpl(
           guardianContext: ctx.guardianContext ?? null,
           temporalContext,
           voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+          liveTranscriptText,
           isNonInteractive: !isInteractiveResolved,
         });
         preRepairMessages = runMessages;
@@ -518,6 +525,7 @@ export async function runAgentLoopImpl(
             guardianContext: ctx.guardianContext ?? null,
             temporalContext,
             voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+            liveTranscriptText,
             isNonInteractive: !isInteractiveResolved,
           });
           preRepairMessages = runMessages;
