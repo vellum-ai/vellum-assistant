@@ -814,6 +814,13 @@ export class DaemonServer {
     // Register pending interactions so channel approval interception can
     // find the session by requestId when confirmation/secret events fire.
     const onEvent = makePendingInteractionRegistrar(session, conversationId);
+    if (options?.isInteractive === true) {
+      // Interactive HTTP paths (e.g. channel ingress) still run without an IPC
+      // socket. Route prompter events through the registrar callback so
+      // confirmation_request/secret_request events are tracked, and mark the
+      // session interactive so prompt decisions are not auto-denied.
+      session.updateClient(onEvent, false);
+    }
 
     session.runAgentLoop(content, messageId, onEvent, { isInteractive: options?.isInteractive ?? false }).catch((err) => {
       log.error({ err, conversationId }, 'Background agent loop failed');
@@ -902,6 +909,13 @@ export class DaemonServer {
     // Register pending interactions so channel approval interception can
     // find the session by requestId when confirmation/secret events fire.
     const onEvent = makePendingInteractionRegistrar(session, conversationId);
+    if (options?.isInteractive === true) {
+      // Interactive HTTP paths (e.g. channel ingress) still run without an IPC
+      // socket. Route prompter events through the registrar callback so
+      // confirmation_request/secret_request events are tracked, and mark the
+      // session interactive so prompt decisions are not auto-denied.
+      session.updateClient(onEvent, false);
+    }
 
     await session.runAgentLoop(
       resolvedContent,
