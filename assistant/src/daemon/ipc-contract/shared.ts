@@ -29,6 +29,12 @@ export interface DictationContext {
   cursorInTextField: boolean;
 }
 
+/** Structured command intent — bypasses text parsing when present. */
+export interface CommandIntent {
+  domain: 'screen_recording';
+  action: 'start' | 'stop' | 'restart' | 'pause' | 'resume';
+}
+
 export interface UserMessageAttachment {
   id?: string;
   filename: string;

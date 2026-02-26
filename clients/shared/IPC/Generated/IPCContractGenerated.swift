@@ -818,6 +818,17 @@ public struct IPCChannelReadinessResponseSnapshotRemoteCheck: Codable, Sendable 
     }
 }
 
+/// Structured command intent — bypasses text parsing when present.
+public struct IPCCommandIntent: Codable, Sendable {
+    public let domain: String
+    public let action: String
+
+    public init(domain: String, action: String) {
+        self.domain = domain
+        self.action = action
+    }
+}
+
 public struct IPCConfirmationRequest: Codable, Sendable {
     public let type: String
     public let requestId: String
@@ -4499,14 +4510,17 @@ public struct IPCTaskSubmit: Codable, Sendable {
     public let screenHeight: Int
     public let attachments: [IPCUserMessageAttachment]?
     public let source: String?
+    /// Structured command intent — bypasses text parsing when present.
+    public let commandIntent: IPCCommandIntent?
 
-    public init(type: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, source: String? = nil) {
+    public init(type: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, source: String? = nil, commandIntent: IPCCommandIntent? = nil) {
         self.type = type
         self.task = task
         self.screenWidth = screenWidth
         self.screenHeight = screenHeight
         self.attachments = attachments
         self.source = source
+        self.commandIntent = commandIntent
     }
 }
 
@@ -5549,8 +5563,10 @@ public struct IPCUserMessage: Codable, Sendable {
     public let channel: String?
     /// Originating interface identifier (e.g. 'macos').
     public let interface: String
+    /// Structured command intent — bypasses text parsing when present.
+    public let commandIntent: IPCCommandIntent?
 
-    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String) {
+    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, commandIntent: IPCCommandIntent? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.content = content
@@ -5560,6 +5576,7 @@ public struct IPCUserMessage: Codable, Sendable {
         self.bypassSecretCheck = bypassSecretCheck
         self.channel = channel
         self.interface = interface
+        self.commandIntent = commandIntent
     }
 }
 

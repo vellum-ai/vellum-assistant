@@ -21,7 +21,8 @@ import type {
   SuggestionRequest,
   TaskSubmit,
 } from '../ipc-protocol.js';
-import { classifyRecordingIntent, detectRecordingIntent, detectStopRecordingIntent, hasSubstantiveContent, isInterrogative, stripRecordingIntent, stripStopRecordingIntent } from '../recording-intent.js';
+import { executeRecordingIntent } from '../recording-executor.js';
+import { resolveRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { handleCuSessionCreate } from './computer-use.js';
 import { handleRecordingStart, handleRecordingStop } from './recording.js';
@@ -70,126 +71,199 @@ export async function handleTaskSubmit(
       return;
     }
 
+    // ── Structured command intent (bypasses text parsing) ──────────────────
+    const config = getConfig();
+    if (config.daemon.standaloneRecording && msg.commandIntent?.domain === 'screen_recording') {
+      const action = msg.commandIntent.action;
+      rlog.info({ action, source: 'commandIntent' }, 'Recording command intent received');
+      if (action === 'start') {
+        const conversation = conversationStore.createConversation(msg.task || 'Screen Recording');
+        ctx.socketToSession.set(socket, conversation.id);
+        const recordingId = handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
+        ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
+        ctx.send(socket, {
+          type: 'assistant_text_delta',
+          text: recordingId ? 'Starting screen recording.' : 'A recording is already active.',
+          sessionId: conversation.id,
+        });
+        ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
+        if (!recordingId) ctx.socketToSession.delete(socket);
+        return;
+      } else if (action === 'stop') {
+        let activeSessionId = ctx.socketToSession.get(socket);
+        if (!activeSessionId) {
+          const conversation = conversationStore.createConversation(msg.task || 'Stop Recording');
+          activeSessionId = conversation.id;
+          ctx.socketToSession.set(socket, activeSessionId);
+        }
+        const stopped = handleRecordingStop(activeSessionId, ctx) !== undefined;
+        ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
+        ctx.send(socket, {
+          type: 'assistant_text_delta',
+          text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+          sessionId: activeSessionId,
+        });
+        ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+        return;
+      } else if (action === 'restart') {
+        let activeSessionId = ctx.socketToSession.get(socket);
+        if (!activeSessionId) {
+          const conversation = conversationStore.createConversation(msg.task || 'Restart Recording');
+          activeSessionId = conversation.id;
+          ctx.socketToSession.set(socket, activeSessionId);
+        }
+        ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
+        ctx.send(socket, {
+          type: 'assistant_text_delta',
+          text: 'Restarting screen recording.',
+          sessionId: activeSessionId,
+        });
+        ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+        return;
+      } else if (action === 'pause') {
+        let activeSessionId = ctx.socketToSession.get(socket);
+        if (!activeSessionId) {
+          const conversation = conversationStore.createConversation(msg.task || 'Pause Recording');
+          activeSessionId = conversation.id;
+          ctx.socketToSession.set(socket, activeSessionId);
+        }
+        ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
+        ctx.send(socket, {
+          type: 'assistant_text_delta',
+          text: 'Pausing the recording.',
+          sessionId: activeSessionId,
+        });
+        ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+        return;
+      } else if (action === 'resume') {
+        let activeSessionId = ctx.socketToSession.get(socket);
+        if (!activeSessionId) {
+          const conversation = conversationStore.createConversation(msg.task || 'Resume Recording');
+          activeSessionId = conversation.id;
+          ctx.socketToSession.set(socket, activeSessionId);
+        }
+        ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
+        ctx.send(socket, {
+          type: 'assistant_text_delta',
+          text: 'Resuming the recording.',
+          sessionId: activeSessionId,
+        });
+        ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+        return;
+      } else {
+        // Unrecognized action — fall through to normal text handling so the
+        // task is not silently dropped.
+        rlog.warn({ action, source: 'commandIntent' }, 'Unrecognized screen_recording action, falling through to text handling');
+      }
+    }
+
     // ── Standalone recording intent interception ──────────────────────────
-    // Intercept recording-only and stop-recording prompts before they reach
-    // the classifier. This prevents "record my screen" from creating a CU
-    // session and routes it to the standalone recording flow instead.
-    //
-    // For mixed intent, recording start/stop is deferred until after the
-    // downstream classifier creates the final conversation, so the recording
-    // attachment is linked to the correct conversation (not an orphaned one).
     let pendingRecordingStart = false;
     let pendingRecordingStop = false;
-    const config = getConfig();
     if (config.daemon.standaloneRecording) {
       const name = getAssistantName();
       const dynamicNames = [name].filter(Boolean) as string[];
-      const intentClass = classifyRecordingIntent(msg.task, dynamicNames);
+      const intentResult = resolveRecordingIntent(msg.task, dynamicNames);
 
-      switch (intentClass) {
-        case 'stop_only': {
-          // Find the active session for this socket so we can resolve the
-          // conversation that owns the recording.
-          let activeSessionId = ctx.socketToSession.get(socket);
-          // Ensure we have a sessionId for message_complete even if no prior session exists
-          if (!activeSessionId) {
-            const conversation = conversationStore.createConversation(msg.task);
-            activeSessionId = conversation.id;
-            ctx.socketToSession.set(socket, activeSessionId);
-          }
-          // Always attempt stop — handleRecordingStop has a global fallback that
-          // resolves to the active recording even if this conversation doesn't own it.
-          const stopped = handleRecordingStop(activeSessionId, ctx) !== undefined;
-          rlog.info('Recording stop intent intercepted');
-          ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
-          ctx.send(socket, {
-            type: 'assistant_text_delta',
-            text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
-            sessionId: activeSessionId,
-          });
-          ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
-          return;
+      if (intentResult.kind === 'start_only') {
+        // Create a conversation so the recording can be attached later
+        const conversation = conversationStore.createConversation(msg.task);
+        ctx.socketToSession.set(socket, conversation.id);
+
+        const execResult = executeRecordingIntent(intentResult, {
+          conversationId: conversation.id,
+          socket,
+          ctx,
+        });
+
+        ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
+        ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: conversation.id });
+        ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
+
+        // If recording rejected, unbind socket
+        if (execResult.recordingStarted === false) {
+          ctx.socketToSession.delete(socket);
         }
-        case 'start_only': {
-          // Create a conversation so the recording can be attached later (M4).
-          const conversation = conversationStore.createConversation(msg.task);
-          ctx.socketToSession.set(socket, conversation.id);
 
-          const recordingId = handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
-
-          if (recordingId) {
-            ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
-            ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: conversation.id });
-          } else {
-            // Recording was rejected (already active) — clean up the orphaned conversation
-            ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
-            ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: conversation.id });
-          }
-          ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
-
-          if (!recordingId) {
-            // Unbind the socket so the ephemeral rejection session doesn't block
-            // future task_submit routing, but keep the conversation in the DB so
-            // the client can still send follow-up messages to the routed sessionId.
-            ctx.socketToSession.delete(socket);
-          }
-
-          rlog.info({ sessionId: conversation.id }, 'Recording-only intent intercepted — routed to standalone recording');
-          return;
-        }
-        case 'mixed': {
-          // Skip recording side effects for questions about recording
-          // (e.g., "how do I stop recording?") — let the model answer instead.
-          if (isInterrogative(msg.task, dynamicNames)) {
-            rlog.info('Mixed recording intent is interrogative — skipping side effects');
-            break;
-          }
-
-          // Mixed = recording intent embedded in broader text (e.g., "open Chrome and record my screen").
-          // Defer recording start/stop until after the classifier creates the final conversation,
-          // so the recording attachment is linked to the correct conversation.
-          const hasStart = detectRecordingIntent(msg.task);
-          const hasStop = detectStopRecordingIntent(msg.task);
-
-          // Strip recording clauses from the task
-          let remaining = msg.task;
-          if (hasStart) remaining = stripRecordingIntent(remaining);
-          if (hasStop) remaining = stripStopRecordingIntent(remaining);
-
-          // If nothing substantive remains after stripping, handle as recording-only now
-          if (!hasSubstantiveContent(remaining, dynamicNames)) {
-            let sessionId = ctx.socketToSession.get(socket);
-            if (!sessionId) {
-              const conversation = conversationStore.createConversation(msg.task);
-              sessionId = conversation.id;
-              ctx.socketToSession.set(socket, sessionId);
-            }
-            if (hasStop) handleRecordingStop(sessionId, ctx);
-            const startResult = hasStart ? handleRecordingStart(sessionId, { promptForSource: true }, socket, ctx) : null;
-            ctx.send(socket, { type: 'task_routed', sessionId, interactionType: 'text_qa' });
-            let text: string;
-            if (hasStart && startResult) {
-              text = hasStop ? 'Stopping current recording and starting a new one.' : 'Starting screen recording.';
-            } else if (hasStart) {
-              text = 'A recording is already active.';
-            } else {
-              text = 'Stopping the recording.';
-            }
-            ctx.send(socket, { type: 'assistant_text_delta', text, sessionId });
-            ctx.send(socket, { type: 'message_complete', sessionId });
-            return;
-          }
-
-          // Set deferred flags — recording will start after the final conversation is created
-          pendingRecordingStart = hasStart;
-          pendingRecordingStop = hasStop;
-          (msg as { task: string }).task = remaining;
-          rlog.info({ remaining }, 'Mixed recording intent — deferred, continuing with remaining text');
-          break;
-        }
-        case 'none':
-          break;
+        rlog.info({ sessionId: conversation.id }, 'Recording-only intent intercepted — routed to standalone recording');
+        return;
       }
+
+      if (intentResult.kind === 'stop_only') {
+        let activeSessionId = ctx.socketToSession.get(socket);
+        if (!activeSessionId) {
+          const conversation = conversationStore.createConversation(msg.task);
+          activeSessionId = conversation.id;
+          ctx.socketToSession.set(socket, activeSessionId);
+        }
+
+        const execResult = executeRecordingIntent(intentResult, {
+          conversationId: activeSessionId,
+          socket,
+          ctx,
+        });
+
+        rlog.info('Recording stop intent intercepted');
+        ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
+        ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: activeSessionId });
+        ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+        return;
+      }
+
+      if (intentResult.kind === 'start_and_stop_only') {
+        let activeSessionId = ctx.socketToSession.get(socket);
+        if (!activeSessionId) {
+          const conversation = conversationStore.createConversation(msg.task);
+          activeSessionId = conversation.id;
+          ctx.socketToSession.set(socket, activeSessionId);
+        }
+
+        const execResult = executeRecordingIntent(intentResult, {
+          conversationId: activeSessionId,
+          socket,
+          ctx,
+        });
+
+        rlog.info('Recording start+stop intent intercepted');
+        ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
+        ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: activeSessionId });
+        ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+        return;
+      }
+
+      // Restart/pause/resume — fully handled intents
+      if (intentResult.kind === 'restart_only' || intentResult.kind === 'pause_only' || intentResult.kind === 'resume_only') {
+        let activeSessionId = ctx.socketToSession.get(socket);
+        if (!activeSessionId) {
+          const conversation = conversationStore.createConversation(msg.task);
+          activeSessionId = conversation.id;
+          ctx.socketToSession.set(socket, activeSessionId);
+        }
+
+        const execResult = executeRecordingIntent(intentResult, {
+          conversationId: activeSessionId,
+          socket,
+          ctx,
+        });
+
+        rlog.info({ kind: intentResult.kind }, 'Recording intent intercepted');
+        ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
+        ctx.send(socket, { type: 'assistant_text_delta', text: execResult.responseText!, sessionId: activeSessionId });
+        ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+        return;
+      }
+
+      if (intentResult.kind === 'start_with_remainder' || intentResult.kind === 'stop_with_remainder' ||
+          intentResult.kind === 'start_and_stop_with_remainder' || intentResult.kind === 'restart_with_remainder') {
+        // Defer recording action until after classifier creates the final conversation
+        pendingRecordingStart = intentResult.kind === 'start_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder';
+        pendingRecordingStop = intentResult.kind === 'stop_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder';
+        // TODO(M2): restart_with_remainder — restart handler doesn't exist yet, will be wired in M2
+        (msg as { task: string }).task = intentResult.remainder;
+        rlog.info({ remaining: intentResult.remainder }, 'Recording intent deferred, continuing with remaining text');
+      }
+
+      // 'none' falls through to normal processing
     }
 
     // Slash candidates always route to text_qa — bypass classifier

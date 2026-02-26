@@ -1,388 +1,646 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, mock, beforeEach } from 'bun:test';
 import {
-  detectRecordingIntent,
-  isRecordingOnly,
-  detectStopRecordingIntent,
-  stripRecordingIntent,
-  stripStopRecordingIntent,
-  isStopRecordingOnly,
-  classifyRecordingIntent,
-  isInterrogative,
+  resolveRecordingIntent,
+  type RecordingIntentResult,
 } from '../daemon/recording-intent.js';
 
-// ─── detectRecordingIntent ──────────────────────────────────────────────────
+// ─── resolveRecordingIntent ─────────────────────────────────────────────────
 
-describe('detectRecordingIntent', () => {
-  test.each([
-    'record my screen',
-    'Record My Screen',
-    'record the screen',
-    'screen recording',
-    'screen record',
-    'start recording',
-    'begin recording',
-    'capture my screen',
-    'capture my display',
-    'capture screen',
-    'make a recording',
-    'make a screen recording',
-  ])('detects recording intent in "%s"', (text) => {
-    expect(detectRecordingIntent(text)).toBe(true);
+describe('resolveRecordingIntent', () => {
+  // ── Start detection (covers legacy detectRecordingIntent behavior) ───────
+
+  describe('start intent detection', () => {
+    test.each([
+      'record my screen',
+      'Record My Screen',
+      'record the screen',
+      'screen recording',
+      'screen record',
+      'start recording',
+      'begin recording',
+      'capture my screen',
+      'capture my display',
+      'capture screen',
+      'make a recording',
+    ])('detects start intent in "%s"', (text) => {
+      const result = resolveRecordingIntent(text);
+      expect(result.kind).toBe('start_only');
+    });
+
+    // "make a screen recording" is detected as recording intent but resolves
+    // to start_with_remainder because the strip patterns match "screen recording"
+    // first, leaving "make a" as residual text.
+    test('detects start intent in "make a screen recording" (with residual remainder)', () => {
+      const result = resolveRecordingIntent('make a screen recording');
+      expect(result.kind).toBe('start_with_remainder');
+    });
+
+    test.each([
+      '',
+      'hello world',
+      'open Safari',
+      'take a screenshot',
+      'what time is it?',
+      'record a note',
+      'make a note',
+      'start the timer',
+    ])('does not detect start intent in "%s"', (text) => {
+      expect(resolveRecordingIntent(text)).toEqual({ kind: 'none' });
+    });
+
+    test('is case-insensitive', () => {
+      expect(resolveRecordingIntent('RECORD MY SCREEN').kind).toBe('start_only');
+      expect(resolveRecordingIntent('Screen Recording').kind).toBe('start_only');
+      expect(resolveRecordingIntent('START RECORDING').kind).toBe('start_only');
+    });
   });
 
-  test.each([
-    '',
-    'hello world',
-    'open Safari',
-    'stop recording',
-    'take a screenshot',
-    'what time is it?',
-    'record a note',
-    'make a note',
-    'start the timer',
-  ])('does not detect recording intent in "%s"', (text) => {
-    expect(detectRecordingIntent(text)).toBe(false);
+  // ── Pure start (covers legacy isRecordingOnly behavior) ─────────────────
+
+  describe('pure start (recording-only)', () => {
+    test.each([
+      'record my screen',
+      'Record my screen',
+      'start recording',
+      'screen recording',
+      'begin recording',
+      'capture my screen',
+      'make a recording',
+    ])('resolves as start_only for pure recording request "%s"', (text) => {
+      expect(resolveRecordingIntent(text)).toEqual({ kind: 'start_only' });
+    });
+
+    test('resolves as start_only when polite fillers surround the recording request', () => {
+      expect(resolveRecordingIntent('please record my screen')).toEqual({ kind: 'start_only' });
+      expect(resolveRecordingIntent('can you start recording')).toEqual({ kind: 'start_only' });
+      expect(resolveRecordingIntent('could you record my screen please')).toEqual({ kind: 'start_only' });
+      expect(resolveRecordingIntent('hey, start recording now')).toEqual({ kind: 'start_only' });
+      expect(resolveRecordingIntent('just record my screen, thanks')).toEqual({ kind: 'start_only' });
+      expect(resolveRecordingIntent('can you start recording?')).toEqual({ kind: 'start_only' });
+    });
+
+    test.each([
+      'record my screen and then open Safari',
+      'do this task and record my screen',
+      'record my screen while I work on the document',
+      'open Chrome and start recording',
+      'record my screen and send it to Bob',
+    ])('resolves as start_with_remainder for mixed-intent "%s"', (text) => {
+      expect(resolveRecordingIntent(text).kind).toBe('start_with_remainder');
+    });
+
+    test('handles punctuation in recording-only prompts', () => {
+      expect(resolveRecordingIntent('record my screen!')).toEqual({ kind: 'start_only' });
+      expect(resolveRecordingIntent('start recording.')).toEqual({ kind: 'start_only' });
+      expect(resolveRecordingIntent('screen recording?')).toEqual({ kind: 'start_only' });
+    });
   });
 
-  test('is case-insensitive', () => {
-    expect(detectRecordingIntent('RECORD MY SCREEN')).toBe(true);
-    expect(detectRecordingIntent('Screen Recording')).toBe(true);
-    expect(detectRecordingIntent('START RECORDING')).toBe(true);
-  });
-});
+  // ── Stop detection (covers legacy detectStopRecordingIntent behavior) ───
 
-// ─── isRecordingOnly ────────────────────────────────────────────────────────
+  describe('stop intent detection', () => {
+    test.each([
+      'stop recording',
+      'stop the recording',
+      'end recording',
+      'end the recording',
+      'finish recording',
+      'finish the recording',
+      'halt recording',
+      'halt the recording',
+    ])('detects stop intent in "%s"', (text) => {
+      expect(resolveRecordingIntent(text).kind).toBe('stop_only');
+    });
 
-describe('isRecordingOnly', () => {
-  test.each([
-    'record my screen',
-    'Record my screen',
-    'start recording',
-    'screen recording',
-    'begin recording',
-    'capture my screen',
-    'make a recording',
-  ])('returns true for pure recording request "%s"', (text) => {
-    expect(isRecordingOnly(text)).toBe(true);
-  });
+    test.each([
+      '',
+      'hello world',
+      'stop it',
+      'end it',
+      'quit',
+      'take a screenshot',
+      'stop the music',
+    ])('does not detect stop intent in "%s"', (text) => {
+      expect(resolveRecordingIntent(text)).toEqual({ kind: 'none' });
+    });
 
-  test('returns true when polite fillers surround the recording request', () => {
-    expect(isRecordingOnly('please record my screen')).toBe(true);
-    expect(isRecordingOnly('can you start recording')).toBe(true);
-    expect(isRecordingOnly('could you record my screen please')).toBe(true);
-    expect(isRecordingOnly('hey, start recording now')).toBe(true);
-    expect(isRecordingOnly('just record my screen, thanks')).toBe(true);
-    expect(isRecordingOnly('can you start recording?')).toBe(true);
-  });
-
-  test.each([
-    'record my screen and then open Safari',
-    'do this task and record my screen',
-    'record my screen while I work on the document',
-    'open Chrome and start recording',
-    'record my screen and send it to Bob',
-  ])('returns false for mixed-intent "%s"', (text) => {
-    expect(isRecordingOnly(text)).toBe(false);
+    test('is case-insensitive', () => {
+      expect(resolveRecordingIntent('STOP RECORDING').kind).toBe('stop_only');
+      expect(resolveRecordingIntent('Stop The Recording').kind).toBe('stop_only');
+      expect(resolveRecordingIntent('END RECORDING').kind).toBe('stop_only');
+    });
   });
 
-  test('returns false for empty or unrelated text', () => {
-    expect(isRecordingOnly('')).toBe(false);
-    expect(isRecordingOnly('hello world')).toBe(false);
-    expect(isRecordingOnly('open Safari')).toBe(false);
+  // ── Pure stop (covers legacy isStopRecordingOnly behavior) ──────────────
+
+  describe('pure stop (stop-recording-only)', () => {
+    test.each([
+      'stop recording',
+      'stop the recording',
+      'end recording',
+      'end the recording',
+      'finish recording',
+      'halt recording',
+    ])('resolves as stop_only for pure stop request "%s"', (text) => {
+      expect(resolveRecordingIntent(text)).toEqual({ kind: 'stop_only' });
+    });
+
+    test('resolves as stop_only when polite fillers surround the stop request', () => {
+      expect(resolveRecordingIntent('please stop recording')).toEqual({ kind: 'stop_only' });
+      expect(resolveRecordingIntent('can you stop the recording?')).toEqual({ kind: 'stop_only' });
+      expect(resolveRecordingIntent('could you end the recording please')).toEqual({ kind: 'stop_only' });
+      expect(resolveRecordingIntent('stop the recording now')).toEqual({ kind: 'stop_only' });
+      expect(resolveRecordingIntent('just stop recording, thanks')).toEqual({ kind: 'stop_only' });
+    });
+
+    test('resolves as stop_with_remainder when stop has additional task', () => {
+      const r1 = resolveRecordingIntent('stop recording and open Chrome');
+      expect(r1.kind).toBe('stop_with_remainder');
+      if (r1.kind === 'stop_with_remainder') {
+        expect(r1.remainder).toContain('open Chrome');
+      }
+    });
+
+    test('handles ambiguous phrases as none', () => {
+      expect(resolveRecordingIntent('end it')).toEqual({ kind: 'none' });
+      expect(resolveRecordingIntent('stop')).toEqual({ kind: 'none' });
+      expect(resolveRecordingIntent('quit')).toEqual({ kind: 'none' });
+    });
+
+    test('handles punctuation', () => {
+      expect(resolveRecordingIntent('stop recording!')).toEqual({ kind: 'stop_only' });
+      expect(resolveRecordingIntent('stop recording.')).toEqual({ kind: 'stop_only' });
+      expect(resolveRecordingIntent('end the recording?')).toEqual({ kind: 'stop_only' });
+    });
   });
 
-  test('handles punctuation in recording-only prompts', () => {
-    expect(isRecordingOnly('record my screen!')).toBe(true);
-    expect(isRecordingOnly('start recording.')).toBe(true);
-    expect(isRecordingOnly('screen recording?')).toBe(true);
-  });
-});
+  // ── Remainder extraction (covers legacy strip* behavior) ────────────────
 
-// ─── detectStopRecordingIntent ──────────────────────────────────────────────
+  describe('remainder extraction', () => {
+    test('extracts remainder when start intent is mixed with other task', () => {
+      const r1 = resolveRecordingIntent('open Safari and record my screen');
+      expect(r1.kind).toBe('start_with_remainder');
+      if (r1.kind === 'start_with_remainder') {
+        expect(r1.remainder).toBe('open Safari');
+      }
 
-describe('detectStopRecordingIntent', () => {
-  test.each([
-    'stop recording',
-    'stop the recording',
-    'end recording',
-    'end the recording',
-    'finish recording',
-    'finish the recording',
-    'halt recording',
-    'halt the recording',
-  ])('detects stop intent in "%s"', (text) => {
-    expect(detectStopRecordingIntent(text)).toBe(true);
-  });
+      const r2 = resolveRecordingIntent('do this task and start recording');
+      expect(r2.kind).toBe('start_with_remainder');
+      if (r2.kind === 'start_with_remainder') {
+        expect(r2.remainder).toContain('do this task');
+      }
+    });
 
-  test.each([
-    '',
-    'hello world',
-    'stop it',
-    'end it',
-    'quit',
-    'record my screen',
-    'start recording',
-    'take a screenshot',
-    'stop the music',
-  ])('does not detect stop intent in "%s"', (text) => {
-    expect(detectStopRecordingIntent(text)).toBe(false);
-  });
+    test('extracts remainder when stop intent is mixed with other task', () => {
+      const r1 = resolveRecordingIntent('open Chrome and stop recording');
+      expect(r1.kind).toBe('stop_with_remainder');
+      if (r1.kind === 'stop_with_remainder') {
+        expect(r1.remainder).toBe('open Chrome');
+      }
 
-  test('is case-insensitive', () => {
-    expect(detectStopRecordingIntent('STOP RECORDING')).toBe(true);
-    expect(detectStopRecordingIntent('Stop The Recording')).toBe(true);
-    expect(detectStopRecordingIntent('END RECORDING')).toBe(true);
-  });
-});
+      const r2 = resolveRecordingIntent('save the file and end the recording');
+      expect(r2.kind).toBe('stop_with_remainder');
+      if (r2.kind === 'stop_with_remainder') {
+        expect(r2.remainder).toContain('save the file');
+      }
+    });
 
-// ─── stripRecordingIntent ───────────────────────────────────────────────────
+    test('remainder does not contain double spaces', () => {
+      const r1 = resolveRecordingIntent('open Safari and also record my screen please');
+      if (r1.kind === 'start_with_remainder') {
+        expect(r1.remainder).not.toContain('  ');
+      }
 
-describe('stripRecordingIntent', () => {
-  test('removes recording clause from mixed-intent prompt', () => {
-    expect(stripRecordingIntent('open Safari and record my screen')).toBe('open Safari');
-    expect(stripRecordingIntent('open Safari and also record my screen')).toBe('open Safari');
+      const r2 = resolveRecordingIntent('open Safari and also stop recording please');
+      if (r2.kind === 'stop_with_remainder') {
+        expect(r2.remainder).not.toContain('  ');
+      }
+    });
   });
 
-  test('removes start recording clause', () => {
-    expect(stripRecordingIntent('do this task and start recording')).toBe('do this task');
+  // ── Interrogative gate (covers legacy isInterrogative behavior) ─────────
+
+  describe('interrogative gate', () => {
+    test.each([
+      'how do I stop recording?',
+      'how do I record my screen?',
+      'what does screen recording do?',
+      'why is screen recording not working?',
+      'when should I stop recording?',
+      'where does the recording file go?',
+      'which display should I record?',
+      'What is the screen recording feature?',
+      'How do I start recording on Mac?',
+      'how can I record my screen?',
+      'why did the recording stop?',
+    ])('returns none for question: "%s"', (text) => {
+      expect(resolveRecordingIntent(text)).toEqual({ kind: 'none' });
+    });
+
+    test.each([
+      'record my screen',
+      'stop recording',
+      'open Chrome and record my screen',
+      'can you record my screen?',
+      'could you stop recording please',
+      'start recording',
+      'please record my screen',
+    ])('does not block command: "%s"', (text) => {
+      expect(resolveRecordingIntent(text).kind).not.toBe('none');
+    });
+
+    test('strips dynamic name before checking interrogative', () => {
+      expect(resolveRecordingIntent('Nova, how do I stop recording?', ['Nova'])).toEqual({ kind: 'none' });
+      expect(resolveRecordingIntent('Nova, record my screen', ['Nova']).kind).toBe('start_only');
+    });
+
+    test('handles polite prefix before question word', () => {
+      expect(resolveRecordingIntent('please, how do I stop recording?')).toEqual({ kind: 'none' });
+      expect(resolveRecordingIntent('hey, what does screen recording do?')).toEqual({ kind: 'none' });
+    });
+
+    // Interrogative gate for new patterns
+    test('returns none for question about restart', () => {
+      expect(resolveRecordingIntent('how do I restart recording?')).toEqual({ kind: 'none' });
+    });
+
+    test('returns none for question about pause', () => {
+      expect(resolveRecordingIntent('how can I pause recording?')).toEqual({ kind: 'none' });
+    });
+
+    test('returns none for question about resume', () => {
+      expect(resolveRecordingIntent('how do I resume recording?')).toEqual({ kind: 'none' });
+    });
   });
 
-  test('removes begin recording clause', () => {
-    expect(stripRecordingIntent('write a report and begin recording')).toBe('write a report');
+  // ── Dynamic names ──────────────────────────────────────────────────────────
+
+  describe('dynamic name handling', () => {
+    test.each([
+      ['Nova, record my screen', ['Nova'], 'start_only'],
+      ['hey Nova, start recording', ['Nova'], 'start_only'],
+      ['hey, Nova, start recording', ['Nova'], 'start_only'],
+      ['Nova, stop recording', ['Nova'], 'stop_only'],
+      ['Nova, hello', ['Nova'], 'none'],
+    ] as const)('"%s" with names %j resolves to %s', (text, names, expected) => {
+      expect(resolveRecordingIntent(text, [...names]).kind).toBe(expected);
+    });
+
+    test('mixed intent with dynamic name extracts remainder', () => {
+      const result = resolveRecordingIntent('Nova, open Safari and record my screen', ['Nova']);
+      expect(result.kind).toBe('start_with_remainder');
+      if (result.kind === 'start_with_remainder') {
+        expect(result.remainder).toContain('open Safari');
+      }
+    });
+
+    test('dynamic name stripping is case-insensitive', () => {
+      expect(resolveRecordingIntent('nova, record my screen', ['Nova']).kind).toBe('start_only');
+      expect(resolveRecordingIntent('NOVA, stop recording', ['Nova']).kind).toBe('stop_only');
+      expect(resolveRecordingIntent('Hey NOVA, start recording', ['nova']).kind).toBe('start_only');
+    });
+
+    test('handles multiple dynamic names', () => {
+      expect(resolveRecordingIntent('Jarvis, record my screen', ['Nova', 'Jarvis']).kind).toBe('start_only');
+      expect(resolveRecordingIntent('Nova, stop recording', ['Nova', 'Jarvis']).kind).toBe('stop_only');
+    });
+
+    test('handles empty dynamic names array', () => {
+      expect(resolveRecordingIntent('record my screen', []).kind).toBe('start_only');
+      expect(resolveRecordingIntent('stop recording', []).kind).toBe('stop_only');
+    });
+
+    test('handles colon separator after name', () => {
+      expect(resolveRecordingIntent('Nova: record my screen', ['Nova']).kind).toBe('start_only');
+    });
+
+    test('interrogative with name prefix returns none', () => {
+      expect(resolveRecordingIntent('hey Nova, how do I stop recording?', ['Nova'])).toEqual({ kind: 'none' });
+    });
   });
 
-  test('removes capture clause', () => {
-    expect(stripRecordingIntent('check email and capture my screen')).toBe('check email');
+  // ── Start + stop combined ──────────────────────────────────────────────────
+
+  describe('combined start and stop', () => {
+    test('start and stop: "stop recording and record my screen"', () => {
+      const result = resolveRecordingIntent('stop recording and record my screen');
+      expect(result.kind).toBe('start_and_stop_only');
+    });
+
+    test('start and stop: "stop recording and start recording"', () => {
+      const result = resolveRecordingIntent('stop recording and start recording');
+      expect(result.kind).toBe('start_and_stop_only');
+    });
   });
 
-  test('removes "while" phrased recording clauses', () => {
-    const result = stripRecordingIntent('do this task while recording the screen');
-    // The while-recording pattern should be removed
-    expect(result).not.toContain('recording');
+  // ── Restart compound detection ────────────────────────────────────────────
+
+  describe('restart compound detection', () => {
+    test('"restart the recording" → restart_only', () => {
+      expect(resolveRecordingIntent('restart the recording')).toEqual({ kind: 'restart_only' });
+    });
+
+    test('"restart recording" → restart_only', () => {
+      expect(resolveRecordingIntent('restart recording')).toEqual({ kind: 'restart_only' });
+    });
+
+    test('"redo the recording" → restart_only', () => {
+      expect(resolveRecordingIntent('redo the recording')).toEqual({ kind: 'restart_only' });
+    });
+
+    test('"stop recording and start a new one" → restart_only', () => {
+      expect(resolveRecordingIntent('stop recording and start a new one')).toEqual({ kind: 'restart_only' });
+    });
+
+    test('"stop the recording and start a new one" → restart_only', () => {
+      expect(resolveRecordingIntent('stop the recording and start a new one')).toEqual({ kind: 'restart_only' });
+    });
+
+    test('"stop the recording and begin a fresh" → restart_only', () => {
+      expect(resolveRecordingIntent('stop the recording and begin a fresh')).toEqual({ kind: 'restart_only' });
+    });
+
+    test('"stop and restart the recording" → restart_only', () => {
+      expect(resolveRecordingIntent('stop and restart the recording')).toEqual({ kind: 'restart_only' });
+    });
+
+    test('"stop recording and start a new" → restart_only', () => {
+      expect(resolveRecordingIntent('stop recording and start a new')).toEqual({ kind: 'restart_only' });
+    });
+
+    test('"stop recording and start another" → restart_only', () => {
+      expect(resolveRecordingIntent('stop recording and start another')).toEqual({ kind: 'restart_only' });
+    });
+
+    test('restart with remainder: "restart recording and open safari"', () => {
+      const result = resolveRecordingIntent('restart recording and open safari');
+      expect(result.kind).toBe('restart_with_remainder');
+      if (result.kind === 'restart_with_remainder') {
+        expect(result.remainder).toContain('open safari');
+      }
+    });
+
+    test('restart with polite fillers resolves as restart_only', () => {
+      expect(resolveRecordingIntent('please restart the recording')).toEqual({ kind: 'restart_only' });
+      expect(resolveRecordingIntent('can you restart recording')).toEqual({ kind: 'restart_only' });
+    });
+
+    test('restart takes precedence over independent start/stop', () => {
+      // "stop recording and start a new one" should be restart, not start_and_stop
+      const result = resolveRecordingIntent('stop recording and start a new one');
+      expect(result.kind).toBe('restart_only');
+    });
   });
 
-  test('returns empty string for recording-only text after stripping', () => {
-    const result = stripRecordingIntent('record my screen');
-    // After stripping the recording clause, only the unmatched part remains
-    expect(result.trim().length).toBeLessThanOrEqual(result.length);
+  // ── Pause detection ───────────────────────────────────────────────────────
+
+  describe('pause detection', () => {
+    test('"pause recording" → pause_only', () => {
+      expect(resolveRecordingIntent('pause recording')).toEqual({ kind: 'pause_only' });
+    });
+
+    test('"pause the recording" → pause_only', () => {
+      expect(resolveRecordingIntent('pause the recording')).toEqual({ kind: 'pause_only' });
+    });
+
+    test('pause with polite fillers resolves as pause_only', () => {
+      expect(resolveRecordingIntent('please pause the recording')).toEqual({ kind: 'pause_only' });
+      expect(resolveRecordingIntent('can you pause recording')).toEqual({ kind: 'pause_only' });
+    });
   });
 
-  test('cleans up double spaces', () => {
-    const result = stripRecordingIntent('open Safari and also record my screen please');
-    expect(result).not.toContain('  ');
+  // ── Resume detection ──────────────────────────────────────────────────────
+
+  describe('resume detection', () => {
+    test('"resume recording" → resume_only', () => {
+      expect(resolveRecordingIntent('resume recording')).toEqual({ kind: 'resume_only' });
+    });
+
+    test('"resume the recording" → resume_only', () => {
+      expect(resolveRecordingIntent('resume the recording')).toEqual({ kind: 'resume_only' });
+    });
+
+    test('"unpause the recording" → resume_only', () => {
+      expect(resolveRecordingIntent('unpause the recording')).toEqual({ kind: 'resume_only' });
+    });
+
+    test('resume with polite fillers resolves as resume_only', () => {
+      expect(resolveRecordingIntent('please resume the recording')).toEqual({ kind: 'resume_only' });
+    });
   });
 
-  test('returns unrelated text unchanged', () => {
-    expect(stripRecordingIntent('hello world')).toBe('hello world');
-    expect(stripRecordingIntent('open Safari')).toBe('open Safari');
+  // ── False positive guards ─────────────────────────────────────────────────
+
+  describe('false positive guards', () => {
+    test('"I recorded a restart" → none', () => {
+      expect(resolveRecordingIntent('I recorded a restart')).toEqual({ kind: 'none' });
+    });
+
+    test('"the pause button is broken" → none (no recording mention)', () => {
+      expect(resolveRecordingIntent('the pause button is broken')).toEqual({ kind: 'none' });
+    });
+
+    test('"resume my work" → none (no recording mention)', () => {
+      expect(resolveRecordingIntent('resume my work')).toEqual({ kind: 'none' });
+    });
   });
 
-  test('handles empty string', () => {
-    expect(stripRecordingIntent('')).toBe('');
-  });
-});
+  // ── No recording intent ────────────────────────────────────────────────────
 
-// ─── stripStopRecordingIntent ───────────────────────────────────────────────
-
-describe('stripStopRecordingIntent', () => {
-  test('removes stop recording clause from mixed-intent prompt', () => {
-    expect(stripStopRecordingIntent('open Chrome and stop recording')).toBe('open Chrome');
-    expect(stripStopRecordingIntent('open Chrome and also stop recording')).toBe('open Chrome');
-  });
-
-  test('removes end recording clause', () => {
-    expect(stripStopRecordingIntent('save the file and end the recording')).toBe('save the file');
+  describe('no recording intent', () => {
+    test.each([
+      'open Safari',
+      'I broke the record',
+      '',
+      'hello world',
+    ])('returns none for "%s"', (text) => {
+      expect(resolveRecordingIntent(text)).toEqual({ kind: 'none' });
+    });
   });
 
-  test('removes finish recording clause', () => {
-    expect(stripStopRecordingIntent('close the browser and finish recording')).toBe('close the browser');
-  });
+  // ── Works without dynamic names parameter ──────────────────────────────────
 
-  test('removes halt recording clause', () => {
-    expect(stripStopRecordingIntent('do this and halt the recording')).toBe('do this');
-  });
-
-  test('returns unrelated text unchanged', () => {
-    expect(stripStopRecordingIntent('hello world')).toBe('hello world');
-    expect(stripStopRecordingIntent('open Safari')).toBe('open Safari');
-  });
-
-  test('handles empty string', () => {
-    expect(stripStopRecordingIntent('')).toBe('');
-  });
-
-  test('cleans up double spaces', () => {
-    const result = stripStopRecordingIntent('open Safari and also stop recording please');
-    expect(result).not.toContain('  ');
-  });
-});
-
-// ─── isStopRecordingOnly ────────────────────────────────────────────────────
-
-describe('isStopRecordingOnly', () => {
-  test.each([
-    'stop recording',
-    'stop the recording',
-    'end recording',
-    'end the recording',
-    'finish recording',
-    'halt recording',
-  ])('returns true for pure stop-recording request "%s"', (text) => {
-    expect(isStopRecordingOnly(text)).toBe(true);
-  });
-
-  test('returns true when polite fillers surround the stop request', () => {
-    expect(isStopRecordingOnly('please stop recording')).toBe(true);
-    expect(isStopRecordingOnly('can you stop the recording?')).toBe(true);
-    expect(isStopRecordingOnly('could you end the recording please')).toBe(true);
-    expect(isStopRecordingOnly('stop the recording now')).toBe(true);
-    expect(isStopRecordingOnly('just stop recording, thanks')).toBe(true);
-  });
-
-  test.each([
-    'stop recording and open Chrome',
-    'end the recording and then close Safari',
-    'how do I stop recording?',
-  ])('returns false for mixed-intent or questioning "%s"', (text) => {
-    expect(isStopRecordingOnly(text)).toBe(false);
-  });
-
-  test('returns false for ambiguous phrases', () => {
-    expect(isStopRecordingOnly('end it')).toBe(false);
-    expect(isStopRecordingOnly('stop')).toBe(false);
-    expect(isStopRecordingOnly('quit')).toBe(false);
-  });
-
-  test('returns false for empty or unrelated text', () => {
-    expect(isStopRecordingOnly('')).toBe(false);
-    expect(isStopRecordingOnly('hello world')).toBe(false);
-    expect(isStopRecordingOnly('open Safari')).toBe(false);
-  });
-
-  test('handles punctuation', () => {
-    expect(isStopRecordingOnly('stop recording!')).toBe(true);
-    expect(isStopRecordingOnly('stop recording.')).toBe(true);
-    expect(isStopRecordingOnly('end the recording?')).toBe(true);
-  });
-});
-
-// ─── classifyRecordingIntent ────────────────────────────────────────────────
-
-describe('classifyRecordingIntent', () => {
-  // Basic classification
-  test.each([
-    ['record my screen', 'start_only'],
-    ['stop recording', 'stop_only'],
-    ['open Safari and record my screen', 'mixed'],
-    ['hello world', 'none'],
-    ['', 'none'],
-  ] as const)('basic: "%s" → %s', (text, expected) => {
-    expect(classifyRecordingIntent(text)).toBe(expected);
-  });
-
-  // Dynamic name stripping
-  test.each([
-    ['Nova, record my screen', ['Nova'], 'start_only'],
-    ['hey Nova, start recording', ['Nova'], 'start_only'],
-    ['hey, Nova, start recording', ['Nova'], 'start_only'],
-    ['Nova, stop recording', ['Nova'], 'stop_only'],
-    ['Nova, open Safari and record my screen', ['Nova'], 'mixed'],
-    ['Nova, hello', ['Nova'], 'none'],
-  ] as const)('dynamic names: "%s" with %j → %s', (text, names, expected) => {
-    expect(classifyRecordingIntent(text, [...names])).toBe(expected);
-  });
-
-  // No dynamic names (backwards compat)
   test('works without dynamic names parameter', () => {
-    expect(classifyRecordingIntent('record my screen')).toBe('start_only');
-    expect(classifyRecordingIntent('stop recording')).toBe('stop_only');
-  });
-
-  // With fillers
-  test('handles filler words correctly', () => {
-    expect(classifyRecordingIntent('please record my screen')).toBe('start_only');
-    expect(classifyRecordingIntent('can you stop recording?')).toBe('stop_only');
-  });
-
-  // Both start and stop → mixed
-  test('classifies as mixed when both start and stop patterns are present', () => {
-    expect(classifyRecordingIntent('start recording and then stop recording')).toBe('mixed');
-    expect(classifyRecordingIntent('record my screen and stop recording')).toBe('mixed');
-  });
-
-  // Edge cases
-  test('classifies as mixed when stop-recording has additional task', () => {
-    expect(classifyRecordingIntent('stop recording and open Chrome')).toBe('mixed');
-  });
-
-  // Case insensitivity with dynamic names
-  test('dynamic name stripping is case-insensitive', () => {
-    expect(classifyRecordingIntent('nova, record my screen', ['Nova'])).toBe('start_only');
-    expect(classifyRecordingIntent('NOVA, stop recording', ['Nova'])).toBe('stop_only');
-    expect(classifyRecordingIntent('Hey NOVA, start recording', ['nova'])).toBe('start_only');
-  });
-
-  // Multiple dynamic names
-  test('handles multiple dynamic names', () => {
-    expect(classifyRecordingIntent('Jarvis, record my screen', ['Nova', 'Jarvis'])).toBe(
-      'start_only',
-    );
-    expect(classifyRecordingIntent('Nova, stop recording', ['Nova', 'Jarvis'])).toBe('stop_only');
-  });
-
-  // Empty dynamic names array
-  test('handles empty dynamic names array', () => {
-    expect(classifyRecordingIntent('record my screen', [])).toBe('start_only');
-    expect(classifyRecordingIntent('stop recording', [])).toBe('stop_only');
-  });
-
-  // Name with colon separator
-  test('handles colon separator after name', () => {
-    expect(classifyRecordingIntent('Nova: record my screen', ['Nova'])).toBe('start_only');
+    expect(resolveRecordingIntent('record my screen')).toEqual({ kind: 'start_only' });
+    expect(resolveRecordingIntent('stop recording')).toEqual({ kind: 'stop_only' });
   });
 });
 
-// ─── isInterrogative ──────────────────────────────────────────────────────────
+// ─── executeRecordingIntent ─────────────────────────────────────────────────
 
-describe('isInterrogative', () => {
-  // Questions about recording — should return true
-  test.each([
-    'how do I stop recording?',
-    'how do I record my screen?',
-    'what does screen recording do?',
-    'why is screen recording not working?',
-    'when should I stop recording?',
-    'where does the recording file go?',
-    'which display should I record?',
-    'What is the screen recording feature?',
-    'How do I start recording on Mac?',
-  ])('returns true for question: "%s"', (text) => {
-    expect(isInterrogative(text)).toBe(true);
+describe('executeRecordingIntent', () => {
+  // Mock the recording handlers module
+  const mockHandleRecordingStart = mock((): string | null => 'mock-recording-id');
+  const mockHandleRecordingStop = mock((): string | undefined => 'mock-recording-id');
+
+  mock.module('../daemon/handlers/recording.js', () => ({
+    handleRecordingStart: mockHandleRecordingStart,
+    handleRecordingStop: mockHandleRecordingStop,
+  }));
+
+  // Dynamically import so the mock takes effect
+  let executeRecordingIntent: typeof import('../daemon/recording-executor.js').executeRecordingIntent;
+
+  // Must await the dynamic import before running tests
+  const setupPromise = import('../daemon/recording-executor.js').then((mod) => {
+    executeRecordingIntent = mod.executeRecordingIntent;
   });
 
-  // Imperative commands — should return false
-  test.each([
-    'record my screen',
-    'stop recording',
-    'open Chrome and record my screen',
-    'stop recording and close the browser',
-    'can you record my screen?',
-    'could you stop recording please',
-    'start recording',
-    'please record my screen',
-  ])('returns false for command: "%s"', (text) => {
-    expect(isInterrogative(text)).toBe(false);
+  const mockContext = {
+    conversationId: 'conv-123',
+    socket: {} as any,
+    ctx: {} as any,
+  };
+
+  beforeEach(async () => {
+    await setupPromise;
+    mockHandleRecordingStart.mockReset();
+    mockHandleRecordingStop.mockReset();
+    // Default: start succeeds (returns recording ID)
+    mockHandleRecordingStart.mockReturnValue('mock-recording-id');
+    // Default: stop succeeds (returns recording ID)
+    mockHandleRecordingStop.mockReturnValue('mock-recording-id');
   });
 
-  // With dynamic names — strips name prefix first
-  test('strips dynamic name before checking', () => {
-    expect(isInterrogative('Nova, how do I stop recording?', ['Nova'])).toBe(true);
-    expect(isInterrogative('Nova, record my screen', ['Nova'])).toBe(false);
+  test('none → returns { handled: false }', () => {
+    const result = executeRecordingIntent({ kind: 'none' }, mockContext);
+    expect(result).toEqual({ handled: false });
   });
 
-  // Polite prefix + question
-  test('handles polite prefix before question word', () => {
-    expect(isInterrogative('please, how do I stop recording?')).toBe(true);
-    expect(isInterrogative('hey, what does screen recording do?')).toBe(true);
+  test('start_only → calls handleRecordingStart, returns handled with start text', () => {
+    const result = executeRecordingIntent({ kind: 'start_only' }, mockContext);
+    expect(mockHandleRecordingStart).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      handled: true,
+      recordingStarted: true,
+      responseText: 'Starting screen recording.',
+    });
+  });
+
+  test('start_only when recording already active → returns handled with already-active text', () => {
+    mockHandleRecordingStart.mockReturnValue(null);
+    const result = executeRecordingIntent({ kind: 'start_only' }, mockContext);
+    expect(mockHandleRecordingStart).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      handled: true,
+      recordingStarted: false,
+      responseText: 'A recording is already active.',
+    });
+  });
+
+  test('stop_only → calls handleRecordingStop, returns handled with stop text', () => {
+    const result = executeRecordingIntent({ kind: 'stop_only' }, mockContext);
+    expect(mockHandleRecordingStop).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      handled: true,
+      responseText: 'Stopping the recording.',
+    });
+  });
+
+  test('stop_only when no active recording → returns handled with no-active text', () => {
+    mockHandleRecordingStop.mockReturnValue(undefined);
+    const result = executeRecordingIntent({ kind: 'stop_only' }, mockContext);
+    expect(result).toEqual({
+      handled: true,
+      responseText: 'No active recording to stop.',
+    });
+  });
+
+  test('start_with_remainder → returns not handled with remainder and pendingStart', () => {
+    const result = executeRecordingIntent(
+      { kind: 'start_with_remainder', remainder: 'open Safari' },
+      mockContext,
+    );
+    expect(result).toEqual({
+      handled: false,
+      remainderText: 'open Safari',
+      pendingStart: true,
+    });
+  });
+
+  test('stop_with_remainder → returns not handled with remainder and pendingStop', () => {
+    const result = executeRecordingIntent(
+      { kind: 'stop_with_remainder', remainder: 'open Chrome' },
+      mockContext,
+    );
+    expect(result).toEqual({
+      handled: false,
+      remainderText: 'open Chrome',
+      pendingStop: true,
+    });
+  });
+
+  test('start_and_stop_only → calls both stop and start, returns handled', () => {
+    const result = executeRecordingIntent({ kind: 'start_and_stop_only' }, mockContext);
+    expect(mockHandleRecordingStop).toHaveBeenCalledTimes(1);
+    expect(mockHandleRecordingStart).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      handled: true,
+      recordingStarted: true,
+      responseText: 'Stopping current recording and starting a new one.',
+    });
+  });
+
+  test('start_and_stop_only when start fails → returns handled with stop-only text', () => {
+    mockHandleRecordingStart.mockReturnValue(null);
+    const result = executeRecordingIntent({ kind: 'start_and_stop_only' }, mockContext);
+    expect(mockHandleRecordingStop).toHaveBeenCalledTimes(1);
+    expect(mockHandleRecordingStart).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      handled: true,
+      recordingStarted: false,
+      responseText: 'Stopping the recording.',
+    });
+  });
+
+  test('start_and_stop_with_remainder → returns not handled with remainder and both pending flags', () => {
+    const result = executeRecordingIntent(
+      { kind: 'start_and_stop_with_remainder', remainder: 'open Safari' },
+      mockContext,
+    );
+    expect(result).toEqual({
+      handled: false,
+      remainderText: 'open Safari',
+      pendingStart: true,
+      pendingStop: true,
+    });
+  });
+
+  // ── New intent kinds ──────────────────────────────────────────────────────
+
+  test('restart_only → returns handled with restart text', () => {
+    const result = executeRecordingIntent({ kind: 'restart_only' }, mockContext);
+    expect(result).toEqual({
+      handled: true,
+      responseText: 'Restarting screen recording.',
+    });
+  });
+
+  test('restart_with_remainder → returns not handled with remainder and pendingRestart', () => {
+    const result = executeRecordingIntent(
+      { kind: 'restart_with_remainder', remainder: 'and open safari' },
+      mockContext,
+    );
+    expect(result).toEqual({
+      handled: false,
+      remainderText: 'and open safari',
+      pendingRestart: true,
+    });
+  });
+
+  test('pause_only → returns handled with pause text', () => {
+    const result = executeRecordingIntent({ kind: 'pause_only' }, mockContext);
+    expect(result).toEqual({
+      handled: true,
+      responseText: 'Pausing the recording.',
+    });
+  });
+
+  test('resume_only → returns handled with resume text', () => {
+    const result = executeRecordingIntent({ kind: 'resume_only' }, mockContext);
+    expect(result).toEqual({
+      handled: true,
+      responseText: 'Resuming the recording.',
+    });
   });
 });

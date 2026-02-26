@@ -9,6 +9,10 @@ exports[`IPC message snapshots ClientMessage types auth serializes to expected J
 
 exports[`IPC message snapshots ClientMessage types user_message serializes to expected JSON 1`] = `
 {
+  "commandIntent": {
+    "action": "start",
+    "domain": "screen_recording",
+  },
   "content": "Hello, assistant!",
   "interface": "cli",
   "sessionId": "sess-001",
@@ -206,6 +210,10 @@ exports[`IPC message snapshots ClientMessage types watch_observation serializes 
 
 exports[`IPC message snapshots ClientMessage types task_submit serializes to expected JSON 1`] = `
 {
+  "commandIntent": {
+    "action": "start",
+    "domain": "screen_recording",
+  },
   "screenHeight": 1080,
   "screenWidth": 1920,
   "task": "Open Safari and search for weather",
