@@ -194,6 +194,13 @@ describe('buildSystemPrompt', () => {
     expect(section).toContain('Occasional variations are acceptable');
   });
 
+  test('includes memory persistence section in high tier', () => {
+    const result = buildSystemPrompt('high');
+    expect(result).toContain('## Memory Persistence');
+    expect(result).toContain('memory_save');
+    expect(result).toContain('Saved > unsaved. Always.');
+  });
+
   test('config section uses workspace directory from platform util', () => {
     const result = buildSystemPrompt();
     expect(result).toContain(`Your workspace is mounted at \`/workspace/\` inside the Docker sandbox (host path: \`${TEST_DIR}/\`)`);

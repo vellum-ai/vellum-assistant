@@ -47,8 +47,15 @@ export function handleServePage(appId: string): Response {
   const css = loadDesignSystemCss();
   const escapedName = app.name.replace(/[<>&"]/g, (c) => HTML_ESCAPE_MAP[c] ?? c);
 
-  // Per-response nonce for the trusted design-system <style> tag.
+  // Per-response nonce for inline <style> and <script> tags.
   const nonce = randomBytes(16).toString('base64');
+
+  // Inject the nonce into any inline <script> tags from the app HTML definition
+  // so they are allowed by the nonce-based CSP without 'unsafe-inline'.
+  const noncedHtml = app.htmlDefinition.replace(
+    /<script(?=[\s>])/gi,
+    `<script nonce="${nonce}"`,
+  );
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -59,16 +66,14 @@ export function handleServePage(appId: string): Response {
   <style nonce="${nonce}">${css}</style>
 </head>
 <body>
-${app.htmlDefinition}
+${noncedHtml}
 </body>
 </html>`;
 
-  // CSP: inline scripts allowed because app HTML definitions contain inline
-  // <script> blocks and event handlers. Other directives are tightened.
   const csp = [
     "default-src 'self'",
     `style-src 'self' 'nonce-${nonce}' 'unsafe-inline'`,
-    "script-src 'self' 'unsafe-inline'",
+    `script-src 'self' 'nonce-${nonce}'`,
     "img-src 'self' data: https:",
     "font-src 'self' data: https:",
     "object-src 'none'",

@@ -109,7 +109,7 @@ export interface ProcessSessionContext {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; titleText?: string },
   ): Promise<void>;
   getTurnChannelContext(): TurnChannelContext | null;
   setTurnChannelContext(ctx: TurnChannelContext): void;
@@ -349,8 +349,12 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // Fire-and-forget: persistUserMessage set session.processing = true
   // so subsequent messages will still be enqueued.
   // runAgentLoop's finally block will call drainQueue when this run completes.
+  const drainLoopOptions: { isInteractive?: boolean; titleText?: string } = {};
+  if (next.isInteractive !== undefined) drainLoopOptions.isInteractive = next.isInteractive;
+  if (agentLoopContent !== resolvedContent) drainLoopOptions.titleText = resolvedContent;
+
   session.runAgentLoop(agentLoopContent, userMessageId, next.onEvent,
-    next.isInteractive !== undefined ? { isInteractive: next.isInteractive } : undefined,
+    Object.keys(drainLoopOptions).length > 0 ? drainLoopOptions : undefined,
   ).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId: session.conversationId, requestId: next.requestId }, 'Error processing queued message');
@@ -481,6 +485,8 @@ export async function processMessage(
         // Follow-up already started or conflict — send stale message
         const staleText = await composeGuardianActionMessageGenerative(
           { scenario: 'guardian_stale_expired' },
+          {},
+          _guardianActionCopyGenerator,
         );
         const staleMsg = createAssistantMessage(staleText);
         conversationStore.addMessage(
@@ -544,7 +550,7 @@ export async function processMessage(
 
       const replyText = stateApplied
         ? turnResult.replyText
-        : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_followup' });
+        : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_followup' }, {}, _guardianActionCopyGenerator);
       const replyMsg = createAssistantMessage(replyText);
       conversationStore.addMessage(
         session.conversationId,
@@ -708,8 +714,12 @@ export async function processMessage(
       });
   }
 
+  const loopOptions: { isInteractive?: boolean; titleText?: string } = {};
+  if (options?.isInteractive !== undefined) loopOptions.isInteractive = options.isInteractive;
+  if (agentLoopContent !== resolvedContent) loopOptions.titleText = resolvedContent;
+
   await session.runAgentLoop(agentLoopContent, userMessageId, onEvent,
-    options?.isInteractive !== undefined ? { isInteractive: options.isInteractive } : undefined,
+    Object.keys(loopOptions).length > 0 ? loopOptions : undefined,
   );
   return userMessageId;
 }

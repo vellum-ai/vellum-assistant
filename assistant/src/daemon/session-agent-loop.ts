@@ -144,7 +144,7 @@ export async function runAgentLoopImpl(
   content: string,
   userMessageId: string,
   onEvent: (msg: ServerMessage) => void,
-  options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
+  options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; titleText?: string },
 ): Promise<void> {
   if (!ctx.abortController) {
     throw new Error('runAgentLoop called without prior persistUserMessage');
@@ -702,7 +702,7 @@ export async function runAgentLoopImpl(
       queueGenerateConversationTitle({
         conversationId: ctx.conversationId,
         provider: ctx.provider,
-        userMessage: content,
+        userMessage: options?.titleText ?? content,
         assistantResponse: state.firstAssistantText || undefined,
         onTitleUpdated: (title) => {
           onEvent({

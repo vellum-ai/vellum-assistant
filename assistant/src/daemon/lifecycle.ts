@@ -46,6 +46,7 @@ import {
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
 import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
+import { hasNoAuthOverride } from './connection-policy.js';
 import { cleanupPidFile,writePid } from './daemon-control.js';
 import { createGuardianActionCopyGenerator, createGuardianFollowUpConversationGenerator } from './guardian-action-generators.js';
 import { setGuardianActionCopyGenerator, setGuardianFollowUpConversationGenerator } from './session-process.js';
@@ -78,6 +79,11 @@ function loadDotEnv(): void {
 export async function runDaemon(): Promise<void> {
   loadDotEnv();
   validateEnv();
+
+  if (hasNoAuthOverride()) {
+    log.warn('VELLUM_DAEMON_NOAUTH is set — IPC authentication is DISABLED. This should only be used for development or SSH-forwarded sockets. Do not use in production.');
+  }
+
   initSentry();
   await initLogfire();
 

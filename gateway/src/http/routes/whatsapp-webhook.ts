@@ -20,7 +20,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
   // 24-hour TTL — WhatsApp message IDs are globally unique and never reused
   const dedupCache = new StringDedupCache(24 * 60 * 60_000);
 
-  return async (req: Request): Promise<Response> => {
+  const handler = async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
     const tlog = traceId ? log.child({ traceId }) : log;
 
@@ -248,4 +248,6 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
 
     return Response.json({ ok: true });
   };
+
+  return { handler, dedupCache };
 }

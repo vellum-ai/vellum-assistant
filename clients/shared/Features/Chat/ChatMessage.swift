@@ -1214,12 +1214,16 @@ public struct ChatAttachment: Identifiable {
     #error("Unsupported platform")
     #endif
 
+    /// Absolute path to the local file on disk. Present for file-backed attachments
+    /// (e.g. recordings) where the file lives on the same Mac as the client.
+    public let filePath: String?
+
     /// Whether this attachment's binary data was omitted to keep the IPC payload small.
     /// The client should fetch it lazily via the HTTP endpoint when the user interacts.
     public var isLazyLoad: Bool { data.isEmpty && sizeBytes != nil }
 
     #if os(macOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: NSImage?) {
+    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: NSImage?, filePath: String? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
@@ -1228,9 +1232,10 @@ public struct ChatAttachment: Identifiable {
         self.dataLength = dataLength
         self.sizeBytes = sizeBytes
         self.thumbnailImage = thumbnailImage
+        self.filePath = filePath
     }
     #elseif os(iOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: UIImage?) {
+    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: UIImage?, filePath: String? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
@@ -1239,6 +1244,7 @@ public struct ChatAttachment: Identifiable {
         self.dataLength = dataLength
         self.sizeBytes = sizeBytes
         self.thumbnailImage = thumbnailImage
+        self.filePath = filePath
     }
     #else
     #error("Unsupported platform")

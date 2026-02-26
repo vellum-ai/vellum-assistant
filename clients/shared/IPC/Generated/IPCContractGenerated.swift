@@ -3073,15 +3073,6 @@ public struct IPCOpenBundleResponseSignatureResult: Codable, Sendable {
     }
 }
 
-/// Server push — tells the client to open/focus the tasks window.
-public struct IPCOpenTasksWindow: Codable, Sendable {
-    public let type: String
-
-    public init(type: String) {
-        self.type = type
-    }
-}
-
 public struct IPCOpenUrl: Codable, Sendable {
     public let type: String
     public let url: String
@@ -5748,8 +5739,10 @@ public struct IPCUserMessageAttachment: Codable, Sendable {
     public let sizeBytes: Int?
     /// Base64-encoded JPEG thumbnail. Generated server-side for video attachments.
     public let thumbnailData: String?
+    /// Absolute path to the local file on disk. Present for file-backed attachments (e.g. recordings).
+    public let filePath: String?
 
-    public init(id: String? = nil, filename: String, mimeType: String, data: String, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil) {
+    public init(id: String? = nil, filename: String, mimeType: String, data: String, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil, filePath: String? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
@@ -5757,6 +5750,7 @@ public struct IPCUserMessageAttachment: Codable, Sendable {
         self.extractedText = extractedText
         self.sizeBytes = sizeBytes
         self.thumbnailData = thumbnailData
+        self.filePath = filePath
     }
 }
 

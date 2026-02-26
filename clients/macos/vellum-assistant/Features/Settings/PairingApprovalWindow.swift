@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Manages a floating NSWindow for pairing approval prompts.
-/// Follows the TasksWindow pattern — auto-centers, activates app, idempotent show/close.
+/// Auto-centers, activates app, idempotent show/close.
 @MainActor
 final class PairingApprovalWindow {
     private var window: NSWindow?

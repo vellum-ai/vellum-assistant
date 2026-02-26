@@ -295,21 +295,32 @@ struct InlineVideoAttachmentView: View {
         return FileManager.default.temporaryDirectory.appendingPathComponent(uniqueName)
     }
 
+    /// Returns a file URL for the local file path if set and the file exists on disk.
+    private var localFileURL: URL? {
+        guard let path = attachment.filePath, !path.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: path)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     private func generateThumbnail() async {
         // Server thumbnail and aspect ratio are set eagerly in init.
         if thumbnailImage != nil { return }
 
         let fileURL: URL
-        if !attachment.data.isEmpty, let data = Data(base64Encoded: attachment.data) {
+        if let localURL = localFileURL {
+            // Local file-backed attachment (e.g. recording): generate thumbnail
+            // directly from the on-disk file — no download or base64 decode needed.
+            fileURL = localURL
+        } else if !attachment.data.isEmpty, let data = Data(base64Encoded: attachment.data) {
             // Inline attachment: decode base64 to temp file.
             let url = safeTempURL()
             do { try data.write(to: url) } catch { return }
             fileURL = url
         } else {
-            // For lazy (file-backed) attachments, don't download the full video
-            // just for a thumbnail — large recordings (100MB+) cause unnecessary
-            // network traffic and memory pressure. The view already shows a
-            // play-button placeholder when thumbnailImage is nil.
+            // For lazy (file-backed) attachments without a local path, don't
+            // download the full video just for a thumbnail — large recordings
+            // (100MB+) cause unnecessary network traffic and memory pressure.
+            // The view already shows a play-button placeholder when thumbnailImage is nil.
             return
         }
 
@@ -343,8 +354,11 @@ struct InlineVideoAttachmentView: View {
     }
 
     private func prepareAndPlay() {
-        // Reuse the temp file written by generateThumbnail() if available.
-        if let fileURL = cachedFileURL {
+        // Prefer the local file path (recordings on the same Mac).
+        if let localURL = localFileURL {
+            Task { await playFromFile(localURL) }
+        } else if let fileURL = cachedFileURL {
+            // Reuse the temp file written by generateThumbnail() if available.
             Task { await playFromFile(fileURL) }
         } else if attachment.isLazyLoad {
             fetchAndPlay()
@@ -472,7 +486,7 @@ struct InlineVideoAttachmentView: View {
         guard panel.runModal() == .OK, let destURL = panel.url else { return }
 
         isSaving = true
-        if let sourceURL = cachedFileURL {
+        if let sourceURL = localFileURL ?? cachedFileURL {
             Task.detached {
                 do {
                     // Copy to a temp location first, then atomically replace the destination so the
@@ -520,7 +534,7 @@ struct InlineVideoAttachmentView: View {
     }
 
     private func openInExternalPlayer() {
-        if let fileURL = cachedFileURL {
+        if let fileURL = localFileURL ?? cachedFileURL {
             NSWorkspace.shared.open(fileURL)
         } else if attachment.isLazyLoad {
             guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else { return }
@@ -577,6 +591,8 @@ private func fetchAttachmentContent(gatewayBaseUrl: String, attachmentId: String
 
     let (data, response) = try await URLSession.shared.data(for: request)
     guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        log.error("Attachment fetch failed with HTTP \(statusCode) for \(attachmentId)")
         throw URLError(.badServerResponse)
     }
 

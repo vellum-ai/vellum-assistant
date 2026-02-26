@@ -4,7 +4,7 @@ import { v4 as uuid } from 'uuid';
 
 import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getConfig } from '../../config/loader.js';
-import { getAttachmentsForMessage, setAttachmentThumbnail } from '../../memory/attachments-store.js';
+import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbnail } from '../../memory/attachments-store.js';
 import { getAttentionStateByConversationIds } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
@@ -830,6 +830,7 @@ export function handleHistoryRequest(
               );
             }
 
+            const fp = getFilePathForAttachment(a.id);
             return {
               id: a.id,
               filename: a.originalFilename,
@@ -837,18 +838,23 @@ export function handleHistoryRequest(
               data: omit ? '' : a.dataBase64,
               ...(omit ? { sizeBytes: a.sizeBytes } : {}),
               ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
+              ...(fp ? { filePath: fp } : {}),
             };
           });
         } else {
           // Light mode: metadata only, strip base64 data
-          attachments = linked.map((a) => ({
-            id: a.id,
-            filename: a.originalFilename,
-            mimeType: a.mimeType,
-            data: '',
-            sizeBytes: a.sizeBytes,
-            ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
-          }));
+          attachments = linked.map((a) => {
+            const fp = getFilePathForAttachment(a.id);
+            return {
+              id: a.id,
+              filename: a.originalFilename,
+              mimeType: a.mimeType,
+              data: '',
+              sizeBytes: a.sizeBytes,
+              ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
+              ...(fp ? { filePath: fp } : {}),
+            };
+          });
         }
       }
     }

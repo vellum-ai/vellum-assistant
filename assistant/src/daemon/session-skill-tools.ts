@@ -282,17 +282,18 @@ export function projectSkillTools(
     );
 
     if (tools.length > 0) {
+      let accepted = tools;
       const prevHash = prevActive.get(skillId);
       if (prevHash === undefined) {
         // Newly active skill — register for the first time
-        registerSkillTools(tools);
+        accepted = registerSkillTools(tools);
       } else if (prevHash !== currentHash) {
         // Hash changed — unregister stale tools, then re-register with new definitions
         log.info({ skillId, prevHash, currentHash }, 'Skill version changed, re-registering tools');
         unregisterSkillTools(skillId);
         alreadyUnregistered.add(skillId);
         try {
-          registerSkillTools(tools);
+          accepted = registerSkillTools(tools);
         } catch (err) {
           log.error({ err, skillId }, 'Failed to re-register skill tools after version change');
           // Don't add to successfulEntries — will be cleaned up as transiently-failed
@@ -306,12 +307,12 @@ export function projectSkillTools(
         if (existing && existing.ownerSkillBundled !== (skill.bundled ?? undefined)) {
           log.info({ skillId, bundled: skill.bundled }, 'Skill bundled status changed, re-registering tools');
           unregisterSkillTools(skillId);
-          registerSkillTools(tools);
+          accepted = registerSkillTools(tools);
         }
       }
 
       successfulEntries.set(skillId, currentHash);
-      for (const tool of tools) {
+      for (const tool of accepted) {
         allToolDefinitions.push(tool.getDefinition());
         allToolNames.add(tool.name);
       }

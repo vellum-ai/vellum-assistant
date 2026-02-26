@@ -77,8 +77,8 @@ describe('computer-use skill manifest regression', () => {
     await initializeTools();
 
     // The 12 computer_use_* action tools must NOT be in the global registry
-    // after initializeTools(). If they were, registerSkillTools() would throw
-    // a "collides with core tool" error when the computer-use skill is activated.
+    // after initializeTools(). If they were, registerSkillTools() would skip
+    // them as core tool collisions when the computer-use skill is activated.
     for (const name of COMPUTER_USE_TOOL_NAMES) {
       expect(getTool(name)).toBeUndefined();
     }

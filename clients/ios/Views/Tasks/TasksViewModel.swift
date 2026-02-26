@@ -4,8 +4,6 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Centralizes task queue state and daemon callbacks for the iOS Tasks tab.
-/// Mirrors TasksWindowViewModel on macOS — same callback wiring and run/cancel
-/// lifecycle, adapted for UIKit (no NSWindow, no onOpenInChat cross-window jump).
 @MainActor
 class TasksViewModel: ObservableObject {
     @Published var items: [IPCWorkItemsListResponseItem] = []

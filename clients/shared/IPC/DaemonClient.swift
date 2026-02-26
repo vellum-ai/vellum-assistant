@@ -440,9 +440,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a task run creates a conversation so the client can show it as a visible chat thread.
     public var onTaskRunThreadCreated: ((IPCTaskRunThreadCreated) -> Void)?
 
-    /// Called when the daemon wants us to open/focus the tasks window.
-    public var onOpenTasksWindow: (() -> Void)?
-
     /// Called when the daemon requests pairing approval from macOS.
     public var onPairingApprovalRequest: ((PairingApprovalRequestMessage) -> Void)?
 

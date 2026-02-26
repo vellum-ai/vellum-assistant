@@ -384,14 +384,14 @@ describe('task_list_show tool', () => {
     const result = await executeTaskListShow({}, stubContext);
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('Opened Tasks window (2 items)');
+    expect(result.content).toContain('Task queue (2 items)');
   });
 
   test('returns empty message when no work items', async () => {
     const result = await executeTaskListShow({}, stubContext);
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('no tasks queued');
+    expect(result.content).toContain('No tasks queued');
   });
 
   test('filters by status when status param is provided', async () => {
@@ -510,7 +510,7 @@ describe('task_list_add tool', () => {
     const listResult = await executeTaskListShow({}, stubContext);
 
     expect(listResult.isError).toBe(false);
-    expect(listResult.content).toContain('Opened Tasks window (1 item)');
+    expect(listResult.content).toContain('Task queue (1 item)');
   });
 
   test('applies optional overrides (title, notes, priority_tier)', async () => {

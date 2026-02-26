@@ -3,7 +3,6 @@ import SwiftUI
 import VellumAssistantShared
 
 /// iOS Tasks tab — lets users view, run, and monitor one-shot tasks.
-/// Mirrors macOS TasksWindowView adapted for iPhone navigation patterns.
 struct TasksView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @StateObject private var viewModel: TasksViewModel

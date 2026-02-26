@@ -181,11 +181,6 @@ export interface WorkItemCancelResponse {
   error?: string;
 }
 
-/** Server push — tells the client to open/focus the tasks window. */
-export interface OpenTasksWindow {
-  type: 'open_tasks_window';
-}
-
 /** Server push — lightweight invalidation signal: the task queue has been mutated, refetch your list. */
 export interface TasksChanged {
   type: 'tasks_changed';
@@ -240,5 +235,4 @@ export type _WorkItemsServerMessages =
   | WorkItemCancelResponse
   | WorkItemStatusChanged
   | TaskRunThreadCreated
-  | TasksChanged
-  | OpenTasksWindow;
+  | TasksChanged;

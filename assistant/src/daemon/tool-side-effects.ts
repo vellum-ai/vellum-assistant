@@ -74,11 +74,6 @@ registerHook('app_update', (_name, input, _result, { ctx, broadcastToAllClients 
   }
 });
 
-// Tell the client to open/focus the tasks window when the model lists tasks
-registerHook('task_list_show', (_name, _input, _result, { ctx }) => {
-  ctx.sendToClient({ type: 'open_tasks_window' });
-});
-
 // Broadcast tasks_changed so connected clients (e.g. macOS Tasks window)
 // auto-refresh when the LLM mutates the task queue via tools
 registerHook(
