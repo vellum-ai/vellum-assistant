@@ -1042,13 +1042,37 @@ export async function handleChannelInbound(
               guardianFollowUpConversationGenerator,
             );
 
-            // Apply the disposition to the follow-up state machine
+            // Apply the disposition to the follow-up state machine.
+            // Both progressFollowupState and finalizeFollowup are compare-and-set:
+            // they return null when the transition was not applied (e.g. a concurrent
+            // reply already advanced the state). In that case we notify the guardian
+            // that the request was already resolved and skip action execution.
+            let stateApplied = true;
             if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-              progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition);
+              stateApplied = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition) !== null;
             } else if (turnResult.disposition === 'decline') {
-              finalizeFollowup(followupRequest.id, 'declined');
+              stateApplied = finalizeFollowup(followupRequest.id, 'declined') !== null;
             }
             // keep_pending: no state change — guardian can reply again
+
+            if (!stateApplied) {
+              log.warn({ requestId: followupRequest.id, disposition: turnResult.disposition }, 'Follow-up state transition failed (already resolved)');
+              try {
+                await deliverChannelReply(replyCallbackUrl, {
+                  chatId: externalChatId,
+                  text: 'This follow-up has already been resolved.',
+                  assistantId,
+                }, bearerToken);
+              } catch (err) {
+                log.error({ err, externalChatId }, 'Failed to deliver stale follow-up notice');
+              }
+              return Response.json({
+                accepted: true,
+                duplicate: false,
+                eventId: result.eventId,
+                guardianFollowUp: 'stale_ignored',
+              });
+            }
 
             // Deliver the generated reply to the guardian
             try {

@@ -521,15 +521,28 @@ export async function processMessage(
         _guardianFollowUpGenerator,
       );
 
-      // Apply the disposition to the follow-up state machine
+      // Apply the disposition to the follow-up state machine.
+      // Both progressFollowupState and finalizeFollowup are compare-and-set:
+      // they return null when the transition was not applied (e.g. a concurrent
+      // reply already advanced the state). In that case we notify the guardian
+      // that the request was already resolved and skip action execution.
+      let stateApplied = true;
       if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-        progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition);
+        stateApplied = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition) !== null;
       } else if (turnResult.disposition === 'decline') {
-        finalizeFollowup(followupRequest.id, 'declined');
+        stateApplied = finalizeFollowup(followupRequest.id, 'declined') !== null;
       }
       // keep_pending: no state change — guardian can reply again
 
-      const replyMsg = createAssistantMessage(turnResult.replyText);
+      const replyText = stateApplied
+        ? turnResult.replyText
+        : 'This follow-up has already been resolved.';
+
+      if (!stateApplied) {
+        log.warn({ requestId: followupRequest.id, disposition: turnResult.disposition }, 'Follow-up state transition failed (already resolved)');
+      }
+
+      const replyMsg = createAssistantMessage(replyText);
       conversationStore.addMessage(
         session.conversationId,
         'assistant',
@@ -537,13 +550,13 @@ export async function processMessage(
         guardianChannelMeta,
       );
       session.messages.push(replyMsg);
-      onEvent({ type: 'assistant_text_delta', text: turnResult.replyText });
+      onEvent({ type: 'assistant_text_delta', text: replyText });
       onEvent({ type: 'message_complete', sessionId: session.conversationId });
 
       // Execute the action and send a completion/failure message (fire-and-forget).
       // The initial reply above acknowledges the guardian's choice; the executor
       // carries out the actual call_back or message_back and posts a second message.
-      if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
+      if (stateApplied && (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back')) {
         void (async () => {
           try {
             const execResult = await executeFollowupAction(
