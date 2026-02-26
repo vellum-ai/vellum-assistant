@@ -337,6 +337,7 @@ final class AssistantCli {
         var sshUser: String = ""
         var sshPrivateKey: String = ""
         var anthropicApiKey: String = ""
+        var customQRCodeImageData: Data = Data()
     }
 
     func runRemoteHatch(
@@ -414,22 +415,12 @@ final class AssistantCli {
                 env["VELLUM_AWS_ROLE_ARN"] = config.awsRoleArn
             }
         } else if cliRemote == "custom" {
-            if !config.sshHost.isEmpty {
-                let hostString = config.sshUser.isEmpty
-                    ? config.sshHost
-                    : "\(config.sshUser)@\(config.sshHost)"
-                env["VELLUM_CUSTOM_HOST"] = hostString
-            }
-            if !config.sshPrivateKey.isEmpty {
-                let tmpKeyPath = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("vellum-ssh-key-\(ProcessInfo.processInfo.processIdentifier)")
-                try config.sshPrivateKey.write(to: tmpKeyPath, atomically: true, encoding: .utf8)
-                tmpFilesToCleanup.append(tmpKeyPath)
-                try FileManager.default.setAttributes(
-                    [.posixPermissions: 0o600],
-                    ofItemAtPath: tmpKeyPath.path
-                )
-                env["VELLUM_SSH_KEY_PATH"] = tmpKeyPath.path
+            if !config.customQRCodeImageData.isEmpty {
+                let tmpQRPath = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("vellum-qr-code-\(ProcessInfo.processInfo.processIdentifier).png")
+                try config.customQRCodeImageData.write(to: tmpQRPath)
+                tmpFilesToCleanup.append(tmpQRPath)
+                env["VELLUM_CUSTOM_QR_CODE_PATH"] = tmpQRPath.path
             }
         }
 

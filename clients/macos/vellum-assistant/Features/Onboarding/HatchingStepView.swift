@@ -260,7 +260,8 @@ struct HatchingStepView: View {
             sshHost: state.sshHost,
             sshUser: state.sshUser,
             sshPrivateKey: state.sshPrivateKey,
-            anthropicApiKey: apiKey
+            anthropicApiKey: apiKey,
+            customQRCodeImageData: state.customQRCodeImageData
         )
 
         Task.detached { [config, selectedModel] in

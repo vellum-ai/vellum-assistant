@@ -1,7 +1,9 @@
-import { randomBytes } from "crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
-import { homedir, tmpdir, userInfo } from "os";
+import { createHash, randomBytes, randomUUID } from "crypto";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync } from "fs";
+import { hostname as osHostname, networkInterfaces, homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
+import QRCode from "qrcode";
+import qrcodeTerminal from "qrcode-terminal";
 
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
 import cliPkg from "../../package.json";
@@ -23,21 +25,12 @@ import { startLocalDaemon, startGateway, stopLocalProcesses } from "../lib/local
 import { isProcessAlive } from "../lib/process";
 import { generateRandomSuffix } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
-import { exec } from "../lib/step-runner";
 
 export type { PollResult, WatchHatchingResult } from "../lib/gcp";
 
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 
-// Embedded install script — bun --compile doesn't bundle non-JS assets,
-// so we inline it to ensure it's available in the compiled binary.
-import INSTALL_SCRIPT_CONTENT from "../adapters/install.sh" with { type: "text" };
 
-function resolveInstallScriptPath(): string {
-  const tmpPath = join(tmpdir(), `vellum-install-${process.pid}.sh`);
-  writeFileSync(tmpPath, INSTALL_SCRIPT_CONTENT, { mode: 0o755 });
-  return tmpPath;
-}
 const HATCH_TIMEOUT_MS: Record<Species, number> = {
   vellum: 2 * 60 * 1000,
   openclaw: 10 * 60 * 1000,
@@ -403,131 +396,103 @@ function watchHatchingDesktop(
   });
 }
 
-function buildSshArgs(host: string): string[] {
-  const args: string[] = [host];
-  const keyPath = process.env.VELLUM_SSH_KEY_PATH;
-  if (keyPath) {
-    args.push("-i", keyPath);
+
+function getLocalLanIp(): string {
+  const nets = networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] ?? []) {
+      if (net.family === "IPv4" && !net.internal) {
+        return net.address;
+      }
+    }
   }
-  args.push(
-    "-o", "StrictHostKeyChecking=no",
-    "-o", "UserKnownHostsFile=/dev/null",
-    "-o", "ConnectTimeout=10",
-    "-o", "LogLevel=ERROR",
-  );
-  return args;
+  return "127.0.0.1";
 }
 
-function buildScpArgs(keyPath?: string): string[] {
-  const args: string[] = [];
-  if (keyPath) {
-    args.push("-i", keyPath);
-  }
-  args.push(
-    "-o", "StrictHostKeyChecking=no",
-    "-o", "UserKnownHostsFile=/dev/null",
-    "-o", "LogLevel=ERROR",
-  );
-  return args;
-}
-
-function extractHostname(host: string): string {
-  return host.includes("@") ? host.split("@")[1] : host;
+function getMachineIdHash(): string {
+  const raw = osHostname() + userInfo().username;
+  return createHash("sha256").update(raw).digest("hex").substring(0, 12);
 }
 
 async function hatchCustom(
   species: Species,
-  detached: boolean,
+  _detached: boolean,
   name: string | null,
 ): Promise<void> {
-  const host = process.env.VELLUM_CUSTOM_HOST;
-  if (!host) {
-    console.error("Error: VELLUM_CUSTOM_HOST environment variable is required when using --remote custom (e.g., user@hostname)");
-    process.exit(1);
-  }
-
   try {
-    const hostname = extractHostname(host);
     const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
 
-    console.log(`🥚 Creating new assistant: ${instanceName}`);
+    console.log(`🥚 Hatching custom assistant: ${instanceName}`);
     console.log(`   Species: ${species}`);
     console.log(`   Cloud: Custom`);
-    console.log(`   Host: ${host}`);
     console.log("");
 
-    const sshUser = host.includes("@") ? host.split("@")[0] : userInfo().username;
-    const bearerToken = randomBytes(32).toString("hex");
-    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-    if (!anthropicApiKey) {
-      console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
-      process.exit(1);
-    }
+    // Run a local hatch (daemon + gateway)
+    await hatchLocal(species, instanceName);
 
-    const startupScript = await buildStartupScript(
-      species,
-      bearerToken,
-      sshUser,
-      anthropicApiKey,
-      instanceName,
-      "custom",
+    // Read the bearer token from the local data dir
+    const baseDataDir = join(
+      process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir),
+      ".vellum",
     );
-    const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
-    writeFileSync(startupScriptPath, startupScript);
-
-    const sshKeyPath = process.env.VELLUM_SSH_KEY_PATH;
-
-    const installScriptPath = resolveInstallScriptPath();
-
+    let bearerToken: string | undefined;
     try {
-      console.log("📋 Uploading install script to instance...");
-      await exec("scp", [
-        ...buildScpArgs(sshKeyPath),
-        installScriptPath,
-        `${host}:${INSTALL_SCRIPT_REMOTE_PATH}`,
-      ]);
-
-      console.log("📋 Uploading startup script to instance...");
-      const remoteStartupPath = `/tmp/${instanceName}-startup.sh`;
-      await exec("scp", [
-        ...buildScpArgs(sshKeyPath),
-        startupScriptPath,
-        `${host}:${remoteStartupPath}`,
-      ]);
-
-      console.log("🔨 Running startup script on instance...");
-      await exec("ssh", [
-        ...buildSshArgs(host),
-        `chmod +x ${remoteStartupPath} ${INSTALL_SCRIPT_REMOTE_PATH} && bash ${remoteStartupPath}`,
-      ]);
-    } finally {
-      try { unlinkSync(startupScriptPath); } catch {}
-      try { unlinkSync(installScriptPath); } catch {}
+      const token = readFileSync(join(baseDataDir, "http-token"), "utf-8").trim();
+      if (token) bearerToken = token;
+    } catch {
+      // Token file may not exist
     }
 
-    const runtimeUrl = `http://${hostname}:${GATEWAY_PORT}`;
-    const customEntry: AssistantEntry = {
-      assistantId: instanceName,
-      runtimeUrl,
-      bearerToken,
-      cloud: "custom",
-      species,
-      sshUser,
-      hatchedAt: new Date().toISOString(),
-    };
-    saveAssistantEntry(customEntry);
+    const lanIp = getLocalLanIp();
+    const gatewayUrl = `http://${lanIp}:${GATEWAY_PORT}`;
 
-    if (detached) {
-      console.log("");
-      console.log("✅ Assistant is hatching!\n");
-    } else {
-      console.log("");
-      console.log("✅ Assistant has been set up!");
+    // Register a pairing request with the local runtime
+    const pairingRequestId = randomUUID();
+    const pairingSecret = randomBytes(32).toString("hex");
+
+    const registerUrl = `http://127.0.0.1:${GATEWAY_PORT}/v1/pairing/register`;
+    const registerRes = await fetch(registerUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      },
+      body: JSON.stringify({ pairingRequestId, pairingSecret, gatewayUrl }),
+    });
+
+    if (!registerRes.ok) {
+      const body = await registerRes.text().catch(() => "");
+      throw new Error(`Failed to register pairing: HTTP ${registerRes.status}: ${body || registerRes.statusText}`);
     }
-    console.log("Instance details:");
-    console.log(`  Name: ${instanceName}`);
-    console.log(`  Host: ${host}`);
-    console.log(`  Runtime URL: ${runtimeUrl}`);
+
+    const payload = JSON.stringify({
+      type: "vellum-daemon",
+      v: 4,
+      id: getMachineIdHash(),
+      g: gatewayUrl,
+      pairingRequestId,
+      pairingSecret,
+      localLanUrl: `http://${lanIp}:7830`,
+    });
+
+    // Generate QR code in terminal
+    const qrString = await new Promise<string>((resolve) => {
+      qrcodeTerminal.generate(payload, { small: true }, (code: string) => {
+        resolve(code);
+      });
+    });
+
+    console.log("");
+    console.log("📱 Scan this QR code with the Vellum app to pair:\n");
+    console.log(qrString);
+    console.log("");
+
+    // Save QR code as PNG to tmp file
+    const qrPngPath = join(tmpdir(), `vellum-pairing-qr-${instanceName}.png`);
+    await QRCode.toFile(qrPngPath, payload, { type: "png", width: 400 });
+    console.log(`📄 QR code saved to: ${qrPngPath}`);
+    console.log("");
+    console.log("This pairing request expires in 5 minutes. Run 'vellum hatch --remote custom' again to generate a new one.");
     console.log("");
   } catch (error) {
     console.error("❌ Error:", error instanceof Error ? error.message : error);
