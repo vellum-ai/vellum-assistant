@@ -93,7 +93,7 @@ export async function handleTaskSubmit(
         conversationStore.addMessage(conversation.id, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         // Sync in-memory session if one exists for this conversation
         const startSession = ctx.sessions.get(conversation.id);
-        if (startSession) {
+        if (startSession && !startSession.isProcessing()) {
           startSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
           startSession.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
         }
@@ -118,7 +118,7 @@ export async function handleTaskSubmit(
         conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         const stopSession = ctx.sessions.get(activeSessionId);
-        if (stopSession) {
+        if (stopSession && !stopSession.isProcessing()) {
           stopSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
           stopSession.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
         }
@@ -141,7 +141,7 @@ export async function handleTaskSubmit(
         conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: restartResult.responseText }]));
         const restartSession = ctx.sessions.get(activeSessionId);
-        if (restartSession) {
+        if (restartSession && !restartSession.isProcessing()) {
           restartSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
           restartSession.messages.push({ role: 'assistant', content: [{ type: 'text', text: restartResult.responseText }] });
         }
@@ -165,7 +165,7 @@ export async function handleTaskSubmit(
         conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         const pauseSession = ctx.sessions.get(activeSessionId);
-        if (pauseSession) {
+        if (pauseSession && !pauseSession.isProcessing()) {
           pauseSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
           pauseSession.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
         }
@@ -189,7 +189,7 @@ export async function handleTaskSubmit(
         conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: responseText }]));
         const resumeSession = ctx.sessions.get(activeSessionId);
-        if (resumeSession) {
+        if (resumeSession && !resumeSession.isProcessing()) {
           resumeSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
           resumeSession.messages.push({ role: 'assistant', content: [{ type: 'text', text: responseText }] });
         }
@@ -228,7 +228,7 @@ export async function handleTaskSubmit(
         conversationStore.addMessage(conversation.id, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(conversation.id, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
         const startOnlySession = ctx.sessions.get(conversation.id);
-        if (startOnlySession) {
+        if (startOnlySession && !startOnlySession.isProcessing()) {
           startOnlySession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
           startOnlySession.messages.push({ role: 'assistant', content: [{ type: 'text', text: execResult.responseText! }] });
         }
@@ -263,7 +263,7 @@ export async function handleTaskSubmit(
         conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
         const stopOnlySession = ctx.sessions.get(activeSessionId);
-        if (stopOnlySession) {
+        if (stopOnlySession && !stopOnlySession.isProcessing()) {
           stopOnlySession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
           stopOnlySession.messages.push({ role: 'assistant', content: [{ type: 'text', text: execResult.responseText! }] });
         }
@@ -291,7 +291,7 @@ export async function handleTaskSubmit(
         conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
         const startStopOnlySession = ctx.sessions.get(activeSessionId);
-        if (startStopOnlySession) {
+        if (startStopOnlySession && !startStopOnlySession.isProcessing()) {
           startStopOnlySession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
           startStopOnlySession.messages.push({ role: 'assistant', content: [{ type: 'text', text: execResult.responseText! }] });
         }
@@ -320,7 +320,7 @@ export async function handleTaskSubmit(
         conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
         conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
         const handledSession = ctx.sessions.get(activeSessionId);
-        if (handledSession) {
+        if (handledSession && !handledSession.isProcessing()) {
           handledSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
           handledSession.messages.push({ role: 'assistant', content: [{ type: 'text', text: execResult.responseText! }] });
         }
@@ -392,7 +392,7 @@ export async function handleTaskSubmit(
               conversationStore.addMessage(activeSessionId, 'user', JSON.stringify([{ type: 'text', text: msg.task || '' }]));
               conversationStore.addMessage(activeSessionId, 'assistant', JSON.stringify([{ type: 'text', text: execResult.responseText! }]));
               const fallbackSession = ctx.sessions.get(activeSessionId);
-              if (fallbackSession) {
+              if (fallbackSession && !fallbackSession.isProcessing()) {
                 fallbackSession.messages.push({ role: 'user', content: [{ type: 'text', text: msg.task || '' }] });
                 fallbackSession.messages.push({ role: 'assistant', content: [{ type: 'text', text: execResult.responseText! }] });
               }
