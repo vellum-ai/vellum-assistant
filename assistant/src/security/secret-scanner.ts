@@ -609,6 +609,10 @@ function scanEncoded(
       pattern.regex.lastIndex = 0;
       let pm: RegExpExecArray | null;
       while ((pm = pattern.regex.exec(decoded)) != null) {
+        if (pm[0].length === 0) {
+          pattern.regex.lastIndex++;
+          continue;
+        }
         const value = pm[1] ?? pm[0];
         if (isPlaceholder(value)) continue;
         if (isAllowlisted(value)) continue;
@@ -742,6 +746,11 @@ export function scanText(
     pattern.regex.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = pattern.regex.exec(text)) != null) {
+      // Prevent infinite loops from zero-length matches (e.g. lookaheads, \b)
+      if (m[0].length === 0) {
+        pattern.regex.lastIndex++;
+        continue;
+      }
       // Use first capturing group if present, otherwise full match
       const value = m[1] ?? m[0];
       const startIndex = m.index + (m[0].indexOf(value));
