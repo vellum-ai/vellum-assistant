@@ -374,6 +374,7 @@ function main() {
   }
 
   const telegramFromEnv = isTelegramConfigured();
+  const slackFromEnv = !!(config.slackChannelBotToken && config.slackChannelAppToken);
 
   const credentialWatcher = new CredentialWatcher((event) => {
     if (event.telegramChanged && !telegramFromEnv) {
@@ -420,7 +421,7 @@ function main() {
       }
     }
 
-    if (event.slackChannelChanged) {
+    if (event.slackChannelChanged && !slackFromEnv) {
       if (event.slackChannelCredentials) {
         config.slackChannelBotToken = event.slackChannelCredentials.botToken;
         config.slackChannelAppToken = event.slackChannelCredentials.appToken;
