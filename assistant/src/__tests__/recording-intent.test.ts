@@ -390,6 +390,35 @@ describe('resolveRecordingIntent', () => {
       const result = resolveRecordingIntent('stop recording and start a new one');
       expect(result.kind).toBe('restart_only');
     });
+
+    test('"stop recording and start a new recording" → restart_only', () => {
+      expect(resolveRecordingIntent('stop recording and start a new recording')).toEqual({ kind: 'restart_only' });
+    });
+
+    test('"stop the recording and start another recording" → restart_only', () => {
+      expect(resolveRecordingIntent('stop the recording and start another recording')).toEqual({ kind: 'restart_only' });
+    });
+
+    // False positive guards: "start another/new <non-recording>" should NOT trigger restart
+    test('"stop recording and start another tab" should NOT trigger restart', () => {
+      const result = resolveRecordingIntent('stop recording and start another tab');
+      expect(result.kind).toBe('stop_with_remainder');
+    });
+
+    test('"stop recording and start another window" should NOT trigger restart', () => {
+      const result = resolveRecordingIntent('stop recording and start another window');
+      expect(result.kind).toBe('stop_with_remainder');
+    });
+
+    test('"stop recording and start a new project" should NOT trigger restart', () => {
+      const result = resolveRecordingIntent('stop recording and start a new project');
+      expect(result.kind).toBe('stop_with_remainder');
+    });
+
+    test('"stop the recording and begin a fresh session" should NOT trigger restart', () => {
+      const result = resolveRecordingIntent('stop the recording and begin a fresh session');
+      expect(result.kind).toBe('stop_with_remainder');
+    });
   });
 
   // ── Pause detection ───────────────────────────────────────────────────────

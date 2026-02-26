@@ -48,10 +48,11 @@ const STOP_RECORDING_PATTERNS: RegExp[] = [
 const RESTART_RECORDING_PATTERNS: RegExp[] = [
   /\brestart\s+(the\s+)?recording\b/i,
   /\bredo\s+(the\s+)?recording\b/i,
-  /\bstop\s+(the\s+)?recording\s+and\s+(start|begin)\s+(a\s+)?(new|fresh|another)\b/i,
-  /\bstop\s+(the\s+)?recording\s+and\s+(start|begin)\s+(a\s+)?new\s+one\b/i,
+  /\bstop\s+(the\s+)?recording\s+and\s+(start|begin)\s+(a\s+)?(new|fresh|another)\s+(recording|one)\b/i,
+  /\bstop\s+(the\s+)?recording\s+and\s+(start|begin)\s+(a\s+)?(new|fresh|another)\s*$/i,
   /\bstop\s+and\s+restart\s+(the\s+)?recording\b/i,
-  /\bstop\s+recording\s+and\s+start\s+(a\s+)?(new|another|fresh)\s+(one\s*)?/i,
+  /\bstop\s+recording\s+and\s+start\s+(a\s+)?(new|another|fresh)\s+(recording|one)\b/i,
+  /\bstop\s+recording\s+and\s+start\s+(a\s+)?(new|another|fresh)\s*$/i,
 ];
 
 // ─── Pause/resume recording patterns ────────────────────────────────────────
@@ -91,9 +92,11 @@ const RECORDING_CLAUSE_PATTERNS: RegExp[] = [
 
 const RESTART_RECORDING_CLAUSE_PATTERNS: RegExp[] = [
   // Longer compound patterns first — avoids partial matches by shorter patterns
-  /\bstop\s+(the\s+)?recording\s+and\s+(start|begin)\s+(a\s+)?(new|fresh|another)\b(\s+one)?/i,
+  /\bstop\s+(the\s+)?recording\s+and\s+(start|begin)\s+(a\s+)?(new|fresh|another)\s+(recording|one)\b/i,
+  /\bstop\s+(the\s+)?recording\s+and\s+(start|begin)\s+(a\s+)?(new|fresh|another)\s*$/i,
   /\bstop\s+and\s+restart\s+(the\s+)?recording\b/i,
-  /\bstop\s+recording\s+and\s+start\s+(a\s+)?(new|another|fresh)\s+(one\s*)?/i,
+  /\bstop\s+recording\s+and\s+start\s+(a\s+)?(new|another|fresh)\s+(recording|one)\b/i,
+  /\bstop\s+recording\s+and\s+start\s+(a\s+)?(new|another|fresh)\s*$/i,
   /\b(and\s+)?(also\s+)?restart\s+(the\s+)?recording\b/i,
   /\b(and\s+)?(also\s+)?redo\s+(the\s+)?recording\b/i,
 ];
