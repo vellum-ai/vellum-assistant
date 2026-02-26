@@ -18,7 +18,6 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { enforceRoutingIntent } from '../notifications/decision-engine.js';
-import type { RoutingIntent } from '../notifications/signal.js';
 import type { NotificationChannel, NotificationDecision } from '../notifications/types.js';
 
 // -- Helpers -----------------------------------------------------------------

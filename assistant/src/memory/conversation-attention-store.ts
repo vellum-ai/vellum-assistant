@@ -13,7 +13,7 @@ import { getLogger } from '../util/logger.js';
 import { getDb } from './db.js';
 import { conversationAssistantAttentionState, conversationAttentionEvents, conversations, messages } from './schema.js';
 
-const log = getLogger('conversation-attention-store');
+const _log = getLogger('conversation-attention-store');
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -138,7 +138,7 @@ export function projectAssistantMessage(params: {
   }
 
   // Monotonic: only advance if the new message is strictly later
-  if (existing.latestAssistantMessageAt !== null && messageAt <= existing.latestAssistantMessageAt) {
+  if (existing.latestAssistantMessageAt != null && messageAt <= existing.latestAssistantMessageAt) {
     return;
   }
 
@@ -251,8 +251,8 @@ export function recordConversationSeenSignal(params: {
     // Only advance the seen cursor if there is a latest assistant message to mark as seen,
     // and the seen cursor hasn't already reached or passed it (monotonic invariant).
     const shouldAdvanceSeen =
-      state.latestAssistantMessageAt !== null &&
-      (state.lastSeenAssistantMessageAt === null ||
+      state.latestAssistantMessageAt != null &&
+      (state.lastSeenAssistantMessageAt == null ||
         state.latestAssistantMessageAt > state.lastSeenAssistantMessageAt);
 
     // Guard seen metadata monotonicity: only update lastSeen* metadata when the
@@ -260,7 +260,7 @@ export function recordConversationSeenSignal(params: {
     // Out-of-order delivery (e.g. delayed channel callbacks) must not regress
     // the projected channel/source/confidence metadata.
     const isNewerSignal =
-      state.lastSeenEventAt === null || eventObservedAt >= state.lastSeenEventAt;
+      state.lastSeenEventAt == null || eventObservedAt >= state.lastSeenEventAt;
 
     const updates: Record<string, unknown> = {
       updatedAt: now,

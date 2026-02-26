@@ -1,7 +1,5 @@
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
-import type { PolicyContext } from '../permissions/types.js';
-import { RiskLevel } from '../permissions/types.js';
 import type { ToolExecutionResult, ToolLifecycleEvent, ToolPermissionDeniedEvent } from '../tools/types.js';
 
 // ── Module mocks (must precede real imports) ─────────────────────────

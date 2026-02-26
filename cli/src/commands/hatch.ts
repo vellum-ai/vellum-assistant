@@ -1,6 +1,5 @@
-import { randomBytes } from "crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
-import { homedir, tmpdir, userInfo } from "os";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync } from "fs";
+import { homedir, userInfo } from "os";
 import { join } from "path";
 
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
@@ -11,7 +10,6 @@ import { loadAllAssistants, saveAssistantEntry } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { hatchAws } from "../lib/aws";
 import {
-  GATEWAY_PORT,
   SPECIES_CONFIG,
   VALID_REMOTE_HOSTS,
   VALID_SPECIES,
@@ -23,21 +21,12 @@ import { startLocalDaemon, startGateway, stopLocalProcesses } from "../lib/local
 import { isProcessAlive } from "../lib/process";
 import { generateRandomSuffix } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
-import { exec } from "../lib/step-runner";
 
 export type { PollResult, WatchHatchingResult } from "../lib/gcp";
 
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 
-// Embedded install script — bun --compile doesn't bundle non-JS assets,
-// so we inline it to ensure it's available in the compiled binary.
-import INSTALL_SCRIPT_CONTENT from "../adapters/install.sh" with { type: "text" };
 
-function resolveInstallScriptPath(): string {
-  const tmpPath = join(tmpdir(), `vellum-install-${process.pid}.sh`);
-  writeFileSync(tmpPath, INSTALL_SCRIPT_CONTENT, { mode: 0o755 });
-  return tmpPath;
-}
 const HATCH_TIMEOUT_MS: Record<Species, number> = {
   vellum: 2 * 60 * 1000,
   openclaw: 10 * 60 * 1000,
@@ -403,138 +392,6 @@ function watchHatchingDesktop(
   });
 }
 
-function buildSshArgs(host: string): string[] {
-  const args: string[] = [host];
-  const keyPath = process.env.VELLUM_SSH_KEY_PATH;
-  if (keyPath) {
-    args.push("-i", keyPath);
-  }
-  args.push(
-    "-o", "StrictHostKeyChecking=no",
-    "-o", "UserKnownHostsFile=/dev/null",
-    "-o", "ConnectTimeout=10",
-    "-o", "LogLevel=ERROR",
-  );
-  return args;
-}
-
-function buildScpArgs(keyPath?: string): string[] {
-  const args: string[] = [];
-  if (keyPath) {
-    args.push("-i", keyPath);
-  }
-  args.push(
-    "-o", "StrictHostKeyChecking=no",
-    "-o", "UserKnownHostsFile=/dev/null",
-    "-o", "LogLevel=ERROR",
-  );
-  return args;
-}
-
-function extractHostname(host: string): string {
-  return host.includes("@") ? host.split("@")[1] : host;
-}
-
-async function hatchCustom(
-  species: Species,
-  detached: boolean,
-  name: string | null,
-): Promise<void> {
-  const host = process.env.VELLUM_CUSTOM_HOST;
-  if (!host) {
-    console.error("Error: VELLUM_CUSTOM_HOST environment variable is required when using --remote custom (e.g., user@hostname)");
-    process.exit(1);
-  }
-
-  try {
-    const hostname = extractHostname(host);
-    const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
-
-    console.log(`🥚 Creating new assistant: ${instanceName}`);
-    console.log(`   Species: ${species}`);
-    console.log(`   Cloud: Custom`);
-    console.log(`   Host: ${host}`);
-    console.log("");
-
-    const sshUser = host.includes("@") ? host.split("@")[0] : userInfo().username;
-    const bearerToken = randomBytes(32).toString("hex");
-    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-    if (!anthropicApiKey) {
-      console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
-      process.exit(1);
-    }
-
-    const startupScript = await buildStartupScript(
-      species,
-      bearerToken,
-      sshUser,
-      anthropicApiKey,
-      instanceName,
-      "custom",
-    );
-    const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
-    writeFileSync(startupScriptPath, startupScript);
-
-    const sshKeyPath = process.env.VELLUM_SSH_KEY_PATH;
-
-    const installScriptPath = resolveInstallScriptPath();
-
-    try {
-      console.log("📋 Uploading install script to instance...");
-      await exec("scp", [
-        ...buildScpArgs(sshKeyPath),
-        installScriptPath,
-        `${host}:${INSTALL_SCRIPT_REMOTE_PATH}`,
-      ]);
-
-      console.log("📋 Uploading startup script to instance...");
-      const remoteStartupPath = `/tmp/${instanceName}-startup.sh`;
-      await exec("scp", [
-        ...buildScpArgs(sshKeyPath),
-        startupScriptPath,
-        `${host}:${remoteStartupPath}`,
-      ]);
-
-      console.log("🔨 Running startup script on instance...");
-      await exec("ssh", [
-        ...buildSshArgs(host),
-        `chmod +x ${remoteStartupPath} ${INSTALL_SCRIPT_REMOTE_PATH} && bash ${remoteStartupPath}`,
-      ]);
-    } finally {
-      try { unlinkSync(startupScriptPath); } catch {}
-      try { unlinkSync(installScriptPath); } catch {}
-    }
-
-    const runtimeUrl = `http://${hostname}:${GATEWAY_PORT}`;
-    const customEntry: AssistantEntry = {
-      assistantId: instanceName,
-      runtimeUrl,
-      bearerToken,
-      cloud: "custom",
-      species,
-      sshUser,
-      hatchedAt: new Date().toISOString(),
-    };
-    saveAssistantEntry(customEntry);
-
-    if (detached) {
-      console.log("");
-      console.log("✅ Assistant is hatching!\n");
-    } else {
-      console.log("");
-      console.log("✅ Assistant has been set up!");
-    }
-    console.log("Instance details:");
-    console.log(`  Name: ${instanceName}`);
-    console.log(`  Host: ${host}`);
-    console.log(`  Runtime URL: ${runtimeUrl}`);
-    console.log("");
-  } catch (error) {
-    console.error("❌ Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
-  }
-}
-
 function installCLISymlink(): void {
   const cliBinary = process.execPath;
   if (!cliBinary || !existsSync(cliBinary)) return;
@@ -662,11 +519,6 @@ export async function hatch(): Promise<void> {
 
   if (remote === "gcp") {
     await hatchGcp(species, detached, name, buildStartupScript, watchHatching);
-    return;
-  }
-
-  if (remote === "custom") {
-    await hatchCustom(species, detached, name);
     return;
   }
 

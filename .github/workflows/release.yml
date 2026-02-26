@@ -593,6 +593,7 @@ jobs:
 
   release:
     needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image]
+    if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App token

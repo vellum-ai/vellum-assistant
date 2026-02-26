@@ -14,6 +14,7 @@ import { contacts } from "./commands/contacts";
 import { email } from "./commands/email";
 import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
+import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
 import { retire } from "./commands/retire";
@@ -30,6 +31,7 @@ const commands = {
   email,
   hatch,
   login,
+  pair,
   logout,
   ps,
   recover,
@@ -88,6 +90,7 @@ async function main() {
     console.log("  contacts Manage the contact graph");
     console.log("  email    Email operations (status, create inbox)");
     console.log("  hatch    Create a new assistant instance");
+    console.log("  pair     Pair with a remote assistant via QR code");
     console.log("  login    Log in to the Vellum platform");
     console.log("  logout   Log out of the Vellum platform");
     console.log("  ps       List assistants (or processes for a specific assistant)");

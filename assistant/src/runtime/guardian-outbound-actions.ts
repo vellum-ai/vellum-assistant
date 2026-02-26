@@ -7,8 +7,16 @@
  * IPC handler (config-channels.ts) and the HTTP route layer (integration-routes.ts).
  */
 
-import { randomBytes, createHash } from 'node:crypto';
+import { createHash,randomBytes } from 'node:crypto';
 
+import { startGuardianVerificationCall } from '../calls/call-domain.js';
+import type { ChannelId } from '../channels/types.js';
+import { getGatewayInternalBaseUrl } from '../config/env.js';
+import { sendMessage as sendSms } from '../messaging/providers/sms/client.js';
+import { getCredentialMetadata } from '../tools/credentials/metadata-store.js';
+import { getLogger } from '../util/logger.js';
+import { normalizePhoneNumber } from '../util/phone.js';
+import { normalizeAssistantId, readHttpToken } from '../util/platform.js';
 import {
   countRecentSendsToDestination,
   createOutboundSession,
@@ -22,14 +30,6 @@ import {
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from './guardian-verification-templates.js';
-import { startGuardianVerificationCall } from '../calls/call-domain.js';
-import { sendMessage as sendSms } from '../messaging/providers/sms/client.js';
-import { getGatewayInternalBaseUrl } from '../config/env.js';
-import { getCredentialMetadata } from '../tools/credentials/metadata-store.js';
-import { normalizePhoneNumber } from '../util/phone.js';
-import { normalizeAssistantId, readHttpToken } from '../util/platform.js';
-import { getLogger } from '../util/logger.js';
-import type { ChannelId } from '../channels/types.js';
 
 const log = getLogger('guardian-outbound-actions');
 

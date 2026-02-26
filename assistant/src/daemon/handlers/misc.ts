@@ -22,8 +22,8 @@ import type {
   TaskSubmit,
 } from '../ipc-protocol.js';
 import { executeRecordingIntent } from '../recording-executor.js';
-import { classifyRecordingIntentFallback, containsRecordingKeywords } from '../recording-intent-fallback.js';
 import { resolveRecordingIntent } from '../recording-intent.js';
+import { classifyRecordingIntentFallback, containsRecordingKeywords } from '../recording-intent-fallback.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { handleCuSessionCreate } from './computer-use.js';
 import { handleRecordingPause, handleRecordingRestart, handleRecordingResume, handleRecordingStart, handleRecordingStop, isRecordingIdle } from './recording.js';

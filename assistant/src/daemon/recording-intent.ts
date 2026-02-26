@@ -383,7 +383,7 @@ function isInterrogative(text: string, dynamicNames?: string[]): boolean {
  * If `dynamicNames` are provided, they are stripped from the beginning of the
  * text before classification (e.g., "Nova, record my screen" -> "record my screen").
  */
-function classifyRecordingIntent(
+function _classifyRecordingIntent(
   taskText: string,
   dynamicNames?: string[],
 ): RecordingIntentClass {

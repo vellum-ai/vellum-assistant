@@ -1,5 +1,5 @@
 # Use debian as base image
-FROM us-central1-docker.pkg.dev/code-executor-service/base-images/debian:bookworm@sha256:940221f8c2564efc4e7909caba7014dc8bcba7f05b7881eb2b557b4058c41269 AS builder
+FROM debian:bookworm AS builder
 
 WORKDIR /app
 
@@ -89,7 +89,7 @@ RUN echo 'Dir::State "/data/dpkg";' > /etc/apt/apt.conf.d/99data-dir && \
 ENV PATH="/data/usr/bin:/data/usr/sbin:${PATH}"
 ENV LD_LIBRARY_PATH="/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
 
-USER assistant
+USER root
 
 EXPOSE 3001
 

@@ -2,7 +2,7 @@ import { createConversation } from '../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { invalidateAssistantInferredItemsForConversation } from '../memory/task-memory-cleanup.js';
 import { runSequencesOnce } from '../sequence/engine.js';
-import { claimDueReminders, completeReminder, failReminder, setReminderConversationId, type RoutingIntent } from '../tools/reminder/reminder-store.js';
+import { claimDueReminders, completeReminder, failReminder, type RoutingIntent,setReminderConversationId } from '../tools/reminder/reminder-store.js';
 import { getLogger } from '../util/logger.js';
 import { runWatchersOnce, type WatcherEscalator,type WatcherNotifier } from '../watcher/engine.js';
 import { hasSetConstructs } from './recurrence-engine.js';

@@ -1,22 +1,22 @@
 import * as net from 'node:net';
 
+import type { ChannelId } from '../../channels/types.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import {
   createVerificationChallenge,
+  findActiveSession,
   getGuardianBinding,
   getPendingChallenge,
   revokeBinding as revokeGuardianBinding,
   revokePendingChallenges,
-  findActiveSession,
 } from '../../runtime/channel-guardian-service.js';
 import { type ChannelReadinessService, createReadinessService } from '../../runtime/channel-readiness-service.js';
 import {
-  startOutbound,
-  resendOutbound,
   cancelOutbound,
+  resendOutbound,
+  startOutbound,
 } from '../../runtime/guardian-outbound-actions.js';
 import { normalizeAssistantId } from '../../util/platform.js';
-import type { ChannelId } from '../../channels/types.js';
 import type {
   ChannelReadinessRequest,
   GuardianVerificationRequest,
@@ -34,10 +34,10 @@ export type GuardianVerificationResult = Omit<GuardianVerificationResponse, 'typ
 // ---------------------------------------------------------------------------
 
 export {
+  DESTINATION_RATE_WINDOW_MS,
+  MAX_SENDS_PER_DESTINATION_WINDOW,
   MAX_SENDS_PER_SESSION,
   RESEND_COOLDOWN_MS,
-  MAX_SENDS_PER_DESTINATION_WINDOW,
-  DESTINATION_RATE_WINDOW_MS,
 } from '../../runtime/guardian-outbound-actions.js';
 
 // ---------------------------------------------------------------------------

@@ -32,7 +32,6 @@ mock.module('../util/logger.js', () => ({
 import {
   classifyRecordingIntentFallback,
   containsRecordingKeywords,
-  type RecordingFallbackResult,
 } from '../daemon/recording-intent-fallback.js';
 
 beforeEach(() => {
