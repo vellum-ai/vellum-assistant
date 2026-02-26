@@ -30,7 +30,6 @@ const ALLOWLIST = new Set([
 
   // --- Documentation and comments that mention the port for explanatory purposes ---
   'AGENTS.md', // documents the gateway-only rule itself
-  'assistant/src/runtime/middleware/twilio-validation.ts', // comment explaining proxy URL rewriting
 ]);
 
 /** Patterns that indicate a direct runtime URL reference. */
