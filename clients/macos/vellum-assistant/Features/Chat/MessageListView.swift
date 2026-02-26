@@ -65,15 +65,21 @@ struct MessageListView: View {
         return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
-    private func shouldShowTimestamp(at index: Int, in list: [ChatMessage]) -> Bool {
-        if index == 0 { return true }
-        let current = list[index].timestamp
-        let previous = list[index - 1].timestamp
+    /// Pre-compute which message indices should show a timestamp divider.
+    /// Avoids creating a Calendar instance per-message inside the ForEach body.
+    private func timestampIndices(for list: [ChatMessage]) -> Set<Int> {
+        guard !list.isEmpty else { return [] }
+        var result: Set<Int> = [0]
         var calendar = Calendar.current
         calendar.timeZone = ChatTimestampTimeZone.resolve()
-        if !calendar.isDate(current, inSameDayAs: previous) { return true }
-        let gap = current.timeIntervalSince(previous)
-        return gap > 300
+        for i in 1..<list.count {
+            let current = list[i].timestamp
+            let previous = list[i - 1].timestamp
+            if !calendar.isDate(current, inSameDayAs: previous) || current.timeIntervalSince(previous) > 300 {
+                result.insert(i)
+            }
+        }
+        return result
     }
 
     private func modelPickerView(for message: ChatMessage) -> some View {
@@ -126,8 +132,13 @@ struct MessageListView: View {
 
                     let displayMessages = visibleMessages
                     let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
-                    ForEach(Array(displayMessages.enumerated()), id: \.element.id) { index, message in
-                        if shouldShowTimestamp(at: index, in: displayMessages) {
+                    let latestAssistantId = displayMessages.last(where: { $0.role == .assistant })?.id
+                    // Pre-compute subagent lookup to avoid O(n*m) filtering inside ForEach
+                    let subagentsByParent: [UUID: [SubagentInfo]] = Dictionary(grouping: activeSubagents.filter { $0.parentMessageId != nil }, by: { $0.parentMessageId! })
+                    let orphanSubagents = activeSubagents.filter { $0.parentMessageId == nil }
+                    let showTimestamp = timestampIndices(for: displayMessages)
+                    ForEach(Array(zip(displayMessages.indices, displayMessages)), id: \.1.id) { index, message in
+                        if showTimestamp.contains(index) {
                             TimestampDivider(date: message.timestamp)
                         }
 
@@ -141,7 +152,7 @@ struct MessageListView: View {
                                     onAlwaysAllow: onAlwaysAllow
                                 )
                                 .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .transition(.opacity)
                             } else {
                                 let hasPrecedingAssistant: Bool = {
                                     guard index > 0 else { return false }
@@ -156,21 +167,21 @@ struct MessageListView: View {
                                         onAlwaysAllow: onAlwaysAllow
                                     )
                                     .id(message.id)
-                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                    .transition(.opacity)
                                 }
                             }
                         } else if message.modelPicker != nil {
                             modelPickerView(for: message)
                                 .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .transition(.opacity)
                         } else if message.modelList != nil {
                             modelListView(for: message)
                                 .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .transition(.opacity)
                         } else if message.commandList != nil {
                             CommandListBubble()
                                 .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .transition(.opacity)
                         } else {
                             let nextIsPendingConfirmation = index + 1 < displayMessages.count
                                 && displayMessages[index + 1].confirmation?.state == .pending
@@ -197,14 +208,14 @@ struct MessageListView: View {
                                 mediaEmbedSettings: mediaEmbedSettings,
                                 daemonHttpPort: daemonHttpPort,
                                 showAvatar: !previousIsAssistant,
-                                isLatestAssistantMessage: message.role == .assistant && displayMessages.last(where: { $0.role == .assistant })?.id == message.id,
+                                isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                                 activeSurfaceId: activeSurfaceId
                             )
                                 .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .transition(.opacity)
                         }
 
-                        ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
+                        ForEach(subagentsByParent[message.id] ?? []) { subagent in
                             SubagentThreadView(
                                 subagent: subagent,
                                 events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
@@ -214,11 +225,11 @@ struct MessageListView: View {
                                 .frame(maxWidth: 520, alignment: .leading)
                                 .padding(.leading, 36)
                                 .id("subagent-\(subagent.id)")
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .transition(.opacity)
                         }
                     }
 
-                    ForEach(activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
+                    ForEach(orphanSubagents) { subagent in
                         SubagentThreadView(
                             subagent: subagent,
                             events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],

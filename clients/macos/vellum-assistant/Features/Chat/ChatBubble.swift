@@ -182,10 +182,11 @@ struct ChatBubble: View {
                             .animation(VAnimation.fast, value: showOverflowMenu)
                     }
                 }
-                // Prevent LazyVStack from compressing the bubble height, which causes the
-                // trailing tool-chip to overlap long text content.
-                .fixedSize(horizontal: false, vertical: true)
-                .contextMenu {}
+                // Give this content priority so LazyVStack doesn't compress it,
+                // which caused trailing tool chips to overlap long text content.
+                // Uses layoutPriority instead of fixedSize to avoid forcing
+                // full height measurement during lazy placement.
+                .layoutPriority(1)
                 .overlay(alignment: .topLeading) {
                     if !isUser && showAvatar {
                         Image(nsImage: appearance.chatAvatarImage)

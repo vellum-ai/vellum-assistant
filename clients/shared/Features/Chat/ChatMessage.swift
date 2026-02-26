@@ -1308,7 +1308,24 @@ public enum ContentBlockRef: Equatable {
     case surface(Int)
 }
 
-public struct ChatMessage: Identifiable {
+public struct ChatMessage: Identifiable, Equatable {
+    // Explicit Equatable: compare only fields that affect rendering.
+    // Avoids expensive byte-by-byte comparison of attachment data,
+    // image payloads, and surface HTML that don't change the UI.
+    public static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
+        lhs.id == rhs.id
+        && lhs.role == rhs.role
+        && lhs.textSegments == rhs.textSegments
+        && lhs.isStreaming == rhs.isStreaming
+        && lhs.status == rhs.status
+        && lhs.isError == rhs.isError
+        && lhs.toolCalls.count == rhs.toolCalls.count
+        && lhs.attachments.count == rhs.attachments.count
+        && lhs.inlineSurfaces.count == rhs.inlineSurfaces.count
+        && lhs.confirmation?.state == rhs.confirmation?.state
+        && lhs.isSubagentNotification == rhs.isSubagentNotification
+        && lhs.streamingCodePreview == rhs.streamingCodePreview
+    }
     public let id: UUID
     public let role: ChatRole
     public var textSegments: [String]
