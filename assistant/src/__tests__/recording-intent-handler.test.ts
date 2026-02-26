@@ -1,7 +1,7 @@
 
 import * as net from 'node:net';
 
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 // ─── Mocks (must be before any imports that depend on them) ─────────────────
 
@@ -13,6 +13,8 @@ const noopLogger = {
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => noopLogger,
+  isDebug: () => false,
+  truncateForLog: (v: string) => v,
 }));
 
 mock.module('../config/loader.js', () => ({
@@ -54,6 +56,14 @@ mock.module('../daemon/identity-helpers.js', () => ({
 }));
 
 // ── Mock recording-intent — we control the resolution result ───────────────
+//
+// Bun's mock.module() is global and persists across test files in the same
+// process (no per-file isolation). To prevent this mock from breaking
+// recording-intent.test.ts (which tests the REAL resolveRecordingIntent),
+// we capture real function references before mocking and use a globalThis
+// flag to conditionally delegate to them. The flag is only true while this
+// file's tests are running; after this file completes (afterAll), the mock
+// transparently delegates to the real implementation.
 
 type RecordingIntentResult =
   | { kind: 'none' }
@@ -70,12 +80,35 @@ type RecordingIntentResult =
 
 let mockIntentResult: RecordingIntentResult = { kind: 'none' };
 
+// Capture real function references BEFORE mock.module replaces the module.
+// require() at this point returns the real module since mock.module has not
+// been called yet for this specifier.
+const _realRecordingIntentMod = require('../daemon/recording-intent.js');
+const _realResolveRecordingIntent = _realRecordingIntentMod.resolveRecordingIntent;
+const _realStripDynamicNames = _realRecordingIntentMod.stripDynamicNames;
+
+// Flag: when true, the mock returns controlled test values; when false, it
+// delegates to the real implementation. Starts false so that if the mock
+// bleeds to other test files, those files get the real behavior.
+(globalThis as any).__riHandlerUseMockIntent = false;
+
 mock.module('../daemon/recording-intent.js', () => ({
-  resolveRecordingIntent: () => mockIntentResult,
-  stripDynamicNames: (t: string) => t,
+  resolveRecordingIntent: (...args: any[]) => {
+    if ((globalThis as any).__riHandlerUseMockIntent) return mockIntentResult;
+    return _realResolveRecordingIntent(...args);
+  },
+  stripDynamicNames: (...args: any[]) => {
+    if ((globalThis as any).__riHandlerUseMockIntent) return args[0];
+    return _realStripDynamicNames(...args);
+  },
 }));
 
 // ── Mock recording-executor — we control the execution output ──────────────
+//
+// Same transparent-mock pattern as recording-intent above. We try to capture
+// the real exports before mocking; if the require fails (e.g., due to missing
+// transitive dependencies when this file runs in isolation), we fall back to
+// the controlled mock since the real module is not needed in that scenario.
 
 interface RecordingExecutionOutput {
   handled: boolean;
@@ -90,14 +123,33 @@ interface RecordingExecutionOutput {
 let mockExecuteResult: RecordingExecutionOutput = { handled: false };
 let executorCalled = false;
 
+let _realExecuteRecordingIntent: ((...args: any[]) => any) | null = null;
+try {
+  const _mod = require('../daemon/recording-executor.js');
+  _realExecuteRecordingIntent = _mod.executeRecordingIntent;
+} catch {
+  // Transitive dependency loading may fail when this file runs alone;
+  // the controlled mock will be used exclusively in that case.
+}
+
 mock.module('../daemon/recording-executor.js', () => ({
-  executeRecordingIntent: () => {
-    executorCalled = true;
-    return mockExecuteResult;
+  executeRecordingIntent: (...args: any[]) => {
+    if ((globalThis as any).__riHandlerUseMockIntent) {
+      executorCalled = true;
+      return mockExecuteResult;
+    }
+    if (_realExecuteRecordingIntent) return _realExecuteRecordingIntent(...args);
+    // Fallback if real function was not captured
+    return { handled: false };
   },
 }));
 
 // ── Mock recording handlers ────────────────────────────────────────────────
+//
+// Same transparent-mock pattern. The intent test file re-mocks this module
+// inside its own describe block, which will override this mock for those tests.
+// The transparent fallback here ensures that if a third test file imports
+// handlers/recording.js, it gets the real behavior.
 
 let recordingStartCalled = false;
 let recordingStopCalled = false;
@@ -105,30 +157,74 @@ let recordingRestartCalled = false;
 let recordingPauseCalled = false;
 let recordingResumeCalled = false;
 
+let _realHandleRecordingStart: ((...args: any[]) => any) | null = null;
+let _realHandleRecordingStop: ((...args: any[]) => any) | null = null;
+let _realHandleRecordingRestart: ((...args: any[]) => any) | null = null;
+let _realHandleRecordingPause: ((...args: any[]) => any) | null = null;
+let _realHandleRecordingResume: ((...args: any[]) => any) | null = null;
+let _realIsRecordingIdle: ((...args: any[]) => any) | null = null;
+let _realRecordingHandlers: any = {};
+let _realResetRecordingState: ((...args: any[]) => any) | null = null;
+
+try {
+  const _mod = require('../daemon/handlers/recording.js');
+  _realHandleRecordingStart = _mod.handleRecordingStart;
+  _realHandleRecordingStop = _mod.handleRecordingStop;
+  _realHandleRecordingRestart = _mod.handleRecordingRestart;
+  _realHandleRecordingPause = _mod.handleRecordingPause;
+  _realHandleRecordingResume = _mod.handleRecordingResume;
+  _realIsRecordingIdle = _mod.isRecordingIdle;
+  _realRecordingHandlers = _mod.recordingHandlers ?? {};
+  _realResetRecordingState = _mod.__resetRecordingState;
+} catch {
+  // Same as above — controlled mock will be used exclusively.
+}
+
 mock.module('../daemon/handlers/recording.js', () => ({
-  handleRecordingStart: () => {
-    recordingStartCalled = true;
-    return 'mock-recording-id';
+  handleRecordingStart: (...args: any[]) => {
+    if ((globalThis as any).__riHandlerUseMockIntent) {
+      recordingStartCalled = true;
+      return 'mock-recording-id';
+    }
+    return _realHandleRecordingStart?.(...args);
   },
-  handleRecordingStop: () => {
-    recordingStopCalled = true;
-    return 'mock-recording-id';
+  handleRecordingStop: (...args: any[]) => {
+    if ((globalThis as any).__riHandlerUseMockIntent) {
+      recordingStopCalled = true;
+      return 'mock-recording-id';
+    }
+    return _realHandleRecordingStop?.(...args);
   },
-  handleRecordingRestart: () => {
-    recordingRestartCalled = true;
-    return { initiated: true, responseText: 'Restarting screen recording.', operationToken: 'mock-token' };
+  handleRecordingRestart: (...args: any[]) => {
+    if ((globalThis as any).__riHandlerUseMockIntent) {
+      recordingRestartCalled = true;
+      return { initiated: true, responseText: 'Restarting screen recording.', operationToken: 'mock-token' };
+    }
+    return _realHandleRecordingRestart?.(...args);
   },
-  handleRecordingPause: () => {
-    recordingPauseCalled = true;
-    return 'mock-recording-id';
+  handleRecordingPause: (...args: any[]) => {
+    if ((globalThis as any).__riHandlerUseMockIntent) {
+      recordingPauseCalled = true;
+      return 'mock-recording-id';
+    }
+    return _realHandleRecordingPause?.(...args);
   },
-  handleRecordingResume: () => {
-    recordingResumeCalled = true;
-    return 'mock-recording-id';
+  handleRecordingResume: (...args: any[]) => {
+    if ((globalThis as any).__riHandlerUseMockIntent) {
+      recordingResumeCalled = true;
+      return 'mock-recording-id';
+    }
+    return _realHandleRecordingResume?.(...args);
   },
-  isRecordingIdle: () => true,
-  recordingHandlers: {},
-  __resetRecordingState: noop,
+  isRecordingIdle: (...args: any[]) => {
+    if ((globalThis as any).__riHandlerUseMockIntent) return true;
+    return _realIsRecordingIdle?.(...args) ?? true;
+  },
+  recordingHandlers: _realRecordingHandlers,
+  __resetRecordingState: (...args: any[]) => {
+    if ((globalThis as any).__riHandlerUseMockIntent) return;
+    return _realResetRecordingState?.(...args);
+  },
 }));
 
 // ── Mock conversation store ────────────────────────────────────────────────
@@ -318,6 +414,8 @@ function createCtx(overrides?: Partial<HandlerContext>): {
 }
 
 function resetMockState(): void {
+  // Enable mock mode for this file's tests
+  (globalThis as any).__riHandlerUseMockIntent = true;
   mockIntentResult = { kind: 'none' };
   mockExecuteResult = { handled: false };
   mockAssistantName = null;
@@ -329,6 +427,12 @@ function resetMockState(): void {
   executorCalled = false;
   classifierCalled = false;
 }
+
+// Disable mock mode after all tests in this file complete, so that if the
+// mock bleeds to other test files they get the real implementation.
+afterAll(() => {
+  (globalThis as any).__riHandlerUseMockIntent = false;
+});
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
