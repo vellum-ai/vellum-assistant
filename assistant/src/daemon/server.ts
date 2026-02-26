@@ -815,7 +815,7 @@ export class DaemonServer {
     // find the session by requestId when confirmation/secret events fire.
     const onEvent = makePendingInteractionRegistrar(session, conversationId);
 
-    session.runAgentLoop(content, messageId, onEvent, { isInteractive: false }).catch((err) => {
+    session.runAgentLoop(content, messageId, onEvent, { isInteractive: options?.isInteractive ?? false }).catch((err) => {
       log.error({ err, conversationId }, 'Background agent loop failed');
     });
 
@@ -903,7 +903,12 @@ export class DaemonServer {
     // find the session by requestId when confirmation/secret events fire.
     const onEvent = makePendingInteractionRegistrar(session, conversationId);
 
-    await session.runAgentLoop(resolvedContent, messageId, onEvent, { isInteractive: false });
+    await session.runAgentLoop(
+      resolvedContent,
+      messageId,
+      onEvent,
+      { isInteractive: options?.isInteractive ?? false },
+    );
 
     return { messageId };
   }

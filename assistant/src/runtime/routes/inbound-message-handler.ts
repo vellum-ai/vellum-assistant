@@ -27,6 +27,11 @@ import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import { readHttpToken } from '../../util/platform.js';
 import {
+  buildApprovalUIMetadata,
+  getApprovalInfoByConversation,
+  getChannelApprovalPrompt,
+} from '../channel-approvals.js';
+import {
   bindSessionIdentity,
   createOutboundSession,
   findActiveSession,
@@ -59,6 +64,7 @@ import {
   verifyGatewayOrigin,
 } from './channel-route-shared.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
+import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
 
 const log = getLogger('runtime-http');
 
@@ -911,6 +917,7 @@ export async function handleChannelInbound(
       replyCallbackUrl,
       bearerToken,
       assistantId: canonicalAssistantId,
+      approvalCopyGenerator,
     });
   }
 
@@ -940,11 +947,17 @@ interface BackgroundProcessingParams {
   replyCallbackUrl?: string;
   bearerToken?: string;
   assistantId?: string;
+  approvalCopyGenerator?: ApprovalCopyGenerator;
   commandIntent?: Record<string, unknown>;
   sourceLanguageCode?: string;
 }
 
 const TELEGRAM_TYPING_INTERVAL_MS = 4_000;
+const PENDING_APPROVAL_POLL_INTERVAL_MS = 300;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function shouldEmitTelegramTyping(
   sourceChannel: ChannelId,
@@ -992,6 +1005,70 @@ function startTelegramTypingHeartbeat(
   };
 }
 
+function startPendingApprovalPromptWatcher(params: {
+  conversationId: string;
+  sourceChannel: ChannelId;
+  externalChatId: string;
+  replyCallbackUrl: string;
+  bearerToken?: string;
+  assistantId?: string;
+  approvalCopyGenerator?: ApprovalCopyGenerator;
+}): () => void {
+  const {
+    conversationId,
+    sourceChannel,
+    externalChatId,
+    replyCallbackUrl,
+    bearerToken,
+    assistantId,
+    approvalCopyGenerator,
+  } = params;
+
+  let active = true;
+  const deliveredRequestIds = new Set<string>();
+
+  const poll = async (): Promise<void> => {
+    while (active) {
+      try {
+        const prompt = getChannelApprovalPrompt(conversationId);
+        const pending = getApprovalInfoByConversation(conversationId);
+        const info = pending[0];
+        if (prompt && info && !deliveredRequestIds.has(info.requestId)) {
+          deliveredRequestIds.add(info.requestId);
+          const delivered = await deliverGeneratedApprovalPrompt({
+            replyCallbackUrl,
+            chatId: externalChatId,
+            sourceChannel,
+            assistantId: assistantId ?? 'self',
+            bearerToken,
+            prompt,
+            uiMetadata: buildApprovalUIMetadata(prompt, info),
+            messageContext: {
+              scenario: 'standard_prompt',
+              toolName: info.toolName,
+              channel: sourceChannel,
+            },
+            approvalCopyGenerator,
+          });
+          if (!delivered) {
+            // Delivery can fail transiently (network or gateway outage).
+            // Keep polling and retry prompt delivery for the same request.
+            deliveredRequestIds.delete(info.requestId);
+          }
+        }
+      } catch (err) {
+        log.warn({ err, conversationId }, 'Pending approval prompt watcher failed');
+      }
+      await delay(PENDING_APPROVAL_POLL_INTERVAL_MS);
+    }
+  };
+
+  void poll();
+  return () => {
+    active = false;
+  };
+}
+
 function processChannelMessageInBackground(params: BackgroundProcessingParams): void {
   const {
     processMessage,
@@ -1008,6 +1085,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     replyCallbackUrl,
     bearerToken,
     assistantId,
+    approvalCopyGenerator,
     commandIntent,
     sourceLanguageCode,
   } = params;
@@ -1018,6 +1096,17 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
       : undefined;
     const stopTypingHeartbeat = typingCallbackUrl
       ? startTelegramTypingHeartbeat(typingCallbackUrl, externalChatId, bearerToken, assistantId)
+      : undefined;
+    const stopApprovalWatcher = replyCallbackUrl
+      ? startPendingApprovalPromptWatcher({
+        conversationId,
+        sourceChannel,
+        externalChatId,
+        replyCallbackUrl,
+        bearerToken,
+        assistantId,
+        approvalCopyGenerator,
+      })
       : undefined;
 
     try {
@@ -1036,6 +1125,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           },
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
+          isInteractive: true,
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,
@@ -1062,6 +1152,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
       channelDeliveryStore.recordProcessingFailure(eventId, err);
     } finally {
       stopTypingHeartbeat?.();
+      stopApprovalWatcher?.();
     }
   })();
 }

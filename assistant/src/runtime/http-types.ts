@@ -59,6 +59,12 @@ export interface RuntimeMessageSessionOptions {
   };
   assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
+  /**
+   * Whether this turn should permit interactive approval prompts.
+   * Channel ingress sets this true so confirmations can be resolved
+   * through channel approval flows.
+   */
+  isInteractive?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
 }
