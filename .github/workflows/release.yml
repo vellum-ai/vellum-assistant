@@ -21,6 +21,26 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version from bump type
+        id: compute-version
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          LATEST_VERSION=${LATEST_TAG#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+
+          case "${{ inputs.bump }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Notify Slack of release start
         uses: slackapi/slack-github-action@v2.1.0
         with:
@@ -33,11 +53,11 @@ jobs:
               - type: header
                 text:
                   type: plain_text
-                  text: "\U0001F680 Release (${{ inputs.bump }}) Started"
+                  text: "\U0001F680 Release v${{ steps.compute-version.outputs.version }} Started"
               - type: section
                 text:
                   type: mrkdwn
-                  text: "*Workflow:* Unified Release\n*Bump:* `${{ inputs.bump }}`\n*Triggered by:* ${{ github.actor }}"
+                  text: "*Workflow:* Unified Release\n*Version:* `${{ steps.compute-version.outputs.version }}`\n*Bump:* `${{ inputs.bump }}`\n*Triggered by:* ${{ github.actor }}"
               - type: actions
                 elements:
                   - type: button
