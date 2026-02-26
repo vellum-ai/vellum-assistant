@@ -1,6 +1,7 @@
 import { beforeEach,describe, expect, mock, test } from 'bun:test';
 
 import {
+  type RecordingIntentResult as _RecordingIntentResult,
   resolveRecordingIntent,
 } from '../daemon/recording-intent.js';
 

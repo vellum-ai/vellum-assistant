@@ -83,6 +83,7 @@ mock.module('node:fs', async () => {
       // attacks like `${ALLOWED_DIR}/../outside.mov` are normalized,
       // preserving the same semantics as the real realpathSync without
       // hitting the filesystem (which would throw ENOENT for test paths).
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { resolve } = require('path');
       return resolve(p);
     },
@@ -97,6 +98,7 @@ mock.module('../daemon/video-thumbnail.js', () => ({
 // ─── Imports (after mocks) ──────────────────────────────────────────────────
 
 import {
+  __injectRecordingOwner,
   __resetRecordingState,
   getActiveRestartToken,
   handleRecordingPause,
@@ -106,8 +108,6 @@ import {
   handleRecordingStop,
   isRecordingIdle,
   recordingHandlers,
-  __resetRecordingState,
-  __injectRecordingOwner,
 } from '../daemon/handlers/recording.js';
 import type { HandlerContext } from '../daemon/handlers/shared.js';
 import type { RecordingStatus } from '../daemon/ipc-contract/computer-use.js';
