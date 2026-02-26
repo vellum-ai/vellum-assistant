@@ -48,10 +48,10 @@ enum VideoPlaybackFailure: Equatable {
 /// AVPlayerView. Uses a click-to-play pattern to avoid auto-playing videos
 /// on scroll. Supports lazy-loading large attachments via the daemon HTTP API.
 ///
-/// Resolves the daemon HTTP port at fetch time (not at view init) to avoid
-/// stale port snapshots after daemon restarts. On `port_missing` failures,
-/// retries up to 3 times with 1s delays before showing the error state.
-/// Listens for `daemonDidReconnect` to auto-retry `port_missing` failures.
+/// Fetches lazy-load attachments via the gateway URL with retry logic for
+/// transient connection errors (e.g. gateway temporarily unreachable during
+/// a restart). Listens for `daemonDidReconnect` to auto-retry `port_missing`
+/// failures.
 struct InlineVideoAttachmentView: View {
     let attachment: ChatAttachment
     /// Resolves the current daemon HTTP port at call time.
@@ -401,8 +401,9 @@ struct InlineVideoAttachmentView: View {
 
     /// Fetch attachment content via the gateway's runtime proxy with retry logic.
     ///
-    /// Retries up to 3 times with 1s delays because the gateway or daemon
-    /// may be mid-restart.
+    /// Retries up to 3 times with 1s delays for transient connection errors
+    /// (e.g. gateway temporarily unreachable during a restart). Non-transient
+    /// errors (HTTP 4xx/5xx, auth failures, invalid data) break immediately.
     private func fetchAndPlay() {
         guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
             failure = .invalid_media
@@ -427,11 +428,13 @@ struct InlineVideoAttachmentView: View {
                     await MainActor.run { isLoading = false }
                     await playFromFile(fileURL)
                     return
+                } catch let urlError as URLError where Self.transientURLErrorCodes.contains(urlError.code) {
+                    log.error("Fetch attempt \(attempt + 1)/\(maxRetries) failed for \(attachmentId) (transient): \(urlError.localizedDescription)")
+                    lastError = .fetch_failed(urlError.localizedDescription)
+                    continue
                 } catch {
                     log.error("Fetch attempt \(attempt + 1)/\(maxRetries) failed for \(attachmentId): \(error.localizedDescription)")
                     lastError = .fetch_failed(error.localizedDescription)
-                    // fetch_failed errors are typically not transient (4xx/5xx, auth issues)
-                    // so don't retry further.
                     break
                 }
             }
@@ -442,6 +445,16 @@ struct InlineVideoAttachmentView: View {
             }
         }
     }
+
+    /// URLError codes that indicate a transient connectivity issue worth retrying.
+    /// These typically occur when the gateway or daemon is mid-restart.
+    private static let transientURLErrorCodes: Set<URLError.Code> = [
+        .cannotConnectToHost,
+        .networkConnectionLost,
+        .timedOut,
+        .cannotFindHost,
+        .dnsLookupFailed,
+    ]
 
     private func saveVideo() {
         let panel = NSSavePanel()
