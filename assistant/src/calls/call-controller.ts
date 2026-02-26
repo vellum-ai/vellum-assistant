@@ -23,8 +23,11 @@ import {
   recordCallEvent,
   updateCallSession,
 } from './call-store.js';
+import { getGatewayInternalBaseUrl } from '../config/env.js';
+import { getByPendingQuestionId, getDeliveriesByRequestId, markTimedOutWithReason } from '../memory/guardian-action-store.js';
+import { readHttpToken } from '../util/platform.js';
 import { dispatchGuardianQuestion } from './guardian-dispatch.js';
-import { getByPendingQuestionId, markTimedOutWithReason } from '../memory/guardian-action-store.js';
+import { sendGuardianExpiryNotices } from './guardian-action-sweep.js';
 import type { RelayConnection } from './relay-server.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
 import { startVoiceTurn, type VoiceTurnHandle } from './voice-session-bridge.js';
@@ -553,12 +556,22 @@ export class CallController {
               log.info({ callSessionId: this.callSessionId }, 'User consultation timed out');
               this.guardianUnavailableForCall = true;
 
-              // Mark the linked guardian action request as timed out
+              // Mark the linked guardian action request as timed out and
+              // send expiry notices to guardian destinations. Deliveries
+              // must be captured before markTimedOutWithReason changes
+              // their status.
               const pq = getPendingQuestion(this.callSessionId);
               if (pq) {
                 const actionRequest = getByPendingQuestionId(pq.id);
                 if (actionRequest) {
+                  const deliveries = getDeliveriesByRequestId(actionRequest.id);
                   markTimedOutWithReason(actionRequest.id, 'call_timeout');
+                  sendGuardianExpiryNotices(
+                    deliveries,
+                    actionRequest.assistantId,
+                    getGatewayInternalBaseUrl(),
+                    readHttpToken() ?? undefined,
+                  );
                 }
               }
 
