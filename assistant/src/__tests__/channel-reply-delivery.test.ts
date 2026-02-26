@@ -33,12 +33,17 @@ let renderedHistoryContent: {
   surfaces: [],
 };
 
+let deliveryFailAtIndex = -1;
+
 mock.module('../runtime/gateway-client.js', () => ({
   deliverChannelReply: async (
     callbackUrl: string,
     payload: Record<string, unknown>,
     bearerToken?: string,
   ) => {
+    if (deliveryFailAtIndex >= 0 && deliveryCalls.length === deliveryFailAtIndex) {
+      throw new Error('Simulated delivery failure (502)');
+    }
     deliveryCalls.push({ callbackUrl, payload, bearerToken });
   },
 }));
@@ -60,6 +65,7 @@ const { deliverRenderedReplyViaCallback, deliverReplyViaCallback } = await impor
 describe('channel-reply-delivery', () => {
   beforeEach(() => {
     deliveryCalls.length = 0;
+    deliveryFailAtIndex = -1;
     conversationMessages.length = 0;
     attachmentsByMessageId.clear();
     renderedHistoryContent = {
@@ -172,5 +178,144 @@ describe('channel-reply-delivery', () => {
       }],
       assistantId: 'assistant-2',
     });
+  });
+
+  it('skips already-delivered segments when startFromSegment is set', async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: 'http://gateway/deliver/telegram',
+      chatId: 'chat-resume',
+      textSegments: ['Segment A.', 'Segment B.', 'Segment C.'],
+      interSegmentDelayMs: 0,
+      startFromSegment: 1,
+    });
+
+    // Should only deliver segments B and C (indices 1 and 2)
+    expect(deliveryCalls).toHaveLength(2);
+    expect(deliveryCalls[0].payload.text).toBe('Segment B.');
+    expect(deliveryCalls[1].payload.text).toBe('Segment C.');
+  });
+
+  it('calls onSegmentDelivered after each successful segment', async () => {
+    const delivered: number[] = [];
+
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: 'http://gateway/deliver/telegram',
+      chatId: 'chat-progress',
+      textSegments: ['Part 1.', 'Part 2.', 'Part 3.'],
+      interSegmentDelayMs: 0,
+      onSegmentDelivered: (count) => delivered.push(count),
+    });
+
+    expect(delivered).toEqual([1, 2, 3]);
+    expect(deliveryCalls).toHaveLength(3);
+  });
+
+  it('does not call onSegmentDelivered for a failing segment', async () => {
+    const delivered: number[] = [];
+    deliveryFailAtIndex = 2;
+
+    try {
+      await deliverRenderedReplyViaCallback({
+        callbackUrl: 'http://gateway/deliver/telegram',
+        chatId: 'chat-fail',
+        textSegments: ['Part 1.', 'Part 2.', 'Part 3.'],
+        interSegmentDelayMs: 0,
+        onSegmentDelivered: (count) => delivered.push(count),
+      });
+    } catch {
+      // Expected failure on third segment
+    }
+
+    // Only segments 0 and 1 were delivered, callback was called twice
+    expect(delivered).toEqual([1, 2]);
+    expect(deliveryCalls).toHaveLength(2);
+  });
+
+  it('resumes delivery after partial failure using startFromSegment', async () => {
+    const delivered: number[] = [];
+
+    // First attempt: fails on third segment (index 2)
+    deliveryFailAtIndex = 2;
+    try {
+      await deliverRenderedReplyViaCallback({
+        callbackUrl: 'http://gateway/deliver/telegram',
+        chatId: 'chat-retry',
+        textSegments: ['Seg A.', 'Seg B.', 'Seg C.'],
+        interSegmentDelayMs: 0,
+        onSegmentDelivered: (count) => delivered.push(count),
+      });
+    } catch {
+      // Expected
+    }
+
+    expect(delivered).toEqual([1, 2]);
+    expect(deliveryCalls).toHaveLength(2);
+
+    // Reset for retry
+    deliveryCalls.length = 0;
+    delivered.length = 0;
+    deliveryFailAtIndex = -1;
+
+    // Retry: start from segment 2 (the last delivered count)
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: 'http://gateway/deliver/telegram',
+      chatId: 'chat-retry',
+      textSegments: ['Seg A.', 'Seg B.', 'Seg C.'],
+      interSegmentDelayMs: 0,
+      startFromSegment: 2,
+      onSegmentDelivered: (count) => delivered.push(count),
+    });
+
+    // Only segment C should be delivered
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe('Seg C.');
+    expect(delivered).toEqual([3]);
+  });
+
+  it('skips all segments when startFromSegment equals total count', async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: 'http://gateway/deliver/telegram',
+      chatId: 'chat-done',
+      textSegments: ['Done A.', 'Done B.'],
+      interSegmentDelayMs: 0,
+      startFromSegment: 2,
+    });
+
+    // All segments already delivered, nothing to send
+    expect(deliveryCalls).toHaveLength(0);
+  });
+
+  it('passes startFromSegment through deliverReplyViaCallback options', async () => {
+    conversationMessages.push(
+      { id: 'msg-u', role: 'user', content: 'hi' },
+      { id: 'msg-a', role: 'assistant', content: '"text"' },
+    );
+    renderedHistoryContent = {
+      text: 'Alpha.Beta.Gamma.',
+      textSegments: ['Alpha.', 'Beta.', 'Gamma.'],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ['text:0', 'tool:0', 'text:1', 'tool:1', 'text:2'],
+      surfaces: [],
+    };
+
+    const delivered: number[] = [];
+    await deliverReplyViaCallback(
+      'conv-resume',
+      'chat-resume',
+      'http://gateway/deliver/telegram',
+      'token',
+      'assistant-3',
+      {
+        startFromSegment: 1,
+        onSegmentDelivered: (count) => delivered.push(count),
+      },
+    );
+
+    // Should skip 'Alpha.' and deliver 'Beta.' and 'Gamma.'
+    expect(deliveryCalls).toHaveLength(2);
+    expect(deliveryCalls[0].payload.text).toBe('Beta.');
+    expect(deliveryCalls[1].payload.text).toBe('Gamma.');
+    expect(delivered).toEqual([2, 3]);
   });
 });

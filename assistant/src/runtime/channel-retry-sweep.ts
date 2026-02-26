@@ -133,12 +133,18 @@ export async function sweepFailedEvents(
           ? payload.externalChatId
           : undefined;
         if (externalChatId) {
+          const startFromSegment = channelDeliveryStore.getDeliveredSegmentCount(event.id);
           await deliverReplyViaCallback(
             event.conversationId,
             externalChatId,
             replyCallbackUrl,
             bearerToken,
             assistantId,
+            {
+              startFromSegment,
+              onSegmentDelivered: (count) =>
+                channelDeliveryStore.updateDeliveredSegmentCount(event.id, count),
+            },
           );
         }
       }

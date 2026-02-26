@@ -1051,6 +1051,10 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           replyCallbackUrl,
           bearerToken,
           assistantId,
+          {
+            onSegmentDelivered: (count) =>
+              channelDeliveryStore.updateDeliveredSegmentCount(eventId, count),
+          },
         );
       }
     } catch (err) {
