@@ -234,6 +234,15 @@ extension DaemonClient {
             }
         }
 
+        // Persist refreshed bearer tokens so the client survives app restarts.
+        transport.onTokenRefreshed = { newToken in
+            #if os(iOS)
+            let _ = APIKeyManager.shared.setAPIKey(newToken, provider: "runtime-bearer-token")
+            #elseif os(macOS)
+            // macOS re-reads from disk on each request; no persistence needed here.
+            #endif
+        }
+
         self.httpTransport = transport
 
         do {

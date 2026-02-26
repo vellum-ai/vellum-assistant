@@ -1428,6 +1428,7 @@ public enum SessionErrorCode: String, CaseIterable, Codable, Sendable {
     case sessionAborted = "SESSION_ABORTED"
     case sessionProcessingFailed = "SESSION_PROCESSING_FAILED"
     case regenerateFailed = "REGENERATE_FAILED"
+    case authenticationRequired = "AUTHENTICATION_REQUIRED"
     case unknown = "UNKNOWN"
 
     /// Fall back to `.unknown` for unrecognized codes so that version skew
@@ -2335,6 +2336,7 @@ public enum ServerMessage: Decodable, Sendable {
     case heartbeatChecklistResponse(IPCHeartbeatChecklistResponse)
     case heartbeatChecklistWriteResponse(IPCHeartbeatChecklistWriteResponse)
     case messageContentResponse(IPCMessageContentResponse)
+    case tokenRotated(TokenRotatedMessage)
     case pong
     case unknown(String)
 
@@ -2764,6 +2766,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "message_content_response":
             let message = try IPCMessageContentResponse(from: decoder)
             self = .messageContentResponse(message)
+        case "token_rotated":
+            let message = try TokenRotatedMessage(from: decoder)
+            self = .tokenRotated(message)
         case "pong":
             self = .pong
         default:
@@ -2772,6 +2777,14 @@ public enum ServerMessage: Decodable, Sendable {
     }
 }
 
+
+// MARK: - Token Rotation
+
+/// Received when the daemon rotates its bearer token.
+public struct TokenRotatedMessage: Decodable, Sendable {
+    public let newToken: String
+    public let expiresOldAt: Double
+}
 
 // MARK: - Browser CDP Messages
 

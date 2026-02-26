@@ -83,6 +83,8 @@ const INVENTORY_UNEXTRACTABLE = new Set<string>([
 const SWIFT_AHEAD_ALLOWLIST = new Set<string>([
   // Defined in Swift LayoutConfig.swift ahead of daemon implementation
   'ui_layout_config',
+  // Defined in Swift HTTPDaemonClient ahead of daemon token rotation endpoint
+  'token_rotated',
 ]);
 
 // --- Extract Swift decode cases ---
