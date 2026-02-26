@@ -1,5 +1,7 @@
+import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import jsQR from "jsqr";
+import { hostname, userInfo } from "os";
 import { PNG } from "pngjs";
 
 import { saveAssistantEntry } from "../lib/assistant-config";
@@ -16,6 +18,12 @@ interface QRPairingPayload {
   pairingSecret: string;
 }
 
+interface PairingResponse {
+  status: "approved" | "pending";
+  bearerToken?: string;
+  gatewayUrl?: string;
+}
+
 function decodeQRCodeFromPng(pngPath: string): string {
   const fileData = readFileSync(pngPath);
   const png = PNG.sync.read(fileData);
@@ -24,6 +32,42 @@ function decodeQRCodeFromPng(pngPath: string): string {
     throw new Error("Could not decode QR code from the provided PNG image.");
   }
   return code.data;
+}
+
+function getDeviceId(): string {
+  const raw = hostname() + userInfo().username;
+  return createHash("sha256").update(raw).digest("hex");
+}
+
+const PAIRING_POLL_INTERVAL_MS = 2000;
+const PAIRING_POLL_TIMEOUT_MS = 120_000;
+
+async function pollForApproval(
+  gatewayUrl: string,
+  pairingRequestId: string,
+  pairingSecret: string,
+): Promise<PairingResponse> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < PAIRING_POLL_TIMEOUT_MS) {
+    const statusUrl = `${gatewayUrl}/pairing/status?id=${encodeURIComponent(pairingRequestId)}&secret=${encodeURIComponent(pairingSecret)}`;
+    const statusRes = await fetch(statusUrl);
+
+    if (!statusRes.ok) {
+      const body = await statusRes.text().catch(() => "");
+      throw new Error(`Failed to check pairing status: HTTP ${statusRes.status}: ${body || statusRes.statusText}`);
+    }
+
+    const statusBody = await statusRes.json() as PairingResponse;
+
+    if (statusBody.status === "approved") {
+      return statusBody;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, PAIRING_POLL_INTERVAL_MS));
+  }
+
+  throw new Error("Pairing timed out waiting for approval.");
 }
 
 export async function pair(): Promise<void> {
@@ -56,27 +100,50 @@ export async function pair(): Promise<void> {
 
     const instanceName = `${species}-${generateRandomSuffix()}`;
     const runtimeUrl = payload.g;
+    const deviceId = getDeviceId();
+    const deviceName = hostname();
 
     console.log(`Pairing with remote assistant at ${runtimeUrl}...`);
 
-    const approveUrl = `${runtimeUrl}/v1/pairing/approve`;
-    const approveRes = await fetch(approveUrl, {
+    const requestUrl = `${runtimeUrl}/pairing/request`;
+    const requestRes = await fetch(requestUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pairingRequestId: payload.pairingRequestId,
         pairingSecret: payload.pairingSecret,
+        deviceId,
+        deviceName,
       }),
     });
 
-    if (!approveRes.ok) {
-      const body = await approveRes.text().catch(() => "");
-      throw new Error(`Failed to pair with remote assistant: HTTP ${approveRes.status}: ${body || approveRes.statusText}`);
+    if (!requestRes.ok) {
+      const body = await requestRes.text().catch(() => "");
+      throw new Error(`Failed to initiate pairing: HTTP ${requestRes.status}: ${body || requestRes.statusText}`);
+    }
+
+    const requestBody = await requestRes.json() as PairingResponse;
+
+    let bearerToken: string | undefined;
+
+    if (requestBody.status === "approved") {
+      bearerToken = requestBody.bearerToken;
+    } else if (requestBody.status === "pending") {
+      console.log("Waiting for pairing approval...");
+      const approvedResponse = await pollForApproval(
+        runtimeUrl,
+        payload.pairingRequestId,
+        payload.pairingSecret,
+      );
+      bearerToken = approvedResponse.bearerToken;
+    } else {
+      throw new Error(`Unexpected pairing response status: ${requestBody.status}`);
     }
 
     const customEntry: AssistantEntry = {
       assistantId: instanceName,
       runtimeUrl,
+      bearerToken,
       cloud: "custom",
       species,
       hatchedAt: new Date().toISOString(),
