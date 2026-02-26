@@ -22,6 +22,11 @@ struct RecordingSourcePickerView: View {
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
                 .padding(.top, VSpacing.xl)
+                .padding(.bottom, VSpacing.xxs)
+
+            Text("Choose what to record")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
                 .padding(.bottom, VSpacing.md)
 
             // Scope picker (Display / Window)
@@ -31,6 +36,7 @@ struct RecordingSourcePickerView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
             .padding(.horizontal, VSpacing.xl)
             .padding(.bottom, VSpacing.lg)
 
@@ -267,13 +273,13 @@ struct RecordingSourcePickerView: View {
     // MARK: - Bottom Bar
 
     private var bottomBar: some View {
-        VStack(spacing: VSpacing.md) {
+        VStack(spacing: VSpacing.lg) {
             // Audio toggles
             Toggle(isOn: $viewModel.includeAudio) {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "speaker.wave.2")
                         .foregroundColor(VColor.textSecondary)
-                    Text("Include system audio")
+                    Text("System audio")
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
                 }
@@ -286,7 +292,7 @@ struct RecordingSourcePickerView: View {
                     HStack(spacing: VSpacing.sm) {
                         Image(systemName: "mic")
                             .foregroundColor(VColor.textSecondary)
-                        Text("Include microphone")
+                        Text("Microphone")
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
                     }
@@ -297,23 +303,20 @@ struct RecordingSourcePickerView: View {
 
             // Buttons
             HStack(spacing: VSpacing.md) {
-                Button("Cancel") {
+                VButton(label: "Cancel", style: .secondary, size: .large) {
                     onCancel()
                 }
-                .keyboardShortcut(.cancelAction)
-                .buttonStyle(.bordered)
-
                 Spacer()
-
-                Button("Start Recording") {
+                VButton(label: "Start Recording", style: .primary, size: .large, isDisabled: !viewModel.canStart) {
                     onStart(viewModel.selectedRecordingOptions)
                 }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(Color(VColor.accent))
-                .disabled(!viewModel.canStart)
             }
             .padding(.horizontal, VSpacing.xl)
+            .background {
+                // Hidden buttons for keyboard shortcuts
+                Button("") { onCancel() }.keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0)
+                Button("") { guard viewModel.canStart else { return }; onStart(viewModel.selectedRecordingOptions) }.keyboardShortcut(.defaultAction).disabled(!viewModel.canStart).opacity(0).frame(width: 0, height: 0)
+            }
         }
         .padding(.vertical, VSpacing.lg)
     }
