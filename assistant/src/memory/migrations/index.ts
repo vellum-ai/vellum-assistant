@@ -55,4 +55,4 @@ export {
   type MigrationRegistryEntry,
   type MigrationValidationResult,
 } from './registry.js';
-export { validateMigrationState } from './validate-migration-state.js';
+export { recoverCrashedMigrations, validateMigrationState, withCrashRecovery } from './validate-migration-state.js';

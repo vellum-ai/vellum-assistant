@@ -28,5 +28,7 @@ export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,
+  recoverCrashedMigrations,
   validateMigrationState,
+  withCrashRecovery,
 } from './migrations/index.js';
