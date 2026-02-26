@@ -175,7 +175,7 @@ export async function handleUserMessage(
     };
 
     const config = getConfig();
-    const messageText = msg.content ?? '';
+    let messageText = msg.content ?? '';
 
     // Block inbound messages that contain secrets and redirect to secure prompt
     if (!msg.bypassSecretCheck) {
@@ -317,6 +317,17 @@ export async function handleUserMessage(
 
         // Continue with stripped text for downstream processing
         msg.content = execResult.remainderText ?? messageText;
+        messageText = msg.content;
+
+        // Execute the recording side effects that executeRecordingIntent deferred
+        if (intentResult.kind === 'stop_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder') {
+          handleRecordingStop(msg.sessionId, ctx);
+        }
+        if (intentResult.kind === 'start_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder') {
+          handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
+        }
+        // TODO(M2): restart_with_remainder — restart handler doesn't exist yet, will be wired in M2
+
         rlog.info({ remaining: msg.content, kind: intentResult.kind }, 'Recording intent with remainder — continuing with remaining text');
       }
 

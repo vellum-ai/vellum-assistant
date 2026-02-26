@@ -258,6 +258,7 @@ export async function handleTaskSubmit(
         // Defer recording action until after classifier creates the final conversation
         pendingRecordingStart = intentResult.kind === 'start_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder';
         pendingRecordingStop = intentResult.kind === 'stop_with_remainder' || intentResult.kind === 'start_and_stop_with_remainder';
+        // TODO(M2): restart_with_remainder — restart handler doesn't exist yet, will be wired in M2
         (msg as { task: string }).task = intentResult.remainder;
         rlog.info({ remaining: intentResult.remainder }, 'Recording intent deferred, continuing with remaining text');
       }
