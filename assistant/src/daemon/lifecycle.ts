@@ -48,7 +48,8 @@ import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
 import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
 import { hasNoAuthOverride } from './connection-policy.js';
 import { cleanupPidFile,writePid } from './daemon-control.js';
-import { createGuardianActionCopyGenerator } from './guardian-action-generators.js';
+import { createGuardianActionCopyGenerator, createGuardianFollowUpConversationGenerator } from './guardian-action-generators.js';
+import { setGuardianActionCopyGenerator, setGuardianFollowUpConversationGenerator } from './session-process.js';
 import { initPairingHandlers } from './handlers/pairing.js';
 import { installCliLaunchers } from './install-cli-launchers.js';
 import type { ServerMessage } from './ipc-protocol.js';
@@ -289,7 +290,20 @@ export async function runDaemon(): Promise<void> {
     interfacesDir: getInterfacesDir(),
     approvalCopyGenerator: createApprovalCopyGenerator(),
     approvalConversationGenerator: createApprovalConversationGenerator(),
-    guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
+    guardianActionCopyGenerator: (() => {
+      const gen = createGuardianActionCopyGenerator();
+      // Also inject into the session-process module so the mac/IPC channel
+      // path can generate action copy using the same generator.
+      setGuardianActionCopyGenerator(gen);
+      return gen;
+    })(),
+    guardianFollowUpConversationGenerator: (() => {
+      const gen = createGuardianFollowUpConversationGenerator();
+      // Also inject into the session-process module so the mac/IPC channel
+      // path can classify follow-up replies using the same generator.
+      setGuardianFollowUpConversationGenerator(gen);
+      return gen;
+    })(),
     sendMessageDeps: {
       getOrCreateSession: (conversationId) =>
         server.getSessionForMessages(conversationId),

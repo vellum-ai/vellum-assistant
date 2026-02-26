@@ -22,8 +22,14 @@ const ALL_SCENARIOS: GuardianActionMessageScenario[] = [
   'guardian_followup_completed',
   'guardian_followup_failed',
   'guardian_followup_declined_ack',
+  'guardian_stale_answered',
   'guardian_stale_expired',
+  'guardian_stale_followup',
   'outbound_message_copy',
+  'followup_message_sent',
+  'followup_call_started',
+  'followup_action_failed',
+  'guardian_answer_delivery_failed',
 ];
 
 describe('guardian-action-copy-generator', () => {
