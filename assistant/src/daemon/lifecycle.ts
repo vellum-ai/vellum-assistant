@@ -64,6 +64,7 @@ import { installShutdownHandlers } from './shutdown-handlers.js';
 // Re-export public API so existing consumers don't need to change imports
 export type { StopResult } from './daemon-control.js';
 export {
+  cleanupPidFile,
   ensureDaemonRunning,
   getDaemonStatus,
   isDaemonRunning,
