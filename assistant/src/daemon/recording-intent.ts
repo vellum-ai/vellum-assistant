@@ -281,7 +281,9 @@ export function resolveRecordingIntent(
       return { kind: 'start_only' };
     }
     // Strip from the ORIGINAL text to preserve user's exact phrasing
-    const remainder = stripRecordingIntent(text);
+    let remainder = stripRecordingIntent(text);
+    // Also strip stop-recording clauses when both intents are present
+    if (hasStop) remainder = stripStopRecordingIntent(remainder);
     if (hasSubstantiveContent(remainder, dynamicNames)) {
       return { kind: 'start_with_remainder', remainder };
     }
