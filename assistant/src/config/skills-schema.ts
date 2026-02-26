@@ -19,14 +19,38 @@ export const SkillsInstallConfigSchema = z.object({
   }).default('npm'),
 });
 
+export const RemoteProviderConfigSchema = z.object({
+  enabled: z.boolean({ error: 'skills.remoteProviders.<provider>.enabled must be a boolean' }).default(true),
+});
+
+export const RemoteProvidersConfigSchema = z.object({
+  skillssh: RemoteProviderConfigSchema.default({} as any),
+  clawhub: RemoteProviderConfigSchema.default({} as any),
+});
+
+const VALID_SKILLS_SH_RISK_LEVELS = ['safe', 'low', 'medium', 'high', 'critical', 'unknown'] as const;
+
+export const RemotePolicyConfigSchema = z.object({
+  blockSuspicious: z.boolean({ error: 'skills.remotePolicy.blockSuspicious must be a boolean' }).default(true),
+  blockMalware: z.boolean({ error: 'skills.remotePolicy.blockMalware must be a boolean' }).default(true),
+  maxSkillsShRisk: z.enum(VALID_SKILLS_SH_RISK_LEVELS, {
+    error: `skills.remotePolicy.maxSkillsShRisk must be one of: ${VALID_SKILLS_SH_RISK_LEVELS.join(', ')}`,
+  }).default('medium'),
+});
+
 export const SkillsConfigSchema = z.object({
   entries: z.record(z.string(), SkillEntryConfigSchema).default({} as any),
   load: SkillsLoadConfigSchema.default({} as any),
   install: SkillsInstallConfigSchema.default({} as any),
   allowBundled: z.array(z.string()).nullable().default(null),
+  remoteProviders: RemoteProvidersConfigSchema.default({} as any),
+  remotePolicy: RemotePolicyConfigSchema.default({} as any),
 });
 
 export type SkillEntryConfig = z.infer<typeof SkillEntryConfigSchema>;
 export type SkillsLoadConfig = z.infer<typeof SkillsLoadConfigSchema>;
 export type SkillsInstallConfig = z.infer<typeof SkillsInstallConfigSchema>;
+export type RemoteProviderConfig = z.infer<typeof RemoteProviderConfigSchema>;
+export type RemoteProvidersConfig = z.infer<typeof RemoteProvidersConfigSchema>;
+export type RemotePolicyConfig = z.infer<typeof RemotePolicyConfigSchema>;
 export type SkillsConfig = z.infer<typeof SkillsConfigSchema>;

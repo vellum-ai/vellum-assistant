@@ -1,0 +1,113 @@
+import { describe, expect, test } from 'bun:test';
+
+import {
+  evaluateRemoteSkillInstall,
+  filterInstallableRemoteSkills,
+  type RemoteSkillPolicy,
+} from '../skills/remote-skill-policy.js';
+
+describe('remote skill policy — clawhub', () => {
+  const policy: RemoteSkillPolicy = {
+    blockSuspicious: true,
+    blockMalware: true,
+    maxSkillsShRisk: 'medium',
+  };
+
+  test('suspicious skills are excluded from installable list', () => {
+    const candidates = [
+      {
+        provider: 'clawhub' as const,
+        slug: 'safe-skill',
+        moderation: { isSuspicious: false, isMalwareBlocked: false },
+      },
+      {
+        provider: 'clawhub' as const,
+        slug: 'suspicious-skill',
+        moderation: { isSuspicious: true, isMalwareBlocked: false },
+      },
+    ];
+
+    const installable = filterInstallableRemoteSkills(candidates, policy);
+    expect(installable.map((skill) => skill.slug)).toEqual(['safe-skill']);
+  });
+
+  test('suspicious skills are not installable when installation is attempted', () => {
+    const decision = evaluateRemoteSkillInstall(
+      {
+        provider: 'clawhub',
+        slug: 'suspicious-skill',
+        moderation: { isSuspicious: true, isMalwareBlocked: false },
+      },
+      policy,
+    );
+
+    expect(decision).toEqual({ ok: false, reason: 'clawhub_suspicious' });
+  });
+
+  test('malware-blocked skills are excluded from installable list and blocked on install', () => {
+    const candidates = [
+      {
+        provider: 'clawhub' as const,
+        slug: 'malware-skill',
+        moderation: { isSuspicious: false, isMalwareBlocked: true },
+      },
+    ];
+
+    expect(filterInstallableRemoteSkills(candidates, policy)).toEqual([]);
+
+    const decision = evaluateRemoteSkillInstall(candidates[0], policy);
+    expect(decision).toEqual({ ok: false, reason: 'clawhub_malware_blocked' });
+  });
+});
+
+describe('remote skill policy — skills.sh', () => {
+  const policy: RemoteSkillPolicy = {
+    blockSuspicious: true,
+    blockMalware: true,
+    maxSkillsShRisk: 'medium',
+  };
+
+  test('high-risk skills are excluded from installable list', () => {
+    const candidates = [
+      {
+        provider: 'skillssh' as const,
+        slug: 'safe-skill',
+        audit: { risk: 'low' as const },
+      },
+      {
+        provider: 'skillssh' as const,
+        slug: 'suspicious-skill',
+        audit: { risk: 'high' as const },
+      },
+    ];
+
+    const installable = filterInstallableRemoteSkills(candidates, policy);
+    expect(installable.map((skill) => skill.slug)).toEqual(['safe-skill']);
+  });
+
+  test('high-risk skills are not installable when installation is attempted', () => {
+    const decision = evaluateRemoteSkillInstall(
+      {
+        provider: 'skillssh',
+        slug: 'suspicious-skill',
+        audit: { risk: 'high' },
+      },
+      policy,
+    );
+
+    expect(decision).toEqual({ ok: false, reason: 'skillssh_risk_exceeds_threshold' });
+  });
+
+  test('unknown risk is treated as suspicious and blocked by default', () => {
+    const decision = evaluateRemoteSkillInstall(
+      {
+        provider: 'skillssh',
+        slug: 'unknown-risk-skill',
+        audit: { risk: 'unknown' },
+      },
+      policy,
+    );
+
+    expect(decision).toEqual({ ok: false, reason: 'skillssh_risk_exceeds_threshold' });
+  });
+});
