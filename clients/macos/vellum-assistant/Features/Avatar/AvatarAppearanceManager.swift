@@ -10,10 +10,24 @@ final class AvatarAppearanceManager {
     /// User-uploaded custom avatar image, persisted to disk.
     private(set) var customAvatarImage: NSImage?
 
-    /// Returns the custom avatar if set, otherwise an initial-letter placeholder.
+    /// Cached fallback avatar to avoid rebuilding on every access.
+    private var cachedFallbackAvatar: NSImage?
+    /// The name used to build the cached fallback, so we can invalidate when identity changes.
+    private var cachedFallbackName: String?
+
+    /// Returns the custom avatar if set, otherwise an initial-letter placeholder (cached).
     var chatAvatarImage: NSImage {
         if let custom = customAvatarImage { return custom }
-        return Self.buildInitialLetterAvatar(name: assistantName)
+
+        let name = assistantName
+        if let cached = cachedFallbackAvatar, cachedFallbackName == name {
+            return cached
+        }
+
+        let avatar = Self.buildInitialLetterAvatar(name: name)
+        cachedFallbackAvatar = avatar
+        cachedFallbackName = name
+        return avatar
     }
 
     static let shared = AvatarAppearanceManager()
@@ -38,12 +52,11 @@ final class AvatarAppearanceManager {
         Self.workspaceCustomAvatarURL()
     }
 
-    /// The assistant's display name, used for the initial-letter fallback.
-    private var assistantName: String {
-        IdentityInfo.load()?.name ?? "V"
-    }
+    /// The assistant's display name, loaded once from IDENTITY.md to avoid repeated disk I/O.
+    private var assistantName: String = "V"
 
     func start() {
+        assistantName = IdentityInfo.load()?.name ?? "V"
         loadCustomAvatar()
         watchAvatarFile()
     }
@@ -97,6 +110,7 @@ final class AvatarAppearanceManager {
         try? FileManager.default.removeItem(at: customAvatarURL)
         try? FileManager.default.removeItem(at: Self.legacyAppSupportCustomAvatarURL())
         customAvatarImage = nil
+        cachedFallbackAvatar = nil
     }
 
     // MARK: - File Watching
