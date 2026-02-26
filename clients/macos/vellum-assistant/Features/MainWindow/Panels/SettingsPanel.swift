@@ -25,8 +25,7 @@ struct SettingsPanel: View {
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
-    @State private var elevenLabsKeyText: String = ""
-    @State private var showingTrustRules = false
+@State private var showingTrustRules = false
     @State private var showingReminders = false
     @State private var showingScheduledTasks = false
     @State private var twitterClientId: String = ""
@@ -478,52 +477,6 @@ struct SettingsPanel: View {
                     VButton(label: "Save", style: .primary) {
                         store.saveImageGenKey(imageGenKeyText)
                         imageGenKeyText = ""
-                    }
-                }
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
-
-            // ELEVENLABS section (for Voice Mode TTS)
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("ElevenLabs")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                if store.hasElevenLabsKey {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
-                        Text(store.maskedElevenLabsKey)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        VButton(label: "Clear", style: .danger) {
-                            store.clearElevenLabsKey()
-                            elevenLabsKeyText = ""
-                        }
-                    }
-                } else {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Enter ElevenLabs API Key")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        VInfoTooltip("Get your key at elevenlabs.io/app/settings/api-keys")
-                    }
-
-                    SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-
-                    Text("Used for Voice Mode (text-to-speech). Get your key at elevenlabs.io/app/settings/api-keys")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-
-                    VButton(label: "Save", style: .primary) {
-                        store.saveElevenLabsKey(elevenLabsKeyText)
-                        elevenLabsKeyText = ""
                     }
                 }
             }
