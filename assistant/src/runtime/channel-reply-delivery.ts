@@ -15,6 +15,11 @@ type DeliverRenderedReplyParams = {
   assistantId?: string;
   bearerToken?: string;
   interSegmentDelayMs?: number;
+  /** Skip segments already delivered on a previous attempt. */
+  startFromSegment?: number;
+  /** Called after each segment is successfully delivered, with the
+   *  1-based count of segments delivered so far (including prior attempts). */
+  onSegmentDelivered?: (deliveredCount: number) => void;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -45,6 +50,8 @@ export async function deliverRenderedReplyViaCallback(
     assistantId,
     bearerToken,
     interSegmentDelayMs = INTER_SEGMENT_DELAY_MS,
+    startFromSegment = 0,
+    onSegmentDelivered,
   } = params;
 
   const deliverableSegments = toDeliverableTextSegments(textSegments, fallbackText);
@@ -65,7 +72,7 @@ export async function deliverRenderedReplyViaCallback(
     return;
   }
 
-  for (let i = 0; i < deliverableSegments.length; i++) {
+  for (let i = startFromSegment; i < deliverableSegments.length; i++) {
     const isLastSegment = i === deliverableSegments.length - 1;
     await deliverChannelReply(
       callbackUrl,
@@ -78,6 +85,8 @@ export async function deliverRenderedReplyViaCallback(
       bearerToken,
     );
 
+    onSegmentDelivered?.(i + 1);
+
     // Send split messages in-order with a short gap so downstream channel
     // providers preserve the original turn ordering around tool boundaries.
     if (!isLastSegment && interSegmentDelayMs > 0) {
@@ -86,12 +95,18 @@ export async function deliverRenderedReplyViaCallback(
   }
 }
 
+export type DeliverReplyOptions = {
+  startFromSegment?: number;
+  onSegmentDelivered?: (deliveredCount: number) => void;
+};
+
 export async function deliverReplyViaCallback(
   conversationId: string,
   externalChatId: string,
   callbackUrl: string,
   bearerToken?: string,
   assistantId?: string,
+  options?: DeliverReplyOptions,
 ): Promise<void> {
   const msgs = conversationStore.getMessages(conversationId);
   for (let i = msgs.length - 1; i >= 0; i--) {
@@ -118,6 +133,8 @@ export async function deliverReplyViaCallback(
       attachments: replyAttachments,
       assistantId,
       bearerToken,
+      startFromSegment: options?.startFromSegment,
+      onSegmentDelivered: options?.onSegmentDelivered,
     });
     break;
   }

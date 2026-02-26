@@ -3,7 +3,7 @@
  * and post-decision delivery scheduling.
  */
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
-export { deliverReplyViaCallback } from '../channel-reply-delivery.js';
+export { deliverReplyViaCallback, type DeliverReplyOptions } from '../channel-reply-delivery.js';
 
 // ---------------------------------------------------------------------------
 // Dead letter management

@@ -220,6 +220,7 @@ export const channelInboundEvents = sqliteTable('channel_inbound_events', {
   lastProcessingError: text('last_processing_error'),
   retryAfter: integer('retry_after'),
   rawPayload: text('raw_payload'),
+  deliveredSegmentCount: integer('delivered_segment_count').notNull().default(0),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
