@@ -179,6 +179,22 @@ describe('guardian-action-followup-executor', () => {
       expect(result!.displayIdentifier).toBe('+15550001111');
     });
 
+    test('resolves toNumber as counterparty for outbound call', () => {
+      ensureConversation('cp-test-outbound');
+      const session = createCallSession({
+        conversationId: 'cp-test-outbound',
+        provider: 'twilio',
+        fromNumber: '+15550002222', // assistant's number
+        toNumber: '+15550001111',   // callee (the counterparty)
+        initiatedFromConversationId: 'cp-test-outbound', // signals outbound
+      });
+
+      const result = resolveCounterparty(session.id);
+      expect(result).not.toBeNull();
+      expect(result!.phoneNumber).toBe('+15550001111');
+      expect(result!.displayIdentifier).toBe('+15550001111');
+    });
+
     test('returns null for nonexistent call session', () => {
       const result = resolveCounterparty('nonexistent-session-id');
       expect(result).toBeNull();
@@ -348,6 +364,16 @@ describe('guardian-action-followup-executor', () => {
       expect(deliveredSms.length).toBe(1);
       // The deterministic fallback for 'outbound_message_copy' includes the question
       expect(deliveredSms[0].text).toContain('gate code');
+    });
+
+    test('SMS text includes the guardian late answer', async () => {
+      const { request } = createDispatchingRequest('exec-sms-content-2', 'message_back');
+
+      await executeFollowupAction(request.id, 'message_back');
+
+      expect(deliveredSms.length).toBe(1);
+      // The fallback must relay the guardian's answer to the caller
+      expect(deliveredSms[0].text).toContain('1234');
     });
   });
 });

@@ -56,12 +56,13 @@ export type FollowupExecutionResult =
 
 /**
  * Resolve the counterparty (the external person) from the original call
- * session. For inbound calls the counterparty is fromNumber; for outbound
- * calls initiated by startCall the counterparty is toNumber.
+ * session by call direction.
  *
- * Heuristic: outbound calls created via startCall always set
- * initiatedFromConversationId. When that field is present we treat the
- * call as outbound and use toNumber. Otherwise (inbound) we use fromNumber.
+ * - **Inbound calls** (`initiatedFromConversationId` is null): the external
+ *   caller is `fromNumber`, the assistant's Twilio number is `toNumber`.
+ * - **Outbound calls** (`initiatedFromConversationId` is set): the assistant
+ *   placed the call so `fromNumber` is the assistant's number and `toNumber`
+ *   is the external callee.
  */
 export function resolveCounterparty(callSessionId: string): CounterpartyInfo | null {
   const session = getCallSession(callSessionId);
