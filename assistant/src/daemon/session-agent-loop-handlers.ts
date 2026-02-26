@@ -104,6 +104,26 @@ export function emitLlmCallStartedIfNeeded(
   });
 }
 
+// ── IPC Size Caps ────────────────────────────────────────────────────
+// The client truncates tool results anyway (2 000 chars in ChatViewModel),
+// but the full string can be megabytes (file_read, bash output). Capping
+// here avoids sending oversized payloads over IPC which get decoded on
+// the client's main thread.
+
+const TOOL_RESULT_MAX_CHARS = 2_000;
+const TOOL_RESULT_TRUNCATION_SUFFIX = '...[truncated]';
+
+// tool_input_delta streams accumulated JSON as tools run. For non-app
+// tools the client discards it (extractCodePreview only handles app tools),
+// so we cap it aggressively to avoid excessive IPC traffic.
+const TOOL_INPUT_DELTA_MAX_CHARS = 50_000;
+const APP_TOOL_NAMES = new Set(['app_create', 'app_update']);
+
+function truncateForIpc(value: string, maxChars: number, suffix: string): string {
+  if (value.length <= maxChars) return value;
+  return value.slice(0, maxChars - suffix.length) + suffix;
+}
+
 // ── Individual Handlers ──────────────────────────────────────────────
 
 export function handleTextDelta(
@@ -194,7 +214,12 @@ export function handleInputJsonDelta(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: 'input_json_delta' }>,
 ): void {
-  deps.onEvent({ type: 'tool_input_delta', toolName: event.toolName, content: event.accumulatedJson, sessionId: deps.ctx.conversationId });
+  // Cap non-app tool input deltas — the client only uses this data for
+  // app_create/app_update code previews; all other tools discard it.
+  const content = APP_TOOL_NAMES.has(event.toolName)
+    ? event.accumulatedJson
+    : truncateForIpc(event.accumulatedJson, TOOL_INPUT_DELTA_MAX_CHARS, TOOL_RESULT_TRUNCATION_SUFFIX);
+  deps.onEvent({ type: 'tool_input_delta', toolName: event.toolName, content, sessionId: deps.ctx.conversationId });
 }
 
 export function handleToolResult(
@@ -206,7 +231,7 @@ export function handleToolResult(
   deps.onEvent({
     type: 'tool_result',
     toolName: '',
-    result: event.content,
+    result: truncateForIpc(event.content, TOOL_RESULT_MAX_CHARS, TOOL_RESULT_TRUNCATION_SUFFIX),
     isError: event.isError,
     diff: event.diff,
     status: event.status,
