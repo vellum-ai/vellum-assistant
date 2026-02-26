@@ -664,7 +664,12 @@ public final class ChatViewModel: ObservableObject {
             messages[i].stripHeavyContent()
         }
         displayedMessageCount = Self.messagePageSize
-        isHistoryLoaded = false
+        // Only mark history as unloaded if there's a session to reload from.
+        // Threads without a session (new, empty) have nothing to fetch —
+        // resetting the flag would leave the UI stuck on a loading spinner.
+        if sessionId != nil {
+            isHistoryLoaded = false
+        }
     }
 
     /// Surface the user is currently viewing in workspace mode.
