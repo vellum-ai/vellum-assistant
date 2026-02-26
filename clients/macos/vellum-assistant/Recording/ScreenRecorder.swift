@@ -952,7 +952,7 @@ final class ScreenRecorder: NSObject {
             // Do NOT clear pendingStreamError here — start() reads it in the
             // .streamStartFailed branch to decide if the error is non-retriable
             // (e.g. permissionDenied, sourceUnavailable). It clears it there.
-            return .streamStartFailed(streamError.localizedDescription ?? "Stream error during startup")
+            return .streamStartFailed(streamError.localizedDescription)
         }
 
         // No frames arrived — tear down this attempt
@@ -1228,7 +1228,7 @@ final class ScreenRecorder: NSObject {
                 sourceWidth: telemetrySourceWidth,
                 sourceHeight: telemetrySourceHeight,
                 configLabel: activeConfigLabel,
-                message: recorderError.localizedDescription ?? "Unknown stream error"
+                message: recorderError.localizedDescription
             )
 
             // Unregister display monitoring since the recording session is ending.
