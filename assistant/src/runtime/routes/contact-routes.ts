@@ -7,6 +7,7 @@
  */
 
 import { getContact, listContacts, mergeContacts } from '../../contacts/contact-store.js';
+import { httpError } from '../http-errors.js';
 
 /**
  * GET /v1/contacts?limit=50
@@ -23,10 +24,7 @@ export function handleListContacts(url: URL): Response {
 export function handleGetContact(contactId: string): Response {
   const contact = getContact(contactId);
   if (!contact) {
-    return Response.json(
-      { ok: false, error: `Contact "${contactId}" not found` },
-      { status: 404 },
-    );
+    return httpError('NOT_FOUND', `Contact "${contactId}" not found`, 404);
   }
   return Response.json({ ok: true, contact });
 }
@@ -38,10 +36,7 @@ export async function handleMergeContacts(req: Request): Promise<Response> {
   const body = (await req.json()) as { keepId?: string; mergeId?: string };
 
   if (!body.keepId || !body.mergeId) {
-    return Response.json(
-      { ok: false, error: 'keepId and mergeId are required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'keepId and mergeId are required', 400);
   }
 
   try {
@@ -49,6 +44,6 @@ export async function handleMergeContacts(req: Request): Promise<Response> {
     return Response.json({ ok: true, contact });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return Response.json({ ok: false, error: message }, { status: 400 });
+    return httpError('BAD_REQUEST', message, 400);
   }
 }

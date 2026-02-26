@@ -2,6 +2,8 @@
 // Tracks request counts per token and returns 429 when the limit is exceeded.
 // Follows the same sliding-window pattern as gateway/src/auth-rate-limiter.ts.
 
+import type { HttpErrorResponse } from '../http-errors.js';
+
 const DEFAULT_MAX_REQUESTS = 60;
 const DEFAULT_WINDOW_MS = 60_000; // 60 seconds
 const MAX_TRACKED_TOKENS = 10_000;
@@ -103,16 +105,16 @@ export function rateLimitHeaders(result: RateLimitResult): Record<string, string
 /** Return a 429 response with rate limit headers and a Retry-After hint. */
 export function rateLimitResponse(result: RateLimitResult): Response {
   const retryAfter = Math.max(1, result.resetAt - Math.ceil(Date.now() / 1000));
-  return Response.json(
-    { error: 'Too Many Requests' },
-    {
-      status: 429,
-      headers: {
-        ...rateLimitHeaders(result),
-        'Retry-After': String(retryAfter),
-      },
+  const body: HttpErrorResponse = {
+    error: { code: 'RATE_LIMITED', message: 'Too Many Requests' },
+  };
+  return Response.json(body, {
+    status: 429,
+    headers: {
+      ...rateLimitHeaders(result),
+      'Retry-After': String(retryAfter),
     },
-  );
+  });
 }
 
 /** Singleton rate limiter for the runtime HTTP API. */

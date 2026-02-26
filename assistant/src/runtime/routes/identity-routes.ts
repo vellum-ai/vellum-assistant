@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { getBaseDataDir } from '../../config/env-registry.js';
 import { getWorkspacePromptPath, readLockfile } from '../../util/platform.js';
+import { httpError } from '../http-errors.js';
 
 interface DiskSpaceInfo {
   path: string;
@@ -57,7 +58,7 @@ export function handleHealth(): Response {
 export function handleGetIdentity(): Response {
   const identityPath = getWorkspacePromptPath('IDENTITY.md');
   if (!existsSync(identityPath)) {
-    return Response.json({ error: 'IDENTITY.md not found' }, { status: 404 });
+    return httpError('NOT_FOUND', 'IDENTITY.md not found', 404);
   }
 
   const content = readFileSync(identityPath, 'utf-8');

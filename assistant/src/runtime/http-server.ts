@@ -38,6 +38,7 @@ import { getLogger } from '../util/logger.js';
 import { buildAssistantEvent } from './assistant-event.js';
 import { assistantEventHub } from './assistant-event-hub.js';
 import { sweepFailedEvents } from './channel-retry-sweep.js';
+import { httpError } from './http-errors.js';
 // Middleware
 import {
   extractBearerToken,
@@ -369,7 +370,7 @@ export class RuntimeHttpServer {
     if (!isHttpAuthDisabled() && this.bearerToken) {
       const token = extractBearerToken(req);
       if (!token || !verifyBearerToken(token, this.bearerToken)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        return httpError('UNAUTHORIZED', 'Unauthorized', 401);
       }
     }
 
@@ -412,7 +413,7 @@ export class RuntimeHttpServer {
         return handleServePage(pagesMatch[1]);
       } catch (err) {
         log.error({ err, appId: pagesMatch[1] }, 'Runtime HTTP handler error serving page');
-        return Response.json({ error: 'Internal server error' }, { status: 500 });
+        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
       }
     }
 
@@ -420,7 +421,7 @@ export class RuntimeHttpServer {
     if (path === '/v1/apps/share' && req.method === 'POST') {
       try { return await handleShareApp(req); } catch (err) {
         log.error({ err }, 'Runtime HTTP handler error sharing app');
-        return Response.json({ error: 'Internal server error' }, { status: 500 });
+        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
       }
     }
 
@@ -430,13 +431,13 @@ export class RuntimeHttpServer {
       if (req.method === 'GET') {
         try { return handleDownloadSharedApp(shareToken); } catch (err) {
           log.error({ err, shareToken }, 'Runtime HTTP handler error downloading shared app');
-          return Response.json({ error: 'Internal server error' }, { status: 500 });
+          return httpError('INTERNAL_ERROR', 'Internal server error', 500);
         }
       }
       if (req.method === 'DELETE') {
         try { return handleDeleteSharedApp(shareToken); } catch (err) {
           log.error({ err, shareToken }, 'Runtime HTTP handler error deleting shared app');
-          return Response.json({ error: 'Internal server error' }, { status: 500 });
+          return httpError('INTERNAL_ERROR', 'Internal server error', 500);
         }
       }
     }
@@ -445,7 +446,7 @@ export class RuntimeHttpServer {
     if (sharedMetadataMatch && req.method === 'GET') {
       try { return handleGetSharedAppMetadata(sharedMetadataMatch[1]); } catch (err) {
         log.error({ err, shareToken: sharedMetadataMatch[1] }, 'Runtime HTTP handler error getting shared app metadata');
-        return Response.json({ error: 'Internal server error' }, { status: 500 });
+        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
       }
     }
 
@@ -453,7 +454,7 @@ export class RuntimeHttpServer {
     if (path === '/v1/secrets' && req.method === 'POST') {
       try { return await handleAddSecret(req); } catch (err) {
         log.error({ err }, 'Runtime HTTP handler error adding secret');
-        return Response.json({ error: 'Internal server error' }, { status: 500 });
+        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
       }
     }
 
@@ -466,7 +467,7 @@ export class RuntimeHttpServer {
     // Legacy: /v1/assistants/:assistantId/<endpoint>
     const match = path.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/);
     if (!match) {
-      return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
+      return httpError('NOT_FOUND', 'Not found', 404);
     }
 
     const assistantId = canonicalChannelAssistantId(match[1]);
@@ -477,17 +478,14 @@ export class RuntimeHttpServer {
 
   private handleBrowserRelayUpgrade(req: Request, server: ReturnType<typeof Bun.serve>): Response {
     if (!isLoopbackHost(new URL(req.url).hostname) && !isPrivateNetworkPeer(server, req)) {
-      return Response.json(
-        { error: 'Browser relay only accepts connections from localhost', code: 'LOCALHOST_ONLY' },
-        { status: 403 },
-      );
+      return httpError('FORBIDDEN', 'Browser relay only accepts connections from localhost', 403);
     }
 
     if (!isHttpAuthDisabled() && this.bearerToken) {
       const wsUrl = new URL(req.url);
       const token = wsUrl.searchParams.get('token');
       if (!token || !verifyBearerToken(token, this.bearerToken)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        return httpError('UNAUTHORIZED', 'Unauthorized', 401);
       }
     }
 
@@ -503,10 +501,7 @@ export class RuntimeHttpServer {
 
   private handleRelayUpgrade(req: Request, server: ReturnType<typeof Bun.serve>): Response {
     if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return Response.json(
-        { error: 'Direct relay access disabled — only private network peers allowed', code: 'GATEWAY_ONLY' },
-        { status: 403 },
-      );
+      return httpError('FORBIDDEN', 'Direct relay access disabled — only private network peers allowed', 403);
     }
 
     const wsUrl = new URL(req.url);
@@ -534,10 +529,7 @@ export class RuntimeHttpServer {
     const twilioSubpath = resolvedTwilioSubpath;
 
     if (GATEWAY_ONLY_BLOCKED_SUBPATHS.has(twilioSubpath)) {
-      return Response.json(
-        { error: 'Direct webhook access disabled. Use the gateway.', code: 'GATEWAY_ONLY' },
-        { status: 410 },
-      );
+      return httpError('NOT_FOUND', 'Direct webhook access disabled. Use the gateway.', 410);
     }
 
     const validation = await validateTwilioWebhook(req);
@@ -574,7 +566,7 @@ export class RuntimeHttpServer {
           const resp = await extensionRelayServer.sendCommand(body as Omit<import('../browser-extension-relay/protocol.js').ExtensionCommand, 'id'>);
           return Response.json(resp);
         } catch (err) {
-          return Response.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+          return httpError('INTERNAL_ERROR', err instanceof Error ? err.message : String(err), 500);
         }
       }
 
@@ -627,7 +619,7 @@ export class RuntimeHttpServer {
       if (endpoint === 'conversations/seen' && req.method === 'POST') {
         const body = await req.json() as Record<string, unknown>;
         const conversationId = body.conversationId as string | undefined;
-        if (!conversationId) return Response.json({ error: 'Missing conversationId' }, { status: 400 });
+        if (!conversationId) return httpError('BAD_REQUEST', 'Missing conversationId', 400);
         try {
           recordConversationSeenSignal({
             conversationId,
@@ -643,7 +635,7 @@ export class RuntimeHttpServer {
           return Response.json({ ok: true });
         } catch (err) {
           log.error({ err, conversationId }, 'POST /v1/conversations/seen: failed');
-          return Response.json({ error: 'Failed to record seen signal' }, { status: 500 });
+          return httpError('INTERNAL_ERROR', 'Failed to record seen signal', 500);
         }
       }
 
@@ -756,32 +748,32 @@ export class RuntimeHttpServer {
       // Internal OAuth callback endpoint (gateway -> runtime)
       if (endpoint === 'internal/oauth/callback' && req.method === 'POST') {
         const json = await req.json() as { state: string; code?: string; error?: string };
-        if (!json.state) return Response.json({ error: 'Missing state parameter' }, { status: 400 });
+        if (!json.state) return httpError('BAD_REQUEST', 'Missing state parameter', 400);
         if (json.error) {
           const consumed = consumeCallbackError(json.state, json.error);
-          return consumed ? Response.json({ ok: true }) : Response.json({ error: 'Unknown state' }, { status: 404 });
+          return consumed ? Response.json({ ok: true }) : httpError('NOT_FOUND', 'Unknown state', 404);
         }
         if (json.code) {
           const consumed = consumeCallback(json.state, json.code);
-          return consumed ? Response.json({ ok: true }) : Response.json({ error: 'Unknown state' }, { status: 404 });
+          return consumed ? Response.json({ ok: true }) : httpError('NOT_FOUND', 'Unknown state', 404);
         }
-        return Response.json({ error: 'Missing code or error parameter' }, { status: 400 });
+        return httpError('BAD_REQUEST', 'Missing code or error parameter', 400);
       }
 
-      return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
+      return httpError('NOT_FOUND', 'Not found', 404);
     });
   }
 
   private handleGetInterface(interfacePath: string): Response {
     if (!this.interfacesDir) {
-      return Response.json({ error: 'Interface not found' }, { status: 404 });
+      return httpError('NOT_FOUND', 'Interface not found', 404);
     }
     const fullPath = resolve(this.interfacesDir, interfacePath);
     if (
       (fullPath !== this.interfacesDir && !fullPath.startsWith(this.interfacesDir + '/')) ||
       !existsSync(fullPath)
     ) {
-      return Response.json({ error: 'Interface not found' }, { status: 404 });
+      return httpError('NOT_FOUND', 'Interface not found', 404);
     }
     const source = readFileSync(fullPath, 'utf-8');
     return new Response(source, {

@@ -17,6 +17,7 @@ import { getConfiguredProvider } from '../../providers/provider-send-message.js'
 import type { Provider } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
 import { buildAssistantEvent } from '../assistant-event.js';
+import { httpError } from '../http-errors.js';
 import type {
   MessageProcessor,
   NonBlockingMessageProcessor,
@@ -64,10 +65,7 @@ export function handleListMessages(
     const mapping = getConversationByKey(conversationKey);
     resolvedConversationId = mapping?.conversationId;
   } else {
-    return Response.json(
-      { error: 'conversationKey or conversationId query parameter is required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'conversationKey or conversationId query parameter is required', 400);
   }
 
   if (!resolvedConversationId) {
@@ -217,57 +215,36 @@ export async function handleSendMessage(
 
   const { conversationKey, content, attachmentIds } = body;
   if (!body.sourceChannel || typeof body.sourceChannel !== 'string') {
-    return Response.json(
-      { error: 'sourceChannel is required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'sourceChannel is required', 400);
   }
   const sourceChannel = parseChannelId(body.sourceChannel);
 
   if (!sourceChannel) {
-    return Response.json(
-      { error: `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(', ')}` },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(', ')}`, 400);
   }
 
   if (!body.interface || typeof body.interface !== 'string') {
-    return Response.json(
-      { error: 'interface is required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'interface is required', 400);
   }
   const sourceInterface = parseInterfaceId(body.interface);
   if (!sourceInterface) {
-    return Response.json(
-      { error: `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}` },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}`, 400);
   }
 
   if (!conversationKey) {
-    return Response.json(
-      { error: 'conversationKey is required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'conversationKey is required', 400);
   }
 
   // Reject non-string content values (numbers, objects, etc.)
   if (content != null && typeof content !== 'string') {
-    return Response.json(
-      { error: 'content must be a string' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'content must be a string', 400);
   }
 
   const trimmedContent = typeof content === 'string' ? content.trim() : '';
   const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
 
   if (trimmedContent.length === 0 && !hasAttachments) {
-    return Response.json(
-      { error: 'content or attachmentIds is required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'content or attachmentIds is required', 400);
   }
 
   // Validate that all attachment IDs resolve
@@ -276,10 +253,7 @@ export async function handleSendMessage(
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
-      return Response.json(
-        { error: `Attachment IDs not found: ${missing.join(', ')}` },
-        { status: 400 },
-      );
+      return httpError('BAD_REQUEST', `Attachment IDs not found: ${missing.join(', ')}`, 400);
     }
   }
 
@@ -317,10 +291,7 @@ export async function handleSendMessage(
         { isInteractive: false },
       );
       if (result.rejected) {
-        return Response.json(
-          { error: 'Message queue is full. Please retry later.' },
-          { status: 429 },
-        );
+        return httpError('RATE_LIMITED', 'Message queue is full. Please retry later.', 429);
       }
       return Response.json({ accepted: true, queued: true }, { status: 202 });
     }
@@ -349,7 +320,7 @@ export async function handleSendMessage(
   // ── Legacy path (fallback when sendMessageDeps not wired) ───────────
   const processor = deps.persistAndProcessMessage ?? deps.processMessage;
   if (!processor) {
-    return Response.json({ error: 'Message processing not configured' }, { status: 503 });
+    return httpError('SERVICE_UNAVAILABLE', 'Message processing not configured', 503);
   }
 
   try {
@@ -364,10 +335,7 @@ export async function handleSendMessage(
     return Response.json({ accepted: true, messageId: result.messageId }, { status: 202 });
   } catch (err) {
     if (err instanceof Error && err.message === 'Session is already processing a message') {
-      return Response.json(
-        { error: 'Session is busy processing another message. Please retry.' },
-        { status: 409 },
-      );
+      return httpError('CONFLICT', 'Session is busy processing another message. Please retry.', 409);
     }
     throw err;
   }
@@ -406,10 +374,7 @@ export async function handleGetSuggestion(
 ): Promise<Response> {
   const conversationKey = url.searchParams.get('conversationKey');
   if (!conversationKey) {
-    return Response.json(
-      { error: 'conversationKey query parameter is required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'conversationKey query parameter is required', 400);
   }
 
   const mapping = getConversationByKey(conversationKey);
@@ -517,10 +482,7 @@ export async function handleGetSuggestion(
 export function handleSearchConversations(url: URL): Response {
   const query = url.searchParams.get('q') ?? '';
   if (!query.trim()) {
-    return Response.json(
-      { error: 'q query parameter is required' },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', 'q query parameter is required', 400);
   }
 
   const limit = url.searchParams.has('limit')

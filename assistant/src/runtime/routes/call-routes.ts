@@ -11,6 +11,7 @@
 import { answerCall, cancelCall, getCallStatus, relayInstruction,startCall } from '../../calls/call-domain.js';
 import { getConfig } from '../../config/loader.js';
 import { VALID_CALLER_IDENTITY_MODES } from '../../config/schema.js';
+import { httpError } from '../http-errors.js';
 
 // ── Idempotency cache ─────────────────────────────────────────────────────────
 // Stores serialized 201 responses keyed by idempotencyKey for 5 minutes so
@@ -42,10 +43,7 @@ function pruneIdempotencyCache(): void {
  */
 export async function handleStartCall(req: Request, assistantId: string = 'self'): Promise<Response> {
   if (!getConfig().calls.enabled) {
-    return Response.json(
-      { error: 'Calls feature is disabled via configuration. Set calls.enabled to true to use this feature.' },
-      { status: 403 },
-    );
+    return httpError('FORBIDDEN', 'Calls feature is disabled via configuration. Set calls.enabled to true to use this feature.', 403);
   }
 
   let body: {
@@ -59,23 +57,20 @@ export async function handleStartCall(req: Request, assistantId: string = 'self'
   try {
     body = await req.json() as typeof body;
   } catch {
-    return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'Invalid JSON in request body', 400);
   }
 
   if (typeof body !== 'object' || body == null || Array.isArray(body)) {
-    return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'Request body must be a JSON object', 400);
   }
 
   if (!body.conversationId) {
-    return Response.json({ error: 'conversationId is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'conversationId is required', 400);
   }
 
   if (body.callerIdentityMode != null &&
       !(VALID_CALLER_IDENTITY_MODES as readonly string[]).includes(body.callerIdentityMode as string)) {
-    return Response.json(
-      { error: `Invalid callerIdentityMode: "${body.callerIdentityMode}". Must be one of: ${VALID_CALLER_IDENTITY_MODES.join(', ')}` },
-      { status: 400 },
-    );
+    return httpError('BAD_REQUEST', `Invalid callerIdentityMode: "${body.callerIdentityMode}". Must be one of: ${VALID_CALLER_IDENTITY_MODES.join(', ')}`, 400);
   }
 
   // Idempotency check: return cached response for duplicate requests
@@ -101,7 +96,7 @@ export async function handleStartCall(req: Request, assistantId: string = 'self'
   });
 
   if (!result.ok) {
-    return Response.json({ error: result.error }, { status: result.status ?? 500 });
+    return httpError('INTERNAL_ERROR', result.error, result.status ?? 500);
   }
 
   const responseBody = {
@@ -127,7 +122,7 @@ export function handleGetCallStatus(callSessionId: string): Response {
   const result = getCallStatus(callSessionId);
 
   if (!result.ok) {
-    return Response.json({ error: result.error }, { status: result.status ?? 500 });
+    return httpError('INTERNAL_ERROR', result.error, result.status ?? 500);
   }
 
   const { session } = result;
@@ -166,7 +161,7 @@ export async function handleCancelCall(req: Request, callSessionId: string): Pro
   const result = await cancelCall({ callSessionId, reason });
 
   if (!result.ok) {
-    return Response.json({ error: result.error }, { status: result.status ?? 500 });
+    return httpError('INTERNAL_ERROR', result.error, result.status ?? 500);
   }
 
   return Response.json({
@@ -185,11 +180,11 @@ export async function handleAnswerCall(req: Request, callSessionId: string): Pro
   try {
     body = await req.json() as typeof body;
   } catch {
-    return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'Invalid JSON in request body', 400);
   }
 
   if (typeof body !== 'object' || body == null || Array.isArray(body)) {
-    return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'Request body must be a JSON object', 400);
   }
 
   const result = await answerCall({
@@ -198,7 +193,7 @@ export async function handleAnswerCall(req: Request, callSessionId: string): Pro
   });
 
   if (!result.ok) {
-    return Response.json({ error: result.error }, { status: result.status ?? 500 });
+    return httpError('INTERNAL_ERROR', result.error, result.status ?? 500);
   }
 
   return Response.json({ ok: true, questionId: result.questionId });
@@ -214,11 +209,11 @@ export async function handleInstructionCall(req: Request, callSessionId: string)
   try {
     body = await req.json() as typeof body;
   } catch {
-    return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'Invalid JSON in request body', 400);
   }
 
   if (typeof body !== 'object' || body == null || Array.isArray(body)) {
-    return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'Request body must be a JSON object', 400);
   }
 
   const result = await relayInstruction({
@@ -227,7 +222,7 @@ export async function handleInstructionCall(req: Request, callSessionId: string)
   });
 
   if (!result.ok) {
-    return Response.json({ error: result.error }, { status: result.status ?? 500 });
+    return httpError('INTERNAL_ERROR', result.error, result.status ?? 500);
   }
 
   return Response.json({ ok: true });

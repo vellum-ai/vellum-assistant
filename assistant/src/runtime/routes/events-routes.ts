@@ -11,6 +11,7 @@ import { getOrCreateConversation } from '../../memory/conversation-key-store.js'
 import { formatSseFrame, formatSseHeartbeat } from '../assistant-event.js';
 import type { AssistantEventSubscription } from '../assistant-event-hub.js';
 import { AssistantEventHub,assistantEventHub } from '../assistant-event-hub.js';
+import { httpError } from '../http-errors.js';
 
 /** Keep-alive comment sent to idle clients every 30 s by default. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -35,7 +36,7 @@ export function handleSubscribeAssistantEvents(
 ): Response {
   const conversationKey = url.searchParams.get('conversationKey');
   if (!conversationKey) {
-    return Response.json({ error: 'conversationKey is required' }, { status: 400 });
+    return httpError('BAD_REQUEST', 'conversationKey is required', 400);
   }
 
   const hub = options?.hub ?? assistantEventHub;
@@ -88,7 +89,7 @@ export function handleSubscribeAssistantEvents(
     );
   } catch (err) {
     if (err instanceof RangeError) {
-      return Response.json({ error: 'Too many concurrent connections' }, { status: 503 });
+      return httpError('SERVICE_UNAVAILABLE', 'Too many concurrent connections', 503);
     }
     throw err;
   }
