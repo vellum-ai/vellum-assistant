@@ -423,7 +423,6 @@ interface QRPairingPayload {
   g: string;
   pairingRequestId: string;
   pairingSecret: string;
-  localLanUrl?: string;
 }
 
 function decodeQRCodeFromPng(pngPath: string): string {
@@ -557,7 +556,6 @@ async function hatchCustom(
       g: gatewayUrl,
       pairingRequestId,
       pairingSecret,
-      localLanUrl: `http://${lanIp}:7830`,
     });
 
     // Generate QR code in terminal
