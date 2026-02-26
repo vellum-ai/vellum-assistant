@@ -131,7 +131,7 @@ The `check-pr-reviews` script reports **cumulative** review status — it counts
    Log: `"Re-requested reviews from Codex and Devin on PR #$PR_NUMBER (cycle <cycle-counter>/3, commit $LATEST_COMMIT)."`
 
 5. **Wait for fresh reviews**: After fixes are pushed, poll for **new** reviews posted after `last_fix_push_time`:
-   - Poll every 60 seconds for up to **3 minutes**.
+   - Poll every 60 seconds for up to **10 minutes**.
    - On each poll, use `gh api` to check for reviews and inline comments posted after `last_fix_push_time`:
      ```bash
      gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews" \
@@ -143,9 +143,12 @@ The `check-pr-reviews` script reports **cumulative** review status — it counts
      - If aggregate status is `approved`, proceed to Step 6.
      - If aggregate status is `changes_requested`, return to step 2 (which checks the cycle limit).
      - If aggregate status is `pending` or `rate_limited`, continue polling.
-   - If **3 minutes** pass with no new reviews (zero new reviews/comments since `last_fix_push_time`), proceed to Step 6. Log: `"No new reviews within 3 minutes after fixes pushed. Proceeding."`
+   - If no new reviews/comments exist yet, run `.claude/check-pr-reviews $PR_NUMBER` to check per-reviewer statuses:
+     - If **both** `codex.status` and `devin.status` have responded (i.e., neither is `pending`), proceed to Step 6.
+     - If **either** reviewer is still `pending`, **continue polling** — do not exit the loop. Review bots can take longer than 3 minutes to respond.
+   - If **10 minutes** pass with no new reviews and at least one reviewer is still pending, proceed to Step 6. Log: `"Timed out after 10 minutes waiting for reviewer responses. Proceeding with pending reviews."`
 
-Repeat steps 1-5 until the exit condition: either `approved` aggregate status, 3-minute timeout with no new reviews after a fix push, or the cycle counter has reached 3.
+Repeat steps 1-5 until the exit condition: either `approved` aggregate status, both reviewers have responded, 10-minute timeout after a fix push, or the cycle counter has reached 3.
 
 #### 5c. Check for and resolve merge conflicts with main
 
@@ -222,6 +225,37 @@ git merge-tree --write-tree origin/$PR_BRANCH origin/main > /dev/null 2>&1
    ```
 
 Log: `"Rebased PR branch on latest main to resolve merge conflicts."`
+
+**Step 3: Re-trigger reviews after rebase.**
+
+Since the rebase rewrites commits (and conflict resolution may change logic), previously approved reviews may no longer reflect the actual diff. Re-request reviews before proceeding:
+
+1. Post review request comments:
+   ```bash
+   gh pr comment $PR_NUMBER --body "@codex review this PR again — it was rebased onto main to resolve merge conflicts"
+   gh pr comment $PR_NUMBER --body "@devin review this PR again — it was rebased onto main to resolve merge conflicts"
+   ```
+   Log: `"Re-requested reviews from Codex and Devin after rebase on PR #$PR_NUMBER."`
+
+2. Record the current UTC time as `last_fix_push_time` (e.g., `date -u +%Y-%m-%dT%H:%M:%SZ`).
+
+3. Wait for fresh reviews: Poll for **new** reviews posted after `last_fix_push_time`:
+   - Poll every 60 seconds for up to **10 minutes**.
+   - On each poll, use `gh api` to check for reviews and inline comments posted after `last_fix_push_time`:
+     ```bash
+     gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews" \
+       --jq '[.[] | select(.submitted_at > "'$last_fix_push_time'")] | length'
+     gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments" \
+       --jq '[.[] | select(.created_at > "'$last_fix_push_time'")] | length'
+     ```
+   - If new reviews exist, run `.claude/check-pr-reviews $PR_NUMBER` and derive the aggregate status:
+     - If aggregate status is `approved`, proceed to Step 6.
+     - If aggregate status is `changes_requested`, return to the feedback loop (Step 5b, step 2 — which checks the cycle limit).
+     - If aggregate status is `pending` or `rate_limited`, continue polling.
+   - If no new reviews/comments exist yet, run `.claude/check-pr-reviews $PR_NUMBER` to check per-reviewer statuses:
+     - If **both** `codex.status` and `devin.status` have responded (i.e., neither is `pending`), proceed to Step 6.
+     - If **either** reviewer is still `pending`, **continue polling**.
+   - If **10 minutes** pass with no new reviews and at least one reviewer is still pending, proceed to Step 6. Log: `"Timed out after 10 minutes waiting for post-rebase reviews. Proceeding with pending reviews."`
 
 Proceed to Step 6.
 

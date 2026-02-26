@@ -97,7 +97,7 @@ export function resolveGuardianVerificationIntent(text: string): GuardianVerific
   // Strip fillers for pattern matching but keep original for context
   const withoutFillers = trimmed.replace(FILLER_PATTERN, '').replace(/\s{2,}/g, ' ').trim();
 
-  if (!isDirectSetupIntent(trimmed) && !isDirectSetupIntent(withoutFillers)) {
+  if (!isDirectSetupIntent(withoutFillers)) {
     return { kind: 'none' };
   }
 

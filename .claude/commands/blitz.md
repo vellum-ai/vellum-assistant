@@ -180,17 +180,23 @@ Log: `"Re-requested reviews from Codex and Devin on PR #<pr-number> (cycle <cycl
 
 Wait for fresh reviews: Poll for **new** reviews posted after `last_fix_push_time`:
 - Poll every 60 seconds for up to **3 minutes**.
-- On each poll, use `gh api` to check for reviews and inline comments posted after `last_fix_push_time`:
+- On each poll, run `.claude/check-pr-reviews <pr-number>` to get the full reviewer status (this catches Codex rate-limit responses in issue comments, which raw `pulls/<pr>/reviews` and `pulls/<pr>/comments` endpoints miss). Then check for new activity since `last_fix_push_time` using `gh api`:
   ```bash
-  gh api "repos/{owner}/{repo}/pulls/<pr-number>/reviews" \
-    --jq '[.[] | select(.submitted_at > "'$last_fix_push_time'")] | length'
-  gh api "repos/{owner}/{repo}/pulls/<pr-number>/comments" \
-    --jq '[.[] | select(.created_at > "'$last_fix_push_time'")] | length'
+  # Get full reviewer status including rate-limit detection from issue comments
+  .claude/check-pr-reviews <pr-number>
+  # Check for new review activity since fixes were pushed
+  NEW_REVIEWS=$(gh api "repos/{owner}/{repo}/pulls/<pr-number>/reviews" \
+    --jq '[.[] | select(.submitted_at > "'$last_fix_push_time'")] | length')
+  NEW_COMMENTS=$(gh api "repos/{owner}/{repo}/pulls/<pr-number>/comments" \
+    --jq '[.[] | select(.created_at > "'$last_fix_push_time'")] | length')
+  NEW_ISSUE_COMMENTS=$(gh api "repos/{owner}/{repo}/issues/<pr-number>/comments" \
+    --jq '[.[] | select(.created_at > "'$last_fix_push_time'")] | length')
   ```
-- If new reviews exist, run `.claude/check-pr-reviews <pr-number>` and derive the aggregate status:
+- If new activity exists (any of `NEW_REVIEWS`, `NEW_COMMENTS`, or `NEW_ISSUE_COMMENTS` > 0), derive the aggregate status from the `check-pr-reviews` output:
   - If aggregate status is `approved`, proceed to Step 6.
   - If aggregate status is `changes_requested`, return to Step 3 (which checks the cycle limit).
-  - If aggregate status is `pending` or `rate_limited`, continue polling.
+  - If aggregate status is `rate_limited`, continue polling (the rate limit response counts as activity but is not actionable yet).
+  - If aggregate status is `pending`, continue polling.
 - If **3 minutes** pass with no new reviews, proceed to Step 6. Log: `"No new reviews within 3 minutes after fixes pushed. Proceeding to merge."`
 
 #### Step 6: Merge to main
@@ -212,13 +218,30 @@ Pull latest main for subsequent PR merges:
 git fetch origin main
 ```
 
-If the next PR in the queue has conflicts with the updated main, rebase its branch before proceeding:
+If the next PR in the queue has conflicts with the updated main, rebase its branch before proceeding. This is critical because approved PRs skip the feedback loop and go straight to merge — without an explicit rebase step, a conflicted-but-approved PR would fail to merge and halt the blitz sequence.
 
 ```bash
 git fetch origin <next-pr-branch>
 # Check for conflicts
-git merge-tree --write-tree origin/<next-pr-branch> origin/main > /dev/null 2>&1
-# If non-zero exit, the next PR's feedback loop will handle rebasing
+if ! git merge-tree --write-tree origin/<next-pr-branch> origin/main > /dev/null 2>&1; then
+  # Rebase the PR branch onto latest main
+  NEXT_BRANCH=<next-pr-branch>
+  REBASE_DIR=$(mktemp -d)
+  git worktree add "$REBASE_DIR" "origin/$NEXT_BRANCH"
+  cd "$REBASE_DIR"
+  git checkout -B "$NEXT_BRANCH" "origin/$NEXT_BRANCH"
+  git pull --rebase origin main
+  git push origin "$NEXT_BRANCH" --force-with-lease
+  cd -
+  git worktree remove "$REBASE_DIR" --force
+  git fetch origin "$NEXT_BRANCH"
+
+  # Verify the rebase resolved conflicts; if it failed, log and continue
+  # (the per-PR feedback loop or manual intervention will handle it)
+  if ! git merge-tree --write-tree "origin/$NEXT_BRANCH" origin/main > /dev/null 2>&1; then
+    echo "Warning: Rebase of $NEXT_BRANCH onto main still has conflicts after rebase attempt. Manual intervention may be needed."
+  fi
+fi
 ```
 
 #### Step 7: Report

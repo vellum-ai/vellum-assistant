@@ -20,26 +20,17 @@ const ALLOWLIST = new Set([
   // --- Test files are always allowed (matched by directory/suffix below) ---
 
   // --- Gateway internals (gateway calls runtime directly) ---
-  // Matched by prefix check below: gateway/src/
+  // Matched by prefix check below: gateway/
 
   // --- Intentional local daemon-control paths ---
   'clients/shared/IPC/DaemonClient.swift',
   'clients/macos/vellum-assistant/App/AppDelegate.swift',
   'clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift',
+  '.claude/commands/update.md', // daemon health check script
 
-  // --- TEMPORARY allowlist — violators to be migrated in M6 ---
-  'cli/src/commands/contacts.ts',
-  'assistant/src/influencer/client.ts',
-  'assistant/src/amazon/client.ts',
-  'clients/macos/vellum-assistant/Features/Settings/PairingQRCodeSheet.swift',
-  'clients/macos/vellum-assistant/Features/Chat/MediaEmbeds/InlineVideoAttachmentView.swift',
-  'clients/macos/vellum-assistant/Features/MainWindow/MainWindowView.swift',
-  'skills/guardian-verify-setup/SKILL.md',
-  'skills/telegram-setup/SKILL.md',
-  'skills/twilio-setup/SKILL.md',
-  'assistant/src/config/vellum-skills/guardian-verify-setup/SKILL.md',
-  'assistant/src/config/vellum-skills/telegram-setup/SKILL.md',
-  'assistant/src/config/vellum-skills/twilio-setup/SKILL.md',
+  // --- Documentation and comments that mention the port for explanatory purposes ---
+  'AGENTS.md', // documents the gateway-only rule itself
+  'assistant/src/runtime/middleware/twilio-validation.ts', // comment explaining proxy URL rewriting
 ]);
 
 /** Patterns that indicate a direct runtime URL reference. */
@@ -59,7 +50,7 @@ function isTestFile(filePath: string): boolean {
 }
 
 function isGatewayInternal(filePath: string): boolean {
-  return filePath.startsWith('gateway/src/');
+  return filePath.startsWith('gateway/');
 }
 
 describe('gateway-only API consumption guard', () => {

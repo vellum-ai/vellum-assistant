@@ -124,6 +124,7 @@ export function enqueueMessage(
   currentPage?: string,
   metadata?: Record<string, unknown>,
   options?: { isInteractive?: boolean },
+  displayContent?: string,
 ): { queued: boolean; rejected?: boolean; requestId: string } {
   if (!ctx.processing) {
     return { queued: false, requestId };
@@ -143,6 +144,7 @@ export function enqueueMessage(
     turnInterfaceContext,
     isInteractive: options?.isInteractive,
     queuedAt: Date.now(),
+    displayContent,
   });
   if (!pushed) {
     return { queued: false, rejected: true, requestId };
@@ -158,6 +160,7 @@ export function persistUserMessage(
   attachments: UserMessageAttachment[],
   requestId?: string,
   metadata?: Record<string, unknown>,
+  displayContent?: string,
 ): string {
   if (ctx.processing) {
     throw new Error('Session is already processing a message');
@@ -202,10 +205,19 @@ export function persistUserMessage(
         : {}),
     };
 
+    // When displayContent is provided (e.g. original text before recording
+    // intent stripping), persist that to DB so users see the full message
+    // after restart. The in-memory userMessage (sent to the LLM) still uses
+    // the stripped content.
+    const contentToPersist = displayContent
+      ? JSON.stringify(createUserMessage(displayContent, attachments.map((a) => ({
+          id: a.id, filename: a.filename, mimeType: a.mimeType, data: a.data, extractedText: a.extractedText,
+        }))).content)
+      : JSON.stringify(userMessage.content);
     const persistedUserMessage = conversationStore.addMessage(
       ctx.conversationId,
       'user',
-      JSON.stringify(userMessage.content),
+      contentToPersist,
       mergedMetadata,
     );
 

@@ -708,8 +708,11 @@ export async function handleChannelInbound(
   // Check if this inbound message is a reply to a cross-channel guardian
   // action request (from a voice call). Must run before approval interception
   // so guardian answers are not mistakenly routed into the approval flow.
+  // Callback payloads (inline button presses) are excluded — they should
+  // not be misclassified as guardian answers.
   if (
     !result.duplicate &&
+    !hasCallbackData &&
     trimmedContent.length > 0 &&
     body.senderExternalUserId &&
     replyCallbackUrl
@@ -807,58 +810,33 @@ export async function handleChannelInbound(
               });
             } else {
               // resolveGuardianActionRequest returned null — request was no
-              // longer pending. Check if it expired (could have timed out
-              // between the delivery lookup and the resolve attempt).
+              // longer pending. answerCall already succeeded above, so the
+              // answer WAS delivered to the call. Don't initiate a follow-up
+              // negotiation; instead tell the guardian the answer was relayed.
               const freshRequest = getGuardianActionRequest(request.id);
-              if (freshRequest && freshRequest.status === 'expired' && freshRequest.followupState === 'none') {
-                // Expired between lookup and resolve — initiate follow-up
-                const followupResult = startFollowupFromExpiredRequest(freshRequest.id, answerText);
-                if (followupResult) {
-                  const followupText = await composeGuardianActionMessageGenerative(
-                    {
-                      scenario: 'guardian_late_answer_followup',
-                      questionText: freshRequest.questionText,
-                      lateAnswerText: answerText,
-                    },
-                    {},
-                    guardianActionCopyGenerator,
-                  );
-                  try {
-                    await deliverChannelReply(replyCallbackUrl, {
-                      chatId: externalChatId,
-                      text: followupText,
-                      assistantId,
-                    }, bearerToken);
-                  } catch (err) {
-                    log.error({ err, externalChatId }, 'Failed to deliver guardian action follow-up prompt');
-                  }
-                  return Response.json({
-                    accepted: true,
-                    duplicate: false,
-                    eventId: result.eventId,
-                    guardianAnswer: 'followup_initiated',
-                  });
-                }
-              }
 
-              // Already answered from another channel, or follow-up already started / expired
-              const staleScenario = freshRequest?.status === 'answered'
-                ? 'guardian_stale_answered' as const
-                : 'guardian_stale_expired' as const;
-              const staleText = await composeGuardianActionMessageGenerative(
-                { scenario: staleScenario },
+              // answerCall succeeded, so the answer was delivered regardless
+              // of the resolve race. Inform the guardian accordingly.
+              const relayedText = await composeGuardianActionMessageGenerative(
+                {
+                  scenario: 'guardian_stale_answered' as const,
+                },
                 {},
                 guardianActionCopyGenerator,
               );
               try {
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: externalChatId,
-                  text: staleText,
+                  text: relayedText,
                   assistantId,
                 }, bearerToken);
               } catch (err) {
                 log.error({ err, externalChatId }, 'Failed to deliver guardian action stale notice');
               }
+              log.info(
+                { requestId: request.id, freshStatus: freshRequest?.status },
+                'answerCall succeeded but resolveGuardianActionRequest returned null — informed guardian answer was relayed',
+              );
               return Response.json({
                 accepted: true,
                 duplicate: false,
@@ -960,6 +938,30 @@ export async function handleChannelInbound(
                 duplicate: false,
                 eventId: result.eventId,
                 guardianAnswer: 'followup_initiated',
+              });
+            } else {
+              // startFollowupFromExpiredRequest returned null (race condition:
+              // another reply already transitioned the request). Send a stale
+              // notice instead of falling through to the normal agent pipeline.
+              const staleText = await composeGuardianActionMessageGenerative(
+                { scenario: 'guardian_stale_expired' as const },
+                {},
+                guardianActionCopyGenerator,
+              );
+              try {
+                await deliverChannelReply(replyCallbackUrl, {
+                  chatId: externalChatId,
+                  text: staleText,
+                  assistantId,
+                }, bearerToken);
+              } catch (err) {
+                log.error({ err, externalChatId }, 'Failed to deliver guardian action stale notice for expired follow-up race');
+              }
+              return Response.json({
+                accepted: true,
+                duplicate: false,
+                eventId: result.eventId,
+                guardianAnswer: 'stale',
               });
             }
           }

@@ -397,8 +397,9 @@ export class Session {
     currentPage?: string,
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
+    displayContent?: string,
   ): { queued: boolean; rejected?: boolean; requestId: string } {
-    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, metadata, options);
+    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, metadata, options, displayContent);
   }
 
   getQueueDepth(): number {
@@ -494,8 +495,9 @@ export class Session {
     attachments: UserMessageAttachment[],
     requestId?: string,
     metadata?: Record<string, unknown>,
+    displayContent?: string,
   ): string {
-    return persistUserMessageImpl(this, content, attachments, requestId, metadata);
+    return persistUserMessageImpl(this, content, attachments, requestId, metadata, displayContent);
   }
 
   // ── Agent Loop ───────────────────────────────────────────────────
@@ -522,8 +524,9 @@ export class Session {
     activeSurfaceId?: string,
     currentPage?: string,
     options?: { isInteractive?: boolean },
+    displayContent?: string,
   ): Promise<string> {
-    return processMessageImpl(this as ProcessSessionContext, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, options);
+    return processMessageImpl(this as ProcessSessionContext, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, options, displayContent);
   }
 
   // ── History ──────────────────────────────────────────────────────

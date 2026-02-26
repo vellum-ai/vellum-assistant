@@ -104,7 +104,7 @@ export interface ProcessSessionContext {
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
-  persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>): string;
+  persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>, displayContent?: string): string;
   runAgentLoop(
     content: string,
     userMessageId: string,
@@ -220,10 +220,16 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
           : {}),
       };
       const userMsg = createUserMessage(next.content, next.attachments);
+      // When displayContent is provided (e.g. original text before recording
+      // intent stripping), persist that to DB so users see the full message.
+      // The in-memory userMessage (sent to the LLM) still uses the stripped content.
+      const contentToPersist = next.displayContent
+        ? JSON.stringify(createUserMessage(next.displayContent, next.attachments).content)
+        : JSON.stringify(userMsg.content);
       conversationStore.addMessage(
         session.conversationId,
         'user',
-        JSON.stringify(userMsg.content),
+        contentToPersist,
         drainChannelMeta,
       );
       session.messages.push(userMsg);
@@ -277,12 +283,15 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
     session.preactivatedSkillIds = [slashResult.skillId];
   }
 
-  // Guardian verification intent interception for queued messages
+  // Guardian verification intent interception for queued messages.
+  // Preserve the original user content for persistence; only the agent
+  // loop receives the rewritten instruction.
+  let agentLoopContent = resolvedContent;
   if (slashResult.kind === 'passthrough') {
     const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
     if (guardianIntent.kind === 'direct_setup') {
       log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent intercepted in queue — forcing skill flow');
-      resolvedContent = guardianIntent.rewrittenContent;
+      agentLoopContent = guardianIntent.rewrittenContent;
       session.preactivatedSkillIds = ['guardian-verify-setup'];
     }
   }
@@ -293,7 +302,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // resolves early (no runAgentLoop call), so we must continue draining.
   let userMessageId: string;
   try {
-    userMessageId = session.persistUserMessage(resolvedContent, next.attachments, next.requestId, next.metadata);
+    userMessageId = session.persistUserMessage(resolvedContent, next.attachments, next.requestId, next.metadata, next.displayContent);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId: session.conversationId, requestId: next.requestId }, 'Failed to persist queued message');
@@ -340,7 +349,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // Fire-and-forget: persistUserMessage set session.processing = true
   // so subsequent messages will still be enqueued.
   // runAgentLoop's finally block will call drainQueue when this run completes.
-  session.runAgentLoop(resolvedContent, userMessageId, next.onEvent,
+  session.runAgentLoop(agentLoopContent, userMessageId, next.onEvent,
     next.isInteractive !== undefined ? { isInteractive: next.isInteractive } : undefined,
   ).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
@@ -364,6 +373,7 @@ export async function processMessage(
   activeSurfaceId?: string,
   currentPage?: string,
   options?: { isInteractive?: boolean },
+  displayContent?: string,
 ): Promise<string> {
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
@@ -581,10 +591,16 @@ export async function processMessage(
         : {}),
     };
     const userMsg = createUserMessage(content, attachments);
+    // When displayContent is provided (e.g. original text before recording
+    // intent stripping), persist that to DB so users see the full message.
+    // The in-memory userMessage (sent to the LLM) still uses the stripped content.
+    const contentToPersist = displayContent
+      ? JSON.stringify(createUserMessage(displayContent, attachments).content)
+      : JSON.stringify(userMsg.content);
     const persisted = conversationStore.addMessage(
       session.conversationId,
       'user',
-      JSON.stringify(userMsg.content),
+      contentToPersist,
       pmChannelMeta,
     );
     session.messages.push(userMsg);
@@ -629,18 +645,21 @@ export async function processMessage(
   // Guardian verification intent interception — force direct guardian
   // verification requests into the guardian-verify-setup skill flow on
   // the first turn, avoiding conceptual preambles from the agent.
+  // We keep the original user content for persistence and use the
+  // rewritten content only for the agent loop instruction.
+  let agentLoopContent = resolvedContent;
   if (slashResult.kind === 'passthrough') {
     const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
     if (guardianIntent.kind === 'direct_setup') {
       log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent intercepted — forcing skill flow');
-      resolvedContent = guardianIntent.rewrittenContent;
+      agentLoopContent = guardianIntent.rewrittenContent;
       session.preactivatedSkillIds = ['guardian-verify-setup'];
     }
   }
 
   let userMessageId: string;
   try {
-    userMessageId = session.persistUserMessage(resolvedContent, attachments, requestId);
+    userMessageId = session.persistUserMessage(resolvedContent, attachments, requestId, undefined, displayContent);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     onEvent({ type: 'error', message });
@@ -673,7 +692,7 @@ export async function processMessage(
       });
   }
 
-  await session.runAgentLoop(resolvedContent, userMessageId, onEvent,
+  await session.runAgentLoop(agentLoopContent, userMessageId, onEvent,
     options?.isInteractive !== undefined ? { isInteractive: options.isInteractive } : undefined,
   );
   return userMessageId;
