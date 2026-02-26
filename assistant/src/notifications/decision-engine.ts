@@ -248,6 +248,9 @@ function validateDecisionOutput(
       if (chCopy && typeof chCopy === 'object') {
         const c = chCopy as Record<string, unknown>;
         if (typeof c.title === 'string' && typeof c.body === 'string') {
+          if (!c.title.trim() && !c.body.trim()) {
+            log.warn({ channel: ch }, 'LLM returned empty title and body for channel copy — broadcaster will use fallback');
+          }
           renderedCopy[ch] = {
             title: c.title,
             body: c.body,
