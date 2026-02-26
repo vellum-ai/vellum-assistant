@@ -32,7 +32,7 @@ struct MarkdownSegmentView: View {
                         .lineSpacing(4)
                         .foregroundColor(textColor)
                         .tint(tintColor)
-                        .textSelection(isStreaming ? .disabled : .enabled)
+                        .selectableText(!isStreaming)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
 
@@ -49,7 +49,7 @@ struct MarkdownSegmentView: View {
                             Text(code)
                                 .font(.custom("DMMono-Regular", size: 13 * zoomScale))
                                 .foregroundColor(textColor)
-                                .textSelection(isStreaming ? .disabled : .enabled)
+                                .selectableText(!isStreaming)
                                 .fixedSize(horizontal: true, vertical: true)
                                 .padding(VSpacing.sm)
                         }
@@ -290,6 +290,21 @@ struct MarkdownSegmentView: View {
         }
 
         return result
+    }
+}
+
+// MARK: - Conditional text selection
+
+extension View {
+    /// Wraps `.textSelection(.enabled)` / `.textSelection(.disabled)` behind a
+    /// `@ViewBuilder` branch so the compiler doesn't try to unify the two
+    /// distinct `TextSelectability` conformances in a single ternary expression.
+    @ViewBuilder func selectableText(_ enabled: Bool) -> some View {
+        if enabled {
+            self.textSelection(.enabled)
+        } else {
+            self.textSelection(.disabled)
+        }
     }
 }
 

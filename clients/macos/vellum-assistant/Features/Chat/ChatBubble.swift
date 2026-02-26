@@ -317,7 +317,7 @@ struct ChatBubble: View {
                             .font(.system(size: 13 * conversationZoomScale))
                             .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                            .textSelection(message.isStreaming ? .disabled : .enabled)
+                            .selectableText(!message.isStreaming)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if !message.attachments.isEmpty {

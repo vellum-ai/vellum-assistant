@@ -275,7 +275,7 @@ struct MarkdownTableView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.sm)
-                        .textSelection(isStreaming ? .disabled : .enabled)
+                        .selectableText(!isStreaming)
                 }
             }
 
@@ -314,6 +314,6 @@ struct MarkdownTableView: View {
         return Text(attributed)
             .font(.custom("Inter", size: 13 * zoomScale))
             .foregroundColor(VColor.textPrimary)
-            .textSelection(isStreaming ? .disabled : .enabled)
+            .selectableText(!isStreaming)
     }
 }
