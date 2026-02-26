@@ -641,7 +641,9 @@ export class CallController {
 
         // Notify the voice conversation
         if (shouldNotifyCompletion && currentSession) {
-          persistCallCompletionMessage(currentSession.conversationId, this.callSessionId);
+          persistCallCompletionMessage(currentSession.conversationId, this.callSessionId).catch((err) => {
+            log.error({ err, conversationId: currentSession.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+          });
           fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
         }
 
@@ -650,6 +652,8 @@ export class CallController {
           const durationMs = currentSession.startedAt ? Date.now() - currentSession.startedAt : 0;
           addPointerMessage(currentSession.initiatedFromConversationId, 'completed', currentSession.toNumber, {
             duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+          }).catch((err) => {
+            log.warn({ conversationId: currentSession.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
           });
         }
         this.state = 'idle';
@@ -815,7 +819,9 @@ export class CallController {
         updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'max_duration' });
         if (shouldNotifyCompletion && currentSession) {
-          persistCallCompletionMessage(currentSession.conversationId, this.callSessionId);
+          persistCallCompletionMessage(currentSession.conversationId, this.callSessionId).catch((err) => {
+            log.error({ err, conversationId: currentSession.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+          });
           fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
         }
 
@@ -824,6 +830,8 @@ export class CallController {
           const durationMs = currentSession.startedAt ? Date.now() - currentSession.startedAt : 0;
           addPointerMessage(currentSession.initiatedFromConversationId, 'completed', currentSession.toNumber, {
             duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+          }).catch((err) => {
+            log.warn({ conversationId: currentSession.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
           });
         }
       }, 3000);

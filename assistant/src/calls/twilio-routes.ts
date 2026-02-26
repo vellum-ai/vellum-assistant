@@ -361,7 +361,9 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       expirePendingQuestions(session.id);
 
       if (!wasTerminal) {
-        persistCallCompletionMessage(session.conversationId, session.id);
+        persistCallCompletionMessage(session.conversationId, session.id).catch((err) => {
+          log.error({ err, conversationId: session.conversationId, callSessionId: session.id }, 'Failed to persist call completion message');
+        });
         fireCallCompletionNotifier(session.conversationId, session.id);
       }
     }
