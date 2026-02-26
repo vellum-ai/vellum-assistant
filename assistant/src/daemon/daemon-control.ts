@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { closeSync,existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -50,6 +50,48 @@ function readDaemonTimeouts(): typeof DAEMON_TIMEOUT_DEFAULTS {
     // Missing file, malformed JSON, etc. — use defaults.
   }
   return { ...DAEMON_TIMEOUT_DEFAULTS };
+}
+
+/**
+ * Find and kill any lingering daemon processes that weren't cleaned up properly
+ * (e.g., after crashes or orphaned processes). Uses pgrep to scan for processes
+ * matching the daemon's command-line signature, skipping the current process.
+ */
+function killStaleDaemons(): void {
+  const myPid = process.pid;
+
+  // Match both source-mode (`bun run .../daemon/main.ts`) and any future
+  // compiled binary patterns. pgrep -f matches against the full command line.
+  const patterns = ['daemon/main\\.ts'];
+
+  for (const pattern of patterns) {
+    let output: string;
+    try {
+      output = execSync(`pgrep -f '${pattern}'`, {
+        encoding: 'utf-8',
+        timeout: 5000,
+      }).trim();
+    } catch {
+      // pgrep exits with code 1 when no processes match — not an error.
+      continue;
+    }
+
+    if (!output) continue;
+
+    const pids = output
+      .split('\n')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((pid) => !isNaN(pid) && pid !== myPid);
+
+    for (const pid of pids) {
+      try {
+        log.info({ pid }, 'Killing stale daemon process');
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // Process may have already exited between pgrep and kill.
+      }
+    }
+  }
 }
 
 function isProcessRunning(pid: number): boolean {
@@ -111,6 +153,10 @@ export async function startDaemon(): Promise<{
   if (status.running && status.pid) {
     return { pid: status.pid, alreadyRunning: true };
   }
+
+  // Kill any orphaned daemon processes that weren't cleaned up (e.g., after
+  // crashes). Without this, stale daemons accumulate in the process table.
+  killStaleDaemons();
 
   // Only create the root dir for socket/PID — the daemon process itself
   // handles migration + full ensureDataDir() in runDaemon(). Calling
