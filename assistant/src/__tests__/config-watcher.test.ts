@@ -93,10 +93,6 @@ mock.module('node:fs', () => {
   };
 });
 
-// Track refreshConfigFromSources calls
-let refreshConfigCalled = false;
-let refreshConfigReturn = false;
-
 // Mock config/loader and other dependencies that ConfigWatcher imports
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({}),
@@ -107,16 +103,18 @@ mock.module('../memory/embedding-backend.js', () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 
+let trustClearCacheCallCount = 0;
 mock.module('../permissions/trust-store.js', () => ({
-  clearCache: () => {},
+  clearCache: () => { trustClearCacheCallCount++; },
 }));
 
 mock.module('../providers/registry.js', () => ({
   initializeProviders: () => {},
 }));
 
+let resetAllowlistCallCount = 0;
 mock.module('../security/secret-allowlist.js', () => ({
-  resetAllowlist: () => {},
+  resetAllowlist: () => { resetAllowlistCallCount++; },
   validateAllowlistFile: () => [],
 }));
 
@@ -159,6 +157,8 @@ const onSessionEvict = () => { evictCallCount++; };
 beforeEach(() => {
   capturedWatchers.length = 0;
   evictCallCount = 0;
+  trustClearCacheCallCount = 0;
+  resetAllowlistCallCount = 0;
   watcher = new ConfigWatcher();
 });
 
@@ -209,8 +209,6 @@ describe('ConfigWatcher workspace file handlers', () => {
   });
 
   test('config.json change calls refreshConfigFromSources', async () => {
-    // Spy on refreshConfigFromSources to verify it is called
-    const originalRefresh = watcher.refreshConfigFromSources.bind(watcher);
     let refreshCalled = false;
     watcher.refreshConfigFromSources = () => {
       refreshCalled = true;
@@ -273,11 +271,6 @@ describe('ConfigWatcher workspace file handlers', () => {
 
 describe('ConfigWatcher protected directory handlers', () => {
   test('trust.json change calls clearTrustCache', async () => {
-    let trustCacheClearCalled = false;
-
-    // Re-mock trust-store to track calls
-    const { clearCache } = await import('../permissions/trust-store.js');
-
     watcher.start(onSessionEvict);
     const protectedWatcher = findWatcher(PROTECTED_DIR);
     expect(protectedWatcher).toBeDefined();
@@ -286,6 +279,8 @@ describe('ConfigWatcher protected directory handlers', () => {
     await new Promise((r) => setTimeout(r, 300));
     // trust.json should NOT trigger session eviction
     expect(evictCallCount).toBe(0);
+    // but clearCache should have been called
+    expect(trustClearCacheCallCount).toBe(1);
   });
 
   test('secret-allowlist.json change calls resetAllowlist', async () => {
@@ -297,6 +292,8 @@ describe('ConfigWatcher protected directory handlers', () => {
     await new Promise((r) => setTimeout(r, 300));
     // secret-allowlist.json should NOT trigger session eviction
     expect(evictCallCount).toBe(0);
+    // but resetAllowlist should have been called
+    expect(resetAllowlistCallCount).toBe(1);
   });
 });
 
