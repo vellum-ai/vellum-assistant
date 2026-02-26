@@ -219,14 +219,14 @@ describe('searchAttachments', () => {
 describe('searchAttachments with conversation_id', () => {
   beforeEach(resetTables);
 
-  test('returns only attachments linked to the specified conversation', () => {
+  test('returns only attachments linked to the specified conversation', async () => {
     const png1 = uploadAttachment('in-conv.png', 'image/png', 'AAAA');
     const png2 = uploadAttachment('other-conv.png', 'image/png', 'BBBB');
 
     const conv1 = createConversation();
     const conv2 = createConversation();
-    const msg1 = addMessage(conv1.id, 'user', 'First conv');
-    const msg2 = addMessage(conv2.id, 'user', 'Second conv');
+    const msg1 = await addMessage(conv1.id, 'user', 'First conv');
+    const msg2 = await addMessage(conv2.id, 'user', 'Second conv');
 
     linkAttachmentToMessage(msg1.id, png1.id, 0);
     linkAttachmentToMessage(msg2.id, png2.id, 0);
@@ -236,10 +236,10 @@ describe('searchAttachments with conversation_id', () => {
     expect(results[0].id).toBe(png1.id);
   });
 
-  test('returns empty when conversation has no attachments', () => {
+  test('returns empty when conversation has no attachments', async () => {
     uploadAttachment('orphan.png', 'image/png', 'AAAA');
     const conv = createConversation();
-    addMessage(conv.id, 'user', 'No attachments here');
+    await addMessage(conv.id, 'user', 'No attachments here');
 
     const results = searchAttachments({ conversation_id: conv.id });
     expect(results.length).toBe(0);
@@ -251,12 +251,12 @@ describe('searchAttachments with conversation_id', () => {
     expect(results.length).toBe(0);
   });
 
-  test('combines conversation_id with mime_type filter', () => {
+  test('combines conversation_id with mime_type filter', async () => {
     const png = uploadAttachment('image.png', 'image/png', 'AAAA');
     const pdf = uploadAttachment('doc.pdf', 'application/pdf', 'BBBB');
 
     const conv = createConversation();
-    const msg = addMessage(conv.id, 'user', 'Both types');
+    const msg = await addMessage(conv.id, 'user', 'Both types');
 
     linkAttachmentToMessage(msg.id, png.id, 0);
     linkAttachmentToMessage(msg.id, pdf.id, 1);
@@ -266,12 +266,12 @@ describe('searchAttachments with conversation_id', () => {
     expect(results[0].mimeType).toBe('image/png');
   });
 
-  test('combines conversation_id with filename filter', () => {
+  test('combines conversation_id with filename filter', async () => {
     const a = uploadAttachment('target.png', 'image/png', 'AAAA');
     const b = uploadAttachment('other.png', 'image/png', 'BBBB');
 
     const conv = createConversation();
-    const msg = addMessage(conv.id, 'user', 'Both');
+    const msg = await addMessage(conv.id, 'user', 'Both');
 
     linkAttachmentToMessage(msg.id, a.id, 0);
     linkAttachmentToMessage(msg.id, b.id, 1);
@@ -367,7 +367,7 @@ describe('AssetSearchTool visibility policy', () => {
   test('attachments from standard threads are visible from any context', async () => {
     const standardConv = createConversation({ title: 'standard-conv' });
     const attachment = uploadAttachment('public.png', 'image/png', 'AAAA');
-    const msg = addMessage(standardConv.id, 'user', 'standard message');
+    const msg = await addMessage(standardConv.id, 'user', 'standard message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // Search from a different standard conversation
@@ -386,7 +386,7 @@ describe('AssetSearchTool visibility policy', () => {
   test('attachments from private threads are visible within the same private thread', async () => {
     const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
     const attachment = uploadAttachment('secret.png', 'image/png', 'AAAA');
-    const msg = addMessage(privateConv.id, 'user', 'private message');
+    const msg = await addMessage(privateConv.id, 'user', 'private message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // Search from the same private conversation
@@ -404,7 +404,7 @@ describe('AssetSearchTool visibility policy', () => {
   test('attachments from private threads are NOT visible from a different conversation', async () => {
     const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
     const attachment = uploadAttachment('secret.png', 'image/png', 'AAAA');
-    const msg = addMessage(privateConv.id, 'user', 'private message');
+    const msg = await addMessage(privateConv.id, 'user', 'private message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // Search from a different private conversation
@@ -423,7 +423,7 @@ describe('AssetSearchTool visibility policy', () => {
   test('attachments from private threads are NOT visible from standard threads', async () => {
     const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
     const attachment = uploadAttachment('secret.png', 'image/png', 'AAAA');
-    const msg = addMessage(privateConv.id, 'user', 'private message');
+    const msg = await addMessage(privateConv.id, 'user', 'private message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // Search from a standard conversation
@@ -444,8 +444,8 @@ describe('AssetSearchTool visibility policy', () => {
     const standardConv = createConversation({ title: 'standard-conv' });
     const attachment = uploadAttachment('shared.png', 'image/png', 'AAAA');
 
-    const msg1 = addMessage(privateConv.id, 'user', 'private message');
-    const msg2 = addMessage(standardConv.id, 'user', 'standard message');
+    const msg1 = await addMessage(privateConv.id, 'user', 'private message');
+    const msg2 = await addMessage(standardConv.id, 'user', 'standard message');
     linkAttachmentToMessage(msg1.id, attachment.id, 0);
     linkAttachmentToMessage(msg2.id, attachment.id, 0);
 
