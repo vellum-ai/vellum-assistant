@@ -237,6 +237,8 @@ export async function handleUserMessage(
           text: recordingId ? 'Starting screen recording.' : 'A recording is already active.',
           sessionId: msg.sessionId,
         });
+        ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        return;
       } else if (action === 'stop') {
         const stopped = handleRecordingStop(msg.sessionId, ctx) !== undefined;
         ctx.send(socket, {
@@ -244,9 +246,12 @@ export async function handleUserMessage(
           text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
           sessionId: msg.sessionId,
         });
+        ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        return;
       }
-      ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
-      return;
+      // Unrecognized action — fall through to normal text handling so the
+      // user message is not silently dropped.
+      rlog.warn({ action, source: 'commandIntent' }, 'Unrecognized screen_recording action, falling through to text handling');
     }
 
     // ── Standalone recording intent interception ──────────────────────────

@@ -105,6 +105,10 @@ export async function handleTaskSubmit(
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
         return;
+      } else {
+        // Unrecognized action — fall through to normal text handling so the
+        // task is not silently dropped.
+        rlog.warn({ action, source: 'commandIntent' }, 'Unrecognized screen_recording action, falling through to text handling');
       }
     }
 
