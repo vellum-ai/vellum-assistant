@@ -149,6 +149,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// `nil` means the HTTP server is not running.
     @Published public var httpPort: Int?
 
+    /// Returns a closure that resolves the current HTTP port at call time.
+    /// Use this instead of reading `httpPort` directly when the value must
+    /// reflect the latest daemon state (e.g. after a daemon restart). The
+    /// closure captures `self` weakly to avoid retain cycles.
+    public var httpPortResolver: () -> Int? {
+        { [weak self] in self?.httpPort }
+    }
+
     /// The daemon version string, populated via `daemon_status` on connect.
     @Published public internal(set) var daemonVersion: String?
 

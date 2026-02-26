@@ -16,7 +16,9 @@ struct ChatBubble: View {
     /// Called when expanding a tool call with truncated content to fetch the full text.
     var onRehydrate: (() -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
-    var daemonHttpPort: Int?
+    /// Resolves the daemon HTTP port at call time so lazy-loaded video
+    /// attachments always use the latest port after daemon restarts.
+    var resolveHttpPort: (() -> Int?) = { nil }
     var showAvatar: Bool = true
     var isLatestAssistantMessage: Bool = false
 
@@ -330,7 +332,7 @@ struct ChatBubble: View {
                 if !partitioned.videos.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         ForEach(partitioned.videos) { attachment in
-                            InlineVideoAttachmentView(attachment: attachment, daemonHttpPort: daemonHttpPort)
+                            InlineVideoAttachmentView(attachment: attachment, resolveHttpPort: resolveHttpPort)
                         }
                     }
                 }

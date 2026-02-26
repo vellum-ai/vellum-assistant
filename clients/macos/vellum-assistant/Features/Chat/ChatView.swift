@@ -56,7 +56,9 @@ struct ChatView: View {
     /// Called to rehydrate truncated message content on demand.
     var onRehydrateMessage: ((UUID) -> Void)?
     @ObservedObject var subagentDetailStore: SubagentDetailStore
-    var daemonHttpPort: Int?
+    /// Resolves the daemon HTTP port at call time so lazy-loaded video
+    /// attachments always use the latest port after daemon restarts.
+    var resolveHttpPort: (() -> Int?) = { nil }
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
@@ -186,7 +188,7 @@ struct ChatView: View {
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
                             mediaEmbedSettings: mediaEmbedSettings,
-                            daemonHttpPort: daemonHttpPort,
+                            resolveHttpPort: resolveHttpPort,
                             onModelPickerSelect: onModelPickerSelect,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
