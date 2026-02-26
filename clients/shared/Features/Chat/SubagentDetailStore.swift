@@ -1,4 +1,6 @@
+import Combine
 import Foundation
+import os
 
 /// Represents a single event in a subagent's activity stream.
 public struct SubagentEventItem: Identifiable {
@@ -59,7 +61,32 @@ public final class SubagentDetailStore: ObservableObject {
     @Published public var objectives: [String: String] = [:]
     @Published public var usageStats: [String: SubagentUsageStats] = [:]
 
-    public init() {}
+    // MARK: - Debug publish-rate counters
+
+    #if DEBUG
+    private static let perfLog = OSLog(subsystem: "com.vellum.assistant", category: "PerfCounters")
+    private var publishCount = 0
+    private var lastRateLogTime = Date()
+    private var debugCancellable: AnyCancellable?
+
+    private func trackPublish() {
+        publishCount += 1
+        let now = Date()
+        if now.timeIntervalSince(lastRateLogTime) >= 5 {
+            os_log(.debug, log: Self.perfLog, "SubagentDetailStore publish rate: %d/5s", publishCount)
+            publishCount = 0
+            lastRateLogTime = now
+        }
+    }
+    #endif
+
+    public init() {
+        #if DEBUG
+        // Observe own objectWillChange to track publish frequency.
+        debugCancellable = self.objectWillChange
+            .sink { [weak self] _ in self?.trackPublish() }
+        #endif
+    }
 
     /// Record that a subagent was spawned with an objective.
     public func recordSpawned(subagentId: String, objective: String) {
