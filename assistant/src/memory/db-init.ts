@@ -18,6 +18,7 @@ import {
   createWatchersAndLogsTables,
   migrateCallSessionMode,
   migrateChannelInboundDeliveredSegments,
+  migrateGuardianActionFollowup,
   migrateGuardianBootstrapToken,
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
@@ -83,6 +84,9 @@ export function initializeDb(): void {
 
   // 14b. Track per-segment delivery progress for split channel replies
   migrateChannelInboundDeliveredSegments(database);
+
+  // 14c. Guardian action follow-up lifecycle columns (timeout reason, late answers)
+  migrateGuardianActionFollowup(database);
 
   // 15. Notification system
   createNotificationTables(database);
