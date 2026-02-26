@@ -90,8 +90,9 @@ export function getBrowserRelayWebsocketHandlers() {
       const upstreamToken = config.runtimeBearerToken || config.runtimeProxyBearerToken || ws.data.clientToken;
       const query = upstreamToken ? `?token=${encodeURIComponent(upstreamToken)}` : "";
       const upstreamUrl = `${runtimeBase}/v1/browser-relay${query}`;
+      const logSafeUpstreamUrl = `${runtimeBase}/v1/browser-relay${upstreamToken ? "?token=<redacted>" : ""}`;
 
-      log.info({ upstreamUrl }, "Opening upstream browser relay WS to runtime");
+      log.info({ upstreamUrl: logSafeUpstreamUrl }, "Opening upstream browser relay WS to runtime");
 
       const upstream = new WebSocket(upstreamUrl);
       ws.data.upstream = upstream;

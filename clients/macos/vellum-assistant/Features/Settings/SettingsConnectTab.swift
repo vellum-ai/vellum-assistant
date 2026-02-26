@@ -1976,7 +1976,7 @@ struct SettingsConnectTab: View {
             let base = store.localGatewayTarget.hasSuffix("/")
                 ? String(store.localGatewayTarget.dropLast())
                 : store.localGatewayTarget
-            guard let url = URL(string: "\(base)/healthz") else {
+            guard let url = URL(string: "\(base)/v1/health") else {
                 isRegeneratingToken = false
                 return
             }
