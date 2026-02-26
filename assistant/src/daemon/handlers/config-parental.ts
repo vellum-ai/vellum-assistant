@@ -143,10 +143,26 @@ export function handleParentalControlUpdate(
     }
   }
 
+  // When enabling for the very first time, default all restrictions to ON so
+  // the parent starts from a safe baseline. We track first-time initialization
+  // with an explicit `initialized` flag rather than inferring it from empty
+  // arrays, which would incorrectly re-apply defaults if the user intentionally
+  // set both sections to "None" and then toggled parental controls off/on.
+  const isFirstEnable = msg.enabled === true && !settings.initialized;
+
+  const effectiveMsg = isFirstEnable ? {
+    ...msg,
+    content_restrictions: msg.content_restrictions ?? ['violence', 'adult_content', 'political', 'gambling', 'drugs'],
+    blocked_tool_categories: msg.blocked_tool_categories ?? ['computer_use', 'network', 'shell', 'file_write'],
+  } : msg;
+
   const updated = updateParentalControlSettings({
-    enabled: msg.enabled,
-    contentRestrictions: msg.content_restrictions,
-    blockedToolCategories: msg.blocked_tool_categories,
+    enabled: effectiveMsg.enabled,
+    contentRestrictions: effectiveMsg.content_restrictions,
+    blockedToolCategories: effectiveMsg.blocked_tool_categories,
+    // Mark as initialized once enabled for the first time so subsequent
+    // enable/disable cycles preserve the user's chosen configuration.
+    ...(isFirstEnable ? { initialized: true } : {}),
   });
 
   log.info({ enabled: updated.enabled }, 'Parental control settings updated');
