@@ -79,10 +79,12 @@ mock.module('node:fs', () => {
       return realFs.statSync(p, opts);
     },
     realpathSync: (p: string) => {
-      // For test paths under the recordings directory or /tmp/, return as-is
-      // to avoid hitting the filesystem (which would throw ENOENT)
-      if (p.includes('recording') || p.includes('/tmp/') || p.includes('vellum-assistant')) return p;
-      return realFs.realpathSync(p);
+      // Use path.resolve() to canonicalize `..` segments so traversal
+      // attacks like `${ALLOWED_DIR}/../outside.mov` are normalized,
+      // preserving the same semantics as the real realpathSync without
+      // hitting the filesystem (which would throw ENOENT for test paths).
+      const { resolve } = require('path');
+      return resolve(p);
     },
   };
 });
@@ -104,6 +106,7 @@ import {
   getActiveRestartToken,
   recordingHandlers,
   __resetRecordingState,
+  __injectRecordingOwner,
 } from '../daemon/handlers/recording.js';
 import { executeRecordingIntent } from '../daemon/recording-executor.js';
 import type { HandlerContext } from '../daemon/handlers/shared.js';
@@ -1291,20 +1294,13 @@ describe('restart finalization', () => {
     const restartResult = handleRecordingRestart(conversationId, fakeSocket, ctx);
     expect(restartResult.initiated).toBe(true);
 
-    // Simulate stopped for old recording with valid filePath.
-    // But first, start a SECOND recording on a different conversation to
-    // block the deferred start (global single-active guard will reject it).
-    // Actually, we can't do that because handleRecordingStop already cleared
-    // the old recording maps. Instead, we need the deferred start to fail
-    // naturally. The deferred start calls handleRecordingStart which checks
-    // recordingOwnerByConversation — since cleanupMaps was already called by
-    // the stopped handler, the start should succeed unless something else
-    // blocks it. Let's test the flow where start succeeds but the scenario
-    // is handled — this test verifies the "old-success + new-start-failure"
-    // code path. To trigger this, we need handleRecordingStart to return null.
-    // Since we can't easily make it fail after cleanupMaps, we'll verify
-    // the flow indirectly: the old recording attachment IS published even
-    // when the restart path encounters issues.
+    // Inject a blocker recording on a different conversation so that
+    // when the stopped handler calls cleanupMaps (removing conv-A's entry)
+    // and then tries handleRecordingStart, the global single-active guard
+    // sees the blocker entry and returns null — exercising the start-failure
+    // code path.
+    __injectRecordingOwner('conv-blocker', 'rec-blocker');
+
     sent.length = 0;
 
     const stoppedStatus: RecordingStatus = {
@@ -1317,7 +1313,7 @@ describe('restart finalization', () => {
     };
     await recordingHandlers.recording_status(stoppedStatus, fakeSocket, ctx);
 
-    // Verify: old recording attachment is published regardless
+    // Verify: old recording attachment is published (finalization succeeded)
     const textDeltas = sent.filter((m) => m.type === 'assistant_text_delta');
     const successMsg = textDeltas.find(
       (m) => typeof m.text === 'string' && m.text.includes('Screen recording complete'),
@@ -1328,9 +1324,15 @@ describe('restart finalization', () => {
     const attachmentComplete = completes.find((m) => m.attachments != null);
     expect(attachmentComplete).toBeTruthy();
 
-    // Verify: a new recording_start was sent (deferred start triggered)
+    // Verify: no recording_start was sent (deferred start was blocked)
     const startMsgs = sent.filter((m) => m.type === 'recording_start');
-    expect(startMsgs).toHaveLength(1);
+    expect(startMsgs).toHaveLength(0);
+
+    // Verify: follow-up message about the start failure was sent
+    const failureMsg = textDeltas.find(
+      (m) => typeof m.text === 'string' && m.text.includes('Previous recording saved. New recording failed to start.'),
+    );
+    expect(failureMsg).toBeTruthy();
 
     // Verify: old recording message exists in conversation store
     const assistantMsg = mockMessages.find((m) => m.role === 'assistant');
