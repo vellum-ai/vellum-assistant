@@ -147,7 +147,7 @@ build_binaries() {
     command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
 
     # Daemon
-    local daemon_flags=(--external electron --external "chromium-bidi/*")
+    local daemon_flags=(--external electron --external "chromium-bidi/*" --external onnxruntime-node)
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
@@ -156,6 +156,20 @@ build_binaries() {
     # Copy WASM assets (not bundled by bun --compile)
     cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
     cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
+    # Copy onnxruntime-node package (native .node/.dylib can't be embedded in compiled binary;
+    # --external makes the compiled binary resolve it via node_modules/ at runtime)
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common"
+    mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules"
+    cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/"
+    cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-common" "$SCRIPT_DIR/daemon-bin/node_modules/"
+    # Strip non-native-platform binaries to save space
+    local onnx_bin="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/bin/napi-v3"
+    if [ -d "$onnx_bin" ]; then
+        find "$onnx_bin" -mindepth 1 -maxdepth 1 -not -name darwin -exec rm -rf {} +
+        if [ "$UNIVERSAL_BUILD" != true ] && [ -d "$onnx_bin/darwin" ]; then
+            find "$onnx_bin/darwin" -mindepth 1 -maxdepth 1 -not -name "$(uname -m)" -exec rm -rf {} +
+        fi
+    fi
     # Copy bundled skills
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
@@ -281,7 +295,7 @@ if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     fi
 fi
 if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
-    local_daemon_flags=(--external electron --external "chromium-bidi/*")
+    local_daemon_flags=(--external electron --external "chromium-bidi/*" --external onnxruntime-node)
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         local_daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
@@ -289,6 +303,18 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${local_daemon_flags[@]}"
     cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
     cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
+    # Copy onnxruntime-node package (native .node/.dylib can't be embedded in compiled binary)
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common"
+    mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules"
+    cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/"
+    cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-common" "$SCRIPT_DIR/daemon-bin/node_modules/"
+    local onnx_bin="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/bin/napi-v3"
+    if [ -d "$onnx_bin" ]; then
+        find "$onnx_bin" -mindepth 1 -maxdepth 1 -not -name darwin -exec rm -rf {} +
+        if [ -d "$onnx_bin/darwin" ]; then
+            find "$onnx_bin/darwin" -mindepth 1 -maxdepth 1 -not -name arm64 -exec rm -rf {} +
+        fi
+    fi
 fi
 
 # Always refresh bundled skills from source (skill assets like SKILL.md aren't
@@ -374,6 +400,11 @@ if [ "$NEEDS_REBUILD" = true ]; then
         for wasm in "$SCRIPT_DIR/daemon-bin/"*.wasm; do
             [ -f "$wasm" ] && cp "$wasm" "$RESOURCES_DIR/"
         done
+        # Bundle onnxruntime-node native modules (resolved via node_modules/ next to binary)
+        if [ -d "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node" ]; then
+            rm -rf "$MACOS_DIR/node_modules"
+            cp -R "$SCRIPT_DIR/daemon-bin/node_modules" "$MACOS_DIR/node_modules"
+        fi
     else
         echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
     fi
@@ -631,6 +662,17 @@ if [ -f "$MACOS_DIR/vellum-gateway" ]; then
     fi
     codesign "${GATEWAY_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-gateway"
     echo "Gateway binary signed"
+fi
+
+# Sign onnxruntime native libraries (must sign before daemon binary)
+if [ -d "$MACOS_DIR/node_modules/onnxruntime-node/bin" ]; then
+    NATIVE_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        NATIVE_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    find "$MACOS_DIR/node_modules/onnxruntime-node/bin" \( -name "*.node" -o -name "*.dylib" \) -exec \
+        codesign "${NATIVE_SIGN_FLAGS[@]}" {} \;
+    echo "ONNX Runtime native libraries signed"
 fi
 
 # Sign daemon binary with its own entitlements (JIT, network)
