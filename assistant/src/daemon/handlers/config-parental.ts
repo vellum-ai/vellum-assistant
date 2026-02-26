@@ -39,6 +39,8 @@ import type {
   ParentalControlVerifyPinRequest,
   ParentalIntegrationAllowlistGetRequest,
   ParentalIntegrationAllowlistUpdateRequest,
+  ParentalAppTimeLimitGetRequest,
+  ParentalAppTimeLimitSetRequest,
 } from '../ipc-protocol.js';
 import { defineHandlers, type HandlerContext } from './shared.js';
 
@@ -553,6 +555,73 @@ export function handleParentalActivityLogClear(
 }
 
 
+export function handleParentalAppTimeLimitGet(
+  msg: ParentalAppTimeLimitGetRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const settings = getParentalControlSettings();
+  const pinExists = hasPIN();
+
+  if (settings.enabled && pinExists) {
+    if (!verifyPIN(msg.pin)) {
+      ctx.send(socket, {
+        type: 'parental_app_time_limit_get_response',
+        limits: {},
+        usage: {},
+        success: false,
+        error: 'Invalid PIN',
+      });
+      return;
+    }
+  }
+
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  // Return empty usage if stored date is stale (it belongs to a different day)
+  const usage = settings.usageDate === todayStr ? { ...settings.appUsageToday } : {};
+
+  ctx.send(socket, {
+    type: 'parental_app_time_limit_get_response',
+    limits: { ...settings.appTimeLimits },
+    usage,
+    success: true,
+  });
+}
+
+export function handleParentalAppTimeLimitSet(
+  msg: ParentalAppTimeLimitSetRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const settings = getParentalControlSettings();
+  const pinExists = hasPIN();
+
+  if (settings.enabled && pinExists) {
+    if (!verifyPIN(msg.pin)) {
+      ctx.send(socket, {
+        type: 'parental_app_time_limit_set_response',
+        success: false,
+        error: 'Invalid PIN',
+      });
+      return;
+    }
+  }
+
+  const updated = {
+    ...settings.appTimeLimits,
+    [msg.appName]: msg.limitMinutes,
+  };
+  updateParentalControlSettings({ appTimeLimits: updated });
+
+  log.info({ appName: msg.appName, limitMinutes: msg.limitMinutes }, 'App time limit updated');
+
+  ctx.send(socket, {
+    type: 'parental_app_time_limit_set_response',
+    success: true,
+  });
+}
+
 export const parentalControlHandlers = defineHandlers({
   parental_control_get: handleParentalControlGet,
   parental_control_verify_pin: handleParentalControlVerifyPin,
@@ -570,4 +639,6 @@ export const parentalControlHandlers = defineHandlers({
   parental_activity_log_append: handleParentalActivityLogAppend,
   parental_activity_log_list: handleParentalActivityLogList,
   parental_activity_log_clear: handleParentalActivityLogClear,
+  parental_app_time_limit_get: handleParentalAppTimeLimitGet,
+  parental_app_time_limit_set: handleParentalAppTimeLimitSet,
 });

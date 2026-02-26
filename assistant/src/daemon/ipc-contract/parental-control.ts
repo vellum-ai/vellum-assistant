@@ -272,6 +272,39 @@ export interface ParentalActivityLogClearResponse {
   success: boolean;
 }
 
+// === App Time Limits ===
+
+/** Retrieve per-app daily time limits and today's usage (PIN required). */
+export interface ParentalAppTimeLimitGetRequest {
+  type: 'parental_app_time_limit_get';
+  pin: string;
+}
+
+export interface ParentalAppTimeLimitGetResponse {
+  type: 'parental_app_time_limit_get_response';
+  /** Map of appName → daily limit in minutes (0 = unlimited). */
+  limits: Record<string, number>;
+  /** Map of appName → minutes used today. */
+  usage: Record<string, number>;
+  success: boolean;
+  error?: string;
+}
+
+/** Set the daily time limit for a single app (PIN required). */
+export interface ParentalAppTimeLimitSetRequest {
+  type: 'parental_app_time_limit_set';
+  pin: string;
+  appName: string;
+  /** Limit in minutes; 0 means unlimited. */
+  limitMinutes: number;
+}
+
+export interface ParentalAppTimeLimitSetResponse {
+  type: 'parental_app_time_limit_set_response';
+  success: boolean;
+  error?: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _ParentalControlClientMessages =
@@ -290,7 +323,9 @@ export type _ParentalControlClientMessages =
   | ParentalControlApprovalRespondRequest
   | ParentalActivityLogAppendRequest
   | ParentalActivityLogListRequest
-  | ParentalActivityLogClearRequest;
+  | ParentalActivityLogClearRequest
+  | ParentalAppTimeLimitGetRequest
+  | ParentalAppTimeLimitSetRequest;
 
 export type _ParentalControlServerMessages =
   | ParentalControlGetResponse
@@ -307,4 +342,6 @@ export type _ParentalControlServerMessages =
   | ParentalControlApprovalListResponse
   | ParentalControlApprovalRespondResponse
   | ParentalActivityLogListResponse
-  | ParentalActivityLogClearResponse;
+  | ParentalActivityLogClearResponse
+  | ParentalAppTimeLimitGetResponse
+  | ParentalAppTimeLimitSetResponse;

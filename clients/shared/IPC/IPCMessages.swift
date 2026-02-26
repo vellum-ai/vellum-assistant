@@ -2333,6 +2333,8 @@ public enum ServerMessage: Decodable, Sendable {
     case parentalControlApprovalRespondResponse(ParentalControlApprovalRespondResponseMessage)
     case parentalActivityLogListResponse(ParentalActivityLogListResponseMessage)
     case parentalActivityLogClearResponse(ParentalActivityLogClearResponseMessage)
+    case parentalAppTimeLimitGetResponse(ParentalAppTimeLimitGetResponseMessage)
+    case parentalAppTimeLimitSetResponse(ParentalAppTimeLimitSetResponseMessage)
     case conversationSearchResponse(ConversationSearchResponseMessage)
     case pairingApprovalRequest(PairingApprovalRequestMessage)
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
@@ -2770,6 +2772,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "parental_activity_log_clear_response":
             let message = try ParentalActivityLogClearResponseMessage(from: decoder)
             self = .parentalActivityLogClearResponse(message)
+        case "parental_app_time_limit_get_response":
+            let message = try ParentalAppTimeLimitGetResponseMessage(from: decoder)
+            self = .parentalAppTimeLimitGetResponse(message)
+        case "parental_app_time_limit_set_response":
+            let message = try ParentalAppTimeLimitSetResponseMessage(from: decoder)
+            self = .parentalAppTimeLimitSetResponse(message)
         case "conversation_search_response":
             let message = try ConversationSearchResponseMessage(from: decoder)
             self = .conversationSearchResponse(message)
@@ -3089,6 +3097,45 @@ extension IPCParentalActivityLogClearRequest {
 /// Confirmation that the log was cleared: daemon → mac.
 /// Backed by generated `IPCParentalActivityLogClearResponse`.
 public typealias ParentalActivityLogClearResponseMessage = IPCParentalActivityLogClearResponse
+
+// MARK: - Parental App Time Limit Wire Types
+
+/// Request per-app time limits and today's usage (PIN required).
+/// Backed by generated `IPCParentalAppTimeLimitGetRequest`.
+public typealias ParentalAppTimeLimitGetRequestMessage = IPCParentalAppTimeLimitGetRequest
+
+extension IPCParentalAppTimeLimitGetRequest {
+    public init(pin: String) {
+        self.init(type: "parental_app_time_limit_get", pin: pin)
+    }
+}
+
+/// Response carrying per-app time limits and today's usage.
+/// Hand-maintained because the code generator emits [String: AnyCodable] for Record<string, number>,
+/// but we need [String: Int] for direct use in Swift.
+public struct ParentalAppTimeLimitGetResponseMessage: Decodable, Sendable {
+    public let type: String
+    /// Map of appName → daily limit in minutes (0 = unlimited).
+    public let limits: [String: Int]
+    /// Map of appName → minutes used today.
+    public let usage: [String: Int]
+    public let success: Bool
+    public let error: String?
+}
+
+/// Request to set a daily time limit for a single app (PIN required).
+/// Backed by generated `IPCParentalAppTimeLimitSetRequest`.
+public typealias ParentalAppTimeLimitSetRequestMessage = IPCParentalAppTimeLimitSetRequest
+
+extension IPCParentalAppTimeLimitSetRequest {
+    public init(pin: String, appName: String, limitMinutes: Int) {
+        self.init(type: "parental_app_time_limit_set", pin: pin, appName: appName, limitMinutes: Double(limitMinutes))
+    }
+}
+
+/// Response to a time limit set request.
+/// Backed by generated `IPCParentalAppTimeLimitSetResponse`.
+public typealias ParentalAppTimeLimitSetResponseMessage = IPCParentalAppTimeLimitSetResponse
 
 // MARK: - Layout Config Wire Types
 // Defined here temporarily; canonical home is LayoutConfig.swift (M1 / #2973)

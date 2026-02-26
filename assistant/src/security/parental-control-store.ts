@@ -42,6 +42,12 @@ export interface ParentalControlSettings {
   allowedApps: string[];
   allowedWidgets: string[];
   allowedIntegrations: string[];
+  /** Per-app daily time limits in minutes. 0 means unlimited. */
+  appTimeLimits: Record<string, number>;
+  /** Minutes each app has been used today (reset when usageDate changes). */
+  appUsageToday: Record<string, number>;
+  /** ISO date string "YYYY-MM-DD" representing the day usage counters belong to. */
+  usageDate: string;
 }
 
 const DEFAULT_SETTINGS: ParentalControlSettings = {
@@ -53,6 +59,9 @@ const DEFAULT_SETTINGS: ParentalControlSettings = {
   allowedApps: [],
   allowedWidgets: [],
   allowedIntegrations: [],
+  appTimeLimits: {},
+  appUsageToday: {},
+  usageDate: '',
 };
 
 function getSettingsPath(): string {
@@ -84,6 +93,13 @@ export function getParentalControlSettings(): ParentalControlSettings {
       allowedApps: Array.isArray(parsed.allowedApps) ? parsed.allowedApps : [],
       allowedWidgets: Array.isArray(parsed.allowedWidgets) ? parsed.allowedWidgets : [],
       allowedIntegrations: Array.isArray(parsed.allowedIntegrations) ? parsed.allowedIntegrations : [],
+      appTimeLimits: (parsed.appTimeLimits && typeof parsed.appTimeLimits === 'object' && !Array.isArray(parsed.appTimeLimits))
+        ? parsed.appTimeLimits as Record<string, number>
+        : {},
+      appUsageToday: (parsed.appUsageToday && typeof parsed.appUsageToday === 'object' && !Array.isArray(parsed.appUsageToday))
+        ? parsed.appUsageToday as Record<string, number>
+        : {},
+      usageDate: typeof parsed.usageDate === 'string' ? parsed.usageDate : '',
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -113,6 +129,9 @@ export function updateParentalControlSettings(
     allowedApps: patch.allowedApps !== undefined ? patch.allowedApps : current.allowedApps,
     allowedWidgets: patch.allowedWidgets !== undefined ? patch.allowedWidgets : current.allowedWidgets,
     allowedIntegrations: patch.allowedIntegrations !== undefined ? patch.allowedIntegrations : current.allowedIntegrations,
+    appTimeLimits: patch.appTimeLimits !== undefined ? patch.appTimeLimits : current.appTimeLimits,
+    appUsageToday: patch.appUsageToday !== undefined ? patch.appUsageToday : current.appUsageToday,
+    usageDate: patch.usageDate !== undefined ? patch.usageDate : current.usageDate,
   };
   saveSettings(next);
   return next;
@@ -196,17 +215,31 @@ export function clearPIN(): void {
 // App / Widget allowlist helpers
 // ---------------------------------------------------------------------------
 
+/** Returns today's date as "YYYY-MM-DD" in local time. */
+function todayDateString(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 /**
  * Returns true if the given app name is in the allowlist.
  * Deny-by-default: an empty allowlist blocks all apps for the child profile,
  * because "not on the allowlist" means blocked.
  * Always returns true when parental controls are disabled or the parental
  * profile is active, consistent with isToolBlocked.
+ * Also returns false when a daily time limit is set and exhausted.
  */
 export function isAppAllowed(appName: string): boolean {
   const { enabled, activeProfile, allowedApps } = getParentalControlSettings();
   if (!enabled || activeProfile !== 'child') return true;
-  return allowedApps.includes(appName);
+  if (!allowedApps.includes(appName)) return false;
+  const remaining = getRemainingTime(appName);
+  // remaining === null means unlimited; 0 means exhausted
+  if (remaining !== null && remaining <= 0) return false;
+  return true;
 }
 
 /**
@@ -232,6 +265,45 @@ export function isIntegrationAllowed(integration: string): boolean {
   const { enabled, activeProfile, allowedIntegrations } = getParentalControlSettings();
   if (!enabled || activeProfile !== 'child') return true;
   return allowedIntegrations.includes(integration);
+}
+
+// ---------------------------------------------------------------------------
+// App time limits
+// ---------------------------------------------------------------------------
+
+/** Returns the configured daily time limit in minutes for the given app (0 = unlimited). */
+export function getAppTimeLimit(appName: string): number {
+  const { appTimeLimits } = getParentalControlSettings();
+  return appTimeLimits[appName] ?? 0;
+}
+
+/**
+ * Records additional usage for an app today.
+ * Automatically rolls usage counters when the calendar day has changed.
+ */
+export function recordAppUsage(appName: string, minutes: number): void {
+  const settings = getParentalControlSettings();
+  const today = todayDateString();
+  const usageToday = settings.usageDate === today ? { ...settings.appUsageToday } : {};
+  usageToday[appName] = (usageToday[appName] ?? 0) + minutes;
+  updateParentalControlSettings({ appUsageToday: usageToday, usageDate: today });
+}
+
+/**
+ * Returns remaining minutes for an app today, or null if no limit is set.
+ * Automatically resets usage when the stored date differs from today.
+ */
+export function getRemainingTime(appName: string): number | null {
+  const settings = getParentalControlSettings();
+  const limit = settings.appTimeLimits[appName] ?? 0;
+  if (limit === 0) return null; // unlimited
+
+  const today = todayDateString();
+  // If the stored date is stale the child hasn't used the app yet today.
+  if (settings.usageDate !== today) return limit;
+
+  const used = settings.appUsageToday[appName] ?? 0;
+  return Math.max(0, limit - used);
 }
 
 // ---------------------------------------------------------------------------

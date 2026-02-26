@@ -219,6 +219,11 @@ public final class SettingsStore: ObservableObject {
     /// Allowlisted integration names for the child profile. Empty means all integrations are blocked.
     @Published var allowedIntegrations: [String] = []
 
+    /// Per-app daily time limits in minutes (0 = unlimited). Keyed by app name.
+    @Published var appTimeLimits: [String: Int] = [:]
+    /// Minutes each allowlisted app has been used today. Keyed by app name.
+    @Published var appUsageToday: [String: Int] = [:]
+
     /// Activity log entries recorded while the child profile was active.
     @Published var activityLog: [ActivityLogEntry] = []
 
@@ -1910,6 +1915,85 @@ public final class SettingsStore: ObservableObject {
             guard let r = response, r.success else { return }
             await MainActor.run {
                 self.allowedIntegrations = integrations
+            }
+        }
+    }
+
+    // MARK: - Parental App Time Limit Actions
+
+    /// Fetch per-app time limits and today's usage from the daemon and update published state.
+    func loadAppTimeLimits(pin: String) {
+        guard let daemonClient else { return }
+        let stream = daemonClient.subscribe()
+        Task {
+            do {
+                try daemonClient.sendParentalAppTimeLimitGet(pin: pin)
+            } catch {
+                log.error("Failed to send parental_app_time_limit_get: \(error)")
+                return
+            }
+
+            let response: ParentalAppTimeLimitGetResponseMessage? = await withTaskGroup(
+                of: ParentalAppTimeLimitGetResponseMessage?.self
+            ) { group in
+                group.addTask {
+                    for await message in stream {
+                        if case .parentalAppTimeLimitGetResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            await MainActor.run {
+                if let r = response, r.success {
+                    self.appTimeLimits = r.limits
+                    self.appUsageToday = r.usage
+                }
+            }
+        }
+    }
+
+    /// Set the daily time limit for a single app and refresh local state.
+    func setAppTimeLimit(appName: String, minutes: Int, pin: String) {
+        guard let daemonClient else { return }
+        let stream = daemonClient.subscribe()
+        Task {
+            do {
+                try daemonClient.sendParentalAppTimeLimitSet(pin: pin, appName: appName, limitMinutes: minutes)
+            } catch {
+                log.error("Failed to send parental_app_time_limit_set: \(error)")
+                return
+            }
+
+            let response: ParentalAppTimeLimitSetResponseMessage? = await withTaskGroup(
+                of: ParentalAppTimeLimitSetResponseMessage?.self
+            ) { group in
+                group.addTask {
+                    for await message in stream {
+                        if case .parentalAppTimeLimitSetResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            await MainActor.run {
+                if let r = response, r.success {
+                    self.appTimeLimits[appName] = minutes
+                }
             }
         }
     }

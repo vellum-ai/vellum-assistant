@@ -392,6 +392,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `parental_activity_log_clear_response` message.
     public var onParentalActivityLogClearResponse: ((ParentalActivityLogClearResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `parental_app_time_limit_get_response` message.
+    public var onParentalAppTimeLimitGetResponse: ((ParentalAppTimeLimitGetResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `parental_app_time_limit_set_response` message.
+    public var onParentalAppTimeLimitSetResponse: ((ParentalAppTimeLimitSetResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `twitter_integration_config_response` message.
     public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
 
@@ -1523,6 +1529,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Clear all activity log entries. PIN is required when parental controls are enabled and a PIN is set.
     public func sendParentalActivityLogClear(pin: String? = nil) throws {
         try send(ParentalActivityLogClearRequestMessage(pin: pin))
+    }
+
+    // MARK: - Parental App Time Limits
+
+    /// Retrieve per-app daily time limits and today's usage. PIN is required when parental controls are enabled.
+    public func sendParentalAppTimeLimitGet(pin: String) throws {
+        try send(ParentalAppTimeLimitGetRequestMessage(pin: pin))
+    }
+
+    /// Set the daily time limit for a single app. PIN is required when parental controls are enabled.
+    public func sendParentalAppTimeLimitSet(pin: String, appName: String, limitMinutes: Int) throws {
+        try send(ParentalAppTimeLimitSetRequestMessage(pin: pin, appName: appName, limitMinutes: limitMinutes))
     }
 
     // MARK: - Heartbeat
