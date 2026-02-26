@@ -18,6 +18,7 @@ import {
   createWatchersAndLogsTables,
   migrateCallSessionMode,
   migrateChannelInboundDeliveredSegments,
+  migrateConversationsThreadTypeIndex,
   migrateGuardianActionFollowup,
   migrateGuardianBootstrapToken,
   migrateGuardianVerificationSessions,
@@ -87,6 +88,9 @@ export function initializeDb(): void {
 
   // 14c. Guardian action follow-up lifecycle columns (timeout reason, late answers)
   migrateGuardianActionFollowup(database);
+
+  // 14d. Index on conversations.thread_type for frequent WHERE filters
+  migrateConversationsThreadTypeIndex(database);
 
   // 15. Notification system
   createNotificationTables(database);
