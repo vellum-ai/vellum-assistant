@@ -126,15 +126,46 @@ describe('pairDeliveryWithConversation', () => {
     expect(callArgs.title).toBe('Notification Title');
   });
 
-  test('uses threadSeedMessage for message content when available', () => {
+  test('uses threadSeedMessage for message content when present and sane', () => {
     const signal = makeSignal();
-    const copy = makeCopy({ threadSeedMessage: 'Custom seed message' });
+    const copy = makeCopy({ threadSeedMessage: 'Custom seed message with enough length' });
 
     pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
 
     // addMessage second arg is role, third is content
     const contentArg = addMessageMock.mock.calls[0]![2];
-    expect(contentArg).toBe('Custom seed message');
+    expect(contentArg).toBe('Custom seed message with enough length');
+  });
+
+  test('rejects threadSeedMessage that is a JSON dump and uses runtime composer', () => {
+    const signal = makeSignal({
+      sourceEventName: 'reminder.fired',
+      contextPayload: { message: 'Daily standup' },
+    });
+    const copy = makeCopy({ threadSeedMessage: '{"raw": "json dump payload"}' });
+
+    pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
+
+    const contentArg = addMessageMock.mock.calls[0]![2] as string;
+    // Should NOT be the JSON dump
+    expect(contentArg).not.toContain('"raw"');
+    // Should be the runtime-composed seed from the reminder template
+    expect(contentArg).toContain('Reminder');
+    expect(contentArg).toContain('Daily standup');
+  });
+
+  test('rejects very short threadSeedMessage and uses runtime composer', () => {
+    const signal = makeSignal({
+      sourceEventName: 'reminder.fired',
+      contextPayload: { message: 'Test' },
+    });
+    const copy = makeCopy({ threadSeedMessage: 'Hi' });
+
+    pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
+
+    const contentArg = addMessageMock.mock.calls[0]![2] as string;
+    expect(contentArg).not.toBe('Hi');
+    expect(contentArg).toContain('Reminder');
   });
 
   test('passes skipIndexing option to addMessage', () => {

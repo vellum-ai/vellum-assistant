@@ -10,6 +10,7 @@
 import { getLogger } from '../util/logger.js';
 import { getConversationStrategy } from '../channels/config.js';
 import { createConversation, addMessage } from '../memory/conversation-store.js';
+import { composeThreadSeed, isThreadSeedSane } from './thread-seed-composer.js';
 import type { NotificationChannel } from './types.js';
 import type { NotificationSignal } from './signal.js';
 import type { RenderedChannelCopy } from './types.js';
@@ -69,7 +70,12 @@ export function pairDeliveryWithConversation(
       source: 'notification',
     });
 
-    const messageContent = copy.threadSeedMessage ?? `${copy.title}\n\n${copy.body}`;
+    // Prefer model-provided threadSeedMessage when present and sane;
+    // fall back to the runtime composer which adapts verbosity to the
+    // delivery surface (vellum/macos = richer, telegram = compact).
+    const messageContent = isThreadSeedSane(copy.threadSeedMessage)
+      ? copy.threadSeedMessage
+      : composeThreadSeed(signal, channel, copy);
     // Skip memory indexing — notification audit messages are not conversational
     // memory and should not pollute recall or incur embedding/extraction overhead.
     const message = addMessage(conversation.id, 'assistant', messageContent, undefined, { skipIndexing: true });
