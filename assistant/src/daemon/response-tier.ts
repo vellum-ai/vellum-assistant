@@ -226,12 +226,12 @@ export function tierMaxTokens(tier: ResponseTier, configuredMax: number): number
 
 /**
  * Map for Anthropic provider: tier → model.
- *   low    → haiku (fastest TTFT)
+ *   low    → sonnet (balanced)
  *   medium → sonnet (balanced)
  *   high   → undefined (use configured default, typically opus)
  */
 const ANTHROPIC_TIER_MODELS: Record<ResponseTier, string | undefined> = {
-  low: 'claude-haiku-4-5-20251001',
+  low: 'claude-sonnet-4-6',
   medium: 'claude-sonnet-4-6',
   high: undefined, // use configured default
 };
