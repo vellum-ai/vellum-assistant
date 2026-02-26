@@ -416,7 +416,7 @@ function cleanupMaps(recordingId: string, conversationId: string | undefined): v
  * a thumbnail, create a conversation message, and notify the client.
  *
  * This is the shared finalization flow used by the normal stop path and
- * (in future) by the restart path to save the previous recording.
+ * by the restart path to save the previous recording before starting a new one.
  *
  * Includes an idempotency guard so the same recording cannot be finalized
  * twice (prevents double-finalization during restart races).
@@ -760,9 +760,40 @@ async function handleRecordingStatus(
           }, 30_000);
         }
 
-        // Skip normal file-attachment flow for the old recording during
-        // a restart — the user initiated a stop+start cycle, not a
-        // deliberate "stop and save".
+        // Finalize the old recording: create attachment, generate thumbnail,
+        // and notify the client. The deferred start fires first so the user
+        // sees immediate activity (new recording starting) before the old
+        // recording's completion message appears.
+        if (notifySocket) {
+          const finResult = await finalizeAndPublishRecording({
+            recordingId,
+            conversationId,
+            filePath: msg.filePath,
+            durationMs: msg.durationMs,
+            notifySocket,
+            ctx,
+          });
+
+          // Handle old-success + new-start-failure: the old recording saved
+          // but the new one couldn't start. Send explicit follow-up text so
+          // the user knows the state.
+          if (!newRecordingId && finResult.success) {
+            ctx.send(notifySocket, {
+              type: 'assistant_text_delta',
+              text: 'Previous recording saved. New recording failed to start.',
+              sessionId: conversationId,
+            });
+            ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
+          }
+          // Other failure combos:
+          // - new-start-failure + old-finalize-failure: finalizeAndPublishRecording
+          //   already sent error messages, restart state already cleaned up above.
+          // - new-start-success + old-finalize-failure: finalization already sent
+          //   error messages, new recording is running — no extra message needed.
+        }
+
+        // Prevent fall-through to the normal finalization path below since
+        // we already called finalizeAndPublishRecording explicitly above.
         break;
       }
 
