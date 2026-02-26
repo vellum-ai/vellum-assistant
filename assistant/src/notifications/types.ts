@@ -87,3 +87,47 @@ export interface NotificationDecision {
   /** UUID of the persisted decision row (set after persistence in the decision engine). */
   persistedDecisionId?: string;
 }
+
+// -- Delivery interaction tracking --------------------------------------------
+
+/** How the user interacted with a notification delivery. */
+export type InteractionType =
+  | 'viewed'
+  | 'dismissed'
+  | 'replied'
+  | 'callback_clicked'
+  | 'conversation_opened';
+
+/** Whether the interaction was directly observed or inferred from signals. */
+export type InteractionConfidence = 'explicit' | 'inferred';
+
+/**
+ * Sources that produce interaction events. Each value identifies the
+ * originating subsystem or client action so callers can filter and
+ * audit by provenance.
+ */
+export type InteractionSource =
+  | 'macos_notification_view_action'
+  | 'macos_notification_dismiss_action'
+  | 'macos_conversation_opened'
+  | 'telegram_inbound_message'
+  | 'telegram_callback_query'
+  | 'vellum_thread_opened'
+  | (string & {});
+
+/** Summary of interaction state materialized on notification_deliveries. */
+export interface NotificationDeliverySummary {
+  id: string;
+  assistantId: string;
+  channel: string;
+  seenAt: number | null;
+  seenConfidence: string | null;
+  seenSource: string | null;
+  seenEvidenceText: string | null;
+  viewedAt: number | null;
+  lastInteractionAt: number | null;
+  lastInteractionType: string | null;
+  lastInteractionConfidence: string | null;
+  lastInteractionSource: string | null;
+  lastInteractionEvidenceText: string | null;
+}

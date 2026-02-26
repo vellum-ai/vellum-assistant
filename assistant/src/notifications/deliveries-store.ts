@@ -31,6 +31,16 @@ export interface NotificationDeliveryRow {
   clientDeliveryStatus: string | null;
   clientDeliveryError: string | null;
   clientDeliveryAt: number | null;
+  seenAt: number | null;
+  seenConfidence: string | null;
+  seenSource: string | null;
+  seenEvidenceText: string | null;
+  viewedAt: number | null;
+  lastInteractionAt: number | null;
+  lastInteractionType: string | null;
+  lastInteractionConfidence: string | null;
+  lastInteractionSource: string | null;
+  lastInteractionEvidenceText: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -55,6 +65,16 @@ function rowToDelivery(row: typeof notificationDeliveries.$inferSelect): Notific
     clientDeliveryStatus: row.clientDeliveryStatus,
     clientDeliveryError: row.clientDeliveryError,
     clientDeliveryAt: row.clientDeliveryAt,
+    seenAt: row.seenAt,
+    seenConfidence: row.seenConfidence,
+    seenSource: row.seenSource,
+    seenEvidenceText: row.seenEvidenceText,
+    viewedAt: row.viewedAt,
+    lastInteractionAt: row.lastInteractionAt,
+    lastInteractionType: row.lastInteractionType,
+    lastInteractionConfidence: row.lastInteractionConfidence,
+    lastInteractionSource: row.lastInteractionSource,
+    lastInteractionEvidenceText: row.lastInteractionEvidenceText,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

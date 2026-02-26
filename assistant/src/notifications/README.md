@@ -214,6 +214,7 @@ For notification flows that create conversations, the conversation must be creat
 | `events-store.ts` | CRUD for `notification_events` table |
 | `decisions-store.ts` | CRUD for `notification_decisions` table |
 | `deliveries-store.ts` | CRUD for `notification_deliveries` table |
+| `interactions-store.ts` | Append-only interaction log + delivery summary updates |
 
 ## How to Add a New Notification Producer
 
@@ -252,11 +253,12 @@ The call is fire-and-forget safe by default -- errors are caught and logged inte
 
 ## Audit Trail
 
-Three SQLite tables form the audit chain:
+Four SQLite tables form the audit chain:
 
 - **`notification_events`** -- every signal that entered the pipeline, with attention hints and context payload
 - **`notification_decisions`** -- the routing decision for each event (shouldNotify, selectedChannels, reasoning, confidence, whether fallback was used)
-- **`notification_deliveries`** -- per-channel delivery attempts with status (pending/sent/failed/skipped), rendered copy, error details, conversation pairing data (`conversation_id`, `message_id`, `conversation_strategy`), and client delivery outcome (`client_delivery_status`, `client_delivery_error`, `client_delivery_at`)
+- **`notification_deliveries`** -- per-channel delivery attempts with status (pending/sent/failed/skipped), rendered copy, error details, conversation pairing data (`conversation_id`, `message_id`, `conversation_strategy`), client delivery outcome, and interaction summary columns
+- **`notification_delivery_interactions`** -- append-only log of user interactions with delivered notifications (viewed, dismissed, replied, callback_clicked, conversation_opened)
 
 ### Client Delivery Ack
 
@@ -304,6 +306,75 @@ SELECT d.rendered_title, d.client_delivery_status, d.client_delivery_error, d.cl
 FROM notification_deliveries d
 WHERE d.channel = 'vellum' AND d.client_delivery_status = 'client_failed'
 ORDER BY d.created_at DESC;
+```
+
+## Delivery Interaction Tracking
+
+After a notification is delivered, the system tracks how the user interacts with it. Each interaction is recorded as an append-only row in `notification_delivery_interactions`, and summary columns on `notification_deliveries` are updated transactionally.
+
+### Interaction Types
+
+| Type | Description |
+|------|-------------|
+| `viewed` | The user saw the notification (explicit vellum view or inferred from channel signals) |
+| `dismissed` | The user dismissed/cleared the notification without engaging |
+| `replied` | The user replied to the notification thread |
+| `callback_clicked` | The user clicked a callback button (e.g. Telegram inline keyboard) |
+| `conversation_opened` | The user opened the notification's conversation thread |
+
+### Confidence Levels
+
+| Level | Meaning |
+|-------|---------|
+| `explicit` | Directly observed action (e.g. user clicked "View" on a macOS notification, opened the thread in vellum) |
+| `inferred` | Derived from indirect signals (e.g. a Telegram inbound message in the same chat implies the user saw the notification) |
+
+### Summary Columns on `notification_deliveries`
+
+| Column | Invariant |
+|--------|-----------|
+| `seen_at`, `seen_confidence`, `seen_source`, `seen_evidence_text` | First-write-wins: once set, never overwritten or cleared |
+| `viewed_at` | Set only by explicit vellum view interactions |
+| `last_interaction_at`, `last_interaction_type`, `last_interaction_confidence`, `last_interaction_source`, `last_interaction_evidence_text` | Always reflects the most recent interaction by `occurred_at` |
+
+### Interaction Sources
+
+Each interaction carries a `source` string identifying where it originated:
+
+- `macos_notification_view_action` -- user tapped "View" on a macOS notification
+- `macos_notification_dismiss_action` -- user dismissed a macOS notification
+- `macos_conversation_opened` -- user opened the notification thread in the macOS app
+- `telegram_inbound_message` -- user sent a message in the Telegram chat where the notification was delivered
+- `telegram_callback_query` -- user clicked an inline button on a Telegram notification
+- `vellum_thread_opened` -- user opened the notification thread in the vellum interface
+
+### Store API (`interactions-store.ts`)
+
+- `recordNotificationDeliveryInteraction(params)` -- insert interaction + update summaries transactionally
+- `markDeliverySeen(params)` -- helper to record a 'viewed' interaction (first-write-wins for `seen_at`)
+- `markDeliveryViewed(params)` -- helper for explicit vellum view (sets `viewed_at`)
+- `getNotificationDeliverySummaries(filters)` -- query delivery summaries with filters
+
+Query examples:
+
+```sql
+-- Deliveries the user has seen
+SELECT id, channel, seen_at, seen_source, seen_confidence
+FROM notification_deliveries
+WHERE seen_at IS NOT NULL
+ORDER BY seen_at DESC;
+
+-- Interaction history for a specific delivery
+SELECT interaction_type, confidence, source, evidence_text, occurred_at
+FROM notification_delivery_interactions
+WHERE notification_delivery_id = ?
+ORDER BY occurred_at DESC;
+
+-- Deliveries with no interaction (potentially missed notifications)
+SELECT id, channel, rendered_title, created_at
+FROM notification_deliveries
+WHERE status = 'sent' AND last_interaction_at IS NULL
+ORDER BY created_at DESC;
 ```
 
 ## Conversational Preferences
