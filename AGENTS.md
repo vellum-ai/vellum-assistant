@@ -336,6 +336,18 @@ Prefer skills in `assistant/skills/vellum-skills/` that teach the model how to u
 
 Keep the system prompt as minimal as possible. Avoid adding instructions about how to use tools; only document what tools exist when they are basic, primitive, and universally useful. Prefer CLI programs that the assistant can progressively learn to use via `--help`.
 
+## Assistant-Driven Judgement
+
+All judgement calls that affect the user's experience should be made by the assistant through the daemon process — not by hard-coded logic or deterministic heuristics in application code.
+
+Concretely:
+- **Prefer LLM judgement over if/else.** When a decision requires interpreting intent, tone, priority, relevance, or any other subjective quality, route it through the assistant rather than encoding a fixed rule. Hard-coded heuristics are brittle and cannot adapt to context the way the model can.
+- **Reserve deterministic logic for mechanical operations.** Parsing, validation, data transformation, access control, and protocol enforcement are fine as code. The line is: if the decision requires understanding meaning or context, it belongs to the assistant; if it's purely structural or policy-enforced, code is appropriate.
+- **Don't approximate the assistant with heuristics.** If you find yourself writing a cascade of string matches, keyword checks, or scoring functions to simulate what the model would decide, stop — that's a sign the decision should be delegated to the daemon instead.
+- **Treat the daemon as the judgement layer.** The assistant carries user context, preferences, conversation history, and identity. Decisions routed through it benefit from all of that. Decisions made in application code discard it.
+
+When in doubt, ask: "Am I encoding a judgement that the assistant could make better with context?" If yes, route it through the daemon.
+
 ## Migration Guidance
 
 When touching existing tool-based flows, migrate behavior toward skill-driven CLI usage instead of adding new registered tools.
