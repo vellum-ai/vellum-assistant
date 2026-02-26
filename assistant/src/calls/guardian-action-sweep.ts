@@ -10,6 +10,7 @@
  */
 
 import { addMessage } from '../memory/conversation-store.js';
+import type { GuardianActionDelivery } from '../memory/guardian-action-store.js';
 import {
   expireGuardianActionRequest,
   getDeliveriesByRequestId,
@@ -26,6 +27,52 @@ const SWEEP_INTERVAL_MS = 60_000;
 let sweepTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
+ * Send expiry notices to all delivery destinations for a guardian action
+ * request. Handles both vellum/mac thread messages and external channel
+ * replies (telegram, sms).
+ *
+ * Deliveries must be captured *before* their status is changed to 'expired'
+ * so the sent/pending filter still matches.
+ */
+export function sendGuardianExpiryNotices(
+  deliveries: GuardianActionDelivery[],
+  assistantId: string,
+  gatewayBaseUrl: string,
+  bearerToken?: string,
+): void {
+  for (const delivery of deliveries) {
+    if (delivery.status !== 'sent' && delivery.status !== 'pending') continue;
+
+    if ((delivery.destinationChannel === 'vellum' || delivery.destinationChannel === 'macos' || delivery.destinationChannel === 'mac') && delivery.destinationConversationId) {
+      // Add expiry message to vellum guardian thread
+      addMessage(
+        delivery.destinationConversationId,
+        'assistant',
+        JSON.stringify([{ type: 'text', text: 'This guardian question has expired without a response.' }]),
+        { userMessageChannel: 'voice', assistantMessageChannel: 'vellum', userMessageInterface: 'voice', assistantMessageInterface: 'vellum' },
+      );
+    } else if (delivery.destinationChatId) {
+      // External channel — send expiry notice
+      const deliverUrl = `${gatewayBaseUrl}/deliver/${delivery.destinationChannel}`;
+      void (async () => {
+        try {
+          await deliverChannelReply(deliverUrl, {
+            chatId: delivery.destinationChatId!,
+            text: 'The guardian question has expired without a response. The call has moved on.',
+            assistantId,
+          }, bearerToken);
+        } catch (err) {
+          log.error(
+            { err, deliveryId: delivery.id, channel: delivery.destinationChannel },
+            'Failed to deliver guardian action expiry notice',
+          );
+        }
+      })();
+    }
+  }
+}
+
+/**
  * Sweep expired guardian action requests and clean up.
  */
 export function sweepExpiredGuardianActions(
@@ -39,7 +86,7 @@ export function sweepExpiredGuardianActions(
     const deliveries = getDeliveriesByRequestId(request.id);
 
     // Expire the request and all deliveries
-    expireGuardianActionRequest(request.id);
+    expireGuardianActionRequest(request.id, 'sweep_timeout');
 
     // Expire associated pending questions
     expirePendingQuestions(request.callSessionId);
@@ -49,37 +96,7 @@ export function sweepExpiredGuardianActions(
       'Expired guardian action request',
     );
 
-    // Send expiry notices to each delivery destination
-    for (const delivery of deliveries) {
-      if (delivery.status !== 'sent' && delivery.status !== 'pending') continue;
-
-      if ((delivery.destinationChannel === 'vellum' || delivery.destinationChannel === 'macos' || delivery.destinationChannel === 'mac') && delivery.destinationConversationId) {
-        // Add expiry message to vellum guardian thread
-        addMessage(
-          delivery.destinationConversationId,
-          'assistant',
-          JSON.stringify([{ type: 'text', text: 'This guardian question has expired without a response.' }]),
-          { userMessageChannel: 'voice', assistantMessageChannel: 'vellum', userMessageInterface: 'voice', assistantMessageInterface: 'vellum' },
-        );
-      } else if (delivery.destinationChatId) {
-        // External channel — send expiry notice
-        const deliverUrl = `${gatewayBaseUrl}/deliver/${delivery.destinationChannel}`;
-        void (async () => {
-          try {
-            await deliverChannelReply(deliverUrl, {
-              chatId: delivery.destinationChatId!,
-              text: 'The guardian question has expired without a response. The call has moved on.',
-              assistantId: request.assistantId,
-            }, bearerToken);
-          } catch (err) {
-            log.error(
-              { err, deliveryId: delivery.id, channel: delivery.destinationChannel },
-              'Failed to deliver guardian action expiry notice',
-            );
-          }
-        })();
-      }
-    }
+    sendGuardianExpiryNotices(deliveries, request.assistantId, gatewayBaseUrl, bearerToken);
   }
 }
 
