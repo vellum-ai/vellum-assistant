@@ -364,7 +364,7 @@ No additional configuration is needed beyond the standard Twilio setup (Steps 1-
 
 ### Guardian voice verification for inbound calls
 
-For guardian verification setup, load `guardian-verify-setup`; this skill does not orchestrate that flow inline.
+For guardian verification setup, first install the skill via `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`, then load it with `skill_load` using `skill: "guardian-verify-setup"`. This skill handles the full outbound verification flow; `phone-calls` does not orchestrate it inline.
 
 Once a guardian binding exists for the voice channel, inbound callers may be prompted for verification before calls proceed. The relay server detects pending challenges and prompts callers: "Please enter your six-digit verification code using your keypad, or speak the digits now." If verification fails after 3 attempts, the call ends with "Verification failed. Goodbye."
 
