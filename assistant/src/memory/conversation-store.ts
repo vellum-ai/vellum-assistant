@@ -290,6 +290,21 @@ export function addMessage(conversationId: string, role: string, content: string
   }
   const message = { id: messageId, conversationId, role, content, createdAt: now, ...(metadataStr ? { metadata: metadataStr } : {}) };
 
+  // Verify the FTS trigger fired for this message. The trigger is atomic with
+  // the INSERT (see 116-messages-fts.ts), so a missing FTS row after a
+  // successful transaction indicates the trigger was dropped or the FTS table
+  // was recreated without triggers. Log a warning so the desync is visible.
+  try {
+    const ftsRow = rawGet<{ c: number }>(
+      'SELECT COUNT(*) AS c FROM messages_fts WHERE message_id = ?', messageId,
+    );
+    if (ftsRow && ftsRow.c === 0) {
+      log.warn({ conversationId, messageId }, 'FTS sync missing: messages_fts row not found after INSERT — search index may be stale');
+    }
+  } catch (err) {
+    log.warn({ err, conversationId, messageId }, 'FTS sync check failed — messages_fts may be corrupted or missing');
+  }
+
   if (!opts?.skipIndexing) {
     try {
       const config = getConfig();
@@ -504,7 +519,16 @@ export function clearAll(): { conversations: number; messages: number } {
   // Delete in dependency order. Cascades handle memory_segments,
   // memory_item_sources, and tool_invocations, but we explicitly
   // clear non-cascading memory tables too.
-  rawExec('DELETE FROM memory_segment_fts');
+  //
+  // FTS virtual tables are cleared before their base tables. If an FTS
+  // table is corrupted, the DELETE will fail — we catch and log the error
+  // so that the rest of the cleanup can proceed. The FTS table can be
+  // rebuilt via its backfill migration after the corruption is resolved.
+  try {
+    rawExec('DELETE FROM memory_segment_fts');
+  } catch (err) {
+    log.warn({ err }, 'clearAll: failed to clear memory_segment_fts — FTS index may be corrupted');
+  }
   rawExec('DELETE FROM memory_item_sources');
   rawExec('DELETE FROM memory_segments');
   rawExec('DELETE FROM memory_items');
@@ -517,7 +541,11 @@ export function clearAll(): { conversations: number; messages: number } {
   rawExec('DELETE FROM message_attachments');
   rawExec('DELETE FROM attachments');
   rawExec('DELETE FROM tool_invocations');
-  rawExec('DELETE FROM messages_fts');
+  try {
+    rawExec('DELETE FROM messages_fts');
+  } catch (err) {
+    log.warn({ err }, 'clearAll: failed to clear messages_fts — FTS index may be corrupted');
+  }
   rawExec('DELETE FROM messages');
   rawExec('DELETE FROM conversations');
 
@@ -623,6 +651,20 @@ export function updateMessageContent(messageId: string, newContent: string): voi
     .set({ content: newContent })
     .where(eq(messages.id, messageId))
     .run();
+
+  // Verify FTS trigger synced the content update. The UPDATE trigger
+  // atomically deletes the old FTS row and inserts a new one, so a
+  // missing row here indicates a trigger or FTS table issue.
+  try {
+    const ftsRow = rawGet<{ c: number }>(
+      'SELECT COUNT(*) AS c FROM messages_fts WHERE message_id = ?', messageId,
+    );
+    if (ftsRow && ftsRow.c === 0) {
+      log.warn({ messageId }, 'FTS sync missing after updateMessageContent — search index may be stale');
+    }
+  } catch (err) {
+    log.warn({ err, messageId }, 'FTS sync check failed after updateMessageContent');
+  }
 }
 
 /**
@@ -809,8 +851,8 @@ export function searchConversations(
         LIMIT 1000
       `, ftsMatch);
       for (const row of ftsRows) ftsConvIds.add(row.conversation_id);
-    } catch {
-      // FTS parse failure — fall through, title matches may still produce results.
+    } catch (err) {
+      log.warn({ err, query: query.slice(0, 80) }, 'searchConversations: FTS query failed — falling through to title matches');
     }
   } else if (query.trim()) {
     // FTS tokens were all dropped (non-ASCII, single-char, etc.) — fall back to
@@ -871,8 +913,8 @@ export function searchConversations(
           ORDER BY m.created_at ASC
           LIMIT ?
         `, ftsMatch, conv.id, maxMsgsPerConv);
-      } catch {
-        // FTS parse failure — no matching messages for this conversation.
+      } catch (err) {
+        log.warn({ err, conversationId: conv.id }, 'searchConversations: FTS per-conversation query failed');
       }
     } else if (query.trim()) {
       // LIKE fallback for non-ASCII / short-token queries.
