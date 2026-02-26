@@ -26,6 +26,8 @@ export type GuardianActionMessageScenario =
   | 'guardian_followup_failed'
   | 'guardian_followup_declined_ack'
   | 'guardian_followup_clarification'
+  | 'guardian_expired_disambiguation'
+  | 'guardian_followup_disambiguation'
   | 'guardian_stale_answered'
   | 'guardian_stale_expired'
   | 'guardian_stale_followup'
@@ -45,6 +47,7 @@ export interface GuardianActionMessageContext {
   followupAction?: string;
   failureReason?: string;
   counterpartyPhone?: string;
+  requestCodes?: string[];
 }
 
 export interface ComposeGuardianActionMessageOptions {
@@ -141,6 +144,8 @@ export function includesRequiredKeywords(text: string, requiredKeywords: string[
  * or SMS delivery.
  */
 export function getGuardianActionFallbackMessage(context: GuardianActionMessageContext): string {
+  const listedCodes = formatGuardianRequestCodes(context.requestCodes);
+
   switch (context.scenario) {
     case 'caller_timeout_acknowledgment':
       return context.guardianIdentifier
@@ -175,6 +180,16 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
 
     case 'guardian_followup_clarification':
       return "Sorry, I didn't quite catch that. Would you like to call them back, send them a message, or skip it for now?";
+
+    case 'guardian_expired_disambiguation':
+      return listedCodes
+        ? `You have multiple expired guardian questions. Please prefix your reply with the reference code (${listedCodes}) so I know which question you're answering.`
+        : 'You have multiple expired guardian questions. Please prefix your reply with the reference code so I know which question you\'re answering.';
+
+    case 'guardian_followup_disambiguation':
+      return listedCodes
+        ? `You have multiple pending follow-up questions. Please prefix your reply with the reference code (${listedCodes}) so I know which question you're responding to.`
+        : 'You have multiple pending follow-up questions. Please prefix your reply with the reference code so I know which question you\'re responding to.';
 
     case 'guardian_stale_answered':
       return 'This question has already been answered from another channel.';
@@ -221,4 +236,10 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
       return `Guardian action update. ${String(_exhaustive)}`;
     }
   }
+}
+
+function formatGuardianRequestCodes(requestCodes: string[] | undefined): string {
+  if (!Array.isArray(requestCodes)) return '';
+  const cleaned = requestCodes.map((code) => code.trim()).filter((code) => code.length > 0);
+  return cleaned.join(', ');
 }

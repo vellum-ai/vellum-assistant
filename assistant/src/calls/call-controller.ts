@@ -590,12 +590,17 @@ export class CallController {
                 { callSessionId: this.callSessionId, requestId: pendingActionRequest.id },
                 'Marked guardian action request as timed out',
               );
-              sendGuardianExpiryNotices(
+              void sendGuardianExpiryNotices(
                 deliveries,
                 pendingActionRequest.assistantId,
                 getGatewayInternalBaseUrl(),
                 readHttpToken() ?? undefined,
-              );
+              ).catch((err) => {
+                log.error(
+                  { err, callSessionId: this.callSessionId, requestId: pendingActionRequest.id },
+                  'Failed to send guardian action expiry notices after call timeout',
+                );
+              });
             }
 
             // Expire pending questions and update call state
