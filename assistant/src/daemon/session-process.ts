@@ -453,7 +453,7 @@ export async function processMessage(
       const guardianIfCtx = session.getTurnInterfaceContext();
       const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum', assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum', provenanceActorRole: 'guardian' as const };
       const userMsg = createUserMessage(content, attachments);
-      const persisted = conversationStore.addMessage(
+      const persisted = await conversationStore.addMessage(
         session.conversationId,
         'user',
         JSON.stringify(userMsg.content),
@@ -514,7 +514,7 @@ export async function processMessage(
       const guardianIfCtx = session.getTurnInterfaceContext();
       const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum', assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum', provenanceActorRole: 'guardian' as const };
       const userMsg = createUserMessage(content, attachments);
-      const persisted = conversationStore.addMessage(
+      const persisted = await conversationStore.addMessage(
         session.conversationId,
         'user',
         JSON.stringify(userMsg.content),

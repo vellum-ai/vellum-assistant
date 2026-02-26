@@ -45,12 +45,12 @@ export function sendGuardianExpiryNotices(
 
     if ((delivery.destinationChannel === 'vellum' || delivery.destinationChannel === 'macos' || delivery.destinationChannel === 'mac') && delivery.destinationConversationId) {
       // Add expiry message to vellum guardian thread
-      addMessage(
+      void addMessage(
         delivery.destinationConversationId,
         'assistant',
         JSON.stringify([{ type: 'text', text: 'This guardian question has expired without a response.' }]),
         { userMessageChannel: 'voice', assistantMessageChannel: 'vellum', userMessageInterface: 'voice', assistantMessageInterface: 'vellum' },
-      );
+      ).catch((err) => log.error({ err, deliveryId: delivery.id }, 'Failed to add expiry message to guardian thread'));
     } else if (delivery.destinationChatId) {
       // External channel — send expiry notice
       const deliverUrl = `${gatewayBaseUrl}/deliver/${delivery.destinationChannel}`;
