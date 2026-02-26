@@ -282,7 +282,8 @@ struct RecordingSourcePickerView: View {
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                VToggle(isOn: $viewModel.includeAudio, label: "System audio")
+                VToggle(isOn: $viewModel.includeAudio)
+                    .accessibilityLabel("System audio")
             }
             .padding(.horizontal, VSpacing.xl)
 
@@ -294,7 +295,8 @@ struct RecordingSourcePickerView: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
                     Spacer()
-                    VToggle(isOn: $viewModel.includeMicrophone, label: "Microphone")
+                    VToggle(isOn: $viewModel.includeMicrophone)
+                        .accessibilityLabel("Microphone")
                 }
                 .padding(.horizontal, VSpacing.xl)
             }
