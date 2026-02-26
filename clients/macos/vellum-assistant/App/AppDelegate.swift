@@ -168,6 +168,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var connectionStatusCancellable: AnyCancellable?
     private var quickInputAttachmentCancellable: AnyCancellable?
     private var conversationZoomEnabledCancellable: AnyCancellable?
+    private var conversationBadgeCancellable: AnyCancellable?
     /// Observable state for SwiftUI command group `.disabled()` modifiers.
     /// Updated via Combine subscription to `MainWindowState.objectWillChange`.
     @Published public var isConversationZoomEnabled: Bool = false
@@ -2024,6 +2025,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         mainWindow = main
         observeConversationZoomEnabled(main.windowState)
         observeAssistantStatus()
+        observeConversationBadge(main.threadManager)
         return main
     }
 
@@ -2096,6 +2098,31 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             .sink { [weak self] _ in
                 self?.updateMenuBarIcon()
             }
+    }
+
+    private func observeConversationBadge(_ threadManager: ThreadManager) {
+        conversationBadgeCancellable?.cancel()
+
+        applyDockConversationBadge(count: threadManager.unseenVisibleConversationCount)
+
+        conversationBadgeCancellable = threadManager.$threads
+            .map { _ in threadManager.unseenVisibleConversationCount }
+            .removeDuplicates()
+            .sink { [weak self] count in
+                self?.applyDockConversationBadge(count: count)
+            }
+    }
+
+    /// Format the unseen conversation count for the dock badge.
+    /// Returns nil for 0 (clears badge), exact string for 1-99, "99+" for 100+.
+    func formatDockConversationBadge(count: Int) -> String? {
+        if count <= 0 { return nil }
+        if count >= 100 { return "99+" }
+        return "\(count)"
+    }
+
+    private func applyDockConversationBadge(count: Int) {
+        NSApp.dockTile.badgeLabel = formatDockConversationBadge(count: count)
     }
 
     // MARK: - About Panel
