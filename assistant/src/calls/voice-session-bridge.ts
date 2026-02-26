@@ -307,7 +307,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
 
   const requestId = crypto.randomUUID();
   const turnId = crypto.randomUUID();
-  const messageId = session.persistUserMessage(persistedContent, [], requestId);
+  const messageId = await session.persistUserMessage(persistedContent, [], requestId);
 
   // Serialized publish chain so hub subscribers observe events in order.
   let hubChain: Promise<void> = Promise.resolve();

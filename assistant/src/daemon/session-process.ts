@@ -104,7 +104,7 @@ export interface ProcessSessionContext {
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
-  persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>, displayContent?: string): string;
+  persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>, displayContent?: string): Promise<string>;
   runAgentLoop(
     content: string,
     userMessageId: string,
@@ -175,7 +175,7 @@ function buildSlashContext(session: ProcessSessionContext): SlashContext {
  * block, we must explicitly continue draining on failure — otherwise
  * remaining queued messages would be stranded.
  */
-export function drainQueue(session: ProcessSessionContext, reason: QueueDrainReason = 'loop_complete'): void {
+export async function drainQueue(session: ProcessSessionContext, reason: QueueDrainReason = 'loop_complete'): Promise<void> {
   const next = session.queue.shift();
   if (!next) return;
 
@@ -226,7 +226,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
       const contentToPersist = next.displayContent
         ? JSON.stringify(createUserMessage(next.displayContent, next.attachments).content)
         : JSON.stringify(userMsg.content);
-      conversationStore.addMessage(
+      await conversationStore.addMessage(
         session.conversationId,
         'user',
         contentToPersist,
@@ -235,7 +235,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
       session.messages.push(userMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
-      conversationStore.addMessage(
+      await conversationStore.addMessage(
         session.conversationId,
         'assistant',
         JSON.stringify(assistantMsg.content),
@@ -302,7 +302,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // resolves early (no runAgentLoop call), so we must continue draining.
   let userMessageId: string;
   try {
-    userMessageId = session.persistUserMessage(resolvedContent, next.attachments, next.requestId, next.metadata, next.displayContent);
+    userMessageId = await session.persistUserMessage(resolvedContent, next.attachments, next.requestId, next.metadata, next.displayContent);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId: session.conversationId, requestId: next.requestId }, 'Failed to persist queued message');
@@ -392,7 +392,7 @@ export async function processMessage(
       const guardianIfCtx = session.getTurnInterfaceContext();
       const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum', assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum', provenanceActorRole: 'guardian' as const };
       const userMsg = createUserMessage(content, attachments);
-      const persisted = conversationStore.addMessage(
+      const persisted = await conversationStore.addMessage(
         session.conversationId,
         'user',
         JSON.stringify(userMsg.content),
@@ -412,7 +412,7 @@ export async function processMessage(
           ? 'Your answer has been relayed to the call.'
           : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_answered' }, {}, _guardianActionCopyGenerator);
         const replyMsg = createAssistantMessage(replyText);
-        conversationStore.addMessage(
+        await conversationStore.addMessage(
           session.conversationId,
           'assistant',
           JSON.stringify(replyMsg.content),
@@ -429,7 +429,7 @@ export async function processMessage(
           _guardianActionCopyGenerator,
         );
         const failMsg = createAssistantMessage(failureText);
-        conversationStore.addMessage(
+        await conversationStore.addMessage(
           session.conversationId,
           'assistant',
           JSON.stringify(failMsg.content),
@@ -619,7 +619,7 @@ export async function processMessage(
     const contentToPersist = displayContent
       ? JSON.stringify(createUserMessage(displayContent, attachments).content)
       : JSON.stringify(userMsg.content);
-    const persisted = conversationStore.addMessage(
+    const persisted = await conversationStore.addMessage(
       session.conversationId,
       'user',
       contentToPersist,
@@ -628,7 +628,7 @@ export async function processMessage(
     session.messages.push(userMsg);
 
     const assistantMsg = createAssistantMessage(slashResult.message);
-    conversationStore.addMessage(
+    await conversationStore.addMessage(
       session.conversationId,
       'assistant',
       JSON.stringify(assistantMsg.content),
@@ -681,7 +681,7 @@ export async function processMessage(
 
   let userMessageId: string;
   try {
-    userMessageId = session.persistUserMessage(resolvedContent, attachments, requestId, undefined, displayContent);
+    userMessageId = await session.persistUserMessage(resolvedContent, attachments, requestId, undefined, displayContent);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     onEvent({ type: 'error', message });

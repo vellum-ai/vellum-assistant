@@ -25,6 +25,7 @@ import { parseChannelId } from '../channels/types.js';
 import {
   getGatewayInternalBaseUrl,
   getRuntimeGatewayOriginSecret,
+  hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
@@ -46,6 +47,13 @@ import {
   verifyBearerToken,
 } from './middleware/auth.js';
 import { withErrorHandling } from './middleware/error-handler.js';
+import {
+  apiRateLimiter,
+  extractClientIp,
+  ipRateLimiter,
+  rateLimitHeaders,
+  rateLimitResponse,
+} from './middleware/rate-limiter.js';
 import {
   cloneRequestWithBody,
   GATEWAY_ONLY_BLOCKED_SUBPATHS,
@@ -73,6 +81,7 @@ import {
   handleGetAttachmentContent,
   handleUploadAttachment,
 } from './routes/attachment-routes.js';
+import { handleDebug } from './routes/debug-routes.js';
 import {
   handleAnswerCall,
   handleCancelCall,
@@ -307,7 +316,9 @@ export class RuntimeHttpServer {
 
     this.pairingStore.start();
 
-    if (isHttpAuthDisabled()) {
+    if (hasUngatedHttpAuthDisabled()) {
+      log.warn('DISABLE_HTTP_AUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and HTTP authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.');
+    } else if (isHttpAuthDisabled()) {
       log.warn('DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All API endpoints are accessible without a bearer token. Do not use in production.');
     }
 
@@ -369,6 +380,36 @@ export class RuntimeHttpServer {
       }
     }
 
+    // Per-bearer-token rate limiting for /v1/* endpoints, with per-IP fallback
+    // for unauthenticated requests (lower limits to reduce abuse surface).
+    if (path.startsWith('/v1/')) {
+      const token = extractBearerToken(req);
+      const result = token
+        ? apiRateLimiter.check(token)
+        : ipRateLimiter.check(extractClientIp(req, server));
+      if (!result.allowed) {
+        return rateLimitResponse(result);
+      }
+      // Attach rate limit headers to the eventual response
+      const originalResponse = await this.handleAuthenticatedRequest(req, url, path);
+      const headers = new Headers(originalResponse.headers);
+      for (const [k, v] of Object.entries(rateLimitHeaders(result))) {
+        headers.set(k, v);
+      }
+      return new Response(originalResponse.body, {
+        status: originalResponse.status,
+        statusText: originalResponse.statusText,
+        headers,
+      });
+    }
+
+    return this.handleAuthenticatedRequest(req, url, path);
+  }
+
+  /**
+   * Handle requests that have already passed auth and rate limiting.
+   */
+  private async handleAuthenticatedRequest(req: Request, url: URL, path: string): Promise<Response> {
     // Pairing registration (bearer-authenticated)
     if (path === '/v1/pairing/register' && req.method === 'POST') {
       return await handlePairingRegister(req, this.pairingContext);
@@ -452,7 +493,7 @@ export class RuntimeHttpServer {
       );
     }
 
-    if ((process.env.DISABLE_HTTP_AUTH ?? '').toLowerCase() !== 'true' && this.bearerToken) {
+    if (!isHttpAuthDisabled() && this.bearerToken) {
       const wsUrl = new URL(req.url);
       const token = wsUrl.searchParams.get('token');
       if (!token || !verifyBearerToken(token, this.bearerToken)) {
@@ -532,6 +573,7 @@ export class RuntimeHttpServer {
   ): Promise<Response> {
     return withErrorHandling(endpoint, async () => {
       if (endpoint === 'health' && req.method === 'GET') return handleHealth();
+      if (endpoint === 'debug' && req.method === 'GET') return handleDebug();
 
       if (endpoint === 'browser-relay/status' && req.method === 'GET') {
         return Response.json(extensionRelayServer.getStatus());

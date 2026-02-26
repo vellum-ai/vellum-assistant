@@ -75,10 +75,10 @@ export function sendGuardianExpiryNotices(
 /**
  * Sweep expired guardian action requests and clean up.
  */
-export function sweepExpiredGuardianActions(
+export async function sweepExpiredGuardianActions(
   gatewayBaseUrl: string,
   bearerToken?: string,
-): void {
+): Promise<void> {
   const expired = getExpiredGuardianActionRequests();
 
   for (const request of expired) {

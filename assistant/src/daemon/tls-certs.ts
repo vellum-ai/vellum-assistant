@@ -76,9 +76,17 @@ async function isExistingCertValid(): Promise<boolean> {
     const x509 = new X509Certificate(certPem);
 
     // Check expiration
+    const now = new Date();
     const notAfter = new Date(x509.validTo);
-    if (notAfter <= new Date()) {
+    if (notAfter <= now) {
       log.info('Existing TLS certificate has expired, will regenerate');
+      return false;
+    }
+
+    // Auto-renew if the certificate expires within 30 days
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    if (notAfter.getTime() - now.getTime() < thirtyDaysMs) {
+      log.info('TLS certificate approaching expiry, regenerating...');
       return false;
     }
 

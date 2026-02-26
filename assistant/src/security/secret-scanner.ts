@@ -4,7 +4,10 @@
  * from gitleaks and detect-secrets.
  */
 
+import { getLogger } from '../util/logger.js';
 import { isAllowlisted } from './secret-allowlist.js';
+
+const log = getLogger('secret-scanner');
 
 export interface SecretMatch {
   /** Human-readable type label, e.g. "AWS Access Key" */
@@ -589,8 +592,10 @@ function overlapsExisting(start: number, end: number, ranges: Set<string>): bool
 function scanEncoded(
   text: string,
   existingRanges: Set<string>,
+  customPatterns?: SecretPattern[],
 ): SecretMatch[] {
   const matches: SecretMatch[] = [];
+  const allPatterns = customPatterns?.length ? [...PATTERNS, ...customPatterns] : PATTERNS;
 
   // Helper: try to match decoded content against known secret patterns
   const tryMatchDecoded = (
@@ -600,7 +605,7 @@ function scanEncoded(
     endIndex: number,
     encoding: string,
   ) => {
-    for (const pattern of PATTERNS) {
+    for (const pattern of allPatterns) {
       pattern.regex.lastIndex = 0;
       let pm: RegExpExecArray | null;
       while ((pm = pattern.regex.exec(decoded)) != null) {
@@ -668,6 +673,31 @@ function scanEncoded(
 }
 
 // ---------------------------------------------------------------------------
+// Custom pattern support
+// ---------------------------------------------------------------------------
+
+export interface CustomPatternInput {
+  label: string;
+  pattern: string;
+}
+
+/**
+ * Compile user-provided custom patterns into SecretPattern objects.
+ * Invalid regex patterns are logged and skipped.
+ */
+export function compileCustomPatterns(inputs: CustomPatternInput[]): SecretPattern[] {
+  const compiled: SecretPattern[] = [];
+  for (const { label, pattern } of inputs) {
+    try {
+      compiled.push({ type: label, regex: new RegExp(pattern, 'g') });
+    } catch (err) {
+      log.warn({ label, pattern, error: String(err) }, 'Skipping invalid custom secret pattern');
+    }
+  }
+  return compiled;
+}
+
+// ---------------------------------------------------------------------------
 // Scan function
 // ---------------------------------------------------------------------------
 
@@ -678,13 +708,20 @@ function scanEncoded(
  *
  * @param entropyConfig — optional config for entropy-based scanning.
  *   Pass `{ enabled: false }` to disable. Defaults to DEFAULT_ENTROPY_CONFIG.
+ * @param customPatterns — optional user-defined patterns to apply alongside built-in ones.
  */
-export function scanText(text: string, entropyConfig?: Partial<EntropyConfig>): SecretMatch[] {
+export function scanText(
+  text: string,
+  entropyConfig?: Partial<EntropyConfig>,
+  customPatterns?: SecretPattern[],
+): SecretMatch[] {
   const matches: SecretMatch[] = [];
   // De-duplicate overlapping ranges (a match can fire on multiple patterns)
   const seen = new Set<string>();
 
-  for (const pattern of PATTERNS) {
+  const allPatterns = customPatterns?.length ? [...PATTERNS, ...customPatterns] : PATTERNS;
+
+  for (const pattern of allPatterns) {
     // Reset lastIndex for global regexes
     pattern.regex.lastIndex = 0;
     let m: RegExpExecArray | null;
@@ -719,7 +756,7 @@ export function scanText(text: string, entropyConfig?: Partial<EntropyConfig>): 
   matches.push(...entropyMatches);
 
   // Encoded secret detection — decode candidate segments and re-scan
-  const encodedMatches = scanEncoded(text, seen);
+  const encodedMatches = scanEncoded(text, seen, customPatterns);
   matches.push(...encodedMatches);
 
   // Sort by position; at same start, wider match first so redaction covers the full span
@@ -731,8 +768,12 @@ export function scanText(text: string, entropyConfig?: Partial<EntropyConfig>): 
  * Replace detected secrets in text with redaction markers.
  * Returns the modified text.
  */
-export function redactSecrets(text: string, entropyConfig?: Partial<EntropyConfig>): string {
-  const matches = scanText(text, entropyConfig);
+export function redactSecrets(
+  text: string,
+  entropyConfig?: Partial<EntropyConfig>,
+  customPatterns?: SecretPattern[],
+): string {
+  const matches = scanText(text, entropyConfig, customPatterns);
   if (matches.length === 0) return text;
 
   let result = '';

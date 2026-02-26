@@ -23,7 +23,7 @@ export async function executeSubagentMessage(
     };
   }
 
-  const result = manager.sendMessage(subagentId, content);
+  const result = await manager.sendMessage(subagentId, content);
 
   if (result === 'queue_full') {
     return {

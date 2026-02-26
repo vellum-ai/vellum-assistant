@@ -19,7 +19,10 @@ import {
 } from '../daemon/ipc-protocol.js';
 import { analyzeApiMap, printApiMapTable,saveApiMap } from '../tools/browser/api-map.js';
 import { loadRecording } from '../tools/browser/recording-store.js';
+import { getCliLogger } from '../util/logger.js';
 import { getSocketPath, readSessionToken } from '../util/platform.js';
+
+const log = getCliLogger('cli:map');
 
 /**
  * Extract the registrable base domain from a hostname.
@@ -307,12 +310,12 @@ export function registerMapCommand(program: Command): void {
 
         if (!json) {
           if (manual) {
-            console.log(`Starting manual API map session for ${domain} (${duration}s)...`);
-            console.log('Browse the site manually. Press Ctrl+C or wait for idle detection to stop recording.');
+            log.info(`Starting manual API map session for ${domain} (${duration}s)...`);
+            log.info('Browse the site manually. Press Ctrl+C or wait for idle detection to stop recording.');
           } else if (navigateDomain !== recordDomain) {
-            console.log(`Starting API map session: navigating ${navigateDomain}, recording *.${recordDomain} (${duration}s)...`);
+            log.info(`Starting API map session: navigating ${navigateDomain}, recording *.${recordDomain} (${duration}s)...`);
           } else {
-            console.log(`Starting API map session for ${domain} (${duration}s)...`);
+            log.info(`Starting API map session for ${domain} (${duration}s)...`);
           }
         }
         const result = await startLearnSession(navigateDomain, recordDomain, duration, !manual);
@@ -338,7 +341,7 @@ export function registerMapCommand(program: Command): void {
         // 5. Display results
         if (!json) {
           printApiMapTable(apiMap);
-          console.log(`API map saved to: ${savedPath}`);
+          log.info(`API map saved to: ${savedPath}`);
         }
 
         // 6. Output JSON result

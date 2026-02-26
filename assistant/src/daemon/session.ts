@@ -490,13 +490,13 @@ export class Session {
     return this.currentTurnInterfaceContext;
   }
 
-  persistUserMessage(
+  async persistUserMessage(
     content: string,
     attachments: UserMessageAttachment[],
     requestId?: string,
     metadata?: Record<string, unknown>,
     displayContent?: string,
-  ): string {
+  ): Promise<string> {
     return persistUserMessageImpl(this, content, attachments, requestId, metadata, displayContent);
   }
 
@@ -512,8 +512,8 @@ export class Session {
   }
 
 
-  drainQueue(reason: QueueDrainReason = 'loop_complete'): void {
-    drainQueueImpl(this as ProcessSessionContext, reason);
+  drainQueue(reason: QueueDrainReason = 'loop_complete'): Promise<void> {
+    return drainQueueImpl(this as ProcessSessionContext, reason);
   }
 
   async processMessage(

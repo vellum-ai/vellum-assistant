@@ -40,6 +40,8 @@ final class VoiceModeManager: ObservableObject {
     private var pendingPermissionIds: [String] = []
     /// Combine subscription to detect new confirmations in chat messages.
     private var messageCancellable: AnyCancellable?
+    /// Combine subscription to pause/resume conversation timeout during tool execution.
+    private var isThinkingCancellable: AnyCancellable?
 
     nonisolated init() {
         self.voiceService = OpenAIVoiceService()
@@ -112,6 +114,19 @@ final class VoiceModeManager: ObservableObject {
                 self?.checkForConfirmations(in: messages)
             }
 
+        // Pause the conversation timeout while the agent is executing tools,
+        // preventing auto-deactivation during multi-step tool sequences.
+        isThinkingCancellable = chatViewModel.messageManager.$isThinking
+            .removeDuplicates()
+            .sink { [weak self] thinking in
+                guard let self, self.state == .idle else { return }
+                if thinking {
+                    self.cancelConversationTimeout()
+                } else {
+                    self.startConversationTimeout()
+                }
+            }
+
         // Pre-warm audio engine so first recording starts instantly
         voiceService.prewarmEngine()
 
@@ -164,6 +179,8 @@ final class VoiceModeManager: ObservableObject {
         previousOnVoiceTextDelta = nil
         messageCancellable?.cancel()
         messageCancellable = nil
+        isThinkingCancellable?.cancel()
+        isThinkingCancellable = nil
         pendingPermissionIds = []
 
         chatViewModel = nil
@@ -235,9 +252,24 @@ final class VoiceModeManager: ObservableObject {
 
             partialTranscription = trimmed
 
+            // Capture frontmost app context so the daemon knows what the user
+            // is looking at during voice conversations (matches PTT behavior).
+            let ctx = DictationContextCapture.capture()
+            var contextPrefix = ""
+            if !ctx.appName.isEmpty {
+                var parts: [String] = ["app: \(ctx.appName)"]
+                if !ctx.windowTitle.isEmpty {
+                    parts.append("window: \"\(ctx.windowTitle)\"")
+                }
+                if let selected = ctx.selectedText, !selected.isEmpty {
+                    parts.append("selected text: \"\(selected)\"")
+                }
+                contextPrefix = "[User's current \(parts.joined(separator: ", "))]\n"
+            }
+
             // Send the transcribed message through the daemon (full context)
             chatViewModel.pendingVoiceMessage = true
-            chatViewModel.inputText = trimmed
+            chatViewModel.inputText = contextPrefix + trimmed
             chatViewModel.sendMessage()
             log.info("Voice mode: sent transcription to chat via daemon")
         }
@@ -485,7 +517,11 @@ final class VoiceModeManager: ObservableObject {
         guard oldState != newState else { return }
 
         if newState == .idle {
-            startConversationTimeout()
+            // Don't start the timeout if the agent is currently executing tools —
+            // the isThinking observer will restart it when thinking completes.
+            if chatViewModel?.isThinking != true {
+                startConversationTimeout()
+            }
         } else {
             cancelConversationTimeout()
         }
@@ -509,6 +545,64 @@ final class VoiceModeManager: ObservableObject {
     private func cancelConversationTimeout() {
         conversationTimeoutTask?.cancel()
         conversationTimeoutTask = nil
+    }
+
+    // MARK: - Transient Speech & Timeout Control
+
+    /// Speak a one-off message using the TTS system without affecting the voice
+    /// mode state machine. The message is spoken and then the state returns to
+    /// whatever it was before. Callers can use this to provide audible feedback
+    /// (e.g., announcing a computer use escalation) without disrupting the
+    /// conversation flow.
+    func speakTransient(_ message: String) {
+        guard state != .off else { return }
+        log.info("Voice mode: transient speech — \(message, privacy: .public)")
+
+        // Stop any in-progress recording so the TTS output isn't picked up
+        // by the microphone as input.
+        if state == .listening {
+            voiceService.cancelRecording()
+        }
+
+        let previousState = state
+        state = .speaking
+        voiceService.resetStreamingTTS()
+        voiceService.feedTextDelta(message)
+
+        ttsTimeoutTask?.cancel()
+        ttsTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard let self, !Task.isCancelled, self.state == .speaking else { return }
+            log.warning("Voice mode: transient speech timeout, recovering")
+            self.voiceService.stopSpeaking()
+            self.state = previousState == .listening ? .idle : previousState
+        }
+
+        voiceService.finishTextStream { [weak self] in
+            guard let self, self.state == .speaking else { return }
+            self.ttsTimeoutTask?.cancel()
+            self.ttsTimeoutTask = nil
+            self.voiceService.stopBargeInMonitor()
+            // Return to idle rather than the previous state so the conversation
+            // timeout logic is properly re-engaged via handleStateTransition.
+            self.state = .idle
+        }
+    }
+
+    /// Pause the conversation timeout timer. Use this when the assistant is
+    /// performing a long-running operation (e.g., computer use) and the
+    /// conversation should not auto-deactivate.
+    func pauseConversationTimeout() {
+        log.info("Voice mode: conversation timeout paused")
+        cancelConversationTimeout()
+    }
+
+    /// Resume the conversation timeout timer. Call this after a long-running
+    /// operation completes so idle auto-deactivation can kick in again.
+    func resumeConversationTimeout() {
+        log.info("Voice mode: conversation timeout resumed")
+        guard state == .idle else { return }
+        startConversationTimeout()
     }
 
     // MARK: - Barge-in (interrupt TTS)

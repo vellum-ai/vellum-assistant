@@ -19,6 +19,7 @@ export const conversations = sqliteTable('conversations', {
   isAutoTitle: integer('is_auto_title').notNull().default(1),
 }, (table) => [
   index('idx_conversations_updated_at').on(table.updatedAt),
+  index('idx_conversations_thread_type').on(table.threadType),
 ]);
 
 export const messages = sqliteTable('messages', {
@@ -90,6 +91,7 @@ export const memoryItems = sqliteTable('memory_items', {
 }, (table) => [
   index('idx_memory_items_scope_id').on(table.scopeId),
   index('idx_memory_items_fingerprint').on(table.fingerprint),
+  index('idx_memory_items_scope_id_status').on(table.scopeId, table.status),
 ]);
 
 export const memoryItemSources = sqliteTable('memory_item_sources', {
@@ -931,7 +933,9 @@ export const notificationEvents = sqliteTable('notification_events', {
   dedupeKey: text('dedupe_key'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  index('idx_notification_events_dedupe_key').on(table.dedupeKey),
+]);
 
 export const notificationDecisions = sqliteTable('notification_decisions', {
   id: text('id').primaryKey(),

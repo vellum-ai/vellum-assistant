@@ -445,13 +445,10 @@ describe('schema-drift recovery: migration handles unexpected schema state', () 
       VALUES ('migration_memory_items_scope_salted_fingerprints_v1', '1', ${now})
     `);
 
-    // validateMigrationState should not throw — it logs errors but continues.
-    // Assert directly on the returned result to verify the function itself reports
-    // the dependency violation (not just that the registry declares a dependency).
-    const result: MigrationValidationResult = validateMigrationState(db);
-    expect(result.dependencyViolations).toHaveLength(1);
-    expect(result.dependencyViolations[0].migration).toBe('migration_memory_items_scope_salted_fingerprints_v1');
-    expect(result.dependencyViolations[0].missingDependency).toBe('migration_memory_items_fingerprint_scope_unique_v1');
+    // validateMigrationState throws an IntegrityError on dependency violations
+    // to block daemon startup with an inconsistent schema.
+    expect(() => validateMigrationState(db)).toThrow('Migration dependency violations detected');
+    expect(() => validateMigrationState(db)).toThrow('migration_memory_items_fingerprint_scope_unique_v1');
 
     // Sanity-check: confirm the registry also declares this dependency, so the
     // violation detection is grounded in real schema intent.

@@ -30,6 +30,7 @@ export { migrateNotificationDeliveryPairingColumns } from './027-notification-de
 export { migrateCallSessionMode } from './028-call-session-mode.js';
 export { migrateChannelInboundDeliveredSegments } from './029-channel-inbound-delivered-segments.js';
 export { migrateGuardianActionFollowup } from './030-guardian-action-followup.js';
+export { migrateConversationsThreadTypeIndex } from './031-conversations-thread-type-index.js';
 export { createCoreTables } from './100-core-tables.js';
 export { createWatchersAndLogsTables } from './101-watchers-and-logs.js';
 export { addCoreColumns } from './102-alter-table-columns.js';
@@ -54,4 +55,4 @@ export {
   type MigrationRegistryEntry,
   type MigrationValidationResult,
 } from './registry.js';
-export { validateMigrationState } from './validate-migration-state.js';
+export { recoverCrashedMigrations, validateMigrationState, withCrashRecovery } from './validate-migration-state.js';

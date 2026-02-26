@@ -8,12 +8,12 @@ import * as conversationStore from '../memory/conversation-store.js';
 
 export type PointerEvent = 'started' | 'completed' | 'failed' | 'guardian_verification_succeeded' | 'guardian_verification_failed';
 
-export function addPointerMessage(
+export async function addPointerMessage(
   conversationId: string,
   event: PointerEvent,
   phoneNumber: string,
   extra?: { duration?: string; reason?: string; verificationCode?: string; channel?: string },
-): void {
+): Promise<void> {
   let text: string;
   switch (event) {
     case 'started':
@@ -49,7 +49,7 @@ export function addPointerMessage(
   // desktop thread. Do not set userMessageChannel — doing so would mark the
   // conversation's origin channel as voice, causing it to leak into the
   // desktop thread list as a channel-bound session.
-  conversationStore.addMessage(
+  await conversationStore.addMessage(
     conversationId,
     'assistant',
     JSON.stringify([{ type: 'text', text }]),

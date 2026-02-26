@@ -1,0 +1,130 @@
+/**
+ * Guardian binding CRUD operations.
+ *
+ * A binding records which external user is the designated guardian
+ * for a given (assistantId, channel) pair.
+ */
+
+import { and, eq } from 'drizzle-orm';
+import { v4 as uuid } from 'uuid';
+
+import { getDb } from './db.js';
+import { channelGuardianBindings } from './schema.js';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type BindingStatus = 'active' | 'revoked';
+
+export interface GuardianBinding {
+  id: string;
+  assistantId: string;
+  channel: string;
+  guardianExternalUserId: string;
+  guardianDeliveryChatId: string;
+  status: BindingStatus;
+  verifiedAt: number;
+  verifiedVia: string;
+  metadataJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function rowToBinding(row: typeof channelGuardianBindings.$inferSelect): GuardianBinding {
+  return {
+    id: row.id,
+    assistantId: row.assistantId,
+    channel: row.channel,
+    guardianExternalUserId: row.guardianExternalUserId,
+    guardianDeliveryChatId: row.guardianDeliveryChatId,
+    status: row.status as BindingStatus,
+    verifiedAt: row.verifiedAt,
+    verifiedVia: row.verifiedVia,
+    metadataJson: row.metadataJson,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Operations
+// ---------------------------------------------------------------------------
+
+export function createBinding(params: {
+  assistantId: string;
+  channel: string;
+  guardianExternalUserId: string;
+  guardianDeliveryChatId: string;
+  verifiedVia?: string;
+  metadataJson?: string | null;
+}): GuardianBinding {
+  const db = getDb();
+  const now = Date.now();
+  const id = uuid();
+
+  const row = {
+    id,
+    assistantId: params.assistantId,
+    channel: params.channel,
+    guardianExternalUserId: params.guardianExternalUserId,
+    guardianDeliveryChatId: params.guardianDeliveryChatId,
+    status: 'active' as const,
+    verifiedAt: now,
+    verifiedVia: params.verifiedVia ?? 'challenge',
+    metadataJson: params.metadataJson ?? null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  db.insert(channelGuardianBindings).values(row).run();
+
+  return rowToBinding(row);
+}
+
+export function getActiveBinding(assistantId: string, channel: string): GuardianBinding | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(channelGuardianBindings)
+    .where(
+      and(
+        eq(channelGuardianBindings.assistantId, assistantId),
+        eq(channelGuardianBindings.channel, channel),
+        eq(channelGuardianBindings.status, 'active'),
+      ),
+    )
+    .get();
+
+  return row ? rowToBinding(row) : null;
+}
+
+export function revokeBinding(assistantId: string, channel: string): boolean {
+  const db = getDb();
+  const now = Date.now();
+
+  const existing = db
+    .select({ id: channelGuardianBindings.id })
+    .from(channelGuardianBindings)
+    .where(
+      and(
+        eq(channelGuardianBindings.assistantId, assistantId),
+        eq(channelGuardianBindings.channel, channel),
+        eq(channelGuardianBindings.status, 'active'),
+      ),
+    )
+    .get();
+
+  if (!existing) return false;
+
+  db.update(channelGuardianBindings)
+    .set({ status: 'revoked', updatedAt: now })
+    .where(eq(channelGuardianBindings.id, existing.id))
+    .run();
+
+  return true;
+}

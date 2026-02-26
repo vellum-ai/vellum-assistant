@@ -21,9 +21,9 @@ export function buildCallCompletionMessage(callSessionId: string): string {
   return `**${statusLabel}**${durationStr}. ${events.length} event(s) recorded.`;
 }
 
-export function persistCallCompletionMessage(conversationId: string, callSessionId: string): string {
+export async function persistCallCompletionMessage(conversationId: string, callSessionId: string): Promise<string> {
   const summaryText = buildCallCompletionMessage(callSessionId);
-  conversationStore.addMessage(
+  await conversationStore.addMessage(
     conversationId,
     'assistant',
     JSON.stringify([{ type: 'text', text: summaryText }]),

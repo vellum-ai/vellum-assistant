@@ -132,7 +132,7 @@ export interface AgentLoopSessionContext {
   getQueueDepth(): number;
   hasQueuedMessages(): boolean;
   canHandoffAtCheckpoint(): boolean;
-  drainQueue(reason: QueueDrainReason): void;
+  drainQueue(reason: QueueDrainReason): Promise<void>;
   getTurnChannelContext(): TurnChannelContext | null;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
@@ -272,7 +272,7 @@ export async function runAgentLoopImpl(
         assistantMessageInterface: capturedTurnInterfaceContext.assistantMessageInterface,
       };
       const assistantMessage = createAssistantMessage(memoryResult.conflictClarification);
-      conversationStore.addMessage(
+      await conversationStore.addMessage(
         ctx.conversationId,
         'assistant',
         JSON.stringify(assistantMessage.content),
@@ -591,7 +591,7 @@ export async function runAgentLoopImpl(
         userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
         assistantMessageInterface: capturedTurnInterfaceContext.assistantMessageInterface,
       };
-      conversationStore.addMessage(
+      await conversationStore.addMessage(
         ctx.conversationId,
         'user',
         JSON.stringify(toolResultBlocks),
@@ -617,7 +617,7 @@ export async function runAgentLoopImpl(
         assistantMessageInterface: capturedTurnInterfaceContext.assistantMessageInterface,
       };
       const errorAssistantMessage = createAssistantMessage(state.providerErrorUserMessage);
-      conversationStore.addMessage(
+      await conversationStore.addMessage(
         ctx.conversationId,
         'assistant',
         JSON.stringify(errorAssistantMessage.content),
