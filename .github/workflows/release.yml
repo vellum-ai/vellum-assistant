@@ -555,7 +555,7 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App token
@@ -867,8 +867,6 @@ jobs:
             "${{ needs.publish-npm.result }}" \
             "${{ needs.publish-meta.result }}" \
             "${{ needs.build-macos.result }}" \
-            "${{ needs.push-assistant-image.result }}" \
-            "${{ needs.push-gateway-image.result }}" \
             "${{ needs.release.result }}" \
             "${{ needs.update-platform.result }}"; do
             if [ "$result" = "failure" ]; then
