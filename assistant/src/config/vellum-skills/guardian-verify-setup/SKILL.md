@@ -65,9 +65,7 @@ Handle each error code:
 | `missing_destination` | Ask the user to provide their phone number or Telegram destination. |
 | `invalid_destination` | Tell the user the format is invalid. For phone: suggest E.164 format (+15551234567). For Telegram: explain that group chat IDs (negative numbers) are not supported. |
 | `already_bound` | Tell the user a guardian is already bound for this channel. Ask if they want to replace it. If yes, re-run the start request with `"rebind": true` added to the JSON body. |
-| `pending_bootstrap` | Tell the user there is a pending Telegram bootstrap. They need to click the deep-link first, or cancel and start over. |
-| `rate_limited` | Tell the user they have sent too many verification attempts. Ask them to wait and try again later. |
-| `no_active_session` | No session is active. Start a new one from Step 3. |
+| `rate_limited` | Tell the user they have sent too many verification attempts to this destination. Ask them to wait and try again later. |
 | `unsupported_channel` | Tell the user the channel is not supported. Only sms, voice, and telegram are valid. |
 | `no_bot_username` | Telegram bot is not configured. Load and run the `telegram-setup` skill first. |
 
@@ -89,7 +87,17 @@ On success, report the next action based on the channel:
 - **Voice**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects — just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad."
 - **Telegram**: "I've sent a new verification code to your Telegram. Send the code back to me in the Telegram bot chat to complete verification."
 
-On `rate_limited` error, tell them to wait before trying again (the response includes `nextResendAt` as a Unix timestamp). On `pending_bootstrap`, remind them to click the deep-link. On `no_active_session`, start a new session from Step 3.
+### Resend errors
+
+Handle each error code from the resend endpoint:
+
+| Error code | Action |
+|---|---|
+| `rate_limited` | Tell the user to wait before trying again (the cooldown is 15 seconds between resends). |
+| `max_sends_exceeded` | Tell the user they have reached the maximum number of resends for this session (5 sends per session). Suggest canceling the current session (Step 5) and starting a new verification from Step 3. |
+| `no_destination` | This should not normally occur during resend. Tell the user to cancel (Step 5) and restart verification from scratch at Step 3. |
+| `pending_bootstrap` | Remind the user to click the Telegram deep-link first before a code can be sent. |
+| `no_active_session` | No session is active. Start a new one from Step 3. |
 
 ## Step 5: Handle Cancel
 

@@ -208,8 +208,7 @@ Install and load the **guardian-verify-setup** skill to handle the verification 
 - Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
 - Then call `skill_load` with `skill: "guardian-verify-setup"`.
 
-The guardian-verify-setup skill manages the full outbound verification flow, including:
-- Asking the user which channel to verify (sms, voice, or both)
+The guardian-verify-setup skill manages the full outbound verification flow for **one channel at a time** (sms, voice, or telegram). Each invocation handles:
 - Collecting the user's phone number as the destination (accepts any common format -- the API normalizes to E.164)
 - Starting the outbound verification session via `POST /v1/integrations/guardian/outbound/start`
 - For **SMS**: sending a 6-digit code to the phone number that the user must reply with from the SMS channel
@@ -217,9 +216,11 @@ The guardian-verify-setup skill manages the full outbound verification flow, inc
 - Checking guardian status to confirm the binding was created
 - Handling resend, cancel, and error cases
 
-Tell the user: *"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted guardian."*
+**If the user wants to verify both SMS and voice**, load the skill twice -- once for SMS and once for voice. Each channel requires its own separate verification session.
 
-After the guardian-verify-setup skill completes verification for the desired channels (or the user skips), continue to Step 6.
+Tell the user: *"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted guardian. We'll verify one channel at a time."*
+
+After the guardian-verify-setup skill completes verification for a channel, load it again for the next channel if needed. Once all desired channels are verified (or the user skips), continue to Step 6.
 
 **Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
 
