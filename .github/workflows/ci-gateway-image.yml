@@ -21,7 +21,6 @@ jobs:
     if: github.event.action != 'closed'
     name: Build Docker Image
     runs-on: ubuntu-latest
-    timeout-minutes: 5
 
     steps:
       - name: Checkout

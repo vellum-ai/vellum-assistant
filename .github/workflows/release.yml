@@ -147,7 +147,7 @@ jobs:
   push-assistant-image:
     needs: bump-and-tag
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
@@ -336,7 +336,7 @@ jobs:
   build-macos:
     needs: bump-and-tag
     runs-on: macos-14
-    timeout-minutes: 5
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: clients/macos

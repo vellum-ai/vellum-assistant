@@ -11,7 +11,7 @@ jobs:
   checks:
     name: Lint, Type Check & Test
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: gateway
