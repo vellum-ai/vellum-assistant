@@ -81,7 +81,7 @@ extension AppDelegate {
             identifier: "NOTIFICATION_INTENT",
             actions: [viewNotificationIntentAction],
             intentIdentifiers: [],
-            options: []
+            options: [.customDismissAction]
         )
 
         center.setNotificationCategories([
@@ -252,6 +252,9 @@ extension AppDelegate {
         var userInfo: [String: Any] = [
             "sourceEventName": sourceEventName,
         ]
+        if let deliveryId {
+            userInfo["deliveryId"] = deliveryId
+        }
         if let metadata = deepLinkMetadata {
             for (key, wrapped) in metadata {
                 // Keep sourceEventName authoritative from the envelope.
@@ -468,15 +471,47 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         }
 
         if categoryId == "NOTIFICATION_INTENT" {
+            let userInfo = response.notification.request.content.userInfo
             let conversationId =
-                response.notification.request.content.userInfo["conversationId"] as? String ??
-                response.notification.request.content.userInfo["conversation_id"] as? String
-            await MainActor.run {
-                guard !self.isBootstrapping else { return }
-                if let conversationId {
-                    self.openConversationThread(conversationId: conversationId)
-                } else {
-                    self.showMainWindow()
+                userInfo["conversationId"] as? String ??
+                userInfo["conversation_id"] as? String
+            let deliveryId = userInfo["deliveryId"] as? String
+            let nowMs = Int(Date().timeIntervalSince1970 * 1000)
+
+            switch response.actionIdentifier {
+            case UNNotificationDismissActionIdentifier:
+                // User swiped away / dismissed the notification
+                if let deliveryId {
+                    await MainActor.run {
+                        try? self.daemonClient.sendNotificationDeliveryInteraction(
+                            deliveryId: deliveryId,
+                            interactionType: "dismissed",
+                            confidence: "explicit",
+                            source: "macos_notification_dismiss_action",
+                            occurredAt: nowMs
+                        )
+                    }
+                }
+            default:
+                // Default action (clicked banner) or VIEW_NOTIFICATION_INTENT
+                if let deliveryId {
+                    await MainActor.run {
+                        try? self.daemonClient.sendNotificationDeliveryInteraction(
+                            deliveryId: deliveryId,
+                            interactionType: "viewed",
+                            confidence: "explicit",
+                            source: "macos_notification_view_action",
+                            occurredAt: nowMs
+                        )
+                    }
+                }
+                await MainActor.run {
+                    guard !self.isBootstrapping else { return }
+                    if let conversationId {
+                        self.openConversationThread(conversationId: conversationId)
+                    } else {
+                        self.showMainWindow()
+                    }
                 }
             }
             return

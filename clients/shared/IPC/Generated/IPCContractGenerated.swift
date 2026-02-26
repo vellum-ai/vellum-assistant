@@ -2780,6 +2780,44 @@ public struct IPCModelSetRequest: Codable, Sendable {
     }
 }
 
+/// Client reports explicit conversation view (sidebar selection or deep-link).
+public struct IPCNotificationConversationViewed: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let source: String
+    public let evidenceText: String?
+    public let occurredAt: Int?
+
+    public init(type: String, conversationId: String, source: String, evidenceText: String? = nil, occurredAt: Int? = nil) {
+        self.type = type
+        self.conversationId = conversationId
+        self.source = source
+        self.evidenceText = evidenceText
+        self.occurredAt = occurredAt
+    }
+}
+
+/// Client reports a direct delivery interaction (view, dismiss, etc).
+public struct IPCNotificationDeliveryInteraction: Codable, Sendable {
+    public let type: String
+    public let deliveryId: String
+    public let interactionType: String
+    public let confidence: String
+    public let source: String
+    public let evidenceText: String?
+    public let occurredAt: Int?
+
+    public init(type: String, deliveryId: String, interactionType: String, confidence: String, source: String, evidenceText: String? = nil, occurredAt: Int? = nil) {
+        self.type = type
+        self.deliveryId = deliveryId
+        self.interactionType = interactionType
+        self.confidence = confidence
+        self.source = source
+        self.evidenceText = evidenceText
+        self.occurredAt = occurredAt
+    }
+}
+
 /// Broadcast to connected macOS clients when a notification should be displayed.
 public struct IPCNotificationIntent: Codable, Sendable {
     public let type: String

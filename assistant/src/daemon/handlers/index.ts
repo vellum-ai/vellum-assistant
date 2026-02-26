@@ -1,7 +1,12 @@
 import * as net from 'node:net';
 
+import { desc, eq } from 'drizzle-orm';
+
 import type { ClientMessage } from '../ipc-protocol.js';
+import { getDb } from '../../memory/db.js';
+import { notificationDeliveries } from '../../memory/schema.js';
 import { updateDeliveryClientOutcome } from '../../notifications/deliveries-store.js';
+import { recordNotificationDeliveryInteraction, markDeliveryViewed } from '../../notifications/interactions-store.js';
 import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
 import { appHandlers } from './apps.js';
@@ -112,6 +117,55 @@ const inlineHandlers = defineHandlers({
       }
     } catch (err) {
       log.error({ err, deliveryId: msg.deliveryId }, 'notification_intent_result: failed to persist client delivery outcome');
+    }
+  },
+
+  // Client reports a direct delivery interaction (view, dismiss, etc).
+  notification_delivery_interaction: (msg) => {
+    try {
+      recordNotificationDeliveryInteraction({
+        id: crypto.randomUUID(),
+        notificationDeliveryId: msg.deliveryId,
+        assistantId: 'self',
+        channel: 'vellum',
+        interactionType: msg.interactionType as 'viewed' | 'dismissed' | 'replied' | 'callback_clicked' | 'conversation_opened',
+        confidence: msg.confidence as 'explicit' | 'inferred',
+        source: msg.source,
+        evidenceText: msg.evidenceText,
+        occurredAt: msg.occurredAt ?? Date.now(),
+      });
+    } catch (err) {
+      log.error({ err, deliveryId: msg.deliveryId }, 'notification_delivery_interaction: failed to persist interaction');
+    }
+  },
+
+  // Client reports explicit conversation view (sidebar selection or deep-link).
+  notification_conversation_viewed: (msg) => {
+    try {
+      const db = getDb();
+      const delivery = db
+        .select({ id: notificationDeliveries.id })
+        .from(notificationDeliveries)
+        .where(eq(notificationDeliveries.conversationId, msg.conversationId))
+        .orderBy(desc(notificationDeliveries.createdAt))
+        .limit(1)
+        .get();
+
+      if (!delivery) {
+        log.debug({ conversationId: msg.conversationId }, 'notification_conversation_viewed: no delivery found for conversationId');
+        return;
+      }
+
+      markDeliveryViewed({
+        notificationDeliveryId: delivery.id,
+        assistantId: 'self',
+        channel: 'vellum',
+        source: msg.source as 'macos_conversation_opened' | 'vellum_thread_opened',
+        evidenceText: msg.evidenceText,
+        occurredAt: msg.occurredAt ?? Date.now(),
+      });
+    } catch (err) {
+      log.error({ err, conversationId: msg.conversationId }, 'notification_conversation_viewed: failed to persist view');
     }
   },
 

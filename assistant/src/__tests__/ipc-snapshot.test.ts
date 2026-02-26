@@ -686,6 +686,18 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     deliveryId: 'delivery-001',
     success: true,
   },
+  notification_delivery_interaction: {
+    type: 'notification_delivery_interaction',
+    deliveryId: 'delivery-001',
+    interactionType: 'viewed',
+    confidence: 'explicit',
+    source: 'macos_notification_view_action',
+  },
+  notification_conversation_viewed: {
+    type: 'notification_conversation_viewed',
+    conversationId: 'conv-notif-001',
+    source: 'macos_conversation_opened',
+  },
   recording_status: {
     type: 'recording_status',
     sessionId: 'rec-001',
