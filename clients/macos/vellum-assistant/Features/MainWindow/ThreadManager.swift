@@ -389,6 +389,19 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // Switching threads is a natural point to shed cached render
         // artefacts from the previous conversation.
         Self.clearRenderCaches()
+
+        // Report conversation view for notification threads. selectThread is the
+        // canonical send location — openConversationThread relies on the onChange
+        // chain (activeThreadId → selectedThreadId → selectThread) to reach here.
+        // The daemon no-ops gracefully for non-notification conversations (returns
+        // early when no delivery record is found), so unconditional send is safe.
+        if let sessionId = thread.sessionId {
+            try? daemonClient.sendNotificationConversationViewed(
+                conversationId: sessionId,
+                source: "macos_conversation_opened",
+                occurredAt: Int(Date().timeIntervalSince1970 * 1000)
+            )
+        }
     }
 
     // MARK: - Render Cache Management
