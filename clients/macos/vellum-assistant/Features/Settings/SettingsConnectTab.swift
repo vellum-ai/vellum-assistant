@@ -1617,6 +1617,16 @@ struct SettingsConnectTab: View {
 
     // MARK: - Mobile Card (Pairing + Approved Devices)
 
+    private var mobilePairingLabel: some View {
+        HStack(spacing: VSpacing.xs) {
+            Text("Device Pairing")
+            VInfoTooltip("Scan a QR code with the iOS app to pair your phone with this Mac.")
+        }
+        .font(VFont.caption)
+        .foregroundColor(VColor.textSecondary)
+        .frame(width: 140, alignment: .leading)
+    }
+
     private var mobileCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -1628,47 +1638,33 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.textMuted)
             }
 
-            VButton(label: "Show QR Code", leftIcon: "qrcode", style: .primary) {
-                showingPairingQR = true
-            }
-            .disabled(isRegeneratingToken)
-
-            // Status line — LAN pairing works without a cloud gateway URL.
-            let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
-            let hasToken = !bearerToken.isEmpty
-
-            if isRegeneratingToken {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Restarting daemon with new token\u{2026}")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else if !hasGateway {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 14))
-                    Text("Configure a gateway URL to enable pairing")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.warning)
-                }
-            } else if !hasToken {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 14))
-                        Text("Bearer token required")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.warning)
-                    }
-                    VButton(label: "Generate Token", leftIcon: "key", style: .secondary) {
-                        regenerateHttpToken()
-                    }
+            // Connected devices — shown as status rows (mirrors Telegram bot / Twilio phone rows)
+            if store.approvedDevices.isEmpty {
+                channelStatusRow(
+                    label: "Device",
+                    icon: "iphone",
+                    iconColor: VColor.textMuted,
+                    value: "No devices paired",
+                    valueColor: VColor.textMuted
+                )
+            } else {
+                ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
+                    channelStatusRow(
+                        label: "Device",
+                        icon: "iphone",
+                        iconColor: VColor.success,
+                        value: device.deviceName,
+                        action: .init(label: "Remove", style: .danger) {
+                            store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
+                        }
+                    )
                 }
             }
+
+            Divider().background(VColor.surfaceBorder)
+
+            // Device pairing row — mirrors Guardian Verification row layout
+            mobilePairingRow
 
             // Compact advanced disclosure for power users
             Divider().background(VColor.surfaceBorder)
@@ -1700,43 +1696,59 @@ struct SettingsConnectTab: View {
                     .padding(.top, VSpacing.sm)
                 }
             }
-
-            // Connected devices
-            if !store.approvedDevices.isEmpty {
-                Divider().background(VColor.surfaceBorder)
-
-                ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(device.deviceName)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                            Text("Last paired: \(formattedDeviceDate(device.lastPairedAt))")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        Button("Remove") {
-                            store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
-                        }
-                        .font(VFont.caption)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                    .padding(.vertical, VSpacing.xs)
-                }
-            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    private func formattedDeviceDate(_ timestamp: Int) -> String {
-        let date = Date(timeIntervalSince1970: Double(timestamp) / 1000.0)
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+    @ViewBuilder
+    private var mobilePairingRow: some View {
+        let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
+        let hasToken = !bearerToken.isEmpty
+
+        if isRegeneratingToken {
+            HStack(spacing: VSpacing.sm) {
+                mobilePairingLabel
+                ProgressView()
+                    .controlSize(.small)
+                Text("Restarting daemon\u{2026}")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        } else if !hasGateway {
+            HStack(spacing: VSpacing.sm) {
+                mobilePairingLabel
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(VColor.warning)
+                    .font(.system(size: 12))
+                Text("Configure a gateway URL to enable pairing")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.warning)
+            }
+        } else if !hasToken {
+            HStack(spacing: VSpacing.sm) {
+                mobilePairingLabel
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(VColor.warning)
+                    .font(.system(size: 12))
+                Text("Bearer token required")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.warning)
+                Spacer()
+                VButton(label: "Generate Token", style: .secondary) {
+                    regenerateHttpToken()
+                }
+            }
+        } else {
+            HStack(spacing: VSpacing.sm) {
+                mobilePairingLabel
+                Spacer()
+                VButton(label: "Pair Device", leftIcon: "qrcode", style: .primary) {
+                    showingPairingQR = true
+                }
+            }
+        }
     }
 
 
