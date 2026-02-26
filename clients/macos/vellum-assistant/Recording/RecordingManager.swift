@@ -85,6 +85,10 @@ final class RecordingManager: ObservableObject {
         self.operationToken = operationToken
         self.state = .starting
 
+        // Reset pause flag so a stale isPaused from a previous session
+        // (e.g. error-during-pause) doesn't silently drop every frame.
+        recorder.isPaused = false
+
         // Clear any stale stream error callback from a previous session.
         // If the prior recording ended via stream error, the old callback
         // (capturing the old sessionId) is never cleared. Without this,

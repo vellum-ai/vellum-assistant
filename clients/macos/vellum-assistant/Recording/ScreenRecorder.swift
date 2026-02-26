@@ -1122,6 +1122,9 @@ final class ScreenRecorder: NSObject {
     func cancelRecording() {
         guard isRecordingActive else { return }
 
+        // Reset pause flag so it doesn't leak into a future recording.
+        _isPaused = false
+
         // Emit cancel telemetry before tearing down state
         let durationMs: Int
         if let startDate = recordingStartDate {
@@ -1194,6 +1197,9 @@ final class ScreenRecorder: NSObject {
             guard isRecordingActive else { return }
 
             log.error("Stream error during active recording — cleaning up (error=\(recorderError.localizedDescription, privacy: .public))")
+
+            // Reset pause flag so it doesn't leak into a future recording.
+            self._isPaused = false
 
             // Store for attemptStartWithConfig to propagate typed errors
             // instead of collapsing them to .noFramesReceived.
