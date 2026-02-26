@@ -62,6 +62,9 @@ struct SettingsConnectTab: View {
     @State private var countdownTimer: Timer?
     @State private var countdownTimerRefCount: Int = 0
 
+    // Refresh button minimum-spin state (keyed by row label)
+    @State private var refreshSpinning: Set<String> = []
+
     // Token regeneration state
     @State private var isRegeneratingToken: Bool = false
 
@@ -1823,7 +1826,9 @@ struct SettingsConnectTab: View {
         lastChecked: Date? = nil,
         onRefresh: (() -> Void)? = nil
     ) -> some View {
-        HStack(spacing: VSpacing.sm) {
+        let spinning = isRefreshing || refreshSpinning.contains(label)
+
+        return HStack(spacing: VSpacing.sm) {
             Text(label)
                 .font(VFont.bodyMedium)
                 .foregroundColor(VColor.textSecondary)
@@ -1837,23 +1842,27 @@ struct SettingsConnectTab: View {
                 .font(VFont.body)
                 .foregroundColor(status.color)
 
-            Spacer()
-
             if let onRefresh {
                 let tooltipText: String = {
-                    if isRefreshing { return "Checking..." }
+                    if spinning { return "Checking..." }
                     if let lastChecked { return "Last verified: \(relativeTimeString(from: lastChecked))" }
                     return "Test connection"
                 }()
 
                 Button {
-                    if !isRefreshing { onRefresh() }
+                    guard !spinning else { return }
+                    refreshSpinning.insert(label)
+                    onRefresh()
+                    Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        refreshSpinning.remove(label)
+                    }
                 } label: {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(isRefreshing ? VColor.accent : VColor.textMuted)
-                        .rotationEffect(.degrees(isRefreshing ? 360 : 0))
-                        .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                        .foregroundColor(spinning ? VColor.accent : VColor.textMuted)
+                        .rotationEffect(.degrees(spinning ? 360 : 0))
+                        .animation(spinning ? .linear(duration: 1).repeatForever(autoreverses: false) : .identity, value: spinning)
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
@@ -1861,6 +1870,8 @@ struct SettingsConnectTab: View {
                 .accessibilityLabel("Refresh \(label) status")
                 .help(tooltipText)
             }
+
+            Spacer()
         }
     }
 
