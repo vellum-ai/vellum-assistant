@@ -371,7 +371,7 @@ export async function processMessage(
         const resolved = resolveGuardianActionRequest(guardianRequest.id, content, 'vellum');
         const replyText = resolved
           ? 'Your answer has been relayed to the call.'
-          : 'This question has already been answered from another channel.';
+          : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_answered' });
         const replyMsg = createAssistantMessage(replyText);
         conversationStore.addMessage(
           session.conversationId,

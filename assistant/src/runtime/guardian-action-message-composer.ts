@@ -25,6 +25,7 @@ export type GuardianActionMessageScenario =
   | 'guardian_followup_completed'
   | 'guardian_followup_failed'
   | 'guardian_followup_declined_ack'
+  | 'guardian_stale_answered'
   | 'guardian_stale_expired'
   | 'outbound_message_copy';
 
@@ -164,6 +165,9 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
 
     case 'guardian_followup_declined_ack':
       return 'No problem. Let me know if you change your mind or need anything else.';
+
+    case 'guardian_stale_answered':
+      return 'This question has already been answered from another channel.';
 
     case 'guardian_stale_expired':
       return 'That request has already expired. No further action is needed.';

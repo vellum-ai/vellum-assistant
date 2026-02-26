@@ -836,9 +836,12 @@ export async function handleChannelInbound(
                 }
               }
 
-              // Already answered from another channel (or follow-up already started)
+              // Already answered from another channel, or follow-up already started / expired
+              const staleScenario = freshRequest?.status === 'answered'
+                ? 'guardian_stale_answered' as const
+                : 'guardian_stale_expired' as const;
               const staleText = await composeGuardianActionMessageGenerative(
-                { scenario: 'guardian_stale_expired' },
+                { scenario: staleScenario },
                 {},
                 guardianActionCopyGenerator,
               );
@@ -867,8 +870,11 @@ export async function handleChannelInbound(
   // ── Expired guardian action late answer interception ──
   // When no pending delivery was found above, check for expired requests
   // eligible for follow-up (status='expired', followup_state='none').
+  // Exclude callback payloads — inline button presses should not be
+  // misclassified as late guardian answers.
   if (
     !result.duplicate &&
+    !hasCallbackData &&
     trimmedContent.length > 0 &&
     body.senderExternalUserId &&
     replyCallbackUrl
@@ -880,37 +886,77 @@ export async function handleChannelInbound(
       );
 
       if (validExpired.length > 0) {
-        // Take the first matching expired delivery
-        const expiredDelivery = validExpired[0];
-        const expiredRequest = getGuardianActionRequest(expiredDelivery.requestId);
+        let matchedExpired = validExpired.length === 1 ? validExpired[0] : null;
+        let expiredAnswerText = trimmedContent;
 
-        if (expiredRequest && expiredRequest.status === 'expired' && expiredRequest.followupState === 'none') {
-          const followupResult = startFollowupFromExpiredRequest(expiredRequest.id, trimmedContent);
-          if (followupResult) {
-            const followupText = await composeGuardianActionMessageGenerative(
-              {
-                scenario: 'guardian_late_answer_followup',
-                questionText: expiredRequest.questionText,
-                lateAnswerText: trimmedContent,
-              },
-              {},
-              guardianActionCopyGenerator,
-            );
+        // Multiple expired deliveries: require request code prefix for disambiguation
+        if (validExpired.length > 1) {
+          for (const d of validExpired) {
+            const req = getGuardianActionRequest(d.requestId);
+            if (req && trimmedContent.toUpperCase().startsWith(req.requestCode)) {
+              matchedExpired = d;
+              expiredAnswerText = trimmedContent.slice(req.requestCode.length).trim();
+              break;
+            }
+          }
+
+          if (!matchedExpired) {
+            // Send disambiguation message listing the request codes
+            const codes = validExpired
+              .map((d) => {
+                const req = getGuardianActionRequest(d.requestId);
+                return req ? req.requestCode : null;
+              })
+              .filter(Boolean);
             try {
               await deliverChannelReply(replyCallbackUrl, {
                 chatId: externalChatId,
-                text: followupText,
+                text: `You have multiple expired guardian questions. Please prefix your reply with the reference code (${codes.join(', ')}) to indicate which question you are answering.`,
                 assistantId,
               }, bearerToken);
             } catch (err) {
-              log.error({ err, externalChatId }, 'Failed to deliver guardian action late answer follow-up');
+              log.error({ err, externalChatId }, 'Failed to deliver guardian action expired disambiguation message');
             }
             return Response.json({
               accepted: true,
               duplicate: false,
               eventId: result.eventId,
-              guardianAnswer: 'followup_initiated',
+              guardianAnswer: 'disambiguation_sent',
             });
+          }
+        }
+
+        if (matchedExpired) {
+          const expiredRequest = getGuardianActionRequest(matchedExpired.requestId);
+
+          if (expiredRequest && expiredRequest.status === 'expired' && expiredRequest.followupState === 'none') {
+            const followupResult = startFollowupFromExpiredRequest(expiredRequest.id, expiredAnswerText);
+            if (followupResult) {
+              const followupText = await composeGuardianActionMessageGenerative(
+                {
+                  scenario: 'guardian_late_answer_followup',
+                  questionText: expiredRequest.questionText,
+                  lateAnswerText: expiredAnswerText,
+                },
+                {},
+                guardianActionCopyGenerator,
+              );
+              try {
+                await deliverChannelReply(replyCallbackUrl, {
+                  chatId: externalChatId,
+                  text: followupText,
+                  assistantId,
+                }, bearerToken);
+              } catch (err) {
+                log.error({ err, externalChatId }, 'Failed to deliver guardian action late answer follow-up');
+              }
+              return Response.json({
+                accepted: true,
+                duplicate: false,
+                eventId: result.eventId,
+                guardianAnswer: 'followup_initiated',
+              });
+            }
           }
         }
       }
