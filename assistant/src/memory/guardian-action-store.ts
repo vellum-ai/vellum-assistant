@@ -193,6 +193,25 @@ export function getByPendingQuestionId(questionId: string): GuardianActionReques
 }
 
 /**
+ * Find the most recent pending guardian action request for a given call session.
+ * Used by the consultation timeout handler to mark the linked request as timed out.
+ */
+export function getPendingRequestByCallSessionId(callSessionId: string): GuardianActionRequest | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(guardianActionRequests)
+    .where(
+      and(
+        eq(guardianActionRequests.callSessionId, callSessionId),
+        eq(guardianActionRequests.status, 'pending'),
+      ),
+    )
+    .get();
+  return row ? rowToRequest(row) : null;
+}
+
+/**
  * First-response-wins resolution. Checks that the request is still
  * 'pending' before updating; returns the updated request on success
  * or null if the request was already resolved.
