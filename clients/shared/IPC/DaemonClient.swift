@@ -507,7 +507,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     var authTimeoutTask: Task<Void, Never>?
 
     /// Buffer for accumulating incoming data until we have complete newline-delimited messages.
+    /// Legacy — only cleared on disconnect. Buffering + decoding now happens on the
+    /// NWConnection queue via `decodeBuffer`.
     var receiveBuffer = Data()
+
+    /// Buffer for accumulating incoming data on the NWConnection background queue.
+    /// Accessed ONLY from NWConnection receive callbacks (which run on `queue`),
+    /// so concurrent access is safe despite the @MainActor class isolation.
+    nonisolated(unsafe) var decodeBuffer = Data()
 
     /// Maximum line size: 96 MB (for screenshots with base64).
     let maxLineSize = 96 * 1024 * 1024

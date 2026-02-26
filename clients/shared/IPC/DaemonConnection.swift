@@ -300,6 +300,7 @@ extension DaemonClient {
         }
 
         receiveBuffer = Data()
+        decodeBuffer = Data()
         cuObservationSequenceBySession.removeAll()
         isConnected = false
         isConnecting = false
@@ -325,57 +326,67 @@ extension DaemonClient {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
             guard let self else { return }
 
-            Task { @MainActor in
-                if let data = content, !data.isEmpty {
-                    self.processReceivedData(data)
-                }
+            // Buffer and decode on the NWConnection background queue to avoid
+            // blocking the main thread with potentially large JSON payloads.
+            if let data = content, !data.isEmpty {
+                self.decodeBuffer.append(data)
 
-                if isComplete {
-                    log.info("Connection received EOF")
-                    self.handleUnexpectedDisconnect()
-                    return
-                }
+                // Check max buffer size.
+                if self.decodeBuffer.count > self.maxLineSize {
+                    log.error("Receive buffer exceeded max line size (\(self.maxLineSize) bytes), clearing buffer")
+                    self.decodeBuffer = Data()
+                } else {
+                    // Split on newlines and decode each complete line.
+                    let newline = UInt8(0x0A)
+                    var decoded: [ServerMessage] = []
+                    while let newlineIndex = self.decodeBuffer.firstIndex(of: newline) {
+                        let lineData = self.decodeBuffer[self.decodeBuffer.startIndex..<newlineIndex]
+                        self.decodeBuffer = self.decodeBuffer[(newlineIndex + 1)...]
 
-                if let error {
-                    log.error("Receive error: \(error.localizedDescription)")
-                    self.handleUnexpectedDisconnect()
-                    return
-                }
+                        // Skip empty lines.
+                        guard !lineData.isEmpty else { continue }
 
-                // Continue reading.
-                self.receiveData(on: conn)
+                        do {
+                            let message = try self.decoder.decode(ServerMessage.self, from: Data(lineData))
+                            decoded.append(message)
+                        } catch {
+                            // Log a safe summary — never include raw line content which may contain secrets.
+                            let byteCount = lineData.count
+                            let typeHint = self.extractMessageType(from: Data(lineData))
+                            log.error("Failed to decode server message: \(error.localizedDescription), bytes: \(byteCount), type: \(typeHint)")
+                        }
+                    }
+
+                    // Dispatch decoded messages to MainActor for routing.
+                    if !decoded.isEmpty {
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            for message in decoded {
+                                self.handleServerMessage(message)
+                            }
+                        }
+                    }
+                }
             }
-        }
-    }
 
-    /// Buffer incoming data, split on newlines, decode each complete line as ServerMessage.
-    func processReceivedData(_ data: Data) {
-        receiveBuffer.append(data)
-
-        // Check max buffer size.
-        if receiveBuffer.count > maxLineSize {
-            log.error("Receive buffer exceeded max line size (\(self.maxLineSize) bytes), clearing buffer")
-            receiveBuffer = Data()
-            return
-        }
-
-        // Split on newlines.
-        let newline = UInt8(0x0A)
-        while let newlineIndex = receiveBuffer.firstIndex(of: newline) {
-            let lineData = receiveBuffer[receiveBuffer.startIndex..<newlineIndex]
-            receiveBuffer = receiveBuffer[(newlineIndex + 1)...]
-
-            // Skip empty lines.
-            guard !lineData.isEmpty else { continue }
-
-            do {
-                let message = try decoder.decode(ServerMessage.self, from: Data(lineData))
-                handleServerMessage(message)
-            } catch {
-                // Log a safe summary — never include raw line content which may contain secrets.
-                let byteCount = lineData.count
-                let typeHint = extractMessageType(from: Data(lineData))
-                log.error("Failed to decode server message: \(error.localizedDescription), bytes: \(byteCount), type: \(typeHint)")
+            // Handle EOF and errors on MainActor; continue the receive loop.
+            if isComplete || error != nil {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if isComplete {
+                        log.info("Connection received EOF")
+                    }
+                    if let error {
+                        log.error("Receive error: \(error.localizedDescription)")
+                    }
+                    self.handleUnexpectedDisconnect()
+                }
+            } else {
+                // Continue reading — dispatch back to MainActor to call
+                // receiveData which sets up the next NWConnection receive.
+                Task { @MainActor [weak self] in
+                    self?.receiveData(on: conn)
+                }
             }
         }
     }
