@@ -1324,6 +1324,7 @@ public struct ChatMessage: Identifiable, Equatable {
         && lhs.inlineSurfaces.count == rhs.inlineSurfaces.count
         && lhs.confirmation?.state == rhs.confirmation?.state
         && lhs.isSubagentNotification == rhs.isSubagentNotification
+        && lhs.isContentStripped == rhs.isContentStripped
         && lhs.streamingCodePreview == rhs.streamingCodePreview
     }
     public let id: UUID
@@ -1357,6 +1358,10 @@ public struct ChatMessage: Identifiable, Equatable {
     /// reconstructed from history. It should be hidden from the chat UI since the
     /// corresponding subagent chip conveys the same information.
     public var isSubagentNotification: Bool = false
+    /// When true, heavyweight content (tool results, large text, inputFull/inputRawDict)
+    /// has been stripped from this message to reduce memory. The UI can use this flag
+    /// to show a "load full content" affordance in a future milestone.
+    public var isContentStripped: Bool = false
 
     /// Concatenated text from all segments. Backward-compatible computed property.
     public var text: String {
@@ -1379,13 +1384,22 @@ public struct ChatMessage: Identifiable, Equatable {
         self.isError = isError
     }
 
+    /// Maximum text segment length before truncation during stripping.
+    private static let stripTextLimit = 200
+
     /// Release heavyweight data (images, attachment binary data, completed surface
-    /// payloads) to reduce memory pressure on old messages that are no longer visible.
-    /// Metadata (tool names, summaries, surface refs) is preserved for display.
+    /// payloads, tool results, large text) to reduce memory pressure on old messages
+    /// that are no longer visible.
+    /// Metadata (tool names, inputSummary, inputRawValue, surface refs) is preserved for display.
     public mutating func stripHeavyContent() {
+        // Tool calls: clear images, results, full input, and raw dict.
+        // Keep toolName, inputSummary, and inputRawValue (short one-liner) intact for display.
         for i in toolCalls.indices {
             toolCalls[i].cachedImage = nil
             toolCalls[i].imageData = nil
+            toolCalls[i].result = nil
+            toolCalls[i].inputFull = ""
+            toolCalls[i].inputRawDict = nil
         }
         for i in attachments.indices {
             attachments[i].data = ""
@@ -1406,6 +1420,14 @@ public struct ChatMessage: Identifiable, Equatable {
                 )
             }
         }
+        // Truncate long text segments to reduce string memory.
+        let limit = Self.stripTextLimit
+        for i in textSegments.indices {
+            if textSegments[i].count > limit {
+                textSegments[i] = String(textSegments[i].prefix(limit)) + " \u{2026} [stripped]"
+            }
+        }
+        isContentStripped = true
     }
 
     /// Build a default content order from the legacy `arrivedBeforeText` flag.
