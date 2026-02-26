@@ -58,7 +58,7 @@ export class SmsAdapter implements ChannelAdapter {
     try {
       await deliverChannelReply(
         deliverUrl,
-        { chatId: phoneNumber, text: messageText },
+        { chatId: phoneNumber, text: messageText, assistantId: payload.assistantId },
         readHttpToken() ?? undefined,
       );
 
