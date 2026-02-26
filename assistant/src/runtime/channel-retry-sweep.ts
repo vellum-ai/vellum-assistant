@@ -2,14 +2,11 @@
  * Periodic retry sweep for failed channel inbound events.
  */
 
-import { isChannelId,parseChannelId, parseInterfaceId } from '../channels/types.js';
-import { renderHistoryContent } from '../daemon/handlers.js';
+import { isChannelId, parseChannelId, parseInterfaceId } from '../channels/types.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
-import * as attachmentsStore from '../memory/attachments-store.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
-import * as conversationStore from '../memory/conversation-store.js';
 import { getLogger } from '../util/logger.js';
-import { deliverChannelReply } from './gateway-client.js';
+import { deliverReplyViaCallback } from './channel-reply-delivery.js';
 import type { MessageProcessor } from './http-types.js';
 
 const log = getLogger('runtime-http');
@@ -148,42 +145,6 @@ export async function sweepFailedEvents(
     } catch (err) {
       log.error({ err, eventId: event.id }, 'Retry failed for channel event');
       channelDeliveryStore.recordProcessingFailure(event.id, err);
-    }
-  }
-}
-
-async function deliverReplyViaCallback(
-  conversationId: string,
-  externalChatId: string,
-  callbackUrl: string,
-  bearerToken: string | undefined,
-  assistantId?: string,
-): Promise<void> {
-  const msgs = conversationStore.getMessages(conversationId);
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].role === 'assistant') {
-      let parsed: unknown;
-      try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
-      const rendered = renderHistoryContent(parsed);
-
-      const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id);
-      const replyAttachments = linked.map((a) => ({
-        id: a.id,
-        filename: a.originalFilename,
-        mimeType: a.mimeType,
-        sizeBytes: a.sizeBytes,
-        kind: a.kind,
-      }));
-
-      if (rendered.text || replyAttachments.length > 0) {
-        await deliverChannelReply(callbackUrl, {
-          chatId: externalChatId,
-          text: rendered.text || undefined,
-          attachments: replyAttachments.length > 0 ? replyAttachments : undefined,
-          assistantId,
-        }, bearerToken);
-      }
-      break;
     }
   }
 }
