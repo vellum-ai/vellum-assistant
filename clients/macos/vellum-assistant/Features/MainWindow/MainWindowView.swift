@@ -851,31 +851,14 @@ struct MainWindowView: View {
             }
         }) {
             HStack(spacing: VSpacing.xs) {
-                // Leading icon: pin button (hovered) > spinner (busy) > pin indicator (pinned)
-                if isHovered {
-                    Button {
-                        if thread.isPinned {
-                            threadManager.unpinThread(id: thread.id)
-                        } else {
-                            threadManager.pinThread(id: thread.id)
-                        }
-                    } label: {
-                        Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
-                            .rotationEffect(.degrees(-45))
-                            .frame(width: 20, height: 20)
-                            .background(VColor.backgroundSubtle)
-                            .clipShape(Circle())
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
-                } else if isBusy {
+                // Leading icon: spinner (busy) > pin indicator (pinned) > spacer
+                // The interactive pin button is in .overlay(alignment: .leading) below
+                // to avoid nesting a Button inside this outer Button's label.
+                if isBusy {
                     ProgressView()
                         .controlSize(.small)
                         .frame(width: 20, height: 20)
-                } else if thread.isPinned {
+                } else if thread.isPinned && !isHovered {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(VColor.textMuted)
@@ -918,6 +901,29 @@ struct MainWindowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .leading) {
+            if isHovered {
+                Button {
+                    if thread.isPinned {
+                        threadManager.unpinThread(id: thread.id)
+                    } else {
+                        threadManager.pinThread(id: thread.id)
+                    }
+                } label: {
+                    Image(systemName: thread.isPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
+                        .rotationEffect(.degrees(-45))
+                        .frame(width: 20, height: 20)
+                        .background(VColor.backgroundSubtle)
+                        .clipShape(Circle())
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, VSpacing.xs)
+                .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
+            }
+        }
         .overlay(alignment: .trailing) {
             if sidebar.threadPendingDeletion == thread.id {
                 Button {
