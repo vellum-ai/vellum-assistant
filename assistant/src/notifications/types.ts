@@ -95,13 +95,14 @@ export interface ThreadActionReuseExisting {
 /** Per-channel thread action — either start a new thread or reuse an existing one. */
 export type ThreadAction = ThreadActionStartNew | ThreadActionReuseExisting;
 
+
 /** Output produced by the notification decision engine for a given signal. */
 export interface NotificationDecision {
   shouldNotify: boolean;
   selectedChannels: NotificationChannel[];
   reasoningSummary: string;
   renderedCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>>;
-  /** Per-channel thread action. When absent for a channel, defaults to start_new. */
+  /** Per-channel thread actions decided by the model. Absent channels default to start_new. */
   threadActions?: Partial<Record<NotificationChannel, ThreadAction>>;
   deepLinkTarget?: Record<string, unknown>;
   dedupeKey: string;
