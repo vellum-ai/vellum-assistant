@@ -32,7 +32,7 @@
       "name": "Slack OAuth Setup",
       "description": "Create Slack App and OAuth credentials for Slack integration using browser automation",
       "emoji": "\ud83d\udd11",
-      "includes": ["browser"]
+      "includes": ["browser", "public-ingress"]
     },
     {
       "id": "telegram-setup",

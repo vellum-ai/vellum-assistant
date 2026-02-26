@@ -30,6 +30,19 @@ const EMBEDDED_CATALOG = join(EMBEDDED_SKILLS_DIR, 'catalog.json');
 const TOPLEVEL_CATALOG = join(TOPLEVEL_SKILLS_DIR, 'catalog.json');
 
 // ---------------------------------------------------------------------------
+// Skills that exist only in the top-level `skills/` directory and have no
+// embedded source in `assistant/src/config/vellum-skills/`. These are
+// community/third-party skills maintained outside the assistant runtime.
+// ---------------------------------------------------------------------------
+
+const TOPLEVEL_ONLY_SKILLS = new Set([
+  'google-oauth-setup',
+  'notion',
+  'notion-oauth-setup',
+  'oauth-setup',
+]);
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -80,7 +93,9 @@ describe('Skill mirror parity — embedded ↔ top-level', () => {
     const embedded = new Set(listSkillDirs(EMBEDDED_SKILLS_DIR));
     const toplevel = listSkillDirs(TOPLEVEL_SKILLS_DIR);
 
-    const missingFromEmbedded = toplevel.filter((id) => !embedded.has(id));
+    const missingFromEmbedded = toplevel.filter(
+      (id) => !embedded.has(id) && !TOPLEVEL_ONLY_SKILLS.has(id),
+    );
 
     expect(missingFromEmbedded).toEqual([]);
   });
@@ -126,7 +141,9 @@ describe('Skill mirror parity — embedded ↔ top-level', () => {
     const embeddedIds = new Set(embeddedCatalog.skills.map((s) => s.id));
     const toplevelIds = toplevelCatalog.skills.map((s) => s.id);
 
-    const missingFromEmbedded = toplevelIds.filter((id) => !embeddedIds.has(id));
+    const missingFromEmbedded = toplevelIds.filter(
+      (id) => !embeddedIds.has(id) && !TOPLEVEL_ONLY_SKILLS.has(id),
+    );
 
     expect(missingFromEmbedded).toEqual([]);
   });
