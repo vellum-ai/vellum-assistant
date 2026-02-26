@@ -554,6 +554,23 @@ struct MainWindowView: View {
                             )
                         }
                         Spacer()
+                        // Child Mode indicator — visible whenever parental controls are
+                        // active and the active profile is "child", so the restricted user
+                        // always has a clear visual cue about which mode they're in.
+                        if settingsStore.isParentalEnabled && settingsStore.activeProfile == "child" {
+                            HStack(spacing: VSpacing.xs) {
+                                Image(systemName: "lock.shield")
+                                    .foregroundColor(VColor.warning)
+                                Text("Child Mode")
+                                    .font(VFont.captionMedium)
+                                    .foregroundColor(VColor.warning)
+                            }
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                            .background(VColor.warning.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .accessibilityLabel("Child Mode active")
+                        }
                         if windowState.isShowingChat || isChatBubbleActive {
                             // Copy Thread button — only visible when there's content to copy
                             if threadManager.activeViewModel?.messages.contains(where: {

@@ -189,16 +189,19 @@ public final class SettingsStore: ObservableObject {
     @Published var isCheckingVellumPlatform: Bool = false
     @Published var platformLastChecked: Date?
 
-    // MARK: - Dev Mode
-
-    @Published var isDevMode: Bool
-
     // MARK: - Parental Control Profile State
 
     /// The currently active profile. "parental" means full access; "child" means restricted mode.
     @Published var activeProfile: String = "parental"
     /// Set when a profile switch fails so the UI can surface the error.
     @Published var profileSwitchError: String?
+
+    /// Whether parental controls are currently enabled. Kept in sync via IPC responses.
+    @Published var isParentalEnabled: Bool = false
+
+    // MARK: - Dev Mode
+
+    @Published var isDevMode: Bool
 
     // MARK: - Trust Rules Coordination
 
@@ -1887,4 +1890,5 @@ public final class SettingsStore: ObservableObject {
             didDefaultEnabledSince: didDefault
         )
     }
+
 }

@@ -8,6 +8,7 @@ import VellumAssistantShared
 @MainActor
 struct SettingsParentalTab: View {
     var daemonClient: DaemonClient?
+    @ObservedObject var settingsStore: SettingsStore
 
     // -- Remote state (loaded from daemon) --
     @State private var isEnabled: Bool = false
@@ -31,12 +32,20 @@ struct SettingsParentalTab: View {
     // forward the PIN to the daemon (required when parental mode is enabled).
     @State private var unlockedPIN: String?
 
+    // -- Profile switcher --
+    @State private var showingProfileSwitchSheet: Bool = false
+    @State private var profileSwitchError: String? = nil
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             // Header + enable toggle
             enableSection
 
             if isEnabled {
+                // Profile switcher — always visible when parental controls are enabled,
+                // regardless of lock state (switching to child doesn't need unlock).
+                profileSwitcherSection
+
                 if isUnlocked || !hasPIN {
                     pinSection
                     contentRestrictionsSection
@@ -47,6 +56,26 @@ struct SettingsParentalTab: View {
             }
         }
         .onAppear { loadSettings() }
+        .sheet(isPresented: $showingProfileSwitchSheet) {
+            ProfileSwitchSheet(
+                onComplete: { result in
+                    switch result {
+                    case .success(let pin):
+                        Task {
+                            await settingsStore.switchProfile(to: "parental", pin: pin)
+                            if settingsStore.profileSwitchError == nil {
+                                showingProfileSwitchSheet = false
+                            } else {
+                                profileSwitchError = settingsStore.profileSwitchError
+                            }
+                        }
+                    case .failure:
+                        profileSwitchError = "Incorrect PIN."
+                    }
+                },
+                daemonClient: daemonClient
+            )
+        }
         .sheet(isPresented: $showingPINSheet) {
             PINSheet(
                 mode: pinSheetMode,
@@ -151,6 +180,65 @@ struct SettingsParentalTab: View {
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Profile Switcher
+
+    private var profileSwitcherSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Active Profile")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Switch between Parental (admin) and Child profiles. Switching back to Parental requires your PIN.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            HStack {
+                Text("Active Profile")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                Spacer()
+                HStack(spacing: VSpacing.xs) {
+                    VButton(
+                        label: "Parental (Admin)",
+                        style: settingsStore.activeProfile == "parental" ? .primary : .secondary
+                    ) {
+                        switchProfile(to: "parental")
+                    }
+                    VButton(
+                        label: "Child",
+                        style: settingsStore.activeProfile == "child" ? .primary : .secondary
+                    ) {
+                        switchProfile(to: "child")
+                    }
+                }
+            }
+
+            if let err = profileSwitchError {
+                Text(err)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    private func switchProfile(to target: String) {
+        profileSwitchError = nil
+        if target == "child" {
+            // No PIN required to enter child mode
+            Task {
+                await settingsStore.switchProfile(to: "child", pin: nil)
+            }
+        } else {
+            // Switching back to parental requires PIN verification
+            showingProfileSwitchSheet = true
+        }
     }
 
     private var pinSection: some View {
@@ -340,6 +428,7 @@ struct SettingsParentalTab: View {
                 isLoading = false
                 if let r = response {
                     isEnabled = r.enabled
+                    settingsStore.isParentalEnabled = r.enabled
                     hasPIN = r.has_pin
                     contentRestrictions = Set(r.content_restrictions)
                     blockedToolCategories = Set(r.blocked_tool_categories)
@@ -390,6 +479,7 @@ struct SettingsParentalTab: View {
                 if let r = response {
                     if r.success {
                         isEnabled = r.enabled
+                        settingsStore.isParentalEnabled = r.enabled
                         hasPIN = r.has_pin
                         contentRestrictions = Set(r.content_restrictions)
                         blockedToolCategories = Set(r.blocked_tool_categories)
@@ -751,6 +841,106 @@ private struct UnlockSheet: View {
     }
 }
 
+// MARK: - Profile Switch Sheet
+
+/// PIN prompt shown when a child-mode user attempts to switch back to the
+/// parental (admin) profile. Reuses the same daemon verify-pin IPC call as UnlockSheet.
+@MainActor
+private struct ProfileSwitchSheet: View {
+    let onComplete: (UnlockResult) -> Void
+    var daemonClient: DaemonClient?
+
+    @State private var pin: String = ""
+    @State private var isLoading: Bool = false
+    @State private var errorMessage: String?
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            Text("Switch to Parental Profile")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Enter your 6-digit PIN to switch back to the Parental (Admin) profile.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            SecureField("PIN", text: $pin)
+                .textFieldStyle(.roundedBorder)
+                .font(VFont.body)
+
+            if let error = errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+
+            HStack {
+                Spacer()
+                VButton(label: "Cancel", style: .secondary) {
+                    dismiss()
+                }
+                VButton(label: "Switch Profile", style: .primary) {
+                    verify()
+                }
+                .disabled(isLoading || pin.count != 6)
+            }
+        }
+        .padding(VSpacing.xl)
+        .frame(width: 320)
+        .background(VColor.background)
+    }
+
+    private func verify() {
+        guard pin.count == 6 else { return }
+        isLoading = true
+        errorMessage = nil
+
+        let stream = daemonClient?.subscribe()
+        Task {
+            do {
+                try daemonClient?.sendParentalControlVerifyPin(pin: pin)
+            } catch {
+                await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
+                return
+            }
+
+            let response: ParentalControlVerifyPinResponseMessage? = await withTaskGroup(of: ParentalControlVerifyPinResponseMessage?.self) { group in
+                group.addTask {
+                    guard let stream else { return nil }
+                    for await message in stream {
+                        if case .parentalControlVerifyPinResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            await MainActor.run {
+                isLoading = false
+                if let r = response {
+                    if r.verified {
+                        onComplete(.success(pin: pin))
+                    } else {
+                        onComplete(.failure)
+                        errorMessage = "Incorrect PIN."
+                    }
+                } else {
+                    errorMessage = "No response from daemon."
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Topic / Category enumerations
 
 private enum ContentTopic: String, CaseIterable, Identifiable {
@@ -806,7 +996,7 @@ private enum ToolCategory: String, CaseIterable, Identifiable {
     ZStack {
         VColor.background.ignoresSafeArea()
         ScrollView {
-            SettingsParentalTab(daemonClient: nil)
+            SettingsParentalTab(daemonClient: nil, settingsStore: SettingsStore())
                 .padding(VSpacing.xl)
         }
     }
