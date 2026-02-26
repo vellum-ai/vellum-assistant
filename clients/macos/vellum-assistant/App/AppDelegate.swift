@@ -95,7 +95,7 @@ private func quickInputHotKeyHandler(
 }
 
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
     /// SwiftUI's `@NSApplicationDelegateAdaptor` because SwiftUI wraps
     /// the delegate.  Use `AppDelegate.shared` instead.
@@ -167,6 +167,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusIconCancellable: AnyCancellable?
     var connectionStatusCancellable: AnyCancellable?
     private var quickInputAttachmentCancellable: AnyCancellable?
+    private var conversationZoomEnabledCancellable: AnyCancellable?
+    /// Observable state for SwiftUI command group `.disabled()` modifiers.
+    /// Updated via Combine subscription to `MainWindowState.objectWillChange`.
+    @Published public var isConversationZoomEnabled: Bool = false
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
     var pulseDirection: CGFloat = -1.0
@@ -679,6 +683,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
             mainWindow?.close()
             mainWindow = nil
+            conversationZoomEnabledCancellable = nil
+            isConversationZoomEnabled = false
 
             if let hotKeyMonitor {
                 NSEvent.removeMonitor(hotKeyMonitor)
@@ -790,6 +796,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         mainWindow?.close()
         mainWindow = nil
+        conversationZoomEnabledCancellable = nil
+        isConversationZoomEnabled = false
 
         if let hotKeyMonitor {
             NSEvent.removeMonitor(hotKeyMonitor)
@@ -2014,8 +2022,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         mainWindow = main
+        observeConversationZoomEnabled(main.windowState)
         observeAssistantStatus()
         return main
+    }
+
+    /// Subscribe to `MainWindowState` changes and keep `isConversationZoomEnabled`
+    /// in sync so SwiftUI command groups can observe it via `@Published`.
+    private func observeConversationZoomEnabled(_ windowState: MainWindowState) {
+        conversationZoomEnabledCancellable = windowState.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak windowState] _ in
+                guard let self, let windowState else { return }
+                // objectWillChange fires before the new value is set,
+                // so defer the read to the next run-loop tick.
+                DispatchQueue.main.async {
+                    let enabled = windowState.isConversationVisible
+                    if self.isConversationZoomEnabled != enabled {
+                        self.isConversationZoomEnabled = enabled
+                    }
+                }
+            }
+        // Set initial value.
+        isConversationZoomEnabled = windowState.isConversationVisible
     }
 
     func showMainWindow(initialMessage: String? = nil, isFirstLaunch: Bool = false) {
