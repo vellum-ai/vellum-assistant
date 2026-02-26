@@ -338,6 +338,11 @@ struct SettingsConnectTab: View {
                             .foregroundColor(VColor.warning)
                     }
                 }
+
+                Divider()
+                    .background(VColor.surfaceBorder)
+
+                bearerTokenContent
             }
         }
         .padding(VSpacing.lg)
