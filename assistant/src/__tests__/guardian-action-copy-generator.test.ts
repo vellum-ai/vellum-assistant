@@ -23,6 +23,7 @@ const ALL_SCENARIOS: GuardianActionMessageScenario[] = [
   'guardian_followup_failed',
   'guardian_followup_declined_ack',
   'guardian_stale_expired',
+  'guardian_stale_followup',
   'outbound_message_copy',
 ];
 

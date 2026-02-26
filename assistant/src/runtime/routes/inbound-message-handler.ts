@@ -1057,10 +1057,15 @@ export async function handleChannelInbound(
 
             if (!stateApplied) {
               log.warn({ requestId: followupRequest.id, disposition: turnResult.disposition }, 'Follow-up state transition failed (already resolved)');
+              const staleText = await composeGuardianActionMessageGenerative(
+                { scenario: 'guardian_stale_followup' as const },
+                {},
+                guardianActionCopyGenerator,
+              );
               try {
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: externalChatId,
-                  text: 'This follow-up has already been resolved.',
+                  text: staleText,
                   assistantId,
                 }, bearerToken);
               } catch (err) {
@@ -1086,8 +1091,8 @@ export async function handleChannelInbound(
             }
 
             // Execute the action and send a completion/failure reply (fire-and-forget).
-            // The initial reply above acknowledges the guardian's choice; this
-            // follow-up message confirms whether the action succeeded.
+            // The initial reply above acknowledges the guardian's choice; the executor
+            // carries out the actual call_back or message_back and posts a second message.
             if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
               void (async () => {
                 try {

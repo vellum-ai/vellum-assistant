@@ -27,6 +27,7 @@ export type GuardianActionMessageScenario =
   | 'guardian_followup_declined_ack'
   | 'guardian_stale_answered'
   | 'guardian_stale_expired'
+  | 'guardian_stale_followup'
   | 'outbound_message_copy'
   | 'followup_message_sent'
   | 'followup_call_started'
@@ -176,19 +177,21 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
     case 'guardian_stale_expired':
       return 'That request has already expired. No further action is needed.';
 
+    case 'guardian_stale_followup':
+      return 'It looks like this follow-up has already been handled. No further action is needed.';
+
     case 'outbound_message_copy':
-      // This SMS is sent TO the original caller who asked a question.
-      // It should relay the guardian's late answer back to them.
+      // This SMS is sent TO the original caller relaying the guardian's answer.
+      // When lateAnswerText is available, include it — that's the whole point of message_back.
       if (context.lateAnswerText && context.questionText) {
-        return `Hi! You asked earlier: "${context.questionText}". Here's the answer: ${context.lateAnswerText}`;
+        return `Hi! You asked "${context.questionText}" earlier. Here's the answer: ${context.lateAnswerText}`;
       }
       if (context.lateAnswerText) {
         return `Hi! Regarding your earlier question — here's the answer: ${context.lateAnswerText}`;
       }
-      if (context.questionText) {
-        return `Hi! You asked earlier: "${context.questionText}". We'll get back to you with an answer shortly.`;
-      }
-      return 'Hi! We received your question and will get back to you shortly.';
+      return context.questionText
+        ? `Hi! You asked "${context.questionText}" earlier. We'll get back to you with an answer soon.`
+        : 'Hi! Thanks for calling earlier. We\'ll get back to you soon.';
 
     case 'followup_message_sent':
       return context.counterpartyPhone

@@ -71,7 +71,8 @@ export function resolveCounterparty(callSessionId: string): CounterpartyInfo | n
     return null;
   }
 
-  // Outbound calls set initiatedFromConversationId; inbound calls do not.
+  // Outbound calls (startCall) store the assistant's number in fromNumber
+  // and the callee in toNumber. They always have initiatedFromConversationId.
   const isOutbound = !!session.initiatedFromConversationId;
   const phoneNumber = isOutbound ? session.toNumber : session.fromNumber;
 

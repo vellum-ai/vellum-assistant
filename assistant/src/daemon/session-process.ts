@@ -534,14 +534,13 @@ export async function processMessage(
       }
       // keep_pending: no state change — guardian can reply again
 
-      const replyText = stateApplied
-        ? turnResult.replyText
-        : 'This follow-up has already been resolved.';
-
       if (!stateApplied) {
         log.warn({ requestId: followupRequest.id, disposition: turnResult.disposition }, 'Follow-up state transition failed (already resolved)');
       }
 
+      const replyText = stateApplied
+        ? turnResult.replyText
+        : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_followup' });
       const replyMsg = createAssistantMessage(replyText);
       conversationStore.addMessage(
         session.conversationId,
