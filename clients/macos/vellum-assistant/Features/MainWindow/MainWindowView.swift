@@ -82,8 +82,6 @@ struct MainWindowView: View {
     let settingsStore: SettingsStore
     let authManager: AuthManager
     @ObservedObject var documentManager: DocumentManager
-    let avatarEvolutionState: AvatarEvolutionState?
-    @State private var lastAppliedBootstrapTurn: Int = 0
     let onMicrophoneToggle: () -> Void
     @ObservedObject var voiceModeManager: VoiceModeManager
 
@@ -94,7 +92,7 @@ struct MainWindowView: View {
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
@@ -107,7 +105,6 @@ struct MainWindowView: View {
         self.authManager = authManager
         self.windowState = windowState
         self.documentManager = documentManager
-        self.avatarEvolutionState = avatarEvolutionState
         self.onMicrophoneToggle = onMicrophoneToggle
         self.voiceModeManager = voiceModeManager
         self.onSendWakeUp = onSendWakeUp
@@ -315,43 +312,6 @@ struct MainWindowView: View {
         )
     }
 
-    // MARK: - Bootstrap Avatar Milestones
-
-    /// Apply evolution milestones based on bootstrap conversation progress.
-    /// Mirrors the pattern from FirstMeetingIntroductionView.applyConversationMilestones.
-    private func applyBootstrapMilestones(turnCount: Int, messages: [ChatMessage], evoState: AvatarEvolutionState) {
-        if turnCount >= 2 {
-            DeterministicEvolutionEngine.applyMilestone(.nameChosen, to: evoState)
-        }
-        if turnCount >= 4 {
-            let personalityText = messages
-                .filter { $0.role == .assistant }
-                .map(\.text)
-                .joined(separator: " ")
-            DeterministicEvolutionEngine.applyMilestone(
-                .personalityDefined,
-                to: evoState,
-                context: MilestoneContext(personalityText: personalityText)
-            )
-        }
-        if turnCount >= 6 {
-            let emoji = IdentityInfo.load()?.emoji
-            DeterministicEvolutionEngine.applyMilestone(
-                .emojiChosen,
-                to: evoState,
-                context: MilestoneContext(emoji: emoji)
-            )
-        }
-        if turnCount >= 8 {
-            DeterministicEvolutionEngine.applyMilestone(.soulDiscussed, to: evoState)
-        }
-
-        // Resolve updated traits into appearance
-        let resolved = AvatarEvolutionResolver.resolve(state: evoState)
-        AvatarAppearanceManager.shared.applyEvolutionResult(resolved)
-        evoState.save()
-    }
-
     var body: some View {
         coreLayoutView
             .opacity(showComingAlive ? 0 : 1)
@@ -458,17 +418,6 @@ struct MainWindowView: View {
             .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
                 if windowState.isDynamicExpanded {
                     threadManager.activeViewModel?.activeSurfaceId = surfaceId
-                }
-            }
-            .onChange(of: threadManager.activeViewModel?.messages.count) { _, _ in
-                // Bootstrap avatar: apply milestones based on assistant turn count
-                if let evoState = avatarEvolutionState, evoState.stage != .stabilized,
-                   let viewModel = threadManager.activeViewModel {
-                    let turnCount = viewModel.messages.filter { $0.role == .assistant }.count
-                    if turnCount > lastAppliedBootstrapTurn {
-                        applyBootstrapMilestones(turnCount: turnCount, messages: viewModel.messages, evoState: evoState)
-                        lastAppliedBootstrapTurn = turnCount
-                    }
                 }
             }
             .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)

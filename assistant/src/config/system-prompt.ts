@@ -12,7 +12,7 @@ import { resolveUserReference } from './user-reference.js';
 
 const log = getLogger('system-prompt');
 
-const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md', 'LOOKS.md'] as const;
+const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md'] as const;
 
 /**
  * Copy template prompt files into the data directory if they don't already exist.
@@ -91,14 +91,11 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
   const userPath = getWorkspacePromptPath('USER.md');
   const bootstrapPath = getWorkspacePromptPath('BOOTSTRAP.md');
 
-  const looksPath = getWorkspacePromptPath('LOOKS.md');
-
   const updatesPath = getWorkspacePromptPath('UPDATES.md');
 
   const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
   const user = readPromptFile(userPath);
-  const looks = readPromptFile(looksPath);
   const bootstrap = readPromptFile(bootstrapPath);
   const updates = readPromptFile(updatesPath);
 
@@ -107,7 +104,6 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
-  if (looks) parts.push(looks);
   if (bootstrap) {
     parts.push(
       '# First-Run Ritual\n\n'
@@ -637,7 +633,6 @@ function buildConfigSection(): string {
     '- `IDENTITY.md` — Your name, nature, personality, and emoji. Updated during the first-run ritual.',
     '- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.',
     '- `USER.md` — Profile of your user. Update as you learn about them over time.',
-    '- `LOOKS.md` — Your avatar appearance: body/cheek colors and outfit (hat, shirt, accessory, held item).',
     '- `HEARTBEAT.md` — Checklist for periodic heartbeat runs. When heartbeat is enabled, the assistant runs this checklist on a timer and flags anything that needs attention. Edit this file to control what gets checked each run.',
     '- `BOOTSTRAP.md` — First-run ritual script (only present during onboarding; you delete it when done).',
     '- `UPDATES.md` — Release update notes (created automatically on new releases; delete when updates are actioned).',
@@ -666,11 +661,6 @@ function buildConfigSection(): string {
     '',
     '**IDENTITY.md** — update when:',
     '- They rename you or change your role',
-    '',
-    '**LOOKS.md** — update when:',
-    '- They ask you to change your appearance, colors, or outfit',
-    '- You want to refresh your look',
-    '- Read LOOKS.md for available options (colors, hats, shirts, accessories, held items)',
     '',
     'When updating, read the file first, then make a targeted edit. Include all useful information, but don\'t bloat the files over time',
   ].join('\n');

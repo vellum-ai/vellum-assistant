@@ -9,7 +9,7 @@ import VellumAssistantShared
 /// - `NSViewRepresentable` wrapping `NSImageView` with `animates = true` for GIFs
 ///
 /// The Coordinator tracks the current URL to prevent redundant downloads across
-/// streaming re-renders (same pattern as `DinoSceneView` in `AvatarView.swift`).
+/// streaming re-renders.
 struct AnimatedImageView: View {
     let urlString: String
 

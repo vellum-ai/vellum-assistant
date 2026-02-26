@@ -96,10 +96,7 @@ struct ComposerView: View {
                 SlashCommandPopup(
                     commands: filteredSlashCommands(slashFilter),
                     selectedIndex: slashSelectedIndex,
-                    onSelect: { command in selectSlashCommand(command) },
-                    avatarSeed: avatarSeed,
-                    avatarPalette: AvatarAppearanceManager.shared.palette,
-                    avatarOutfit: AvatarAppearanceManager.shared.outfit
+                    onSelect: { command in selectSlashCommand(command) }
                 )
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
@@ -1065,9 +1062,6 @@ private struct SlashCommandPopup: View {
     let commands: [SlashCommand]
     let selectedIndex: Int
     let onSelect: (SlashCommand) -> Void
-    let avatarSeed: String
-    let avatarPalette: DinoPalette
-    let avatarOutfit: DinoOutfit
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1075,10 +1069,7 @@ private struct SlashCommandPopup: View {
                 SlashCommandRow(
                     command: command,
                     isSelected: index == selectedIndex,
-                    onSelect: { onSelect(command) },
-                    avatarSeed: avatarSeed,
-                    avatarPalette: avatarPalette,
-                    avatarOutfit: avatarOutfit
+                    onSelect: { onSelect(command) }
                 )
             }
         }
@@ -1097,17 +1088,17 @@ private struct SlashCommandRow: View {
     let command: SlashCommand
     let isSelected: Bool
     let onSelect: () -> Void
-    let avatarSeed: String
-    let avatarPalette: DinoPalette
-    let avatarOutfit: DinoOutfit
+    @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: VSpacing.md) {
-                DinoFaceView(seed: avatarSeed, palette: avatarPalette, outfit: avatarOutfit)
+                Image(nsImage: appearance.chatAvatarImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
                     .frame(width: 28, height: 28)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .clipShape(Circle())
                     .allowsHitTesting(false)
 
                 VStack(alignment: .leading, spacing: 2) {
