@@ -1,6 +1,7 @@
 import type * as net from 'node:net';
 
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
+
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 
 interface MockMemoryPolicy {
