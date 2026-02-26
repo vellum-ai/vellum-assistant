@@ -2099,9 +2099,13 @@ struct SettingsConnectTab: View {
         }
         // Wait for the daemon to restart and become reachable with the new token.
         Task {
-            let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
-                .flatMap(Int.init) ?? 7821
-            let url = URL(string: "http://localhost:\(port)/healthz")!
+            let base = store.localGatewayTarget.hasSuffix("/")
+                ? String(store.localGatewayTarget.dropLast())
+                : store.localGatewayTarget
+            guard let url = URL(string: "\(base)/v1/health") else {
+                isRegeneratingToken = false
+                return
+            }
             var request = URLRequest(url: url)
             request.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
             request.timeoutInterval = 2
