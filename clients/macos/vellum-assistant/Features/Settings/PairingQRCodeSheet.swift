@@ -180,26 +180,26 @@ struct PairingQRCodeSheet: View {
 
     // MARK: - Registration
 
-    /// Resolve the daemon HTTP port. Prefers the IPC-reported value, falls back
-    /// to `RUNTIME_HTTP_PORT` env var, then the default `7821`.
-    private var resolvedHttpPort: Int {
-        if let port = daemonClient?.httpPort { return port }
-        let envPort = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
-            ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) })
-        return envPort.flatMap(Int.init) ?? 7821
+    /// Resolve the local gateway base URL. Prefers `GATEWAY_PORT` env var,
+    /// falls back to the default gateway port 7830.
+    private var resolvedGatewayBaseUrl: String {
+        let envPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+            ?? getenv("GATEWAY_PORT").flatMap({ String(cString: $0) })
+        let port = envPort.flatMap(Int.init) ?? 7830
+        return "http://127.0.0.1:\(port)"
     }
 
     private func registerWithDaemon() {
         registrationState = .registering
         registrationError = nil
 
-        let port = resolvedHttpPort
+        let baseUrl = resolvedGatewayBaseUrl
 
         let reqId = pairingRequestId
         let secret = pairingSecret
 
         Task {
-            let result = await performRegistrationRequest(port: port, requestId: reqId, secret: secret)
+            let result = await performRegistrationRequest(gatewayBaseUrl: baseUrl, requestId: reqId, secret: secret)
             switch result {
             case .success:
                 registrationState = .registered
@@ -214,9 +214,9 @@ struct PairingQRCodeSheet: View {
     /// Only swaps pairingRequestId, pairingSecret, and registrationState atomically
     /// once the HTTP 200 response comes back. On failure the old QR stays visible.
     private func refreshRegistration(newRequestId: String, newSecret: String) async {
-        let port = resolvedHttpPort
+        let baseUrl = resolvedGatewayBaseUrl
 
-        let result = await performRegistrationRequest(port: port, requestId: newRequestId, secret: newSecret)
+        let result = await performRegistrationRequest(gatewayBaseUrl: baseUrl, requestId: newRequestId, secret: newSecret)
         switch result {
         case .success:
             pairingRequestId = newRequestId
@@ -240,14 +240,14 @@ struct PairingQRCodeSheet: View {
     }
 
     /// Shared HTTP request logic for pairing registration.
-    private func performRegistrationRequest(port: Int, requestId: String, secret: String) async -> Result<Void, RegistrationRequestError> {
+    private func performRegistrationRequest(gatewayBaseUrl: String, requestId: String, secret: String) async -> Result<Void, RegistrationRequestError> {
         let tokenPath = resolveHttpTokenPath()
         let bearerToken: String? = {
             guard let path = tokenPath else { return nil }
             return try? String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         }()
 
-        let url = URL(string: "http://localhost:\(port)/v1/pairing/register")!
+        let url = URL(string: "\(gatewayBaseUrl)/v1/pairing/register")!
 
         var body: [String: Any] = [
             "pairingRequestId": requestId,
