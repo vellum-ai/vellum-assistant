@@ -210,6 +210,7 @@
     "assistant_text_delta",
     "assistant_thinking_delta",
     "auth_result",
+    "avatar_updated",
     "browser_cdp_request",
     "browser_frame",
     "browser_handoff_request",

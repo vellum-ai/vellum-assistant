@@ -106,6 +106,12 @@ final class AvatarAppearanceManager {
         customAvatarImage = image
     }
 
+    /// Reloads the custom avatar from disk. Called when the daemon notifies
+    /// that the avatar image has been regenerated (via `avatar_updated` IPC).
+    func reloadAvatar() {
+        loadCustomAvatar()
+    }
+
     func clearCustomAvatar() {
         try? FileManager.default.removeItem(at: customAvatarURL)
         try? FileManager.default.removeItem(at: Self.legacyAppSupportCustomAvatarURL())

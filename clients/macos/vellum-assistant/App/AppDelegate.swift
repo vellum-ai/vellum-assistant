@@ -1127,6 +1127,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         }
 
+        // Handle avatar_updated from daemon: reload the avatar image from disk
+        daemonClient.onAvatarUpdated = { _ in
+            AvatarAppearanceManager.shared.reloadAvatar()
+        }
+
         // Restart DaemonClient connection when the health monitor relaunches
         // the daemon process so we don't wait for the backoff timer to expire.
         assistantCli.onDaemonRestarted = { [weak self] in

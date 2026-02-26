@@ -513,6 +513,18 @@ public struct IPCAuthResult: Codable, Sendable {
     }
 }
 
+/// Sent by the daemon after the avatar image has been regenerated and saved to disk.
+public struct IPCAvatarUpdated: Codable, Sendable {
+    public let type: String
+    /// Absolute path to the updated avatar image file.
+    public let avatarPath: String
+
+    public init(type: String, avatarPath: String) {
+        self.type = type
+        self.avatarPath = avatarPath
+    }
+}
+
 public struct IPCBrowserCDPRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String

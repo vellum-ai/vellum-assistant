@@ -7,9 +7,12 @@
  * registry entry instead of another if/else branch.
  */
 
+import { join } from 'node:path';
+
 import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
 import { openAppViaSurface } from '../tools/apps/open-proxy.js';
 import type { ToolExecutionResult } from '../tools/types.js';
+import { getWorkspaceDir } from '../util/platform.js';
 import { isDoordashCommand, updateDoordashProgress } from './doordash-steps.js';
 import type { ServerMessage } from './ipc-protocol.js';
 import {
@@ -95,6 +98,13 @@ registerHook(
     }
   },
 );
+
+// Broadcast avatar change to all connected clients so every
+// macOS/iOS instance reloads the avatar image.
+registerHook('set_avatar', (_name, _input, _result, { broadcastToAllClients }) => {
+  const avatarPath = join(getWorkspaceDir(), 'data', 'avatar', 'custom-avatar.png');
+  broadcastToAllClients?.({ type: 'avatar_updated', avatarPath });
+});
 
 // Broadcast voice config changes to all connected clients so every window
 // picks up the updated UserDefaults value immediately.

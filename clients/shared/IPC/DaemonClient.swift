@@ -509,6 +509,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon broadcasts an `identity_changed` event (IDENTITY.md changed on disk).
     public var onIdentityChanged: ((IPCIdentityChanged) -> Void)?
 
+    /// Called when the daemon sends an `avatar_updated` message after regenerating the avatar.
+    public var onAvatarUpdated: ((IPCAvatarUpdated) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
