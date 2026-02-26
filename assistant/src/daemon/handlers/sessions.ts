@@ -1155,6 +1155,9 @@ export function handleReorderThreads(
   _socket: net.Socket,
   _ctx: HandlerContext,
 ): void {
+  if (!Array.isArray(msg.updates)) {
+    return;
+  }
   conversationStore.batchSetDisplayOrders(
     msg.updates.map((u) => ({ id: u.sessionId, displayOrder: u.displayOrder, isPinned: u.isPinned })),
   );

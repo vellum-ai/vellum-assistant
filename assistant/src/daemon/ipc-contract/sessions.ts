@@ -158,7 +158,7 @@ export interface ConversationSearchRequest {
 
 export interface ReorderThreadsRequest {
   type: 'reorder_threads';
-  updates: Array<{ sessionId: string; displayOrder: number; isPinned: boolean }>;
+  updates: Array<{ sessionId: string; displayOrder: number | null; isPinned: boolean }>;
 }
 
 // === Server → Client ===

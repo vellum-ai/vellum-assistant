@@ -3499,10 +3499,10 @@ public struct IPCReorderThreadsRequest: Codable, Sendable {
 
 public struct IPCReorderThreadsRequestUpdate: Codable, Sendable {
     public let sessionId: String
-    public let displayOrder: Double
+    public let displayOrder: Double?
     public let isPinned: Bool
 
-    public init(sessionId: String, displayOrder: Double, isPinned: Bool) {
+    public init(sessionId: String, displayOrder: Double?, isPinned: Bool) {
         self.sessionId = sessionId
         self.displayOrder = displayOrder
         self.isPinned = isPinned
