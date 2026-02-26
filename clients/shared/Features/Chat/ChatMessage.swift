@@ -586,10 +586,16 @@ public struct ToolCallData: Identifiable, Equatable {
     public let inputSummary: String
     /// Full (untruncated) input text for display in expanded views.
     public var inputFull: String
+    /// Lightweight sentinel tracking `inputFull.count` so that `==` can detect
+    /// rehydration (empty -> populated) without expensive full-string comparison.
+    public var inputFullLength: Int = 0
     /// Untruncated raw value of the primary input key (e.g. file path).
     /// Unlike inputSummary (truncated to 80 chars) this preserves the full value
     /// for use in file existence checks and opening files.
     public var inputRawValue: String
+    /// Lightweight sentinel tracking `inputRawValue.count` so that `==` can detect
+    /// rehydration (empty -> populated) without expensive full-string comparison.
+    public var inputRawValueLength: Int = 0
     public var result: String?
     public var isError: Bool
     public var isComplete: Bool
@@ -625,9 +631,12 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.isError == rhs.isError
             && lhs.isComplete == rhs.isComplete
             && lhs.arrivedBeforeText == rhs.arrivedBeforeText
-            // inputFull, inputRawValue, and imageData are intentionally excluded:
-            // they can be multi-MB / 10k+ chars and don't affect rendering state.
-            // SwiftUI diffing would do expensive string comparisons on every update.
+            // inputFull, inputRawValue, and imageData are intentionally excluded
+            // from direct comparison — they can be multi-MB / 10k+ chars.
+            // Instead, lightweight length sentinels detect rehydration changes
+            // (empty -> populated) without expensive full-string comparison.
+            && lhs.inputFullLength == rhs.inputFullLength
+            && lhs.inputRawValueLength == rhs.inputRawValueLength
             && lhs.buildingStatus == rhs.buildingStatus
             && lhs.claudeCodeSteps == rhs.claudeCodeSteps
     }
@@ -639,9 +648,11 @@ public struct ToolCallData: Identifiable, Equatable {
         var fullInput = inputFull ?? inputSummary
         if fullInput.count > 10_000 { fullInput = String(fullInput.prefix(10_000)) + "... [truncated]" }
         self.inputFull = fullInput
+        self.inputFullLength = fullInput.count
         var rawValue = inputRawValue ?? inputSummary
         if rawValue.count > 10_000 { rawValue = String(rawValue.prefix(10_000)) + "... [truncated]" }
         self.inputRawValue = rawValue
+        self.inputRawValueLength = rawValue.count
         self.result = result
         self.isError = isError
         self.isComplete = isComplete
@@ -1405,6 +1416,7 @@ public struct ChatMessage: Identifiable, Equatable {
             toolCalls[i].imageData = nil
             toolCalls[i].result = nil
             toolCalls[i].inputFull = ""
+            toolCalls[i].inputFullLength = 0
             toolCalls[i].inputRawDict = nil
         }
         for i in attachments.indices {

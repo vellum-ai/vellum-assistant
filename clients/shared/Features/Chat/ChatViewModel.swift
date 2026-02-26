@@ -550,7 +550,9 @@ public final class ChatViewModel: ObservableObject {
                     messages[idx].toolCalls[tcIdx].result = result
                 }
                 if let input = fullTC.input {
-                    messages[idx].toolCalls[tcIdx].inputFull = ToolCallData.formatAllToolInput(input)
+                    let formatted = ToolCallData.formatAllToolInput(input)
+                    messages[idx].toolCalls[tcIdx].inputFull = formatted
+                    messages[idx].toolCalls[tcIdx].inputFullLength = formatted.count
                     messages[idx].toolCalls[tcIdx].inputRawDict = input
                 }
             }
@@ -1917,7 +1919,9 @@ public final class ChatViewModel: ObservableObject {
                     if estimatedSize > 10_000 {
                         // Too large — format eagerly (with truncation) rather than
                         // retaining the full raw dictionary in memory.
-                        toolCall.inputFull = ToolCallData.formatAllToolInput(input)
+                        let formatted = ToolCallData.formatAllToolInput(input)
+                        toolCall.inputFull = formatted
+                        toolCall.inputFullLength = formatted.count
                     } else {
                         toolCall.inputRawDict = input
                     }
