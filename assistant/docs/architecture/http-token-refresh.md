@@ -177,6 +177,28 @@ private rotateToken(revoke: boolean): string {
 }
 ```
 
+**Failure semantics — routine vs. revocation**:
+
+The two rotation modes have deliberately different failure ordering to match their security requirements:
+
+| | Routine (`revoke: false`) | Revocation (`revoke: true`) |
+|---|---|---|
+| **Order** | Persist to disk first, then update in-memory state | Update in-memory state first, then persist to disk |
+| **Disk write failure** | Rotation aborts cleanly — in-memory auth state is untouched, clients keep working with the old token | Old token is already invalidated in memory; the API endpoint returns an error to the caller |
+| **Rationale** | Availability: don't lock out clients if persistence fails | Security: a potentially compromised token must never remain valid, even briefly |
+
+**Revocation disk-write failure in detail**: If `writeTokenToDisk` throws after the in-memory switch during revocation, the system enters a degraded state:
+
+1. **In-memory state**: `currentToken` holds the new (unpersisted) token. The old token is rejected. All old-token SSE connections have been terminated.
+2. **Disk state**: `~/.vellum/http-token` still contains the old (now-invalid) token.
+3. **API response**: The `POST /v1/auth/rotate-token` endpoint returns an error indicating the persistence failure. The response body includes the new token so the caller can manually persist or distribute it if needed.
+4. **Client impact by platform**:
+   - **macOS**: Re-reading the token file yields the stale old token, which is rejected (401). Recovery requires a daemon restart (which generates a fresh token and persists it) or a successful retry of the rotation API call.
+   - **iOS**: Already disconnected (old-token SSE terminated). Cannot recover until the daemon restarts or the rotation is retried successfully, at which point re-pairing is required.
+   - **Chrome extension**: Same as iOS — the pasted token is stale and rejected.
+5. **Daemon restart recovery**: If the daemon restarts (crash, manual restart, health monitor), it generates a new token at startup and persists it to disk. This is the ultimate recovery path — all clients re-authenticate from the fresh token file (macOS) or re-pair (iOS/Chrome).
+6. **Why this is acceptable**: Revocation is a security-critical operation triggered when the old token is suspected compromised. The invariant — "a compromised token must not remain valid" — takes precedence over client convenience. The degraded state is temporary and self-healing on daemon restart. Disk write failures are also rare in practice (permissions, disk full), and the API response gives the caller enough information to retry or escalate.
+
 **SSE event emission** (routine rotation only): The `token_rotated` event is published to `assistantEventHub` as a `ServerMessage`, reaching all connected SSE subscribers across all conversations. This event is never emitted during revocation rotations.
 
 ### 5. iOS Client Implementation
