@@ -10,8 +10,7 @@ struct SettingsAppearanceTab: View {
     @State private var isRecordingQuickInputHotkey = false
     @State private var shortcutMonitor: Any?
     @State private var shortcutConflictWarning: String?
-    @State private var timezoneDraft = ""
-    @State private var timezoneValidationError: String?
+    @State private var showTimezonePicker = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -44,36 +43,39 @@ struct SettingsAppearanceTab: View {
                 Divider()
                     .background(VColor.surfaceBorder)
 
-                HStack(alignment: .top, spacing: VSpacing.sm) {
+                HStack(alignment: .center, spacing: VSpacing.sm) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("User timezone")
                             .font(VFont.body)
                             .foregroundColor(VColor.textSecondary)
-                        Text("IANA identifier (e.g. America/New_York). Leave empty to use profile memory, then assistant host timezone.")
+                        Text("Timezone used for time-aware responses.")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
                     Spacer()
-                    TextField("America/New_York", text: $timezoneDraft)
-                        .vInputStyle()
-                        .frame(width: 220)
-                        .onSubmit {
-                            saveTimezone()
+                    if let tz = store.userTimezone {
+                        Text(tz)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textPrimary)
+                    } else {
+                        Text("Not set")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    VButton(label: store.userTimezone != nil ? "Change" : "Set", style: .tertiary) {
+                        showTimezonePicker = true
+                    }
+                    .popover(isPresented: $showTimezonePicker, arrowEdge: .bottom) {
+                        TimezonePicker { selected in
+                            store.saveUserTimezone(selected)
+                            showTimezonePicker = false
                         }
-                    VButton(label: "Save", style: .tertiary) {
-                        saveTimezone()
                     }
-                    VButton(label: "Clear", style: .tertiary) {
-                        store.clearUserTimezone()
-                        timezoneDraft = ""
-                        timezoneValidationError = nil
+                    if store.userTimezone != nil {
+                        VButton(label: "Clear", style: .tertiary) {
+                            store.clearUserTimezone()
+                        }
                     }
-                }
-
-                if let timezoneValidationError {
-                    Text(timezoneValidationError)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.warning)
                 }
 
             }
@@ -235,22 +237,9 @@ struct SettingsAppearanceTab: View {
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
         }
-        .onAppear {
-            timezoneDraft = store.userTimezone ?? ""
-        }
-        .onChange(of: store.userTimezone) { updated in
-            timezoneDraft = updated ?? ""
-        }
     }
 
     // MARK: - Shortcut Recording
-
-    private func saveTimezone() {
-        timezoneValidationError = store.saveUserTimezone(timezoneDraft)
-        if timezoneValidationError == nil {
-            timezoneDraft = store.userTimezone ?? ""
-        }
-    }
 
     private func startRecording() {
         startRecordingShortcut { shortcut, _ in
