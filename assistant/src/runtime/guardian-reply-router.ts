@@ -115,13 +115,17 @@ function parseCallbackAction(data: string): ParsedCallback | null {
  * 6-char alphanumeric request code at the start of a message.
  * Returns the matching canonical request and the remaining text after
  * the code prefix.
+ *
+ * When `scopeConversationId` is provided, the matched request must belong
+ * to that conversation — otherwise the code is treated as unmatched so
+ * that requests from other sessions are never accidentally consumed.
  */
 interface CodeParseResult {
   request: CanonicalGuardianRequest;
   remainingText: string;
 }
 
-function parseRequestCode(text: string): CodeParseResult | null {
+function parseRequestCode(text: string, scopeConversationId?: string): CodeParseResult | null {
   // Request codes are 6 hex chars (A-F, 0-9), uppercase
   const upper = text.toUpperCase();
   const match = upper.match(/^([A-F0-9]{6})(?:\s|$)/);
@@ -130,6 +134,16 @@ function parseRequestCode(text: string): CodeParseResult | null {
   const code = match[1];
   const request = getCanonicalGuardianRequestByCode(code);
   if (!request) return null;
+
+  // Scope to the current conversation when requested, so a code belonging
+  // to a different session/conversation is not consumed here.
+  if (scopeConversationId && request.conversationId && request.conversationId !== scopeConversationId) {
+    log.info(
+      { event: 'router_code_conversation_mismatch', code, requestId: request.id, expected: scopeConversationId, actual: request.conversationId },
+      'Request code matched a canonical request from a different conversation — ignoring',
+    );
+    return null;
+  }
 
   const remainingText = text.slice(code.length).trim();
   return { request, remainingText };
@@ -191,19 +205,32 @@ function notConsumed(): GuardianReplyResult {
 export async function routeGuardianReply(
   ctx: GuardianReplyContext,
 ): Promise<GuardianReplyResult> {
-  const { messageText, channel, actor, callbackData, approvalConversationGenerator } = ctx;
+  const { messageText, channel, actor, conversationId, callbackData, approvalConversationGenerator } = ctx;
 
   // ── 1. Deterministic callback parsing (button presses) ──
   if (callbackData) {
     const parsed = parseCallbackAction(callbackData);
     if (parsed) {
+      // When scoped to a conversation, verify the target request belongs to it
+      // before applying the decision. This prevents button presses in one
+      // session from resolving requests that belong to a different session.
+      if (conversationId) {
+        const targetRequest = getCanonicalGuardianRequest(parsed.requestId);
+        if (targetRequest && targetRequest.conversationId && targetRequest.conversationId !== conversationId) {
+          log.info(
+            { event: 'router_callback_conversation_mismatch', requestId: parsed.requestId, expected: conversationId, actual: targetRequest.conversationId },
+            'Callback target request belongs to a different conversation — ignoring',
+          );
+          return notConsumed();
+        }
+      }
       return applyDecision(parsed.requestId, parsed.action, actor);
     }
   }
 
   // ── 2. Request code parsing (6-char alphanumeric prefix) ──
   if (messageText.length > 0) {
-    const codeResult = parseRequestCode(messageText);
+    const codeResult = parseRequestCode(messageText, conversationId);
     if (codeResult) {
       const { request } = codeResult;
 

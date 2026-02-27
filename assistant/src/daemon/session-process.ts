@@ -35,6 +35,7 @@ import { executeFollowupAction } from '../runtime/guardian-action-followup-execu
 import { tryMintGuardianActionGrant } from '../runtime/guardian-action-grant-minter.js';
 import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
 import type { ApprovalConversationGenerator, GuardianActionCopyGenerator, GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
+import { routeGuardianReply } from '../runtime/guardian-reply-router.js';
 import { getLogger } from '../util/logger.js';
 import { resolveGuardianInviteIntent } from './guardian-invite-intent.js';
 import { resolveGuardianVerificationIntent } from './guardian-verification-intent.js';
@@ -404,6 +405,66 @@ export async function processMessage(
   await session.ensureActorScopedHistory();
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
+
+  // ── Canonical guardian reply router (desktop/session path) ──
+  // Attempts to route inbound messages through the canonical decision pipeline
+  // before falling through to the legacy guardian action interception. Handles
+  // deterministic request code prefixes and NL classification, with all
+  // decisions flowing through applyCanonicalGuardianDecision.
+  if (content.trim().length > 0) {
+    const routerResult = await routeGuardianReply({
+      messageText: content.trim(),
+      channel: 'vellum',
+      actor: {
+        externalUserId: undefined,
+        channel: 'vellum',
+        isTrusted: true,
+      },
+      conversationId: session.conversationId,
+      approvalConversationGenerator: _approvalConversationGenerator,
+    });
+
+    if (routerResult.consumed) {
+      const guardianIfCtx = session.getTurnInterfaceContext();
+      const routerChannelMeta = {
+        userMessageChannel: 'vellum' as const,
+        assistantMessageChannel: 'vellum' as const,
+        userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum',
+        assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum',
+        provenanceActorRole: 'guardian' as const,
+      };
+
+      const userMsg = createUserMessage(content, attachments);
+      const persisted = await conversationStore.addMessage(
+        session.conversationId,
+        'user',
+        JSON.stringify(userMsg.content),
+        routerChannelMeta,
+      );
+      session.messages.push(userMsg);
+
+      const replyText = routerResult.replyText
+        ?? (routerResult.decisionApplied ? 'Decision applied.' : 'Request already resolved.');
+      const assistantMsg = createAssistantMessage(replyText);
+      await conversationStore.addMessage(
+        session.conversationId,
+        'assistant',
+        JSON.stringify(assistantMsg.content),
+        routerChannelMeta,
+      );
+      session.messages.push(assistantMsg);
+
+      onEvent({ type: 'assistant_text_delta', text: replyText });
+      onEvent({ type: 'message_complete', sessionId: session.conversationId });
+
+      log.info(
+        { conversationId: session.conversationId, routerType: routerResult.type, requestId: routerResult.requestId },
+        'Session guardian reply routed through canonical pipeline',
+      );
+
+      return persisted.id;
+    }
+  }
 
   // ── Unified guardian action answer interception (mac channel) ──
   // Deterministic priority matching: pending → follow-up → expired.
