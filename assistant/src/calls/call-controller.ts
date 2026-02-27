@@ -14,6 +14,7 @@ import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 import {
   backfillSupersessionMetadata,
   expireGuardianActionRequest,
+  getByPendingQuestionId,
   getDeliveriesByRequestId,
   getPendingRequestByCallSessionId,
   markTimedOutWithReason,
@@ -708,7 +709,8 @@ export class CallController {
               effectiveToolMeta && this.pendingConsultation.toolApprovalMeta
                 ? effectiveToolMeta.toolName === this.pendingConsultation.toolApprovalMeta.toolName
                   && effectiveToolMeta.inputDigest === this.pendingConsultation.toolApprovalMeta.inputDigest
-                : !effectiveToolMeta && !this.pendingConsultation.toolApprovalMeta;
+                : !effectiveToolMeta && !this.pendingConsultation.toolApprovalMeta
+                  && questionText === this.pendingConsultation.questionText;
 
             if (isSameToolAction) {
               // Same tool/action — coalesce. Keep the existing consultation
@@ -880,6 +882,11 @@ export class CallController {
       fireCallQuestionNotifier(session.conversationId, this.callSessionId, questionText);
 
       // Dispatch guardian action request to all configured channels
+      // Capture the pending question ID in a closure for stable lookup
+      // after the async dispatch completes — avoids a racy
+      // getPendingRequestByCallSessionId lookup that could return a
+      // different request if another supersession occurs during the gap.
+      const stablePendingQuestionId = pendingQuestion.id;
       void dispatchGuardianQuestion({
         callSessionId: this.callSessionId,
         conversationId: session.conversationId,
@@ -891,7 +898,7 @@ export class CallController {
         // Backfill supersession chain: now that the new request exists in
         // the store, update the old request's superseded_by_request_id.
         if (supersededRequestId) {
-          const newRequest = getPendingRequestByCallSessionId(this.callSessionId);
+          const newRequest = getByPendingQuestionId(stablePendingQuestionId);
           if (newRequest) {
             backfillSupersessionMetadata(supersededRequestId, newRequest.id);
           }
