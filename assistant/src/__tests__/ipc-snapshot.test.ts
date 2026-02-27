@@ -735,6 +735,16 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'generate_avatar',
     description: 'a friendly purple cat with green eyes wearing a tiny hat',
   },
+  guardian_actions_pending_request: {
+    type: 'guardian_actions_pending_request',
+    conversationId: 'conv-guardian-001',
+  },
+  guardian_action_decision: {
+    type: 'guardian_action_decision',
+    requestId: 'req-guardian-001',
+    action: 'approve_once',
+    conversationId: 'conv-guardian-001',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -2032,6 +2042,33 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'generate_avatar_response',
     success: true,
     error: undefined,
+  },
+  guardian_actions_pending_response: {
+    type: 'guardian_actions_pending_response',
+    conversationId: 'conv-guardian-001',
+    prompts: [
+      {
+        requestId: 'req-guardian-001',
+        requestCode: 'REQ-GU',
+        state: 'pending',
+        questionText: 'Approve tool: bash',
+        toolName: 'bash',
+        actions: [
+          { action: 'approve_once', label: 'Approve once' },
+          { action: 'reject', label: 'Reject' },
+        ],
+        expiresAt: 1700100000000,
+        conversationId: 'conv-guardian-001',
+        callSessionId: null,
+      },
+    ],
+  },
+  guardian_action_decision_response: {
+    type: 'guardian_action_decision_response',
+    applied: true,
+    reason: undefined,
+    requestId: 'req-guardian-001',
+    userText: undefined,
   },
 };
 

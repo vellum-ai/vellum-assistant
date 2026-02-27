@@ -162,7 +162,7 @@ export function applyGuardianDecision(params: ApplyGuardianDecisionParams): Appl
   );
 
   if (!result.applied) {
-    return { applied: false, reason: 'stale' };
+    return { applied: false, reason: 'stale', requestId: effectiveDecision.requestId };
   }
 
   // Update the guardian approval request record
