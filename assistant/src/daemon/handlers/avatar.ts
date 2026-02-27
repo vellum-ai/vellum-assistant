@@ -1,9 +1,9 @@
 import * as net from 'node:net';
+import { join } from 'node:path';
 
-import type { GenerateAvatarRequest } from '../ipc-contract/settings.js';
 import { setAvatarTool } from '../../tools/system/avatar-generator.js';
 import { getWorkspaceDir } from '../../util/platform.js';
-import { join } from 'node:path';
+import type { GenerateAvatarRequest } from '../ipc-contract/settings.js';
 import { defineHandlers, type HandlerContext, log } from './shared.js';
 
 /**

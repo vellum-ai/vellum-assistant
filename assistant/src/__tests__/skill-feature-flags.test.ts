@@ -7,8 +7,6 @@ import type { SkillSummary } from '../config/skills.js';
 
 const DECLARED_FLAG_KEY = 'feature_flags.hatch-new-assistant.enabled';
 const DECLARED_SKILL_ID = 'hatch-new-assistant';
-const SMS_FLAG_KEY = 'feature_flags.sms.enabled';
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

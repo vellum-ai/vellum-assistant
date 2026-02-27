@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 // Mock the credential metadata store so the Telegram adapter can resolve
 // the bot username without touching the filesystem.
@@ -17,12 +17,10 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
 
 import {
   _resetRegistry,
+  type ChannelInviteTransport,
   getTransport,
   registerTransport,
-  type ChannelInviteTransport,
-  type InviteSharePayload,
 } from '../runtime/channel-invite-transport.js';
-
 // Importing the Telegram module auto-registers the transport
 import { telegramInviteTransport } from '../runtime/channel-invite-transports/telegram.js';
 

@@ -1,8 +1,8 @@
 import { isAssistantFeatureFlagEnabled } from '../../config/assistant-feature-flags.js';
 import { getConfig } from '../../config/loader.js';
+import { skillFlagKey } from '../../config/skill-state.js';
 import type { SkillSummary } from '../../config/skills.js';
 import { loadSkillBySelector, loadSkillCatalog } from '../../config/skills.js';
-import { skillFlagKey } from '../../config/skill-state.js';
 import { RiskLevel } from '../../permissions/types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { indexCatalogById, validateIncludes } from '../../skills/include-graph.js';

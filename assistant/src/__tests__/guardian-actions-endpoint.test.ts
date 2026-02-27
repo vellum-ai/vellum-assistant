@@ -68,11 +68,11 @@ mock.module('../runtime/routes/access-request-decision.js', () => ({
   handleAccessRequestDecision: mockHandleAccessRequestDecision,
 }));
 
-import { initializeDb, resetDb } from '../memory/db.js';
+import { guardianActionsHandlers } from '../daemon/handlers/guardian-actions.js';
 import {
   createApprovalRequest,
-  getPendingApprovalForRequest,
 } from '../memory/channel-guardian-store.js';
+import { initializeDb, resetDb } from '../memory/db.js';
 import { getDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
@@ -81,7 +81,6 @@ import {
   handleGuardianActionsPending,
   listGuardianDecisionPrompts,
 } from '../runtime/routes/guardian-action-routes.js';
-import { guardianActionsHandlers } from '../daemon/handlers/guardian-actions.js';
 
 initializeDb();
 
@@ -722,7 +721,7 @@ describe('IPC guardian_action_decision', () => {
     createTestApproval({ conversationId: 'conv-ipc-actor', requestId: 'req-ipc-actor' });
     mockApplyGuardianDecision.mockReturnValueOnce({ applied: true, requestId: 'req-ipc-actor' });
 
-    const { socket, ctx, sent } = createIpcStub();
+    const { socket, ctx } = createIpcStub();
     handler(
       { type: 'guardian_action_decision', requestId: 'req-ipc-actor', action: 'approve_once' } as any,
       socket as any,

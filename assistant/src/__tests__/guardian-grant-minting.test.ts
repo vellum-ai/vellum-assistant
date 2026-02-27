@@ -37,6 +37,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+import { GRANT_TTL_MS } from '../approvals/guardian-decision-primitive.js';
 import type { Session } from '../daemon/session.js';
 import {
   createApprovalRequest,
@@ -47,7 +48,6 @@ import * as approvalMessageComposer from '../runtime/approval-message-composer.j
 import * as gatewayClient from '../runtime/gateway-client.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 import type { GuardianContext } from '../runtime/routes/channel-route-shared.js';
-import { GRANT_TTL_MS } from '../approvals/guardian-decision-primitive.js';
 import {
   handleApprovalInterception,
 } from '../runtime/routes/guardian-approval-interception.js';

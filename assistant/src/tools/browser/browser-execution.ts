@@ -12,7 +12,7 @@ import {
 import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { detectAuthChallenge, detectCaptchaChallenge, formatAuthChallenge } from './auth-detector.js';
 import type { PageResponse,RouteHandler } from './browser-manager.js';
-import { browserManager, SCREENCAST_WIDTH, SCREENCAST_HEIGHT } from './browser-manager.js';
+import { browserManager, SCREENCAST_HEIGHT,SCREENCAST_WIDTH } from './browser-manager.js';
 import {
   ensureScreencast,
   getElementBounds,

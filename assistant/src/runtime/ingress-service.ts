@@ -23,8 +23,8 @@ import {
   upsertMember,
 } from '../memory/ingress-member-store.js';
 import {
-  redeemInvite as redeemInviteTyped,
   type InviteRedemptionOutcome,
+  redeemInvite as redeemInviteTyped,
 } from './invite-redemption-service.js';
 
 // ---------------------------------------------------------------------------

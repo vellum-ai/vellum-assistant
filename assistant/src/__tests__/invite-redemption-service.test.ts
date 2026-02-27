@@ -25,9 +25,9 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { getSqlite, initializeDb, resetDb } from '../memory/db.js';
-import { createInvite } from '../memory/ingress-invite-store.js';
+import { createInvite, revokeInvite as revokeStoreFn } from '../memory/ingress-invite-store.js';
 import { upsertMember } from '../memory/ingress-member-store.js';
-import { redeemInvite, type InviteRedemptionOutcome } from '../runtime/invite-redemption-service.js';
+import { type InviteRedemptionOutcome,redeemInvite } from '../runtime/invite-redemption-service.js';
 
 initializeDb();
 
@@ -90,8 +90,6 @@ describe('invite-redemption-service', () => {
   });
 
   test('returns revoked for a revoked invite', () => {
-    const { revokeInvite: revokeStoreFn } = require('../memory/ingress-invite-store.js') as typeof import('../memory/ingress-invite-store.js');
-
     const { rawToken, invite } = createInvite({
       sourceChannel: 'telegram',
       maxUses: 1,

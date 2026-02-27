@@ -63,7 +63,7 @@ export async function tryMintGuardianActionGrant(params: {
   // and a generator is available, delegate to the conversational engine.
   // Only allow approve_once (not approve_always) to keep guardian-action
   // grants strictly one-time and consistent with guardian policy.
-  if (!isApproval && decision === null && approvalConversationGenerator) {
+  if (!isApproval && !decision && approvalConversationGenerator) {
     try {
       const llmResult = await runApprovalConversationTurn(
         {

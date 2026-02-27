@@ -81,10 +81,6 @@ import {
   handleTrustRule,
 } from './routes/approval-routes.js';
 import {
-  handleGuardianActionDecision,
-  handleGuardianActionsPending,
-} from './routes/guardian-action-routes.js';
-import {
   handleDeleteAttachment,
   handleGetAttachment,
   handleGetAttachmentContent,
@@ -122,6 +118,10 @@ import {
 } from './routes/conversation-routes.js';
 import { handleDebug } from './routes/debug-routes.js';
 import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
+import {
+  handleGuardianActionDecision,
+  handleGuardianActionsPending,
+} from './routes/guardian-action-routes.js';
 import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
 import {
   handleBlockMember,

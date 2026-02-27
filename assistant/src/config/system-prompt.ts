@@ -9,8 +9,8 @@ import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platfo
 import { isAssistantFeatureFlagEnabled } from './assistant-feature-flags.js';
 import { getBaseDataDir, getIsContainerized } from './env-registry.js';
 import { getConfig } from './loader.js';
-import { loadSkillCatalog, type SkillSummary } from './skills.js';
 import { skillFlagKey } from './skill-state.js';
+import { loadSkillCatalog, type SkillSummary } from './skills.js';
 import { resolveUserReference } from './user-reference.js';
 
 const log = getLogger('system-prompt');

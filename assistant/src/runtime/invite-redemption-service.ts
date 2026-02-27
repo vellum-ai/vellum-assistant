@@ -8,8 +8,8 @@
  */
 
 import { getSqlite } from '../memory/db.js';
+import { findByTokenHash, hashToken, markInviteExpired, recordInviteUse,redeemInvite as storeRedeemInvite } from '../memory/ingress-invite-store.js';
 import { findMember, upsertMember } from '../memory/ingress-member-store.js';
-import { findByTokenHash, hashToken, markInviteExpired, redeemInvite as storeRedeemInvite, recordInviteUse } from '../memory/ingress-invite-store.js';
 
 // ---------------------------------------------------------------------------
 // Outcome type

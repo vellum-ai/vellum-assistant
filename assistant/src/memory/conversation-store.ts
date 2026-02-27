@@ -1,8 +1,8 @@
 // Re-export all conversation store functionality from focused sub-modules.
 // Existing imports from this file continue to work without changes.
 
-import { rawExec, rawGet, rawRun } from './db.js';
 import { ensureDisplayOrderMigration } from './conversation-display-order-migration.js';
+import { rawExec, rawGet, rawRun } from './db.js';
 
 export {
   addMessage,

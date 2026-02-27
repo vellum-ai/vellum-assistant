@@ -6,8 +6,6 @@
  */
 // Side-effect import: registers the Telegram invite transport adapter so
 // getTransport('telegram') resolves at runtime.
-import '../channel-invite-transports/telegram.js';
-
 import { answerCall } from '../../calls/call-domain.js';
 import { isTerminalState } from '../../calls/call-state-machine.js';
 import { getCallSession } from '../../calls/call-store.js';
@@ -58,6 +56,7 @@ import {
   updateSessionStatus,
   validateAndConsumeChallenge,
 } from '../channel-guardian-service.js';
+import { getTransport } from '../channel-invite-transport.js';
 import { deliverChannelReply } from '../gateway-client.js';
 import { processGuardianFollowUpTurn } from '../guardian-action-conversation-turn.js';
 import { executeFollowupAction } from '../guardian-action-followup-executor.js';
@@ -77,7 +76,6 @@ import type {
   GuardianFollowUpConversationGenerator,
   MessageProcessor,
 } from '../http-types.js';
-import { getTransport } from '../channel-invite-transport.js';
 import { redeemInvite } from '../invite-redemption-service.js';
 import { getInviteRedemptionReply } from '../invite-redemption-templates.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
@@ -91,6 +89,8 @@ import {
 } from './channel-route-shared.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
 import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
+
+import '../channel-invite-transports/telegram.js';
 
 const log = getLogger('runtime-http');
 
@@ -948,7 +948,6 @@ export async function handleChannelInbound(
 
       // ── Auto-match: single actionable request across all states ──
       // When there's only one request and no explicit code, auto-match directly
-      let autoMatched = false;
       if (!codeMatch && totalActionable === 1) {
         const singleDelivery = allPending[0] ?? allFollowup[0] ?? allExpired[0];
         const singleReq = getGuardianActionRequest(singleDelivery.requestId);
@@ -960,7 +959,6 @@ export async function handleChannelInbound(
             text = trimmedContent.slice(singleReq.requestCode.length).trim();
           }
           codeMatch = { delivery: singleDelivery, request: singleReq, state, answerText: text };
-          autoMatched = true;
         }
       }
 
@@ -1022,7 +1020,7 @@ export async function handleChannelInbound(
 
       // ── Dispatch matched delivery by state ──
       if (codeMatch) {
-        const { delivery: matchedDelivery, request, state, answerText } = codeMatch;
+        const { request, state, answerText } = codeMatch;
 
         // ── PENDING state handler ──
         if (state === 'pending' && request.status === 'pending') {
