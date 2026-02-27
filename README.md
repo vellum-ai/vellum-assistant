@@ -718,7 +718,7 @@ A three-command workflow for executing plans one PR at a time with human review 
 | Command | Purpose |
 |---------|---------|
 | `/safe-execute-plan <file>` | Start a plan from `.private/plans/` — implements the next PR, creates it (without merging), automatically runs an **automated review feedback loop** (up to 3 fix cycles with Codex/Devin), and stops to await human merge approval. |
-| `/safe-check-review [file]` | Check the active plan PR for feedback from codex/devin/humans. Addresses requested changes by pushing fixes. Waits if reviews are still pending — only recommends merging once all reviewers have responded. Auto-detects the plan if only one is active. |
+| `/safe-check-review [file]` | Check the active plan PR for feedback from codex/devin/humans and CI. Runs an **automated feedback loop** (up to 3 fix cycles): fetches full review data (reviews, inline comments, review threads, reactions, CI checks), determines aggregate status including CI state and human unresolved threads, addresses `changes_requested` by pushing fixes, re-requests reviews, and polls for fresh responses — only concluding approved once all reviewers (bots and humans) and CI are green. Auto-detects the plan if only one is active. |
 | `/resume-plan [file]` | Merge the current PR, implement the next one, create it, and stop again. Repeats until the plan is complete. Auto-detects the plan if only one is active. |
 
 **Typical flow:**

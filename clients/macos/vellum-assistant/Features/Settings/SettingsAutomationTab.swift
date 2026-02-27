@@ -7,6 +7,7 @@ struct SettingsAutomationTab: View {
     var daemonClient: DaemonClient?
     @Binding var showingReminders: Bool
     @Binding var showingScheduledTasks: Bool
+    @Binding var showingHeartbeatConfig: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -60,7 +61,7 @@ struct SettingsAutomationTab: View {
             }
 
             // Heartbeat section (checklist + runs, minus configCard)
-            HeartbeatAutomationSection(daemonClient: daemonClient)
+            HeartbeatAutomationSection(daemonClient: daemonClient, showingHeartbeatConfig: $showingHeartbeatConfig)
         }
     }
 }
@@ -73,6 +74,7 @@ struct SettingsAutomationTab: View {
 @MainActor
 struct HeartbeatAutomationSection: View {
     var daemonClient: DaemonClient?
+    @Binding var showingHeartbeatConfig: Bool
 
     // -- Checklist state --
     @State private var checklistContent: String = ""
@@ -108,6 +110,9 @@ struct HeartbeatAutomationSection: View {
                     Text("Using default")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
+                }
+                VIconButton(label: "Config", icon: "gearshape", iconOnly: true) {
+                    showingHeartbeatConfig = true
                 }
             }
 

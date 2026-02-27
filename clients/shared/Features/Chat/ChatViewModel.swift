@@ -238,6 +238,11 @@ public final class ChatViewModel: ObservableObject {
         get { errorManager.sessionError }
         set { errorManager.sessionError = newValue }
     }
+    /// Whether this view model has an active error (either a session error or error text).
+    /// Used by ThreadManager to derive `ThreadInteractionState.error`.
+    public var hasActiveError: Bool {
+        sessionError != nil || errorText != nil
+    }
     /// Supplemental diagnostic hint shown alongside a daemon connection error.
     /// Nil when no connection error is active or the error has been dismissed.
     public var connectionDiagnosticHint: String? {

@@ -2,23 +2,19 @@ import Foundation
 import SwiftUI
 import VellumAssistantShared
 
-/// Channels settings tab — Gateway URL, Bearer Token, channel configuration,
-/// and QR pairing UI. This is the single source of truth for configuring how devices
+/// Channels settings tab — channel configuration and QR pairing UI.
+/// This is the single source of truth for configuring how devices
 /// and integrations reach this Mac.
 @MainActor
 struct SettingsChannelsTab: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
 
-    @State private var gatewayUrlText: String = ""
-    @FocusState private var isGatewayUrlFocused: Bool
     @State private var bearerToken: String = ""
     @State private var tokenRevealed: Bool = false
     @State private var tokenCopied: Bool = false
-    @State private var gatewayTargetCopied: Bool = false
     @State private var showingPairingQR: Bool = false
     @State private var showingRegenerateConfirmation: Bool = false
-    @State private var gatewayExpanded: Bool = true
     @State private var advancedExpanded: Bool = false
 
     // Telegram credential entry
@@ -64,9 +60,6 @@ struct SettingsChannelsTab: View {
     @State private var countdownTimer: Timer?
     @State private var countdownTimerRefCount: Int = 0
 
-    // Refresh button minimum-spin state (keyed by row label)
-    @State private var refreshSpinning: Set<String> = []
-
     // Shared label column width for channelStatusRow and guardianLabel alignment
     private let labelColumnWidth: CGFloat = 140
 
@@ -76,30 +69,17 @@ struct SettingsChannelsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            gatewaySection
             connectionsSection
         }
         .onAppear {
-            store.refreshIngressConfig()
             store.refreshAssistantEmail()
             store.refreshApprovedDevices()
-            gatewayUrlText = store.ingressPublicBaseUrl
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
             store.refreshChannelGuardianStatus(channel: "voice")
+            store.refreshTelegramApprovedMembers()
             store.fetchSlackChannelConfig()
-            gatewayExpanded = store.ingressPublicBaseUrl.isEmpty
-        }
-        .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
-            if !isGatewayUrlFocused {
-                gatewayUrlText = newValue
-            }
-        }
-        .onChange(of: isGatewayUrlFocused) { _, focused in
-            if !focused {
-                gatewayUrlText = store.ingressPublicBaseUrl
-            }
         }
         .onChange(of: store.twilioHasCredentials) { _, hasCredentials in
             if !hasCredentials {
@@ -108,11 +88,6 @@ struct SettingsChannelsTab: View {
                 voiceSetupExpanded = false
                 voiceNumberPickerExpanded = false
             }
-        }
-        .onChange(of: store.ingressConfigLoaded) { _, loaded in
-            guard loaded else { return }
-            Task { await store.testGatewayOnly() }
-            Task { await store.testTunnelOnly() }
         }
         .alert("Regenerate Bearer Token", isPresented: $showingRegenerateConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -128,127 +103,6 @@ struct SettingsChannelsTab: View {
                 daemonClient: daemonClient
             )
         }
-    }
-
-    // MARK: - Gateway Section
-
-    private var gatewaySection: some View {
-        VDisclosureSection(
-            title: "Gateway",
-            icon: "network",
-            subtitle: !gatewayExpanded && !store.ingressPublicBaseUrl.isEmpty ? store.ingressPublicBaseUrl : nil,
-            isExpanded: $gatewayExpanded
-        ) {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                // Local Gateway Target (read-only)
-                HStack(spacing: VSpacing.xs) {
-                    Text("Local Gateway Target")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                HStack(spacing: VSpacing.sm) {
-                    Text(store.localGatewayTarget)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
-                        .textSelection(.enabled)
-                        .padding(VSpacing.md)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(VColor.surface.opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-                        )
-
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
-                        gatewayTargetCopied = true
-                        Task {
-                            try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            gatewayTargetCopied = false
-                        }
-                    } label: {
-                        Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Copy gateway address")
-                    .help("Copy address")
-                }
-
-                Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-
-                // Gateway connection status (checks local daemon)
-                connectionStatusRow(
-                    label: "Gateway",
-                    status: gatewayStatusInfo,
-                    isRefreshing: store.isCheckingGateway,
-                    lastChecked: store.gatewayLastChecked
-                ) {
-                    Task { await store.testGatewayOnly() }
-                }
-
-                Divider()
-                    .background(VColor.surfaceBorder)
-
-                // Gateway URL field
-                HStack(spacing: VSpacing.xs) {
-                    Text("Gateway URL")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                HStack(spacing: VSpacing.sm) {
-                    TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                        .focused($isGatewayUrlFocused)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-
-                    VButton(label: "Save", style: .primary) {
-                        store.saveIngressPublicBaseUrl(gatewayUrlText)
-                    }
-                }
-
-                // Tunnel connection status (checks public URL)
-                connectionStatusRow(
-                    label: "Tunnel",
-                    status: tunnelStatusInfo,
-                    isRefreshing: store.isCheckingTunnel,
-                    lastChecked: store.tunnelLastChecked
-                ) {
-                    Task { await store.testTunnelOnly() }
-                }
-
-                // Diagnostic message when gateway is up but tunnel is down
-                if store.gatewayReachable == true,
-                   !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                   store.ingressReachable == false {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 12))
-                        Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.warning)
-                    }
-                }
-
-                Divider()
-                    .background(VColor.surfaceBorder)
-
-                bearerTokenContent
-            }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Bearer Token Content
@@ -338,8 +192,8 @@ struct SettingsChannelsTab: View {
             mobileCard
             telegramCard
             slackChannelCard
-            twilioCard
             voiceCard
+            twilioCard
             emailCard
         }
     }
@@ -455,9 +309,70 @@ struct SettingsChannelsTab: View {
                 Divider().background(VColor.surfaceBorder)
                 guardianStatusRow(channel: "telegram")
             }
+
+            // Approved users (only when bot token exists and guardian is verified)
+            if store.telegramHasBotToken && store.telegramGuardianVerified {
+                Divider().background(VColor.surfaceBorder)
+                telegramApprovedUsersSection
+            }
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Telegram Approved Users
+
+    private var telegramApprovedUsersSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.xs) {
+                Text("Approved Users")
+                VInfoTooltip("Users who have been granted access to interact with your assistant via Telegram.")
+            }
+            .font(VFont.caption)
+            .foregroundColor(VColor.textSecondary)
+
+            if store.telegramApprovedMembersLoading {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            } else if store.telegramApprovedMembers.isEmpty {
+                Text("No approved users.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            } else {
+                ForEach(store.telegramApprovedMembers) { member in
+                    HStack(spacing: VSpacing.sm) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(member.displayName ?? member.username ?? member.externalUserId ?? member.id)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+                                .lineLimit(1)
+                            if let username = member.username, member.displayName != nil {
+                                Text("@\(username)")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                                    .lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                        VButton(label: "Revoke", style: .danger) {
+                            store.revokeTelegramApprovedMember(memberId: member.id)
+                        }
+                        .disabled(store.telegramRevokingMemberIds.contains(member.id))
+                    }
+                }
+            }
+
+            if let error = store.telegramApprovedMembersError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+        }
     }
 
     // MARK: - Telegram Credential Entry
@@ -1702,13 +1617,6 @@ struct SettingsChannelsTab: View {
                         }
                     )
                 }
-
-                Button("Clear All") {
-                    store.clearAllApprovedDevices()
-                }
-                .font(VFont.caption)
-                .foregroundColor(VColor.error)
-                .buttonStyle(.borderless)
             }
 
             Divider().background(VColor.surfaceBorder)
@@ -1801,159 +1709,6 @@ struct SettingsChannelsTab: View {
         }
     }
 
-
-    // MARK: - Spinning Refresh Icon
-
-    /// Standalone view for a continuously-rotating refresh icon.
-    ///
-    /// Uses `.task(id:)` to drive the rotation loop so that stopping
-    /// the animation is reliable (the task is cancelled when `isSpinning`
-    /// changes, which cleanly exits the animation loop).  The previous
-    /// `.animation(.repeatForever, value:)` + `nil` pattern has a known
-    /// SwiftUI bug where the repeating animation can persist after the
-    /// driving value becomes false.
-    private struct SpinningRefreshIcon: View {
-        let isSpinning: Bool
-
-        @State private var angle: Double = 0
-
-        var body: some View {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isSpinning ? VColor.accent : VColor.textMuted)
-                .rotationEffect(.degrees(angle))
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-                .task(id: isSpinning) {
-                    if isSpinning {
-                        angle = 0
-                        while !Task.isCancelled {
-                            withAnimation(.linear(duration: 1)) {
-                                angle += 360
-                            }
-                            try? await Task.sleep(nanoseconds: 1_000_000_000)
-                        }
-                    } else {
-                        angle = 0
-                    }
-                }
-        }
-    }
-
-    // MARK: - Connection Status Helpers
-
-    private struct ConnectionStatusInfo {
-        let label: String
-        let color: Color
-        let icon: String
-    }
-
-    private var gatewayStatusInfo: ConnectionStatusInfo {
-        guard let reachable = store.gatewayReachable else {
-            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
-        }
-        if reachable {
-            return ConnectionStatusInfo(label: "Running", color: VColor.success, icon: "checkmark.circle.fill")
-        } else {
-            return ConnectionStatusInfo(label: "Stopped", color: VColor.error, icon: "xmark.circle.fill")
-        }
-    }
-
-    private var tunnelStatusInfo: ConnectionStatusInfo {
-        let trimmedUrl = store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // No URL configured
-        if trimmedUrl.isEmpty {
-            return ConnectionStatusInfo(label: "Not configured", color: VColor.textMuted, icon: "minus.circle.fill")
-        }
-
-        // URL is non-empty but not a valid absolute HTTP(S) URL
-        if let parsed = URL(string: trimmedUrl), let scheme = parsed.scheme, ["http", "https"].contains(scheme.lowercased()) {
-            // valid — fall through to further checks below
-        } else {
-            return ConnectionStatusInfo(label: "Invalid URL format", color: VColor.error, icon: "exclamationmark.circle.fill")
-        }
-
-        // URL is set but ingress is disabled — the backend ignores the URL when
-        // ingress.enabled is false, so public callbacks are effectively off.
-        if !store.ingressEnabled {
-            return ConnectionStatusInfo(label: "URL set but gateway not active", color: VColor.warning, icon: "exclamationmark.triangle.fill")
-        }
-
-        // Haven't tested yet
-        guard let reachable = store.ingressReachable else {
-            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
-        }
-
-        if reachable {
-            return ConnectionStatusInfo(label: "Reachable", color: VColor.success, icon: "checkmark.circle.fill")
-        } else {
-            return ConnectionStatusInfo(label: "Unreachable", color: VColor.error, icon: "xmark.circle.fill")
-        }
-    }
-
-    private func connectionStatusRow(
-        label: String,
-        status: ConnectionStatusInfo,
-        isRefreshing: Bool = false,
-        lastChecked: Date? = nil,
-        onRefresh: (() -> Void)? = nil
-    ) -> some View {
-        let spinning = isRefreshing || refreshSpinning.contains(label)
-
-        return HStack(spacing: VSpacing.sm) {
-            Text(label)
-                .font(VFont.bodyMedium)
-                .foregroundColor(VColor.textSecondary)
-                .frame(width: 60, alignment: .leading)
-
-            Image(systemName: status.icon)
-                .foregroundColor(status.color)
-                .font(.system(size: 12))
-
-            Text(status.label)
-                .font(VFont.body)
-                .foregroundColor(status.color)
-
-            if let onRefresh {
-                let tooltipText: String = {
-                    if spinning { return "Checking..." }
-                    if let lastChecked { return "Last verified: \(relativeTimeString(from: lastChecked))" }
-                    return "Test connection"
-                }()
-
-                Button {
-                    guard !spinning else { return }
-                    refreshSpinning.insert(label)
-                    onRefresh()
-                    Task {
-                        try? await Task.sleep(nanoseconds: 500_000_000)
-                        refreshSpinning.remove(label)
-                    }
-                } label: {
-                    SpinningRefreshIcon(isSpinning: spinning)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Refresh \(label) status")
-                .help(tooltipText)
-            }
-
-            Spacer()
-        }
-    }
-
-    /// Returns a human-readable relative time string (e.g. "just now", "2 minutes ago").
-    private func relativeTimeString(from date: Date) -> String {
-        let seconds = Int(-date.timeIntervalSinceNow)
-        if seconds < 5 { return "just now" }
-        if seconds < 60 { return "\(seconds) seconds ago" }
-        let minutes = seconds / 60
-        if minutes == 1 { return "1 minute ago" }
-        if minutes < 60 { return "\(minutes) minutes ago" }
-        let hours = minutes / 60
-        if hours == 1 { return "1 hour ago" }
-        return "\(hours) hours ago"
-    }
 
     // MARK: - Token Helpers
 

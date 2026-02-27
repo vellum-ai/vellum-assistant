@@ -64,6 +64,7 @@ struct SettingsAdvancedDevTab: View {
                 .foregroundColor(VColor.textSecondary)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }

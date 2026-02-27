@@ -1,0 +1,571 @@
+/**
+ * Tests for M4: voice consumer checks scoped grants before auto-denying
+ * non-guardian confirmation requests.
+ *
+ * Verifies:
+ *   1. A matching grant allows a non-guardian voice confirmation (exactly once).
+ *   2. No grant or mismatched grant still auto-denies.
+ *   3. Guardian auto-allow path remains unchanged.
+ *   4. Grants are revoked on call end (controller.destroy).
+ *   5. Second identical invocation after consume is denied (one-time use).
+ */
+
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+
+const testDir = mkdtempSync(join(tmpdir(), 'voice-scoped-grant-consumer-test-'));
+
+// ── Platform + logger mocks (must come before any source imports) ────
+
+mock.module('../util/platform.js', () => ({
+  getRootDir: () => testDir,
+  getDataDir: () => testDir,
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getSocketPath: () => join(testDir, 'test.sock'),
+  getPidPath: () => join(testDir, 'test.pid'),
+  getDbPath: () => join(testDir, 'test.db'),
+  getLogPath: () => join(testDir, 'test.log'),
+  ensureDataDir: () => {},
+  readHttpToken: () => null,
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+  isDebug: () => false,
+  truncateForLog: (value: string) => value,
+}));
+
+// ── Config mock ─────────────────────────────────────────────────────
+
+mock.module('../config/loader.js', () => ({
+  getConfig: () => ({
+    provider: 'anthropic',
+    providerOrder: ['anthropic'],
+    apiKeys: { anthropic: 'test-key' },
+    calls: {
+      enabled: true,
+      provider: 'twilio',
+      maxDurationSeconds: 12 * 60,
+      userConsultTimeoutSeconds: 90,
+      userConsultationTimeoutSeconds: 90,
+      silenceTimeoutSeconds: 30,
+      disclosure: { enabled: false, text: '' },
+      safety: { denyCategories: [] },
+      model: undefined,
+    },
+    memory: { enabled: false },
+  }),
+}));
+
+// ── Secret ingress mock ────────────────────────────────────────────
+
+mock.module('../security/secret-ingress.js', () => ({
+  checkIngressForSecrets: () => ({ blocked: false }),
+}));
+
+// ── Assistant event hub mock ───────────────────────────────────────
+
+mock.module('../runtime/assistant-event-hub.js', () => ({
+  assistantEventHub: {
+    publish: async () => {},
+  },
+}));
+
+mock.module('../runtime/assistant-event.js', () => ({
+  buildAssistantEvent: () => ({}),
+}));
+
+// ── Session runtime assembly mock ──────────────────────────────────
+
+mock.module('../daemon/session-runtime-assembly.js', () => ({
+  resolveChannelCapabilities: () => ({
+    supportsRichText: false,
+    supportsDynamicUi: false,
+    supportsVoiceInput: true,
+  }),
+}));
+
+
+// ── Import source modules after all mocks are registered ────────────
+
+import { and, eq } from 'drizzle-orm';
+
+import { setVoiceBridgeDeps, startVoiceTurn } from '../calls/voice-session-bridge.js';
+import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { scopedApprovalGrants } from '../memory/schema.js';
+import {
+  createScopedApprovalGrant,
+  type CreateScopedApprovalGrantParams,
+  revokeScopedApprovalGrantsForContext,
+} from '../memory/scoped-approval-grants.js';
+import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
+
+initializeDb();
+
+afterAll(() => {
+  resetDb();
+  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+});
+
+// ---------------------------------------------------------------------------
+// Mock session that triggers a confirmation_request on processMessage
+// ---------------------------------------------------------------------------
+
+const TOOL_NAME = 'execute_shell';
+const TOOL_INPUT = { command: 'rm -rf /tmp/test' };
+const ASSISTANT_ID = 'self';
+const CONVERSATION_ID = 'conv-voice-grant-test';
+const CALL_SESSION_ID = 'call-session-voice-grant-test';
+
+/**
+ * Create a mock session that, when runAgentLoop is called, emits a
+ * confirmation_request through the updateClient callback before completing.
+ */
+function createMockSession(opts?: {
+  confirmationRequestId?: string;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+}) {
+  const requestId = opts?.confirmationRequestId ?? `req-${crypto.randomUUID()}`;
+  const toolName = opts?.toolName ?? TOOL_NAME;
+  const toolInput = opts?.toolInput ?? TOOL_INPUT;
+
+  let clientCallback: ((msg: ServerMessage) => void) | null = null;
+  let confirmationDecision: { requestId: string; decision: string; reason?: string } | null = null;
+
+  const session = {
+    isProcessing: () => false,
+    memoryPolicy: {},
+    setAssistantId: () => {},
+    setGuardianContext: () => {},
+    setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setChannelCapabilities: () => {},
+    setVoiceCallControlPrompt: () => {},
+    currentRequestId: requestId,
+    abort: () => {},
+    persistUserMessage: async () => 'msg-1',
+    updateClient: (cb: (msg: ServerMessage) => void, _reset?: boolean) => {
+      clientCallback = cb;
+    },
+    handleConfirmationResponse: (
+      reqId: string,
+      decision: string,
+      _pattern?: string,
+      _scope?: string,
+      reason?: string,
+    ) => {
+      confirmationDecision = { requestId: reqId, decision, reason };
+    },
+    handleSecretResponse: () => {},
+    runAgentLoop: async (
+      _content: string,
+      _messageId: string,
+      broadcastFn: (msg: ServerMessage) => void,
+    ) => {
+      // Emit a confirmation_request through the client callback
+      if (clientCallback) {
+        clientCallback({
+          type: 'confirmation_request',
+          requestId,
+          toolName,
+          input: toolInput,
+          riskLevel: 'medium',
+          allowlistOptions: [],
+          scopeOptions: [],
+        } as ServerMessage);
+      }
+      // Then complete the turn
+      broadcastFn({ type: 'message_complete' } as ServerMessage);
+    },
+  };
+
+  return {
+    session,
+    requestId,
+    getConfirmationDecision: () => confirmationDecision,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Setup: inject mock deps into voice-session-bridge
+// ---------------------------------------------------------------------------
+
+function setupBridgeDeps(sessionFactory: () => ReturnType<typeof createMockSession>['session']) {
+  let currentSession: ReturnType<typeof createMockSession>['session'] | null = null;
+  setVoiceBridgeDeps({
+    getOrCreateSession: async () => {
+      currentSession = sessionFactory();
+      return currentSession as any;
+    },
+    resolveAttachments: () => [],
+    deriveDefaultStrictSideEffects: () => true,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function clearTables(): void {
+  const db = getDb();
+  try { db.run('DELETE FROM scoped_approval_grants'); } catch { /* table may not exist */ }
+}
+
+function grantParams(overrides: Partial<CreateScopedApprovalGrantParams> = {}): CreateScopedApprovalGrantParams {
+  const futureExpiry = new Date(Date.now() + 60_000).toISOString();
+  return {
+    assistantId: ASSISTANT_ID,
+    scopeMode: 'tool_signature',
+    toolName: TOOL_NAME,
+    inputDigest: computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT),
+    requestChannel: 'voice',
+    decisionChannel: 'telegram',
+    executionChannel: 'voice',
+    conversationId: CONVERSATION_ID,
+    callSessionId: CALL_SESSION_ID,
+    expiresAt: futureExpiry,
+    ...overrides,
+  };
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+describe('voice scoped grant consumer', () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test('non-guardian with matching grant: consumed and allowed', async () => {
+    // Create a matching grant
+    createScopedApprovalGrant(grantParams());
+
+    const mockData = createMockSession();
+    setupBridgeDeps(() => mockData.session);
+
+    const guardianContext: GuardianRuntimeContext = {
+      sourceChannel: 'voice',
+      actorRole: 'non-guardian',
+      requesterExternalUserId: 'caller-123',
+    };
+
+    await startVoiceTurn({
+      conversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      content: 'test utterance',
+      assistantId: ASSISTANT_ID,
+      guardianContext,
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    // Wait for the async agent loop to finish
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const decision = mockData.getConfirmationDecision();
+    expect(decision).not.toBeNull();
+    expect(decision!.decision).toBe('allow');
+    expect(decision!.reason).toContain('scoped grant');
+  });
+
+  test('non-guardian without grant: auto-denied', async () => {
+    // No grant created
+
+    const mockData = createMockSession();
+    setupBridgeDeps(() => mockData.session);
+
+    const guardianContext: GuardianRuntimeContext = {
+      sourceChannel: 'voice',
+      actorRole: 'non-guardian',
+      requesterExternalUserId: 'caller-123',
+    };
+
+    await startVoiceTurn({
+      conversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      content: 'test utterance',
+      assistantId: ASSISTANT_ID,
+      guardianContext,
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const decision = mockData.getConfirmationDecision();
+    expect(decision).not.toBeNull();
+    expect(decision!.decision).toBe('deny');
+    expect(decision!.reason).toContain('Permission denied');
+  });
+
+  test('non-guardian with mismatched tool name: auto-denied', async () => {
+    // Create a grant for a different tool
+    createScopedApprovalGrant(grantParams({
+      toolName: 'read_file',
+      inputDigest: computeToolApprovalDigest('read_file', TOOL_INPUT),
+    }));
+
+    const mockData = createMockSession();
+    setupBridgeDeps(() => mockData.session);
+
+    const guardianContext: GuardianRuntimeContext = {
+      sourceChannel: 'voice',
+      actorRole: 'non-guardian',
+    };
+
+    await startVoiceTurn({
+      conversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      content: 'test utterance',
+      assistantId: ASSISTANT_ID,
+      guardianContext,
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const decision = mockData.getConfirmationDecision();
+    expect(decision).not.toBeNull();
+    expect(decision!.decision).toBe('deny');
+  });
+
+  test('guardian caller: auto-allowed regardless of grants', async () => {
+    // No grant needed — guardian should auto-allow
+
+    const mockData = createMockSession();
+    setupBridgeDeps(() => mockData.session);
+
+    const guardianContext: GuardianRuntimeContext = {
+      sourceChannel: 'voice',
+      actorRole: 'guardian',
+    };
+
+    await startVoiceTurn({
+      conversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      content: 'test utterance',
+      assistantId: ASSISTANT_ID,
+      guardianContext,
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const decision = mockData.getConfirmationDecision();
+    expect(decision).not.toBeNull();
+    expect(decision!.decision).toBe('allow');
+    expect(decision!.reason).toContain('guardian voice call');
+  });
+
+  test('one-time use: second identical invocation after consume is denied', async () => {
+    // Create a single grant
+    createScopedApprovalGrant(grantParams());
+
+    // First invocation — should consume the grant and allow
+    const mockData1 = createMockSession({ confirmationRequestId: 'req-first' });
+    setupBridgeDeps(() => mockData1.session);
+
+    const guardianContext: GuardianRuntimeContext = {
+      sourceChannel: 'voice',
+      actorRole: 'non-guardian',
+      requesterExternalUserId: 'caller-123',
+    };
+
+    await startVoiceTurn({
+      conversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      content: 'first utterance',
+      assistantId: ASSISTANT_ID,
+      guardianContext,
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const decision1 = mockData1.getConfirmationDecision();
+    expect(decision1).not.toBeNull();
+    expect(decision1!.decision).toBe('allow');
+
+    // Second invocation — grant already consumed, should deny
+    const mockData2 = createMockSession({ confirmationRequestId: 'req-second' });
+    setupBridgeDeps(() => mockData2.session);
+
+    await startVoiceTurn({
+      conversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      content: 'second utterance',
+      assistantId: ASSISTANT_ID,
+      guardianContext,
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const decision2 = mockData2.getConfirmationDecision();
+    expect(decision2).not.toBeNull();
+    expect(decision2!.decision).toBe('deny');
+  });
+
+  test('grants revoked when revokeScopedApprovalGrantsForContext is called with callSessionId', () => {
+    const db = getDb();
+    const testCallSessionId = 'call-session-revoke-test';
+
+    // Create two grants: one for our call session, one for another
+    createScopedApprovalGrant(grantParams({ callSessionId: testCallSessionId }));
+    createScopedApprovalGrant(grantParams({ callSessionId: 'other-call-session' }));
+
+    // Verify both grants are active
+    const allActive = db.select()
+      .from(scopedApprovalGrants)
+      .where(eq(scopedApprovalGrants.status, 'active'))
+      .all();
+    expect(allActive.length).toBe(2);
+
+    // Revoke grants for the specific call session (simulates call end)
+    const revokedCount = revokeScopedApprovalGrantsForContext({ callSessionId: testCallSessionId });
+    expect(revokedCount).toBe(1);
+
+    // Only the target call session's grant should be revoked
+    const activeAfter = db.select()
+      .from(scopedApprovalGrants)
+      .where(and(
+        eq(scopedApprovalGrants.callSessionId, testCallSessionId),
+        eq(scopedApprovalGrants.status, 'active'),
+      ))
+      .all();
+    expect(activeAfter.length).toBe(0);
+
+    const revokedAfter = db.select()
+      .from(scopedApprovalGrants)
+      .where(and(
+        eq(scopedApprovalGrants.callSessionId, testCallSessionId),
+        eq(scopedApprovalGrants.status, 'revoked'),
+      ))
+      .all();
+    expect(revokedAfter.length).toBe(1);
+
+    // The other call session's grant should still be active
+    const otherActive = db.select()
+      .from(scopedApprovalGrants)
+      .where(and(
+        eq(scopedApprovalGrants.callSessionId, 'other-call-session'),
+        eq(scopedApprovalGrants.status, 'active'),
+      ))
+      .all();
+    expect(otherActive.length).toBe(1);
+  });
+
+  test('grants with null callSessionId are revoked by conversationId', () => {
+    const db = getDb();
+    const testConversationId = 'conv-revoke-by-conversation';
+
+    // Simulate the guardian-approval-interception minting path which sets
+    // callSessionId: null but always sets conversationId
+    createScopedApprovalGrant(grantParams({
+      callSessionId: null,
+      conversationId: testConversationId,
+    }));
+    createScopedApprovalGrant(grantParams({
+      callSessionId: null,
+      conversationId: 'other-conversation',
+    }));
+
+    // Verify both grants are active
+    const allActive = db.select()
+      .from(scopedApprovalGrants)
+      .where(eq(scopedApprovalGrants.status, 'active'))
+      .all();
+    expect(allActive.length).toBe(2);
+
+    // callSessionId-based revocation should miss grants with null callSessionId
+    // because the filter matches on the column value, not NULL
+    const revokedByCallSession = revokeScopedApprovalGrantsForContext({ callSessionId: CALL_SESSION_ID });
+    expect(revokedByCallSession).toBe(0);
+
+    // conversationId-based revocation catches the grant
+    const revokedByConversation = revokeScopedApprovalGrantsForContext({ conversationId: testConversationId });
+    expect(revokedByConversation).toBe(1);
+
+    // The target conversation's grant should be revoked
+    const revokedAfter = db.select()
+      .from(scopedApprovalGrants)
+      .where(and(
+        eq(scopedApprovalGrants.conversationId, testConversationId),
+        eq(scopedApprovalGrants.status, 'revoked'),
+      ))
+      .all();
+    expect(revokedAfter.length).toBe(1);
+
+    // The other conversation's grant should still be active
+    const otherActive = db.select()
+      .from(scopedApprovalGrants)
+      .where(and(
+        eq(scopedApprovalGrants.conversationId, 'other-conversation'),
+        eq(scopedApprovalGrants.status, 'active'),
+      ))
+      .all();
+    expect(otherActive.length).toBe(1);
+  });
+
+  test('non-guardian with grant for different assistantId: auto-denied', async () => {
+    // Create a grant scoped to a different assistant
+    createScopedApprovalGrant(grantParams({
+      assistantId: 'other-assistant',
+    }));
+
+    const mockData = createMockSession();
+    setupBridgeDeps(() => mockData.session);
+
+    const guardianContext: GuardianRuntimeContext = {
+      sourceChannel: 'voice',
+      actorRole: 'non-guardian',
+      requesterExternalUserId: 'caller-123',
+    };
+
+    await startVoiceTurn({
+      conversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      content: 'test utterance',
+      assistantId: ASSISTANT_ID,
+      guardianContext,
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const decision = mockData.getConfirmationDecision();
+    expect(decision).not.toBeNull();
+    expect(decision!.decision).toBe('deny');
+  });
+});

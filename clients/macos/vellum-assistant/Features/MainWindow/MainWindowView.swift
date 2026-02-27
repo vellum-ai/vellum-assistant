@@ -783,7 +783,7 @@ struct MainWindowView: View {
             }
         }()
         let isHovered = sidebar.isHoveredThread == thread.id
-        let isBusy = threadManager.isThreadBusy(thread.id)
+        let interactionState = threadManager.interactionState(for: thread.id)
         // Reserve trailing space when hovered for archive button overlay.
         let hasTrailingIcon = isHovered || sidebar.threadPendingDeletion == thread.id
         // Always reserve 20pt leading slot so text never shifts.
@@ -799,32 +799,44 @@ struct MainWindowView: View {
             }
         }) {
             HStack(spacing: VSpacing.xs) {
-                // Leading icon: spinner (busy) > amber unread dot > pin icon > spacer
+                // Leading icon: interaction state > idle fallback (unread dot > pin > spacer).
                 // The interactive pin button is in .overlay(alignment: .leading) below
                 // to avoid nesting a Button inside this outer Button's label.
                 // When hovered, the amber dot swaps to the pin icon (and back on hover-out).
-                if isBusy {
-                    ProgressView()
-                        .controlSize(.small)
+                switch interactionState {
+                case .processing:
+                    VBusyIndicator()
                         .frame(width: 20, height: 20)
-                } else if thread.hasUnseenLatestAssistantMessage && !isHovered {
-                    Circle()
-                        .fill(Color(hex: 0xE86B40))
-                        .frame(width: 6, height: 6)
+                case .waitingForInput:
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.warning)
                         .frame(width: 20, height: 20)
-                        .transition(.opacity)
-                } else if isHovered || thread.isPinned {
-                    Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                        .rotationEffect(.degrees(-45))
+                case .error:
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.error)
                         .frame(width: 20, height: 20)
-                        .background(VColor.backgroundSubtle)
-                        .clipShape(Circle())
-                        .transition(.opacity)
-                } else {
-                    Color.clear
-                        .frame(width: 20, height: 20)
+                case .idle:
+                    if thread.hasUnseenLatestAssistantMessage && !isHovered {
+                        Circle()
+                            .fill(Color(hex: 0xE86B40))
+                            .frame(width: 6, height: 6)
+                            .frame(width: 20, height: 20)
+                            .transition(.opacity)
+                    } else if isHovered || thread.isPinned {
+                        Image(systemName: thread.isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(VColor.textMuted)
+                            .rotationEffect(.degrees(-45))
+                            .frame(width: 20, height: 20)
+                            .background(VColor.backgroundSubtle)
+                            .clipShape(Circle())
+                            .transition(.opacity)
+                    } else {
+                        Color.clear
+                            .frame(width: 20, height: 20)
+                    }
                 }
                 if thread.kind == .private {
                     Image(systemName: "lock.fill")
@@ -1177,10 +1189,26 @@ struct MainWindowView: View {
                 .padding(.horizontal, VSpacing.md)
 
             // MARK: Threads (scrollable)
-            SidebarThreadsHeader(onNewThread: {
-                windowState.selection = nil
-                threadManager.createThread()
-            })
+            SidebarThreadsHeader(
+                hasUnseenThreads: threadManager.unseenVisibleConversationCount > 0,
+                onMarkAllSeen: {
+                    let markedIds = threadManager.markAllThreadsSeen()
+                    guard !markedIds.isEmpty else { return }
+                    let count = markedIds.count
+                    windowState.showToast(
+                        message: "Marked \(count) thread\(count == 1 ? "" : "s") as seen",
+                        style: .success,
+                        primaryAction: VToastAction(label: "Undo") {
+                            threadManager.restoreUnseen(threadIds: markedIds)
+                            windowState.dismissToast()
+                        }
+                    )
+                },
+                onNewThread: {
+                    windowState.selection = nil
+                    threadManager.createThread()
+                }
+            )
 
             ScrollView {
                 VStack(spacing: 0) {
@@ -1493,6 +1521,8 @@ private struct SidebarNavRow: View {
 }
 
 private struct SidebarThreadsHeader: View {
+    let hasUnseenThreads: Bool
+    let onMarkAllSeen: () -> Void
     let onNewThread: () -> Void
 
     var body: some View {
@@ -1501,11 +1531,28 @@ private struct SidebarThreadsHeader: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(VColor.textPrimary)
             Spacer()
+            if hasUnseenThreads {
+                VIconButton(
+                    label: "Mark all as seen",
+                    icon: "checkmark.circle",
+                    iconOnly: true,
+                    tooltip: "Mark all as seen",
+                    action: onMarkAllSeen
+                )
+            }
             VIconButton(label: "New thread", icon: "plus", iconOnly: true, action: onNewThread)
         }
         .padding(.leading, 20)
         .padding(.trailing, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
+        .contextMenu {
+            Button {
+                onMarkAllSeen()
+            } label: {
+                Label("Mark All as Seen", systemImage: "checkmark.circle")
+            }
+            .disabled(!hasUnseenThreads)
+        }
     }
 }
 

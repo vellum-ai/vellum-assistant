@@ -27,6 +27,10 @@ export interface GuardianDispatchParams {
   conversationId: string;
   assistantId: string;
   pendingQuestion: CallPendingQuestion;
+  /** Tool identity for tool-approval requests (absent for informational ASK_GUARDIAN). */
+  toolName?: string;
+  /** Canonical SHA-256 digest of tool input for tool-approval requests. */
+  inputDigest?: string;
 }
 
 function applyDeliveryStatus(deliveryId: string, result: NotificationDeliveryResult): void {
@@ -48,6 +52,8 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
     conversationId,
     assistantId,
     pendingQuestion,
+    toolName,
+    inputDigest,
   } = params;
 
   try {
@@ -63,6 +69,8 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
       pendingQuestionId: pendingQuestion.id,
       questionText: pendingQuestion.questionText,
       expiresAt,
+      toolName,
+      inputDigest,
     });
 
     log.info(

@@ -11,7 +11,6 @@ import { updatePublishedAppDeployment } from '../services/published-app-updater.
 import { openAppViaSurface } from '../tools/apps/open-proxy.js';
 import type { ToolExecutionResult } from '../tools/types.js';
 import { isDoordashCommand, updateDoordashProgress } from './doordash-steps.js';
-import { normalizeActivationKey } from './handlers/config-voice.js';
 import type { ServerMessage } from './ipc-protocol.js';
 import {
   refreshSurfacesForApp,
@@ -97,16 +96,33 @@ registerHook(
   },
 );
 
-// Broadcast activation key change to all connected clients so every
-// macOS/iOS instance picks up the new setting immediately.
+// Broadcast voice config changes to all connected clients so every window
+// picks up the updated UserDefaults value immediately.
 registerHook('voice_config_update', (_name, input, _result, { broadcastToAllClients }) => {
-  const key = input.activation_key as string | undefined;
-  if (key) {
-    const normalized = normalizeActivationKey(key);
-    if (normalized.ok) {
-      broadcastToAllClients?.({ type: 'client_settings_update', key: 'activationKey', value: normalized.value });
-    }
+  const setting = (input.setting as string) ?? (input.activation_key ? 'activation_key' : undefined);
+  if (!setting) return;
+
+  const SETTING_TO_KEY: Record<string, string> = {
+    activation_key: 'pttActivationKey',
+    wake_word_enabled: 'wakeWordEnabled',
+    wake_word_keyword: 'wakeWordKeyword',
+    wake_word_timeout: 'wakeWordTimeoutSeconds',
+  };
+  const key = SETTING_TO_KEY[setting];
+  if (!key) return;
+
+  // Coerce the value to the correct type before broadcasting, matching
+  // the validation logic in the tool's execute method.
+  const raw = input.value ?? input.activation_key;
+  let coerced: string | boolean | number = raw as string;
+  if (setting === 'wake_word_enabled') {
+    coerced = raw === true || raw === 'true';
+  } else if (setting === 'wake_word_timeout') {
+    coerced = typeof raw === 'number' ? raw : Number(raw);
+  } else if (setting === 'wake_word_keyword' && typeof raw === 'string') {
+    coerced = raw.trim();
   }
+  broadcastToAllClients?.({ type: 'client_settings_update', key, value: coerced } as unknown as ServerMessage);
 });
 
 // ── Runner ───────────────────────────────────────────────────────────

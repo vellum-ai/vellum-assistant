@@ -140,7 +140,8 @@ export function composeThreadSeed(
     const parts: string[] = [];
     if (copy.title && copy.title !== 'Notification') parts.push(copy.title);
     if (copy.body) parts.push(copy.body);
-    if (signal.attentionHints.requiresAction && parts.length > 0) {
+    const alreadyMentionsAction = parts.some((part) => /\baction required\b/i.test(part));
+    if (signal.attentionHints.requiresAction && parts.length > 0 && !alreadyMentionsAction) {
       parts.push('Action required.');
     }
     if (parts.length > 0) {

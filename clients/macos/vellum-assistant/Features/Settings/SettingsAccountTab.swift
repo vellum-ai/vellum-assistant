@@ -34,6 +34,7 @@ struct SettingsAccountTab: View {
             accountSection
             assistantInfoSection
             switchAssistantSection
+            GatewaySettingsCard(store: store, daemonClient: daemonClient)
             retireAssistantSection
             hatchNewAssistantSection
         }
@@ -180,34 +181,31 @@ struct SettingsAccountTab: View {
             Divider().background(VColor.surfaceBorder)
 
             // Platform connection status
-            HStack(spacing: VSpacing.sm) {
-                Text("Platform")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                Spacer()
-                if store.isCheckingVellumPlatform {
-                    ProgressView().controlSize(.small)
-                } else if let reachable = store.vellumPlatformReachable {
-                    Image(systemName: reachable ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundColor(reachable ? VColor.success : VColor.error)
-                        .font(.system(size: 12))
-                    Text(reachable ? "Reachable" : (store.vellumPlatformError ?? "Unreachable"))
-                        .font(VFont.caption)
-                        .foregroundColor(reachable ? VColor.success : VColor.error)
-                }
-                Button {
-                    Task { await store.checkVellumPlatform() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(VColor.textSecondary)
-                }
-                .buttonStyle(.plain)
+            ConnectionStatusRow(
+                label: "Platform",
+                status: platformStatusInfo,
+                isRefreshing: store.isCheckingVellumPlatform,
+                lastChecked: store.platformLastChecked
+            ) {
+                Task { await store.checkVellumPlatform() }
             }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Platform Status
+
+    private var platformStatusInfo: ConnectionStatusInfo {
+        guard let reachable = store.vellumPlatformReachable else {
+            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
+        }
+        if reachable {
+            return ConnectionStatusInfo(label: "Reachable", color: VColor.success, icon: "checkmark.circle.fill")
+        } else {
+            return ConnectionStatusInfo(label: store.vellumPlatformError ?? "Unreachable", color: VColor.error, icon: "xmark.circle.fill")
+        }
     }
 
     // MARK: - Assistant Info

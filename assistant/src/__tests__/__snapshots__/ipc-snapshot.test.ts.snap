@@ -1748,6 +1748,10 @@ exports[`IPC message snapshots ServerMessage types skills_list_response serializ
       "emoji": "🔧",
       "id": "my-skill",
       "name": "My Skill",
+      "provenance": {
+        "kind": "first-party",
+        "provider": "Vellum",
+      },
       "source": "bundled",
       "state": "enabled",
       "updateAvailable": false,

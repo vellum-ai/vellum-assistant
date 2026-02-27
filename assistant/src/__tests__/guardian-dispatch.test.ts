@@ -336,8 +336,68 @@ describe('guardian-dispatch', () => {
     expect(vellumDelivery!.destination_conversation_id).toBe('conv-from-thread-created');
   });
 
-  test('includes activeGuardianRequestCount in context payload', async () => {
+  test('persists toolName and inputDigest on guardian action request for tool-approval dispatches', async () => {
     const convId = 'conv-dispatch-5';
+    ensureConversation(convId);
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15550002222',
+    });
+    const pq = createPendingQuestion(session.id, 'Allow send_email to bob@example.com?');
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq,
+      toolName: 'send_email',
+      inputDigest: 'abc123def456',
+    });
+
+    const db = getDb();
+    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const request = raw.query('SELECT * FROM guardian_action_requests WHERE call_session_id = ?').get(session.id) as
+      | { id: string; tool_name: string | null; input_digest: string | null }
+      | undefined;
+    expect(request).toBeDefined();
+    expect(request!.tool_name).toBe('send_email');
+    expect(request!.input_digest).toBe('abc123def456');
+  });
+
+  test('omitting toolName and inputDigest stores null for informational ASK_GUARDIAN dispatches', async () => {
+    const convId = 'conv-dispatch-6';
+    ensureConversation(convId);
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15550002222',
+    });
+    const pq = createPendingQuestion(session.id, 'What time works?');
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq,
+    });
+
+    const db = getDb();
+    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const request = raw.query('SELECT * FROM guardian_action_requests WHERE call_session_id = ?').get(session.id) as
+      | { id: string; tool_name: string | null; input_digest: string | null }
+      | undefined;
+    expect(request).toBeDefined();
+    expect(request!.tool_name).toBeNull();
+    expect(request!.input_digest).toBeNull();
+  });
+
+  test('includes activeGuardianRequestCount in context payload', async () => {
+    const convId = 'conv-dispatch-7';
     ensureConversation(convId);
 
     const session = createCallSession({
