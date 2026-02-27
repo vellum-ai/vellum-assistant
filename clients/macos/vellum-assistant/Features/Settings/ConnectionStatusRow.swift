@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Describes the current state of a connection check.
 struct ConnectionStatusInfo {
