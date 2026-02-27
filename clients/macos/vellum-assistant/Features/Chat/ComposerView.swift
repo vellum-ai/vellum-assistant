@@ -61,6 +61,7 @@ struct ComposerView: View {
 
     @Environment(\.conversationZoomScale) private var zoomScale
     @State private var composerFocusRequestID: Int = 0
+    @State private var isStopPulsing = false
     @State private var isStopHovered = false
     @State private var isSendHovered = false
     @State private var isMicrophoneHovered = false
@@ -264,6 +265,12 @@ struct ComposerView: View {
             if isSending && !hasPendingConfirmation {
                 Button(action: onStop) {
                     ZStack {
+                        Circle()
+                            .fill(VColor.textPrimary.opacity(0.15))
+                            .frame(width: 30, height: 30)
+                            .scaleEffect(isStopPulsing ? 1.35 : 1.0)
+                            .opacity(isStopPulsing ? 0.0 : 0.6)
+                            .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: false), value: isStopPulsing)
                         RoundedRectangle(cornerRadius: 10)
                             .fill(VColor.textPrimary)
                             .frame(width: 30, height: 30)
@@ -284,6 +291,12 @@ struct ComposerView: View {
                         hovering,
                         state: $isStopHovered
                     )
+                }
+                .onChange(of: isSending) {
+                    isStopPulsing = isSending && !hasPendingConfirmation
+                }
+                .onAppear {
+                    isStopPulsing = isSending && !hasPendingConfirmation
                 }
                 .accessibilityLabel("Stop generation")
             } else {
