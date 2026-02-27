@@ -256,7 +256,7 @@ CONFIG="debug"
 SWIFT_FLAGS=""
 if [ "$CMD" = "release" ]; then
     CONFIG="release"
-    SWIFT_FLAGS="-c release --arch arm64 --arch x86_64"
+    SWIFT_FLAGS="-c release ${RELEASE_ARCH_FLAGS:---arch arm64 --arch x86_64}"
     if [ "${SKIP_CLEAN:-}" = "1" ]; then
         echo "Release build: skipping .build clean (SKIP_CLEAN=1, using cached artifacts)"
         rm -rf "$SCRIPT_DIR/dist"
