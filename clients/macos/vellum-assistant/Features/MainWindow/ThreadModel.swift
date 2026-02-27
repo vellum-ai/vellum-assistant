@@ -15,12 +15,15 @@ struct ThreadModel: Identifiable, Hashable {
     var isArchived: Bool
     var isPinned: Bool
     var pinnedOrder: Int?
+    /// Explicit display order set by the user via drag-and-drop reordering.
+    /// nil means no explicit order — thread is sorted by recency.
+    var displayOrder: Int?
     var lastInteractedAt: Date
     var kind: ThreadKind
     var source: String?
     var hasUnseenLatestAssistantMessage: Bool = false
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil, hasUnseenLatestAssistantMessage: Bool = false) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil, hasUnseenLatestAssistantMessage: Bool = false) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -28,6 +31,7 @@ struct ThreadModel: Identifiable, Hashable {
         self.isArchived = isArchived
         self.isPinned = isPinned
         self.pinnedOrder = pinnedOrder
+        self.displayOrder = displayOrder
         self.lastInteractedAt = lastInteractedAt ?? createdAt
         self.kind = kind
         self.source = source

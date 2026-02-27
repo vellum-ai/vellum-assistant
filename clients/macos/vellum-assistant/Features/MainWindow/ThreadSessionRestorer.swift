@@ -182,6 +182,7 @@ final class ThreadSessionRestorer {
             && delegate.chatViewModel(for: delegate.threads[0].id)?.sessionId == nil
 
         var restoredThreads: [ThreadModel] = []
+        var pinnedCount = 0
         for session in recentSessions {
             // Skip sessions that already have a local thread (e.g. created by
             // createNotificationThread before the session list response arrived).
@@ -199,17 +200,22 @@ final class ThreadSessionRestorer {
                 .title
             let title = existingTitle ?? session.title
 
+            let isPinned = session.isPinned ?? false
             let effectiveCreatedAt = session.createdAt ?? session.updatedAt
             let thread = ThreadModel(
                 title: title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 sessionId: session.id,
                 isArchived: delegate.isSessionArchived(session.id),
+                isPinned: isPinned,
+                pinnedOrder: isPinned ? pinnedCount : nil,
+                displayOrder: session.displayOrder.map { Int($0) },
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 kind: kind,
                 source: session.source,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
             )
+            if isPinned { pinnedCount += 1 }
             // VM creation is lazy — only the active thread will get a VM via
             // getOrCreateViewModel() when it's first accessed.
             restoredThreads.append(thread)
