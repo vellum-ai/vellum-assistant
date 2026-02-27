@@ -227,31 +227,27 @@ final class LiveTranscriptManager: ObservableObject {
         let segmentCount = segments.count
         let transcriptText = formatTranscript()
 
-        // Save any draft the user may have typed in the current thread
-        let existingDraft = threadManager.activeViewModel?.inputText ?? ""
+        // Save the original view model and any draft before switching threads.
+        // We need the original reference so we can restore the draft to the
+        // correct thread if createThread() reuses the current empty thread.
+        let originalViewModel = threadManager.activeViewModel
+        let existingDraft = originalViewModel?.inputText ?? ""
 
-        // Always force a fresh thread — even if current thread is empty it may
-        // have a draft the user is composing. We create a new ThreadModel directly
-        // to bypass createThread()'s empty-thread reuse logic.
         threadManager.createThread()
 
-        // If createThread() reused the current empty thread and it had a draft,
-        // we need to ensure we don't clobber it. Check if a new thread was actually
-        // created by comparing view models.
-        guard let viewModel = threadManager.activeViewModel else {
+        guard let transcriptViewModel = threadManager.activeViewModel else {
             log.error("Failed to get active view model for transcript thread")
             return
         }
 
-        // If there was a draft and we're on the same thread, restore it after sending
-        let hadDraft = !existingDraft.isEmpty && existingDraft != transcriptText
+        transcriptViewModel.inputText = transcriptText
+        transcriptViewModel.sendMessage()
 
-        viewModel.inputText = transcriptText
-        viewModel.sendMessage()
-
-        // Restore the draft if we ended up reusing the same thread
-        if hadDraft {
-            viewModel.inputText = existingDraft
+        // Restore the draft to the original thread's view model (not the
+        // transcript thread) if the user had unsent text.
+        if !existingDraft.isEmpty, let originalViewModel,
+           originalViewModel !== transcriptViewModel {
+            originalViewModel.inputText = existingDraft
         }
 
         log.info("Created transcript thread with \(segmentCount) segments")

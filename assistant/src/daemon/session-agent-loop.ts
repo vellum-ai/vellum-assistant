@@ -354,8 +354,8 @@ export async function runAgentLoopImpl(
     // across retries within the same agent loop invocation.
     // Only inject for macOS desktop sessions — live audio capture is a
     // local feature and shouldn't leak into Telegram/SMS/voice/etc.
-    const isDesktopSession = interfaceTurnContext.userMessageInterface === 'macos'
-      || interfaceTurnContext.userMessageInterface === 'vellum';
+    const isDesktopSession = interfaceTurnContext.turnContext.userMessageInterface === 'macos'
+      || interfaceTurnContext.turnContext.userMessageInterface === 'vellum';
     const liveTranscriptText = isDesktopSession ? getLiveTranscriptText() : null;
 
     const isInteractiveResolved = options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
