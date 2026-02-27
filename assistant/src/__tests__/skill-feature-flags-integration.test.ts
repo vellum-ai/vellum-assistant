@@ -19,6 +19,9 @@ let currentConfig: Record<string, unknown> = {
   featureFlags: {},
 };
 
+const DECLARED_SKILL_ID = 'hatch-new-assistant';
+const DECLARED_LEGACY_KEY = 'skills.hatch-new-assistant.enabled';
+
 mock.module('../util/platform.js', () => ({
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
@@ -117,23 +120,23 @@ function createSkillOnDisk(id: string, name: string, description: string): void 
 
 describe('buildSystemPrompt feature flag filtering', () => {
   test('flag OFF skill does not appear in <available_skills> section', () => {
-    createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
+    createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
     createSkillOnDisk('twitter', 'Twitter', 'Post to X/Twitter');
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
-      featureFlags: { 'skills.browser.enabled': false },
+      featureFlags: { [DECLARED_LEGACY_KEY]: false },
     };
 
     const result = buildSystemPrompt();
 
-    // twitter should be visible, browser should not
+    // twitter should be visible, declared flagged skill should not
     expect(result).toContain('id="twitter"');
-    expect(result).not.toContain('id="browser"');
+    expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
   });
 
   test('all skills visible when featureFlags is empty', () => {
-    createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
+    createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
     createSkillOnDisk('twitter', 'Twitter', 'Post to X/Twitter');
 
     currentConfig = {
@@ -143,26 +146,26 @@ describe('buildSystemPrompt feature flag filtering', () => {
 
     const result = buildSystemPrompt();
 
-    expect(result).toContain('id="browser"');
+    expect(result).toContain(`id="${DECLARED_SKILL_ID}"`);
     expect(result).toContain('id="twitter"');
   });
 
   test('flagged-off skills hidden even when all workspace skill flags are OFF', () => {
-    createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
+    createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
     createSkillOnDisk('twitter', 'Twitter', 'Post to X/Twitter');
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
       featureFlags: {
-        'skills.browser.enabled': false,
+        [DECLARED_LEGACY_KEY]: false,
         'skills.twitter.enabled': false,
       },
     };
 
     const result = buildSystemPrompt();
 
-    // browser and twitter should be hidden; bundled skills may still appear
-    expect(result).not.toContain('id="browser"');
-    expect(result).not.toContain('id="twitter"');
+    // Declared flagged skill is hidden; undeclared keys do not gate skill visibility.
+    expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
+    expect(result).toContain('id="twitter"');
   });
 });

@@ -9,12 +9,36 @@ const testDir = join(tmpdir(), `vellum-ff-test-${randomBytes(6).toString("hex")}
 const vellumRoot = join(testDir, ".vellum");
 const workspaceDir = join(vellumRoot, "workspace");
 const configPath = join(workspaceDir, "config.json");
+const defaultsPath = join(testDir, "assistant-feature-flag-defaults.json");
+
+const TEST_DEFAULTS = {
+  "feature_flags.browser.enabled": {
+    defaultEnabled: true,
+    description: "Browser skill",
+  },
+  "feature_flags.twitter.enabled": {
+    defaultEnabled: true,
+    description: "Twitter skill",
+  },
+  "feature_flags.guardian-verify-setup.enabled": {
+    defaultEnabled: true,
+    description: "Guardian verification setup",
+  },
+  "feature_flags.hatch-new-assistant.enabled": {
+    defaultEnabled: true,
+    description: "Hatch new assistant",
+  },
+} satisfies Record<string, { defaultEnabled: boolean; description: string }>;
 
 const savedBaseDataDir = process.env.BASE_DATA_DIR;
+const savedFeatureFlagDefaultsPath = process.env.FEATURE_FLAG_DEFAULTS_PATH;
 
 beforeEach(() => {
   process.env.BASE_DATA_DIR = testDir;
+  process.env.FEATURE_FLAG_DEFAULTS_PATH = defaultsPath;
   mkdirSync(workspaceDir, { recursive: true });
+  writeFileSync(defaultsPath, JSON.stringify(TEST_DEFAULTS, null, 2));
+  resetFeatureFlagDefaultsCache();
 });
 
 afterEach(() => {
@@ -22,6 +46,11 @@ afterEach(() => {
     delete process.env.BASE_DATA_DIR;
   } else {
     process.env.BASE_DATA_DIR = savedBaseDataDir;
+  }
+  if (savedFeatureFlagDefaultsPath === undefined) {
+    delete process.env.FEATURE_FLAG_DEFAULTS_PATH;
+  } else {
+    process.env.FEATURE_FLAG_DEFAULTS_PATH = savedFeatureFlagDefaultsPath;
   }
   try {
     rmSync(testDir, { recursive: true, force: true });
@@ -202,7 +231,7 @@ describe("GET /v1/feature-flags handler", () => {
 });
 
 describe("PATCH /v1/feature-flags/:flagKey handler", () => {
-  test("writes to both assistantFeatureFlagValues and legacy featureFlags sections", async () => {
+  test("writes to assistantFeatureFlagValues without creating legacy skill keys", async () => {
     writeFileSync(configPath, JSON.stringify({}));
 
     const handler = createFeatureFlagsPatchHandler();
@@ -222,8 +251,8 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     // Verify persistence to the NEW section
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(false);
-    // Should also write to the legacy featureFlags section for backward compatibility
-    expect(config.featureFlags["skills.browser.enabled"]).toBe(false);
+    // New writes are canonical-only and do not synthesize legacy `skills.*` keys
+    expect(config.featureFlags).toBeUndefined();
   });
 
   test("preserves existing config keys when writing", async () => {
@@ -250,9 +279,9 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(config.sms).toEqual({ phoneNumber: "+1234567890" });
     expect(config.email).toEqual({ address: "test@example.com" });
-    // Legacy section should preserve existing keys and add the new legacy key
+    // Existing legacy section is preserved unchanged.
     expect(config.featureFlags["skills.existing.enabled"]).toBe(true);
-    expect(config.featureFlags["skills.browser.enabled"]).toBe(true);
+    expect(config.featureFlags["skills.browser.enabled"]).toBeUndefined();
     // New section should have both old and new values
     expect(config.assistantFeatureFlagValues["feature_flags.twitter.enabled"]).toBe(true);
     expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(true);
@@ -277,7 +306,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(true);
-    expect(config.featureFlags["skills.browser.enabled"]).toBe(true);
+    expect(config.featureFlags).toBeUndefined();
   });
 
   // Validation tests
@@ -466,8 +495,8 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     expect(config.sms).toEqual({ phoneNumber: "+1234" });
     expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(true);
     expect(config.assistantFeatureFlagValues["feature_flags.twitter.enabled"]).toBe(false);
-    // Legacy section should also be written
-    expect(config.featureFlags["skills.twitter.enabled"]).toBe(false);
+    // Canonical writes should not synthesize legacy keys
+    expect(config.featureFlags).toBeUndefined();
 
     // Verify no temp files left behind
     const { readdirSync } = await import("node:fs");

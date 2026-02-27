@@ -311,17 +311,17 @@ Release-driven update notification system that surfaces release notes to the ass
 
 ### Assistant Feature Flags — Resolver and Enforcement Points
 
-The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is the canonical module for determining whether an assistant feature flag is enabled. It loads default values from the registry at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json` and resolves the effective state for each flag. Assistant feature flags allow external clients to disable individual skills at runtime without restarting the daemon.
+The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is the canonical module for determining whether an assistant feature flag is enabled. It loads default values from the registry at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json` and resolves the effective state for each declared flag. Assistant feature flags are declaration-driven assistant-scoped booleans that can gate any assistant behavior; skill availability is one consumer.
 
-**Canonical key format:** `feature_flags.<flag_id>.enabled` (e.g., `feature_flags.browser.enabled`).
+**Canonical key format:** `feature_flags.<flag_id>.enabled` (e.g., `feature_flags.hatch-new-assistant.enabled`).
 
 **Resolution priority** (highest wins):
 1. `config.assistantFeatureFlagValues[key]` — new canonical config section, written by the gateway's PATCH endpoint
 2. `config.featureFlags[legacyKey]` — legacy `skills.<id>.enabled` key mapping (backward-compat)
 3. Defaults registry `defaultEnabled` — from `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`
-4. `true` — unknown flags default to enabled (open by default)
+4. `true` — unknown/undeclared flags default to enabled and are ignored by the flag system
 
-**Backward-compat migration path:** The legacy `featureFlags` config section (key format `skills.<id>.enabled`) is still read as a fallback during resolution. New writes go to `assistantFeatureFlagValues` using the canonical format. The `isSkillFeatureEnabled()` wrapper in `config/skill-state.ts` is deprecated but retained as a thin delegate to `isAssistantSkillEnabled()` so existing call sites continue to work during the one-release migration window. A guard test (`assistant-feature-flag-guard.test.ts`) enforces that production code uses the canonical key format and that all referenced flags are declared in the defaults registry.
+**Backward-compat path:** The legacy `featureFlags` config section (key format `skills.<id>.enabled`) is still read as a fallback during resolution. New writes go to `assistantFeatureFlagValues` using the canonical format. The `isSkillFeatureEnabled()` wrapper in `config/skill-state.ts` is deprecated but retained as a thin delegate to `isAssistantSkillEnabled()` for migration compatibility.
 
 **Storage:** Flags are persisted in `~/.vellum/workspace/config.json`. New writes go to the `assistantFeatureFlagValues` section (managed by the gateway's `/v1/feature-flags` API — see [`gateway/ARCHITECTURE.md`](../gateway/ARCHITECTURE.md)). The legacy `featureFlags` section is still read for backward compatibility. The daemon's config watcher hot-reloads this file, so flag changes take effect on the next tool resolution or session.
 
@@ -330,7 +330,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 - `isAssistantSkillEnabled(skillId, config)` — convenience wrapper that constructs `feature_flags.<skillId>.enabled` and delegates
 - `isSkillFeatureEnabled(skillId, config)` — deprecated legacy wrapper in `config/skill-state.ts`
 
-**Guarantee:** When an assistant feature flag is OFF, the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at five independent points:
+**Skill-gating guarantee:** For skills that are explicitly mapped to declared assistant flags, when the flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at five independent points:
 
 | Enforcement Point | Module | Effect |
 |-------------------|--------|--------|
@@ -342,7 +342,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 
 All five enforcement points use `isAssistantSkillEnabled()` from `config/assistant-feature-flags.ts` for consistency.
 
-**Migration path:** The legacy `skills.<id>.enabled` key format is still read from the `featureFlags` config section for backward compatibility. New code must use the canonical `feature_flags.<id>.enabled` format. A guard test (`assistant-feature-flag-guard.test.ts`) enforces that production code uses the canonical key format and that all referenced flags are declared in the defaults registry.
+**Migration path:** The legacy `skills.<id>.enabled` key format is still read from the `featureFlags` config section for backward compatibility. New code must use the canonical `feature_flags.<id>.enabled` format. Guard tests enforce canonical key usage and declaration coverage for literal key references.
 
 **Key source files:**
 

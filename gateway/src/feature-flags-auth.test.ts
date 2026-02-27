@@ -15,10 +15,12 @@ import { tmpdir } from "node:os";
 
 const RUNTIME_TOKEN = "test-runtime-bearer-token";
 const FEATURE_FLAG_TOKEN = "test-feature-flag-client-token";
+const FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
 
 let server: ReturnType<typeof Bun.serve>;
 let baseUrl: string;
 let tmpDir: string;
+const savedFeatureFlagDefaultsPath = process.env.FEATURE_FLAG_DEFAULTS_PATH;
 
 beforeAll(async () => {
   // Create isolated temp directory for config and token files
@@ -35,8 +37,20 @@ beforeAll(async () => {
   // Write a minimal config.json so the feature-flags handler can read it
   writeFileSync(
     join(vellumDir, "workspace", "config.json"),
-    JSON.stringify({ assistantFeatureFlagValues: { "feature_flags.browser.enabled": true } }),
+    JSON.stringify({ assistantFeatureFlagValues: { [FLAG_KEY]: true } }),
   );
+
+  const defaultsPath = join(tmpDir, "assistant-feature-flag-defaults.json");
+  writeFileSync(
+    defaultsPath,
+    JSON.stringify({
+      [FLAG_KEY]: {
+        defaultEnabled: true,
+        description: "Hatch new assistant",
+      },
+    }),
+  );
+  process.env.FEATURE_FLAG_DEFAULTS_PATH = defaultsPath;
 
   // Set environment so loadConfig picks up our temp directory
   process.env.BASE_DATA_DIR = tmpDir;
@@ -50,8 +64,10 @@ beforeAll(async () => {
   // Import after env is set so loadConfig reads our temp files
   const { loadConfig } = await import("./config.js");
   const { validateBearerToken } = await import("./http/auth/bearer.js");
+  const { resetFeatureFlagDefaultsCache } = await import("./feature-flag-defaults.js");
   const { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } =
     await import("./http/routes/feature-flags.js");
+  resetFeatureFlagDefaultsCache();
 
   const config = loadConfig();
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
@@ -149,8 +165,15 @@ beforeAll(async () => {
   baseUrl = `http://localhost:${server.port}`;
 });
 
-afterAll(() => {
+afterAll(async () => {
   server?.stop(true);
+  const { resetFeatureFlagDefaultsCache } = await import("./feature-flag-defaults.js");
+  resetFeatureFlagDefaultsCache();
+  if (savedFeatureFlagDefaultsPath === undefined) {
+    delete process.env.FEATURE_FLAG_DEFAULTS_PATH;
+  } else {
+    process.env.FEATURE_FLAG_DEFAULTS_PATH = savedFeatureFlagDefaultsPath;
+  }
   try {
     rmSync(tmpDir, { recursive: true, force: true });
   } catch {
@@ -160,7 +183,7 @@ afterAll(() => {
 
 describe("PATCH /v1/feature-flags/:key auth", () => {
   test("rejects request with runtime bearer token (403)", async () => {
-    const res = await fetch(`${baseUrl}/v1/feature-flags/feature_flags.browser.enabled`, {
+    const res = await fetch(`${baseUrl}/v1/feature-flags/${FLAG_KEY}`, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${RUNTIME_TOKEN}`,
@@ -174,7 +197,7 @@ describe("PATCH /v1/feature-flags/:key auth", () => {
   });
 
   test("succeeds with feature-flag client token", async () => {
-    const res = await fetch(`${baseUrl}/v1/feature-flags/feature_flags.browser.enabled`, {
+    const res = await fetch(`${baseUrl}/v1/feature-flags/${FLAG_KEY}`, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${FEATURE_FLAG_TOKEN}`,
@@ -184,12 +207,12 @@ describe("PATCH /v1/feature-flags/:key auth", () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.key).toBe("feature_flags.browser.enabled");
+    expect(body.key).toBe(FLAG_KEY);
     expect(body.enabled).toBe(true);
   });
 
   test("rejects request with no token (401)", async () => {
-    const res = await fetch(`${baseUrl}/v1/feature-flags/feature_flags.browser.enabled`, {
+    const res = await fetch(`${baseUrl}/v1/feature-flags/${FLAG_KEY}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -200,7 +223,7 @@ describe("PATCH /v1/feature-flags/:key auth", () => {
   });
 
   test("rejects request with wrong token (401)", async () => {
-    const res = await fetch(`${baseUrl}/v1/feature-flags/feature_flags.browser.enabled`, {
+    const res = await fetch(`${baseUrl}/v1/feature-flags/${FLAG_KEY}`, {
       method: "PATCH",
       headers: {
         Authorization: "Bearer totally-wrong-token",
