@@ -845,9 +845,13 @@ export const guardianActionRequests = sqliteTable('guardian_action_requests', {
   followupCompletedAt: integer('followup_completed_at'),
   toolName: text('tool_name'),                                        // tool identity for tool-approval requests
   inputDigest: text('input_digest'),                                  // canonical SHA-256 digest of tool input
+  supersededByRequestId: text('superseded_by_request_id'),            // links to the request that replaced this one
+  supersededAt: integer('superseded_at'),                             // epoch ms when supersession occurred
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  index('idx_guardian_action_requests_session_status_created').on(table.callSessionId, table.status, table.createdAt),
+]);
 
 // ── Guardian Action Deliveries (per-channel delivery tracking) ───────
 

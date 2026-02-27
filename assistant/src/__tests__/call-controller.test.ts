@@ -893,7 +893,7 @@ describe('call-controller', () => {
     controller.destroy();
   });
 
-  test('no duplicate guardian dispatch: second ASK_GUARDIAN supersedes the first consultation', async () => {
+  test('no duplicate guardian dispatch: repeated informational ASK_GUARDIAN coalesces with existing consultation', async () => {
     // Trigger ASK_GUARDIAN to start first consultation
     mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
       ['Let me ask. [ASK_GUARDIAN: Preferred date?]'],
@@ -904,16 +904,17 @@ describe('call-controller', () => {
     const firstQuestionId = controller.getPendingConsultationQuestionId();
     expect(firstQuestionId).not.toBeNull();
 
-    // Model emits another ASK_GUARDIAN in a subsequent turn — supersedes
+    // Model emits another informational ASK_GUARDIAN in a subsequent turn —
+    // should coalesce (same tool scope: both lack tool metadata)
     mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
       ['Actually let me re-check. [ASK_GUARDIAN: Preferred date again?]'],
     ));
     await controller.handleCallerUtterance('Hello?');
 
-    // New consultation should replace the old one
+    // Consultation should be coalesced — same question ID retained
     const secondQuestionId = controller.getPendingConsultationQuestionId();
     expect(secondQuestionId).not.toBeNull();
-    expect(secondQuestionId).not.toBe(firstQuestionId);
+    expect(secondQuestionId).toBe(firstQuestionId);
 
     // The session status should still be waiting_on_user
     const updatedSession = getCallSession(session.id);
@@ -1529,6 +1530,169 @@ describe('call-controller', () => {
     // Response should appear in relay
     const allText = relay.sentTokens.map((t) => t.token).join('');
     expect(allText).toContain('what else can I help with');
+
+    controller.destroy();
+  });
+
+  // ── Consultation coalescing (Incident C) ────────────────────────────
+
+  test('coalescing: repeated identical informational ASK_GUARDIAN does not create a new request', async () => {
+    // Trigger first ASK_GUARDIAN
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Let me ask. [ASK_GUARDIAN: Preferred date?]'],
+    ));
+    const { session, controller } = setupController();
+    await controller.handleCallerUtterance('Schedule please');
+    await new Promise((r) => setTimeout(r, 50));
+
+    const firstQuestionId = controller.getPendingConsultationQuestionId();
+    expect(firstQuestionId).not.toBeNull();
+    const firstRequest = getPendingRequestByCallSessionId(session.id);
+    expect(firstRequest).not.toBeNull();
+
+    // Repeated ASK_GUARDIAN with same informational question (no tool metadata)
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Still checking. [ASK_GUARDIAN: Preferred date?]'],
+    ));
+    await controller.handleCallerUtterance('Hello? Still there?');
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should coalesce: same consultation ID, same request
+    expect(controller.getPendingConsultationQuestionId()).toBe(firstQuestionId);
+    const currentRequest = getPendingRequestByCallSessionId(session.id);
+    expect(currentRequest).not.toBeNull();
+    expect(currentRequest!.id).toBe(firstRequest!.id);
+    expect(currentRequest!.status).toBe('pending');
+
+    // Coalesce event should be recorded
+    const events = getCallEvents(session.id);
+    const coalesceEvents = events.filter((e) => e.eventType === 'guardian_consult_coalesced');
+    expect(coalesceEvents.length).toBe(1);
+
+    controller.destroy();
+  });
+
+  test('coalescing: repeated ASK_GUARDIAN_APPROVAL with same tool/input does not create a new request', async () => {
+    const approvalPayload = JSON.stringify({
+      question: 'Allow send_email to bob@example.com?',
+      toolName: 'send_email',
+      input: { to: 'bob@example.com', subject: 'Hello' },
+    });
+
+    // First ASK_GUARDIAN_APPROVAL
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      [`Checking. [ASK_GUARDIAN_APPROVAL: ${approvalPayload}]`],
+    ));
+    const { session, controller } = setupController('Send email');
+    await controller.handleCallerUtterance('Send email to Bob');
+    await new Promise((r) => setTimeout(r, 50));
+
+    const firstQuestionId = controller.getPendingConsultationQuestionId();
+    expect(firstQuestionId).not.toBeNull();
+    const firstRequest = getPendingRequestByCallSessionId(session.id);
+    expect(firstRequest).not.toBeNull();
+
+    // Repeated ASK_GUARDIAN_APPROVAL with same tool/input
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      [`Still checking. [ASK_GUARDIAN_APPROVAL: ${approvalPayload}]`],
+    ));
+    await controller.handleCallerUtterance('Can you send it already?');
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should coalesce: same consultation, same request
+    expect(controller.getPendingConsultationQuestionId()).toBe(firstQuestionId);
+    const currentRequest = getPendingRequestByCallSessionId(session.id);
+    expect(currentRequest!.id).toBe(firstRequest!.id);
+    expect(currentRequest!.status).toBe('pending');
+
+    controller.destroy();
+  });
+
+  test('supersession: materially different tool triggers new request with superseded metadata', async () => {
+    const firstPayload = JSON.stringify({
+      question: 'Allow send_email?',
+      toolName: 'send_email',
+      input: { to: 'bob@example.com' },
+    });
+
+    // First ASK_GUARDIAN_APPROVAL for send_email
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      [`Checking. [ASK_GUARDIAN_APPROVAL: ${firstPayload}]`],
+    ));
+    const { session, controller } = setupController('Process request');
+    await controller.handleCallerUtterance('Send email');
+    await new Promise((r) => setTimeout(r, 50));
+
+    const firstRequest = getPendingRequestByCallSessionId(session.id);
+    expect(firstRequest).not.toBeNull();
+    expect(firstRequest!.toolName).toBe('send_email');
+
+    // Different tool — should supersede
+    const secondPayload = JSON.stringify({
+      question: 'Allow calendar_create?',
+      toolName: 'calendar_create',
+      input: { date: '2026-03-01' },
+    });
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      [`Actually, let me do this. [ASK_GUARDIAN_APPROVAL: ${secondPayload}]`],
+    ));
+    await controller.handleCallerUtterance('Actually, create a calendar event instead');
+    await new Promise((r) => setTimeout(r, 100));
+
+    // New consultation should be active
+    const secondRequest = getPendingRequestByCallSessionId(session.id);
+    expect(secondRequest).not.toBeNull();
+    expect(secondRequest!.id).not.toBe(firstRequest!.id);
+    expect(secondRequest!.toolName).toBe('calendar_create');
+
+    // Old request should be expired with 'superseded' reason
+    const expiredRequest = getGuardianActionRequest(firstRequest!.id);
+    expect(expiredRequest).not.toBeNull();
+    expect(expiredRequest!.status).toBe('expired');
+    expect(expiredRequest!.expiredReason).toBe('superseded');
+    expect(expiredRequest!.supersededByRequestId).toBe(secondRequest!.id);
+    expect(expiredRequest!.supersededAt).not.toBeNull();
+
+    controller.destroy();
+  });
+
+  test('tool metadata continuity: re-ask without structured metadata inherits tool scope from prior consultation', async () => {
+    const approvalPayload = JSON.stringify({
+      question: 'Allow send_email?',
+      toolName: 'send_email',
+      input: { to: 'bob@example.com', subject: 'Hello' },
+    });
+
+    // First ask with structured tool metadata
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      [`Let me check. [ASK_GUARDIAN_APPROVAL: ${approvalPayload}]`],
+    ));
+    const { session, controller } = setupController('Send email');
+    await controller.handleCallerUtterance('Send email to Bob');
+    await new Promise((r) => setTimeout(r, 50));
+
+    const firstRequest = getPendingRequestByCallSessionId(session.id);
+    expect(firstRequest).not.toBeNull();
+    expect(firstRequest!.toolName).toBe('send_email');
+
+    // Re-ask with informational ASK_GUARDIAN (no structured metadata).
+    // Since the tool metadata matches the existing consultation (inherited),
+    // this should coalesce rather than supersede.
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Checking again. [ASK_GUARDIAN: Can I send that email?]'],
+    ));
+    await controller.handleCallerUtterance('Can you hurry up?');
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should coalesce: the inherited tool metadata matches the existing consultation
+    const currentRequest = getPendingRequestByCallSessionId(session.id);
+    expect(currentRequest!.id).toBe(firstRequest!.id);
+    expect(currentRequest!.status).toBe('pending');
+
+    // Coalesce event should be recorded
+    const events = getCallEvents(session.id);
+    const coalesceEvents = events.filter((e) => e.eventType === 'guardian_consult_coalesced');
+    expect(coalesceEvents.length).toBe(1);
 
     controller.destroy();
   });

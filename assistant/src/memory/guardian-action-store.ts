@@ -25,7 +25,7 @@ const log = getLogger('guardian-action-store');
 
 export type GuardianActionRequestStatus = 'pending' | 'answered' | 'expired' | 'cancelled';
 export type GuardianActionDeliveryStatus = 'pending' | 'sent' | 'failed' | 'answered' | 'expired' | 'cancelled';
-export type ExpiredReason = 'call_timeout' | 'sweep_timeout' | 'cancelled';
+export type ExpiredReason = 'call_timeout' | 'sweep_timeout' | 'cancelled' | 'superseded';
 export type FollowupState = 'none' | 'awaiting_guardian_choice' | 'dispatching' | 'completed' | 'declined' | 'failed';
 export type FollowupAction = 'call_back' | 'message_back' | 'decline';
 
@@ -53,6 +53,8 @@ export interface GuardianActionRequest {
   followupCompletedAt: number | null;
   toolName: string | null;
   inputDigest: string | null;
+  supersededByRequestId: string | null;
+  supersededAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -101,6 +103,8 @@ function rowToRequest(row: typeof guardianActionRequests.$inferSelect): Guardian
     followupCompletedAt: row.followupCompletedAt ?? null,
     toolName: row.toolName ?? null,
     inputDigest: row.inputDigest ?? null,
+    supersededByRequestId: row.supersededByRequestId ?? null,
+    supersededAt: row.supersededAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -172,6 +176,8 @@ export function createGuardianActionRequest(params: {
     followupCompletedAt: null,
     toolName: params.toolName ?? null,
     inputDigest: params.inputDigest ?? null,
+    supersededByRequestId: null,
+    supersededAt: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -308,6 +314,84 @@ export function expireGuardianActionRequest(id: string, reason?: ExpiredReason):
       and(
         eq(guardianActionDeliveries.requestId, id),
         inArray(guardianActionDeliveries.status, ['pending', 'sent']),
+      ),
+    )
+    .run();
+}
+
+/**
+ * Supersede a pending guardian action request: mark it expired with
+ * reason='superseded', record the replacement request ID and timestamp,
+ * and expire its active deliveries.
+ *
+ * Returns the updated request on success, or null if the request was
+ * not in 'pending' status (first-writer-wins).
+ */
+export function supersedeGuardianActionRequest(
+  id: string,
+  supersededByRequestId: string,
+): GuardianActionRequest | null {
+  const db = getDb();
+  const now = Date.now();
+
+  db.update(guardianActionRequests)
+    .set({
+      status: 'expired',
+      expiredReason: 'superseded',
+      supersededByRequestId,
+      supersededAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(guardianActionRequests.id, id),
+        eq(guardianActionRequests.status, 'pending'),
+      ),
+    )
+    .run();
+
+  if (rawChanges() === 0) return null;
+
+  // Also expire active deliveries
+  db.update(guardianActionDeliveries)
+    .set({ status: 'expired', updatedAt: now })
+    .where(
+      and(
+        eq(guardianActionDeliveries.requestId, id),
+        inArray(guardianActionDeliveries.status, ['pending', 'sent']),
+      ),
+    )
+    .run();
+
+  return getGuardianActionRequest(id);
+}
+
+/**
+ * Backfill supersession metadata on an already-expired request.
+ * Used when the superseding request ID is not known at the time the
+ * original request is expired (e.g., the new request is created
+ * asynchronously via dispatchGuardianQuestion).
+ *
+ * Only updates requests that are already in 'expired' status with
+ * expired_reason='superseded'.
+ */
+export function backfillSupersessionMetadata(
+  id: string,
+  supersededByRequestId: string,
+): void {
+  const db = getDb();
+  const now = Date.now();
+
+  db.update(guardianActionRequests)
+    .set({
+      supersededByRequestId,
+      supersededAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(guardianActionRequests.id, id),
+        eq(guardianActionRequests.status, 'expired'),
       ),
     )
     .run();

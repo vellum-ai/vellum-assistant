@@ -12,6 +12,7 @@ import { getGatewayInternalBaseUrl } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import {
+  backfillSupersessionMetadata,
   expireGuardianActionRequest,
   getDeliveriesByRequestId,
   getPendingRequestByCallSessionId,
@@ -692,111 +693,62 @@ export class CallController {
           recordCallEvent(this.callSessionId, 'guardian_consult_deferred', { question: questionText });
           // Fall through to normal turn completion (idle + flushPendingInstructions)
         } else {
-          // Cancel any prior pending consultation (superseded by this new one)
+          // Determine the effective tool metadata for this ask. If the new
+          // ask has structured tool metadata, use it; otherwise inherit from
+          // the prior pending consultation (preserves tool scope on re-asks).
+          const effectiveToolMeta = toolApprovalMeta
+            ? { toolName: toolApprovalMeta.toolName, inputDigest: toolApprovalMeta.inputDigest }
+            : this.pendingConsultation?.toolApprovalMeta ?? null;
+
+          // Coalesce repeated identical asks: if a consultation is already
+          // pending for the same tool/action (or same informational question),
+          // avoid churning requests and just keep the existing one.
           if (this.pendingConsultation) {
-            clearTimeout(this.pendingConsultation.timer);
+            const isSameToolAction =
+              effectiveToolMeta && this.pendingConsultation.toolApprovalMeta
+                ? effectiveToolMeta.toolName === this.pendingConsultation.toolApprovalMeta.toolName
+                  && effectiveToolMeta.inputDigest === this.pendingConsultation.toolApprovalMeta.inputDigest
+                : !effectiveToolMeta && !this.pendingConsultation.toolApprovalMeta;
 
-            // Expire the previous consultation's storage records so stale
-            // guardian answers cannot match the old request.
-            expirePendingQuestions(this.callSessionId);
-            const previousRequest = getPendingRequestByCallSessionId(this.callSessionId);
-            if (previousRequest) {
-              expireGuardianActionRequest(previousRequest.id, 'cancelled');
+            if (isSameToolAction) {
+              // Same tool/action — coalesce. Keep the existing consultation
+              // alive and skip creating a new request.
               log.info(
-                { callSessionId: this.callSessionId, requestId: previousRequest.id },
-                'Expired superseded guardian action request',
+                { callSessionId: this.callSessionId, questionId: this.pendingConsultation.questionId },
+                'Coalescing repeated ASK_GUARDIAN — same tool/action already pending',
               );
-            }
+              recordCallEvent(this.callSessionId, 'guardian_consult_coalesced', { question: questionText });
+              // Fall through to normal turn completion (idle + flushPendingInstructions)
+            } else {
+              // Materially different intent — supersede the old consultation.
+              clearTimeout(this.pendingConsultation.timer);
 
-            this.pendingConsultation = null;
-          }
-
-          const pendingQuestion = createPendingQuestion(this.callSessionId, questionText);
-          updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
-          recordCallEvent(this.callSessionId, 'user_question_asked', { question: questionText });
-
-          // Notify the conversation that a question was asked
-          const session = getCallSession(this.callSessionId);
-          if (session) {
-            fireCallQuestionNotifier(session.conversationId, this.callSessionId, questionText);
-
-            // Dispatch guardian action request to all configured channels
-            void dispatchGuardianQuestion({
-              callSessionId: this.callSessionId,
-              conversationId: session.conversationId,
-              assistantId: this.assistantId,
-              pendingQuestion,
-              toolName: toolApprovalMeta?.toolName,
-              inputDigest: toolApprovalMeta?.inputDigest,
-            });
-          }
-
-          // Set a consultation timeout tied to this specific consultation
-          // record, not the global controller state.
-          const consultationTimer = setTimeout(() => {
-            // Only fire if this consultation is still the active one
-            if (!this.pendingConsultation || this.pendingConsultation.questionId !== pendingQuestion.id) return;
-
-            log.info({ callSessionId: this.callSessionId }, 'Guardian consultation timed out');
-
-            // Mark the linked guardian action request as timed out and
-            // send expiry notices to guardian destinations. Deliveries
-            // must be captured before markTimedOutWithReason changes
-            // their status.
-            const pendingActionRequest = getPendingRequestByCallSessionId(this.callSessionId);
-            if (pendingActionRequest) {
-              const deliveries = getDeliveriesByRequestId(pendingActionRequest.id);
-              markTimedOutWithReason(pendingActionRequest.id, 'call_timeout');
-              log.info(
-                { callSessionId: this.callSessionId, requestId: pendingActionRequest.id },
-                'Marked guardian action request as timed out',
-              );
-              void sendGuardianExpiryNotices(
-                deliveries,
-                pendingActionRequest.assistantId,
-                getGatewayInternalBaseUrl(),
-                readHttpToken() ?? undefined,
-              ).catch((err) => {
-                log.error(
-                  { err, callSessionId: this.callSessionId, requestId: pendingActionRequest.id },
-                  'Failed to send guardian action expiry notices after call timeout',
+              // Expire the previous consultation's storage records so stale
+              // guardian answers cannot match the old request.
+              expirePendingQuestions(this.callSessionId);
+              const previousRequest = getPendingRequestByCallSessionId(this.callSessionId);
+              if (previousRequest) {
+                // Immediately expire with 'superseded' reason to prevent
+                // stale answers from resolving the old request.
+                expireGuardianActionRequest(previousRequest.id, 'superseded');
+                log.info(
+                  { callSessionId: this.callSessionId, requestId: previousRequest.id },
+                  'Superseded guardian action request (materially different intent)',
                 );
-              });
+              }
+
+              this.pendingConsultation = null;
+
+              // Dispatch the new consultation with effective tool metadata.
+              // The previous request ID is passed through so the dispatch
+              // can backfill supersession chain metadata (superseded_by_request_id)
+              // once the new request has been created.
+              this.dispatchNewConsultation(questionText, effectiveToolMeta, previousRequest?.id ?? null);
             }
-
-            // Expire pending questions and update call state
-            expirePendingQuestions(this.callSessionId);
-            this.pendingConsultation = null;
-            updateCallSession(this.callSessionId, { status: 'in_progress' });
-            this.guardianUnavailableForCall = true;
-            recordCallEvent(this.callSessionId, 'guardian_consultation_timed_out', { question: questionText });
-
-            // Inject timeout instruction so the model addresses it on the
-            // next turn. If idle, flush immediately; otherwise it merges
-            // into the next turn completion.
-            const timeoutInstruction =
-              `[GUARDIAN_TIMEOUT] Your guardian did not respond in time to your question: "${questionText}". `
-              + `Apologize to the caller for the delay, let them know you were unable to reach your guardian, `
-              + `ask if they would like to leave a message or receive a callback, `
-              + `and ask if there are any other questions you can help with right now.`;
-
-            this.pendingInstructions.push(timeoutInstruction);
-
-            if (this.state === 'idle') {
-              this.resetSilenceTimer();
-              this.flushPendingInstructions();
-            }
-          }, getUserConsultationTimeoutMs());
-
-          this.pendingConsultation = {
-            questionText,
-            questionId: pendingQuestion.id,
-            toolApprovalMeta: toolApprovalMeta
-              ? { toolName: toolApprovalMeta.toolName, inputDigest: toolApprovalMeta.inputDigest }
-              : null,
-            timer: consultationTimer,
-          };
-          // Fall through to normal turn completion (idle + flushPendingInstructions)
+          } else {
+            // No prior consultation — dispatch fresh
+            this.dispatchNewConsultation(questionText, effectiveToolMeta, null);
+          }
         }
       }
 
@@ -904,6 +856,112 @@ export class CallController {
 
   private isCallerGuardian(): boolean {
     return this.guardianContext?.actorRole === 'guardian';
+  }
+
+  /**
+   * Create a new consultation: persist a pending question, dispatch
+   * guardian action request to channels, and start the consultation timer.
+   *
+   * If `supersededRequestId` is provided, backfills the supersession
+   * chain after the new request is created.
+   */
+  private dispatchNewConsultation(
+    questionText: string,
+    effectiveToolMeta: { toolName: string; inputDigest: string } | null,
+    supersededRequestId: string | null,
+  ): void {
+    const pendingQuestion = createPendingQuestion(this.callSessionId, questionText);
+    updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
+    recordCallEvent(this.callSessionId, 'user_question_asked', { question: questionText });
+
+    // Notify the conversation that a question was asked
+    const session = getCallSession(this.callSessionId);
+    if (session) {
+      fireCallQuestionNotifier(session.conversationId, this.callSessionId, questionText);
+
+      // Dispatch guardian action request to all configured channels
+      void dispatchGuardianQuestion({
+        callSessionId: this.callSessionId,
+        conversationId: session.conversationId,
+        assistantId: this.assistantId,
+        pendingQuestion,
+        toolName: effectiveToolMeta?.toolName,
+        inputDigest: effectiveToolMeta?.inputDigest,
+      }).then(() => {
+        // Backfill supersession chain: now that the new request exists in
+        // the store, update the old request's superseded_by_request_id.
+        if (supersededRequestId) {
+          const newRequest = getPendingRequestByCallSessionId(this.callSessionId);
+          if (newRequest) {
+            backfillSupersessionMetadata(supersededRequestId, newRequest.id);
+          }
+        }
+      });
+    }
+
+    // Set a consultation timeout tied to this specific consultation
+    // record, not the global controller state.
+    const consultationTimer = setTimeout(() => {
+      // Only fire if this consultation is still the active one
+      if (!this.pendingConsultation || this.pendingConsultation.questionId !== pendingQuestion.id) return;
+
+      log.info({ callSessionId: this.callSessionId }, 'Guardian consultation timed out');
+
+      // Mark the linked guardian action request as timed out and
+      // send expiry notices to guardian destinations. Deliveries
+      // must be captured before markTimedOutWithReason changes
+      // their status.
+      const pendingActionRequest = getPendingRequestByCallSessionId(this.callSessionId);
+      if (pendingActionRequest) {
+        const deliveries = getDeliveriesByRequestId(pendingActionRequest.id);
+        markTimedOutWithReason(pendingActionRequest.id, 'call_timeout');
+        log.info(
+          { callSessionId: this.callSessionId, requestId: pendingActionRequest.id },
+          'Marked guardian action request as timed out',
+        );
+        void sendGuardianExpiryNotices(
+          deliveries,
+          pendingActionRequest.assistantId,
+          getGatewayInternalBaseUrl(),
+          readHttpToken() ?? undefined,
+        ).catch((err) => {
+          log.error(
+            { err, callSessionId: this.callSessionId, requestId: pendingActionRequest.id },
+            'Failed to send guardian action expiry notices after call timeout',
+          );
+        });
+      }
+
+      // Expire pending questions and update call state
+      expirePendingQuestions(this.callSessionId);
+      this.pendingConsultation = null;
+      updateCallSession(this.callSessionId, { status: 'in_progress' });
+      this.guardianUnavailableForCall = true;
+      recordCallEvent(this.callSessionId, 'guardian_consultation_timed_out', { question: questionText });
+
+      // Inject timeout instruction so the model addresses it on the
+      // next turn. If idle, flush immediately; otherwise it merges
+      // into the next turn completion.
+      const timeoutInstruction =
+        `[GUARDIAN_TIMEOUT] Your guardian did not respond in time to your question: "${questionText}". `
+        + `Apologize to the caller for the delay, let them know you were unable to reach your guardian, `
+        + `ask if they would like to leave a message or receive a callback, `
+        + `and ask if there are any other questions you can help with right now.`;
+
+      this.pendingInstructions.push(timeoutInstruction);
+
+      if (this.state === 'idle') {
+        this.resetSilenceTimer();
+        this.flushPendingInstructions();
+      }
+    }, getUserConsultationTimeoutMs());
+
+    this.pendingConsultation = {
+      questionText,
+      questionId: pendingQuestion.id,
+      toolApprovalMeta: effectiveToolMeta,
+      timer: consultationTimer,
+    };
   }
 
   /**
