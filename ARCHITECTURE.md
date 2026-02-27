@@ -24,6 +24,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel thread actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_thread_created` IPC is emitted only on actual creation, not on reuse.
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.
 - Trusted contact ingress ACL is channel-agnostic; identity binding adapts per channel (chat ID, E.164 phone, external user ID) without channel-specific branching.
+- Feature flags (`featureFlags` in workspace config) control skill availability. When a skill's flag is OFF, it is excluded from all exposure surfaces: client skill lists, system prompt catalog, `skill_load`, runtime tool projection, and included child skills. The gateway owns the `/v1/feature-flags` REST API; the daemon reads flags from config at each enforcement point.
 
 ## System Overview
 
@@ -221,6 +222,7 @@ graph TB
         GW_SLACK_DELIVER["Slack Deliver<br/>/deliver/slack<br/>(internal, from runtime)"]
         GW_OAUTH["OAuth Callback<br/>/webhooks/oauth/callback"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
+        GW_FEATURE_FLAGS["Feature Flags API<br/>GET /v1/feature-flags<br/>PATCH /v1/feature-flags/:key"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
     end
 

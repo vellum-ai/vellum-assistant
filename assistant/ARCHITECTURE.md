@@ -305,6 +305,34 @@ Release-driven update notification system that surfaces release notes to the ass
 
 ---
 
+### Skill Feature Flags — Enforcement Points
+
+Feature flags allow external clients to disable individual skills at runtime without restarting the daemon. Flags are stored in `~/.vellum/workspace/config.json` under the `featureFlags` key (managed by the gateway's `/v1/feature-flags` API — see [`gateway/ARCHITECTURE.md`](../gateway/ARCHITECTURE.md)). The daemon's config watcher hot-reloads this file, so flag changes take effect on the next tool resolution or session.
+
+**Flag key format:** `skills.<skillId>.enabled`. A missing key defaults to enabled; only an explicit `false` disables a skill.
+
+**Guarantee:** When a skill's feature flag is OFF, the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at five independent points:
+
+| Enforcement Point | Module | Effect |
+|-------------------|--------|--------|
+| **1. Client skill list** | `resolveSkillStates()` in `config/skill-state.ts` | Skills with flag OFF are excluded from the resolved list returned to IPC clients (macOS skill list, settings UI). The skill never appears in the client. |
+| **2. System prompt skill catalog** | `appendSkillsCatalog()` in `config/system-prompt.ts` | The model-visible `## Skills Catalog` section in the system prompt filters out flagged-off skills. The model cannot see or reference them. |
+| **3. `skill_load` tool** | `executeSkillLoad()` in `tools/skills/load.ts` | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`. |
+| **4. Runtime tool projection** | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered. |
+| **5. Included child skills** | `executeSkillLoad()` in `tools/skills/load.ts` | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
+
+The shared gate function `isSkillFeatureEnabled(skillId, config)` in `config/skill-state.ts` is used by all five enforcement points for consistency.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/config/skill-state.ts` | `isSkillFeatureEnabled()` — shared gate function; `resolveSkillStates()` — enforcement point 1 |
+| `src/config/system-prompt.ts` | `appendSkillsCatalog()` — enforcement point 2 |
+| `src/tools/skills/load.ts` | `executeSkillLoad()` — enforcement points 3 and 5 |
+| `src/daemon/session-skill-tools.ts` | `projectSkillTools()` — enforcement point 4 |
+| `src/config/schema.ts` | `featureFlags` field definition in `AssistantConfig` (Zod schema) |
+| `src/daemon/handlers/skills.ts` | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses |
 
 ---
 
@@ -362,10 +390,11 @@ graph LR
     subgraph "~/.vellum/ (Root Files)"
         SOCK["vellum.sock<br/>Unix domain socket"]
         TRUST["protected/trust.json<br/>Tool permission rules"]
+        FF_TOKEN["feature-flag-token<br/>Dedicated auth for PATCH /v1/feature-flags"]
     end
 
     subgraph "~/.vellum/workspace/ (Workspace Files)"
-        CONFIG["config files<br/>Hot-reloaded by daemon"]
+        CONFIG["config files<br/>Hot-reloaded by daemon<br/>(includes featureFlags)"]
         ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
         ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
         APPS_STORE["data/apps/<br/><app-id>.json + pages/*.html<br/>prebuilt Home Base seeded here"]
