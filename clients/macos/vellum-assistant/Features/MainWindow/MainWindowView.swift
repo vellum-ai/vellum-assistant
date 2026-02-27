@@ -96,10 +96,10 @@ struct MainWindowView: View {
     /// Nil for returning users (no transition).
     let onSendWakeUp: (() -> Void)?
 
-    /// Whether the "coming alive" overlay is currently showing.
     @State private var showThreadSwitcher = false
     /// Work item for the delayed hover trigger on the collapsed thread section.
     @State private var threadSwitcherHoverTimer: DispatchWorkItem?
+    /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
 
     init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
@@ -1361,10 +1361,13 @@ struct MainWindowView: View {
                 .padding(.vertical, VSpacing.xs)
                 .contentShape(Rectangle())
                 .onTapGesture {
+                    threadSwitcherHoverTimer?.cancel()
+                    threadSwitcherHoverTimer = nil
                     showThreadSwitcher.toggle()
                 }
                 .onHover { hovering in
                     if hovering {
+                        threadSwitcherHoverTimer?.cancel()
                         let work = DispatchWorkItem {
                             showThreadSwitcher = true
                         }
