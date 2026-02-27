@@ -1,6 +1,6 @@
 import { describe, expect,it } from 'bun:test';
 
-import { SessionExpiredError } from '../doordash/client.js';
+import { SessionExpiredError } from '../lib/client.js';
 
 describe('SessionExpiredError', () => {
   it('is an instance of Error', () => {

@@ -13,12 +13,21 @@ const log = getLogger('skills');
 
 // ─── New interfaces for extended skill metadata ──────────────────────────────
 
+export interface SkillCliSpec {
+  /** CLI command name (e.g. "doordash"). Used as the launcher script name in ~/.vellum/bin/. */
+  command: string;
+  /** Entry point filename relative to the skill directory (e.g. "doordash-entry.ts"). */
+  entry: string;
+}
+
 export interface VellumMetadata {
   emoji?: string;
   os?: string[];
   requires?: SkillRequirements;
   primaryEnv?: string;
   install?: InstallerSpec[];
+  /** Declares a standalone CLI entry point for this skill. */
+  cli?: SkillCliSpec;
 }
 
 export interface SkillRequirements {

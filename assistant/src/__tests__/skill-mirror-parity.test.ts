@@ -36,6 +36,7 @@ const TOPLEVEL_CATALOG = join(TOPLEVEL_SKILLS_DIR, 'catalog.json');
 // ---------------------------------------------------------------------------
 
 const TOPLEVEL_ONLY_SKILLS = new Set([
+  'doordash',
   'google-oauth-setup',
   'notion',
   'notion-oauth-setup',

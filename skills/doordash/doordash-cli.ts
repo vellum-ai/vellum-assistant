@@ -12,7 +12,7 @@ import { Command } from 'commander';
 import {
   createMessageParser,
   serialize,
-} from '../../assistant/src/daemon/ipc-protocol.js';
+} from './lib/shared/ipc.js';
 import {
   addToCart,
   getDropoffOptions,
@@ -27,23 +27,23 @@ import {
   searchItems,
   SessionExpiredError,
   viewCart,
-} from '../../assistant/src/doordash/client.js';
+} from './lib/client.js';
 import {
   extractQueries,
   saveQueries,
-} from '../../assistant/src/doordash/query-extractor.js';
+} from './lib/query-extractor.js';
 import {
   clearSession,
   importFromRecording,
   loadSession,
-} from '../../assistant/src/doordash/session.js';
-import { NetworkRecorder } from '../../assistant/src/tools/browser/network-recorder.js';
-import type { SessionRecording } from '../../assistant/src/tools/browser/network-recording-types.js';
+} from './lib/session.js';
+import { NetworkRecorder } from './lib/shared/network-recorder.js';
+import type { SessionRecording } from './lib/shared/recording-types.js';
 import {
   loadRecording,
   saveRecording,
-} from '../../assistant/src/tools/browser/recording-store.js';
-import { getSocketPath, readSessionToken } from '../../assistant/src/util/platform.js';
+} from './lib/shared/recording-store.js';
+import { getSocketPath, readSessionToken } from './lib/shared/platform.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1001,7 +1001,7 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
           intervalSeconds: 5,
           mode: 'learn',
           targetDomain: 'doordash.com',
-        } as unknown as import('../../assistant/src/daemon/ipc-protocol.js').ClientMessage),
+        } as Record<string, unknown>),
       );
     };
 
@@ -1046,7 +1046,7 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
           serialize({
             type: 'auth',
             token: sessionToken,
-          } as unknown as import('../../assistant/src/daemon/ipc-protocol.js').ClientMessage),
+          } as Record<string, unknown>),
         );
       } else {
         // No auth needed, send command immediately

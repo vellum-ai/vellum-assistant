@@ -4,8 +4,8 @@
  * go through the browser's authenticated session with Cloudflare tokens intact.
  */
 
-import { ProviderError, RateLimitError } from '../util/errors.js';
-import { truncate } from '../util/truncate.js';
+import { ProviderError, RateLimitError } from './shared/errors.js';
+import { truncate } from './shared/truncate.js';
 import {
   CREATE_ORDER_FROM_CART_QUERY,
   DETAILED_CART_QUERY,

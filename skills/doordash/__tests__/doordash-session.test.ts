@@ -9,7 +9,7 @@ import {
   getCookieHeader,
   getCsrfToken,
   importFromRecording,
-} from '../doordash/session.js';
+} from '../lib/session.js';
 
 // Override getDataDir to use a temp directory during tests
 const TEST_DIR = join(tmpdir(), `vellum-dd-test-${process.pid}`);

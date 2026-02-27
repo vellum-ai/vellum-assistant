@@ -2,7 +2,7 @@
 name: "DoorDash"
 description: "Order food, groceries, and convenience items from DoorDash using the built-in CLI integration"
 user-invocable: true
-metadata: {"vellum": {"emoji": "\uD83C\uDF55"}}
+metadata: {"vellum": {"emoji": "\uD83C\uDF55", "cli": {"command": "doordash", "entry": "doordash-entry.ts"}}}
 ---
 
 You can order food from DoorDash for the user using the `doordash` CLI.
