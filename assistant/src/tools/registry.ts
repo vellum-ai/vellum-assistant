@@ -121,7 +121,7 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
   for (const tool of newTools) {
     const existing = tools.get(tool.name);
     if (existing) {
-      const existingIsCore = existing.origin !== 'skill';
+      const existingIsCore = existing.origin === 'core' || !existing.origin;
       if (existingIsCore) {
         log.warn(
           { toolName: tool.name, skillId: tool.ownerSkillId },
@@ -186,11 +186,18 @@ export function registerMcpTools(newTools: Tool[]): Tool[] {
   for (const tool of newTools) {
     const existing = tools.get(tool.name);
     if (existing) {
-      const existingIsCore = existing.origin !== 'mcp' && existing.origin !== 'skill';
+      const existingIsCore = existing.origin === 'core' || !existing.origin;
       if (existingIsCore) {
         log.warn(
           { toolName: tool.name, serverId: tool.ownerMcpServerId },
           `MCP server "${tool.ownerMcpServerId}" tried to register tool "${tool.name}" which conflicts with a core tool. Skipping.`,
+        );
+        continue;
+      }
+      if (existing.origin === 'skill') {
+        log.warn(
+          { toolName: tool.name, serverId: tool.ownerMcpServerId, skillId: existing.ownerSkillId },
+          `MCP server "${tool.ownerMcpServerId}" tried to register tool "${tool.name}" which conflicts with skill tool from "${existing.ownerSkillId}". Skipping.`,
         );
         continue;
       }

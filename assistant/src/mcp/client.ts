@@ -77,16 +77,27 @@ export class McpClient {
     const result = await this.client.callTool({ name, arguments: args });
     const isError = result.isError === true;
 
-    // Concatenate all text content blocks into a single string
+    // Handle structuredContent if present
+    if (result.structuredContent !== undefined && result.structuredContent !== null) {
+      return {
+        content: JSON.stringify(result.structuredContent),
+        isError,
+      };
+    }
+
+    // Concatenate all content blocks into a single string
     const textParts: string[] = [];
     if (Array.isArray(result.content)) {
       for (const block of result.content) {
         if (typeof block === 'object' && block !== null && 'type' in block) {
           if (block.type === 'text' && 'text' in block) {
             textParts.push(String(block.text));
+          } else if (block.type === 'resource' && 'resource' in block) {
+            const resource = block.resource as Record<string, unknown>;
+            textParts.push(typeof resource.text === 'string' ? resource.text : JSON.stringify(resource));
           } else {
-            // For non-text content, include a description
-            textParts.push(`[${block.type} content]`);
+            // For other content types (image, etc.), include type and any available data
+            textParts.push(`[${block.type} content: ${JSON.stringify(block)}]`);
           }
         }
       }
