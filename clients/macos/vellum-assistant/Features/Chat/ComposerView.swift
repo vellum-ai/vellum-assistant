@@ -378,6 +378,9 @@ struct ComposerView: View {
         .onChange(of: isSending) {
             isStopPulsing = isSending && !hasPendingConfirmation
         }
+        .onChange(of: hasPendingConfirmation) {
+            isStopPulsing = isSending && !hasPendingConfirmation
+        }
     }
 
     private func handleComposerButtonHover(
