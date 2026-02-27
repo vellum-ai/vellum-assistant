@@ -25,10 +25,9 @@ public final class AmbientAgent: ObservableObject {
     private var triggerCancellable: AnyCancellable?
     private var sessionCancellable: AnyCancellable?
     private var currentSessionForwarder: AnyCancellable?
+    private var cancellables = Set<AnyCancellable>()
 
     var knowledge: KnowledgeStore { knowledgeStore }
-
-    init() {}
 
     /// Set currentSession and forward its objectWillChange to our own,
     /// so SwiftUI views observing AmbientAgent re-render when nested
