@@ -8,9 +8,6 @@ import {
   applyCanonicalGuardianDecision,
 } from '../../approvals/guardian-decision-primitive.js';
 import {
-  listPendingApprovalRequests,
-} from '../../memory/channel-guardian-store.js';
-import {
   getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   type CanonicalGuardianRequest,
@@ -19,7 +16,6 @@ import type { ApprovalAction } from '../channel-approval-types.js';
 import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';
 import { buildDecisionActions } from '../guardian-decision-types.js';
 import { httpError } from '../http-errors.js';
-import * as pendingInteractions from '../pending-interactions.js';
 
 // ---------------------------------------------------------------------------
 // GET /v1/guardian-actions/pending?conversationId=...
@@ -121,10 +117,9 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
 /**
  * Build a list of GuardianDecisionPrompt objects for the given conversation.
  *
- * Aggregates pending guardian approval requests from the channel guardian
- * store and pending confirmation interactions from the pending-interactions
- * tracker, exposing them in a uniform shape that clients can render as
- * structured button UIs.
+ * Reads exclusively from the canonical guardian requests store. All request
+ * kinds (tool_approval, pending_question, access_request, etc.) that have
+ * been created as canonical requests will appear here.
  */
 export function listGuardianDecisionPrompts(params: {
   conversationId: string;
@@ -132,12 +127,6 @@ export function listGuardianDecisionPrompts(params: {
   const { conversationId } = params;
   const prompts: GuardianDecisionPrompt[] = [];
 
-  // Track IDs we've already added so we don't produce duplicates when the
-  // same request appears in both canonical and legacy stores during dual-read.
-  const seenRequestIds = new Set<string>();
-
-  // 1. Canonical guardian requests — the unified cross-source domain.
-  // Includes all request types (tool_approval, pending_question, etc.).
   const canonicalRequests = listCanonicalGuardianRequests({
     conversationId,
     status: 'pending',
@@ -149,54 +138,6 @@ export function listGuardianDecisionPrompts(params: {
 
     const prompt = mapCanonicalRequestToPrompt(req, conversationId);
     prompts.push(prompt);
-    seenRequestIds.add(req.id);
-  }
-
-  // 2. Legacy: channel guardian approval requests (tool approvals routed to guardians)
-  const approvalRequests = listPendingApprovalRequests({
-    conversationId,
-    status: 'pending',
-  }).filter(a => a.expiresAt > Date.now() && a.requestId != null);
-
-  for (const approval of approvalRequests) {
-    const reqId = approval.requestId!;
-    if (seenRequestIds.has(reqId)) continue;
-
-    prompts.push({
-      requestId: reqId,
-      requestCode: reqId.slice(0, 6).toUpperCase(),
-      state: 'pending',
-      questionText: approval.reason ?? `Approve tool: ${approval.toolName ?? 'unknown'}`,
-      toolName: approval.toolName ?? null,
-      actions: buildDecisionActions({ forGuardianOnBehalf: true }),
-      expiresAt: approval.expiresAt,
-      conversationId: approval.conversationId,
-      callSessionId: null,
-    });
-    seenRequestIds.add(reqId);
-  }
-
-  // 3. Legacy: pending confirmation interactions (direct tool approval prompts)
-  const interactions = pendingInteractions.getByConversation(conversationId);
-  for (const interaction of interactions) {
-    if (interaction.kind !== 'confirmation' || !interaction.confirmationDetails) continue;
-    if (seenRequestIds.has(interaction.requestId)) continue;
-
-    const details = interaction.confirmationDetails;
-    prompts.push({
-      requestId: interaction.requestId,
-      requestCode: interaction.requestId.slice(0, 6).toUpperCase(),
-      state: 'pending',
-      questionText: `Approve tool: ${details.toolName}`,
-      toolName: details.toolName,
-      actions: buildDecisionActions({
-        persistentDecisionsAllowed: details.persistentDecisionsAllowed,
-      }),
-      expiresAt: Date.now() + 300_000,
-      conversationId,
-      callSessionId: null,
-    });
-    seenRequestIds.add(interaction.requestId);
   }
 
   return prompts;

@@ -13,8 +13,13 @@
 
 import { answerCall } from '../calls/call-domain.js';
 import type { CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import type { GuardianApprovalRequest } from '../memory/channel-guardian-store.js';
 import type { ApprovalAction } from '../runtime/channel-approval-types.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
+import {
+  handleAccessRequestDecision,
+  type AccessRequestDecisionAction,
+} from '../runtime/routes/access-request-decision.js';
 import { addRule } from '../permissions/trust-store.js';
 import { getTool } from '../tools/registry.js';
 import { getLogger } from '../util/logger.js';
@@ -230,6 +235,87 @@ const pendingQuestionResolver: GuardianRequestResolver = {
   },
 };
 
+/**
+ * Resolves `access_request` requests — channel access request approvals.
+ *
+ * Access requests don't have pending interactions in the session tracker.
+ * Instead, they create identity-bound verification sessions so the requester
+ * can prove their identity. This resolver calls `handleAccessRequestDecision`
+ * which mints verification sessions on approve and marks requests as denied
+ * on reject.
+ */
+const accessRequestResolver: GuardianRequestResolver = {
+  kind: 'access_request',
+
+  async resolve(ctx: ResolverContext): Promise<ResolverResult> {
+    const { request, decision, actor } = ctx;
+
+    // Map canonical decision action to access request action
+    const accessAction: AccessRequestDecisionAction =
+      decision.action === 'reject' ? 'deny' : 'approve';
+
+    const actorIdentity = actor.externalUserId ?? 'desktop';
+
+    // Build a synthetic GuardianApprovalRequest from the canonical request
+    // so handleAccessRequestDecision can create verification sessions.
+    // The conversationId for access requests encodes the requester identity
+    // as `access-req-<channel>-<externalUserId>`, so we extract the chatId
+    // from the requesterExternalUserId.
+    const now = Date.now();
+    const syntheticApproval: GuardianApprovalRequest = {
+      id: request.id,
+      runId: request.id,
+      requestId: request.id,
+      conversationId: request.conversationId ?? '',
+      assistantId: 'self',
+      channel: request.sourceChannel ?? 'unknown',
+      requesterExternalUserId: request.requesterExternalUserId ?? '',
+      requesterChatId: request.requesterExternalUserId ?? '',
+      guardianExternalUserId: request.guardianExternalUserId ?? '',
+      guardianChatId: '',
+      toolName: request.toolName ?? 'ingress_access_request',
+      riskLevel: 'access_request',
+      reason: request.questionText ?? null,
+      status: 'pending',
+      decidedByExternalUserId: null,
+      expiresAt: request.expiresAt ? new Date(request.expiresAt).getTime() : now + 300_000,
+      createdAt: new Date(request.createdAt).getTime(),
+      updatedAt: now,
+    };
+
+    const result = handleAccessRequestDecision(
+      syntheticApproval,
+      accessAction,
+      actorIdentity,
+    );
+
+    if (!result.handled || result.type === 'stale') {
+      log.warn(
+        {
+          event: 'resolver_access_request_stale',
+          requestId: request.id,
+          resultType: result.type,
+        },
+        'Access request resolver: decision was stale or unhandled',
+      );
+      return { ok: false, reason: result.type === 'stale' ? 'stale' : 'unhandled' };
+    }
+
+    log.info(
+      {
+        event: 'resolver_access_request_applied',
+        requestId: request.id,
+        action: accessAction,
+        resultType: result.type,
+        verificationSessionId: result.verificationSessionId,
+      },
+      'Access request resolver: decision applied',
+    );
+
+    return { ok: true, applied: true };
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -254,3 +340,4 @@ export function getRegisteredKinds(): string[] {
 // Register built-in resolvers
 registerResolver(pendingInteractionResolver);
 registerResolver(pendingQuestionResolver);
+registerResolver(accessRequestResolver);

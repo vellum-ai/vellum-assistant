@@ -4,7 +4,11 @@
  * - IPC handlers (guardian-actions.ts)
  *
  * Covers: conversationId scoping, stale handling, access-request routing,
- * invalid action rejection, pending interaction fallback, and not-found paths.
+ * invalid action rejection, and not-found paths.
+ *
+ * All decisions now go through the canonical guardian decision primitive
+ * (`applyCanonicalGuardianDecision`), so tests create canonical requests
+ * and mock that function.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -33,49 +37,27 @@ mock.module('../util/logger.js', () => ({
     }),
 }));
 
-// Mock applyGuardianDecision to avoid needing the full approval + session machinery
-const mockApplyGuardianDecision = mock(
-  (..._args: any[]): { applied: boolean; requestId?: string; reason?: string; userText?: string } => ({
-    applied: true,
-    requestId: 'req-123',
-  }),
+// Mock applyCanonicalGuardianDecision — the single decision write path.
+const mockApplyCanonicalGuardianDecision = mock(
+  (..._args: any[]): Promise<{ applied: boolean; requestId?: string; reason?: string; grantMinted?: boolean }> =>
+    Promise.resolve({
+      applied: true,
+      requestId: 'req-123',
+      grantMinted: false,
+    }),
 );
 mock.module('../approvals/guardian-decision-primitive.js', () => ({
-  applyGuardianDecision: mockApplyGuardianDecision,
-}));
-
-// Mock handleChannelDecision for the pending-interactions fallback path
-const mockHandleChannelDecision = mock(
-  (..._args: any[]): { applied: boolean; requestId?: string } => ({
-    applied: true,
-    requestId: 'req-456',
-  }),
-);
-mock.module('../runtime/channel-approvals.js', () => ({
-  handleChannelDecision: mockHandleChannelDecision,
-}));
-
-// Mock handleAccessRequestDecision for ingress_access_request routing
-const mockHandleAccessRequestDecision = mock(
-  (..._args: any[]): { handled: boolean; type: string; verificationSessionId?: string; verificationCode?: string } => ({
-    handled: true,
-    type: 'approved',
-    verificationSessionId: 'vs-1',
-    verificationCode: '123456',
-  }),
-);
-mock.module('../runtime/routes/access-request-decision.js', () => ({
-  handleAccessRequestDecision: mockHandleAccessRequestDecision,
+  applyCanonicalGuardianDecision: mockApplyCanonicalGuardianDecision,
 }));
 
 import { guardianActionsHandlers } from '../daemon/handlers/guardian-actions.js';
 import {
-  createApprovalRequest,
-} from '../memory/channel-guardian-store.js';
+  createCanonicalGuardianRequest,
+  generateCanonicalRequestCode,
+} from '../memory/canonical-guardian-store.js';
 import { initializeDb, resetDb } from '../memory/db.js';
 import { getDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
-import * as pendingInteractions from '../runtime/pending-interactions.js';
 import {
   handleGuardianActionDecision,
   handleGuardianActionsPending,
@@ -94,44 +76,44 @@ function ensureConversation(id: string): void {
 
 function resetTables(): void {
   const db = getDb();
+  db.run('DELETE FROM canonical_guardian_requests');
   db.run('DELETE FROM channel_guardian_approval_requests');
   db.run('DELETE FROM conversations');
-  pendingInteractions.clear();
-  mockApplyGuardianDecision.mockClear();
-  mockHandleChannelDecision.mockClear();
-  mockHandleAccessRequestDecision.mockClear();
+  mockApplyCanonicalGuardianDecision.mockClear();
 }
 
-/** Create a minimal pending approval for testing. */
-function createTestApproval(overrides: {
+/** Create a canonical guardian request for testing. */
+function createTestCanonicalRequest(overrides: {
   conversationId: string;
   requestId: string;
+  kind?: string;
   toolName?: string;
   guardianExternalUserId?: string;
-  reason?: string;
+  questionText?: string;
+  expiresAt?: string;
 }) {
   ensureConversation(overrides.conversationId);
-  return createApprovalRequest({
-    runId: `run-${overrides.requestId}`,
-    requestId: overrides.requestId,
+  return createCanonicalGuardianRequest({
+    id: overrides.requestId,
+    kind: overrides.kind ?? 'tool_approval',
+    sourceType: 'desktop',
+    sourceChannel: 'vellum',
     conversationId: overrides.conversationId,
-    channel: 'vellum',
-    requesterExternalUserId: 'user-1',
-    requesterChatId: 'chat-1',
-    guardianExternalUserId: overrides.guardianExternalUserId ?? 'guardian-1',
-    guardianChatId: 'gchat-1',
+    guardianExternalUserId: overrides.guardianExternalUserId,
     toolName: overrides.toolName ?? 'bash',
-    reason: overrides.reason,
-    expiresAt: Date.now() + 60_000,
+    questionText: overrides.questionText,
+    requestCode: generateCanonicalRequestCode(),
+    status: 'pending',
+    expiresAt: overrides.expiresAt ?? new Date(Date.now() + 60_000).toISOString(),
   });
 }
 
-// ── IPC helper ──────────────────────────────────────────────────────────
+// -- IPC helper ---------------------------------------------------------------
 
 /** Minimal stub for IPC socket and context to capture sent messages. */
 function createIpcStub() {
   const sent: Array<Record<string, unknown>> = [];
-  const socket = {} as unknown; // opaque — the handler just passes it through
+  const socket = {} as unknown; // opaque -- the handler just passes it through
   const ctx = {
     send: (_socket: unknown, msg: Record<string, unknown>) => {
       sent.push(msg);
@@ -140,7 +122,7 @@ function createIpcStub() {
   return { socket, ctx, sent };
 }
 
-// ── Cleanup ─────────────────────────────────────────────────────────────
+// -- Cleanup ------------------------------------------------------------------
 
 afterAll(() => {
   resetDb();
@@ -191,7 +173,9 @@ describe('HTTP handleGuardianActionDecision', () => {
     expect(body.error.message).toContain('Invalid action');
   });
 
-  test('returns 404 when no pending approval or interaction exists', async () => {
+  test('returns 404 when no canonical request exists (not_found from canonical primitive)', async () => {
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: false, reason: 'not_found' });
+
     const req = new Request('http://localhost/v1/guardian-actions/decision', {
       method: 'POST',
       body: JSON.stringify({ requestId: 'nonexistent', action: 'approve_once' }),
@@ -200,9 +184,9 @@ describe('HTTP handleGuardianActionDecision', () => {
     expect(res.status).toBe(404);
   });
 
-  test('applies decision via applyGuardianDecision for channel approval', async () => {
-    createTestApproval({ conversationId: 'conv-1', requestId: 'req-gd-1' });
-    mockApplyGuardianDecision.mockReturnValueOnce({ applied: true, requestId: 'req-gd-1' });
+  test('applies decision via applyCanonicalGuardianDecision for tool approval', async () => {
+    createTestCanonicalRequest({ conversationId: 'conv-1', requestId: 'req-gd-1' });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: true, requestId: 'req-gd-1', grantMinted: false });
 
     const req = new Request('http://localhost/v1/guardian-actions/decision', {
       method: 'POST',
@@ -213,26 +197,26 @@ describe('HTTP handleGuardianActionDecision', () => {
     const body = await res.json();
     expect(body.applied).toBe(true);
     expect(body.requestId).toBe('req-gd-1');
-    expect(mockApplyGuardianDecision).toHaveBeenCalledTimes(1);
+    expect(mockApplyCanonicalGuardianDecision).toHaveBeenCalledTimes(1);
   });
 
-  test('rejects decision when conversationId does not match approval', async () => {
-    createTestApproval({ conversationId: 'conv-1', requestId: 'req-scope-1' });
+  test('rejects decision when conversationId does not match canonical request', async () => {
+    createTestCanonicalRequest({ conversationId: 'conv-1', requestId: 'req-scope-1' });
 
     const req = new Request('http://localhost/v1/guardian-actions/decision', {
       method: 'POST',
       body: JSON.stringify({ requestId: 'req-scope-1', action: 'approve_once', conversationId: 'conv-wrong' }),
     });
     const res = await handleGuardianActionDecision(req);
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(404);
     const body = await res.json();
-    expect(body.error.message).toContain('does not match');
-    expect(mockApplyGuardianDecision).not.toHaveBeenCalled();
+    expect(body.error.message).toContain('No pending guardian action');
+    expect(mockApplyCanonicalGuardianDecision).not.toHaveBeenCalled();
   });
 
-  test('allows decision when conversationId matches approval', async () => {
-    createTestApproval({ conversationId: 'conv-match', requestId: 'req-scope-2' });
-    mockApplyGuardianDecision.mockReturnValueOnce({ applied: true, requestId: 'req-scope-2' });
+  test('allows decision when conversationId matches canonical request', async () => {
+    createTestCanonicalRequest({ conversationId: 'conv-match', requestId: 'req-scope-2' });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: true, requestId: 'req-scope-2', grantMinted: false });
 
     const req = new Request('http://localhost/v1/guardian-actions/decision', {
       method: 'POST',
@@ -245,8 +229,8 @@ describe('HTTP handleGuardianActionDecision', () => {
   });
 
   test('allows decision when no conversationId is provided (backward compat)', async () => {
-    createTestApproval({ conversationId: 'conv-any', requestId: 'req-scope-3' });
-    mockApplyGuardianDecision.mockReturnValueOnce({ applied: true, requestId: 'req-scope-3' });
+    createTestCanonicalRequest({ conversationId: 'conv-any', requestId: 'req-scope-3' });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: true, requestId: 'req-scope-3', grantMinted: false });
 
     const req = new Request('http://localhost/v1/guardian-actions/decision', {
       method: 'POST',
@@ -256,13 +240,15 @@ describe('HTTP handleGuardianActionDecision', () => {
     expect(res.status).toBe(200);
   });
 
-  test('routes ingress_access_request through handleAccessRequestDecision', async () => {
-    createTestApproval({
+  test('applies decision for access_request kind through canonical primitive', async () => {
+    createTestCanonicalRequest({
       conversationId: 'conv-access',
       requestId: 'req-access-1',
+      kind: 'access_request',
       toolName: 'ingress_access_request',
       guardianExternalUserId: 'guardian-42',
     });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: true, requestId: 'req-access-1', grantMinted: false });
 
     const req = new Request('http://localhost/v1/guardian-actions/decision', {
       method: 'POST',
@@ -272,53 +258,13 @@ describe('HTTP handleGuardianActionDecision', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.applied).toBe(true);
-    expect(body.accessRequestResult).toBeDefined();
-    expect(mockHandleAccessRequestDecision).toHaveBeenCalledTimes(1);
-    // Should NOT call applyGuardianDecision for access requests
-    expect(mockApplyGuardianDecision).not.toHaveBeenCalled();
+    // All decisions go through the canonical primitive
+    expect(mockApplyCanonicalGuardianDecision).toHaveBeenCalledTimes(1);
   });
 
-  test('maps reject to deny for access request decisions', async () => {
-    createTestApproval({
-      conversationId: 'conv-access-deny',
-      requestId: 'req-access-deny',
-      toolName: 'ingress_access_request',
-    });
-
-    const req = new Request('http://localhost/v1/guardian-actions/decision', {
-      method: 'POST',
-      body: JSON.stringify({ requestId: 'req-access-deny', action: 'reject' }),
-    });
-    await handleGuardianActionDecision(req);
-    const call = mockHandleAccessRequestDecision.mock.calls[0]!;
-    expect(call[1]).toBe('deny');
-  });
-
-  test('returns stale when access request decision is stale', async () => {
-    createTestApproval({
-      conversationId: 'conv-access-stale',
-      requestId: 'req-access-stale',
-      toolName: 'ingress_access_request',
-    });
-    mockHandleAccessRequestDecision.mockReturnValueOnce({
-      handled: false,
-      type: 'stale' as const,
-    });
-
-    const req = new Request('http://localhost/v1/guardian-actions/decision', {
-      method: 'POST',
-      body: JSON.stringify({ requestId: 'req-access-stale', action: 'approve_once' }),
-    });
-    const res = await handleGuardianActionDecision(req);
-    const body = await res.json();
-    expect(body.applied).toBe(false);
-    expect(body.reason).toBe('stale');
-    expect(body.requestId).toBe('req-access-stale');
-  });
-
-  test('preserves requestId in response when applyGuardianDecision returns stale without requestId', async () => {
-    createTestApproval({ conversationId: 'conv-stale', requestId: 'req-stale-1' });
-    mockApplyGuardianDecision.mockReturnValueOnce({ applied: false, reason: 'stale' });
+  test('returns stale reason from canonical decision primitive', async () => {
+    createTestCanonicalRequest({ conversationId: 'conv-stale', requestId: 'req-stale-1' });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: false, reason: 'already_resolved' });
 
     const req = new Request('http://localhost/v1/guardian-actions/decision', {
       method: 'POST',
@@ -327,60 +273,25 @@ describe('HTTP handleGuardianActionDecision', () => {
     const res = await handleGuardianActionDecision(req);
     const body = await res.json();
     expect(body.applied).toBe(false);
-    expect(body.reason).toBe('stale');
-    // requestId should fall back to the original msg requestId
+    expect(body.reason).toBe('already_resolved');
+    // requestId should fall back to the original request ID
     expect(body.requestId).toBe('req-stale-1');
   });
 
-  test('falls back to pending interactions when no channel approval exists', async () => {
-    const fakeSession = {} as any;
-    pendingInteractions.register('req-pi-1', {
-      session: fakeSession,
-      conversationId: 'conv-pi',
-      kind: 'confirmation',
-    });
-    mockHandleChannelDecision.mockReturnValueOnce({ applied: true, requestId: 'req-pi-1' });
-
-    const req = new Request('http://localhost/v1/guardian-actions/decision', {
-      method: 'POST',
-      body: JSON.stringify({ requestId: 'req-pi-1', action: 'approve_always' }),
-    });
-    const res = await handleGuardianActionDecision(req);
-    const body = await res.json();
-    expect(body.applied).toBe(true);
-    expect(mockHandleChannelDecision).toHaveBeenCalledTimes(1);
-    expect(mockApplyGuardianDecision).not.toHaveBeenCalled();
-  });
-
-  test('rejects interaction decision when conversationId mismatches', async () => {
-    const fakeSession = {} as any;
-    pendingInteractions.register('req-pi-scope', {
-      session: fakeSession,
-      conversationId: 'conv-pi-correct',
-      kind: 'confirmation',
-    });
-
-    const req = new Request('http://localhost/v1/guardian-actions/decision', {
-      method: 'POST',
-      body: JSON.stringify({ requestId: 'req-pi-scope', action: 'approve_once', conversationId: 'conv-pi-wrong' }),
-    });
-    const res = await handleGuardianActionDecision(req);
-    expect(res.status).toBe(400);
-    expect(mockHandleChannelDecision).not.toHaveBeenCalled();
-  });
-
-  test('passes actorExternalUserId as undefined (unauthenticated endpoint)', async () => {
-    createTestApproval({ conversationId: 'conv-actor', requestId: 'req-actor-1' });
-    mockApplyGuardianDecision.mockReturnValueOnce({ applied: true, requestId: 'req-actor-1' });
+  test('passes actorContext with undefined externalUserId (unauthenticated endpoint)', async () => {
+    createTestCanonicalRequest({ conversationId: 'conv-actor', requestId: 'req-actor-1' });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: true, requestId: 'req-actor-1', grantMinted: false });
 
     const req = new Request('http://localhost/v1/guardian-actions/decision', {
       method: 'POST',
       body: JSON.stringify({ requestId: 'req-actor-1', action: 'approve_once' }),
     });
     await handleGuardianActionDecision(req);
-    const call = mockApplyGuardianDecision.mock.calls[0]![0] as Record<string, unknown>;
-    expect(call.actorExternalUserId).toBeUndefined();
-    expect(call.actorChannel).toBe('vellum');
+    const call = mockApplyCanonicalGuardianDecision.mock.calls[0]![0] as Record<string, unknown>;
+    const actorContext = call.actorContext as Record<string, unknown>;
+    expect(actorContext.externalUserId).toBeUndefined();
+    expect(actorContext.channel).toBe('vellum');
+    expect(actorContext.isTrusted).toBe(true);
   });
 });
 
@@ -397,8 +308,12 @@ describe('HTTP handleGuardianActionsPending', () => {
     expect(res.status).toBe(400);
   });
 
-  test('returns prompts for a conversation with pending approvals', () => {
-    createTestApproval({ conversationId: 'conv-list', requestId: 'req-list-1', reason: 'Run bash: ls' });
+  test('returns prompts for a conversation with pending canonical requests', () => {
+    createTestCanonicalRequest({
+      conversationId: 'conv-list',
+      requestId: 'req-list-1',
+      questionText: 'Run bash: ls',
+    });
 
     const req = new Request('http://localhost/v1/guardian-actions/pending?conversationId=conv-list');
     const res = handleGuardianActionsPending(req);
@@ -411,7 +326,7 @@ describe('HTTP handleGuardianActionsPending', () => {
     expect(prompts[0].questionText).toBe('Run bash: ls');
   });
 
-  test('returns empty prompts for a conversation with no pending approvals', () => {
+  test('returns empty prompts for a conversation with no pending requests', () => {
     const prompts = listGuardianDecisionPrompts({ conversationId: 'conv-empty' });
     expect(prompts).toHaveLength(0);
   });
@@ -424,100 +339,108 @@ describe('HTTP handleGuardianActionsPending', () => {
 describe('listGuardianDecisionPrompts', () => {
   beforeEach(resetTables);
 
-  test('excludes expired approvals', () => {
+  test('excludes expired canonical requests', () => {
     ensureConversation('conv-expired');
-    // Create approval that's already expired
-    createApprovalRequest({
-      runId: 'run-expired',
-      requestId: 'req-expired',
+    createCanonicalGuardianRequest({
+      id: 'req-expired',
+      kind: 'tool_approval',
+      sourceType: 'desktop',
+      sourceChannel: 'vellum',
       conversationId: 'conv-expired',
-      channel: 'vellum',
-      requesterExternalUserId: 'user-1',
-      requesterChatId: 'chat-1',
-      guardianExternalUserId: 'guardian-1',
-      guardianChatId: 'gchat-1',
       toolName: 'bash',
-      expiresAt: Date.now() - 1000, // already expired
+      requestCode: generateCanonicalRequestCode(),
+      status: 'pending',
+      expiresAt: new Date(Date.now() - 1000).toISOString(), // already expired
     });
 
     const prompts = listGuardianDecisionPrompts({ conversationId: 'conv-expired' });
     expect(prompts).toHaveLength(0);
   });
 
-  test('excludes approvals without requestId', () => {
-    ensureConversation('conv-no-reqid');
-    createApprovalRequest({
-      runId: 'run-no-reqid',
-      // no requestId
-      conversationId: 'conv-no-reqid',
-      channel: 'vellum',
-      requesterExternalUserId: 'user-1',
-      requesterChatId: 'chat-1',
-      guardianExternalUserId: 'guardian-1',
-      guardianChatId: 'gchat-1',
-      toolName: 'bash',
-      expiresAt: Date.now() + 60_000,
+  test('includes pending canonical requests with toolName', () => {
+    createTestCanonicalRequest({
+      conversationId: 'conv-tool',
+      requestId: 'req-tool-prompt',
+      toolName: 'read_file',
     });
 
-    const prompts = listGuardianDecisionPrompts({ conversationId: 'conv-no-reqid' });
-    expect(prompts).toHaveLength(0);
-  });
-
-  test('includes pending interaction confirmations', () => {
-    const fakeSession = {} as any;
-    pendingInteractions.register('req-int-prompt', {
-      session: fakeSession,
-      conversationId: 'conv-int-prompt',
-      kind: 'confirmation',
-      confirmationDetails: {
-        toolName: 'read_file',
-        input: { path: '/etc/passwd' },
-        riskLevel: 'high',
-        allowlistOptions: [],
-        scopeOptions: [],
-        persistentDecisionsAllowed: true,
-      },
-    });
-
-    const prompts = listGuardianDecisionPrompts({ conversationId: 'conv-int-prompt' });
+    const prompts = listGuardianDecisionPrompts({ conversationId: 'conv-tool' });
     expect(prompts).toHaveLength(1);
     expect(prompts[0].toolName).toBe('read_file');
-    expect(prompts[0].requestId).toBe('req-int-prompt');
+    expect(prompts[0].requestId).toBe('req-tool-prompt');
   });
 
-  test('deduplicates interactions that share a requestId with a channel approval', () => {
-    createTestApproval({ conversationId: 'conv-dedup', requestId: 'req-dedup-shared' });
-
-    const fakeSession = {} as any;
-    pendingInteractions.register('req-dedup-shared', {
-      session: fakeSession,
-      conversationId: 'conv-dedup',
-      kind: 'confirmation',
-      confirmationDetails: {
-        toolName: 'bash',
-        input: {},
-        riskLevel: 'medium',
-        allowlistOptions: [],
-        scopeOptions: [],
-      },
+  test('generates questionText from toolName when questionText is not set', () => {
+    createTestCanonicalRequest({
+      conversationId: 'conv-gen-qt',
+      requestId: 'req-gen-qt',
+      toolName: 'bash',
     });
 
-    const prompts = listGuardianDecisionPrompts({ conversationId: 'conv-dedup' });
-    // Should only appear once (from the channel approval)
+    const prompts = listGuardianDecisionPrompts({ conversationId: 'conv-gen-qt' });
     expect(prompts).toHaveLength(1);
-    expect(prompts[0].requestId).toBe('req-dedup-shared');
+    expect(prompts[0].questionText).toBe('Approve tool: bash');
   });
 
-  test('skips non-confirmation interactions', () => {
-    const fakeSession = {} as any;
-    pendingInteractions.register('req-secret', {
-      session: fakeSession,
-      conversationId: 'conv-secret',
-      kind: 'secret',
+  test('uses questionText when it is set', () => {
+    createTestCanonicalRequest({
+      conversationId: 'conv-qt',
+      requestId: 'req-qt',
+      toolName: 'bash',
+      questionText: 'Run bash: ls -la',
     });
 
-    const prompts = listGuardianDecisionPrompts({ conversationId: 'conv-secret' });
-    expect(prompts).toHaveLength(0);
+    const prompts = listGuardianDecisionPrompts({ conversationId: 'conv-qt' });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].questionText).toBe('Run bash: ls -la');
+  });
+
+  test('returns prompt with correct shape fields', () => {
+    createTestCanonicalRequest({
+      conversationId: 'conv-shape',
+      requestId: 'req-shape',
+      toolName: 'bash',
+      questionText: 'Test prompt',
+    });
+
+    const prompts = listGuardianDecisionPrompts({ conversationId: 'conv-shape' });
+    expect(prompts).toHaveLength(1);
+    const prompt = prompts[0];
+    expect(prompt.requestId).toBe('req-shape');
+    expect(prompt.state).toBe('pending');
+    expect(prompt.conversationId).toBe('conv-shape');
+    expect(prompt.toolName).toBe('bash');
+    expect(prompt.actions).toBeDefined();
+    expect(prompt.expiresAt).toBeGreaterThan(Date.now() - 5000);
+    expect(prompt.kind).toBe('tool_approval');
+  });
+
+  test('includes access_request kind canonical requests', () => {
+    createTestCanonicalRequest({
+      conversationId: 'conv-ar-prompt',
+      requestId: 'req-ar-prompt',
+      kind: 'access_request',
+      toolName: 'ingress_access_request',
+      questionText: 'User wants access',
+    });
+
+    const prompts = listGuardianDecisionPrompts({ conversationId: 'conv-ar-prompt' });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].kind).toBe('access_request');
+    expect(prompts[0].questionText).toBe('User wants access');
+  });
+
+  test('only returns requests for the given conversationId', () => {
+    createTestCanonicalRequest({ conversationId: 'conv-a', requestId: 'req-a' });
+    createTestCanonicalRequest({ conversationId: 'conv-b', requestId: 'req-b' });
+
+    const promptsA = listGuardianDecisionPrompts({ conversationId: 'conv-a' });
+    expect(promptsA).toHaveLength(1);
+    expect(promptsA[0].requestId).toBe('req-a');
+
+    const promptsB = listGuardianDecisionPrompts({ conversationId: 'conv-b' });
+    expect(promptsB).toHaveLength(1);
+    expect(promptsB[0].requestId).toBe('req-b');
   });
 });
 
@@ -530,9 +453,9 @@ describe('IPC guardian_action_decision', () => {
 
   const handler = guardianActionsHandlers.guardian_action_decision;
 
-  test('rejects invalid action', () => {
+  test('rejects invalid action', async () => {
     const { socket, ctx, sent } = createIpcStub();
-    handler(
+    await handler(
       { type: 'guardian_action_decision', requestId: 'req-ipc-1', action: 'self_destruct' } as any,
       socket as any,
       ctx as any,
@@ -543,9 +466,11 @@ describe('IPC guardian_action_decision', () => {
     expect(sent[0].requestId).toBe('req-ipc-1');
   });
 
-  test('returns not_found when no approval or interaction exists', () => {
+  test('returns not_found when no canonical request exists', async () => {
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: false, reason: 'not_found' });
+
     const { socket, ctx, sent } = createIpcStub();
-    handler(
+    await handler(
       { type: 'guardian_action_decision', requestId: 'req-ghost', action: 'approve_once' } as any,
       socket as any,
       ctx as any,
@@ -555,12 +480,12 @@ describe('IPC guardian_action_decision', () => {
     expect(sent[0].reason).toBe('not_found');
   });
 
-  test('applies decision via applyGuardianDecision for channel approval', () => {
-    createTestApproval({ conversationId: 'conv-ipc-1', requestId: 'req-ipc-gd' });
-    mockApplyGuardianDecision.mockReturnValueOnce({ applied: true, requestId: 'req-ipc-gd' });
+  test('applies decision via applyCanonicalGuardianDecision for tool approval', async () => {
+    createTestCanonicalRequest({ conversationId: 'conv-ipc-1', requestId: 'req-ipc-gd' });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: true, requestId: 'req-ipc-gd', grantMinted: false });
 
     const { socket, ctx, sent } = createIpcStub();
-    handler(
+    await handler(
       { type: 'guardian_action_decision', requestId: 'req-ipc-gd', action: 'approve_once' } as any,
       socket as any,
       ctx as any,
@@ -568,14 +493,14 @@ describe('IPC guardian_action_decision', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].applied).toBe(true);
     expect(sent[0].requestId).toBe('req-ipc-gd');
-    expect(mockApplyGuardianDecision).toHaveBeenCalledTimes(1);
+    expect(mockApplyCanonicalGuardianDecision).toHaveBeenCalledTimes(1);
   });
 
-  test('rejects decision when conversationId does not match approval', () => {
-    createTestApproval({ conversationId: 'conv-ipc-correct', requestId: 'req-ipc-scope' });
+  test('rejects decision when conversationId does not match canonical request', async () => {
+    createTestCanonicalRequest({ conversationId: 'conv-ipc-correct', requestId: 'req-ipc-scope' });
 
     const { socket, ctx, sent } = createIpcStub();
-    handler(
+    await handler(
       {
         type: 'guardian_action_decision',
         requestId: 'req-ipc-scope',
@@ -587,17 +512,16 @@ describe('IPC guardian_action_decision', () => {
     );
     expect(sent).toHaveLength(1);
     expect(sent[0].applied).toBe(false);
-    expect(sent[0].reason).toBe('conversation_mismatch');
-    expect(sent[0].requestId).toBe('req-ipc-scope');
-    expect(mockApplyGuardianDecision).not.toHaveBeenCalled();
+    expect(sent[0].reason).toBe('not_found');
+    expect(mockApplyCanonicalGuardianDecision).not.toHaveBeenCalled();
   });
 
-  test('allows decision when conversationId matches', () => {
-    createTestApproval({ conversationId: 'conv-ipc-match', requestId: 'req-ipc-match' });
-    mockApplyGuardianDecision.mockReturnValueOnce({ applied: true, requestId: 'req-ipc-match' });
+  test('allows decision when conversationId matches', async () => {
+    createTestCanonicalRequest({ conversationId: 'conv-ipc-match', requestId: 'req-ipc-match' });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: true, requestId: 'req-ipc-match', grantMinted: false });
 
     const { socket, ctx, sent } = createIpcStub();
-    handler(
+    await handler(
       {
         type: 'guardian_action_decision',
         requestId: 'req-ipc-match',
@@ -611,125 +535,57 @@ describe('IPC guardian_action_decision', () => {
     expect(sent[0].applied).toBe(true);
   });
 
-  test('routes ingress_access_request through handleAccessRequestDecision', () => {
-    createTestApproval({
+  test('applies decision for access_request kind through canonical primitive', async () => {
+    createTestCanonicalRequest({
       conversationId: 'conv-ipc-access',
       requestId: 'req-ipc-access',
+      kind: 'access_request',
       toolName: 'ingress_access_request',
       guardianExternalUserId: 'guardian-99',
     });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: true, requestId: 'req-ipc-access', grantMinted: false });
 
     const { socket, ctx, sent } = createIpcStub();
-    handler(
+    await handler(
       { type: 'guardian_action_decision', requestId: 'req-ipc-access', action: 'approve_once' } as any,
       socket as any,
       ctx as any,
     );
     expect(sent).toHaveLength(1);
     expect(sent[0].applied).toBe(true);
-    expect(mockHandleAccessRequestDecision).toHaveBeenCalledTimes(1);
-    // Actor is 'desktop' because this endpoint is unauthenticated —
-    // we cannot verify the caller is the assigned guardian.
-    const call = mockHandleAccessRequestDecision.mock.calls[0]!;
-    expect(call[2]).toBe('desktop');
+    expect(mockApplyCanonicalGuardianDecision).toHaveBeenCalledTimes(1);
   });
 
-  test('returns stale for stale access request', () => {
-    createTestApproval({
-      conversationId: 'conv-ipc-stale-ar',
-      requestId: 'req-ipc-stale-ar',
-      toolName: 'ingress_access_request',
-    });
-    mockHandleAccessRequestDecision.mockReturnValueOnce({
-      handled: false,
-      type: 'stale' as const,
-    });
+  test('returns already_resolved for stale canonical request', async () => {
+    createTestCanonicalRequest({ conversationId: 'conv-ipc-stale', requestId: 'req-ipc-stale' });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: false, reason: 'already_resolved' });
 
     const { socket, ctx, sent } = createIpcStub();
-    handler(
-      { type: 'guardian_action_decision', requestId: 'req-ipc-stale-ar', action: 'approve_once' } as any,
-      socket as any,
-      ctx as any,
-    );
-    expect(sent).toHaveLength(1);
-    expect(sent[0].applied).toBe(false);
-    expect(sent[0].reason).toBe('stale');
-    expect(sent[0].requestId).toBe('req-ipc-stale-ar');
-  });
-
-  test('preserves requestId when applyGuardianDecision returns without one', () => {
-    createTestApproval({ conversationId: 'conv-ipc-stale', requestId: 'req-ipc-stale' });
-    mockApplyGuardianDecision.mockReturnValueOnce({ applied: false, reason: 'stale' });
-
-    const { socket, ctx, sent } = createIpcStub();
-    handler(
+    await handler(
       { type: 'guardian_action_decision', requestId: 'req-ipc-stale', action: 'approve_once' } as any,
       socket as any,
       ctx as any,
     );
     expect(sent).toHaveLength(1);
     expect(sent[0].requestId).toBe('req-ipc-stale');
-    expect(sent[0].reason).toBe('stale');
+    expect(sent[0].reason).toBe('already_resolved');
   });
 
-  test('falls back to pending interactions', () => {
-    const fakeSession = {} as any;
-    pendingInteractions.register('req-ipc-pi', {
-      session: fakeSession,
-      conversationId: 'conv-ipc-pi',
-      kind: 'confirmation',
-    });
-    mockHandleChannelDecision.mockReturnValueOnce({ applied: true, requestId: 'req-ipc-pi' });
-
-    const { socket, ctx, sent } = createIpcStub();
-    handler(
-      { type: 'guardian_action_decision', requestId: 'req-ipc-pi', action: 'approve_always' } as any,
-      socket as any,
-      ctx as any,
-    );
-    expect(sent).toHaveLength(1);
-    expect(sent[0].applied).toBe(true);
-    expect(mockHandleChannelDecision).toHaveBeenCalledTimes(1);
-  });
-
-  test('rejects interaction fallback when conversationId mismatches', () => {
-    const fakeSession = {} as any;
-    pendingInteractions.register('req-ipc-pi-scope', {
-      session: fakeSession,
-      conversationId: 'conv-ipc-pi-right',
-      kind: 'confirmation',
-    });
-
-    const { socket, ctx, sent } = createIpcStub();
-    handler(
-      {
-        type: 'guardian_action_decision',
-        requestId: 'req-ipc-pi-scope',
-        action: 'approve_once',
-        conversationId: 'conv-ipc-pi-wrong',
-      } as any,
-      socket as any,
-      ctx as any,
-    );
-    expect(sent).toHaveLength(1);
-    expect(sent[0].applied).toBe(false);
-    expect(sent[0].reason).toBe('conversation_mismatch');
-    expect(mockHandleChannelDecision).not.toHaveBeenCalled();
-  });
-
-  test('passes actorExternalUserId as undefined (unauthenticated endpoint)', () => {
-    createTestApproval({ conversationId: 'conv-ipc-actor', requestId: 'req-ipc-actor' });
-    mockApplyGuardianDecision.mockReturnValueOnce({ applied: true, requestId: 'req-ipc-actor' });
+  test('passes actorContext with undefined externalUserId (unauthenticated endpoint)', async () => {
+    createTestCanonicalRequest({ conversationId: 'conv-ipc-actor', requestId: 'req-ipc-actor' });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: true, requestId: 'req-ipc-actor', grantMinted: false });
 
     const { socket, ctx } = createIpcStub();
-    handler(
+    await handler(
       { type: 'guardian_action_decision', requestId: 'req-ipc-actor', action: 'approve_once' } as any,
       socket as any,
       ctx as any,
     );
-    const call = mockApplyGuardianDecision.mock.calls[0]![0] as Record<string, unknown>;
-    expect(call.actorExternalUserId).toBeUndefined();
-    expect(call.actorChannel).toBe('vellum');
+    const call = mockApplyCanonicalGuardianDecision.mock.calls[0]![0] as Record<string, unknown>;
+    const actorContext = call.actorContext as Record<string, unknown>;
+    expect(actorContext.externalUserId).toBeUndefined();
+    expect(actorContext.channel).toBe('vellum');
+    expect(actorContext.isTrusted).toBe(true);
   });
 });
 
@@ -743,7 +599,11 @@ describe('IPC guardian_actions_pending_request', () => {
   const handler = guardianActionsHandlers.guardian_actions_pending_request;
 
   test('returns prompts for a conversation', () => {
-    createTestApproval({ conversationId: 'conv-ipc-list', requestId: 'req-ipc-list', reason: 'Run bash: pwd' });
+    createTestCanonicalRequest({
+      conversationId: 'conv-ipc-list',
+      requestId: 'req-ipc-list',
+      questionText: 'Run bash: pwd',
+    });
 
     const { socket, ctx, sent } = createIpcStub();
     handler(
@@ -760,7 +620,7 @@ describe('IPC guardian_actions_pending_request', () => {
     expect(prompts[0].questionText).toBe('Run bash: pwd');
   });
 
-  test('returns empty prompts for conversation with no pending approvals', () => {
+  test('returns empty prompts for conversation with no pending requests', () => {
     const { socket, ctx, sent } = createIpcStub();
     handler(
       { type: 'guardian_actions_pending_request', conversationId: 'conv-empty-ipc' } as any,

@@ -458,7 +458,7 @@ describe('empty content with callbackData bypasses validation', () => {
     const res = await handleChannelInbound(req, noopProcessMessage);
     expect(res.status).toBe(400);
     const body = await res.json() as Record<string, unknown>;
-    expect(body.error).toBe('content or attachmentIds is required');
+    expect((body.error as Record<string, unknown>).message).toBe('content or attachmentIds is required');
   });
 
   test('allows empty content when callbackData is present', async () => {

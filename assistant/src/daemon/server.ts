@@ -10,6 +10,10 @@ import { buildSystemPrompt } from '../config/system-prompt.js';
 import type { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
+import {
+  createCanonicalGuardianRequest,
+  generateCanonicalRequestCode,
+} from '../memory/canonical-guardian-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -113,6 +117,20 @@ function makePendingInteractionRegistrar(
           scopeOptions: msg.scopeOptions,
           persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
         },
+      });
+
+      // Create a canonical guardian request so IPC/HTTP handlers can find it
+      // via applyCanonicalGuardianDecision.
+      createCanonicalGuardianRequest({
+        id: msg.requestId,
+        kind: 'tool_approval',
+        sourceType: 'desktop',
+        sourceChannel: 'vellum',
+        conversationId,
+        toolName: msg.toolName,
+        status: 'pending',
+        requestCode: generateCanonicalRequestCode(),
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
       });
     } else if (msg.type === 'secret_request') {
       pendingInteractions.register(msg.requestId, {

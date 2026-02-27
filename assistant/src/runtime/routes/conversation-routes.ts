@@ -15,6 +15,10 @@ import {
 import * as conversationStore from '../../memory/conversation-store.js';
 import { getConfiguredProvider } from '../../providers/provider-send-message.js';
 import type { Provider } from '../../providers/types.js';
+import {
+  createCanonicalGuardianRequest,
+  generateCanonicalRequestCode,
+} from '../../memory/canonical-guardian-store.js';
 import { getLogger } from '../../util/logger.js';
 import { buildAssistantEvent } from '../assistant-event.js';
 import { httpError } from '../http-errors.js';
@@ -170,6 +174,20 @@ function makeHubPublisher(
           scopeOptions: msg.scopeOptions,
           persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
         },
+      });
+
+      // Create a canonical guardian request so IPC/HTTP handlers can find it
+      // via applyCanonicalGuardianDecision.
+      createCanonicalGuardianRequest({
+        id: msg.requestId,
+        kind: 'tool_approval',
+        sourceType: 'desktop',
+        sourceChannel: 'vellum',
+        conversationId,
+        toolName: msg.toolName,
+        status: 'pending',
+        requestCode: generateCanonicalRequestCode(),
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
       });
     } else if (msg.type === 'secret_request') {
       pendingInteractions.register(msg.requestId, {
