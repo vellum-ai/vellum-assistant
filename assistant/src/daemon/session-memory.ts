@@ -40,6 +40,16 @@ export interface MemoryPrepareContext {
 }
 
 /**
+ * Returns true when the latest user turn is an internal tool-result-only
+ * message (no user-authored text/image content).
+ */
+function isToolResultOnlyUserTurn(message: Message | undefined): boolean {
+  return message?.role === 'user'
+    && message.content.length > 0
+    && message.content.every((block) => block.type === 'tool_result');
+}
+
+/**
  * Build memory recall, dynamic profile, and conflict gate evaluation
  * for a single agent loop turn. Returns the augmented run messages and
  * metadata for downstream event emission.
@@ -57,6 +67,41 @@ export async function prepareMemoryContext(
   const isTrustedActor = ctx.guardianActorRole === 'guardian' || ctx.guardianActorRole === undefined;
 
   if (!isTrustedActor) {
+    return {
+      runMessages: ctx.messages,
+      recall: {
+        enabled: false,
+        degraded: false,
+        injectedText: '',
+        lexicalHits: 0,
+        semanticHits: 0,
+        recencyHits: 0,
+        entityHits: 0,
+        relationSeedEntityCount: 0,
+        relationTraversedEdgeCount: 0,
+        relationNeighborEntityCount: 0,
+        relationExpandedItemCount: 0,
+        earlyTerminated: false,
+        mergedCount: 0,
+        selectedCount: 0,
+        rerankApplied: false,
+        injectedTokens: 0,
+        latencyMs: 0,
+        topCandidates: [],
+      } as Awaited<ReturnType<typeof buildMemoryRecall>>,
+      dynamicProfile: { text: '' },
+      softConflictInstruction: null,
+      recallInjectionStrategy: 'prepend_user_block',
+      conflictClarification: null,
+    };
+  }
+
+  // Internal tool-result turns (assistant tool loop) should not trigger
+  // memory retrieval/profile injection. Injecting memory here repeats the
+  // same long recall block on every tool step and dramatically inflates
+  // per-step prompt size/latency.
+  const latestMessage = ctx.messages[ctx.messages.length - 1];
+  if (isToolResultOnlyUserTurn(latestMessage)) {
     return {
       runMessages: ctx.messages,
       recall: {

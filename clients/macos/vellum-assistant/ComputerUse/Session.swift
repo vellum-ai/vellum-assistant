@@ -431,16 +431,13 @@ final class ComputerUseSession: ObservableObject {
 
         let stepNumber = currentStepNumber + 1
 
-        // Start screenshot capture early (it's async and takes ~100-200ms)
-        // This runs in parallel with AX tree enumeration below
-        // Use Task.detached so it doesn't inherit @MainActor isolation and can truly run concurrently
-        let screenCap = self.screenCapture
-        let screenshotPromise: Task<ScreenCaptureResult?, Never> = Task.detached {
+        func captureScreenshot() async -> ScreenCaptureResult? {
             do {
-                return try await screenCap.captureScreenWithMetadata(maxWidth: 1280, maxHeight: 720)
+                // Keep CU observations lighter to avoid renderer/WindowServer churn
+                // on complex pages while still preserving enough visual fidelity.
+                return try await self.screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540)
             } catch {
-                Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "Session")
-                    .error("Screenshot capture failed: \(error)")
+                log.error("Screenshot capture failed: \(error)")
                 return nil
             }
         }
@@ -470,7 +467,6 @@ final class ComputerUseSession: ObservableObject {
                     if restarted {
                         AccessibilityTreeEnumerator.clearEnhancedAXCache()
                         log.info("\(browserName) restarted — re-enumerating")
-                        screenshotPromise.cancel()
                         return await buildObservation(executionResult: executionResult, executionError: executionError)
                     } else {
                         log.error("\(browserName) restart failed — continuing with limited AX tree")
@@ -527,17 +523,15 @@ final class ComputerUseSession: ObservableObject {
 
             // Await the pre-started screenshot if we need it; cancel otherwise
             if shouldCaptureScreenshot(stepNumber: stepNumber, flatElements: flat, lastAction: nil) {
-                let screenshotResult = await screenshotPromise.value
+                let screenshotResult = await captureScreenshot()
                 screenshotData = screenshotResult?.jpegData
                 screenshotMetadata = screenshotResult?.metadata
                 log.info("[\(stepNumber)] Screenshot captured alongside AX tree (\(screenshotData?.count ?? 0) bytes)")
-            } else {
-                screenshotPromise.cancel()
             }
         } else {
-            // No focused window — await pre-started screenshot as last resort
+            // No focused window — capture screenshot as last resort
             log.warning("[\(stepNumber)] No AX tree available — falling back to screenshot")
-            let screenshotResult = await screenshotPromise.value
+            let screenshotResult = await captureScreenshot()
             screenshotData = screenshotResult?.jpegData
             screenshotMetadata = screenshotResult?.metadata
             if screenshotData != nil {
