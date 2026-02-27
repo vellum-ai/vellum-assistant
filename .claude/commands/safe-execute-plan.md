@@ -281,8 +281,8 @@ Tell the user:
 > - `/resume-plan <plan file>` — merge this PR and continue to the next one
 >
 > Waiting 60 seconds, then automatically running `/safe-check-review <plan file>`...
-> To skip the wait and check reviews immediately, send any message now.
-> To skip and resume the plan directly without checking reviews, run `/resume-plan <plan file>`.
+> To skip the wait: interrupt the agent (Ctrl+C), then run `/safe-check-review <plan file>` manually.
+> To skip and resume the plan directly without checking reviews: interrupt the agent (Ctrl+C), then run `/resume-plan <plan file>`.
 
 Wait 60 seconds (`sleep 60`), then automatically invoke `/safe-check-review <plan file>`.
 
