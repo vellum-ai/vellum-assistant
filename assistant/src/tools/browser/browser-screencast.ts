@@ -1,7 +1,7 @@
 import { v4 as uuid } from 'uuid';
 
 import type { BrowserFrame, BrowserViewSurfaceData, ServerMessage } from '../../daemon/ipc-contract.js';
-import { browserManager } from './browser-manager.js';
+import { browserManager, SCREENCAST_WIDTH, SCREENCAST_HEIGHT } from './browser-manager.js';
 
 // Track active screencast sessions
 const activeScreencasts = new Map<string, { surfaceId: string }>();
@@ -161,7 +161,7 @@ export async function getElementBounds(
       })()
     `) as { x: number; y: number; w: number; h: number; vw: number; vh: number } | null;
     if (!result) return null;
-    const scale = Math.min(1280 / result.vw, 960 / result.vh);
+    const scale = Math.min(SCREENCAST_WIDTH / result.vw, SCREENCAST_HEIGHT / result.vh);
     return {
       x: result.x * scale,
       y: result.y * scale,
