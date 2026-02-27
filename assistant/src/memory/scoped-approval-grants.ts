@@ -164,12 +164,13 @@ export interface ConsumeByRequestIdResult {
  * Atomically consume a grant by request ID.
  *
  * Only succeeds when exactly one active, non-expired grant matches the
- * given `requestId`.  Uses compare-and-swap on the `status` column so
- * concurrent consumers race safely — at most one wins.
+ * given `requestId` and `assistantId`.  Uses compare-and-swap on the
+ * `status` column so concurrent consumers race safely — at most one wins.
  */
 export function consumeScopedApprovalGrantByRequestId(
   requestId: string,
   consumingRequestId: string,
+  assistantId: string,
   now?: string,
 ): ConsumeByRequestIdResult {
   const db = getDb();
@@ -185,6 +186,7 @@ export function consumeScopedApprovalGrantByRequestId(
     .where(
       and(
         eq(scopedApprovalGrants.requestId, requestId),
+        eq(scopedApprovalGrants.assistantId, assistantId),
         eq(scopedApprovalGrants.scopeMode, 'request_id'),
         eq(scopedApprovalGrants.status, 'active'),
         sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
@@ -194,7 +196,7 @@ export function consumeScopedApprovalGrantByRequestId(
 
   if (rawChanges() === 0) {
     log.info(
-      { event: 'scoped_grant_consume_miss', requestId, consumingRequestId, scopeMode: 'request_id' },
+      { event: 'scoped_grant_consume_miss', requestId, consumingRequestId, assistantId, scopeMode: 'request_id' },
       'No matching active grant found for request ID',
     );
     return { ok: false, grant: null };
@@ -207,6 +209,7 @@ export function consumeScopedApprovalGrantByRequestId(
     .where(
       and(
         eq(scopedApprovalGrants.requestId, requestId),
+        eq(scopedApprovalGrants.assistantId, assistantId),
         eq(scopedApprovalGrants.status, 'consumed'),
         eq(scopedApprovalGrants.consumedByRequestId, consumingRequestId),
       ),
@@ -215,7 +218,7 @@ export function consumeScopedApprovalGrantByRequestId(
 
   const grant = row ? rowToGrant(row) : null;
   log.info(
-    { event: 'scoped_grant_consume_success', grantId: grant?.id, requestId, consumingRequestId, scopeMode: 'request_id' },
+    { event: 'scoped_grant_consume_success', grantId: grant?.id, requestId, consumingRequestId, assistantId, scopeMode: 'request_id' },
     'Scoped approval grant consumed by request ID',
   );
 

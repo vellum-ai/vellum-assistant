@@ -90,7 +90,7 @@ describe('scoped-approval-grants / request_id scope', () => {
     expect(grant.status).toBe('active');
     expect(grant.requestId).toBe('req-1');
 
-    const result = consumeScopedApprovalGrantByRequestId('req-1', 'consumer-1');
+    const result = consumeScopedApprovalGrantByRequestId('req-1', 'consumer-1', 'self');
     expect(result.ok).toBe(true);
     expect(result.grant).not.toBeNull();
     expect(result.grant!.status).toBe('consumed');
@@ -102,16 +102,16 @@ describe('scoped-approval-grants / request_id scope', () => {
       grantParams({ scopeMode: 'request_id', requestId: 'req-2' }),
     );
 
-    const first = consumeScopedApprovalGrantByRequestId('req-2', 'consumer-a');
+    const first = consumeScopedApprovalGrantByRequestId('req-2', 'consumer-a', 'self');
     expect(first.ok).toBe(true);
 
-    const second = consumeScopedApprovalGrantByRequestId('req-2', 'consumer-b');
+    const second = consumeScopedApprovalGrantByRequestId('req-2', 'consumer-b', 'self');
     expect(second.ok).toBe(false);
     expect(second.grant).toBeNull();
   });
 
   test('consume fails when no matching grant exists', () => {
-    const result = consumeScopedApprovalGrantByRequestId('nonexistent', 'consumer-x');
+    const result = consumeScopedApprovalGrantByRequestId('nonexistent', 'consumer-x', 'self');
     expect(result.ok).toBe(false);
   });
 
@@ -121,7 +121,7 @@ describe('scoped-approval-grants / request_id scope', () => {
       grantParams({ scopeMode: 'request_id', requestId: 'req-expired', expiresAt: pastExpiry }),
     );
 
-    const result = consumeScopedApprovalGrantByRequestId('req-expired', 'consumer-1');
+    const result = consumeScopedApprovalGrantByRequestId('req-expired', 'consumer-1', 'self');
     expect(result.ok).toBe(false);
   });
 });
@@ -384,7 +384,7 @@ describe('scoped-approval-grants / expiry', () => {
     expect(count).toBe(2);
 
     // Verify the alive grant is still active
-    const alive = consumeScopedApprovalGrantByRequestId('req-alive', 'c1');
+    const alive = consumeScopedApprovalGrantByRequestId('req-alive', 'c1', 'self');
     expect(alive.ok).toBe(true);
   });
 
@@ -393,7 +393,7 @@ describe('scoped-approval-grants / expiry', () => {
     createScopedApprovalGrant(
       grantParams({ scopeMode: 'request_id', requestId: 'req-consumed', expiresAt: new Date(Date.now() + 60_000).toISOString() }),
     );
-    consumeScopedApprovalGrantByRequestId('req-consumed', 'c1');
+    consumeScopedApprovalGrantByRequestId('req-consumed', 'c1', 'self');
 
     // Force the expiry time to the past for the consumed grant (simulating time passing)
     // The sweep should not touch consumed grants
@@ -424,11 +424,11 @@ describe('scoped-approval-grants / revoke', () => {
     expect(count).toBe(2);
 
     // Revoked grant cannot be consumed
-    const revoked = consumeScopedApprovalGrantByRequestId('req-r1', 'c1');
+    const revoked = consumeScopedApprovalGrantByRequestId('req-r1', 'c1', 'self');
     expect(revoked.ok).toBe(false);
 
     // Unaffected grant is still consumable
-    const alive = consumeScopedApprovalGrantByRequestId('req-r3', 'c1');
+    const alive = consumeScopedApprovalGrantByRequestId('req-r3', 'c1', 'self');
     expect(alive.ok).toBe(true);
   });
 
@@ -439,7 +439,7 @@ describe('scoped-approval-grants / revoke', () => {
 
     revokeScopedApprovalGrantsForContext({ conversationId: 'conv-1' });
 
-    const result = consumeScopedApprovalGrantByRequestId('req-revoke', 'c1');
+    const result = consumeScopedApprovalGrantByRequestId('req-revoke', 'c1', 'self');
     expect(result.ok).toBe(false);
   });
 
@@ -455,7 +455,7 @@ describe('scoped-approval-grants / revoke', () => {
     );
 
     // The grant should still be active (not revoked)
-    const result = consumeScopedApprovalGrantByRequestId('req-guard', 'c1');
+    const result = consumeScopedApprovalGrantByRequestId('req-guard', 'c1', 'self');
     expect(result.ok).toBe(true);
   });
 });

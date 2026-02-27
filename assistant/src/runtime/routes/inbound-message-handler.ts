@@ -78,6 +78,7 @@ import {
 } from './channel-route-shared.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
 import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
+import { tryMintGuardianActionGrant } from '../guardian-action-grant-minter.js';
 
 const log = getLogger('runtime-http');
 
@@ -855,6 +856,14 @@ export async function handleChannelInbound(
             );
 
             if (resolved) {
+              // Mint a scoped grant so the voice call can consume it
+              // for subsequent tool confirmations.
+              tryMintGuardianActionGrant({
+                resolvedRequest: resolved,
+                decisionChannel: sourceChannel,
+                guardianExternalUserId: body.senderExternalUserId,
+              });
+
               return Response.json({
                 accepted: true,
                 duplicate: false,
