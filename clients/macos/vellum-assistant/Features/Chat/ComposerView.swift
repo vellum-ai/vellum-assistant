@@ -48,6 +48,7 @@ struct ComposerView: View {
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
+    let onFileDrop: ([URL]) -> Void
     let onMicrophoneToggle: () -> Void
     var placeholderText: String = "What would you like to do?"
     var composerCompactHeight: CGFloat = 34
@@ -218,6 +219,7 @@ struct ComposerView: View {
             },
             onAcceptSuggestion: onAcceptSuggestion,
             onPaste: onPaste,
+            onFileDrop: onFileDrop,
             isSlashMenuOpen: showSlashMenu,
             onSlashNavigate: handleSlashNavigation
         )
@@ -569,6 +571,7 @@ private struct ComposerTextView: NSViewRepresentable {
     let onSubmit: () -> Void
     let onAcceptSuggestion: () -> Void
     let onPaste: () -> Void
+    let onFileDrop: ([URL]) -> Void
     var isSlashMenuOpen = false
     var onSlashNavigate: ((SlashNavigation) -> Void)?
 
@@ -708,6 +711,9 @@ private struct ComposerTextView: NSViewRepresentable {
             textView.onPaste = { [weak self] in
                 self?.parent.onPaste()
             }
+            textView.onFileDrop = { [weak self] urls in
+                self?.parent.onFileDrop(urls)
+            }
             textView.onFocusChange = { [weak self] focused in
                 self?.parent.onFocusChange(focused)
             }
@@ -758,6 +764,7 @@ private final class ComposerNativeTextView: NSTextView {
     var onSubmit: (() -> Void)?
     var onAcceptSuggestion: (() -> Void)?
     var onPaste: (() -> Void)?
+    var onFileDrop: (([URL]) -> Void)?
     var onFocusChange: ((Bool) -> Void)?
     var onSlashNavigate: ((SlashNavigation) -> Void)?
     var isSlashMenuOpen = false
@@ -937,6 +944,38 @@ private final class ComposerNativeTextView: NSTextView {
         let resigned = super.resignFirstResponder()
         if resigned { onFocusChange?(false) }
         return resigned
+    }
+
+    // MARK: - File Drag & Drop
+
+    /// Returns file URLs from the drag pasteboard, if any.
+    private func fileURLs(from pasteboard: NSPasteboard) -> [URL]? {
+        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true,
+        ]) as? [URL], !urls.isEmpty else { return nil }
+        return urls
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if fileURLs(from: sender.draggingPasteboard) != nil {
+            return .copy
+        }
+        return super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if fileURLs(from: sender.draggingPasteboard) != nil {
+            return .copy
+        }
+        return super.draggingUpdated(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if let urls = fileURLs(from: sender.draggingPasteboard) {
+            onFileDrop?(urls)
+            return true
+        }
+        return super.performDragOperation(sender)
     }
 }
 
