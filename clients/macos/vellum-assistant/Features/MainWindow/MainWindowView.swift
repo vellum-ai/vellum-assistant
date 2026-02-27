@@ -1195,12 +1195,16 @@ struct MainWindowView: View {
                     let markedIds = threadManager.markAllThreadsSeen()
                     guard !markedIds.isEmpty else { return }
                     let count = markedIds.count
+                    threadManager.schedulePendingSeenSignals()
                     windowState.showToast(
                         message: "Marked \(count) thread\(count == 1 ? "" : "s") as seen",
                         style: .success,
                         primaryAction: VToastAction(label: "Undo") {
                             threadManager.restoreUnseen(threadIds: markedIds)
                             windowState.dismissToast()
+                        },
+                        onDismiss: {
+                            threadManager.commitPendingSeenSignals()
                         }
                     )
                 },

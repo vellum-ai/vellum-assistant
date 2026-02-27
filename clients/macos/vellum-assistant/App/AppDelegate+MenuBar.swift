@@ -60,9 +60,9 @@ extension AppDelegate {
         let markAllSeenItem = NSMenuItem(
             title: "Mark All Threads as Seen",
             action: #selector(markAllThreadsSeen),
-            keyEquivalent: "\u{1b}" // Escape key
+            keyEquivalent: "k"
         )
-        markAllSeenItem.keyEquivalentModifierMask = .shift
+        markAllSeenItem.keyEquivalentModifierMask = [.command, .shift]
         markAllSeenItem.target = self
         fileMenu.addItem(markAllSeenItem)
 
@@ -500,12 +500,16 @@ extension AppDelegate {
         let markedIds = threadManager.markAllThreadsSeen()
         guard !markedIds.isEmpty else { return }
         let count = markedIds.count
+        threadManager.schedulePendingSeenSignals()
         mainWindow?.windowState.showToast(
             message: "Marked \(count) thread\(count == 1 ? "" : "s") as seen",
             style: .success,
             primaryAction: VToastAction(label: "Undo") { [weak self] in
                 self?.mainWindow?.threadManager.restoreUnseen(threadIds: markedIds)
                 self?.mainWindow?.windowState.dismissToast()
+            },
+            onDismiss: { [weak self] in
+                self?.mainWindow?.threadManager.commitPendingSeenSignals()
             }
         )
     }

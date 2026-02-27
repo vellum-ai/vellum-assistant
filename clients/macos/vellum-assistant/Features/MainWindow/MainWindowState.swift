@@ -238,13 +238,18 @@ public final class MainWindowState: ObservableObject {
     }
 
     /// Show a toast notification in the main window.
-    func showToast(message: String, style: ToastInfo.Style, primaryAction: VToastAction? = nil) {
-        toastInfo = ToastInfo(message: message, style: style, primaryAction: primaryAction)
+    /// - Parameters:
+    ///   - onDismiss: Optional callback invoked when the toast is dismissed
+    ///     by the user (via the X button), as opposed to a primary action.
+    func showToast(message: String, style: ToastInfo.Style, primaryAction: VToastAction? = nil, onDismiss: (() -> Void)? = nil) {
+        toastInfo = ToastInfo(message: message, style: style, primaryAction: primaryAction, onDismiss: onDismiss)
     }
 
-    /// Dismiss the currently displayed toast.
+    /// Dismiss the currently displayed toast, invoking its onDismiss callback.
     func dismissToast() {
+        let callback = toastInfo?.onDismiss
         toastInfo = nil
+        callback?()
     }
 
     /// Restore the last active panel from UserDefaults
@@ -267,4 +272,6 @@ struct ToastInfo {
     let message: String
     let style: Style
     let primaryAction: VToastAction?
+    /// Called when the toast is dismissed via the X button (not via primary action).
+    let onDismiss: (() -> Void)?
 }
