@@ -665,6 +665,14 @@ public final class ChatViewModel: ObservableObject {
         messages.removeSubrange(0..<trimEnd)
         // displayedMessages is updated automatically via the messageManager.$messages
         // publisher subscription set up in init.
+        // After deleting the oldest messages, reset the history cursor to the oldest
+        // retained message so pagination doesn't try to fetch the now-deleted range.
+        // The deleted history is permanently gone from memory, so mark hasMoreHistory
+        // false to prevent the UI from showing a "load more" spinner for unreachable data.
+        if let oldestRetained = messages.first {
+            historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
+            hasMoreHistory = false
+        }
         // Reset pagination so the display window doesn't reference indices beyond the
         // newly shortened array. trimKeepRecent < messagePageSize is possible, so clamp.
         displayedMessageCount = Self.messagePageSize
@@ -724,11 +732,20 @@ public final class ChatViewModel: ObservableObject {
 
         // Keep displayedMessages in sync with messages via publisher subscription.
         // This catches every mutation site (current and future) without requiring
-        // manual updateDisplayedMessages() calls at each one. The sink fires
-        // synchronously after each messages mutation on @MainActor.
+        // manual updateDisplayedMessages() calls at each one.
+        //
+        // Two correctness/perf fixes applied here:
+        // 1. Use the delivered `newMessages` value directly rather than reading
+        //    `self.messages` inside the sink. @Published fires during willSet, so
+        //    the stored property still holds the OLD value when the subscriber runs
+        //    — reading it caused displayedMessages to lag one mutation behind.
+        // 2. Throttle to 100ms so displayedMessages (and any SwiftUI views observing
+        //    it) only refresh at most every 100ms, matching the coalesced publish
+        //    window used for the rest of the view model.
         messageManager.$messages
-            .sink { [weak self] _ in
-                self?.updateDisplayedMessages()
+            .throttle(for: .milliseconds(100), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] newMessages in
+                self?.displayedMessages = newMessages.filter { !$0.isSubagentNotification }
             }
             .store(in: &cancellables)
 
