@@ -2,6 +2,7 @@
  * Approval interception: checks for pending approvals and handles inbound
  * messages as decisions, reminders, or conversational follow-ups.
  */
+import { mintGrantFromDecision } from '../../approvals/approval-primitive.js';
 import type { ChannelId } from '../../channels/types.js';
 import {
   getAllPendingApprovalsByGuardianChat,
@@ -11,7 +12,6 @@ import {
   type GuardianApprovalRequest,
   updateApprovalDecision,
 } from '../../memory/channel-guardian-store.js';
-import { createScopedApprovalGrant } from '../../memory/scoped-approval-grants.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import { computeToolApprovalDigest } from '../../security/tool-approval-digest.js';
 import { getLogger } from '../../util/logger.js';
@@ -81,31 +81,40 @@ function tryMintToolApprovalGrant(params: {
     return;
   }
 
+  let inputDigest: string;
   try {
-    const inputDigest = computeToolApprovalDigest(approvalInfo.toolName, approvalInfo.input);
+    inputDigest = computeToolApprovalDigest(approvalInfo.toolName, approvalInfo.input);
+  } catch (err) {
+    log.error(
+      { err, toolName: approvalInfo.toolName, conversationId: approval.conversationId },
+      'Failed to compute tool approval digest for grant minting (non-fatal)',
+    );
+    return;
+  }
 
-    createScopedApprovalGrant({
-      assistantId: approval.assistantId,
-      scopeMode: 'tool_signature',
-      toolName: approvalInfo.toolName,
-      inputDigest,
-      requestChannel: approval.channel,
-      decisionChannel,
-      executionChannel: null,
-      conversationId: approval.conversationId,
-      callSessionId: null,
-      guardianExternalUserId,
-      requesterExternalUserId: approval.requesterExternalUserId,
-      expiresAt: new Date(Date.now() + GRANT_TTL_MS).toISOString(),
-    });
+  const result = mintGrantFromDecision({
+    assistantId: approval.assistantId,
+    scopeMode: 'tool_signature',
+    toolName: approvalInfo.toolName,
+    inputDigest,
+    requestChannel: approval.channel,
+    decisionChannel,
+    executionChannel: null,
+    conversationId: approval.conversationId,
+    callSessionId: null,
+    guardianExternalUserId,
+    requesterExternalUserId: approval.requesterExternalUserId,
+    expiresAt: new Date(Date.now() + GRANT_TTL_MS).toISOString(),
+  });
 
+  if (result.ok) {
     log.info(
       { toolName: approvalInfo.toolName, conversationId: approval.conversationId },
       'Minted scoped approval grant for guardian tool-approval decision',
     );
-  } catch (err) {
+  } else {
     log.error(
-      { err, toolName: approvalInfo.toolName, conversationId: approval.conversationId },
+      { reason: result.reason, toolName: approvalInfo.toolName, conversationId: approval.conversationId },
       'Failed to mint scoped approval grant (non-fatal)',
     );
   }
