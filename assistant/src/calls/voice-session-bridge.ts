@@ -151,7 +151,7 @@ function buildVoiceCallControlPrompt(opts: {
     '1. Be concise — keep responses to 1-3 sentences. Phone conversations should be brief and natural.',
     ...(opts.isCallerGuardian
       ? ['2. You are speaking directly with your guardian (your user). Do NOT use [ASK_GUARDIAN:]. If you need permission, information, or confirmation, ask them directly in the conversation. They can answer you right now.']
-      : [
+      : [[
           '2. You can consult your guardian in two ways:',
           '   - For general questions or information: [ASK_GUARDIAN: your question here]',
           '   - For tool/action permission requests: [ASK_GUARDIAN_APPROVAL: {"question":"Describe what you need permission for","toolName":"the_tool_name","input":{...tool input object...}}]',

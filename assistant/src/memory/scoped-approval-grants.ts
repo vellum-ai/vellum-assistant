@@ -176,53 +176,74 @@ export function consumeScopedApprovalGrantByRequestId(
   const db = getDb();
   const currentTime = now ?? new Date().toISOString();
 
-  db.update(scopedApprovalGrants)
-    .set({
-      status: 'consumed',
-      consumedAt: currentTime,
-      consumedByRequestId: consumingRequestId,
-      updatedAt: currentTime,
-    })
-    .where(
-      and(
-        eq(scopedApprovalGrants.requestId, requestId),
-        eq(scopedApprovalGrants.assistantId, assistantId),
-        eq(scopedApprovalGrants.scopeMode, 'request_id'),
-        eq(scopedApprovalGrants.status, 'active'),
-        sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
-      ),
-    )
-    .run();
+  // Two-step select-then-update with LIMIT 1 to consume exactly one grant
+  // even if duplicate rows exist (the index on request_id is non-unique).
+  for (let attempt = 0; attempt <= MAX_CAS_RETRIES; attempt++) {
+    const candidate = db
+      .select({ id: scopedApprovalGrants.id })
+      .from(scopedApprovalGrants)
+      .where(
+        and(
+          eq(scopedApprovalGrants.requestId, requestId),
+          eq(scopedApprovalGrants.assistantId, assistantId),
+          eq(scopedApprovalGrants.scopeMode, 'request_id'),
+          eq(scopedApprovalGrants.status, 'active'),
+          sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
+        ),
+      )
+      .limit(1)
+      .get();
 
-  if (rawChanges() === 0) {
+    if (!candidate) {
+      log.info(
+        { event: 'scoped_grant_consume_miss', requestId, consumingRequestId, assistantId, scopeMode: 'request_id', attempt },
+        'No matching active grant found for request ID',
+      );
+      return { ok: false, grant: null };
+    }
+
+    db.update(scopedApprovalGrants)
+      .set({
+        status: 'consumed',
+        consumedAt: currentTime,
+        consumedByRequestId: consumingRequestId,
+        updatedAt: currentTime,
+      })
+      .where(
+        and(
+          eq(scopedApprovalGrants.id, candidate.id),
+          eq(scopedApprovalGrants.status, 'active'),
+        ),
+      )
+      .run();
+
+    if (rawChanges() === 0) {
+      // CAS failed — another consumer raced and won this candidate; retry with next match
+      continue;
+    }
+
+    // Fetch the consumed grant to return to the caller
+    const row = db
+      .select()
+      .from(scopedApprovalGrants)
+      .where(eq(scopedApprovalGrants.id, candidate.id))
+      .get();
+
+    const grant = row ? rowToGrant(row) : null;
     log.info(
-      { event: 'scoped_grant_consume_miss', requestId, consumingRequestId, assistantId, scopeMode: 'request_id' },
-      'No matching active grant found for request ID',
+      { event: 'scoped_grant_consume_success', grantId: grant?.id, requestId, consumingRequestId, assistantId, scopeMode: 'request_id' },
+      'Scoped approval grant consumed by request ID',
     );
-    return { ok: false, grant: null };
+
+    return { ok: true, grant };
   }
 
-  // Fetch the consumed grant to return to the caller
-  const row = db
-    .select()
-    .from(scopedApprovalGrants)
-    .where(
-      and(
-        eq(scopedApprovalGrants.requestId, requestId),
-        eq(scopedApprovalGrants.assistantId, assistantId),
-        eq(scopedApprovalGrants.status, 'consumed'),
-        eq(scopedApprovalGrants.consumedByRequestId, consumingRequestId),
-      ),
-    )
-    .get();
-
-  const grant = row ? rowToGrant(row) : null;
+  // All retry attempts exhausted — every candidate was stolen by concurrent consumers
   log.info(
-    { event: 'scoped_grant_consume_success', grantId: grant?.id, requestId, consumingRequestId, assistantId, scopeMode: 'request_id' },
-    'Scoped approval grant consumed by request ID',
+    { event: 'scoped_grant_consume_miss', requestId, consumingRequestId, assistantId, scopeMode: 'request_id', reason: 'cas_exhausted' },
+    'All CAS retry attempts exhausted for request ID consume',
   );
-
-  return { ok: true, grant };
+  return { ok: false, grant: null };
 }
 
 // ---------------------------------------------------------------------------

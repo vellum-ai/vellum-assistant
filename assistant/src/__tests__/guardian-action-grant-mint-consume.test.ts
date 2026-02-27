@@ -56,9 +56,10 @@ import {
   createScopedApprovalGrant,
 } from '../memory/scoped-approval-grants.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { scopedApprovalGrants } from '../memory/schema.js';
+import { conversations, scopedApprovalGrants } from '../memory/schema.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { tryMintGuardianActionGrant } from '../runtime/guardian-action-grant-minter.js';
+import { createCallSession, createPendingQuestion } from '../calls/call-store.js';
 
 initializeDb();
 
@@ -76,8 +77,47 @@ afterAll(() => {
 const ASSISTANT_ID = 'self';
 const TOOL_NAME = 'execute_shell';
 const TOOL_INPUT = { command: 'rm -rf /tmp/test' };
-const CALL_SESSION_ID = 'call-session-e2e';
 const CONVERSATION_ID = 'conv-e2e';
+
+// Mutable references populated by ensureFkParents()
+let CALL_SESSION_ID = '';
+let PENDING_QUESTION_IDS: string[] = [];
+let pqIndex = 0;
+
+function ensureConversation(id: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.insert(conversations).values({
+    id,
+    title: `Conversation ${id}`,
+    createdAt: now,
+    updatedAt: now,
+  }).run();
+}
+
+/** Create the FK parent rows required by guardian_action_requests. */
+function ensureFkParents(): void {
+  ensureConversation(CONVERSATION_ID);
+  const session = createCallSession({
+    conversationId: CONVERSATION_ID,
+    provider: 'twilio',
+    fromNumber: '+15550001111',
+    toNumber: '+15550002222',
+  });
+  CALL_SESSION_ID = session.id;
+
+  // Pre-create enough pending questions for all tests in a suite run
+  PENDING_QUESTION_IDS = [];
+  pqIndex = 0;
+  for (let i = 0; i < 10; i++) {
+    const pq = createPendingQuestion(session.id, `Question ${i}`);
+    PENDING_QUESTION_IDS.push(pq.id);
+  }
+}
+
+function nextPendingQuestionId(): string {
+  return PENDING_QUESTION_IDS[pqIndex++];
+}
 
 function clearTables(): void {
   const db = getDb();
@@ -87,12 +127,32 @@ function clearTables(): void {
     /* table may not exist */
   }
   try {
+    db.run('DELETE FROM guardian_action_deliveries');
+  } catch {
+    /* table may not exist */
+  }
+  try {
     db.run('DELETE FROM guardian_action_requests');
   } catch {
     /* table may not exist */
   }
   try {
-    db.run('DELETE FROM guardian_action_deliveries');
+    db.run('DELETE FROM call_pending_questions');
+  } catch {
+    /* table may not exist */
+  }
+  try {
+    db.run('DELETE FROM call_events');
+  } catch {
+    /* table may not exist */
+  }
+  try {
+    db.run('DELETE FROM call_sessions');
+  } catch {
+    /* table may not exist */
+  }
+  try {
+    db.run('DELETE FROM conversations');
   } catch {
     /* table may not exist */
   }
@@ -101,7 +161,10 @@ function clearTables(): void {
 // ── Tests ───────────────────────────────────────────────────────────
 
 describe('guardian-action grant mint -> voice consume integration', () => {
-  beforeEach(() => clearTables());
+  beforeEach(() => {
+    clearTables();
+    ensureFkParents();
+  });
 
   test('full flow: resolve guardian action with tool metadata -> mint grant -> voice consume succeeds once', () => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
@@ -114,7 +177,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       sourceChannel: 'voice',
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
-      pendingQuestionId: 'pq-1',
+      pendingQuestionId: nextPendingQuestionId(),
       questionText: 'Can I run rm -rf /tmp/test?',
       expiresAt: Date.now() + 60_000,
       toolName: TOOL_NAME,
@@ -164,6 +227,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       assistantId: ASSISTANT_ID,
       executionChannel: 'voice',
       callSessionId: CALL_SESSION_ID,
+      conversationId: CONVERSATION_ID,
     });
     expect(consumeResult.ok).toBe(true);
     expect(consumeResult.grant).not.toBeNull();
@@ -178,6 +242,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       assistantId: ASSISTANT_ID,
       executionChannel: 'voice',
       callSessionId: CALL_SESSION_ID,
+      conversationId: CONVERSATION_ID,
     });
     expect(secondConsume.ok).toBe(false);
     expect(secondConsume.grant).toBeNull();
@@ -192,7 +257,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       sourceChannel: 'voice',
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
-      pendingQuestionId: 'pq-2',
+      pendingQuestionId: nextPendingQuestionId(),
       questionText: 'Can I run the command?',
       expiresAt: Date.now() + 60_000,
       toolName: TOOL_NAME,
@@ -215,6 +280,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       assistantId: 'other-assistant',
       executionChannel: 'voice',
       callSessionId: CALL_SESSION_ID,
+      conversationId: CONVERSATION_ID,
     });
     expect(wrongAssistant.ok).toBe(false);
 
@@ -226,6 +292,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       assistantId: ASSISTANT_ID,
       executionChannel: 'voice',
       callSessionId: CALL_SESSION_ID,
+      conversationId: CONVERSATION_ID,
     });
     expect(correctAssistant.ok).toBe(true);
   });
@@ -238,7 +305,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       sourceChannel: 'voice',
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
-      pendingQuestionId: 'pq-3',
+      pendingQuestionId: nextPendingQuestionId(),
       questionText: 'What should I tell the caller?',
       expiresAt: Date.now() + 60_000,
       // No toolName or inputDigest
@@ -270,7 +337,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       sourceChannel: 'voice',
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
-      pendingQuestionId: 'pq-4',
+      pendingQuestionId: nextPendingQuestionId(),
       questionText: 'Permission to execute?',
       expiresAt: Date.now() + 60_000,
       toolName: TOOL_NAME,
@@ -295,6 +362,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       assistantId: ASSISTANT_ID,
       executionChannel: 'voice',
       callSessionId: CALL_SESSION_ID,
+      conversationId: CONVERSATION_ID,
     });
     expect(consumeResult.ok).toBe(true);
   });
