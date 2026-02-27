@@ -215,7 +215,7 @@ Record the current UTC time as `last_fix_push_time` **after** posting the re-rev
 Log: `"Re-requested reviews from Codex and Devin on PR #<pr-number> (cycle <cycle-counter>/3, commit $LATEST_COMMIT)."`
 
 Wait for fresh reviews: Poll for **new** reviews posted after `last_fix_push_time`:
-- Poll every 60 seconds for up to **3 minutes**.
+- Poll every 60 seconds for up to **5 minutes**.
 - On each poll, run `.claude/check-pr-reviews <pr-number>` to get the full reviewer status (this catches Codex rate-limit responses in issue comments, which raw `pulls/<pr>/reviews` and `pulls/<pr>/comments` endpoints miss). Then check for new activity since `last_fix_push_time` using `gh api`:
   ```bash
   # Get full reviewer status including rate-limit detection from issue comments
@@ -233,7 +233,7 @@ Wait for fresh reviews: Poll for **new** reviews posted after `last_fix_push_tim
   - If aggregate status is `changes_requested`, return to Step 3 (which checks the cycle limit).
   - If aggregate status is `rate_limited`, continue polling (the rate limit response counts as activity but is not actionable yet).
   - If aggregate status is `pending`, continue polling.
-- If **3 minutes** pass with no new reviews, proceed to Step 6. Log: `"No new reviews within 3 minutes after fixes pushed. Proceeding to merge."`
+- If **5 minutes** pass with no new reviews, ensure the PR is tracked in `.private/UNREVIEWED_PRS.md` (add it if not already present), then proceed to Step 6. Log: `"No new reviews within 5 minutes after fixes pushed. Proceeding to merge (PR tracked in UNREVIEWED_PRS.md)."`
 
 #### Step 6: Merge to main
 

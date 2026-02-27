@@ -298,7 +298,7 @@ The `check-pr-reviews` script reports **cumulative** review status — it counts
    Log: `"Re-requested reviews from Codex and Devin on milestone PR #<milestone-pr-number> (cycle <cycle-counter>/3, commit $LATEST_COMMIT)."`
 
 5. **Wait for fresh reviews**: After fixes are pushed, poll for **new** reviews posted after `last_fix_push_time`:
-   - Poll every 60 seconds for up to **3 minutes**.
+   - Poll every 60 seconds for up to **5 minutes**.
    - On each poll, use `gh api` to check for reviews and inline comments posted after `last_fix_push_time`:
      ```bash
      gh api "repos/{owner}/{repo}/pulls/<milestone-pr-number>/reviews" \
@@ -310,9 +310,9 @@ The `check-pr-reviews` script reports **cumulative** review status — it counts
      - If aggregate status is `approved`, proceed to Phase 4c.5.
      - If aggregate status is `changes_requested`, return to step 2 (which checks the cycle limit).
      - If aggregate status is `pending` or `rate_limited`, continue polling.
-   - If **3 minutes** pass with no new reviews (zero new reviews/comments since `last_fix_push_time`), proceed to Phase 4c.5. Log: `"No new reviews within 3 minutes after fixes pushed. Proceeding to merge."`
+   - If **5 minutes** pass with no new reviews (zero new reviews/comments since `last_fix_push_time`), ensure the milestone PR is tracked in `.private/UNREVIEWED_PRS.md` (add it if not already present), then proceed to Phase 4c.5. Log: `"No new reviews within 5 minutes after fixes pushed. Proceeding to merge (PR tracked in UNREVIEWED_PRS.md)."`
 
-Repeat steps 1-5 until the exit condition: either `approved` aggregate status, 3-minute timeout with no new reviews after a fix push, or the cycle counter has reached 3.
+Repeat steps 1-5 until the exit condition: either `approved` aggregate status, 5-minute timeout with no new reviews after a fix push, or the cycle counter has reached 3.
 
 #### 4c.5. Merge milestone PR into feature branch
 
