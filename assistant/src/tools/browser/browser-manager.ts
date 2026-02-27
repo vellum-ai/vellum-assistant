@@ -10,6 +10,11 @@ import { checkBrowserRuntime } from './runtime-check.js';
 
 const log = getLogger('browser-manager');
 
+// Screencast capture dimensions — used by coordinate math across the browser module
+// to map between page coordinates and screencast-frame coordinates.
+export const SCREENCAST_WIDTH = 800;
+export const SCREENCAST_HEIGHT = 600;
+
 function getDownloadsDir(): string {
   const dir = join(getDataDir(), 'browser-downloads');
   mkdirSync(dir, { recursive: true });
@@ -521,8 +526,8 @@ class BrowserManager {
     await cdp.send('Page.startScreencast', {
       format: 'jpeg',
       quality: 30,
-      maxWidth: 800,
-      maxHeight: 600,
+      maxWidth: SCREENCAST_WIDTH,
+      maxHeight: SCREENCAST_HEIGHT,
       everyNthFrame: 4,
     });
   }
