@@ -81,14 +81,11 @@ final class AssistantCli {
     private var consecutiveCrashes = 0
     private var lastLaunchTime: Date?
 
-    /// Once set, prevents any further automatic restart attempts.
-    private var hasGivenUp = false
-
     /// If the daemon exits within this many seconds of being launched it
     /// counts as a crash for backoff purposes.
     private static let crashThreshold: TimeInterval = 10.0
 
-    /// Give up restarting after this many consecutive rapid crashes.
+    /// Enter cooldown mode after this many consecutive rapid crashes.
     private static let maxConsecutiveCrashes = 5
 
     /// How often the health monitor checks whether the daemon is alive.
@@ -96,6 +93,10 @@ final class AssistantCli {
 
     /// Maximum backoff delay between restart attempts.
     private static let maxBackoffSeconds: Double = 30.0
+
+    /// After exhausting rapid-restart attempts, wait this long before
+    /// resetting the crash counter and trying again.
+    private static let cooldownSeconds: Double = 60.0
 
     // MARK: - Public API
 
@@ -302,7 +303,6 @@ final class AssistantCli {
         }
 
         isStopping = false
-        hasGivenUp = false
         consecutiveCrashes = 0
         stopMonitoring()
 
@@ -554,7 +554,6 @@ final class AssistantCli {
 
     private func restartDaemon() async {
         guard cliBinaryURL != nil else { return }
-        guard !hasGivenUp else { return }
 
         // Only restart if the assistant is still registered in the lock file
         let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
@@ -572,10 +571,12 @@ final class AssistantCli {
             consecutiveCrashes = 0
         }
 
+        // After too many rapid crashes, enter cooldown instead of giving up
         if consecutiveCrashes >= Self.maxConsecutiveCrashes {
-            log.error("Daemon crashed \(Self.maxConsecutiveCrashes) times in quick succession — giving up automatic restart")
-            hasGivenUp = true
-            return
+            log.warning("Daemon crashed \(Self.maxConsecutiveCrashes) times in quick succession — entering \(Self.cooldownSeconds)s cooldown")
+            try? await Task.sleep(nanoseconds: UInt64(Self.cooldownSeconds * 1_000_000_000))
+            guard !isStopping, !Task.isCancelled else { return }
+            consecutiveCrashes = 0
         }
 
         // Exponential backoff: 1 s, 2 s, 4 s, ...
