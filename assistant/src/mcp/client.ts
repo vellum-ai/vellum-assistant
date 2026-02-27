@@ -50,7 +50,7 @@ export class McpClient {
     } catch (err) {
       // Clean up the transport on failure (e.g., kill spawned stdio process)
       try { await this.client.close(); } catch { /* ignore cleanup errors */ }
-      this.transport = undefined;
+      this.transport = null;
       throw err;
     }
     this.connected = true;
