@@ -8,6 +8,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Page } from "playwright";
 
+import * as applescriptTool from "./applescript";
 import * as check from "./check";
 import * as click from "./click";
 import * as fill from "./fill";
@@ -17,7 +18,9 @@ import * as getText from "./get-text";
 import * as goto from "./goto";
 import * as httpRequest from "./http-request";
 import * as reportResult from "./report-result";
+import * as runShell from "./run-shell";
 import * as screenshot from "./screenshot";
+import * as waitTool from "./wait";
 import type { ToolContext, ToolHandlerResult, ToolModule } from "./types";
 
 export type { TestResult, ToolResult } from "./types";
@@ -25,6 +28,7 @@ export type { TestResult, ToolResult } from "./types";
 // ── Tool Registry ───────────────────────────────────────────────────
 
 const TOOLS: ToolModule[] = [
+  applescriptTool,
   check,
   click,
   fill,
@@ -34,7 +38,9 @@ const TOOLS: ToolModule[] = [
   goto,
   httpRequest,
   reportResult,
+  runShell,
   screenshot,
+  waitTool,
 ];
 
 const toolsByName = new Map<string, ToolModule>(

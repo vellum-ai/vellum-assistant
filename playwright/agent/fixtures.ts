@@ -6,7 +6,8 @@
  * the markdown test case template (e.g., {{SERVER_URL}}).
  */
 
-import { createMockSignupServer, type MockSignupServer } from "../tests/fixtures/mock-signup-server";
+import { execSync } from "child_process";
+import path from "path";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -22,21 +23,36 @@ export interface FixtureContext {
 type FixtureFactory = () => Promise<FixtureContext>;
 
 const FIXTURE_REGISTRY: Record<string, FixtureFactory> = {
-  "mock-signup-server": createMockSignupFixture,
+  "desktop-app": createDesktopAppFixture,
 };
 
 // ── Fixture Implementations ─────────────────────────────────────────
 
-async function createMockSignupFixture(): Promise<FixtureContext> {
-  const server: MockSignupServer = createMockSignupServer();
-  const { url } = await server.start();
+async function createDesktopAppFixture(): Promise<FixtureContext> {
+  const appDir = path.resolve(__dirname, "../../clients/macos/dist");
+  const appDisplayName = process.env.APP_DISPLAY_NAME ?? "Vellum";
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY ?? "";
+
+  if (!anthropicApiKey) {
+    throw new Error("ANTHROPIC_API_KEY environment variable is required for desktop-app fixture");
+  }
 
   return {
     variables: {
-      SERVER_URL: url,
+      APP_DIR: appDir,
+      APP_DISPLAY_NAME: appDisplayName,
+      ANTHROPIC_API_KEY: anthropicApiKey,
     },
     teardown: async () => {
-      await server.stop();
+      // Kill the app on teardown
+      try {
+        execSync(
+          `osascript -e 'tell application "${appDisplayName}" to quit'`,
+          { timeout: 5_000 },
+        );
+      } catch {
+        // App may already be closed
+      }
     },
   };
 }
