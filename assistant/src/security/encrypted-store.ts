@@ -17,9 +17,9 @@ import {
   pbkdf2Sync,
   randomBytes,
 } from 'node:crypto';
-import { chmodSync,readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
-import { dirname,join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { ensureDir,pathExists } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
@@ -94,24 +94,36 @@ function deriveKey(salt: Buffer): Buffer {
 
 /**
  * Read result: distinguishes "file missing" from "file corrupt/unreadable".
- * - `null`: file does not exist (safe to create)
+ * - `null`: file does not exist or was corrupt (backed up and removed)
  * - `StoreFile`: successfully parsed
- * - throws: file exists but cannot be parsed (corrupt/invalid)
  */
 function readStore(): StoreFile | null {
   const path = getStorePath();
   if (!pathExists(path)) return null;
 
-  const raw = readFileSync(path, 'utf-8');
-  const parsed = JSON.parse(raw);
-  if (parsed.version !== 1 || typeof parsed.salt !== 'string' || typeof parsed.entries !== 'object') {
-    throw new Error('Encrypted store has invalid format');
+  try {
+    const raw = readFileSync(path, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed.version !== 1 || typeof parsed.salt !== 'string' || typeof parsed.entries !== 'object') {
+      throw new Error('Encrypted store has invalid format');
+    }
+    // Use null-prototype object for entries to prevent prototype pollution
+    const safeEntries: Record<string, EncryptedEntry> = Object.create(null);
+    Object.assign(safeEntries, parsed.entries);
+    parsed.entries = safeEntries;
+    return parsed as StoreFile;
+  } catch (err) {
+    // Corrupted or invalid store file — back it up and start fresh so the
+    // daemon doesn't crash on every credential access.
+    const backupPath = `${path}.corrupt.${Date.now()}`;
+    log.error({ err, backupPath }, 'Encrypted store is corrupt — backing up and resetting');
+    try {
+      renameSync(path, backupPath);
+    } catch (renameErr) {
+      log.warn({ err: renameErr }, 'Failed to back up corrupt store file');
+    }
+    return null;
   }
-  // Use null-prototype object for entries to prevent prototype pollution
-  const safeEntries: Record<string, EncryptedEntry> = Object.create(null);
-  Object.assign(safeEntries, parsed.entries);
-  parsed.entries = safeEntries;
-  return parsed as StoreFile;
 }
 
 function writeStore(store: StoreFile): void {
@@ -123,11 +135,9 @@ function writeStore(store: StoreFile): void {
 }
 
 function getOrCreateStore(): StoreFile {
-  const path = getStorePath();
-  if (pathExists(path)) {
-    // File exists — must be parseable, otherwise fail to prevent data loss
-    return readStore()!;
-  }
+  const existing = readStore();
+  if (existing) return existing;
+
   const salt = randomBytes(SALT_LENGTH);
   const entries: Record<string, EncryptedEntry> = Object.create(null);
   const store: StoreFile = {
