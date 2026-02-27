@@ -1535,19 +1535,19 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Toggle a feature flag via the gateway's PATCH /v1/feature-flags/:flagKey endpoint.
     /// Uses the dedicated feature-flag token (not the runtime bearer token) for auth.
-    /// Works for both local macOS (reads token from disk or config) and remote iOS (via HTTP transport).
+    ///
+    /// On macOS, always calls the local gateway directly (port 7830) because
+    /// `httpTransport` may point at the runtime HTTP server (port 7821) when
+    /// `localHttpEnabled` is active — the runtime doesn't serve feature-flag routes.
+    /// On iOS, delegates to `httpTransport` which targets the remote gateway.
     public func setFeatureFlag(key: String, enabled: Bool) async throws {
         guard let token = config.featureFlagToken, !token.isEmpty else {
             throw FeatureFlagError.missingToken
         }
 
-        if let httpTransport {
-            try await httpTransport.setFeatureFlag(key: key, enabled: enabled, featureFlagToken: token)
-            return
-        }
-
-        // Local macOS: call the gateway directly
         #if os(macOS)
+        // Always call the gateway directly on macOS. httpTransport may target the
+        // runtime (localHttpEnabled), which doesn't have the feature-flag route.
         let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
             .flatMap(Int.init) ?? 7830
         let baseURL = "http://127.0.0.1:\(gatewayPort)"
@@ -1570,6 +1570,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             throw FeatureFlagError.requestFailed(statusCode)
         }
+        #else
+        // iOS: httpTransport targets the remote gateway, which serves feature-flag routes.
+        guard let httpTransport else {
+            throw FeatureFlagError.requestFailed(0)
+        }
+        try await httpTransport.setFeatureFlag(key: key, enabled: enabled, featureFlagToken: token)
         #endif
     }
 
