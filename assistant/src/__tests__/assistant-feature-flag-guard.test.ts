@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -76,8 +76,12 @@ describe('assistant feature flag guard', () => {
 
     let grepOutput = '';
     try {
-      grepOutput = execSync(
-        `git grep -lE ${JSON.stringify(pattern)} -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.swift'`,
+      // Use execFileSync to avoid shell interpretation — the pattern contains
+      // backtick characters that would trigger command substitution in /bin/sh
+      // if passed through execSync's shell.
+      grepOutput = execFileSync(
+        'git',
+        ['grep', '-lE', pattern, '--', '*.ts', '*.tsx', '*.js', '*.jsx', '*.swift'],
         { encoding: 'utf-8', cwd: getRepoRoot() },
       ).trim();
     } catch (err) {
