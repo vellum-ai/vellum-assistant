@@ -108,11 +108,16 @@ describe('isAssistantSkillEnabled', () => {
     expect(isAssistantSkillEnabled(DECLARED_SKILL_ID, config)).toBe(true);
   });
 
-  test('ignores persisted values for undeclared skills', () => {
+  test('respects persisted overrides for undeclared skills', () => {
     const config = makeConfig({
       featureFlags: { 'skills.browser.enabled': false },
       assistantFeatureFlagValues: { 'feature_flags.browser.enabled': false },
     });
+    expect(isAssistantSkillEnabled('browser', config)).toBe(false);
+  });
+
+  test('undeclared skills with no persisted override default to enabled', () => {
+    const config = makeConfig({ featureFlags: {} });
     expect(isAssistantSkillEnabled('browser', config)).toBe(true);
   });
 });
@@ -142,11 +147,16 @@ describe('isAssistantFeatureFlagEnabled', () => {
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
-  test('ignores persisted values for undeclared keys', () => {
+  test('respects persisted overrides for undeclared keys', () => {
     const config = makeConfig({
       featureFlags: { 'skills.browser.enabled': false },
       assistantFeatureFlagValues: { 'feature_flags.browser.enabled': false },
     });
+    expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(false);
+  });
+
+  test('undeclared keys with no persisted override default to enabled', () => {
+    const config = makeConfig({ featureFlags: {} });
     expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(true);
   });
 });

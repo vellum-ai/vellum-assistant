@@ -319,7 +319,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 1. `config.assistantFeatureFlagValues[key]` — new canonical config section, written by the gateway's PATCH endpoint
 2. `config.featureFlags[legacyKey]` — legacy `skills.<id>.enabled` key mapping (backward-compat)
 3. Defaults registry `defaultEnabled` — from `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`
-4. `true` — unknown/undeclared flags default to enabled and are ignored by the flag system
+4. `true` — unknown/undeclared flags with no persisted override default to enabled
 
 **Backward-compat path:** The legacy `featureFlags` config section (key format `skills.<id>.enabled`) is still read as a fallback during resolution. New writes go to `assistantFeatureFlagValues` using the canonical format. The `isSkillFeatureEnabled()` wrapper in `config/skill-state.ts` is deprecated but retained as a thin delegate to `isAssistantSkillEnabled()` for migration compatibility.
 

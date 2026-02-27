@@ -164,8 +164,8 @@ describe('buildSystemPrompt feature flag filtering', () => {
 
     const result = buildSystemPrompt();
 
-    // Declared flagged skill is hidden; undeclared keys do not gate skill visibility.
+    // Both are hidden: declared skill via registry, undeclared via persisted override.
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
-    expect(result).toContain('id="twitter"');
+    expect(result).not.toContain('id="twitter"');
   });
 });
