@@ -1726,14 +1726,16 @@ private struct ProfileSwitchModal: View {
                     .multilineTextAlignment(.center)
             }
 
-            HStack(spacing: VSpacing.sm) {
+            HStack {
                 VButton(label: "Cancel", style: .secondary) { dismiss() }
+                Spacer()
                 VButton(label: "Switch Mode", style: .primary) { performSwitch() }
                     .disabled(isChildToParental && pin.count != 6)
                     .keyboardShortcut(.return, modifiers: [])
             }
         }
-        .padding(VSpacing.xl)
+        .padding(.horizontal, VSpacing.xl)
+        .padding(.vertical, VSpacing.xxl)
         .frame(maxWidth: .infinity)
     }
 
