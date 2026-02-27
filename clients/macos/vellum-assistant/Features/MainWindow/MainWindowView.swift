@@ -97,6 +97,9 @@ struct MainWindowView: View {
     let onSendWakeUp: (() -> Void)?
 
     /// Whether the "coming alive" overlay is currently showing.
+    @State private var showThreadSwitcher = false
+    /// Work item for the delayed hover trigger on the collapsed thread section.
+    @State private var threadSwitcherHoverTimer: DispatchWorkItem?
     @State private var showComingAlive: Bool
 
     init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
@@ -902,6 +905,16 @@ struct MainWindowView: View {
         }
     }
 
+    /// Maps a thread's interaction state to a dot color for VThreadIcon.
+    private func interactionDotColor(for thread: ThreadModel) -> Color? {
+        switch threadManager.interactionState(for: thread.id) {
+        case .processing: return VColor.accent
+        case .waitingForInput: return VColor.warning
+        case .error: return VColor.error
+        case .idle: return nil
+        }
+    }
+
     private var regularThreads: [ThreadModel] {
         threadManager.visibleThreads.filter { !$0.isScheduleThread }
     }
@@ -1320,21 +1333,11 @@ struct MainWindowView: View {
             // MARK: Thread Section (collapsed)
             if let activeThread = threadManager.activeThread {
                 VStack(spacing: VSpacing.xs) {
-                    let interactionState = threadManager.interactionState(for: activeThread.id)
-                    let interactionDotColor: Color? = {
-                        switch interactionState {
-                        case .processing: return VColor.accent
-                        case .waitingForInput: return VColor.warning
-                        case .error: return VColor.error
-                        case .idle: return nil
-                        }
-                    }()
-
                     VThreadIcon(
                         title: activeThread.title,
                         size: .medium,
                         isActive: true,
-                        dotColor: interactionDotColor
+                        dotColor: interactionDotColor(for: activeThread)
                     )
 
                     // Thread count badge
@@ -1356,6 +1359,78 @@ struct MainWindowView: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 .padding(.vertical, VSpacing.xs)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    showThreadSwitcher.toggle()
+                }
+                .onHover { hovering in
+                    if hovering {
+                        let work = DispatchWorkItem {
+                            showThreadSwitcher = true
+                        }
+                        threadSwitcherHoverTimer = work
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+                    } else {
+                        threadSwitcherHoverTimer?.cancel()
+                        threadSwitcherHoverTimer = nil
+                    }
+                }
+                .popover(isPresented: $showThreadSwitcher, arrowEdge: .trailing) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        // Header
+                        Text("\(regularThreads.count) THREADS")
+                            .font(VFont.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(VColor.textMuted)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.top, VSpacing.sm)
+
+                        // Thread list
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                ForEach(regularThreads) { thread in
+                                    let isActive = thread.id == threadManager.activeThreadId
+                                    HStack(spacing: VSpacing.xs) {
+                                        VThreadIcon(
+                                            title: thread.title,
+                                            size: .small,
+                                            isActive: isActive,
+                                            dotColor: interactionDotColor(for: thread)
+                                        )
+
+                                        Text(thread.title)
+                                            .font(VFont.body)
+                                            .foregroundColor(VColor.textPrimary)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+
+                                        Spacer()
+
+                                        // Unseen indicator
+                                        if thread.hasUnseenLatestAssistantMessage {
+                                            Circle()
+                                                .fill(Color(hex: 0xE86B40))
+                                                .frame(width: 6, height: 6)
+                                        }
+                                    }
+                                    .padding(.horizontal, VSpacing.sm)
+                                    .padding(.vertical, VSpacing.xs)
+                                    .background(isActive ? VColor.accent.opacity(0.12) : Color.clear)
+                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        selectThread(thread)
+                                        showThreadSwitcher = false
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, VSpacing.xs)
+                        }
+                        .frame(maxHeight: 300)
+                    }
+                    .frame(width: 200)
+                    .padding(.bottom, VSpacing.sm)
+                }
             }
 
             Spacer()
