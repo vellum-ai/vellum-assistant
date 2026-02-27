@@ -9,7 +9,7 @@ You are helping your user set up guardian verification for a messaging channel (
 
 ## Prerequisites
 
-- Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls in this skill. Do not hardcode hosts or ports.
+- Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
 - Never call the daemon runtime port directly; always call the gateway URL.
 - The bearer token is stored at `~/.vellum/http-token`. Read it with: `TOKEN=$(cat ~/.vellum/http-token)`.
 - Run shell commands for this skill with `host_bash` (not sandbox `bash`) so host auth/token and gateway routing are reliable.

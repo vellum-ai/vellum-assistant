@@ -224,8 +224,6 @@ After the guardian-verify-setup skill completes verification for a channel, load
 
 **Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
 
-Use the injected `INTERNAL_GATEWAY_BASE_URL` when running the status checks below.
-
 To re-check guardian status later, query the channel(s) that were verified:
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)

@@ -9,7 +9,7 @@ You are helping your user manage trusted contacts for the Vellum Assistant. Trus
 
 ## Prerequisites
 
-- Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls in this skill. Do not hardcode hosts or ports.
+- Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
 - Use gateway control-plane routes only: this skill calls `/v1/ingress/*` on the gateway, never the daemon runtime port directly.
 - The bearer token is stored at `~/.vellum/http-token`. Read it with: `TOKEN=$(cat ~/.vellum/http-token)`.
 
