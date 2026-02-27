@@ -70,6 +70,52 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/health": {
+        get: {
+          summary: "Runtime health (via gateway)",
+          description:
+            "Authenticated gateway endpoint that proxies runtime health checks to `/v1/health` on the assistant runtime.",
+          operationId: "runtimeHealth",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Runtime health returned",
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "Bearer token not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "502": {
+              description: "Failed to reach assistant runtime",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "504": {
+              description: "Assistant runtime request timed out",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/webhooks/telegram": {
         post: {
           summary: "Telegram webhook",

@@ -32,6 +32,7 @@ import { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } from "./
 import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-control-plane-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createIngressControlPlaneProxyHandler } from "./http/routes/ingress-control-plane-proxy.js";
+import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { validateBearerToken } from "./http/auth/bearer.js";
 import { getLogger, initLogger } from "./logger.js";
 import { CircuitBreakerOpenError } from "./runtime/client.js";
@@ -202,6 +203,7 @@ function main() {
   const guardianControlPlaneProxy = createGuardianControlPlaneProxyHandler(config);
   const telegramControlPlaneProxy = createTelegramControlPlaneProxyHandler(config);
   const ingressControlPlaneProxy = createIngressControlPlaneProxyHandler(config);
+  const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
 
@@ -433,6 +435,13 @@ function main() {
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         return null;
+      }
+
+      // ── Runtime health proxy ──
+      if (url.pathname === "/v1/health" && req.method === "GET") {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+        return runtimeHealthProxy.handleRuntimeHealth(tracedReq);
       }
 
       // ── Telegram integration control-plane proxy ──

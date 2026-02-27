@@ -230,6 +230,7 @@ The gateway serves as the single public ingress point for all external callbacks
 | `/v1/ingress/invites` | GET/POST | Authenticated control-plane proxy for listing/creating ingress invites |
 | `/v1/ingress/invites/:id` | DELETE | Authenticated control-plane proxy for revoking an ingress invite |
 | `/v1/ingress/invites/redeem` | POST | Authenticated control-plane proxy for redeeming an ingress invite |
+| `/v1/health` | GET | Authenticated runtime health proxy (`/v1/health` on runtime) |
 | `/healthz` | GET | Liveness probe |
 | `/readyz` | GET | Readiness probe |
 | `/schema` | GET | Returns the OpenAPI 3.1 schema for this gateway |
@@ -299,7 +300,7 @@ When `INGRESS_PUBLIC_BASE_URL` is configured, the gateway prioritizes it as the 
 
 ## Default Mode: Dedicated Routes Only
 
-By default, the broad runtime proxy is disabled. Dedicated gateway-managed routes (webhooks, delivery endpoints, and explicit control-plane proxies such as `/v1/integrations/guardian/*`, `/v1/integrations/telegram/*`, and `/v1/ingress/*`) remain available, but arbitrary runtime passthrough routes return `404` unless `GATEWAY_RUNTIME_PROXY_ENABLED=true`.
+By default, the broad runtime proxy is disabled. Dedicated gateway-managed routes (webhooks, delivery endpoints, explicit control-plane proxies such as `/v1/integrations/guardian/*`, `/v1/integrations/telegram/*`, and `/v1/ingress/*`, plus the authenticated runtime health route `/v1/health`) remain available, but arbitrary runtime passthrough routes return `404` unless `GATEWAY_RUNTIME_PROXY_ENABLED=true`.
 
 ## Runtime Proxy Mode
 
@@ -349,6 +350,7 @@ Text and attachments are sent separately — the text reply goes first via `send
 
 | Endpoint | Method | Behavior |
 |----------|--------|----------|
+| `/v1/health` | GET | Authenticated proxy to runtime health (`/v1/health`) |
 | `/healthz` | GET | Always returns `200` while the process is alive |
 | `/readyz` | GET | Returns `200` while accepting traffic; `503` during graceful shutdown drain |
 
