@@ -604,8 +604,8 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image]
-    if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos.result == 'success' }}
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, ci-cli, ci-gateway, ci-playwright]
+    if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos.result == 'success' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && needs.ci-playwright.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -781,7 +781,6 @@ jobs:
   ci-cli:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -804,7 +803,6 @@ jobs:
   ci-gateway:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -830,7 +828,6 @@ jobs:
 
   ci-playwright:
     runs-on: macos-14
-    continue-on-error: true
     timeout-minutes: 60
     permissions:
       contents: read
@@ -926,8 +923,11 @@ jobs:
             "${{ needs.push-assistant-image.result }}" \
             "${{ needs.push-gateway-image.result }}" \
             "${{ needs.release.result }}" \
-            "${{ needs.update-platform.result }}"; do
-            if [ "$result" = "failure" ]; then
+            "${{ needs.update-platform.result }}" \
+            "${{ needs.ci-cli.result }}" \
+            "${{ needs.ci-gateway.result }}" \
+            "${{ needs.ci-playwright.result }}"; do
+            if [ "$result" = "failure" ] || [ "$result" = "skipped" ]; then
               RELEASE_FAILED="true"
               break
             fi
