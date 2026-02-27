@@ -347,4 +347,98 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
 
     expect(result.allowed).toBe(false);
   });
+
+  test('non-voice channel denial is instant (no retry polling)', async () => {
+    const toolName = 'bash';
+    const input = { command: 'rm -rf /' };
+
+    // executionChannel defaults to undefined (non-voice)
+    const context = makeContext({
+      guardianActorRole: 'non-guardian',
+      executionChannel: 'telegram',
+    });
+
+    const start = Date.now();
+    const result = await handler.checkPreExecutionGates(
+      toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
+    );
+    const elapsed = Date.now() - start;
+
+    expect(result.allowed).toBe(false);
+    if (result.allowed) return;
+    expect(result.result.content).toContain('guardian approval');
+    // Non-voice denials should be nearly instant — no 10s retry polling
+    expect(elapsed).toBeLessThan(500);
+  });
+
+  test('voice channel with delayed grant succeeds via retry polling', async () => {
+    const toolName = 'bash';
+    const input = { command: 'echo hello' };
+    const digest = computeToolApprovalDigest(toolName, input);
+
+    // Mint the grant after 300ms — the voice retry polling should find it
+    setTimeout(() => {
+      mintGrantFromDecision(
+        mintParams({
+          scopeMode: 'tool_signature',
+          toolName,
+          inputDigest: digest,
+        }),
+      );
+    }, 300);
+
+    const context = makeContext({
+      guardianActorRole: 'non-guardian',
+      executionChannel: 'voice',
+    });
+
+    const start = Date.now();
+    const result = await handler.checkPreExecutionGates(
+      toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
+    );
+    const elapsed = Date.now() - start;
+
+    expect(result.allowed).toBe(true);
+    // Should have taken at least ~300ms (the minting delay) but not the full 10s
+    expect(elapsed).toBeGreaterThanOrEqual(250);
+    expect(elapsed).toBeLessThan(5_000);
+  });
+
+  test('voice channel abort returns Cancelled instead of guardian_approval_required', async () => {
+    const toolName = 'bash';
+    const input = { command: 'deploy --force' };
+
+    const controller = new AbortController();
+    // Abort after 200ms to simulate voice barge-in
+    setTimeout(() => controller.abort(), 200);
+
+    const context = makeContext({
+      guardianActorRole: 'non-guardian',
+      executionChannel: 'voice',
+      signal: controller.signal,
+    });
+
+    const start = Date.now();
+    const result = await handler.checkPreExecutionGates(
+      toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
+    );
+    const elapsed = Date.now() - start;
+
+    expect(result.allowed).toBe(false);
+    if (result.allowed) return;
+    // Should return 'Cancelled', not a guardian_approval_required message
+    expect(result.result.content).toBe('Cancelled');
+    expect(result.result.isError).toBe(true);
+    // Should exit promptly after the abort signal, not wait full 10s
+    expect(elapsed).toBeLessThan(2_000);
+
+    // The lifecycle event should be an error with 'Cancelled', not permission_denied
+    const errorEvents = events.filter((e) => e.type === 'error');
+    expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+    const lastError = errorEvents[errorEvents.length - 1];
+    if (lastError.type === 'error') {
+      expect(lastError.errorMessage).toBe('Cancelled');
+      expect(lastError.isExpected).toBe(true);
+    }
+  });
 });
