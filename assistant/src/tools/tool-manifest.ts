@@ -16,8 +16,10 @@ import { setAvatarTool } from './system/avatar-generator.js';
 import { navigateSettingsTabTool } from './system/navigate-settings.js';
 import { openSystemSettingsTool } from './system/open-system-settings.js';
 import { voiceConfigUpdateTool } from './system/voice-config.js';
+import { shellTool } from './terminal/shell.js';
 import type { Tool } from './types.js';
 import { screenWatchTool } from './watch/screen-watch.js';
+import { swarmDelegateTool } from './swarm/delegate.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // These static imports trigger top-level `registerTool()` side effects.
@@ -123,10 +125,7 @@ export const lazyTools: LazyToolDescriptor[] = [
         required: ['command'],
       },
     },
-    loader: async () => {
-      const mod = await import('./terminal/shell.js');
-      return mod.shellTool;
-    },
+    loader: async () => shellTool,
   },
   {
     name: 'swarm_delegate',
@@ -155,9 +154,6 @@ export const lazyTools: LazyToolDescriptor[] = [
         required: ['objective'],
       },
     },
-    loader: async () => {
-      const mod = await import('./swarm/delegate.js');
-      return mod.swarmDelegateTool;
-    },
+    loader: async () => swarmDelegateTool,
   },
 ];
