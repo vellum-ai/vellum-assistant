@@ -1231,7 +1231,7 @@ struct SettingsChannelsTab: View {
 
                 TextField(placeholder, text: destinationBinding)
                     .font(VFont.body)
-                    .textFieldStyle(.roundedBorder)
+                    .vInputStyle()
                     .frame(maxWidth: 200)
 
                 VButton(label: "Send verification", style: .secondary) {
