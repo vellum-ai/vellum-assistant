@@ -789,17 +789,9 @@ struct MainWindowView: View {
         // Reserve trailing space when hovered for archive button overlay.
         let hasTrailingIcon = isHovered || sidebar.threadPendingDeletion == thread.id
         // Always reserve 20pt leading slot so text never shifts.
-        Button(action: {
-            if case .appEditing(let appId, _) = windowState.selection {
-                // Stay in editing mode, just switch the thread
-                windowState.selection = .appEditing(appId: appId, threadId: thread.id)
-                threadManager.selectThread(id: thread.id)
-            } else {
-                // Normal thread selection
-                windowState.selection = .thread(thread.id)
-                threadManager.selectThread(id: thread.id)
-            }
-        }) {
+        // Use a tap gesture instead of Button so .draggable() can coexist —
+        // Button captures mouse-down and prevents drag initiation on macOS.
+        Group {
             HStack(spacing: VSpacing.xs) {
                 // Leading icon: interaction state > idle fallback (unread dot > pin > spacer).
                 // The interactive pin button is in .overlay(alignment: .leading) below
@@ -871,7 +863,15 @@ struct MainWindowView: View {
             .contentShape(Rectangle())
             .animation(VAnimation.fast, value: isHovered)
         }
-        .buttonStyle(.plain)
+        .onTapGesture {
+            if case .appEditing(let appId, _) = windowState.selection {
+                windowState.selection = .appEditing(appId: appId, threadId: thread.id)
+                threadManager.selectThread(id: thread.id)
+            } else {
+                windowState.selection = .thread(thread.id)
+                threadManager.selectThread(id: thread.id)
+            }
+        }
         .overlay(alignment: .leading) {
             if isHovered {
                 Button {
@@ -971,7 +971,29 @@ struct MainWindowView: View {
                 NSCursor.pop()
             }
         }
-        .draggable(thread.id.uuidString)
+        .draggable(thread.id.uuidString) {
+            HStack(spacing: VSpacing.xs) {
+                if thread.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .rotationEffect(.degrees(-45))
+                        .frame(width: 20, height: 20)
+                } else {
+                    Color.clear.frame(width: 20, height: 20)
+                }
+                Text(thread.title)
+                    .font(.system(size: 13))
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+            }
+            .padding(.leading, VSpacing.xs)
+            .padding(.trailing, VSpacing.sm)
+            .padding(.vertical, VSpacing.sm)
+            .frame(width: 220, alignment: .leading)
+            .background(VColor.surface.opacity(0.9))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
     }
 
     private var regularThreads: [ThreadModel] {
