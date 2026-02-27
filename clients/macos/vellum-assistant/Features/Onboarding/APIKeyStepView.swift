@@ -39,7 +39,7 @@ struct APIKeyStepView: View {
     @FocusState private var keyFieldFocused: Bool
 
     private var userHostedEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled(.userHostedEnabled)
+        MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
     }
 
     var body: some View {
@@ -337,6 +337,6 @@ struct APIKeyStepView: View {
     }
     .frame(width: 460, height: 620)
     .onAppear {
-        MacOSClientFeatureFlagManager.shared.setOverride(.userHostedEnabled, enabled: true)
+        MacOSClientFeatureFlagManager.shared.setOverride("user_hosted_enabled", enabled: true)
     }
 }
