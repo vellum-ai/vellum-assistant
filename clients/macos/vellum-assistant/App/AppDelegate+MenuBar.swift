@@ -57,6 +57,15 @@ extension AppDelegate {
         newChatItem.target = self
         fileMenu.addItem(newChatItem)
 
+        let markAllSeenItem = NSMenuItem(
+            title: "Mark All Threads as Seen",
+            action: #selector(markAllThreadsSeen),
+            keyEquivalent: "\u{1b}" // Escape key
+        )
+        markAllSeenItem.keyEquivalentModifierMask = .shift
+        markAllSeenItem.target = self
+        fileMenu.addItem(markAllSeenItem)
+
         let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         fileMenuItem.submenu = fileMenu
         mainMenu.insertItem(fileMenuItem, at: 1)
@@ -207,6 +216,9 @@ extension AppDelegate {
         ]
         if conversationZoomSelectors.contains(action) {
             return mainWindow?.windowState.isConversationVisible ?? false
+        }
+        if action == #selector(markAllThreadsSeen) {
+            return (mainWindow?.threadManager.unseenVisibleConversationCount ?? 0) > 0
         }
         return true
     }
@@ -481,6 +493,39 @@ extension AppDelegate {
         menu.addItem(quitItem)
 
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 2), in: button)
+    }
+
+    @objc func markAllThreadsSeen() {
+        guard let threadManager = mainWindow?.threadManager else { return }
+        let markedIds = threadManager.markAllThreadsSeen()
+        guard !markedIds.isEmpty else { return }
+        let count = markedIds.count
+        mainWindow?.windowState.showToast(
+            message: "Marked \(count) thread\(count == 1 ? "" : "s") as seen",
+            style: .success,
+            primaryAction: VToastAction(label: "Undo") { [weak self] in
+                self?.mainWindow?.threadManager.restoreUnseen(threadIds: markedIds)
+                self?.mainWindow?.windowState.dismissToast()
+            }
+        )
+    }
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+
+        let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "")
+        newChatItem.target = self
+        menu.addItem(newChatItem)
+
+        let markAllSeenItem = NSMenuItem(
+            title: "Mark All Threads as Seen",
+            action: #selector(markAllThreadsSeen),
+            keyEquivalent: ""
+        )
+        markAllSeenItem.target = self
+        menu.addItem(markAllSeenItem)
+
+        return menu
     }
 
     @objc func openCurrentThread() {

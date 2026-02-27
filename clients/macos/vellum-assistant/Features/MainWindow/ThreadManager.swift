@@ -736,6 +736,34 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
     }
 
+    /// Mark all visible (non-archived, non-private) threads as seen and emit
+    /// IPC signals for each. Returns the IDs of threads that were actually
+    /// marked, so the caller can offer an undo action.
+    @discardableResult
+    internal func markAllThreadsSeen() -> [UUID] {
+        var markedIds: [UUID] = []
+        for idx in threads.indices {
+            guard !threads[idx].isArchived,
+                  threads[idx].kind != .private,
+                  threads[idx].hasUnseenLatestAssistantMessage else { continue }
+            threads[idx].hasUnseenLatestAssistantMessage = false
+            markedIds.append(threads[idx].id)
+            if let sessionId = threads[idx].sessionId {
+                emitConversationSeenSignal(conversationId: sessionId)
+            }
+        }
+        return markedIds
+    }
+
+    /// Restore the unseen flag for the given thread IDs (used by undo).
+    internal func restoreUnseen(threadIds: [UUID]) {
+        for id in threadIds {
+            if let idx = threads.firstIndex(where: { $0.id == id }) {
+                threads[idx].hasUnseenLatestAssistantMessage = true
+            }
+        }
+    }
+
     // MARK: - Private
 
     /// Send a `conversation_seen_signal` IPC message to the daemon.

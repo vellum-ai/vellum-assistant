@@ -1177,10 +1177,26 @@ struct MainWindowView: View {
                 .padding(.horizontal, VSpacing.md)
 
             // MARK: Threads (scrollable)
-            SidebarThreadsHeader(onNewThread: {
-                windowState.selection = nil
-                threadManager.createThread()
-            })
+            SidebarThreadsHeader(
+                hasUnseenThreads: threadManager.unseenVisibleConversationCount > 0,
+                onMarkAllSeen: {
+                    let markedIds = threadManager.markAllThreadsSeen()
+                    guard !markedIds.isEmpty else { return }
+                    let count = markedIds.count
+                    windowState.showToast(
+                        message: "Marked \(count) thread\(count == 1 ? "" : "s") as seen",
+                        style: .success,
+                        primaryAction: VToastAction(label: "Undo") {
+                            threadManager.restoreUnseen(threadIds: markedIds)
+                            windowState.dismissToast()
+                        }
+                    )
+                },
+                onNewThread: {
+                    windowState.selection = nil
+                    threadManager.createThread()
+                }
+            )
 
             ScrollView {
                 VStack(spacing: 0) {
@@ -1493,6 +1509,8 @@ private struct SidebarNavRow: View {
 }
 
 private struct SidebarThreadsHeader: View {
+    let hasUnseenThreads: Bool
+    let onMarkAllSeen: () -> Void
     let onNewThread: () -> Void
 
     var body: some View {
@@ -1501,11 +1519,28 @@ private struct SidebarThreadsHeader: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(VColor.textPrimary)
             Spacer()
+            if hasUnseenThreads {
+                VIconButton(
+                    label: "Mark all as seen",
+                    icon: "checkmark.circle",
+                    iconOnly: true,
+                    tooltip: "Mark all as seen",
+                    action: onMarkAllSeen
+                )
+            }
             VIconButton(label: "New thread", icon: "plus", iconOnly: true, action: onNewThread)
         }
         .padding(.leading, 20)
         .padding(.trailing, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
+        .contextMenu {
+            Button {
+                onMarkAllSeen()
+            } label: {
+                Label("Mark All as Seen", systemImage: "checkmark.circle")
+            }
+            .disabled(!hasUnseenThreads)
+        }
     }
 }
 
