@@ -3,6 +3,7 @@ import Carbon
 import VellumAssistantShared
 import Combine
 import CoreText
+import Sentry
 import SwiftUI
 import UserNotifications
 import os
@@ -200,6 +201,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
+
+        // Initialize crash reporting early so any startup errors are captured.
+        // Gate on the "collect-usage-data" UserDefaults key that is toggled by
+        // Settings > Privacy. Defaults to true when the key is not yet set
+        // (consistent with the daemon-side feature flag defaultEnabled: true).
+        // TODO: Replace the placeholder DSN with the real Sentry project DSN.
+        let collectUsageData = UserDefaults.standard.object(forKey: "feature_flags.collect-usage-data.enabled") as? Bool ?? true
+        if collectUsageData {
+            SentrySDK.start { options in
+                // Replace this placeholder DSN with the real Sentry project DSN
+                // before shipping to production. Create a project at sentry.io and
+                // copy the DSN from Settings > Client Keys.
+                options.dsn = "https://placeholder@o0.ingest.sentry.io/0"
+                options.debug = false
+                options.tracesSampleRate = 0.1
+                options.sendDefaultPii = false
+            }
+        }
 
         // Migration: remove legacy ios-pairing-enabled flag file.
         // The old "Enable iOS Pairing" toggle created this file to expose

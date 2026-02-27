@@ -26,6 +26,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
+        .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.0.0"),
     ],
     targets: [
         .target(
@@ -48,6 +49,7 @@ let package = Package(
             dependencies: [
                 "VellumAssistantShared",
                 "Sparkle",
+                .product(name: "Sentry", package: "sentry-cocoa"),
             ],
             path: "macos/vellum-assistant",
             exclude: ["Resources/Info.plist", "Resources/bg.png"],
