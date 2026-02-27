@@ -29,7 +29,7 @@
           "routing_intent": {
             "type": "string",
             "enum": ["single_channel", "multi_channel", "all_channels"],
-            "description": "How the reminder is routed at trigger time. single_channel (default) delivers to one best channel, multi_channel delivers to a subset, all_channels delivers everywhere."
+            "description": "How the reminder is routed at trigger time. single_channel delivers to one best channel, multi_channel delivers to a subset, all_channels (default) delivers everywhere."
           },
           "routing_hints": {
             "type": "object",
