@@ -25,11 +25,11 @@ export function mcpToolName(serverId: string, toolName: string): string {
 export function parseMcpToolName(name: string): { serverId: string; toolName: string } | null {
   if (!name.startsWith('mcp__')) return null;
   const prefixRemoved = name.slice(5); // remove 'mcp__'
-  const lastSep = prefixRemoved.lastIndexOf('__');
-  if (lastSep === -1) return null;
+  const firstSep = prefixRemoved.indexOf('__');
+  if (firstSep === -1) return null;
   return {
-    serverId: prefixRemoved.slice(0, lastSep),
-    toolName: prefixRemoved.slice(lastSep + 2),
+    serverId: prefixRemoved.slice(0, firstSep),
+    toolName: prefixRemoved.slice(firstSep + 2),
   };
 }
 

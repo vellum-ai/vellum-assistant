@@ -8,6 +8,8 @@ import { getLogger } from '../util/logger.js';
 
 const log = getLogger('mcp-client');
 
+const CONNECT_TIMEOUT_MS = 30_000;
+
 export interface McpToolInfo {
   name: string;
   description: string;
@@ -38,7 +40,12 @@ export class McpClient {
 
     console.log(`[MCP] Connecting to server "${this.serverId}"...`);
     this.transport = this.createTransport(transportConfig);
-    await this.client.connect(this.transport);
+    await Promise.race([
+      this.client.connect(this.transport),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`MCP server "${this.serverId}" connection timed out after ${CONNECT_TIMEOUT_MS}ms`)), CONNECT_TIMEOUT_MS),
+      ),
+    ]);
     this.connected = true;
     console.log(`[MCP] Server "${this.serverId}" connected successfully`);
     log.info({ serverId: this.serverId }, 'MCP client connected');
@@ -49,7 +56,12 @@ export class McpClient {
       throw new Error(`MCP client "${this.serverId}" is not connected`);
     }
 
-    const result = await this.client.listTools();
+    const result = await Promise.race([
+      this.client.listTools(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`MCP server "${this.serverId}" listTools timed out after ${CONNECT_TIMEOUT_MS}ms`)), CONNECT_TIMEOUT_MS),
+      ),
+    ]);
     return result.tools.map((tool) => ({
       name: tool.name,
       description: tool.description ?? '',
