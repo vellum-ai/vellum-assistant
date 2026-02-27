@@ -32,6 +32,7 @@ import { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } from "./
 import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-control-plane-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createIngressControlPlaneProxyHandler } from "./http/routes/ingress-control-plane-proxy.js";
+import { matchIngressControlPlaneRoute } from "./http/routes/ingress-control-plane-route-match.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { validateBearerToken } from "./http/auth/bearer.js";
 import { getLogger, initLogger } from "./logger.js";
@@ -471,44 +472,29 @@ function main() {
       }
 
       // ── Ingress members/invites control-plane proxy ──
-      const ingressMemberBlockMatch = url.pathname.match(/^\/v1\/ingress\/members\/([^/]+)\/block$/);
-      const ingressMemberMatch = url.pathname.match(/^\/v1\/ingress\/members\/([^/]+)$/);
-      const ingressInviteMatch = url.pathname.match(/^\/v1\/ingress\/invites\/([^/]+)$/);
-      if (
-        (url.pathname === "/v1/ingress/members" && req.method === "GET")
-        || (url.pathname === "/v1/ingress/members" && req.method === "POST")
-        || (!!ingressMemberBlockMatch && req.method === "POST")
-        || (!!ingressMemberMatch && req.method === "DELETE")
-        || (url.pathname === "/v1/ingress/invites" && req.method === "GET")
-        || (url.pathname === "/v1/ingress/invites" && req.method === "POST")
-        || (url.pathname === "/v1/ingress/invites/redeem" && req.method === "POST")
-        || (!!ingressInviteMatch && req.method === "DELETE")
-      ) {
+      const ingressRoute = matchIngressControlPlaneRoute(url.pathname, req.method);
+      if (ingressRoute) {
         const authError = requireRuntimeBearerAuth();
         if (authError) return authError;
 
-        if (url.pathname === "/v1/ingress/members" && req.method === "GET") {
-          return ingressControlPlaneProxy.handleListMembers(tracedReq);
+        switch (ingressRoute.kind) {
+          case "listMembers":
+            return ingressControlPlaneProxy.handleListMembers(tracedReq);
+          case "upsertMember":
+            return ingressControlPlaneProxy.handleUpsertMember(tracedReq);
+          case "blockMember":
+            return ingressControlPlaneProxy.handleBlockMember(tracedReq, ingressRoute.memberId);
+          case "revokeMember":
+            return ingressControlPlaneProxy.handleRevokeMember(tracedReq, ingressRoute.memberId);
+          case "listInvites":
+            return ingressControlPlaneProxy.handleListInvites(tracedReq);
+          case "createInvite":
+            return ingressControlPlaneProxy.handleCreateInvite(tracedReq);
+          case "redeemInvite":
+            return ingressControlPlaneProxy.handleRedeemInvite(tracedReq);
+          case "revokeInvite":
+            return ingressControlPlaneProxy.handleRevokeInvite(tracedReq, ingressRoute.inviteId);
         }
-        if (url.pathname === "/v1/ingress/members" && req.method === "POST") {
-          return ingressControlPlaneProxy.handleUpsertMember(tracedReq);
-        }
-        if (ingressMemberBlockMatch && req.method === "POST") {
-          return ingressControlPlaneProxy.handleBlockMember(tracedReq, ingressMemberBlockMatch[1]);
-        }
-        if (ingressMemberMatch && req.method === "DELETE") {
-          return ingressControlPlaneProxy.handleRevokeMember(tracedReq, ingressMemberMatch[1]);
-        }
-        if (url.pathname === "/v1/ingress/invites" && req.method === "GET") {
-          return ingressControlPlaneProxy.handleListInvites(tracedReq);
-        }
-        if (url.pathname === "/v1/ingress/invites" && req.method === "POST") {
-          return ingressControlPlaneProxy.handleCreateInvite(tracedReq);
-        }
-        if (url.pathname === "/v1/ingress/invites/redeem") {
-          return ingressControlPlaneProxy.handleRedeemInvite(tracedReq);
-        }
-        return ingressControlPlaneProxy.handleRevokeInvite(tracedReq, ingressInviteMatch![1]);
       }
 
       // ── Guardian verification control-plane proxy ──
