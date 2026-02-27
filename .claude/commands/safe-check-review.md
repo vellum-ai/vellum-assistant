@@ -193,11 +193,13 @@ Address the review feedback on PR #<pr-number> (<pr-url>):
 <summary of changes requested>
 
 ## Workflow
-1. Read the review comments on the PR to understand what changes are requested:
+1. Read the review comments and CI status to understand what changes are requested:
    ```bash
    gh api repos/{owner}/{repo}/pulls/<pr-number>/reviews --jq '.[-1].body'
    gh api repos/{owner}/{repo}/pulls/<pr-number>/comments --jq '.[] | {path: .path, body: .body, line: .line}'
+   gh pr checks <pr-number>
    ```
+   If any CI checks are failing, read the failing check logs to understand what went wrong.
 2. Implement the requested fixes in your worktree.
 3. Do NOT run tests, type-checking (tsc), or linting unless the task specifically requires it.
 4. Commit and push directly to the PR branch:
