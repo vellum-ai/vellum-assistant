@@ -501,7 +501,7 @@ struct SettingsParentalTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Restricted profile can only use enabled integrations.")
+            Text("Restricted Mode can only use enabled integrations.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
