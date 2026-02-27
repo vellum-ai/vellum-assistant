@@ -68,6 +68,9 @@ final class LiveTranscriptManager: ObservableObject {
     /// Daemon client for sending IPC messages.
     private weak var daemonClient: DaemonClient?
 
+    /// Reference to the thread manager so we can create a transcript thread when listening stops.
+    private weak var threadManager: ThreadManager?
+
     /// Rolling buffer duration — discard segments older than this.
     private static let bufferDuration: TimeInterval = 10 * 60 // 10 minutes
 
@@ -99,6 +102,12 @@ final class LiveTranscriptManager: ObservableObject {
     /// Late-bind the daemon client for IPC communication.
     func setDaemonClient(_ client: DaemonClient) {
         self.daemonClient = client
+    }
+
+    /// Late-bind the thread manager so we can create a transcript thread
+    /// when live listening stops.
+    func setThreadManager(_ manager: ThreadManager) {
+        self.threadManager = manager
     }
 
     // MARK: - Public API
@@ -172,6 +181,10 @@ final class LiveTranscriptManager: ObservableObject {
         }
 
         sendIPCStop()
+
+        // Create a new thread with the transcript if we captured anything
+        createTranscriptThreadIfNeeded()
+
         status = .idle
 
         resumeWakeWordIfNeeded()
@@ -203,6 +216,47 @@ final class LiveTranscriptManager: ObservableObject {
     }
 
     // MARK: - Private
+
+    private func createTranscriptThreadIfNeeded() {
+        guard !segments.isEmpty else { return }
+        guard let threadManager else {
+            log.warning("No thread manager available — skipping transcript thread creation")
+            return
+        }
+
+        let transcriptText = formatTranscript()
+
+        threadManager.createThread()
+        guard let viewModel = threadManager.activeViewModel else {
+            log.error("Failed to get active view model for transcript thread")
+            return
+        }
+
+        viewModel.inputText = transcriptText
+        viewModel.sendMessage()
+
+        log.info("Created transcript thread with \(self.segments.count) segments")
+
+        // Clear the buffer now that it's been captured in a thread
+        segments.removeAll()
+    }
+
+    private func formatTranscript() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+
+        var lines: [String] = []
+        lines.append("## Audio Transcript")
+        lines.append("[captured from system audio]")
+        lines.append("")
+
+        for segment in segments {
+            let timestamp = formatter.string(from: segment.timestamp)
+            lines.append("[\(timestamp)] \(segment.text)")
+        }
+
+        return lines.joined(separator: "\n")
+    }
 
     private var isErrorStatus: Bool {
         if case .error = status { return true }
