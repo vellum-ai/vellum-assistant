@@ -12,7 +12,7 @@ struct TaskInputView: View {
     @State private var hasAPIKey = APIKeyManager.hasAnyKey()
     @State private var attachments: [TaskAttachment] = []
     @State private var attachmentError: String?
-    @State private var assistantName: String = IdentityInfo.load()?.name ?? "Vellum"
+    @State private var assistantName: String = IdentityInfo.load()?.name ?? "Assistant"
     @State private var isDropTargeted = false
     @FocusState private var isTextFieldFocused: Bool
     // Use NSApp action instead of @Environment(\.openSettings) for Xcode 16.2 compatibility
