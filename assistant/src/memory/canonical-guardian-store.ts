@@ -178,14 +178,20 @@ export function getCanonicalGuardianRequest(id: string): CanonicalGuardianReques
 
 /**
  * Look up a canonical guardian request by its short request code.
- * Returns the first matching request (codes should be unique in practice).
+ * Scoped to pending (unresolved) requests so that codes recycled by older,
+ * already-resolved requests do not collide with the active one.
  */
 export function getCanonicalGuardianRequestByCode(code: string): CanonicalGuardianRequest | null {
   const db = getDb();
   const row = db
     .select()
     .from(canonicalGuardianRequests)
-    .where(eq(canonicalGuardianRequests.requestCode, code))
+    .where(
+      and(
+        eq(canonicalGuardianRequests.requestCode, code),
+        eq(canonicalGuardianRequests.status, 'pending'),
+      ),
+    )
     .get();
   return row ? rowToRequest(row) : null;
 }
