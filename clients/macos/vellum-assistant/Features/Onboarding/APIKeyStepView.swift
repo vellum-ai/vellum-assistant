@@ -39,7 +39,7 @@ struct APIKeyStepView: View {
     @FocusState private var keyFieldFocused: Bool
 
     private var userHostedEnabled: Bool {
-        FeatureFlagManager.shared.isEnabled(.userHostedEnabled)
+        MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
     }
 
     var body: some View {
@@ -122,9 +122,9 @@ struct APIKeyStepView: View {
                 }
                 Spacer()
                 Circle()
-                    .fill(isSelected ? Sage._600 : Color.clear)
+                    .fill(isSelected ? Forest._600 : Color.clear)
                     .overlay(
-                        Circle().stroke(isSelected ? Sage._600 : VColor.surfaceBorder, lineWidth: 1.5)
+                        Circle().stroke(isSelected ? Forest._600 : VColor.surfaceBorder, lineWidth: 1.5)
                     )
                     .overlay(
                         isSelected
@@ -138,10 +138,10 @@ struct APIKeyStepView: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isSelected ? Sage._600.opacity(0.1) : Color.clear)
+                    .fill(isSelected ? Forest._600.opacity(0.1) : Color.clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(isSelected ? Sage._600.opacity(0.5) : VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(isSelected ? Forest._600.opacity(0.5) : VColor.surfaceBorder, lineWidth: 1)
                     )
             )
         }
@@ -206,11 +206,11 @@ struct APIKeyStepView: View {
                         .fill(primaryButtonDisabled
                             ? adaptiveColor(
                                 light: Stone._900.opacity(0.3),
-                                dark: Sage._600.opacity(0.3)
+                                dark: Forest._600.opacity(0.3)
                             )
                             : adaptiveColor(
                                 light: Stone._900,
-                                dark: Sage._600
+                                dark: Forest._600
                             )
                         )
                 )
@@ -359,6 +359,6 @@ struct APIKeyStepView: View {
     }
     .frame(width: 460, height: 620)
     .onAppear {
-        FeatureFlagManager.shared.setOverride(.userHostedEnabled, enabled: true)
+        MacOSClientFeatureFlagManager.shared.setOverride("user_hosted_enabled", enabled: true)
     }
 }

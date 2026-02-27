@@ -26,8 +26,8 @@ struct OnboardingFlowView: View {
                     .background(
                         RadialGradient(
                             colors: [
-                                adaptiveColor(light: Slate._100, dark: Slate._900),
-                                adaptiveColor(light: Slate._200, dark: Slate._950)
+                                adaptiveColor(light: Moss._100, dark: Moss._900),
+                                adaptiveColor(light: Moss._200, dark: Moss._950)
                             ],
                             center: .center,
                             startRadius: 0,
@@ -42,9 +42,10 @@ struct OnboardingFlowView: View {
                 VStack(spacing: 0) {
                     Spacer()
 
-                    // Persistent evolving avatar — stays in place across step transitions
-                    EvolvingAvatarView(evolutionState: state.avatarEvolutionState, animated: true)
-                        .scaleEffect(0.3)
+                    Image("VellyLogo")
+                        .resizable()
+                        .interpolation(.none)
+                        .aspectRatio(contentMode: .fit)
                         .frame(width: 128, height: 128)
                         .padding(.bottom, VSpacing.xxl)
 
@@ -61,8 +62,6 @@ struct OnboardingFlowView: View {
                                     guard !isAdvancingFromWakeUp else { return }
                                     isAdvancingFromWakeUp = true
                                     state.hasHatched = true
-                                    DeterministicEvolutionEngine.applyMilestone(.hatched, to: state.avatarEvolutionState)
-                                    state.avatarEvolutionState.save()
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                         state.advance()
                                     }
@@ -93,8 +92,8 @@ struct OnboardingFlowView: View {
                 .background(
                     RadialGradient(
                         colors: [
-                            adaptiveColor(light: Stone._100, dark: Slate._900),
-                            adaptiveColor(light: Stone._200, dark: Slate._950)
+                            adaptiveColor(light: Stone._100, dark: Moss._900),
+                            adaptiveColor(light: Stone._200, dark: Moss._950)
                         ],
                         center: .center,
                         startRadius: 0,
