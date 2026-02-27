@@ -13,6 +13,7 @@ import { TOOL_DEFINITIONS, executeTool, type TestResult } from "./tools";
 // ── Constants ───────────────────────────────────────────────────────
 
 const MAX_ITERATIONS = 1000;
+const MAX_TEST_DURATION_MS = 5 * 60 * 1000; // 5 minutes per test
 const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY_MS = 5000;
 const MODEL = "claude-opus-4-6";
@@ -36,7 +37,15 @@ Rules:
 - Never embed secrets directly in test content. Use type_env_var to type secret values (e.g., API keys) from environment variables without exposing them.
 - After completing all steps, verify each expected outcome.
 - You MUST call report_result exactly once when done, indicating whether the test passed or failed.
-- If a step fails (tool returns an error), try to recover once. If it still fails, report the test as failed with details.`;
+- If a step fails (tool returns an error), try to recover once. If it still fails, report the test as failed with details.
+- You have a strict 5-minute time limit. Work efficiently and avoid unnecessary retries.
+
+AppleScript tips (avoid common errors):
+- ALWAYS dump the accessibility tree (entire contents of window 1) BEFORE trying to interact with elements. Never guess element indices.
+- Static text elements are read-only — do not try to set their value.
+- Use "click" and "keystroke" for input, not "set value" on non-editable elements.
+- Ensure proper AppleScript syntax: use "of" for hierarchy, quote strings, and avoid bare ordinal words like "1st", "2nd", "3rd" outside of proper AppleScript context.
+- If an element reference fails with "Invalid index", re-inspect the accessibility tree to find the correct path.`;
 
 // ── Agent Loop ──────────────────────────────────────────────────────
 
@@ -48,6 +57,19 @@ export interface AgentOptions {
 }
 
 export async function runAgent(options: AgentOptions): Promise<TestResult> {
+  const controller = new AbortController();
+  const { signal } = controller;
+
+  const timeoutId = setTimeout(() => controller.abort(), MAX_TEST_DURATION_MS);
+
+  try {
+    return await runAgentLoop(options, signal);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise<TestResult> {
   const { testContent, page, screenshotDir, verbose = false } = options;
 
   const client = new Anthropic();
@@ -59,12 +81,26 @@ export async function runAgent(options: AgentOptions): Promise<TestResult> {
   ];
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+    if (signal.aborted) {
+      return {
+        passed: false,
+        message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+      };
+    }
+
     if (verbose) {
       console.log(`  [agent] iteration ${iteration + 1}`);
     }
 
     let response: Anthropic.Message;
     for (let retry = 0; ; retry++) {
+      if (signal.aborted) {
+        return {
+          passed: false,
+          message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+        };
+      }
+
       try {
         const stream = client.messages.stream({
           model: MODEL,
@@ -76,6 +112,12 @@ export async function runAgent(options: AgentOptions): Promise<TestResult> {
         response = await stream.finalMessage();
         break;
       } catch (err: unknown) {
+        if (signal.aborted) {
+          return {
+            passed: false,
+            message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+          };
+        }
         const isRetryable =
           err instanceof Anthropic.APIError &&
           (err.status === 429 || err.status === 529 || err.status === 503);
@@ -120,6 +162,13 @@ export async function runAgent(options: AgentOptions): Promise<TestResult> {
 
     for (const block of assistantContent) {
       if (block.type !== "tool_use") continue;
+
+      if (signal.aborted) {
+        return {
+          passed: false,
+          message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+        };
+      }
 
       const { result, testResult } = await executeTool(
         page,
