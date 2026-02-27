@@ -63,6 +63,11 @@ struct SettingsAccountTab: View {
                 platformUrlText = newValue
             }
         }
+        .onChange(of: isPlatformUrlFocused) { _, focused in
+            if !focused {
+                platformUrlText = store.platformBaseUrl
+            }
+        }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Retire", role: .destructive) {

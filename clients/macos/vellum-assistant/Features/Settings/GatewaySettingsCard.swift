@@ -32,6 +32,11 @@ struct GatewaySettingsCard: View {
                 gatewayUrlText = newValue
             }
         }
+        .onChange(of: isGatewayUrlFocused) { _, focused in
+            if !focused {
+                gatewayUrlText = store.ingressPublicBaseUrl
+            }
+        }
         .onChange(of: store.ingressConfigLoaded) { _, loaded in
             guard loaded else { return }
             Task { await store.testGatewayOnly() }
