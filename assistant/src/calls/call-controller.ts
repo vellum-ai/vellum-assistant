@@ -12,6 +12,7 @@ import { getGatewayInternalBaseUrl } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import {
+  expireGuardianActionRequest,
   getDeliveriesByRequestId,
   getPendingRequestByCallSessionId,
   markTimedOutWithReason,
@@ -674,6 +675,19 @@ export class CallController {
           // Cancel any prior pending consultation (superseded by this new one)
           if (this.pendingConsultation) {
             clearTimeout(this.pendingConsultation.timer);
+
+            // Expire the previous consultation's storage records so stale
+            // guardian answers cannot match the old request.
+            expirePendingQuestions(this.callSessionId);
+            const previousRequest = getPendingRequestByCallSessionId(this.callSessionId);
+            if (previousRequest) {
+              expireGuardianActionRequest(previousRequest.id, 'cancelled');
+              log.info(
+                { callSessionId: this.callSessionId, requestId: previousRequest.id },
+                'Expired superseded guardian action request',
+              );
+            }
+
             this.pendingConsultation = null;
           }
 
@@ -858,7 +872,7 @@ export class CallController {
     if (this.pendingInstructions.length === 0) return;
 
     const parts = this.pendingInstructions.map(
-      (instr) => `[USER_INSTRUCTION: ${instr}]`,
+      (instr) => instr.startsWith('[') ? instr : `[USER_INSTRUCTION: ${instr}]`,
     );
     this.pendingInstructions = [];
 
