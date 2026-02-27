@@ -19,19 +19,26 @@ const REGISTRY_RELATIVE = join("meta", "assistant-feature-flags", REGISTRY_FILEN
 /**
  * Resolve the path to the defaults registry JSON file.
  *
- * The file lives at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`
- * relative to the repository root. We try several candidate locations so the
- * lookup works both in the monorepo dev layout and in Docker (where only
- * the gateway directory is copied to `/app`).
+ * The canonical file lives at
+ * `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`
+ * relative to the repository root. We also keep a bundled copy at
+ * `gateway/src/assistant-feature-flag-defaults.json` so gateway-only layouts
+ * can still resolve defaults without the repo-root `meta/` tree.
+ *
+ * We try several candidate locations so lookup works in monorepo dev,
+ * gateway-only Docker, and explicit test overrides.
  *
  * Candidate order:
  *   1. `FEATURE_FLAG_DEFAULTS_PATH` env var (explicit override)
- *   2. Monorepo layout: walk up two levels from gateway/src/
- *   3. Docker / gateway-only layout: adjacent to gateway src (`<root>/meta/...`)
- *   4. cwd-based fallback
+ *   2. Bundled copy adjacent to gateway source (`gateway/src/<file>`)
+ *   3. Monorepo layout: walk up two levels from gateway/src/
+ *   4. Docker / gateway-only layout: adjacent to gateway src (`<root>/meta/...`)
+ *   5. cwd-based fallback
  */
 function getRegistryCandidates(): string[] {
   const candidates: string[] = [];
+
+  const srcDir = import.meta.dirname ?? new URL(".", import.meta.url).pathname;
 
   // 1. Explicit env override
   const envPath = process.env.FEATURE_FLAG_DEFAULTS_PATH?.trim();
@@ -39,17 +46,19 @@ function getRegistryCandidates(): string[] {
     candidates.push(envPath);
   }
 
-  // 2. Monorepo layout: gateway/src -> repo root is ../../
-  const srcDir = import.meta.dirname ?? new URL(".", import.meta.url).pathname;
+  // 2. Bundled gateway-local copy
+  candidates.push(join(srcDir, REGISTRY_FILENAME));
+
+  // 3. Monorepo layout: gateway/src -> repo root is ../../
   const repoRoot = join(srcDir, "..", "..");
   candidates.push(join(repoRoot, REGISTRY_RELATIVE));
 
-  // 3. Docker layout: the gateway Dockerfile copies the gateway dir to /app,
+  // 4. Docker layout: the gateway Dockerfile copies the gateway dir to /app,
   //    so the meta dir (if mounted or copied) may be under /app/../meta or a
   //    sibling directory. Also check one level up from srcDir (gateway root).
   candidates.push(join(srcDir, "..", REGISTRY_RELATIVE));
 
-  // 4. cwd-based fallback
+  // 5. cwd-based fallback
   candidates.push(join(process.cwd(), REGISTRY_RELATIVE));
 
   return candidates;
