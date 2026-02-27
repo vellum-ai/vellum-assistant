@@ -262,12 +262,6 @@ struct SettingsParentalTab: View {
                             pinSheetMode = .change
                             showingPINSheet = true
                         }
-                        VButton(label: "Remove PIN", style: .danger) {
-                            errorMessage = nil
-                            successMessage = nil
-                            pinSheetMode = .clear
-                            showingPINSheet = true
-                        }
                     } else {
                         VButton(label: "Set PIN", style: .primary) {
                             errorMessage = nil
@@ -323,7 +317,6 @@ struct SettingsParentalTab: View {
                         .toggleStyle(.switch)
                         .labelsHidden()
                         .accessibilityLabel(topic.displayName)
-                        .disabled(isLoading)
                     }
                     Text(topic.description)
                         .font(VFont.caption)
@@ -374,7 +367,6 @@ struct SettingsParentalTab: View {
                         .toggleStyle(.switch)
                         .labelsHidden()
                         .accessibilityLabel(category.displayName)
-                        .disabled(isLoading)
                     }
                     Text(category.description)
                         .font(VFont.caption)
@@ -447,7 +439,6 @@ struct SettingsParentalTab: View {
                         .toggleStyle(.switch)
                         .labelsHidden()
                         .accessibilityLabel("\(app.name) allowed")
-                        .disabled(isLoading)
                     }
                 }
             }
@@ -594,7 +585,6 @@ struct SettingsParentalTab: View {
                         .toggleStyle(.switch)
                         .labelsHidden()
                         .accessibilityLabel(integration.label)
-                        .disabled(isLoading)
                     }
                 }
             }
@@ -1190,17 +1180,14 @@ extension SettingsParentalTab {
             VButton(label: "Disable All", style: .tertiary, size: .small) {
                 onDisable()
             }
-            .disabled(isLoading)
         } else if enabledCount == 0 {
             VButton(label: "Enable All", style: .primary, size: .small) {
                 onEnable()
             }
-            .disabled(isLoading)
         } else {
             VButton(label: "Enable All", style: .secondary, size: .small) {
                 onEnable()
             }
-            .disabled(isLoading)
         }
     }
 }
@@ -1262,40 +1249,46 @@ private struct PINSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: VSpacing.xl) {
-            // Header
-            VStack(spacing: VSpacing.xs) {
-                Text(title)
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
-                Text(stepSubtitle)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
-
-            // Single input field — `.id(step)` tears it down and rebuilds it
-            // (triggering auto-focus) whenever the step changes. `pinInput` is
-            // always reset to "" before the step is changed, so a stale
-            // onChange callback from the previous step can never fire advance().
-            PINCircleField(text: $pinInput, focusTrigger: pinFocusTrigger)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .id(step)
-                .onChange(of: pinInput) { _, v in
-                    if v.count == 6 { advance() }
+        VStack(spacing: 0) {
+            // Content — centered
+            VStack(spacing: VSpacing.md) {
+                // Header
+                VStack(spacing: VSpacing.xs) {
+                    Text(title)
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.textPrimary)
+                    Text(stepSubtitle)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .frame(maxWidth: .infinity, alignment: .center)
 
-            // Error / placeholder to keep height stable
-            if let error = errorMessage {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-                    .multilineTextAlignment(.center)
-            } else {
-                Text(" ").font(VFont.caption)
+                // Single input field — `.id(step)` tears it down and rebuilds it
+                // (triggering auto-focus) whenever the step changes. `pinInput` is
+                // always reset to "" before the step is changed, so a stale
+                // onChange callback from the previous step can never fire advance().
+                PINCircleField(text: $pinInput, focusTrigger: pinFocusTrigger)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .id(step)
+                    .onChange(of: pinInput) { _, v in
+                        if v.count == 6 { advance() }
+                    }
+
+                // Error / placeholder to keep height stable
+                if let error = errorMessage {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                        .multilineTextAlignment(.center)
+                } else {
+                    Text(" ").font(VFont.caption)
+                }
             }
+
+            // Gap between content and footer
+            Spacer().frame(height: VSpacing.xxl)
 
             // Footer
             if isLoading {

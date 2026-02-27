@@ -1696,36 +1696,43 @@ private struct ProfileSwitchModal: View {
     }
 
     private var enterPINContent: some View {
-        VStack(alignment: .center, spacing: VSpacing.lg) {
-            // Title
-            Text(isChildToParental ? "Switch to Parental Mode" : "Switch to Restricted Mode")
-                .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
-                .multilineTextAlignment(.center)
-
-            // From/to avatar icons
-            HStack(spacing: VSpacing.xl) {
-                profileAvatarColumn(isParental: !isChildToParental)
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(VColor.textMuted)
-                profileAvatarColumn(isParental: isChildToParental)
-            }
-
-            if isChildToParental {
-                PINCircleField(text: $pin)
-                    .onChange(of: pin) { _, newValue in
-                        if newValue.count == 6 { performSwitch() }
-                    }
-            }
-
-            if let error = errorMessage {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+        VStack(alignment: .center, spacing: 0) {
+            // Content — centered
+            VStack(alignment: .center, spacing: VSpacing.lg) {
+                // Title
+                Text(isChildToParental ? "Switch to Parental Mode" : "Switch to Restricted Mode")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
                     .multilineTextAlignment(.center)
+
+                // From/to avatar icons
+                HStack(spacing: VSpacing.xl) {
+                    profileAvatarColumn(isParental: !isChildToParental)
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                    profileAvatarColumn(isParental: isChildToParental)
+                }
+
+                if isChildToParental {
+                    PINCircleField(text: $pin)
+                        .onChange(of: pin) { _, newValue in
+                            if newValue.count == 6 { performSwitch() }
+                        }
+                }
+
+                if let error = errorMessage {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                        .multilineTextAlignment(.center)
+                }
             }
 
+            // Gap between content and footer
+            Spacer().frame(height: VSpacing.xxl)
+
+            // Footer buttons
             HStack {
                 VButton(label: "Cancel", style: .secondary) { dismiss() }
                 Spacer()
