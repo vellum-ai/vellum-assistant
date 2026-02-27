@@ -1,5 +1,5 @@
-import { getSqliteFrom } from '../db-connection.js';
 import type { DrizzleDb } from '../db-connection.js';
+import { getSqliteFrom } from '../db-connection.js';
 
 /**
  * Add indexes, a column, and a unique constraint for schema improvements:

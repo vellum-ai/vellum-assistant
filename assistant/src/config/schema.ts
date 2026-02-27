@@ -69,6 +69,16 @@ export {
   UiConfigSchema,
 } from './core-schema.js';
 export type {
+  McpConfig,
+  McpServerConfig,
+  McpTransport,
+} from './mcp-schema.js';
+export {
+  McpConfigSchema,
+  McpServerConfigSchema,
+  McpTransportSchema,
+} from './mcp-schema.js';
+export type {
   MemoryCleanupConfig,
   MemoryConfig,
   MemoryConflictsConfig,
@@ -114,16 +124,6 @@ export type {
 export {
   SandboxConfigSchema,
 } from './sandbox-schema.js';
-export type {
-  McpConfig,
-  McpServerConfig,
-  McpTransport,
-} from './mcp-schema.js';
-export {
-  McpConfigSchema,
-  McpServerConfigSchema,
-  McpTransportSchema,
-} from './mcp-schema.js';
 export type {
   RemotePolicyConfig,
   RemoteProviderConfig,
