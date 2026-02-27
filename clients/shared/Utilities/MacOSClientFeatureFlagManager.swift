@@ -1,24 +1,27 @@
 import Foundation
+import os
 
 private let flagPrefix = "VELLUM_FLAG_"
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "FeatureFlags")
 
-public enum MacOSClientFeatureFlag: String, CaseIterable {
-    case userHostedEnabled = "user_hosted_enabled"
-    case localHttpEnabled = "local_http_enabled"
-
-    public var displayName: String {
-        switch self {
-        case .userHostedEnabled: return "User Hosted Enabled"
-        case .localHttpEnabled: return "Local HTTP Enabled"
-        }
-    }
+/// Represents the resolved state of a single macOS feature flag for UI display.
+public struct MacOSFeatureFlagState: Identifiable {
+    public let id: String
+    public let key: String
+    public let label: String
+    public let description: String
+    public let defaultEnabled: Bool
+    public var enabled: Bool
 }
 
 public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
     public static let shared = MacOSClientFeatureFlagManager()
 
     private let lock = NSLock()
-    private var flags: [String: Bool]
+    /// Overrides from env vars, .env file, and UserDefaults. Keyed by normalized flag name.
+    private var overrides: [String: Bool]
+    /// Flag definitions loaded from the unified registry.
+    private var flagDefinitions: [FeatureFlagDefinition]
 
     init(environment: [String: String]? = nil) {
         let env = environment ?? ProcessInfo.processInfo.environment
@@ -28,43 +31,70 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
             guard !name.isEmpty else { continue }
             loaded[name] = Self.parseBool(value)
         }
-        self.flags = loaded
+        self.overrides = loaded
+        self.flagDefinitions = []
+        loadRegistry()
     }
 
-    public func isEnabled(_ flag: String) -> Bool {
+    /// Load macOS-scope flag definitions from the bundled registry.
+    private func loadRegistry() {
+        if let registry = loadFeatureFlagRegistry() {
+            flagDefinitions = registry.macosScopeFlags()
+        } else {
+            log.warning("Failed to load feature flag registry from bundle — falling back to empty definitions")
+            flagDefinitions = []
+        }
+    }
+
+    /// Check whether a flag is enabled by its key (e.g. "user_hosted_enabled").
+    /// Resolution order: override (env var / .env file / UserDefaults) -> registry defaultEnabled -> false.
+    public func isEnabled(_ key: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return flags[Self.normalize(flag)] ?? false
+        if let override = overrides[Self.normalize(key)] {
+            return override
+        }
+        // Fall back to registry default
+        if let def = flagDefinitions.first(where: { Self.normalize($0.key) == Self.normalize(key) }) {
+            return def.defaultEnabled
+        }
+        return false
     }
 
-    public func isEnabled(_ flag: MacOSClientFeatureFlag) -> Bool {
-        isEnabled(flag.rawValue)
-    }
-
+    /// Return all overrides (for backward compatibility with tests).
     public func allFlags() -> [String: Bool] {
         lock.lock()
         defer { lock.unlock() }
-        return flags
+        return overrides
     }
 
-    public func setOverride(_ flag: String, enabled: Bool) {
+    /// Return the resolved state of all macOS-scope flag definitions for UI display.
+    public func allFlagStates() -> [MacOSFeatureFlagState] {
         lock.lock()
         defer { lock.unlock() }
-        flags[Self.normalize(flag)] = enabled
+        return flagDefinitions.map { def in
+            let enabled = overrides[Self.normalize(def.key)] ?? def.defaultEnabled
+            return MacOSFeatureFlagState(
+                id: def.id,
+                key: def.key,
+                label: def.label,
+                description: def.description,
+                defaultEnabled: def.defaultEnabled,
+                enabled: enabled
+            )
+        }
     }
 
-    public func setOverride(_ flag: MacOSClientFeatureFlag, enabled: Bool) {
-        setOverride(flag.rawValue, enabled: enabled)
-    }
-
-    public func removeOverride(_ flag: String) {
+    public func setOverride(_ key: String, enabled: Bool) {
         lock.lock()
         defer { lock.unlock() }
-        flags.removeValue(forKey: Self.normalize(flag))
+        overrides[Self.normalize(key)] = enabled
     }
 
-    public func removeOverride(_ flag: MacOSClientFeatureFlag) {
-        removeOverride(flag.rawValue)
+    public func removeOverride(_ key: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        overrides.removeValue(forKey: Self.normalize(key))
     }
 
     /// Load VELLUM_FLAG_* entries from a `.env` file and apply them as overrides.
@@ -82,7 +112,7 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
             let name = String(key.dropFirst(flagPrefix.count)).lowercased().replacingOccurrences(of: "_", with: "")
             guard !name.isEmpty else { continue }
             let value = String(parts[1]).trimmingCharacters(in: .whitespaces)
-            flags[name] = Self.parseBool(value)
+            overrides[name] = Self.parseBool(value)
         }
     }
 

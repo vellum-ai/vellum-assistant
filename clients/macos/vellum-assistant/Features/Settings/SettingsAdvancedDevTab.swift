@@ -8,7 +8,7 @@ struct SettingsAdvancedDevTab: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
 
-    @State private var macOSFlagStates: [(flag: MacOSClientFeatureFlag, enabled: Bool)] = []
+    @State private var macOSFlagStates: [MacOSFeatureFlagState] = []
     @State private var assistantFlags: [DaemonClient.AssistantFeatureFlag] = []
     @State private var assistantFlagsError: String?
     @State private var isLoadingAssistantFlags = false
@@ -34,9 +34,7 @@ struct SettingsAdvancedDevTab: View {
             developerSection
         }
         .onAppear {
-            macOSFlagStates = MacOSClientFeatureFlag.allCases.map { flag in
-                (flag: flag, enabled: MacOSClientFeatureFlagManager.shared.isEnabled(flag))
-            }
+            macOSFlagStates = MacOSClientFeatureFlagManager.shared.allFlagStates()
             if testerModel == nil, let dc = daemonClient {
                 testerModel = ToolPermissionTesterModel(daemonClient: dc)
             }
@@ -164,17 +162,31 @@ struct SettingsAdvancedDevTab: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
 
-            ForEach(Array(macOSFlagStates.enumerated()), id: \.element.flag) { index, entry in
-                Toggle(entry.flag.displayName, isOn: Binding(
-                    get: { macOSFlagStates[index].enabled },
-                    set: { newValue in
-                        macOSFlagStates[index].enabled = newValue
-                        MacOSClientFeatureFlagManager.shared.setOverride(entry.flag, enabled: newValue)
+            if macOSFlagStates.isEmpty {
+                Text("No macOS feature flags available.")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+            } else {
+                ForEach(Array(macOSFlagStates.enumerated()), id: \.element.id) { index, entry in
+                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                        Toggle(entry.label, isOn: Binding(
+                            get: { macOSFlagStates[index].enabled },
+                            set: { newValue in
+                                macOSFlagStates[index].enabled = newValue
+                                MacOSClientFeatureFlagManager.shared.setOverride(entry.key, enabled: newValue)
+                            }
+                        ))
+                        .toggleStyle(.switch)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+
+                        if !entry.description.isEmpty {
+                            Text(entry.description)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
                     }
-                ))
-                .toggleStyle(.switch)
-                .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
