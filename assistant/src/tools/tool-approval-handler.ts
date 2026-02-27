@@ -50,7 +50,7 @@ export class ToolApprovalHandler {
    * Returns the resolved Tool if all gates pass, or an early-return
    * ToolExecutionResult if any gate blocks execution.
    */
-  checkPreExecutionGates(
+  async checkPreExecutionGates(
     name: string,
     input: Record<string, unknown>,
     context: ToolContext,
@@ -58,7 +58,7 @@ export class ToolApprovalHandler {
     riskLevel: string,
     startTime: number,
     emitLifecycleEvent: (event: ToolLifecycleEvent) => void,
-  ): PreExecutionGateResult {
+  ): Promise<PreExecutionGateResult> {
     // Bail out immediately if the session was aborted before this tool started.
     if (context.signal?.aborted) {
       const durationMs = Date.now() - startTime;
@@ -247,7 +247,7 @@ export class ToolApprovalHandler {
     // rejection (allowedToolNames, task-run preflight, registry lookup)
     // does not waste the one-time-use grant.
     if (needsGrantConsumption && deferredConsumeParams) {
-      const grantResult = consumeGrantForInvocation(deferredConsumeParams);
+      const grantResult = await consumeGrantForInvocation(deferredConsumeParams);
 
       if (grantResult.ok) {
         log.info({

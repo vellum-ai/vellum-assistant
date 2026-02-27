@@ -169,18 +169,7 @@ export type ConsumeGrantResult =
   | { ok: true; grant: ScopedApprovalGrant }
   | { ok: false; reason: 'no_match' | 'scope_mismatch' | 'expired' | 'already_consumed' };
 
-/**
- * Consume a scoped approval grant for a tool invocation.
- *
- * Tries `request_id` mode first when a requestId is provided, then falls
- * back to `tool_signature` mode.  This mirrors the priority ordering at
- * the consume site: an exact request-bound grant takes precedence over a
- * tool-signature grant.
- *
- * Returns a discriminated result with structured miss reasons for
- * diagnostics.
- */
-export function consumeGrantForInvocation(params: {
+export interface ConsumeGrantParams {
   requestId?: string;
   toolName: string;
   inputDigest: string;
@@ -191,7 +180,20 @@ export function consumeGrantForInvocation(params: {
   callSessionId?: string;
   requesterExternalUserId?: string;
   now?: string;
-}): ConsumeGrantResult {
+}
+
+/**
+ * Single synchronous attempt to consume a scoped approval grant.
+ *
+ * Tries `request_id` mode first when a requestId is provided, then falls
+ * back to `tool_signature` mode.  This mirrors the priority ordering at
+ * the consume site: an exact request-bound grant takes precedence over a
+ * tool-signature grant.
+ *
+ * This is an internal helper — callers should use {@link consumeGrantForInvocation}
+ * which adds retry polling to handle the voice pipeline race condition.
+ */
+function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
   // Try request_id mode first when a requestId is provided
   if (params.requestId) {
     const reqResult: ConsumeByRequestIdResult = consumeScopedApprovalGrantByRequestId(
@@ -274,6 +276,85 @@ export function consumeGrantForInvocation(params: {
       executionChannel: params.executionChannel ?? null,
     },
     'No tool_signature grant match found',
+  );
+
+  return { ok: false, reason: 'no_match' };
+}
+
+// ---------------------------------------------------------------------------
+// Public consume API (with retry for voice pipeline race condition)
+// ---------------------------------------------------------------------------
+
+/** Default polling interval for grant retry (ms). */
+const GRANT_RETRY_INTERVAL_MS = 250;
+/** Default maximum wait time for grant retry (ms). */
+const GRANT_RETRY_MAX_WAIT_MS = 10_000;
+
+/**
+ * Consume a scoped approval grant for a tool invocation.
+ *
+ * Performs a synchronous lookup first and returns immediately when a
+ * matching grant exists.  When the first attempt misses, retries with
+ * polling to handle the voice pipeline race condition where the grant
+ * may still be in-flight: `answerCall()` triggers the voice turn as
+ * fire-and-forget, and the voice LLM can attempt tool execution before
+ * `tryMintGuardianActionGrant`'s LLM fallback finishes minting the
+ * grant.  Polling bridges this timing gap without changing the
+ * fire-and-forget architecture.
+ */
+export async function consumeGrantForInvocation(
+  params: ConsumeGrantParams,
+  options?: { maxWaitMs?: number; intervalMs?: number },
+): Promise<ConsumeGrantResult> {
+  // Fast path: try once synchronously — covers the common case where the
+  // grant already exists (deterministic classifier, or prior turns).
+  const first = consumeGrantSync(params);
+  if (first.ok) {
+    return first;
+  }
+
+  const maxWait = options?.maxWaitMs ?? GRANT_RETRY_MAX_WAIT_MS;
+  const interval = options?.intervalMs ?? GRANT_RETRY_INTERVAL_MS;
+  const deadline = Date.now() + maxWait;
+
+  log.info(
+    {
+      event: 'approval_primitive_consume_retry_start',
+      toolName: params.toolName,
+      consumingRequestId: params.consumingRequestId,
+      maxWaitMs: maxWait,
+      intervalMs: interval,
+    },
+    'Grant not found on first attempt; starting retry polling',
+  );
+
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, interval));
+
+    const result = consumeGrantSync(params);
+    if (result.ok) {
+      log.info(
+        {
+          event: 'approval_primitive_consume_retry_hit',
+          toolName: params.toolName,
+          consumingRequestId: params.consumingRequestId,
+          grantId: result.grant.id,
+          elapsedMs: maxWait - (deadline - Date.now()),
+        },
+        'Grant found after retry polling',
+      );
+      return result;
+    }
+  }
+
+  log.info(
+    {
+      event: 'approval_primitive_consume_retry_timeout',
+      toolName: params.toolName,
+      consumingRequestId: params.consumingRequestId,
+      maxWaitMs: maxWait,
+    },
+    'Grant retry polling timed out — no matching grant found',
   );
 
   return { ok: false, reason: 'no_match' };

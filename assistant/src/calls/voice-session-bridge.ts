@@ -346,7 +346,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
   const autoDeny = !isGuardian;
   const autoAllow = isGuardian;
   let lastError: string | null = null;
-  session.updateClient((msg: ServerMessage) => {
+  session.updateClient(async (msg: ServerMessage) => {
     if (msg.type === 'confirmation_request') {
       if (autoDeny) {
         // Non-guardian voice callers have no interactive approval UI.
@@ -357,7 +357,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
         // that bypass the pre-exec gate. We must check for a matching
         // scoped grant here so those cases are not incorrectly denied.
         const inputDigest = computeToolApprovalDigest(msg.toolName, msg.input);
-        const consumeResult = consumeGrantForInvocation({
+        const consumeResult = await consumeGrantForInvocation({
           requestId: msg.requestId,
           toolName: msg.toolName,
           inputDigest,

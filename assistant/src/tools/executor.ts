@@ -58,7 +58,7 @@ export class ToolExecutor {
 
     // Run pre-execution approval gates (abort, parental controls, guardian
     // policy, allowed-tool-set, task-run preflight, tool registry lookup).
-    const gateResult = this.approvalHandler.checkPreExecutionGates(
+    const gateResult = await this.approvalHandler.checkPreExecutionGates(
       name, input, context, executionTarget, riskLevel, startTime,
       (event) => emitLifecycleEvent(context, event),
     );

@@ -168,10 +168,10 @@ describe('approval-primitive / mintGrantFromDecision', () => {
 describe('approval-primitive / consumeGrantForInvocation', () => {
   beforeEach(() => clearTables());
 
-  test('consumes a request_id grant when requestId matches', () => {
+  test('consumes a request_id grant when requestId matches', async () => {
     mintGrantFromDecision(mintParams({ scopeMode: 'request_id', requestId: 'req-100' }));
 
-    const result = consumeGrantForInvocation({
+    const result = await consumeGrantForInvocation({
       requestId: 'req-100',
       toolName: 'shell',
       inputDigest: computeToolApprovalDigest('shell', { command: 'ls' }),
@@ -185,7 +185,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
     expect(result.grant.consumedByRequestId).toBe('consumer-1');
   });
 
-  test('consumes a tool_signature grant when tool+input matches', () => {
+  test('consumes a tool_signature grant when tool+input matches', async () => {
     const digest = computeToolApprovalDigest('shell', { command: 'ls' });
     mintGrantFromDecision(
       mintParams({
@@ -195,7 +195,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       }),
     );
 
-    const result = consumeGrantForInvocation({
+    const result = await consumeGrantForInvocation({
       toolName: 'shell',
       inputDigest: digest,
       consumingRequestId: 'consumer-2',
@@ -207,7 +207,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
     expect(result.grant.status).toBe('consumed');
   });
 
-  test('falls back to tool_signature when request_id does not match', () => {
+  test('falls back to tool_signature when request_id does not match', async () => {
     const digest = computeToolApprovalDigest('shell', { command: 'ls' });
     // Mint a tool_signature grant (not request_id)
     mintGrantFromDecision(
@@ -218,7 +218,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       }),
     );
 
-    const result = consumeGrantForInvocation({
+    const result = await consumeGrantForInvocation({
       requestId: 'nonexistent-req',
       toolName: 'shell',
       inputDigest: digest,
@@ -235,8 +235,8 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
   // Consume miss scenarios
   // ---------------------------------------------------------------------------
 
-  test('miss: no grants exist at all', () => {
-    const result = consumeGrantForInvocation({
+  test('miss: no grants exist at all', async () => {
+    const result = await consumeGrantForInvocation({
       toolName: 'shell',
       inputDigest: computeToolApprovalDigest('shell', { command: 'ls' }),
       consumingRequestId: 'consumer-miss',
@@ -248,7 +248,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
     expect(result.reason).toBe('no_match');
   });
 
-  test('miss: tool name mismatch', () => {
+  test('miss: tool name mismatch', async () => {
     const digest = computeToolApprovalDigest('shell', { command: 'ls' });
     mintGrantFromDecision(
       mintParams({
@@ -258,7 +258,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       }),
     );
 
-    const result = consumeGrantForInvocation({
+    const result = await consumeGrantForInvocation({
       toolName: 'file_write',
       inputDigest: digest,
       consumingRequestId: 'consumer-mismatch-tool',
@@ -270,7 +270,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
     expect(result.reason).toBe('no_match');
   });
 
-  test('miss: input digest mismatch', () => {
+  test('miss: input digest mismatch', async () => {
     mintGrantFromDecision(
       mintParams({
         scopeMode: 'tool_signature',
@@ -279,7 +279,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       }),
     );
 
-    const result = consumeGrantForInvocation({
+    const result = await consumeGrantForInvocation({
       toolName: 'shell',
       inputDigest: computeToolApprovalDigest('shell', { command: 'rm -rf /' }),
       consumingRequestId: 'consumer-mismatch-input',
@@ -291,7 +291,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
     expect(result.reason).toBe('no_match');
   });
 
-  test('miss: assistant ID mismatch', () => {
+  test('miss: assistant ID mismatch', async () => {
     mintGrantFromDecision(
       mintParams({
         scopeMode: 'request_id',
@@ -300,7 +300,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       }),
     );
 
-    const result = consumeGrantForInvocation({
+    const result = await consumeGrantForInvocation({
       requestId: 'req-assist',
       toolName: 'shell',
       inputDigest: computeToolApprovalDigest('shell', {}),
@@ -313,7 +313,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
     expect(result.reason).toBe('no_match');
   });
 
-  test('miss: grant expired', () => {
+  test('miss: grant expired', async () => {
     const pastExpiry = new Date(Date.now() - 60_000).toISOString();
     mintGrantFromDecision(
       mintParams({
@@ -323,7 +323,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       }),
     );
 
-    const result = consumeGrantForInvocation({
+    const result = await consumeGrantForInvocation({
       requestId: 'req-expired',
       toolName: 'shell',
       inputDigest: computeToolApprovalDigest('shell', {}),
@@ -340,12 +340,12 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
   // One-time consume semantics
   // ---------------------------------------------------------------------------
 
-  test('one-time consume: second consume of the same grant fails', () => {
+  test('one-time consume: second consume of the same grant fails', async () => {
     mintGrantFromDecision(
       mintParams({ scopeMode: 'request_id', requestId: 'req-once' }),
     );
 
-    const first = consumeGrantForInvocation({
+    const first = await consumeGrantForInvocation({
       requestId: 'req-once',
       toolName: 'shell',
       inputDigest: computeToolApprovalDigest('shell', {}),
@@ -354,7 +354,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
     });
     expect(first.ok).toBe(true);
 
-    const second = consumeGrantForInvocation({
+    const second = await consumeGrantForInvocation({
       requestId: 'req-once',
       toolName: 'shell',
       inputDigest: computeToolApprovalDigest('shell', {}),
@@ -366,7 +366,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
     expect(second.reason).toBe('no_match');
   });
 
-  test('one-time consume: tool_signature grant is consumed only once', () => {
+  test('one-time consume: tool_signature grant is consumed only once', async () => {
     const digest = computeToolApprovalDigest('shell', { command: 'deploy' });
     mintGrantFromDecision(
       mintParams({
@@ -376,7 +376,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       }),
     );
 
-    const first = consumeGrantForInvocation({
+    const first = await consumeGrantForInvocation({
       toolName: 'shell',
       inputDigest: digest,
       consumingRequestId: 'consumer-sig-first',
@@ -384,7 +384,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
     });
     expect(first.ok).toBe(true);
 
-    const second = consumeGrantForInvocation({
+    const second = await consumeGrantForInvocation({
       toolName: 'shell',
       inputDigest: digest,
       consumingRequestId: 'consumer-sig-second',
@@ -399,7 +399,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
   // Context-scoped consume
   // ---------------------------------------------------------------------------
 
-  test('consumes tool_signature grant with matching conversation context', () => {
+  test('consumes tool_signature grant with matching conversation context', async () => {
     const digest = computeToolApprovalDigest('shell', { command: 'test' });
     mintGrantFromDecision(
       mintParams({
@@ -411,7 +411,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       }),
     );
 
-    const result = consumeGrantForInvocation({
+    const result = await consumeGrantForInvocation({
       toolName: 'shell',
       inputDigest: digest,
       consumingRequestId: 'consumer-ctx',
@@ -423,7 +423,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
     expect(result.ok).toBe(true);
   });
 
-  test('miss: conversation context mismatch on tool_signature grant', () => {
+  test('miss: conversation context mismatch on tool_signature grant', async () => {
     const digest = computeToolApprovalDigest('shell', { command: 'test' });
     mintGrantFromDecision(
       mintParams({
@@ -434,7 +434,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       }),
     );
 
-    const result = consumeGrantForInvocation({
+    const result = await consumeGrantForInvocation({
       toolName: 'shell',
       inputDigest: digest,
       consumingRequestId: 'consumer-ctx-mismatch',
@@ -445,5 +445,96 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe('no_match');
+  });
+});
+
+// ===========================================================================
+// RETRY POLLING TESTS
+// ===========================================================================
+
+describe('approval-primitive / consumeGrantForInvocation retry', () => {
+  beforeEach(() => clearTables());
+
+  test('succeeds immediately when grant already exists (no retry needed)', async () => {
+    const digest = computeToolApprovalDigest('shell', { command: 'ls' });
+    mintGrantFromDecision(
+      mintParams({
+        scopeMode: 'tool_signature',
+        toolName: 'shell',
+        inputDigest: digest,
+      }),
+    );
+
+    const start = Date.now();
+    const result = await consumeGrantForInvocation({
+      toolName: 'shell',
+      inputDigest: digest,
+      consumingRequestId: 'consumer-async-immediate',
+      assistantId: 'self',
+    });
+    const elapsed = Date.now() - start;
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.grant.status).toBe('consumed');
+    // Should return nearly instantly — well under the retry interval
+    expect(elapsed).toBeLessThan(200);
+  });
+
+  test('retries and succeeds when grant appears after a delay', async () => {
+    const digest = computeToolApprovalDigest('shell', { command: 'delayed' });
+
+    // Mint the grant after 300ms — the async consumer should retry and find it
+    setTimeout(() => {
+      mintGrantFromDecision(
+        mintParams({
+          scopeMode: 'tool_signature',
+          toolName: 'shell',
+          inputDigest: digest,
+        }),
+      );
+    }, 300);
+
+    const start = Date.now();
+    const result = await consumeGrantForInvocation(
+      {
+        toolName: 'shell',
+        inputDigest: digest,
+        consumingRequestId: 'consumer-async-delayed',
+        assistantId: 'self',
+      },
+      { maxWaitMs: 5_000, intervalMs: 100 },
+    );
+    const elapsed = Date.now() - start;
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.grant.status).toBe('consumed');
+    // Should have taken at least ~300ms (the delay) but less than the max wait
+    expect(elapsed).toBeGreaterThanOrEqual(250);
+    expect(elapsed).toBeLessThan(5_000);
+  });
+
+  test('returns failure after timeout when no grant appears', async () => {
+    const digest = computeToolApprovalDigest('shell', { command: 'never-minted' });
+
+    const start = Date.now();
+    const result = await consumeGrantForInvocation(
+      {
+        toolName: 'shell',
+        inputDigest: digest,
+        consumingRequestId: 'consumer-async-timeout',
+        assistantId: 'self',
+      },
+      { maxWaitMs: 500, intervalMs: 100 },
+    );
+    const elapsed = Date.now() - start;
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('no_match');
+    // Should have waited approximately the max wait time
+    expect(elapsed).toBeGreaterThanOrEqual(450);
+    expect(elapsed).toBeLessThan(1_500);
   });
 });

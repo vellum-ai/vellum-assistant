@@ -124,7 +124,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     events.length = 0;
   });
 
-  test('untrusted actor + matching tool_signature grant -> allow', () => {
+  test('untrusted actor + matching tool_signature grant -> allow', async () => {
     const toolName = 'bash';
     const input = { command: 'ls -la' };
     const digest = computeToolApprovalDigest(toolName, input);
@@ -140,7 +140,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     expect(mintResult.ok).toBe(true);
 
     const context = makeContext({ guardianActorRole: 'non-guardian' });
-    const result = handler.checkPreExecutionGates(
+    const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
 
@@ -150,12 +150,12 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     expect(deniedEvents.length).toBe(0);
   });
 
-  test('untrusted actor + no matching grant -> deny with guardian_approval_required', () => {
+  test('untrusted actor + no matching grant -> deny with guardian_approval_required', async () => {
     const toolName = 'bash';
     const input = { command: 'rm -rf /' };
 
     const context = makeContext({ guardianActorRole: 'non-guardian' });
-    const result = handler.checkPreExecutionGates(
+    const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
 
@@ -169,7 +169,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     expect(deniedEvents.length).toBe(1);
   });
 
-  test('unverified_channel actor + matching grant -> allow', () => {
+  test('unverified_channel actor + matching grant -> allow', async () => {
     const toolName = 'bash';
     const input = { command: 'echo hello' };
     const digest = computeToolApprovalDigest(toolName, input);
@@ -183,19 +183,19 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     );
 
     const context = makeContext({ guardianActorRole: 'unverified_channel' });
-    const result = handler.checkPreExecutionGates(
+    const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(true);
   });
 
-  test('unverified_channel actor + no grant -> deny', () => {
+  test('unverified_channel actor + no grant -> deny', async () => {
     const toolName = 'bash';
     const input = { command: 'deploy' };
 
     const context = makeContext({ guardianActorRole: 'unverified_channel' });
-    const result = handler.checkPreExecutionGates(
+    const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
 
@@ -204,7 +204,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     expect(result.result.content).toContain('verified channel identity');
   });
 
-  test('grant is one-time: second invocation with same input denied', () => {
+  test('grant is one-time: second invocation with same input denied', async () => {
     const toolName = 'bash';
     const input = { command: 'ls' };
     const digest = computeToolApprovalDigest(toolName, input);
@@ -220,19 +220,19 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     const context = makeContext({ guardianActorRole: 'non-guardian' });
 
     // First invocation — should consume the grant and allow
-    const first = handler.checkPreExecutionGates(
+    const first = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
     expect(first.allowed).toBe(true);
 
     // Second invocation — grant already consumed, should deny
-    const second = handler.checkPreExecutionGates(
+    const second = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
     expect(second.allowed).toBe(false);
   });
 
-  test('grant with mismatched input digest -> deny', () => {
+  test('grant with mismatched input digest -> deny', async () => {
     const toolName = 'bash';
     const grantInput = { command: 'ls' };
     const invokeInput = { command: 'rm -rf /' };
@@ -247,14 +247,14 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     );
 
     const context = makeContext({ guardianActorRole: 'non-guardian' });
-    const result = handler.checkPreExecutionGates(
+    const result = await handler.checkPreExecutionGates(
       toolName, invokeInput, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
   });
 
-  test('expired grant -> deny', () => {
+  test('expired grant -> deny', async () => {
     const toolName = 'bash';
     const input = { command: 'ls' };
     const digest = computeToolApprovalDigest(toolName, input);
@@ -270,20 +270,20 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     );
 
     const context = makeContext({ guardianActorRole: 'non-guardian' });
-    const result = handler.checkPreExecutionGates(
+    const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
   });
 
-  test('guardian actor bypasses grant check entirely (no grant needed)', () => {
+  test('guardian actor bypasses grant check entirely (no grant needed)', async () => {
     const toolName = 'bash';
     const input = { command: 'deploy' };
 
     // No grants minted at all
     const context = makeContext({ guardianActorRole: 'guardian' });
-    const result = handler.checkPreExecutionGates(
+    const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
 
@@ -291,19 +291,19 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     expect(result.allowed).toBe(true);
   });
 
-  test('undefined actor role (desktop/trusted) bypasses grant check', () => {
+  test('undefined actor role (desktop/trusted) bypasses grant check', async () => {
     const toolName = 'bash';
     const input = { command: 'deploy' };
 
     const context = makeContext({ guardianActorRole: undefined });
-    const result = handler.checkPreExecutionGates(
+    const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(true);
   });
 
-  test('grant with matching request_id scope -> allow', () => {
+  test('grant with matching request_id scope -> allow', async () => {
     const toolName = 'bash';
     const input = { command: 'ls' };
 
@@ -315,14 +315,14 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     );
 
     const context = makeContext({ guardianActorRole: 'non-guardian', requestId: 'req-1' });
-    const result = handler.checkPreExecutionGates(
+    const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(true);
   });
 
-  test('grant with context fields (conversationId) must match', () => {
+  test('grant with context fields (conversationId) must match', async () => {
     const toolName = 'bash';
     const input = { command: 'ls' };
     const digest = computeToolApprovalDigest(toolName, input);
@@ -341,7 +341,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
       guardianActorRole: 'non-guardian',
       conversationId: 'conv-1',
     });
-    const result = handler.checkPreExecutionGates(
+    const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
 
