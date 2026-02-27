@@ -10,7 +10,8 @@
 
 import "dotenv/config";
 
-import { readdirSync, readFileSync } from "fs";
+import { type ChildProcess, spawn } from "child_process";
+import { mkdirSync, readdirSync, readFileSync } from "fs";
 import path from "path";
 
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
@@ -80,6 +81,39 @@ function discoverTestCases(casesDir: string, filter?: string): TestCase[] {
 
 // ── Runner ──────────────────────────────────────────────────────────
 
+/**
+ * Start a macOS screen recording via `screencapture -v`.
+ * Returns the child process so it can be stopped later with SIGINT.
+ */
+function startScreenRecording(videoPath: string): ChildProcess | undefined {
+  try {
+    mkdirSync(path.dirname(videoPath), { recursive: true });
+    const proc = spawn("screencapture", ["-v", "-x", videoPath], {
+      stdio: "ignore",
+      detached: true,
+    });
+    proc.on("error", () => {}); // ignore spawn failures (e.g., not on macOS)
+    proc.unref();
+    return proc;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Stop a screen recording by sending SIGINT, which tells screencapture
+ * to finalize and save the video file.
+ */
+async function stopScreenRecording(proc: ChildProcess | undefined): Promise<void> {
+  if (!proc || proc.killed) return;
+  proc.kill("SIGINT");
+  // Wait for the process to exit so the video file is fully written
+  await new Promise<void>((resolve) => {
+    proc.on("exit", resolve);
+    setTimeout(resolve, 3000); // fallback timeout
+  });
+}
+
 async function runTestCase(
   testCase: TestCase,
   browser: Browser,
@@ -89,6 +123,7 @@ async function runTestCase(
   let context: BrowserContext | undefined;
   let page: Page | undefined;
   let fixtureCtx: FixtureContext | undefined;
+  let recorder: ChildProcess | undefined;
 
   try {
     // Setup fixture if needed
@@ -100,14 +135,17 @@ async function runTestCase(
     const { body } = parseFrontmatter(testCase.rawContent);
     const testContent = body;
 
-    // Create browser context with video recording
-    const videoDir = path.resolve(__dirname, "../test-results/agent-videos", testCase.name);
-    context = await browser.newContext({
-      recordVideo: { dir: videoDir },
-    });
+    // Create browser context (no recordVideo — it captures the blank browser
+    // tab, not the macOS desktop where the native app is being tested)
+    context = await browser.newContext();
     page = await context.newPage();
 
     const screenshotDir = path.resolve(__dirname, "../test-results/agent-screenshots", testCase.name);
+
+    // Start macOS screen recording (captures the actual desktop, not the browser tab)
+    const videoDir = path.resolve(__dirname, "../test-results/agent-videos", testCase.name);
+    const videoPath = path.join(videoDir, "screen-recording.mov");
+    recorder = startScreenRecording(videoPath);
 
     // Run the agent
     const result = await runAgent({
@@ -132,6 +170,7 @@ async function runTestCase(
       durationMs: Date.now() - startTime,
     };
   } finally {
+    await stopScreenRecording(recorder);
     if (page) await page.close().catch(() => {});
     if (context) await context.close().catch(() => {});
     if (fixtureCtx) await fixtureCtx.teardown().catch(() => {});

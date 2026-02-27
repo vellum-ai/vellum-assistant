@@ -7,6 +7,7 @@
  */
 
 import { spawnSync } from "child_process";
+import { rmSync } from "fs";
 
 const REPO = "vellum-ai/vellum-assistant";
 const WORKFLOW = "playwright.yaml";
@@ -172,6 +173,7 @@ if (artifactJson) {
     console.log(`  ${artifactUrl}`);
 
     console.log("\nDownloading artifacts...");
+    rmSync("test-results/ci-artifacts", { recursive: true, force: true });
     ghPassthrough(["run", "download", runId, "-R", REPO, "-D", "test-results/ci-artifacts"]);
     console.log("Saved to test-results/ci-artifacts/");
   } catch {
