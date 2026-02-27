@@ -30,14 +30,23 @@ if (trigger !== 0) {
   process.exit(trigger);
 }
 
-// Give GitHub a moment to register the run
-await new Promise((resolve) => setTimeout(resolve, 3000));
+// Find the run we just created — scope to workflow_dispatch by the current user
+// to avoid picking up an unrelated PR-triggered or other dispatch run.
+const { stdout: ghUser } = gh(["api", "user", "--jq", ".login"]);
 
-// Find the run we just created
-const { stdout: runId } = gh([
-  "run", "list", "-R", REPO, "-w", WORKFLOW,
-  "--limit", "1", "--json", "databaseId", "--jq", ".[0].databaseId",
-]);
+let runId = "";
+for (let attempt = 0; attempt < 10; attempt++) {
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  const { stdout: id } = gh([
+    "run", "list", "-R", REPO, "-w", WORKFLOW,
+    "-u", ghUser, "-e", "workflow_dispatch",
+    "--limit", "1", "--json", "databaseId", "--jq", ".[0].databaseId",
+  ]);
+  if (id) {
+    runId = id;
+    break;
+  }
+}
 
 if (!runId) {
   console.error("Error: could not find the triggered run");
