@@ -2,6 +2,7 @@ import Foundation
 import os
 
 private let flagPrefix = "VELLUM_FLAG_"
+private let userDefaultsPrefix = "MacOSFeatureFlag."
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "FeatureFlags")
 
 /// Represents the resolved state of a single macOS feature flag for UI display.
@@ -26,6 +27,16 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
     init(environment: [String: String]? = nil) {
         let env = environment ?? ProcessInfo.processInfo.environment
         var loaded: [String: Bool] = [:]
+
+        // Load UserDefaults overrides first (lowest priority among overrides)
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(userDefaultsPrefix) {
+            let name = String(key.dropFirst(userDefaultsPrefix.count))
+            guard !name.isEmpty else { continue }
+            loaded[name] = defaults.bool(forKey: key)
+        }
+
+        // Env var overrides take priority over UserDefaults
         for (key, value) in env where key.hasPrefix(flagPrefix) {
             let name = String(key.dropFirst(flagPrefix.count)).lowercased().replacingOccurrences(of: "_", with: "")
             guard !name.isEmpty else { continue }
@@ -88,13 +99,17 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
     public func setOverride(_ key: String, enabled: Bool) {
         lock.lock()
         defer { lock.unlock() }
-        overrides[Self.normalize(key)] = enabled
+        let normalized = Self.normalize(key)
+        overrides[normalized] = enabled
+        UserDefaults.standard.set(enabled, forKey: userDefaultsPrefix + normalized)
     }
 
     public func removeOverride(_ key: String) {
         lock.lock()
         defer { lock.unlock() }
-        overrides.removeValue(forKey: Self.normalize(key))
+        let normalized = Self.normalize(key)
+        overrides.removeValue(forKey: normalized)
+        UserDefaults.standard.removeObject(forKey: userDefaultsPrefix + normalized)
     }
 
     /// Load VELLUM_FLAG_* entries from a `.env` file and apply them as overrides.
