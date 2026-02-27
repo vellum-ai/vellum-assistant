@@ -149,12 +149,9 @@ describe('assistant feature flag declaration coverage guard', () => {
         if (!relPath) continue;
         const absPath = join(repoRoot, relPath);
         const content = readFileSync(absPath, 'utf-8');
-        let match: RegExpExecArray | null;
-        while ((match = multilinePattern.exec(content)) !== null) {
+        for (const match of content.matchAll(multilinePattern)) {
           usedKeys.add(match[1]);
         }
-        // Reset lastIndex since we reuse the regex across files
-        multilinePattern.lastIndex = 0;
       }
     }
 
