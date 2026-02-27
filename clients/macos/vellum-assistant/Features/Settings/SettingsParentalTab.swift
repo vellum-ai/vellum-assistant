@@ -385,11 +385,33 @@ struct SettingsParentalTab: View {
 
     private var appsAndWidgetsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Apps")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            HStack {
+                Text("Apps")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button("All") {
+                    let allIds = AppListManager.shared.apps.map { $0.id }
+                    allowedApps = allIds
+                    updateAllowlist(apps: allIds, widgets: nil)
+                }
+                .buttonStyle(.plain)
+                .font(VFont.caption)
+                .foregroundColor(VColor.accent)
+                .accessibilityLabel("Allow all apps")
+                .disabled(isLoading)
+                Button("None") {
+                    allowedApps = []
+                    updateAllowlist(apps: [], widgets: nil)
+                }
+                .buttonStyle(.plain)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .accessibilityLabel("Disallow all apps")
+                .disabled(isLoading)
+            }
 
-            Text("Child profile can only access enabled apps.")
+            Text("Restricted Mode can only access enabled apps.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -407,6 +429,8 @@ struct SettingsParentalTab: View {
                         if let symbol = app.sfSymbol {
                             let gradientColors: [String] = app.iconBackground ?? ["#7C3AED", "#4F46E5"]
                             VAppIcon(sfSymbol: symbol, gradientColors: gradientColors, size: .small)
+                                .scaleEffect(0.5)
+                                .frame(width: 16, height: 16)
                         }
                         Text(app.name)
                             .font(VFont.body)
@@ -497,9 +521,36 @@ struct SettingsParentalTab: View {
 
     private var integrationsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Integrations")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            HStack {
+                Text("Integrations")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                let integrations = configuredIntegrations
+                if !integrations.isEmpty {
+                    Button("All") {
+                        let pin = settingsStore.cachedPIN ?? ""
+                        let allIds = integrations.map { $0.id }
+                        settingsStore.allowedIntegrations = allIds
+                        settingsStore.updateAllowedIntegrations(pin: pin, integrations: allIds)
+                    }
+                    .buttonStyle(.plain)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.accent)
+                    .accessibilityLabel("Allow all integrations")
+                    .disabled(isLoading)
+                    Button("None") {
+                        let pin = settingsStore.cachedPIN ?? ""
+                        settingsStore.allowedIntegrations = []
+                        settingsStore.updateAllowedIntegrations(pin: pin, integrations: [])
+                    }
+                    .buttonStyle(.plain)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .accessibilityLabel("Disallow all integrations")
+                    .disabled(isLoading)
+                }
+            }
 
             Text("Restricted Mode can only use enabled integrations.")
                 .font(VFont.caption)
@@ -517,11 +568,11 @@ struct SettingsParentalTab: View {
                 ForEach(integrations, id: \.id) { integration in
                     HStack(spacing: VSpacing.sm) {
                         ZStack {
-                            RoundedRectangle(cornerRadius: VRadius.sm)
+                            RoundedRectangle(cornerRadius: VRadius.xs)
                                 .fill(integration.iconColor)
-                                .frame(width: 28, height: 28)
+                                .frame(width: 14, height: 14)
                             Image(systemName: integration.icon)
-                                .font(.system(size: 13, weight: .medium))
+                                .font(.system(size: 7, weight: .medium))
                                 .foregroundColor(.white)
                         }
                         VStack(alignment: .leading, spacing: 1) {
