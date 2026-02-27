@@ -95,7 +95,7 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
     const result = applyGuardianDecision({
       approval,
       decision: { action: action as 'approve_once' | 'approve_always' | 'reject', source: 'plain_text', requestId },
-      actorExternalUserId: undefined,
+      actorExternalUserId: approval.guardianExternalUserId ?? undefined,
       actorChannel: 'vellum',
     });
     return Response.json({ ...result, requestId: result.requestId ?? requestId });

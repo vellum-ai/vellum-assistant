@@ -53,7 +53,7 @@ export const guardianActionsHandlers = defineHandlers({
       const result = applyGuardianDecision({
         approval,
         decision: { action: msg.action as 'approve_once' | 'approve_always' | 'reject', source: 'plain_text', requestId: msg.requestId },
-        actorExternalUserId: undefined,
+        actorExternalUserId: approval.guardianExternalUserId ?? undefined,
         actorChannel: 'vellum',
       });
       ctx.send(socket, {

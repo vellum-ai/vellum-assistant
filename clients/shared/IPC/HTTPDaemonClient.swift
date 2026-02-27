@@ -501,6 +501,12 @@ final class HTTPTransport {
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 {
                     handleAuthenticationFailure()
+                    onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
+                        applied: false,
+                        reason: "authentication_failed",
+                        requestId: requestId,
+                        userText: nil
+                    )))
                     return
                 }
                 guard (200..<300).contains(http.statusCode) else {
