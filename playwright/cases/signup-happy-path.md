@@ -10,21 +10,20 @@ Complete a full signup flow through all four steps and verify the account is cre
 
 ## Steps
 
-1. Navigate to `{{SERVER_URL}}/signup`
-2. Verify the page loaded successfully (status 200)
-3. Fill in "Jane" for the first name field (`input[name="first_name"]`)
-4. Fill in "Doe" for the last name field (`input[name="last_name"]`)
-5. Click the submit button (`button[type="submit"]`)
-6. Fill in "janedoe" for the username field (`input[name="username"]`)
-7. Fill in "S3cure!Pass789" for the password field (`input[name="password"]`)
-8. Click the submit button (`button[type="submit"]`)
-9. Fetch the verification code by making a GET request to `{{SERVER_URL}}/signup/verify-code` and extracting the `code` field from the JSON response
-10. Fill the verification code into the code field (`input[name="code"]`)
-11. Click the submit button (`button[type="submit"]`)
-12. Check the CAPTCHA checkbox (`input[name="captcha_solved"]`)
-13. Click the submit button (`button[type="submit"]`)
+1. Go to the signup page at `{{SERVER_URL}}/signup`
+2. Enter "Jane" as the first name
+3. Enter "Doe" as the last name
+4. Click the continue button
+5. Enter "janedoe" as the username
+6. Enter "S3cure!Pass789" as the password
+7. Click the continue button
+8. The app requires a verification code. Retrieve it from `{{SERVER_URL}}/signup/verify-code` (it's in the `code` field of the JSON response)
+9. Enter the verification code
+10. Click the verify button
+11. Check the "I am not a robot" checkbox
+12. Click the complete sign up button
 
 ## Expected
 
-- The page body should contain the text "Account created successfully"
-- The page body should contain the text "janedoe"
+- The page should say "Account created successfully"
+- The page should display the username "janedoe"
