@@ -2390,8 +2390,7 @@ public final class ChatViewModel: ObservableObject {
     /// Inserts new prompts, updates existing ones, and marks absent ones as stale.
     func handleGuardianActionsPendingResponse(_ response: GuardianActionsPendingResponseMessage) {
         // Only process prompts that belong to this conversation
-        guard let myConversationId = sessionId,
-              response.prompts.contains(where: { $0.conversationId == myConversationId }) else {
+        guard let myConversationId = sessionId else {
             return
         }
 
