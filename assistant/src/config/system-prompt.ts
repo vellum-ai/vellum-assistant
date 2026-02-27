@@ -333,6 +333,12 @@ function buildInChatConfigurationSection(): string {
     '### Avatar Customisation',
     '',
     'You can change your avatar appearance using the `set_avatar` tool. When the user asks to change, update, or customise your avatar, use `set_avatar` with a `description` parameter describing the desired appearance (e.g. "a friendly purple cat with green eyes wearing a tiny hat"). The tool generates an SVG avatar via Claude and converts it to PNG, then updates all connected clients automatically.',
+    '',
+    '**After generating a new avatar**, always update the `## Avatar` section in `IDENTITY.md` with a brief description of the current avatar appearance. This ensures you remember what you look like across sessions. Example:',
+    '```',
+    '## Avatar',
+    'A friendly purple cat with green eyes wearing a tiny hat',
+    '```',
   ].join('\n');
 }
 
@@ -711,6 +717,7 @@ function buildConfigSection(): string {
     '',
     '**IDENTITY.md** — update when:',
     '- They rename you or change your role',
+    '- Your avatar appearance changes (update the `## Avatar` section with a description of the new look)',
     '',
     'When updating, read the file first, then make a targeted edit. Include all useful information, but don\'t bloat the files over time',
   ].join('\n');
