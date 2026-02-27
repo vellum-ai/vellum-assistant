@@ -459,15 +459,7 @@ extension MainWindowView {
     var chatView: some View {
         if let viewModel = threadManager.activeViewModel {
             let activeThread = threadManager.activeThread
-            let interactionState: ThreadInteractionState = {
-                guard let id = threadManager.activeThreadId else { return .idle }
-                return threadManager.interactionState(for: id)
-            }()
-
             VStack(spacing: 0) {
-                ThreadStatusBar(state: interactionState)
-                    .animation(VAnimation.fast, value: interactionState)
-
                 ActiveChatViewWrapper(
                     viewModel: viewModel,
                     windowState: windowState,
