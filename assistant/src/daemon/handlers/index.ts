@@ -15,7 +15,6 @@ import { dictationHandlers } from './dictation.js';
 import { documentHandlers } from './documents.js';
 import { homeBaseHandlers } from './home-base.js';
 import { identityHandlers } from './identity.js';
-import { liveTranscriptHandlers } from './live-transcript.js';
 import { miscHandlers } from './misc.js';
 import { oauthConnectHandlers } from './oauth-connect.js';
 import { handleOpenBundle } from './open-bundle-handler.js';
@@ -157,7 +156,6 @@ const handlers = {
   ...workspaceFileHandlers,
   ...identityHandlers,
   ...dictationHandlers,
-  ...liveTranscriptHandlers,
   ...inboxInviteHandlers,
   ...pairingHandlers,
   ...recordingHandlers,
