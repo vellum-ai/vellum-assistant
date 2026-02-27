@@ -55,26 +55,15 @@ jobs:
             macos-spm-${{ hashFiles('clients/Package.resolved') }}-
             macos-spm-
 
-      - name: Cache Bun dependencies (assistant)
+      - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
-          path: assistant/node_modules
-          key: macos-bun-assistant-${{ hashFiles('assistant/bun.lock') }}
-          restore-keys: macos-bun-assistant-
-
-      - name: Cache Bun dependencies (cli)
-        uses: actions/cache@v4
-        with:
-          path: cli/node_modules
-          key: macos-bun-cli-${{ hashFiles('cli/bun.lock') }}
-          restore-keys: macos-bun-cli-
-
-      - name: Cache Bun dependencies (gateway)
-        uses: actions/cache@v4
-        with:
-          path: gateway/node_modules
-          key: macos-bun-gateway-${{ hashFiles('gateway/bun.lock') }}
-          restore-keys: macos-bun-gateway-
+          path: |
+            assistant/node_modules
+            cli/node_modules
+            gateway/node_modules
+          key: macos-bun-${{ hashFiles('assistant/bun.lock', 'cli/bun.lock', 'gateway/bun.lock') }}
+          restore-keys: macos-bun-
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
