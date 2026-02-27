@@ -50,12 +50,16 @@ import {
   validateAndConsumeChallenge,
 } from '../channel-guardian-service.js';
 import { deliverChannelReply } from '../gateway-client.js';
+import { processGuardianFollowUpTurn } from '../guardian-action-conversation-turn.js';
+import { executeFollowupAction } from '../guardian-action-followup-executor.js';
+import { composeGuardianActionMessageGenerative } from '../guardian-action-message-composer.js';
 import { resolveGuardianContext } from '../guardian-context-resolver.js';
 import {
   composeChannelVerifyReply,
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from '../guardian-verification-templates.js';
+import { httpError } from '../http-errors.js';
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -63,10 +67,6 @@ import type {
   GuardianFollowUpConversationGenerator,
   MessageProcessor,
 } from '../http-types.js';
-import { processGuardianFollowUpTurn } from '../guardian-action-conversation-turn.js';
-import { composeGuardianActionMessageGenerative } from '../guardian-action-message-composer.js';
-import { executeFollowupAction } from '../guardian-action-followup-executor.js';
-import { httpError } from '../http-errors.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import {
   canonicalChannelAssistantId,
@@ -1120,9 +1120,9 @@ export async function handleChannelInbound(
             // that the request was already resolved and skip action execution.
             let stateApplied = true;
             if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-              stateApplied = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition) !== null;
+              stateApplied = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition) !== undefined;
             } else if (turnResult.disposition === 'decline') {
-              stateApplied = finalizeFollowup(followupRequest.id, 'declined') !== null;
+              stateApplied = finalizeFollowup(followupRequest.id, 'declined') !== undefined;
             }
             // keep_pending: no state change — guardian can reply again
 

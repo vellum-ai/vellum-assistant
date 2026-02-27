@@ -8,8 +8,8 @@ import {
   getPendingApprovalByRequestAndGuardianChat,
   getPendingApprovalForRequest,
   getUnresolvedApprovalForRequest,
-  updateApprovalDecision,
   type GuardianApprovalRequest,
+  updateApprovalDecision,
 } from '../../memory/channel-guardian-store.js';
 import { createScopedApprovalGrant } from '../../memory/scoped-approval-grants.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
@@ -34,12 +34,12 @@ import type {
   ApprovalCopyGenerator,
 } from '../http-types.js';
 import {
-  handleAccessRequestDecision,
   deliverVerificationCodeToGuardian,
-  notifyRequesterOfApproval,
-  notifyRequesterOfDenial,
-  notifyRequesterOfDeliveryFailure,
   type DeliveryResult,
+  handleAccessRequestDecision,
+  notifyRequesterOfApproval,
+  notifyRequesterOfDeliveryFailure,
+  notifyRequesterOfDenial,
 } from './access-request-decision.js';
 import {
   buildGuardianDenyContext,

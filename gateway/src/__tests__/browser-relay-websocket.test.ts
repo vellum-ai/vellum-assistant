@@ -50,6 +50,9 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     whatsappTimeoutMs: 15000,
     whatsappMaxRetries: 3,
     whatsappInitialBackoffMs: 1000,
+    slackChannelBotToken: undefined,
+    slackChannelAppToken: undefined,
+    slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
   };

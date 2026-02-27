@@ -167,7 +167,7 @@ struct InterviewStepView: View {
             state: {
                 let s = OnboardingState()
                 s.currentStep = 7
-                s.assistantName = "Velly"
+                s.assistantName = "Assistant"
                 return s
             }(),
             daemonClient: DaemonClient(),

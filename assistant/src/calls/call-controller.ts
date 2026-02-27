@@ -8,6 +8,7 @@
  * barge-in, state machine, guardian verification).
  */
 
+import { getGatewayInternalBaseUrl } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import {
@@ -17,6 +18,7 @@ import {
 } from '../memory/guardian-action-store.js';
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
 import { getLogger } from '../util/logger.js';
+import { readHttpToken } from '../util/platform.js';
 import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
@@ -28,11 +30,9 @@ import {
   recordCallEvent,
   updateCallSession,
 } from './call-store.js';
-import { getGatewayInternalBaseUrl } from '../config/env.js';
-import { readHttpToken } from '../util/platform.js';
-import { dispatchGuardianQuestion } from './guardian-dispatch.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { sendGuardianExpiryNotices } from './guardian-action-sweep.js';
+import { dispatchGuardianQuestion } from './guardian-dispatch.js';
 import type { RelayConnection } from './relay-server.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
 import { startVoiceTurn, type VoiceTurnHandle } from './voice-session-bridge.js';
@@ -103,13 +103,20 @@ function extractBalancedJson(
       if (depth === 0) {
         const jsonEnd = i + 1;
         const json = text.slice(jsonStart, jsonEnd);
+        // Skip any whitespace between the closing '}' and the expected ']'.
+        // Models sometimes emit formatted markers with spaces or newlines
+        // before the bracket (e.g. `{ ... }\n]` or `{ ... } ]`).
+        let bracketIdx = jsonEnd;
+        while (bracketIdx < text.length && /\s/.test(text[bracketIdx])) {
+          bracketIdx++;
+        }
         // Require the closing ']' to be present before considering this
         // a complete match. If it hasn't arrived yet (streaming), return
         // null so the caller keeps buffering.
-        if (jsonEnd >= text.length || text[jsonEnd] !== ']') {
+        if (bracketIdx >= text.length || text[bracketIdx] !== ']') {
           return null;
         }
-        const fullMatchEnd = jsonEnd + 1;
+        const fullMatchEnd = bracketIdx + 1;
         const fullMatch = text.slice(prefixIdx, fullMatchEnd);
         return { json, fullMatch, startIndex: prefixIdx };
       }

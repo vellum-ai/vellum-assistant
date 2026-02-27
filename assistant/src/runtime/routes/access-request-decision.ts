@@ -6,8 +6,8 @@
  * instead of resuming an agent loop.
  */
 import {
-  resolveApprovalRequest,
   type GuardianApprovalRequest,
+  resolveApprovalRequest,
 } from '../../memory/channel-guardian-store.js';
 import { getLogger } from '../../util/logger.js';
 import { createOutboundSession } from '../channel-guardian-service.js';
