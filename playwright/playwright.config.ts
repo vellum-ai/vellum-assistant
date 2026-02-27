@@ -6,7 +6,7 @@ export default defineConfig({
   testDir: "./tests",
   timeout: 120_000,
   retries: 0,
-  reporter: "list",
+  reporter: [["list"], ["html", { open: "never", outputFolder: "test-results/html-report" }]],
   use: {
     video: "on",
   },

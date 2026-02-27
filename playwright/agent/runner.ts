@@ -100,8 +100,11 @@ async function runTestCase(
     const { body } = parseFrontmatter(testCase.rawContent);
     const testContent = body;
 
-    // Create browser context and page
-    context = await browser.newContext();
+    // Create browser context with video recording
+    const videoDir = path.resolve(__dirname, "../test-results/agent-videos", testCase.name);
+    context = await browser.newContext({
+      recordVideo: { dir: videoDir },
+    });
     page = await context.newPage();
 
     const screenshotDir = path.resolve(__dirname, "../test-results/agent-screenshots", testCase.name);

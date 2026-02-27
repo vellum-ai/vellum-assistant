@@ -1,7 +1,13 @@
 /**
- * Take a screenshot of the current page.
+ * Take a screenshot of the macOS screen via screencapture.
+ *
+ * We use the system screencapture command rather than page.screenshot()
+ * because the agent tests interact with native macOS desktop apps via
+ * AppleScript/System Events — the Playwright browser page is just a
+ * blank tab used for web-based tool calls.
  */
 
+import { execSync } from "child_process";
 import { mkdirSync } from "fs";
 
 import type Anthropic from "@anthropic-ai/sdk";
@@ -12,7 +18,7 @@ import type { ToolContext, ToolHandlerResult } from "./types";
 export const definition: Anthropic.Tool = {
   name: "screenshot",
   description:
-    "Take a screenshot of the current page. Returns the file path of the saved screenshot.",
+    "Take a screenshot of the current macOS screen. Returns the file path of the saved screenshot.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -26,14 +32,21 @@ export const definition: Anthropic.Tool = {
 };
 
 export async function execute(
-  page: Page,
+  _page: Page,
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolHandlerResult> {
   mkdirSync(context.screenshotDir, { recursive: true });
   const filePath = `${context.screenshotDir}/${input.name as string}.png`;
-  await page.screenshot({ path: filePath });
-  return {
-    result: { success: true, data: `Screenshot saved to ${filePath}` },
-  };
+  try {
+    execSync(`screencapture -x ${filePath}`, { timeout: 10_000 });
+    return {
+      result: { success: true, data: `Screenshot saved to ${filePath}` },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      result: { success: false, data: `screencapture failed: ${message}` },
+    };
+  }
 }
