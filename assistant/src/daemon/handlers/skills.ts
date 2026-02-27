@@ -327,10 +327,10 @@ export async function handleSkillsInstall(
  */
 async function trySkillsShInstall(slug: string): Promise<{ success: boolean; namespacedId: string; error?: string }> {
   try {
-    const searchResult = await skillsshSearchWithAudit(slug, { limit: 1 });
-    const match = searchResult.skills[0];
+    const searchResult = await skillsshSearchWithAudit(slug, { limit: 5 });
+    const match = searchResult.skills.find((s) => s.skillId === slug || s.id === slug);
     if (!match) {
-      return { success: false, namespacedId: '', error: `No skills.sh skill found for "${slug}"` };
+      return { success: false, namespacedId: '', error: `No exact skills.sh match for "${slug}"` };
     }
 
     const decision = makeSecurityDecision(match.audit);

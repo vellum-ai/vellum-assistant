@@ -24,7 +24,7 @@ export interface SkillsShInstallOptions {
 export interface SkillsShInstallResult {
   success: boolean;
   skillId: string;
-  /** Source-namespaced ID used for the install directory (e.g. "org--repo--my-skill") */
+  /** Source-namespaced ID used for the install directory (e.g. "org--repo---my-skill") */
   namespacedId: string;
   /** The managed skill directory path */
   installedPath?: string;
@@ -66,14 +66,18 @@ function getSkillsShProjectRoot(): string {
 
 /**
  * Derive a source-namespaced directory name from source and skillId.
- * Uses collision-safe encoding: literal `--` in the source is escaped to `-_-`
- * before `/` is replaced with `--`, making the mapping injective.
- * Example: source="org/repo", skillId="my-skill" -> "org--repo--my-skill"
- * Example: source="foo--bar/baz", skillId="x" -> "foo-_-bar--baz--x"
+ * Uses collision-safe encoding with `_` as the escape character:
+ *   1. Escape `_` -> `__` (escape the escape char first)
+ *   2. Escape `--` -> `_d` (so literal `--` in source doesn't collide with separator)
+ *   3. Replace `/` -> `--` (path separator becomes the namespace separator)
+ *   4. Append `---` + escaped skillId (triple-hyphen boundary can't appear in either side)
+ * This makes the mapping injective across both source and skillId.
  */
 export function namespacedSkillDir(source: string, skillId: string): string {
-  const sanitized = source.replace(/--/g, '-_-').replace(/\//g, '--');
-  return `${sanitized}--${skillId}`;
+  const escapeSegment = (s: string) => s.replace(/_/g, '__').replace(/--/g, '_d');
+  const escapedSource = escapeSegment(source).replace(/\//g, '--');
+  const escapedSkillId = escapeSegment(skillId);
+  return `${escapedSource}---${escapedSkillId}`;
 }
 
 // ─── Subprocess runner ───────────────────────────────────────────────────────────

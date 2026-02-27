@@ -125,27 +125,40 @@ afterEach(() => {
 
 describe('namespacedSkillDir', () => {
   test('replaces slashes with double hyphens', () => {
-    expect(namespacedSkillDir('org/repo', 'my-skill')).toBe('org--repo--my-skill');
+    expect(namespacedSkillDir('org/repo', 'my-skill')).toBe('org--repo---my-skill');
   });
 
   test('handles source without slashes', () => {
-    expect(namespacedSkillDir('single', 'skill')).toBe('single--skill');
+    expect(namespacedSkillDir('single', 'skill')).toBe('single---skill');
   });
 
   test('handles deeply nested source paths', () => {
-    expect(namespacedSkillDir('a/b/c', 'x')).toBe('a--b--c--x');
+    expect(namespacedSkillDir('a/b/c', 'x')).toBe('a--b--c---x');
   });
 
   test('escapes literal double-hyphens in source to prevent collisions', () => {
-    // Without escaping, "foo/bar--baz" and "foo--bar/baz" would both produce
-    // "foo--bar--baz--skill". The encoding must be injective.
     const nsA = namespacedSkillDir('foo/bar--baz', 'skill');
     const nsB = namespacedSkillDir('foo--bar/baz', 'skill');
     expect(nsA).not.toBe(nsB);
   });
 
+  test('escapes underscores to prevent collision with escape sequences', () => {
+    // Source containing literal "_d" must not collide with escaped "--"
+    const nsA = namespacedSkillDir('org_d/repo', 'x');
+    const nsB = namespacedSkillDir('org--/repo', 'x');
+    expect(nsA).not.toBe(nsB);
+  });
+
+  test('source/skillId boundary is unambiguous', () => {
+    // "org/repo--skill" as source + "x" as skillId must not collide with
+    // "org" as source + "repo--skill" as skillId
+    const nsA = namespacedSkillDir('org/repo', 'skill');
+    const nsB = namespacedSkillDir('org', 'repo--skill');
+    expect(nsA).not.toBe(nsB);
+  });
+
   test('round-trips sources containing literal double-hyphens', () => {
-    expect(namespacedSkillDir('org--team/repo', 'x')).toBe('org-_-team--repo--x');
+    expect(namespacedSkillDir('org--team/repo', 'x')).toBe('org_dteam--repo---x');
   });
 });
 
@@ -161,7 +174,7 @@ describe('skillsshInstall security gate', () => {
 
     expect(result.success).toBe(false);
     expect(result.skillId).toBe('my-skill');
-    expect(result.namespacedId).toBe('test-org--test-repo--my-skill');
+    expect(result.namespacedId).toBe('test-org--test-repo---my-skill');
     expect(result.installedVia).toBe('policy');
     expect(result.error).toContain('Installation blocked');
     expect(result.error).toContain('do_not_recommend');
@@ -190,7 +203,7 @@ describe('skillsshInstall security gate', () => {
       expect(result.success).toBe(true);
       expect(result.installedVia).toBe('override');
       expect(result.skillId).toBe('my-skill');
-      expect(result.namespacedId).toBe('test-org--test-repo--my-skill');
+      expect(result.namespacedId).toBe('test-org--test-repo---my-skill');
       expect(result.installedPath).toBeDefined();
     } finally {
       mockSpawn.mockRestore();
@@ -208,7 +221,7 @@ describe('skillsshInstall security gate', () => {
       expect(result.success).toBe(true);
       expect(result.installedVia).toBe('policy');
       expect(result.skillId).toBe('my-skill');
-      expect(result.namespacedId).toBe('test-org--test-repo--my-skill');
+      expect(result.namespacedId).toBe('test-org--test-repo---my-skill');
     } finally {
       mockSpawn.mockRestore();
     }
@@ -296,10 +309,10 @@ describe('skillsshInstall namespacing', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.namespacedId).toBe('test-org--test-repo--my-skill');
+      expect(result.namespacedId).toBe('test-org--test-repo---my-skill');
 
       // The namespaced directory should exist, the raw one should have been moved
-      const namespacedDir = join(TEST_DIR, 'skills', 'test-org--test-repo--my-skill');
+      const namespacedDir = join(TEST_DIR, 'skills', 'test-org--test-repo---my-skill');
       expect(existsSync(join(namespacedDir, 'SKILL.md'))).toBe(true);
       expect(result.installedPath).toBe(namespacedDir);
     } finally {
@@ -310,8 +323,8 @@ describe('skillsshInstall namespacing', () => {
   test('different sources with same skillId get different directories', () => {
     const nsA = namespacedSkillDir('orgA/repoA', 'shared-skill');
     const nsB = namespacedSkillDir('orgB/repoB', 'shared-skill');
-    expect(nsA).toBe('orgA--repoA--shared-skill');
-    expect(nsB).toBe('orgB--repoB--shared-skill');
+    expect(nsA).toBe('orgA--repoA---shared-skill');
+    expect(nsB).toBe('orgB--repoB---shared-skill');
     expect(nsA).not.toBe(nsB);
   });
 
@@ -325,7 +338,7 @@ describe('skillsshInstall namespacing', () => {
       });
       expect(firstResult.success).toBe(true);
 
-      const namespacedDir = join(TEST_DIR, 'skills', 'test-org--test-repo--my-skill');
+      const namespacedDir = join(TEST_DIR, 'skills', 'test-org--test-repo---my-skill');
       expect(existsSync(join(namespacedDir, 'SKILL.md'))).toBe(true);
 
       // Second install (re-install) -- should not throw ENOTEMPTY
@@ -357,7 +370,7 @@ describe('skillsshInstall SKILLS.md index', () => {
       const indexPath = join(TEST_DIR, 'skills', 'SKILLS.md');
       expect(existsSync(indexPath)).toBe(true);
       const indexContent = readFileSync(indexPath, 'utf-8');
-      expect(indexContent).toContain('test-org--test-repo--my-skill');
+      expect(indexContent).toContain('test-org--test-repo---my-skill');
     } finally {
       mockSpawn.mockRestore();
     }
@@ -404,7 +417,7 @@ describe('skillsshInstall provenance', () => {
       expect(result.provenance!.auditSnapshot.capturedAt).toBeDefined();
 
       // Verify the file is in the namespaced directory
-      const provenancePath = join(TEST_DIR, 'skills', 'test-org--test-repo--my-skill', '.provenance.json');
+      const provenancePath = join(TEST_DIR, 'skills', 'test-org--test-repo---my-skill', '.provenance.json');
       expect(existsSync(provenancePath)).toBe(true);
 
       const storedProvenance = JSON.parse(readFileSync(provenancePath, 'utf-8'));
@@ -426,7 +439,7 @@ describe('skillsshInstall provenance', () => {
       expect(result.success).toBe(true);
 
       // Both provenance and integrity should exist
-      const namespacedDir = join(TEST_DIR, 'skills', 'test-org--test-repo--my-skill');
+      const namespacedDir = join(TEST_DIR, 'skills', 'test-org--test-repo---my-skill');
       expect(existsSync(join(namespacedDir, '.provenance.json'))).toBe(true);
 
       const integrityPath = join(TEST_DIR, 'skills', '.integrity.json');
@@ -469,7 +482,7 @@ describe('skillsshInstall provenance', () => {
     expect(result.success).toBe(false);
     expect(result.provenance).toBeUndefined();
 
-    const provenancePath = join(TEST_DIR, 'skills', 'test-org--test-repo--my-skill', '.provenance.json');
+    const provenancePath = join(TEST_DIR, 'skills', 'test-org--test-repo---my-skill', '.provenance.json');
     expect(existsSync(provenancePath)).toBe(false);
   });
 });

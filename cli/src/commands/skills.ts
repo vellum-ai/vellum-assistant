@@ -347,7 +347,17 @@ export async function skills(): Promise<void> {
 
     case "search": {
       const subArgs = ["search"];
-      const positional = args.filter((a) => !a.startsWith("--") && a !== "search");
+      // Build a set of indices to skip: flag names and their values
+      const skipIndices = new Set<number>();
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === "--limit") {
+          skipIndices.add(i);
+          if (i + 1 < args.length) skipIndices.add(i + 1);
+        } else if (args[i] === "--json") {
+          skipIndices.add(i);
+        }
+      }
+      const positional = args.filter((a, i) => !skipIndices.has(i) && a !== "search");
       if (positional.length < 1) {
         console.error('Usage: vellum skills search "<query>" [--limit N] [--json]');
         process.exit(1);
