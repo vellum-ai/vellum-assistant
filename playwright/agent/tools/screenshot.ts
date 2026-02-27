@@ -7,7 +7,7 @@
  * blank tab used for web-based tool calls.
  */
 
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { mkdirSync } from "fs";
 
 import type Anthropic from "@anthropic-ai/sdk";
@@ -39,7 +39,7 @@ export async function execute(
   mkdirSync(context.screenshotDir, { recursive: true });
   const filePath = `${context.screenshotDir}/${input.name as string}.png`;
   try {
-    execSync(`screencapture -x ${filePath}`, { timeout: 10_000 });
+    execFileSync("screencapture", ["-x", filePath], { timeout: 10_000 });
     return {
       result: { success: true, data: `Screenshot saved to ${filePath}` },
     };
