@@ -1,8 +1,13 @@
 /**
  * Channel inbound message handler: validates, records, and routes inbound
  * messages from all channels. Handles ingress ACL, edits, guardian
- * verification, guardian action answers, and approval interception.
+ * verification, guardian action answers, approval interception, and
+ * invite token redemption.
  */
+// Side-effect import: registers the Telegram invite transport adapter so
+// getTransport('telegram') resolves at runtime.
+import '../channel-invite-transports/telegram.js';
+
 import { answerCall } from '../../calls/call-domain.js';
 import { isTerminalState } from '../../calls/call-state-machine.js';
 import { getCallSession } from '../../calls/call-store.js';
@@ -72,6 +77,9 @@ import type {
   GuardianFollowUpConversationGenerator,
   MessageProcessor,
 } from '../http-types.js';
+import { getTransport } from '../channel-invite-transport.js';
+import { redeemInvite } from '../invite-redemption-service.js';
+import { getInviteRedemptionReply } from '../invite-redemption-templates.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import {
   canonicalChannelAssistantId,
@@ -214,6 +222,19 @@ export async function handleChannelInbound(
     typeof (rawCommandIntentForAcl as Record<string, unknown>).payload === 'string' &&
     ((rawCommandIntentForAcl as Record<string, unknown>).payload as string).startsWith('gv_');
 
+  // Parse invite token from /start iv_<token> commands using the transport
+  // adapter. The token is extracted once here so both the ACL bypass and
+  // the intercept handler can reference it without re-parsing.
+  const commandIntentForAcl = rawCommandIntentForAcl && typeof rawCommandIntentForAcl === 'object' && !Array.isArray(rawCommandIntentForAcl)
+    ? rawCommandIntentForAcl as Record<string, unknown>
+    : undefined;
+  const inviteTransport = getTransport(sourceChannel);
+  const inviteToken = inviteTransport?.extractInboundToken({
+    commandIntent: commandIntentForAcl,
+    content: trimmedContent,
+    sourceMetadata: body.sourceMetadata,
+  });
+
   if (body.senderExternalUserId) {
     resolvedMember = findMember({
       assistantId: canonicalAssistantId,
@@ -255,6 +276,27 @@ export async function handleChannelInbound(
         } else {
           log.info({ sourceChannel, hasValidBootstrapSession: false }, 'Ingress ACL: bootstrap command bypass denied — no valid pending_bootstrap session');
         }
+      }
+
+      // ── Invite token intercept (non-member) ──
+      // /start iv_<token> deep links grant access without guardian approval.
+      // Intercept here — before the deny gate — so valid invites short-circuit
+      // the ACL rejection and never reach the agent pipeline.
+      if (inviteToken && denyNonMember) {
+        const inviteResult = await handleInviteTokenIntercept({
+          rawToken: inviteToken,
+          sourceChannel,
+          externalChatId,
+          externalMessageId,
+          senderExternalUserId: body.senderExternalUserId,
+          senderName: body.senderName,
+          senderUsername: body.senderUsername,
+          replyCallbackUrl: body.replyCallbackUrl,
+          bearerToken,
+          assistantId,
+          canonicalAssistantId,
+        });
+        if (inviteResult) return inviteResult;
       }
 
       if (denyNonMember) {
@@ -320,6 +362,26 @@ export async function handleChannelInbound(
           } else {
             log.info({ sourceChannel, memberId: resolvedMember.id, hasValidBootstrapSession: false }, 'Ingress ACL: inactive member bootstrap bypass denied');
           }
+        }
+
+        // ── Invite token intercept (inactive member) ──
+        // Same as the non-member branch: invite tokens can reactivate
+        // revoked/pending members without requiring guardian approval.
+        if (inviteToken && denyInactiveMember) {
+          const inviteResult = await handleInviteTokenIntercept({
+            rawToken: inviteToken,
+            sourceChannel,
+            externalChatId,
+            externalMessageId,
+            senderExternalUserId: body.senderExternalUserId,
+            senderName: body.senderName,
+            senderUsername: body.senderUsername,
+            replyCallbackUrl: body.replyCallbackUrl,
+            bearerToken,
+            assistantId,
+            canonicalAssistantId,
+          });
+          if (inviteResult) return inviteResult;
         }
 
         if (denyInactiveMember) {
@@ -1363,6 +1425,100 @@ export async function handleChannelInbound(
     duplicate: result.duplicate,
     eventId: result.eventId,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Invite token intercept
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle an inbound invite token for a non-member or inactive member.
+ *
+ * Redeems the invite, delivers a deterministic reply, and returns a Response
+ * to short-circuit the handler. Returns `null` when the intercept should not
+ * fire (e.g. already_member outcome — let normal flow handle it).
+ */
+async function handleInviteTokenIntercept(params: {
+  rawToken: string;
+  sourceChannel: ChannelId;
+  externalChatId: string;
+  externalMessageId: string;
+  senderExternalUserId?: string;
+  senderName?: string;
+  senderUsername?: string;
+  replyCallbackUrl?: string;
+  bearerToken?: string;
+  assistantId?: string;
+  canonicalAssistantId: string;
+}): Promise<Response | null> {
+  const {
+    rawToken,
+    sourceChannel,
+    externalChatId,
+    senderExternalUserId,
+    senderName,
+    senderUsername,
+    replyCallbackUrl,
+    bearerToken,
+    assistantId,
+    canonicalAssistantId,
+  } = params;
+
+  const outcome = redeemInvite({
+    rawToken,
+    sourceChannel,
+    externalUserId: senderExternalUserId,
+    externalChatId,
+    displayName: senderName,
+    username: senderUsername,
+    assistantId: canonicalAssistantId,
+  });
+
+  log.info(
+    { sourceChannel, externalChatId, ok: outcome.ok, type: outcome.ok ? outcome.type : undefined, reason: !outcome.ok ? outcome.reason : undefined },
+    'Invite token intercept: redemption result',
+  );
+
+  // already_member means the user has an active record — let the normal
+  // flow handle them (they passed ACL or the member is active).
+  if (outcome.ok && outcome.type === 'already_member') {
+    // Deliver a quick acknowledgement and short-circuit so the user
+    // does not trigger the deny gate or a duplicate agent loop.
+    const replyText = getInviteRedemptionReply(outcome);
+    if (replyCallbackUrl) {
+      try {
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: externalChatId,
+          text: replyText,
+          assistantId,
+        }, bearerToken);
+      } catch (err) {
+        log.error({ err, externalChatId }, 'Failed to deliver invite already-member reply');
+      }
+    }
+    return Response.json({ accepted: true, inviteRedemption: 'already_member' });
+  }
+
+  const replyText = getInviteRedemptionReply(outcome);
+
+  if (replyCallbackUrl) {
+    try {
+      await deliverChannelReply(replyCallbackUrl, {
+        chatId: externalChatId,
+        text: replyText,
+        assistantId,
+      }, bearerToken);
+    } catch (err) {
+      log.error({ err, externalChatId }, 'Failed to deliver invite redemption reply');
+    }
+  }
+
+  if (outcome.ok && outcome.type === 'redeemed') {
+    return Response.json({ accepted: true, inviteRedemption: 'redeemed', memberId: outcome.memberId });
+  }
+
+  // Failed redemption — inform the user and deny
+  return Response.json({ accepted: true, denied: true, inviteRedemption: outcome.reason });
 }
 
 // ---------------------------------------------------------------------------
