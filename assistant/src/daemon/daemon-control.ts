@@ -106,7 +106,7 @@ function isProcessRunning(pid: number): boolean {
  */
 function isVellumDaemonProcess(pid: number): boolean {
   try {
-    const cmd = execSync(`ps -p ${pid} -o command=`, {
+    const cmd = execSync(`ps -ww -p ${pid} -o command=`, {
       encoding: 'utf-8',
       timeout: 3000,
       stdio: ['ignore', 'pipe', 'ignore'],
