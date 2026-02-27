@@ -645,6 +645,15 @@ if [ -d "$XCASSETS" ]; then
         > /dev/null 2>&1 || true
 fi
 
+# Remove transient runtime artifacts that may be written into the app bundle
+# during local dev runs (for example qdrant marker files). These are not part
+# of the distributable app and can break outer-bundle codesign verification.
+rm -f "$MACOS_DIR/.qdrant-initialized"
+rm -rf "$MACOS_DIR/snapshots"
+find "$MACOS_DIR" -maxdepth 1 -type f \
+    \( -name "*.pid" -o -name "*.sock" -o -name "*.log" \) \
+    -delete
+
 # 6. Code sign
 echo "Signing with: $SIGN_IDENTITY"
 
@@ -707,6 +716,21 @@ if [ -d "$MACOS_DIR/node_modules" ]; then
     find "$MACOS_DIR/node_modules" -type f -exec \
         codesign "${NATIVE_SIGN_FLAGS[@]}" {} \;
     echo "Bundled node_modules signed"
+fi
+
+# Sign any additional regular files directly under Contents/MacOS.
+# This protects against future unsigned loose files in incremental dev builds.
+if [ -d "$MACOS_DIR" ]; then
+    EXTRA_FILE_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        EXTRA_FILE_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    find "$MACOS_DIR" -maxdepth 1 -type f \
+        ! -name "$BUNDLE_DISPLAY_NAME" \
+        ! -name "vellum-daemon" \
+        ! -name "vellum-cli" \
+        ! -name "vellum-gateway" \
+        -exec codesign "${EXTRA_FILE_SIGN_FLAGS[@]}" {} \;
 fi
 
 # Sign daemon binary with its own entitlements (JIT, network)
