@@ -515,4 +515,128 @@ describe('guardian-dispatch', () => {
     const secondPayload = (emitCalls[0] as Record<string, unknown>).contextPayload as Record<string, unknown>;
     expect(secondPayload.activeGuardianRequestCount).toBe(2);
   });
+
+  test('second guardian question in same call session passes conversationAffinityHint with first conversation ID', async () => {
+    const convId = 'conv-dispatch-affinity-1';
+    ensureConversation(convId);
+
+    const sharedConversationId = 'conv-affinity-guardian';
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15550002222',
+    });
+
+    // First dispatch — no affinity hint expected (no prior delivery exists)
+    const pq1 = createPendingQuestion(session.id, 'First question');
+    mockEmitResult = {
+      signalId: 'sig-affinity-1',
+      deduplicated: false,
+      dispatched: true,
+      reason: 'ok',
+      deliveryResults: [
+        {
+          channel: 'vellum',
+          destination: 'vellum',
+          status: 'sent',
+          conversationId: sharedConversationId,
+        },
+      ],
+    };
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq1,
+    });
+
+    const firstParams = emitCalls[0] as Record<string, unknown>;
+    // First dispatch should not have an affinity hint
+    expect(firstParams.conversationAffinityHint).toBeUndefined();
+
+    // Second dispatch — should carry the affinity hint from the first delivery
+    emitCalls.length = 0;
+    const pq2 = createPendingQuestion(session.id, 'Second question');
+    mockEmitResult = {
+      signalId: 'sig-affinity-2',
+      deduplicated: false,
+      dispatched: true,
+      reason: 'ok',
+      deliveryResults: [
+        {
+          channel: 'vellum',
+          destination: 'vellum',
+          status: 'sent',
+          conversationId: sharedConversationId,
+        },
+      ],
+    };
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq2,
+    });
+
+    const secondParams = emitCalls[0] as Record<string, unknown>;
+    expect(secondParams.conversationAffinityHint).toEqual({
+      vellum: sharedConversationId,
+    });
+  });
+
+  test('third guardian question in same call session also carries affinity hint', async () => {
+    const convId = 'conv-dispatch-affinity-2';
+    ensureConversation(convId);
+
+    const sharedConversationId = 'conv-affinity-triple';
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15550002222',
+    });
+
+    // Dispatch three guardian questions in the same call session
+    for (let i = 0; i < 3; i++) {
+      emitCalls.length = 0;
+      const pq = createPendingQuestion(session.id, `Question ${i + 1}`);
+      mockEmitResult = {
+        signalId: `sig-triple-${i}`,
+        deduplicated: false,
+        dispatched: true,
+        reason: 'ok',
+        deliveryResults: [
+          {
+            channel: 'vellum',
+            destination: 'vellum',
+            status: 'sent',
+            conversationId: sharedConversationId,
+          },
+        ],
+      };
+
+      await dispatchGuardianQuestion({
+        callSessionId: session.id,
+        conversationId: convId,
+        assistantId: 'self',
+        pendingQuestion: pq,
+      });
+
+      const params = emitCalls[0] as Record<string, unknown>;
+      if (i === 0) {
+        // First dispatch — no affinity hint
+        expect(params.conversationAffinityHint).toBeUndefined();
+      } else {
+        // Subsequent dispatches — affinity hint points to the shared conversation
+        expect(params.conversationAffinityHint).toEqual({
+          vellum: sharedConversationId,
+        });
+      }
+    }
+  });
 });

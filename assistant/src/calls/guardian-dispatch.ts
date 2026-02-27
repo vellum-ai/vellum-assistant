@@ -12,6 +12,7 @@ import {
   countPendingRequestsByCallSessionId,
   createGuardianActionDelivery,
   createGuardianActionRequest,
+  getGuardianConversationIdForCallSession,
   updateDeliveryStatus,
 } from '../memory/guardian-action-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
@@ -84,6 +85,22 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
     // in the same call session.
     const activeGuardianRequestCount = countPendingRequestsByCallSessionId(callSessionId);
 
+    // Look up the vellum conversation used for the first guardian question
+    // in this call session. When found, pass it as an affinity hint so the
+    // notification pipeline deterministically routes to the same conversation
+    // instead of letting the LLM choose a different thread.
+    const existingGuardianConversationId = getGuardianConversationIdForCallSession(callSessionId);
+    const conversationAffinityHint = existingGuardianConversationId
+      ? { vellum: existingGuardianConversationId }
+      : undefined;
+
+    if (existingGuardianConversationId) {
+      log.info(
+        { callSessionId, existingGuardianConversationId },
+        'Found existing guardian conversation for call session — enforcing thread affinity',
+      );
+    }
+
     // Route through the canonical notification pipeline. The paired vellum
     // conversation from this pipeline is the canonical guardian thread.
     let vellumDeliveryId: string | null = null;
@@ -107,6 +124,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
         pendingQuestionId: pendingQuestion.id,
         activeGuardianRequestCount,
       },
+      conversationAffinityHint,
       dedupeKey: `guardian:${request.id}`,
       onThreadCreated: (info) => {
         if (info.sourceEventName !== 'guardian.question' || vellumDeliveryId) return;
