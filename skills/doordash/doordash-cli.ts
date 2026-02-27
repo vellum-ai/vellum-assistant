@@ -12,7 +12,7 @@ import { Command } from 'commander';
 import {
   createMessageParser,
   serialize,
-} from '../../../daemon/ipc-protocol.js';
+} from '../../assistant/src/daemon/ipc-protocol.js';
 import {
   addToCart,
   getDropoffOptions,
@@ -27,23 +27,23 @@ import {
   searchItems,
   SessionExpiredError,
   viewCart,
-} from '../../../doordash/client.js';
+} from '../../assistant/src/doordash/client.js';
 import {
   extractQueries,
   saveQueries,
-} from '../../../doordash/query-extractor.js';
+} from '../../assistant/src/doordash/query-extractor.js';
 import {
   clearSession,
   importFromRecording,
   loadSession,
-} from '../../../doordash/session.js';
-import { NetworkRecorder } from '../../../tools/browser/network-recorder.js';
-import type { SessionRecording } from '../../../tools/browser/network-recording-types.js';
+} from '../../assistant/src/doordash/session.js';
+import { NetworkRecorder } from '../../assistant/src/tools/browser/network-recorder.js';
+import type { SessionRecording } from '../../assistant/src/tools/browser/network-recording-types.js';
 import {
   loadRecording,
   saveRecording,
-} from '../../../tools/browser/recording-store.js';
-import { getSocketPath, readSessionToken } from '../../../util/platform.js';
+} from '../../assistant/src/tools/browser/recording-store.js';
+import { getSocketPath, readSessionToken } from '../../assistant/src/util/platform.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1001,7 +1001,7 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
           intervalSeconds: 5,
           mode: 'learn',
           targetDomain: 'doordash.com',
-        } as unknown as import('../../../daemon/ipc-protocol.js').ClientMessage),
+        } as unknown as import('../../assistant/src/daemon/ipc-protocol.js').ClientMessage),
       );
     };
 
@@ -1046,7 +1046,7 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
           serialize({
             type: 'auth',
             token: sessionToken,
-          } as unknown as import('../../../daemon/ipc-protocol.js').ClientMessage),
+          } as unknown as import('../../assistant/src/daemon/ipc-protocol.js').ClientMessage),
         );
       } else {
         // No auth needed, send command immediately

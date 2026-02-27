@@ -30,7 +30,7 @@ const CORE_COMMANDS = ['map'];
  * Path is relative to this file's directory (assistant/src/daemon/).
  */
 const STANDALONE_COMMANDS: Record<string, string> = {
-  doordash: '../config/bundled-skills/doordash/doordash-entry.ts',
+  doordash: '../../../../skills/doordash/doordash-entry.ts',
 };
 
 /**
