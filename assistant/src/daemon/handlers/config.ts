@@ -14,7 +14,6 @@
  *   config-twilio.ts      — Twilio SMS/voice configuration
  *   config-channels.ts    — Channel guardian & readiness
  *   config-tools.ts       — Env vars, tool permission simulation, tool names
- *   config-parental.ts    — Parental control PIN + content/tool restrictions
  */
 
 // Re-export individual handlers for direct import by tests and other modules
@@ -23,7 +22,6 @@ export { handleHeartbeatChecklistRead, handleHeartbeatChecklistWrite,handleHeart
 export { computeGatewayTarget, handleIngressConfig, syncTwilioWebhooks,triggerGatewayReconcile } from './config-ingress.js';
 export { handleTwitterIntegrationConfig,handleVercelApiConfig } from './config-integrations.js';
 export { handleImageGenModelSet,handleModelGet, handleModelSet } from './config-model.js';
-export { handleParentalControlGet, handleParentalControlSetPin, handleParentalControlUpdate,handleParentalControlVerifyPin } from './config-parental.js';
 export { handlePlatformConfig } from './config-platform.js';
 export { handleReminderCancel,handleRemindersList, handleScheduleRemove, handleScheduleRunNow, handleSchedulesList, handleScheduleToggle } from './config-scheduling.js';
 export { handleShareToSlack, handleSlackWebhookConfig } from './config-slack.js';
@@ -39,7 +37,6 @@ import { heartbeatHandlers } from './config-heartbeat.js';
 import { ingressHandlers } from './config-ingress.js';
 import { integrationHandlers } from './config-integrations.js';
 import { modelHandlers } from './config-model.js';
-import { parentalControlHandlers } from './config-parental.js';
 import { platformHandlers } from './config-platform.js';
 import { schedulingHandlers } from './config-scheduling.js';
 import { slackHandlers } from './config-slack.js';
@@ -61,7 +58,6 @@ export const configHandlers = {
   ...twilioHandlers,
   ...channelHandlers,
   ...toolHandlers,
-  ...parentalControlHandlers,
   ...heartbeatHandlers,
   ...voiceHandlers,
 };

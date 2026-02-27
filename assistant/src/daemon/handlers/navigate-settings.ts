@@ -13,7 +13,6 @@ export const SETTINGS_TABS = [
   'Wake Word',
   'Appearance',
   'Advanced',
-  'Parental',
 ] as const;
 
 export type SettingsTabId = (typeof SETTINGS_TABS)[number];

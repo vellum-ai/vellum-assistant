@@ -73,10 +73,6 @@ mock.module('../config/user-reference.js', () => ({
   resolveUserReference: () => 'TestUser',
 }));
 
-mock.module('../security/parental-control-store.js', () => ({
-  getParentalControlSettings: () => ({ enabled: false, contentRestrictions: [], blockedToolCategories: [] }),
-}));
-
 mock.module('../tools/credentials/metadata-store.js', () => ({
   listCredentialMetadata: () => [],
 }));

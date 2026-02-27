@@ -29,11 +29,6 @@ mock.module('../util/logger.js', () => ({
   truncateForLog: (value: string) => value,
 }));
 
-// Mock parental controls — no tools blocked by default
-mock.module('../security/parental-control-store.js', () => ({
-  isToolBlocked: () => false,
-}));
-
 // Mock guardian control-plane policy — not targeting control-plane by default
 mock.module('../tools/guardian-control-plane-policy.js', () => ({
   enforceGuardianOnlyPolicy: () => ({ denied: false }),

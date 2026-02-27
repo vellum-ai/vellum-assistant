@@ -25,7 +25,6 @@ export * from './ipc-contract/memory.js';
 export * from './ipc-contract/messages.js';
 export * from './ipc-contract/notifications.js';
 export * from './ipc-contract/pairing.js';
-export * from './ipc-contract/parental-control.js';
 export * from './ipc-contract/schedules.js';
 export * from './ipc-contract/sessions.js';
 export * from './ipc-contract/settings.js';
@@ -50,7 +49,6 @@ import type { _MemoryServerMessages } from './ipc-contract/memory.js';
 import type { _MessagesClientMessages, _MessagesServerMessages } from './ipc-contract/messages.js';
 import type { _NotificationsClientMessages, _NotificationsServerMessages } from './ipc-contract/notifications.js';
 import type { _PairingClientMessages, _PairingServerMessages } from './ipc-contract/pairing.js';
-import type { _ParentalControlClientMessages, _ParentalControlServerMessages } from './ipc-contract/parental-control.js';
 import type { _SchedulesClientMessages, _SchedulesServerMessages } from './ipc-contract/schedules.js';
 import type { _SessionsClientMessages, _SessionsServerMessages } from './ipc-contract/sessions.js';
 import type { _SettingsClientMessages, _SettingsServerMessages } from './ipc-contract/settings.js';
@@ -89,7 +87,6 @@ export type ClientMessage =
   | _WorkspaceClientMessages
   | _SchedulesClientMessages
   | _DiagnosticsClientMessages
-  | _ParentalControlClientMessages
   | _InboxClientMessages
   | _PairingClientMessages
   | _NotificationsClientMessages
@@ -116,7 +113,6 @@ export type ServerMessage =
   | _SchedulesServerMessages
   | _SettingsServerMessages
   | _DiagnosticsServerMessages
-  | _ParentalControlServerMessages
   | _InboxServerMessages
   | _PairingServerMessages
   | _NotificationsServerMessages

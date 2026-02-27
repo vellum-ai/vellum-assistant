@@ -1,5 +1,4 @@
 import { consumeGrantForInvocation } from '../approvals/approval-primitive.js';
-import { isToolBlocked } from '../security/parental-control-store.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 import { getLogger } from '../util/logger.js';
@@ -40,8 +39,8 @@ export type PreExecutionGateResult =
   | { allowed: false; result: ToolExecutionResult };
 
 /**
- * Handles pre-execution approval gates: abort checks, parental controls,
- * guardian policy, allowed-tool-set gating, and task-run preflight checks.
+ * Handles pre-execution approval gates: abort checks, guardian policy,
+ * allowed-tool-set gating, and task-run preflight checks.
  * These run before the interactive permission prompt flow.
  */
 export class ToolApprovalHandler {
@@ -79,36 +78,6 @@ export class ToolApprovalHandler {
         errorCategory: 'tool_failure',
       });
       return { allowed: false, result: { content: 'Cancelled', isError: true } };
-    }
-
-    // Reject tools blocked by parental control settings before any permission check.
-    if (isToolBlocked(name)) {
-      log.warn(
-        {
-          toolName: name,
-          sessionId: context.sessionId,
-          conversationId: context.conversationId,
-          principal: context.principal,
-          reason: 'blocked_by_parental_controls',
-        },
-        'Parental control blocked tool invocation',
-      );
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: 'permission_denied',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'deny',
-        reason: 'Blocked by parental control settings',
-        durationMs,
-      });
-      return { allowed: false, result: { content: 'This tool is blocked by parental control settings.', isError: true } };
     }
 
     // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.
