@@ -180,7 +180,6 @@ struct SettingsAccountTab: View {
                 Text("Platform")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
-                Spacer()
                 if store.isCheckingVellumPlatform {
                     ProgressView().controlSize(.small)
                 } else if let reachable = store.vellumPlatformReachable {
