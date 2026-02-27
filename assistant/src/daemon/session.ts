@@ -134,6 +134,7 @@ export class Session {
   /** @internal */ hasNoClient = false;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
+  /** @internal */ callSessionId?: string;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
