@@ -310,18 +310,20 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         // Clear ordering state before archiving so stale is_pinned/display_order
         // values don't affect DB pagination (which sorts by is_pinned DESC).
+        // Send the update BEFORE setting isArchived, because sendReorderThreads()
+        // only serializes visibleThreads (non-archived).
         let wasPinned = threads[index].isPinned
         let hadOrder = threads[index].displayOrder != nil
         threads[index].isPinned = false
         threads[index].pinnedOrder = nil
         threads[index].displayOrder = nil
-        threads[index].isArchived = true
         if wasPinned {
             recompactPinnedOrders()
         }
         if wasPinned || hadOrder {
             sendReorderThreads()
         }
+        threads[index].isArchived = true
 
         if let sessionId = threads[index].sessionId {
             chatViewModels[id]?.stopGenerating()
