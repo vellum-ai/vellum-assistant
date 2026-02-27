@@ -4,12 +4,16 @@
  * - macOS: uses the `security` CLI to interact with Keychain
  * - Linux: uses `secret-tool` (libsecret) for GNOME/KDE keyrings
  *
- * All operations are synchronous to match the config loader's sync API.
+ * Sync variants (getKey, setKey, deleteKey) match the config loader's sync API.
+ * Async variants (getKeyAsync, setKeyAsync, deleteKeyAsync) avoid blocking
+ * the event loop and should be preferred for non-startup code paths.
+ *
  * Callers should check `isKeychainAvailable()` before use and fall back
  * to encrypted-at-rest storage when the keychain is not accessible.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 
 import { getLogger } from '../util/logger.js';
 import { isLinux,isMacOS } from '../util/platform.js';
@@ -246,6 +250,154 @@ function linuxDeleteKey(account: string): boolean {
       stdio: ['ignore', 'ignore', 'ignore'],
       timeout: 5000,
     });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Async variants — non-blocking alternatives to the sync functions above.
+// Preferred for non-startup code paths to avoid blocking the event loop.
+// ---------------------------------------------------------------------------
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Async version of `getKey` — retrieve a secret without blocking the event loop.
+ * Returns `null` if the key doesn't exist.
+ * Throws on runtime errors (keychain unavailable, locked, etc.).
+ */
+export async function getKeyAsync(account: string): Promise<string | null> {
+  if (deps.isMacOS()) return macosGetKeyAsync(account);
+  if (deps.isLinux()) return linuxGetKeyAsync(account);
+  return null;
+}
+
+/**
+ * Async version of `setKey` — store a secret without blocking the event loop.
+ * Returns true on success, false on failure.
+ */
+export async function setKeyAsync(account: string, value: string): Promise<boolean> {
+  try {
+    if (deps.isMacOS()) return await macosSetKeyAsync(account, value);
+    if (deps.isLinux()) return await linuxSetKeyAsync(account, value);
+    return false;
+  } catch (err) {
+    log.warn({ err, account }, 'Failed to write to keychain');
+    return false;
+  }
+}
+
+/**
+ * Async version of `deleteKey` — delete a secret without blocking the event loop.
+ * Returns true on success, false if not found or on failure.
+ */
+export async function deleteKeyAsync(account: string): Promise<boolean> {
+  try {
+    if (deps.isMacOS()) return await macosDeleteKeyAsync(account);
+    if (deps.isLinux()) return await linuxDeleteKeyAsync(account);
+    return false;
+  } catch (err) {
+    log.debug({ err, account }, 'Failed to delete from keychain');
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Async macOS Keychain
+// ---------------------------------------------------------------------------
+
+async function macosGetKeyAsync(account: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('security', [
+      'find-generic-password',
+      '-s', SERVICE_NAME,
+      '-a', account,
+      '-w',
+    ], { timeout: 5000 });
+    return stdout.replace(/\n$/, '') || null;
+  } catch (err: unknown) {
+    // Exit code 44 = item not found — return null.
+    if (err && typeof err === 'object' && 'code' in err && (err as { code: number }).code === 44) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+async function macosSetKeyAsync(account: string, value: string): Promise<boolean> {
+  try {
+    await execFileAsync('security', [
+      'add-generic-password',
+      '-s', SERVICE_NAME,
+      '-a', account,
+      '-w', value,
+      '-U',
+    ], { timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function macosDeleteKeyAsync(account: string): Promise<boolean> {
+  try {
+    await execFileAsync('security', [
+      'delete-generic-password',
+      '-s', SERVICE_NAME,
+      '-a', account,
+    ], { timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Async Linux via `secret-tool`
+// ---------------------------------------------------------------------------
+
+async function linuxGetKeyAsync(account: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('secret-tool', [
+      'lookup',
+      'service', SERVICE_NAME,
+      'account', account,
+    ], { timeout: 5000 });
+    return stdout.replace(/\n$/, '') || null;
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'code' in err && (err as { code: number }).code === 1) {
+      const stderr = String((err as { stderr?: unknown }).stderr ?? '').trim();
+      if (stderr.length > 0) throw err;
+      return null;
+    }
+    throw err;
+  }
+}
+
+async function linuxSetKeyAsync(account: string, value: string): Promise<boolean> {
+  // secret-tool reads the secret from stdin
+  return new Promise<boolean>((resolve) => {
+    const child = execFile('secret-tool', [
+      'store',
+      '--label', `${SERVICE_NAME}: ${account}`,
+      'service', SERVICE_NAME,
+      'account', account,
+    ], { timeout: 5000 }, (err) => {
+      resolve(!err);
+    });
+    child.stdin?.end(value);
+  });
+}
+
+async function linuxDeleteKeyAsync(account: string): Promise<boolean> {
+  try {
+    await execFileAsync('secret-tool', [
+      'clear',
+      'service', SERVICE_NAME,
+      'account', account,
+    ], { timeout: 5000 });
     return true;
   } catch {
     return false;

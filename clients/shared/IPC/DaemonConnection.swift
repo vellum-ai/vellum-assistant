@@ -72,6 +72,7 @@ extension DaemonClient {
                     // letting NWConnection hang until the connect timeout (ETIMEDOUT).
                     log.warning("Daemon socket not found at \(path, privacy: .public)")
                     isConnecting = false
+                    NotificationCenter.default.post(name: .daemonSocketNotFound, object: self)
                     throw NWError.posix(.ENOENT)
                 }
             }

@@ -73,6 +73,7 @@ final class AssistantCli {
     var onDaemonRestarted: (() -> Void)?
 
     private var healthCheckTask: Task<Void, Never>?
+    private var socketNotFoundObserver: NSObjectProtocol?
 
     /// Set to `true` during an intentional stop to prevent the health monitor
     /// from restarting the daemon.
@@ -317,12 +318,31 @@ final class AssistantCli {
                 }
             }
         }
+
+        // Trigger an immediate restart when the client detects the socket is
+        // missing (ENOENT) instead of waiting for the next 5-second health check.
+        socketNotFoundObserver = NotificationCenter.default.addObserver(
+            forName: .daemonSocketNotFound,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isStopping else { return }
+                guard self.isDaemonAlive() == false else { return }
+                log.warning("Socket not found notification — attempting immediate restart")
+                await self.restartDaemon()
+            }
+        }
     }
 
     /// Stop the health monitor.
     func stopMonitoring() {
         healthCheckTask?.cancel()
         healthCheckTask = nil
+        if let observer = socketNotFoundObserver {
+            NotificationCenter.default.removeObserver(observer)
+            socketNotFoundObserver = nil
+        }
     }
 
     // MARK: - Remote Hatch (pass-through to CLI)
