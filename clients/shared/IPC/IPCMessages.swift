@@ -2340,6 +2340,7 @@ public enum ServerMessage: Decodable, Sendable {
     case heartbeatChecklistWriteResponse(IPCHeartbeatChecklistWriteResponse)
     case messageContentResponse(IPCMessageContentResponse)
     case tokenRotated(TokenRotatedMessage)
+    case identityChanged(IPCIdentityChanged)
     case pong
     case unknown(String)
 
@@ -2781,6 +2782,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "token_rotated":
             let message = try TokenRotatedMessage(from: decoder)
             self = .tokenRotated(message)
+        case "identity_changed":
+            let message = try IPCIdentityChanged(from: decoder)
+            self = .identityChanged(message)
         case "pong":
             self = .pong
         default:

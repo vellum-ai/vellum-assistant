@@ -24,8 +24,8 @@ import { getGatewayInternalBaseUrl } from '../config/env.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import {
   finalizeFollowup,
-  getGuardianActionRequest,
   type FollowupAction,
+  getGuardianActionRequest,
   type GuardianActionRequest,
 } from '../memory/guardian-action-store.js';
 import { getLogger } from '../util/logger.js';

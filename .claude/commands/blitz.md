@@ -23,6 +23,17 @@ Read and follow `.claude/phases/repo-gotchas.md`. Include these gotchas in every
 
 Read and follow `.claude/phases/project-setup.md`.
 
+### Register active blitz
+
+Register this blitz run in `.private/ACTIVE_BLITZ.md` so that standalone `/check-reviews` runs (without `--namespace`) will automatically skip PRs owned by this blitz. This prevents duplicate work when check-reviews runs as a periodic cronjob while this blitz is active.
+
+1. Read `.private/ACTIVE_BLITZ.md` (create it if it doesn't exist). This file is gitignored.
+2. Remove any existing line starting with `<namespace> ` (in case of a stale entry from a previous crashed run).
+3. Append a new entry:
+   ```bash
+   echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md
+   ```
+
 ## Phase 2: Plan & Spec
 
 Read and follow `.claude/phases/plan-and-spec.md`. For blitz mode, remove the `<EXTRA_EPIC_FIELDS>` placeholder entirely (no feature branch field).
@@ -253,6 +264,14 @@ After all PRs are merged, proceed to Phase 5.
 
 ## Phase 5: Recursive Sweep
 
+**Update the blitz heartbeat** at the start of each sweep loop iteration to prevent the entry from going stale. Replace the line starting with `<namespace> ` in `.private/ACTIVE_BLITZ.md` with a fresh timestamp:
+```bash
+# Read, filter out old entry, append fresh entry
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
+echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
+mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+```
+
 Read and follow `.claude/phases/sweep.md`. When it says "back to the Swarm phase", return to Phase 4 above (with the same `--skip-reviews` behavior). When it says "final phase", proceed to Phase 6.
 
 This phase runs a recursive loop: check reviews → swarm to address feedback → review and merge feedback PRs → check reviews on the merged feedback PRs → repeat. PRs created to address feedback are themselves tracked in UNREVIEWED_PRS.md and must be reviewed before the blitz is considered done. The blitz only exits the sweep when there are no namespaced TODO items AND no namespaced PRs pending review.
@@ -262,6 +281,15 @@ This phase runs a recursive loop: check reviews → swarm to address feedback �
 **When `--skip-reviews` is set**: Feedback PRs are merged immediately by swarm agents (current behavior). The sweep continues as before.
 
 ## Phase 6: Report
+
+### Deregister active blitz
+
+Remove this blitz's entry from `.private/ACTIVE_BLITZ.md`:
+```bash
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
+mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+```
+If the file is now empty (only blank lines), delete it: `rm -f .private/ACTIVE_BLITZ.md`
 
 1. Update the project-level issue status to "Done" and close it:
 

@@ -32,7 +32,7 @@ export const voiceConfigUpdateTool: Tool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    _context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const rawKey = input.activation_key;
     if (typeof rawKey !== 'string' || rawKey.trim() === '') {

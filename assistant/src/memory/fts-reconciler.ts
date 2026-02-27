@@ -84,6 +84,7 @@ function reconcileTable(opts: {
  */
 export function reconcileFtsIndexes(): FtsReconciliationResult[] {
   const results: FtsReconciliationResult[] = [];
+  const errors: unknown[] = [];
 
   // memory_segment_fts tracks memory_segments
   try {
@@ -103,6 +104,7 @@ export function reconcileFtsIndexes(): FtsReconciliationResult[] {
     }
   } catch (err) {
     log.error({ err }, 'Failed to reconcile memory_segment_fts');
+    errors.push(err);
   }
 
   // messages_fts tracks messages
@@ -123,6 +125,11 @@ export function reconcileFtsIndexes(): FtsReconciliationResult[] {
     }
   } catch (err) {
     log.error({ err }, 'Failed to reconcile messages_fts');
+    errors.push(err);
+  }
+
+  if (errors.length > 0) {
+    throw new AggregateError(errors, `FTS reconciliation failed for ${errors.length} table(s)`);
   }
 
   return results;

@@ -1116,6 +1116,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             AvatarAppearanceManager.shared.reloadAvatar()
         }
 
+        daemonClient.onIdentityChanged = { msg in
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .identityChanged,
+                    object: nil,
+                    userInfo: [
+                        "name": msg.name,
+                        "role": msg.role,
+                        "personality": msg.personality,
+                        "emoji": msg.emoji,
+                        "home": msg.home
+                    ]
+                )
+            }
+        }
+
         // Restart DaemonClient connection when the health monitor relaunches
         // the daemon process so we don't wait for the backoff timer to expire.
         assistantCli.onDaemonRestarted = { [weak self] in
@@ -1899,7 +1915,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.voiceInput?.restartKeyMonitors()
+            Task { @MainActor in
+                self?.voiceInput?.restartKeyMonitors()
+            }
         }
     }
 
@@ -1961,12 +1979,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
 
-            // Persist the assistant name in case it was changed during replay.
-            let trimmedName = state.assistantName.trimmingCharacters(in: .whitespaces)
-            if !trimmedName.isEmpty {
-                UserDefaults.standard.set(trimmedName, forKey: "assistantName")
-            }
-
             onboarding.close()
             self?.onboardingWindow = nil
 
@@ -1995,13 +2007,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
-
-            // Persist the assistant name chosen during onboarding so the
-            // wake-up greeting can use it (IDENTITY.md may not be written yet).
-            let trimmedName = state.assistantName.trimmingCharacters(in: .whitespaces)
-            if !trimmedName.isEmpty {
-                UserDefaults.standard.set(trimmedName, forKey: "assistantName")
-            }
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -2206,7 +2211,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     /// Opens the settings panel and navigates to a specific tab.
     public func showSettingsTab(_ tab: String) {
-        if let settingsTab = SettingsTab(rawValue: tab) {
+        if let settingsTab = SettingsTab.fromLegacyRawValue(tab, isDevMode: services.settingsStore.isDevMode) {
             services.settingsStore.pendingSettingsTab = settingsTab
         }
         showSettingsWindow(nil)

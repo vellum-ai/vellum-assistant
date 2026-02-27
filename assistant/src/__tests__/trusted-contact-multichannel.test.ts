@@ -77,16 +77,13 @@ import {
   createBinding,
   findPendingAccessRequestForRequester,
 } from '../memory/channel-guardian-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { findMember, upsertMember } from '../memory/ingress-member-store.js';
 import {
   createOutboundSession,
   validateAndConsumeChallenge,
 } from '../runtime/channel-guardian-service.js';
-import { findMember, upsertMember } from '../memory/ingress-member-store.js';
-import { initializeDb, resetDb } from '../memory/db.js';
 import { handleChannelInbound } from '../runtime/routes/channel-routes.js';
-import {
-  handleAccessRequestDecision,
-} from '../runtime/routes/access-request-decision.js';
 
 initializeDb();
 
@@ -102,7 +99,6 @@ afterAll(() => {
 const TEST_BEARER_TOKEN = 'test-token';
 
 function resetState(): void {
-  const { getDb } = require('../memory/db.js');
   const db = getDb();
   db.run('DELETE FROM channel_guardian_approval_requests');
   db.run('DELETE FROM channel_guardian_bindings');

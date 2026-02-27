@@ -30,7 +30,7 @@ final class OnboardingState {
     private static let currentFlowVersion = 8
 
     var currentStep: Int = 0
-    var assistantName: String = "Velly"
+    var assistantName: String = ""
     var chosenKey: ActivationKey = .fn
     var speechGranted: Bool = false
     var accessibilityGranted: Bool = false
@@ -113,7 +113,7 @@ final class OnboardingState {
             } else {
                 currentStep = saved
             }
-            assistantName = UserDefaults.standard.string(forKey: "onboarding.name") ?? "Velly"
+            assistantName = UserDefaults.standard.string(forKey: "onboarding.name") ?? ""
             if let raw = UserDefaults.standard.string(forKey: "onboarding.key"),
                let key = ActivationKey(rawValue: raw) {
                 chosenKey = key

@@ -280,6 +280,8 @@ extension DaemonClient {
             onClientSettingsUpdate?(msg)
         case .avatarUpdated(let msg):
             onAvatarUpdated?(msg)
+        case .identityChanged(let msg):
+            onIdentityChanged?(msg)
         default:
             break
         }

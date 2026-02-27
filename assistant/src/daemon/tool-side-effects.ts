@@ -9,12 +9,12 @@
 
 import { join } from 'node:path';
 
-import { normalizeActivationKey } from './handlers/config-voice.js';
 import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
 import { openAppViaSurface } from '../tools/apps/open-proxy.js';
 import type { ToolExecutionResult } from '../tools/types.js';
 import { getWorkspaceDir } from '../util/platform.js';
 import { isDoordashCommand, updateDoordashProgress } from './doordash-steps.js';
+import { normalizeActivationKey } from './handlers/config-voice.js';
 import type { ServerMessage } from './ipc-protocol.js';
 import {
   refreshSurfacesForApp,

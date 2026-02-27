@@ -19,7 +19,7 @@ import { getLogger } from '../util/logger.js';
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal, RoutingIntent } from './signal.js';
-import { type ThreadCandidateSet, buildThreadCandidates, serializeCandidatesForPrompt } from './thread-candidates.js';
+import { buildThreadCandidates, serializeCandidatesForPrompt,type ThreadCandidateSet } from './thread-candidates.js';
 import type { NotificationChannel, NotificationDecision, RenderedChannelCopy, ThreadAction } from './types.js';
 
 const log = getLogger('notification-decision-engine');

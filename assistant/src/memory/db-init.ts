@@ -17,15 +17,16 @@ import {
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
   migrateCallSessionMode,
-  migrateFkCascadeRebuilds,
   migrateChannelInboundDeliveredSegments,
   migrateConversationsThreadTypeIndex,
+  migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
-  migrateGuardianDeliveryConversationIndex,
   migrateGuardianBootstrapToken,
+  migrateGuardianDeliveryConversationIndex,
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
+  migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
   migrateSchemaIndexesAndColumns,
   recoverCrashedMigrations,
@@ -128,6 +129,9 @@ export function initializeDb(): void {
 
   // 21. Rebuild tables to add ON DELETE CASCADE to FK constraints
   migrateFkCascadeRebuilds(database);
+
+  // 22. Thread decision audit columns on notification_deliveries
+  migrateNotificationDeliveryThreadDecision(database);
 
   validateMigrationState(database);
 }

@@ -85,14 +85,12 @@ mock.module('../runtime/approval-message-composer.js', () => ({
 import {
   createApprovalRequest,
   createBinding,
-  findPendingAccessRequestForRequester,
-  getAllPendingApprovalsByGuardianChat,
 } from '../memory/channel-guardian-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { findMember, upsertMember } from '../memory/ingress-member-store.js';
 import {
   createOutboundSession,
 } from '../runtime/channel-guardian-service.js';
-import { findMember, upsertMember } from '../memory/ingress-member-store.js';
-import { initializeDb, resetDb } from '../memory/db.js';
 import { handleChannelInbound } from '../runtime/routes/channel-routes.js';
 
 initializeDb();
@@ -110,7 +108,6 @@ const TEST_BEARER_TOKEN = 'test-token';
 const GUARDIAN_APPROVAL_TTL_MS = 5 * 60 * 1000;
 
 function resetState(): void {
-  const { getDb } = require('../memory/db.js');
   const db = getDb();
   db.run('DELETE FROM channel_guardian_approval_requests');
   db.run('DELETE FROM channel_guardian_bindings');
@@ -177,7 +174,7 @@ describe('trusted contact lifecycle notification signals', () => {
     const testRequestId = `req-deny-${Date.now()}`;
 
     // Create a pending access request approval
-    const approval = createApprovalRequest({
+    const _approval = createApprovalRequest({
       runId: `ingress-access-request-${Date.now()}`,
       requestId: testRequestId,
       conversationId: 'access-req-telegram-requester-user-456',
@@ -252,7 +249,7 @@ describe('trusted contact lifecycle notification signals', () => {
     const testRequestId = `req-approve-${Date.now()}`;
 
     // Create a pending access request approval
-    const approval = createApprovalRequest({
+    const _approval = createApprovalRequest({
       runId: `ingress-access-request-${Date.now()}`,
       requestId: testRequestId,
       conversationId: 'access-req-telegram-requester-user-456',
@@ -426,6 +423,7 @@ describe('trusted contact activated notification signal', () => {
 
   test('guardian verification does NOT emit activated signal', async () => {
     // Create an inbound challenge (guardian flow, not trusted contact)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createVerificationChallenge } = require('../runtime/channel-guardian-service.js');
     const { secret } = createVerificationChallenge('self', 'telegram');
 

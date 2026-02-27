@@ -706,7 +706,7 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 | `/brainstorm` | Deep-read the codebase, generate a prioritized list of improvements, and update `.private/TODO.md` after approval. |
 | `/swarm [workers] [max-tasks] [--namespace NAME]` | Parallel execution — spawns a pool of agents (default: 12 workers) that work through `.private/TODO.md` concurrently, each in its own worktree. Uses `--namespace` to prefix branch names and avoid collisions with other parallel swarms (auto-generates a random 4-char hex if omitted). When `--namespace` is explicitly provided, only TODO items prefixed with `[<namespace>]` are processed; when auto-generated, all items are processed. PRs are auto-assigned to the current user. |
 | `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, then gates each PR on Codex/Devin review approval before merging (per-PR feedback loops with up to 3 fix cycles). Runs a **recursive sweep loop** (check reviews, swarm to address feedback, review and merge feedback PRs, repeat) until all PRs — including transitive feedback PRs — are fully reviewed with no remaining action items. Merges directly to main. Supports `--auto`, `--workers N`, `--skip-plan`, `--skip-reviews`. Pass `--skip-reviews` to merge PRs immediately without waiting for reviews (opt-in; default is to wait). Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. |
-| `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, executes milestones sequentially with per-milestone **direct-push feedback loops** (check reviews, push fixes directly to the milestone branch, re-request reviews, repeat until clean or 3 cycles), then runs a final sweep on the entire feature branch. All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
+| `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, executes milestones sequentially with per-milestone **direct-push feedback loops** (check reviews, push fixes directly to the milestone branch, re-request reviews, repeat until clean or 3 cycles), then automatically runs a final sweep on the entire feature branch (no user approval prompt). All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--workers N`, `--skip-plan`, `--branch NAME`. |
 | `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merges the feature branch PR into main, sets the project issue to Done, closes the issue, and deletes the local branch. Auto-detects the PR from current branch, open `feature/*` PRs, or project board "In Review" items. |
 | `/execute-plan <file>` | Sequential multi-PR rollout — reads a plan file from `.private/plans/`, executes each PR in order, mainlining each before moving to the next. |
 | `/check-reviews-and-swarm [workers] [max-tasks] [--namespace NAME]` | Combined review sweep + execution pass — runs review checks, then swarms on actionable feedback items. When `--namespace` is provided, it is passed to both `/check-reviews` (to filter PRs and prefix TODO items) and `/swarm` (to filter TODO items and namespace branches). When omitted, `/check-reviews` still infers namespaces from PR branch names matching `swarm/<NAME>/...`. |
@@ -717,16 +717,17 @@ A three-command workflow for executing plans one PR at a time with human review 
 
 | Command | Purpose |
 |---------|---------|
-| `/safe-execute-plan <file>` | Start a plan from `.private/plans/` — implements the first PR, creates it (without merging), and stops to wait for review. |
+| `/safe-execute-plan <file>` | Start a plan from `.private/plans/` — implements the next PR, creates it (without merging), automatically runs an **automated review feedback loop** (up to 3 fix cycles with Codex/Devin), and stops to await human merge approval. |
 | `/safe-check-review [file]` | Check the active plan PR for feedback from codex/devin/humans. Addresses requested changes by pushing fixes. Waits if reviews are still pending — only recommends merging once all reviewers have responded. Auto-detects the plan if only one is active. |
 | `/resume-plan [file]` | Merge the current PR, implement the next one, create it, and stop again. Repeats until the plan is complete. Auto-detects the plan if only one is active. |
 
 **Typical flow:**
 
-1. **`/safe-execute-plan MY_PLAN.md`** — starts the plan, creates PR 1, stops
-2. **`/safe-check-review MY_PLAN.md`** — run periodically; waits for pending reviews, addresses feedback, or gives the all-clear to merge
-3. **`/resume-plan MY_PLAN.md`** — merge PR 1, create PR 2, stop (only after `/safe-check-review` confirms all reviews are in)
-4. Repeat steps 2–3 until the plan is complete
+1. **`/safe-execute-plan MY_PLAN.md`** — starts the plan, creates PR 1, automatically handles Codex/Devin review feedback (up to 3 cycles), then stops
+2. **`/resume-plan MY_PLAN.md`** — merge PR 1 (automated reviews already complete), create PR 2, stop
+3. Repeat step 2 until the plan is complete
+
+The automated review loop in `/safe-execute-plan` triggers Codex and Devin reviews, waits for their feedback (up to 15 minutes for initial reviews, 10 minutes for subsequent cycles), addresses any `changes_requested` feedback by pushing fixes directly to the PR branch, and re-requests reviews — repeating up to 3 cycles before handing off to you.
 
 Multiple plans can run in parallel — just specify the plan name to disambiguate.
 
@@ -754,7 +755,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 
 Or for a focused feature: **`/blitz <feature>`** handles all of the above in one shot (plan, issues, swarm, sweep, report). Use **`/safe-blitz <feature>`** for the same workflow but with a feature branch and a final PR for manual review, then **`/safe-blitz-done`** to merge it when ready.
 
-For controlled, sequential plan execution with human review at every step: **`/safe-execute-plan <file>`** → **`/safe-check-review`** → **`/resume-plan`** → repeat.
+For controlled, sequential plan execution with automated bot reviews and human merge approval: **`/safe-execute-plan <file>`** (creates PR + auto-handles Codex/Devin feedback) → **`/resume-plan`** → repeat.
 
 All workflows use squash-merge (no merge commits), worktree isolation for parallel work, and track state in `.private/TODO.md` and `.private/UNREVIEWED_PRS.md`.
 

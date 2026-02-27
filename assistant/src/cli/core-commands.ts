@@ -109,13 +109,53 @@ export function registerDevCommand(program: Command): void {
     .command('dev')
     .description('Run the daemon in dev mode with auto-restart on file changes')
     .action(async () => {
-      const status = await getDaemonStatus();
-      if (status.running || status.pid) {
+      let status = await getDaemonStatus();
+      if (status.running) {
         log.info('Stopping existing daemon...');
         const stopResult = await stopDaemon();
         if (!stopResult.stopped && stopResult.reason === 'stop_failed') {
           log.error('Failed to stop existing daemon — process survived SIGKILL');
           process.exit(1);
+        }
+      } else if (status.pid) {
+        // PID file references a live process but the socket is unresponsive.
+        // This can happen during the daemon startup window before the socket
+        // is bound. Wait briefly for it to come up before replacing.
+        log.info('Daemon process alive but socket unresponsive — waiting for startup...');
+        const maxWait = 5000;
+        const interval = 500;
+        let waited = 0;
+        let resolved = false;
+        while (waited < maxWait) {
+          await new Promise((r) => setTimeout(r, interval));
+          waited += interval;
+          status = await getDaemonStatus();
+          if (status.running) {
+            // Socket came up — stop the daemon normally.
+            log.info('Daemon became responsive, stopping it...');
+            const stopResult = await stopDaemon();
+            if (!stopResult.stopped && stopResult.reason === 'stop_failed') {
+              log.error('Failed to stop existing daemon — process survived SIGKILL');
+              process.exit(1);
+            }
+            resolved = true;
+            break;
+          }
+          if (!status.pid) {
+            // Process exited on its own — PID file already cleaned up.
+            resolved = true;
+            break;
+          }
+        }
+        if (!resolved) {
+          // Still alive but unresponsive after waiting — stop it via stopDaemon()
+          // which handles SIGTERM → SIGKILL escalation and PID file cleanup.
+          log.info('Daemon still unresponsive after wait — stopping it...');
+          const stopResult = await stopDaemon();
+          if (!stopResult.stopped && stopResult.reason === 'stop_failed') {
+            log.error('Failed to stop existing daemon — process survived SIGKILL');
+            process.exit(1);
+          }
         }
       }
 

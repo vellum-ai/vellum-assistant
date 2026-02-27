@@ -2,7 +2,7 @@ import { inArray } from 'drizzle-orm';
 
 import { getLogger } from '../../util/logger.js';
 import { getDb } from '../db.js';
-import { withQdrantBreaker, _resetQdrantBreaker, _getQdrantBreakerState } from '../qdrant-circuit-breaker.js';
+import { _getQdrantBreakerState,_resetQdrantBreaker, withQdrantBreaker } from '../qdrant-circuit-breaker.js';
 import type { QdrantSearchResult } from '../qdrant-client.js';
 import { getQdrantClient } from '../qdrant-client.js';
 import {
@@ -14,10 +14,10 @@ import {
 import { computeRecencyScore } from './ranking.js';
 import type { Candidate } from './types.js';
 
-const log = getLogger('semantic-search');
+const _log = getLogger('semantic-search');
 
 // Re-export for tests that depend on these from this module
-export { _resetQdrantBreaker, _getQdrantBreakerState };
+export { _getQdrantBreakerState,_resetQdrantBreaker };
 
 export async function semanticSearch(
   queryVector: number[],

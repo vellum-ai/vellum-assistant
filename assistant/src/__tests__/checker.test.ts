@@ -2755,7 +2755,7 @@ describe('Permission Checker', () => {
         const templates = getDefaultRuleTemplates();
         expect(Array.isArray(templates)).toBe(true);
         expect(templates.some((t) => t.id.includes('extra-'))).toBe(false);
-        expect(templates.some((t) => t.id === 'default:allow-bash-global')).toBe(false);
+        expect(templates.some((t) => t.id === 'default:allow-bash-global')).toBe(true);
       } finally {
         testConfig.skills = originalSkills;
         testConfig.sandbox = originalSandbox;

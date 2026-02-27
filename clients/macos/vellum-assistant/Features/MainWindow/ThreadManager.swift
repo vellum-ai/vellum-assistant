@@ -201,6 +201,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         let thread = ThreadModel(title: title, sessionId: conversationId)
         let viewModel = makeViewModel()
         viewModel.sessionId = conversationId
+        // Mark history as loaded since this thread streams live — there is no
+        // prior history to fetch. Without this, handleAssistantMessageArrival
+        // would drop all live updates (unseen indicators, recency bumps) because
+        // the !isHistoryLoaded guard returns early.
+        viewModel.isHistoryLoaded = true
         // Start the message loop so the view model receives streamed messages
         viewModel.startMessageLoop()
 
@@ -228,6 +233,16 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         thread.hasUnseenLatestAssistantMessage = true
         let viewModel = makeViewModel()
         viewModel.sessionId = conversationId
+        // Do NOT set isHistoryLoaded here — notification threads have a
+        // pre-existing seed message persisted by conversation-pairing before
+        // the notification_thread_created event is emitted. Leaving
+        // isHistoryLoaded false allows ThreadSessionRestorer.loadHistoryIfNeeded
+        // to fetch that seed message when the thread is first selected.
+        // The handleAssistantMessageArrival guard dropping updates is correct
+        // for notification threads because their content arrives via history
+        // load, not live streaming. Unread state is already set explicitly
+        // above (hasUnseenLatestAssistantMessage = true).
+
         // Start the message loop so the view model receives streamed messages
         viewModel.startMessageLoop()
 

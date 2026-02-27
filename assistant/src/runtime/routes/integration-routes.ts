@@ -26,7 +26,6 @@ import {
   createGuardianChallenge,
   getGuardianStatus,
 } from '../../daemon/handlers/config-channels.js';
-import { httpError } from '../http-errors.js';
 import {
   clearSlackChannelConfig,
   getSlackChannelConfig,
@@ -39,14 +38,15 @@ import {
   setTelegramConfig,
   setupTelegram,
 } from '../../daemon/handlers/config-telegram.js';
+import { normalizePhoneNumber } from '../../util/phone.js';
 import {
   cancelOutbound,
   normalizeTelegramDestination,
   resendOutbound,
   startOutbound,
 } from '../guardian-outbound-actions.js';
+import { httpError } from '../http-errors.js';
 import { guardianVerificationLimiter } from '../verification-rate-limiter.js';
-import { normalizePhoneNumber } from '../../util/phone.js';
 
 /**
  * GET /v1/integrations/telegram/config

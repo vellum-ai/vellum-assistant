@@ -85,7 +85,6 @@ import {
   handleGetAttachmentContent,
   handleUploadAttachment,
 } from './routes/attachment-routes.js';
-import { handleDebug } from './routes/debug-routes.js';
 import {
   handleAnswerCall,
   handleCancelCall,
@@ -116,8 +115,19 @@ import {
   handleSearchConversations,
   handleSendMessage,
 } from './routes/conversation-routes.js';
+import { handleDebug } from './routes/debug-routes.js';
 import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
 import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
+import {
+  handleBlockMember,
+  handleCreateInvite,
+  handleListInvites,
+  handleListMembers,
+  handleRedeemInvite,
+  handleRevokeInvite,
+  handleRevokeMember,
+  handleUpsertMember,
+} from './routes/ingress-routes.js';
 import {
   handleCancelOutbound,
   handleClearSlackChannelConfig,
@@ -140,16 +150,6 @@ import {
   handlePairingRequest,
   handlePairingStatus,
 } from './routes/pairing-routes.js';
-import {
-  handleBlockMember,
-  handleCreateInvite,
-  handleListInvites,
-  handleListMembers,
-  handleRedeemInvite,
-  handleRevokeInvite,
-  handleRevokeMember,
-  handleUpsertMember,
-} from './routes/ingress-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
 
 // Re-export for consumers

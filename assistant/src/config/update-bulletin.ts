@@ -1,8 +1,9 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 
+import { getWorkspacePromptPath } from '../util/platform.js';
+import { APP_VERSION } from '../version.js';
 import { stripCommentLines } from './system-prompt.js';
 import { appendReleaseBlock, hasReleaseBlock } from './update-bulletin-format.js';
-import { getTemplatePath } from './update-bulletin-template-path.js';
 import {
   addActiveRelease,
   getActiveReleases,
@@ -10,8 +11,7 @@ import {
   markReleasesCompleted,
   setActiveReleases,
 } from './update-bulletin-state.js';
-import { APP_VERSION } from '../version.js';
-import { getWorkspacePromptPath } from '../util/platform.js';
+import { getTemplatePath } from './update-bulletin-template-path.js';
 
 /**
  * Writes content to a file via a temp-file + rename to prevent partial/truncated
@@ -21,10 +21,21 @@ function atomicWriteFileSync(filePath: string, content: string): void {
   const tmpPath = `${filePath}.tmp.${process.pid}`;
   try {
     writeFileSync(tmpPath, content, 'utf-8');
-    // Resolve symlinks so we rename to the real target, preserving the link
-    const targetPath = lstatSync(filePath, { throwIfNoEntry: false })?.isSymbolicLink()
-      ? realpathSync(filePath)
-      : filePath;
+    // Resolve symlinks so we rename to the real target, preserving the link.
+    // If the symlink is dangling (target doesn't exist), fall back to writing
+    // through the symlink path directly — realpathSync throws ENOENT for dangling links.
+    let targetPath = filePath;
+    try {
+      if (lstatSync(filePath, { throwIfNoEntry: false })?.isSymbolicLink()) {
+        targetPath = realpathSync(filePath);
+      }
+    } catch (err: unknown) {
+      // Dangling symlink — fall back to writing through the symlink path.
+      // Only swallow ENOENT (dangling target); re-throw ELOOP, EACCES, I/O faults, etc.
+      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw err;
+      }
+    }
     renameSync(tmpPath, targetPath);
   } catch (err) {
     try {
