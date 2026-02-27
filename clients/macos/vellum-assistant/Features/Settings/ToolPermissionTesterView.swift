@@ -7,14 +7,15 @@ struct ToolPermissionTesterView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Permission Simulator")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Permission Simulator")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
 
-            Text("Test how a tool invocation would be evaluated by the permission system.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .textSelection(.enabled)
+                Text("Test how a tool invocation would be evaluated by the permission system.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
 
             formFields
 
@@ -33,41 +34,38 @@ struct ToolPermissionTesterView: View {
 
     @ViewBuilder
     private var formFields: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
             // Tool name
-            fieldLabel("Tool Name")
-            toolNamePicker
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                fieldLabel("Tool Name")
+                toolNamePicker
+            }
 
             // Dynamic input fields based on schema
             toolInputFields
 
             // Working directory
-            fieldLabel("Working Directory")
-            TextField("Leave empty for daemon default", text: $model.workingDir)
-                .textFieldStyle(.plain)
-                .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.sm)
-                .background(VColor.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                fieldLabel("Working Directory")
+                TextField("Leave empty for daemon default", text: $model.workingDir)
+                    .vInputStyle()
+                    .font(VFont.mono)
+            }
+
+            Divider().background(VColor.surfaceBorder)
 
             // Toggles
-            HStack(spacing: VSpacing.lg) {
+            HStack(spacing: VSpacing.xl) {
                 Toggle("Interactive", isOn: $model.isInteractive)
-                    .font(VFont.caption)
+                    .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
                     .toggleStyle(.switch)
 
                 Toggle("In Temporary Chat", isOn: $model.forcePromptSideEffects)
-                    .font(VFont.caption)
+                    .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
                     .toggleStyle(.switch)
             }
-
         }
     }
 
@@ -137,29 +135,13 @@ struct ToolPermissionTesterView: View {
         switch field.fieldType {
         case .string:
             TextField("", text: fieldValueBinding(for: field.id))
-                .textFieldStyle(.plain)
+                .vInputStyle()
                 .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.sm)
-                .background(VColor.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
         case .number, .integer:
             TextField("", text: fieldValueBinding(for: field.id))
-                .textFieldStyle(.plain)
+                .vInputStyle()
                 .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.sm)
-                .background(VColor.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
         case .boolean:
             Toggle("", isOn: fieldBoolBinding(for: field.id))
@@ -231,8 +213,8 @@ struct ToolPermissionTesterView: View {
 
     @ViewBuilder
     private var simulateButton: some View {
-        HStack {
-            VButton(label: model.isSimulating ? "Simulating..." : "Simulate", style: .primary) {
+        HStack(spacing: VSpacing.sm) {
+            VButton(label: model.isSimulating ? "Simulating\u{2026}" : "Simulate", style: .primary) {
                 model.simulate()
             }
             .disabled(!model.canSimulate)
@@ -344,16 +326,8 @@ struct ToolPermissionTesterView: View {
         if model.availableToolNames.isEmpty {
             // Fallback to text field while loading or if fetch failed
             TextField("e.g. host_bash, host_file_write", text: $model.toolName)
-                .textFieldStyle(.plain)
+                .vInputStyle()
                 .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.sm)
-                .background(VColor.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
         } else {
             Picker("", selection: $model.toolName) {
                 Text("Select a tool\u{2026}")
