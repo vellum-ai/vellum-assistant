@@ -1547,6 +1547,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ApprovedDevicesClearMessage())
     }
 
+    // MARK: - Guardian Actions
+
+    /// Request pending guardian action prompts for a conversation.
+    public func sendGuardianActionsPendingRequest(conversationId: String) throws {
+        try send(GuardianActionsPendingRequestMessage(conversationId: conversationId))
+    }
+
+    /// Submit a guardian action decision.
+    public func sendGuardianActionDecision(requestId: String, action: String, conversationId: String? = nil) throws {
+        try send(GuardianActionDecisionMessage(requestId: requestId, action: action, conversationId: conversationId))
+    }
+
     // MARK: - Feature Flags
 
     /// A single assistant feature flag entry returned by `GET /v1/feature-flags`.

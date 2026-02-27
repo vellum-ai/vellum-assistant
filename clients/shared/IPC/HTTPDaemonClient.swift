@@ -326,6 +326,10 @@ final class HTTPTransport {
             Task { await self.fetchHistory(sessionId: msg.sessionId) }
         } else if let msg = message as? IPCConversationSeenSignal {
             Task { await self.sendConversationSeen(msg) }
+        } else if let msg = message as? GuardianActionsPendingRequestMessage {
+            Task { await self.fetchGuardianActionsPending(conversationId: msg.conversationId) }
+        } else if let msg = message as? GuardianActionDecisionMessage {
+            Task { await self.submitGuardianActionDecision(requestId: msg.requestId, action: msg.action, conversationId: msg.conversationId) }
         } else if message is PingMessage {
             // No-op for HTTP transport — SSE keepalive is handled by the connection
         } else {
@@ -440,6 +444,85 @@ final class HTTPTransport {
         } catch {
             log.error("Secret response error: \(error.localizedDescription)")
         }
+    }
+
+    private func fetchGuardianActionsPending(conversationId: String) async {
+        let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
+        guard let url = URL(string: "\(baseURL)/v1/guardian-actions/pending?conversationId=\(encoded)") else { return }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 {
+                    handleAuthenticationFailure()
+                    return
+                }
+                guard http.statusCode == 200 else {
+                    log.error("Fetch guardian actions pending failed (\(http.statusCode))")
+                    return
+                }
+            }
+
+            do {
+                let decoded = try JSONDecoder().decode(GuardianActionsPendingHTTPResponse.self, from: data)
+                onMessage?(.guardianActionsPendingResponse(GuardianActionsPendingResponseMessage(prompts: decoded.prompts)))
+            } catch {
+                log.error("Failed to decode guardian actions pending response: \(error)")
+            }
+        } catch {
+            log.error("Fetch guardian actions pending error: \(error.localizedDescription)")
+        }
+    }
+
+    private func submitGuardianActionDecision(requestId: String, action: String, conversationId: String?) async {
+        guard let url = URL(string: "\(baseURL)/v1/guardian-actions/decision") else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [
+            "requestId": requestId,
+            "action": action
+        ]
+        if let conversationId {
+            body["conversationId"] = conversationId
+        }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 {
+                    handleAuthenticationFailure()
+                    return
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    log.error("Guardian action decision failed (\(http.statusCode))")
+                    return
+                }
+            }
+
+            do {
+                let decoded = try JSONDecoder().decode(GuardianActionDecisionResponseMessage.self, from: data)
+                onMessage?(.guardianActionDecisionResponse(decoded))
+            } catch {
+                log.error("Failed to decode guardian action decision response: \(error)")
+            }
+        } catch {
+            log.error("Guardian action decision error: \(error.localizedDescription)")
+        }
+    }
+
+    /// Response wrapper for the HTTP guardian actions pending endpoint.
+    private struct GuardianActionsPendingHTTPResponse: Decodable {
+        let prompts: [GuardianDecisionPromptWire]
     }
 
     private func sendConversationSeen(_ signal: IPCConversationSeenSignal) async {
