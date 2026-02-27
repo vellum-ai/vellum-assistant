@@ -99,6 +99,8 @@ struct MainWindowView: View {
     @State private var showThreadSwitcher = false
     /// Work item for the delayed hover trigger on the collapsed thread section.
     @State private var threadSwitcherHoverTimer: DispatchWorkItem?
+    /// Work item that dismisses the thread switcher popover after leaving the hover area.
+    @State private var threadSwitcherDismissTimer: DispatchWorkItem?
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
 
@@ -1332,7 +1334,8 @@ struct MainWindowView: View {
 
             // MARK: Thread Section (collapsed)
             if let activeThread = threadManager.activeThread {
-                VStack(spacing: VSpacing.xs) {
+                ZStack(alignment: .bottomTrailing) {
+                    // Active thread icon
                     VThreadIcon(
                         title: activeThread.title,
                         size: .medium,
@@ -1340,33 +1343,39 @@ struct MainWindowView: View {
                         dotColor: interactionDotColor(for: activeThread)
                     )
 
-                    // Thread count badge
-                    if regularThreads.count > 0 {
+                    // Count badge overlay (bottom-right) — only when multiple threads
+                    if regularThreads.count > 1 {
                         Text("\(regularThreads.count)")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .padding(.horizontal, VSpacing.xs)
-                            .padding(.vertical, 2)
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(minWidth: 14, minHeight: 14)
+                            .padding(.horizontal, 2)
                             .background(
                                 Capsule()
                                     .fill(Forest._700)
                             )
+                            .offset(x: 4, y: 4)
+                            .onDisappear {
+                                threadSwitcherHoverTimer?.cancel()
+                                threadSwitcherHoverTimer = nil
+                                showThreadSwitcher = false
+                            }
                     }
-
-                    // Threads indicator icon
-                    Image(systemName: "bubble.left.and.bubble.right")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
                 }
-                .padding(.vertical, VSpacing.xs)
                 .contentShape(Rectangle())
                 .onTapGesture {
+                    guard regularThreads.count > 1 else { return }
                     threadSwitcherHoverTimer?.cancel()
                     threadSwitcherHoverTimer = nil
                     showThreadSwitcher.toggle()
                 }
                 .onHover { hovering in
+                    guard regularThreads.count > 1 else { return }
                     if hovering {
+                        // Cancel any pending dismiss
+                        threadSwitcherDismissTimer?.cancel()
+                        threadSwitcherDismissTimer = nil
+                        // Start open timer
                         threadSwitcherHoverTimer?.cancel()
                         let work = DispatchWorkItem {
                             showThreadSwitcher = true
@@ -1376,6 +1385,14 @@ struct MainWindowView: View {
                     } else {
                         threadSwitcherHoverTimer?.cancel()
                         threadSwitcherHoverTimer = nil
+                        // Schedule dismiss — gives time to move mouse into the popover
+                        if showThreadSwitcher {
+                            let dismiss = DispatchWorkItem {
+                                showThreadSwitcher = false
+                            }
+                            threadSwitcherDismissTimer = dismiss
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: dismiss)
+                        }
                     }
                 }
                 .popover(isPresented: $showThreadSwitcher, arrowEdge: .trailing) {
@@ -1433,6 +1450,20 @@ struct MainWindowView: View {
                     }
                     .frame(width: 200)
                     .padding(.bottom, VSpacing.sm)
+                    .onHover { hovering in
+                        if hovering {
+                            // Mouse entered popover — cancel pending dismiss
+                            threadSwitcherDismissTimer?.cancel()
+                            threadSwitcherDismissTimer = nil
+                        } else {
+                            // Mouse left popover — dismiss after short delay
+                            let dismiss = DispatchWorkItem {
+                                showThreadSwitcher = false
+                            }
+                            threadSwitcherDismissTimer = dismiss
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: dismiss)
+                        }
+                    }
                 }
             }
 
