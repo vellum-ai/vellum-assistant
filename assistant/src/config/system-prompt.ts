@@ -636,7 +636,7 @@ function buildContainerizedSection(): string {
   return [
     '## Running in a Container — Data Persistence',
     '',
-    `This assistant is running inside a container. Only the directory \`${baseDataDir}\` is mounted to a persistent volume.`,
+    `You are running inside a container. Only the directory \`${baseDataDir}\` is mounted to a persistent volume.`,
     '',
     '**Any new files or data you create MUST be written inside that directory, or they will be lost when the container restarts.**',
     '',
