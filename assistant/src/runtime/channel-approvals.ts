@@ -17,7 +17,8 @@ import type {
   ApprovalUIMetadata,
   ChannelApprovalPrompt,
 } from './channel-approval-types.js';
-import { DEFAULT_APPROVAL_ACTIONS } from './channel-approval-types.js';
+import { toApprovalActionOptions } from './channel-approval-types.js';
+import { buildDecisionActions, buildPlainTextFallback } from './guardian-decision-types.js';
 import * as pendingInteractions from './pending-interactions.js';
 
 /** Summary of a pending interaction, used by channel approval flows. */
@@ -69,6 +70,11 @@ export function getApprovalInfoByConversation(conversationId: string): PendingAp
 
 /**
  * Internal helper: turn a PendingApprovalInfo into a ChannelApprovalPrompt.
+ *
+ * Derives actions from the shared `buildDecisionActions` builder defined in
+ * guardian-decision-types.ts, then maps them to the channel-facing
+ * `ApprovalActionOption` shape. This ensures channel button sets are always
+ * consistent with the unified `GuardianDecisionPrompt` type.
  */
 function buildPromptFromApprovalInfo(info: PendingApprovalInfo): ChannelApprovalPrompt {
   const promptText = composeApprovalMessage({
@@ -76,15 +82,11 @@ function buildPromptFromApprovalInfo(info: PendingApprovalInfo): ChannelApproval
     toolName: info.toolName,
   });
 
-  // Hide "approve always" when persistent trust rules are disallowed for this invocation.
-  const actions = info.persistentDecisionsAllowed === false
-    ? DEFAULT_APPROVAL_ACTIONS.filter((a) => a.id !== 'approve_always')
-    : [...DEFAULT_APPROVAL_ACTIONS];
-
-  // Plain-text fallback must remain parser-compatible (contains "yes"/"always"/"no" keywords).
-  const plainTextFallback = info.persistentDecisionsAllowed === false
-    ? `${promptText}\n\nReply "yes" to approve or "no" to reject.`
-    : `${promptText}\n\nReply "yes" to approve once, "always" to approve always, or "no" to reject.`;
+  const decisionActions = buildDecisionActions({
+    persistentDecisionsAllowed: info.persistentDecisionsAllowed,
+  });
+  const actions = toApprovalActionOptions(decisionActions);
+  const plainTextFallback = buildPlainTextFallback(promptText, decisionActions);
 
   return { promptText, actions, plainTextFallback };
 }
@@ -199,6 +201,10 @@ export function handleChannelDecision(
  * Build an approval prompt that includes context about which non-guardian
  * user is requesting the action. Sent to the guardian's chat so they
  * can approve or deny on behalf of the requester.
+ *
+ * Uses the shared `buildDecisionActions` builder with `forGuardianOnBehalf`
+ * set to true, which excludes `approve_always` since guardians cannot
+ * permanently allowlist tools on behalf of requesters.
  */
 export function buildGuardianApprovalPrompt(
   info: PendingApprovalInfo,
@@ -210,11 +216,9 @@ export function buildGuardianApprovalPrompt(
     requesterIdentifier,
   });
 
-  // Guardian approvals are always one-time decisions — "approve always"
-  // doesn't make sense when the guardian is approving on behalf of someone else.
-  const actions = DEFAULT_APPROVAL_ACTIONS.filter((a) => a.id !== 'approve_always');
-
-  const plainTextFallback = `${promptText}\n\nReply "yes" to approve or "no" to reject.`;
+  const decisionActions = buildDecisionActions({ forGuardianOnBehalf: true });
+  const actions = toApprovalActionOptions(decisionActions);
+  const plainTextFallback = buildPlainTextFallback(promptText, decisionActions);
 
   return { promptText, actions, plainTextFallback };
 }
