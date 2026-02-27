@@ -255,7 +255,7 @@ export class ToolApprovalHandler {
       const isVoice = context.executionChannel === 'voice';
       const grantResult = await consumeGrantForInvocation(
         deferredConsumeParams,
-        isVoice ? undefined : { maxWaitMs: 0 },
+        isVoice ? { signal: context.signal } : { maxWaitMs: 0 },
       );
 
       if (grantResult.ok) {

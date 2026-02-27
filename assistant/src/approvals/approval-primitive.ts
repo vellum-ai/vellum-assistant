@@ -304,7 +304,7 @@ const GRANT_RETRY_MAX_WAIT_MS = 10_000;
  */
 export async function consumeGrantForInvocation(
   params: ConsumeGrantParams,
-  options?: { maxWaitMs?: number; intervalMs?: number },
+  options?: { maxWaitMs?: number; intervalMs?: number; signal?: AbortSignal },
 ): Promise<ConsumeGrantResult> {
   // Fast path: try once synchronously — covers the common case where the
   // grant already exists (deterministic classifier, or prior turns).
@@ -334,8 +334,20 @@ export async function consumeGrantForInvocation(
     'Grant not found on first attempt; starting retry polling',
   );
 
+  const signal = options?.signal;
+
   while (Date.now() < deadline) {
+    // Exit promptly on cancellation (e.g. voice barge-in) so the session
+    // can tear down the current turn without waiting for the full timeout.
+    if (signal?.aborted) {
+      return first;
+    }
+
     await new Promise((resolve) => setTimeout(resolve, interval));
+
+    if (signal?.aborted) {
+      return first;
+    }
 
     const result = consumeGrantSync(params);
     if (result.ok) {
