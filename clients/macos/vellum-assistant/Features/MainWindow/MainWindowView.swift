@@ -1317,6 +1317,47 @@ struct MainWindowView: View {
                 threadManager.createThread()
             }
 
+            // MARK: Thread Section (collapsed)
+            if let activeThread = threadManager.activeThread {
+                VStack(spacing: VSpacing.xs) {
+                    let interactionState = threadManager.interactionState(for: activeThread.id)
+                    let interactionDotColor: Color? = {
+                        switch interactionState {
+                        case .processing: return VColor.accent
+                        case .waitingForInput: return VColor.warning
+                        case .error: return VColor.error
+                        case .idle: return nil
+                        }
+                    }()
+
+                    VThreadIcon(
+                        title: activeThread.title,
+                        size: .medium,
+                        isActive: true,
+                        dotColor: interactionDotColor
+                    )
+
+                    // Thread count badge
+                    if regularThreads.count > 0 {
+                        Text("\(regularThreads.count)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .padding(.horizontal, VSpacing.xs)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(Forest._700)
+                            )
+                    }
+
+                    // Threads indicator icon
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                }
+                .padding(.vertical, VSpacing.xs)
+            }
+
             Spacer()
 
             SidebarNavRow(icon: "gearshape", label: "Control Center", isActive: false, isExpanded: false) {
