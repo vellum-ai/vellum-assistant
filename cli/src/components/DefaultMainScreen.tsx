@@ -987,13 +987,14 @@ function ChatApp({
   const terminalRows = stdout.rows || 24;
   const terminalColumns = stdout.columns || 80;
   const headerHeight = calculateHeaderHeight(species);
+  const tooltipBubbleHeight = 3;
   const bottomHeight = selection
-    ? selection.options.length + 3
+    ? selection.options.length + 3 + tooltipBubbleHeight
     : secretInput
-      ? 5
+      ? 5 + tooltipBubbleHeight
       : spinnerText
         ? 4
-        : 3;
+        : 3 + tooltipBubbleHeight;
   const availableRows = Math.max(3, terminalRows - headerHeight - bottomHeight);
 
   const addMessage = useCallback((msg: RuntimeMessage) => {

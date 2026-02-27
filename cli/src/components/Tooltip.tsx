@@ -31,7 +31,7 @@ export function Tooltip({
   position = "below",
   delay = 1000,
   children,
-}: TooltipProps): ReactElement {
+}: TooltipProps): ReactElement | null {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -51,7 +51,7 @@ export function Tooltip({
   ) : null;
 
   if (!children) {
-    return bubble ?? <Text />;
+    return bubble ?? null;
   }
 
   return (
