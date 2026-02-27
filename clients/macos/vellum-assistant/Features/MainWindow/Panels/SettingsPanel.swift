@@ -131,13 +131,17 @@ struct SettingsPanel: View {
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
             if let pending = store.pendingSettingsTab {
-                selectedTab = pending
+                if pending != .advanced || store.isDevMode {
+                    selectedTab = pending
+                }
                 store.pendingSettingsTab = nil
             }
         }
         .onChange(of: store.pendingSettingsTab) { _, newTab in
             if let tab = newTab {
-                selectedTab = tab
+                if tab != .advanced || store.isDevMode {
+                    selectedTab = tab
+                }
                 store.pendingSettingsTab = nil
             }
         }
@@ -181,6 +185,7 @@ struct SettingsPanel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
             if let tab = notification.object as? SettingsTab {
+                if tab == .advanced && !store.isDevMode { return }
                 selectedTab = tab
             }
         }
@@ -252,7 +257,11 @@ struct SettingsPanel: View {
         case .parental:
             permissionsContent
         case .advanced:
-            SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
+            if store.isDevMode {
+                SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
+            } else {
+                SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
+            }
         }
     }
 
