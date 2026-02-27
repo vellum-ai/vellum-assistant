@@ -31,6 +31,10 @@ public final class ChatViewModel: ObservableObject {
 
     private var cancellables: Set<AnyCancellable> = []
 
+    /// DispatchSource for system memory pressure events. Triggers an aggressive
+    /// message trim on .warning and .critical events to reclaim memory quickly.
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
+
     // MARK: - Coalesced objectWillChange forwarding
 
     /// Coalescing window for sub-manager objectWillChange forwarding.
@@ -474,7 +478,15 @@ public final class ChatViewModel: ObservableObject {
 
     /// The subset of messages that are actually displayed (excludes subagent notifications
     /// and other UI-only messages that the view filters before rendering).
-    public var displayedMessages: [ChatMessage] { messages.filter { !$0.isSubagentNotification } }
+    /// Cached as a stored @Published property to avoid O(n) filter on every access
+    /// during streaming (which can be dozens of times per second).
+    @Published public private(set) var displayedMessages: [ChatMessage] = []
+
+    /// Recompute and cache the displayedMessages from the current messages array.
+    /// Call this after any mutation to messages.
+    private func updateDisplayedMessages() {
+        displayedMessages = messages.filter { !$0.isSubagentNotification }
+    }
 
     // MARK: - Daemon History Pagination
 
@@ -638,14 +650,32 @@ public final class ChatViewModel: ObservableObject {
     /// Strip heavyweight binary data (images, attachments, completed surface payloads)
     /// from old messages when the total count exceeds `trimThreshold`. The most recent
     /// `trimKeepRecent` messages are left intact so scrolling back a reasonable amount
-    /// still shows full content. Called after message mutations that increase count.
+    /// still shows full content. Old messages are fully removed from the array (not just
+    /// stripped) to free embedded images and tool data from memory entirely.
+    /// Called after message mutations that increase count.
     public func trimOldMessagesIfNeeded() {
         let count = messages.count
         guard count > Self.trimThreshold else { return }
         let trimEnd = count - Self.trimKeepRecent
+        // Strip heavy content first (safety net for any references that linger)
         for i in 0..<trimEnd {
             messages[i].stripHeavyContent()
         }
+        // Hard-delete the stripped messages so ChatMessage objects are freed entirely.
+        messages.removeSubrange(0..<trimEnd)
+        // displayedMessages is updated automatically via the messageManager.$messages
+        // publisher subscription set up in init.
+        // After deleting the oldest messages, reset the history cursor to the oldest
+        // retained message so pagination doesn't try to fetch the now-deleted range.
+        // The deleted history is permanently gone from memory, so mark hasMoreHistory
+        // false to prevent the UI from showing a "load more" spinner for unreachable data.
+        if let oldestRetained = messages.first {
+            historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
+            hasMoreHistory = false
+        }
+        // Reset pagination so the display window doesn't reference indices beyond the
+        // newly shortened array. trimKeepRecent < messagePageSize is possible, so clamp.
+        displayedMessageCount = Self.messagePageSize
     }
 
     /// Aggressively trim this view model for background retention. Keeps only
@@ -699,6 +729,26 @@ public final class ChatViewModel: ObservableObject {
         // which invalidates the entire view tree every time — we batch them
         // into a single objectWillChange per 100ms window. Views still
         // update promptly, but the SwiftUI diffing cost drops dramatically.
+
+        // Keep displayedMessages in sync with messages via publisher subscription.
+        // This catches every mutation site (current and future) without requiring
+        // manual updateDisplayedMessages() calls at each one.
+        //
+        // Two correctness/perf fixes applied here:
+        // 1. Use the delivered `newMessages` value directly rather than reading
+        //    `self.messages` inside the sink. @Published fires during willSet, so
+        //    the stored property still holds the OLD value when the subscriber runs
+        //    — reading it caused displayedMessages to lag one mutation behind.
+        // 2. Throttle to 100ms so displayedMessages (and any SwiftUI views observing
+        //    it) only refresh at most every 100ms, matching the coalesced publish
+        //    window used for the rest of the view model.
+        messageManager.$messages
+            .throttle(for: .milliseconds(100), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] newMessages in
+                self?.displayedMessages = newMessages.filter { !$0.isSubagentNotification }
+            }
+            .store(in: &cancellables)
+
         messageManager.objectWillChange
             .sink { [weak self] _ in
                 self?.scheduleCoalescedPublish()
@@ -806,6 +856,24 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
         }
+
+        // Register for system memory pressure events so we can aggressively
+        // trim the message list when the OS warns of low memory. This prevents
+        // the app from being jettisoned on devices with limited RAM.
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            // Keep only the most recent trimKeepRecent messages to reclaim
+            // as much memory as possible under pressure.
+            let keepCount = Self.trimKeepRecent
+            if self.messages.count > keepCount {
+                self.messages.removeFirst(self.messages.count - keepCount)
+                // displayedMessages is updated automatically via $messages sink.
+                self.displayedMessageCount = Self.messagePageSize
+            }
+        }
+        source.resume()
+        self.memoryPressureSource = source
     }
 
     // MARK: - Deep Link
@@ -2018,21 +2086,34 @@ public final class ChatViewModel: ObservableObject {
                     // when the user expands the tool call chip. Cap the raw dict size
                     // to prevent unbounded memory from large tool inputs (mirrors the
                     // 10k-char cap applied in formatAllToolInput).
+                    // The size check uses JSONSerialization which is moved off @MainActor:
+                    // we optimistically store inputRawDict and a background task will swap
+                    // to formatted text if the payload exceeds the 10k threshold.
                     let input = tc.input
-                    let estimatedSize: Int
-                    if let data = try? JSONSerialization.data(withJSONObject: input.mapValues { $0.value ?? NSNull() }) {
-                        estimatedSize = data.count
-                    } else {
-                        estimatedSize = 0
-                    }
-                    if estimatedSize > 10_000 {
+                    toolCall.inputRawDict = input
+                    let toolCallId = toolCall.id
+                    Task.detached(priority: .utility) { [weak self] in
+                        let estimatedSize: Int
+                        if let data = try? JSONSerialization.data(withJSONObject: input.mapValues { $0.value ?? NSNull() }) {
+                            estimatedSize = data.count
+                        } else {
+                            estimatedSize = 0
+                        }
+                        guard estimatedSize > 10_000 else { return }
                         // Too large — format eagerly (with truncation) rather than
                         // retaining the full raw dictionary in memory.
                         let formatted = ToolCallData.formatAllToolInput(input)
-                        toolCall.inputFull = formatted
-                        toolCall.inputFullLength = formatted.count
-                    } else {
-                        toolCall.inputRawDict = input
+                        await MainActor.run { [weak self] in
+                            guard let self else { return }
+                            for msgIdx in self.messages.indices {
+                                if let tcIdx = self.messages[msgIdx].toolCalls.firstIndex(where: { $0.id == toolCallId }) {
+                                    self.messages[msgIdx].toolCalls[tcIdx].inputFull = formatted
+                                    self.messages[msgIdx].toolCalls[tcIdx].inputFullLength = formatted.count
+                                    self.messages[msgIdx].toolCalls[tcIdx].inputRawDict = nil
+                                    break
+                                }
+                            }
+                        }
                     }
                     return toolCall
                 }
@@ -2303,6 +2384,9 @@ public final class ChatViewModel: ObservableObject {
     }
 
     deinit {
+        // Cancel all Combine subscriptions first so no new work can be scheduled
+        // from incoming publisher events while the remaining cleanup runs.
+        cancellables.removeAll()
         subManagerPublishTask?.cancel()
         messageLoopTask?.cancel()
         streamingFlushTask?.cancel()
@@ -2314,6 +2398,7 @@ public final class ChatViewModel: ObservableObject {
         // so they will exit naturally when self is deallocated.
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
+        memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
         }
