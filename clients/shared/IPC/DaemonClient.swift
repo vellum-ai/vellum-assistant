@@ -1556,14 +1556,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         public let enabled: Bool
         public let defaultEnabled: Bool
         public let description: String
+        public let label: String?
 
         public var id: String { key }
 
-        public init(key: String, enabled: Bool, defaultEnabled: Bool, description: String) {
+        public init(key: String, enabled: Bool, defaultEnabled: Bool, description: String, label: String? = nil) {
             self.key = key
             self.enabled = enabled
             self.defaultEnabled = defaultEnabled
             self.description = description
+            self.label = label
         }
     }
 
