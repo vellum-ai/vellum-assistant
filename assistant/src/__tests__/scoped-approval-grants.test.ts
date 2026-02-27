@@ -32,13 +32,13 @@ mock.module('../util/logger.js', () => ({
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { scopedApprovalGrants } from '../memory/schema.js';
 import {
-  consumeScopedApprovalGrantByRequestId,
-  consumeScopedApprovalGrantByToolSignature,
-  createScopedApprovalGrant,
+  _internal,
   type CreateScopedApprovalGrantParams,
   expireScopedApprovalGrants,
   revokeScopedApprovalGrantsForContext,
 } from '../memory/scoped-approval-grants.js';
+
+const { consumeScopedApprovalGrantByRequestId, consumeScopedApprovalGrantByToolSignature, createScopedApprovalGrant } = _internal;
 import {
   canonicalJsonSerialize,
   computeToolApprovalDigest,

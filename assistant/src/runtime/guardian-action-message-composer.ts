@@ -26,11 +26,16 @@ export type GuardianActionMessageScenario =
   | 'guardian_followup_failed'
   | 'guardian_followup_declined_ack'
   | 'guardian_followup_clarification'
+  | 'guardian_pending_disambiguation'
   | 'guardian_expired_disambiguation'
   | 'guardian_followup_disambiguation'
   | 'guardian_stale_answered'
   | 'guardian_stale_expired'
   | 'guardian_stale_followup'
+  | 'guardian_stale_superseded'
+  | 'guardian_superseded_remap'
+  | 'guardian_unknown_code'
+  | 'guardian_auto_matched'
   | 'outbound_message_copy'
   | 'followup_message_sent'
   | 'followup_call_started'
@@ -48,6 +53,10 @@ export interface GuardianActionMessageContext {
   failureReason?: string;
   counterpartyPhone?: string;
   requestCodes?: string[];
+  /** The code the guardian provided that was not recognized. */
+  unknownCode?: string;
+  /** The code of the active request that supersedes the one the guardian targeted. */
+  activeRequestCode?: string;
 }
 
 export interface ComposeGuardianActionMessageOptions {
@@ -181,6 +190,11 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
     case 'guardian_followup_clarification':
       return "Sorry, I didn't quite catch that. Would you like to call them back, send them a message, or skip it for now?";
 
+    case 'guardian_pending_disambiguation':
+      return listedCodes
+        ? `You have multiple pending guardian questions. Please prefix your reply with the reference code (${listedCodes}) so I know which question you're answering.`
+        : 'You have multiple pending guardian questions. Please prefix your reply with the reference code so I know which question you\'re answering.';
+
     case 'guardian_expired_disambiguation':
       return listedCodes
         ? `You have multiple expired guardian questions. Please prefix your reply with the reference code (${listedCodes}) so I know which question you're answering.`
@@ -199,6 +213,22 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
 
     case 'guardian_stale_followup':
       return 'It looks like this follow-up has already been handled. No further action is needed.';
+
+    case 'guardian_stale_superseded':
+      return 'This request is no longer active. The call has ended and no further action is needed.';
+
+    case 'guardian_unknown_code':
+      return context.unknownCode
+        ? `I don't recognize the code "${context.unknownCode}". Please check the reference code and try again.`
+        : "I don't recognize that reference code. Please check the code and try again.";
+
+    case 'guardian_auto_matched':
+      return 'Got it, routing your answer to the active request.';
+
+    case 'guardian_superseded_remap':
+      return context.questionText
+        ? `Got it! Your answer has been applied to the current active request: "${context.questionText}"`
+        : 'Got it! Your answer has been applied to the current active request on the call.';
 
     case 'outbound_message_copy':
       // This SMS is sent TO the original caller relaying the guardian's answer.

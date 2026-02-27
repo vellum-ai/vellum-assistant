@@ -57,10 +57,11 @@ mock.module('../util/logger.js', () => ({
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { scopedApprovalGrants } from '../memory/schema.js';
 import {
-  consumeScopedApprovalGrantByToolSignature,
-  createScopedApprovalGrant,
+  _internal,
   type CreateScopedApprovalGrantParams,
 } from '../memory/scoped-approval-grants.js';
+
+const { consumeScopedApprovalGrantByToolSignature, createScopedApprovalGrant } = _internal;
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 
 initializeDb();

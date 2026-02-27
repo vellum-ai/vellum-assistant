@@ -58,6 +58,8 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   taskRunId?: string;
   /** Guardian runtime context for the session — actorRole is propagated into ToolContext for control-plane policy enforcement. */
   guardianContext?: GuardianRuntimeContext;
+  /** Voice/call session ID, if the session originates from a call. Propagated into ToolContext for scoped grant consumption. */
+  callSessionId?: string;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -109,6 +111,9 @@ export function createToolExecutor(
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
       guardianActorRole: ctx.guardianContext?.actorRole,
+      executionChannel: ctx.guardianContext?.sourceChannel,
+      callSessionId: ctx.callSessionId,
+      requesterExternalUserId: ctx.guardianContext?.requesterExternalUserId,
       onOutput,
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,

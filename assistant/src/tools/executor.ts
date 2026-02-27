@@ -70,24 +70,29 @@ export class ToolExecutor {
     const tool = gateResult.tool;
 
     try {
-      // Check permissions via the extracted PermissionChecker
-      const permResult = await this.permissionChecker.checkPermission(
-        name,
-        input,
-        tool,
-        context,
-        executionTarget,
-        (event) => emitLifecycleEvent(context, event),
-        sanitizeToolInput,
-        startTime,
-        computePreviewDiff,
-      );
+      // A consumed scoped grant is a complete authorization — skip the
+      // interactive permission/prompt flow so non-interactive sessions
+      // don't auto-deny prompt-gated tools and burn the one-time grant.
+      if (!gateResult.grantConsumed) {
+        // Check permissions via the extracted PermissionChecker
+        const permResult = await this.permissionChecker.checkPermission(
+          name,
+          input,
+          tool,
+          context,
+          executionTarget,
+          (event) => emitLifecycleEvent(context, event),
+          sanitizeToolInput,
+          startTime,
+          computePreviewDiff,
+        );
 
-      riskLevel = permResult.riskLevel;
-      decision = permResult.decision;
+        riskLevel = permResult.riskLevel;
+        decision = permResult.decision;
 
-      if (!permResult.allowed) {
-        return { content: permResult.content, isError: true };
+        if (!permResult.allowed) {
+          return { content: permResult.content, isError: true };
+        }
       }
 
       const hookResult = await getHookManager().trigger('pre-tool-execute', {

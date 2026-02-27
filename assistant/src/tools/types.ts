@@ -138,6 +138,12 @@ export interface ToolContext {
   principal?: string;
   /** Guardian actor role for the session — used by the guardian control-plane policy gate. */
   guardianActorRole?: 'guardian' | 'non-guardian' | 'unverified_channel';
+  /** Channel through which the tool invocation originates (e.g. 'telegram', 'voice'). Used for scoped grant consumption. */
+  executionChannel?: string;
+  /** Voice/call session ID, if the invocation originates from a call. Used for scoped grant consumption. */
+  callSessionId?: string;
+  /** External user ID of the requester (non-guardian actor). Used for scoped grant consumption. */
+  requesterExternalUserId?: string;
 }
 
 export interface DiffInfo {

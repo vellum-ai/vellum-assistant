@@ -443,7 +443,8 @@ export async function evaluateSignal(
   const provider = getConfiguredProvider();
   if (!provider) {
     log.warn('Configured provider unavailable for notification decision, using fallback');
-    const decision = buildFallbackDecision(signal, availableChannels);
+    let decision = buildFallbackDecision(signal, availableChannels);
+    decision = enforceConversationAffinity(decision, signal.conversationAffinityHint);
     decision.persistedDecisionId = persistDecision(signal, decision);
     return decision;
   }
@@ -457,6 +458,7 @@ export async function evaluateSignal(
     decision = buildFallbackDecision(signal, availableChannels);
   }
 
+  decision = enforceConversationAffinity(decision, signal.conversationAffinityHint);
   decision.persistedDecisionId = persistDecision(signal, decision);
 
   return decision;
@@ -589,6 +591,50 @@ export function enforceRoutingIntent(
   }
 
   return decision;
+}
+
+// ── Conversation affinity enforcement ───────────────────────────────────
+
+/**
+ * Enforce conversation affinity on a decision.
+ *
+ * When the signal carries a conversationAffinityHint (per-channel map of
+ * conversationId), override the decision's threadActions for those channels
+ * to `reuse_existing` with the hinted conversationId. This is a
+ * deterministic post-decision guard that prevents the LLM from routing
+ * guardian questions for the same call session to different conversations.
+ */
+export function enforceConversationAffinity(
+  decision: NotificationDecision,
+  affinityHint: Partial<Record<string, string>> | undefined,
+): NotificationDecision {
+  if (!affinityHint) return decision;
+
+  const entries = Object.entries(affinityHint).filter(
+    ([, conversationId]) => typeof conversationId === 'string' && conversationId.length > 0,
+  );
+  if (entries.length === 0) return decision;
+
+  const enforced = { ...decision };
+  const threadActions: Partial<Record<NotificationChannel, ThreadAction>> = {
+    ...(decision.threadActions ?? {}),
+  };
+
+  for (const [channel, conversationId] of entries) {
+    threadActions[channel as NotificationChannel] = {
+      action: 'reuse_existing',
+      conversationId: conversationId!,
+    };
+  }
+
+  enforced.threadActions = threadActions;
+
+  log.info(
+    { affinityHint },
+    'Conversation affinity enforcement: overrode threadActions for hinted channels',
+  );
+
+  return enforced;
 }
 
 // ── Persistence ────────────────────────────────────────────────────────

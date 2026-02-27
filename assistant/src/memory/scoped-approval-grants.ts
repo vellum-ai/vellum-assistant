@@ -104,7 +104,7 @@ export interface CreateScopedApprovalGrantParams {
   expiresAt: string;
 }
 
-export function createScopedApprovalGrant(params: CreateScopedApprovalGrantParams): ScopedApprovalGrant {
+function createScopedApprovalGrant(params: CreateScopedApprovalGrantParams): ScopedApprovalGrant {
   const db = getDb();
   const now = new Date().toISOString();
   const id = uuid();
@@ -167,7 +167,7 @@ export interface ConsumeByRequestIdResult {
  * given `requestId` and `assistantId`.  Uses compare-and-swap on the
  * `status` column so concurrent consumers race safely — at most one wins.
  */
-export function consumeScopedApprovalGrantByRequestId(
+function consumeScopedApprovalGrantByRequestId(
   requestId: string,
   consumingRequestId: string,
   assistantId: string,
@@ -280,7 +280,7 @@ export interface ConsumeByToolSignatureResult {
  * times before giving up. This prevents false denials when multiple matching
  * grants exist but a concurrent consumer steals the first pick.
  */
-export function consumeScopedApprovalGrantByToolSignature(
+function consumeScopedApprovalGrantByToolSignature(
   params: ConsumeByToolSignatureParams,
 ): ConsumeByToolSignatureResult {
   const db = getDb();
@@ -507,3 +507,12 @@ export function revokeScopedApprovalGrantsForContext(params: RevokeContextParams
 
   return count;
 }
+
+// @internal — exposed for tests and the approval-primitive wrapper only.
+// Do not import these from production code outside this package; use the
+// approval-primitive API instead.
+export const _internal = {
+  createScopedApprovalGrant,
+  consumeScopedApprovalGrantByRequestId,
+  consumeScopedApprovalGrantByToolSignature,
+};

@@ -17,9 +17,11 @@ import * as getPageContent from "./get-page-content";
 import * as getText from "./get-text";
 import * as goto from "./goto";
 import * as httpRequest from "./http-request";
+import * as launchApp from "./launch-app";
 import * as reportResult from "./report-result";
 import * as runShell from "./run-shell";
 import * as screenshot from "./screenshot";
+import * as typeEnvVar from "./type-env-var";
 import * as waitTool from "./wait";
 import type { ToolContext, ToolHandlerResult, ToolModule } from "./types";
 
@@ -37,9 +39,11 @@ const TOOLS: ToolModule[] = [
   getText,
   goto,
   httpRequest,
+  launchApp,
   reportResult,
   runShell,
   screenshot,
+  typeEnvVar,
   waitTool,
 ];
 
