@@ -29,6 +29,40 @@ Internet
        +-- /webhooks/* --> BLOCKED (404, never forwarded to runtime)
 ```
 
+### Feature Flags API
+
+The gateway exposes a REST API for reading and mutating feature flags. Feature flags control which skills are available to the assistant — when a flag is OFF, the corresponding skill is excluded from every exposure surface in the assistant (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for enforcement points).
+
+**Endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/feature-flags` | List all feature flags from workspace config |
+| PATCH | `/v1/feature-flags/:key` | Set a single feature flag. Body: `{ "enabled": true\|false }` |
+
+**Storage:** Flags are persisted in `~/.vellum/workspace/config.json` under the `featureFlags` key as a `Record<string, boolean>`. The gateway reads and writes this file directly (atomic temp + rename for writes). The daemon's config watcher hot-reloads changes, so flag mutations take effect on the next session or tool resolution without a restart.
+
+**Flag key format:** Only keys matching `skills.<skillId>.enabled` are accepted for the initial rollout. Other key patterns are rejected with 400.
+
+**Authentication boundary:**
+
+The feature-flags API uses a dedicated token stored at `~/.vellum/feature-flag-token`, separate from the runtime bearer token (`~/.vellum/http-token`). This separation ensures that clients with feature-flag access cannot access runtime endpoints, and vice versa.
+
+| Operation | Accepted tokens |
+|-----------|----------------|
+| `GET /v1/feature-flags` | Runtime bearer token OR feature-flag token |
+| `PATCH /v1/feature-flags/:key` | Feature-flag token ONLY (runtime token is explicitly rejected) |
+
+The feature-flag token is auto-generated on first gateway startup if the file does not exist. The gateway watches the token file for changes and hot-reloads without restart.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `gateway/src/http/routes/feature-flags.ts` | GET and PATCH handlers; config read/write logic |
+| `gateway/src/config.ts` | `readOrGenerateFeatureFlagToken()` — token provisioning; `featureFlagToken` config field |
+| `gateway/src/index.ts` | Route registration, auth enforcement (dual-token for GET, flag-token-only for PATCH), token file watcher |
+
 ### Channel Binding Lifecycle (Lane Separation)
 
 Each channel (desktop, Telegram, etc.) operates in its own **lane**: conversations created by an external channel are never displayed in the desktop thread list, and desktop conversations are never exposed to external channels. The `channelBinding` metadata on a conversation is used solely for routing inbound/outbound messages within that lane and for filtering sessions during desktop session restoration.
