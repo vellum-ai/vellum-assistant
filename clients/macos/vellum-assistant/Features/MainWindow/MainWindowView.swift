@@ -1332,109 +1332,107 @@ struct MainWindowView: View {
 
             // MARK: Thread Section (collapsed)
             if let activeThread = threadManager.activeThread {
-                // Active thread icon (purely visual, no interaction)
-                VThreadIcon(
-                    title: activeThread.title,
-                    size: .medium,
-                    isActive: true,
-                    dotColor: interactionDotColor(for: activeThread)
-                )
+                ZStack(alignment: .bottomTrailing) {
+                    // Active thread icon
+                    VThreadIcon(
+                        title: activeThread.title,
+                        size: .medium,
+                        isActive: true,
+                        dotColor: interactionDotColor(for: activeThread)
+                    )
 
-                // Count badge + popover only when multiple threads exist
-                if regularThreads.count > 1 {
-                    Text("\(regularThreads.count)")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(VColor.textSecondary)
-                        .padding(.horizontal, VSpacing.xs)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(Forest._700)
-                        )
-                        .contentShape(Capsule())
-                        .onTapGesture {
-                            threadSwitcherHoverTimer?.cancel()
-                            threadSwitcherHoverTimer = nil
-                            showThreadSwitcher.toggle()
-                        }
-                        .onHover { hovering in
-                            if hovering {
-                                threadSwitcherHoverTimer?.cancel()
-                                let work = DispatchWorkItem {
-                                    showThreadSwitcher = true
-                                }
-                                threadSwitcherHoverTimer = work
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
-                            } else {
+                    // Count badge overlay (bottom-right) — only when multiple threads
+                    if regularThreads.count > 1 {
+                        Text("\(regularThreads.count)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(minWidth: 14, minHeight: 14)
+                            .background(
+                                Circle()
+                                    .fill(Forest._700)
+                            )
+                            .offset(x: 4, y: 4)
+                            .contentShape(Circle())
+                            .onTapGesture {
                                 threadSwitcherHoverTimer?.cancel()
                                 threadSwitcherHoverTimer = nil
+                                showThreadSwitcher.toggle()
                             }
-                        }
-                        .popover(isPresented: $showThreadSwitcher, arrowEdge: .trailing) {
-                            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                                // Header
-                                Text("\(regularThreads.count) THREADS")
-                                    .font(VFont.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(VColor.textMuted)
-                                    .padding(.horizontal, VSpacing.sm)
-                                    .padding(.top, VSpacing.sm)
+                            .onHover { hovering in
+                                if hovering {
+                                    threadSwitcherHoverTimer?.cancel()
+                                    let work = DispatchWorkItem {
+                                        showThreadSwitcher = true
+                                    }
+                                    threadSwitcherHoverTimer = work
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+                                } else {
+                                    threadSwitcherHoverTimer?.cancel()
+                                    threadSwitcherHoverTimer = nil
+                                }
+                            }
+                            .popover(isPresented: $showThreadSwitcher, arrowEdge: .trailing) {
+                                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                    // Header
+                                    Text("\(regularThreads.count) THREADS")
+                                        .font(VFont.caption)
+                                        .fontWeight(.medium)
+                                        .foregroundColor(VColor.textMuted)
+                                        .padding(.horizontal, VSpacing.sm)
+                                        .padding(.top, VSpacing.sm)
 
-                                // Thread list
-                                ScrollView {
-                                    VStack(spacing: 0) {
-                                        ForEach(regularThreads) { thread in
-                                            let isActive = thread.id == threadManager.activeThreadId
-                                            HStack(spacing: VSpacing.xs) {
-                                                VThreadIcon(
-                                                    title: thread.title,
-                                                    size: .small,
-                                                    isActive: isActive,
-                                                    dotColor: interactionDotColor(for: thread)
-                                                )
+                                    // Thread list
+                                    ScrollView {
+                                        VStack(spacing: 0) {
+                                            ForEach(regularThreads) { thread in
+                                                let isActive = thread.id == threadManager.activeThreadId
+                                                HStack(spacing: VSpacing.xs) {
+                                                    VThreadIcon(
+                                                        title: thread.title,
+                                                        size: .small,
+                                                        isActive: isActive,
+                                                        dotColor: interactionDotColor(for: thread)
+                                                    )
 
-                                                Text(thread.title)
-                                                    .font(VFont.body)
-                                                    .foregroundColor(VColor.textPrimary)
-                                                    .lineLimit(1)
-                                                    .truncationMode(.tail)
+                                                    Text(thread.title)
+                                                        .font(VFont.body)
+                                                        .foregroundColor(VColor.textPrimary)
+                                                        .lineLimit(1)
+                                                        .truncationMode(.tail)
 
-                                                Spacer()
+                                                    Spacer()
 
-                                                // Unseen indicator
-                                                if thread.hasUnseenLatestAssistantMessage {
-                                                    Circle()
-                                                        .fill(Color(hex: 0xE86B40))
-                                                        .frame(width: 6, height: 6)
+                                                    // Unseen indicator
+                                                    if thread.hasUnseenLatestAssistantMessage {
+                                                        Circle()
+                                                            .fill(Color(hex: 0xE86B40))
+                                                            .frame(width: 6, height: 6)
+                                                    }
+                                                }
+                                                .padding(.horizontal, VSpacing.sm)
+                                                .padding(.vertical, VSpacing.xs)
+                                                .background(isActive ? VColor.accent.opacity(0.12) : Color.clear)
+                                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                                                .contentShape(Rectangle())
+                                                .onTapGesture {
+                                                    selectThread(thread)
+                                                    showThreadSwitcher = false
                                                 }
                                             }
-                                            .padding(.horizontal, VSpacing.sm)
-                                            .padding(.vertical, VSpacing.xs)
-                                            .background(isActive ? VColor.accent.opacity(0.12) : Color.clear)
-                                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                                            .contentShape(Rectangle())
-                                            .onTapGesture {
-                                                selectThread(thread)
-                                                showThreadSwitcher = false
-                                            }
                                         }
+                                        .padding(.horizontal, VSpacing.xs)
                                     }
-                                    .padding(.horizontal, VSpacing.xs)
+                                    .frame(maxHeight: 300)
                                 }
-                                .frame(maxHeight: 300)
+                                .frame(width: 200)
+                                .padding(.bottom, VSpacing.sm)
                             }
-                            .frame(width: 200)
-                            .padding(.bottom, VSpacing.sm)
-                        }
-                        .onDisappear {
-                            // Reset popover state when badge is removed from hierarchy
-                            // (e.g. thread count drops to ≤1) to prevent stale
-                            // showThreadSwitcher causing the popover to immediately
-                            // reappear when threads are added back.
-                            threadSwitcherHoverTimer?.cancel()
-                            threadSwitcherHoverTimer = nil
-                            showThreadSwitcher = false
-                        }
+                            .onDisappear {
+                                threadSwitcherHoverTimer?.cancel()
+                                threadSwitcherHoverTimer = nil
+                                showThreadSwitcher = false
+                            }
+                    }
                 }
             }
 
