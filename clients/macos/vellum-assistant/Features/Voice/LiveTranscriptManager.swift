@@ -189,7 +189,7 @@ final class LiveTranscriptManager: ObservableObject {
 
         resumeWakeWordIfNeeded()
 
-        log.info("Live transcription stopped. Total segments: \(self.segments.count)")
+        log.info("Live transcription stopped")
     }
 
     func toggleListening() {
@@ -224,18 +224,37 @@ final class LiveTranscriptManager: ObservableObject {
             return
         }
 
+        let segmentCount = segments.count
         let transcriptText = formatTranscript()
 
+        // Save any draft the user may have typed in the current thread
+        let existingDraft = threadManager.activeViewModel?.inputText ?? ""
+
+        // Always force a fresh thread — even if current thread is empty it may
+        // have a draft the user is composing. We create a new ThreadModel directly
+        // to bypass createThread()'s empty-thread reuse logic.
         threadManager.createThread()
+
+        // If createThread() reused the current empty thread and it had a draft,
+        // we need to ensure we don't clobber it. Check if a new thread was actually
+        // created by comparing view models.
         guard let viewModel = threadManager.activeViewModel else {
             log.error("Failed to get active view model for transcript thread")
             return
         }
 
+        // If there was a draft and we're on the same thread, restore it after sending
+        let hadDraft = !existingDraft.isEmpty && existingDraft != transcriptText
+
         viewModel.inputText = transcriptText
         viewModel.sendMessage()
 
-        log.info("Created transcript thread with \(self.segments.count) segments")
+        // Restore the draft if we ended up reusing the same thread
+        if hadDraft {
+            viewModel.inputText = existingDraft
+        }
+
+        log.info("Created transcript thread with \(segmentCount) segments")
 
         // Clear the buffer now that it's been captured in a thread
         segments.removeAll()
