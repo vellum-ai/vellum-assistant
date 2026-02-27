@@ -57,22 +57,19 @@ export interface AgentOptions {
 }
 
 export async function runAgent(options: AgentOptions): Promise<TestResult> {
-  const timeoutResult: TestResult = {
-    passed: false,
-    message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
-  };
+  const controller = new AbortController();
+  const { signal } = controller;
 
-  // Race the agent loop against a hard deadline so the timeout fires
-  // even if an await (API call, tool execution) is in flight.
-  return Promise.race([
-    runAgentLoop(options),
-    new Promise<TestResult>((resolve) =>
-      setTimeout(() => resolve(timeoutResult), MAX_TEST_DURATION_MS),
-    ),
-  ]);
+  const timeoutId = setTimeout(() => controller.abort(), MAX_TEST_DURATION_MS);
+
+  try {
+    return await runAgentLoop(options, signal);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
-async function runAgentLoop(options: AgentOptions): Promise<TestResult> {
+async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise<TestResult> {
   const { testContent, page, screenshotDir, verbose = false } = options;
 
   const client = new Anthropic();
@@ -84,12 +81,26 @@ async function runAgentLoop(options: AgentOptions): Promise<TestResult> {
   ];
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+    if (signal.aborted) {
+      return {
+        passed: false,
+        message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+      };
+    }
+
     if (verbose) {
       console.log(`  [agent] iteration ${iteration + 1}`);
     }
 
     let response: Anthropic.Message;
     for (let retry = 0; ; retry++) {
+      if (signal.aborted) {
+        return {
+          passed: false,
+          message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+        };
+      }
+
       try {
         const stream = client.messages.stream({
           model: MODEL,
@@ -101,6 +112,12 @@ async function runAgentLoop(options: AgentOptions): Promise<TestResult> {
         response = await stream.finalMessage();
         break;
       } catch (err: unknown) {
+        if (signal.aborted) {
+          return {
+            passed: false,
+            message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+          };
+        }
         const isRetryable =
           err instanceof Anthropic.APIError &&
           (err.status === 429 || err.status === 529 || err.status === 503);
@@ -145,6 +162,13 @@ async function runAgentLoop(options: AgentOptions): Promise<TestResult> {
 
     for (const block of assistantContent) {
       if (block.type !== "tool_use") continue;
+
+      if (signal.aborted) {
+        return {
+          passed: false,
+          message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+        };
+      }
 
       const { result, testResult } = await executeTool(
         page,
