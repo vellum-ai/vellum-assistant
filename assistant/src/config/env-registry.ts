@@ -124,6 +124,16 @@ export function getEnableMonitoring(): boolean {
   return flag('VELLUM_ENABLE_MONITORING');
 }
 
+/**
+ * IS_CONTAINERIZED — boolean, default: false
+ * When true, indicates the assistant is running inside a container (e.g. Docker).
+ * Any new data that needs to survive restarts must be written to BASE_DATA_DIR,
+ * which is mapped to a persistent volume.
+ */
+export function getIsContainerized(): boolean {
+  return flag('IS_CONTAINERIZED');
+}
+
 // ── Known env var names ──────────────────────────────────────────────────────
 
 /**
