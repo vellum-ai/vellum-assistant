@@ -41,9 +41,6 @@ final class OnboardingState {
     var cloudProvider: String = "local"
     var onboardingVariant: OnboardingVariant = .default
 
-    // Avatar evolution state for progressive visual changes during onboarding
-    var avatarEvolutionState = AvatarEvolutionState()
-
     /// When false, step changes are not written to UserDefaults (used by auth gate).
     var shouldPersist: Bool = true
 
@@ -75,7 +72,7 @@ final class OnboardingState {
     }
 
     var userHostedEnabled: Bool {
-        FeatureFlagManager.shared.isEnabled(.userHostedEnabled)
+        MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
     }
 
     /// Continuous crack progress (0.0–1.0) derived from step and permission state.
@@ -138,13 +135,12 @@ final class OnboardingState {
         // from reopening legacy permission-request steps.
         // When userHostedEnabled is on and a cloud provider is selected, the flow
         // has 3 steps (0–2); otherwise it stays at 2 steps (0–1).
-        let hasCloudStep = FeatureFlagManager.shared.isEnabled(.userHostedEnabled) && cloudProvider != "local"
+        let hasCloudStep = MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled") && cloudProvider != "local"
         let maxStep = onboardingVariant == .firstMeeting ? 4 : (hasCloudStep ? 2 : 1)
         if currentStep > maxStep {
             currentStep = maxStep
         }
 
-        avatarEvolutionState.load()
     }
 
     func advance(by steps: Int = 1) {
@@ -171,6 +167,5 @@ final class OnboardingState {
         for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
-        AvatarEvolutionState.clearPersistedState()
     }
 }
