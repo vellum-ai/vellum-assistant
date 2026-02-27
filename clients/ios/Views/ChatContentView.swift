@@ -232,11 +232,6 @@ struct ChatContentView: View {
                 genericErrorBanner(errorText)
             }
 
-            // Memory degradation banner — shown when embedding fails and recall
-            // falls back to lexical-only search so users aren't caught off guard.
-            if viewModel.isMemoryDegraded {
-                memoryDegradedBanner
-            }
 
             // Input bar
             InputBarView(
@@ -257,7 +252,6 @@ struct ChatContentView: View {
         .background(VColor.chatBackground)
         .animation(VAnimation.standard, value: viewModel.sessionError != nil)
         .animation(VAnimation.standard, value: viewModel.errorText)
-        .animation(VAnimation.standard, value: viewModel.isMemoryDegraded)
         .onChange(of: viewModel.messages.isEmpty) { _, isEmpty in
             if isEmpty {
                 greeting = greetingChoices.randomElement()!
@@ -368,37 +362,6 @@ struct ChatContentView: View {
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
         .background(VColor.error)
-        .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
-    /// Subtle banner shown when memory embedding fails so users know recall is lexical-only.
-    private var memoryDegradedBanner: some View {
-        HStack(spacing: VSpacing.sm) {
-            Image(systemName: "memorychip")
-                .font(VFont.caption)
-                .foregroundColor(VColor.warning)
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text("Memory search limited")
-                    .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textPrimary)
-                if let reason = viewModel.memoryDegradedReason {
-                    Text(reason)
-                        .font(VFont.small)
-                        .foregroundColor(VColor.textSecondary)
-                        .lineLimit(1)
-                }
-            }
-            Spacer()
-        }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
-        .background(VColor.warning.opacity(0.1))
-        .overlay(
-            Rectangle()
-                .fill(VColor.warning)
-                .frame(width: 3),
-            alignment: .leading
-        )
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 

@@ -1511,10 +1511,12 @@ extension ChatViewModel {
             }
 
         case .memoryStatus(let status):
-            // Update degradation state so the UI can surface a subtle warning banner.
+            // Log degradation state so developers can diagnose memory issues
+            // without interrupting the user with a banner.
             let degraded = status.enabled && status.degraded
-            isMemoryDegraded = degraded
-            memoryDegradedReason = degraded ? status.reason : nil
+            if degraded {
+                log.warning("Memory is temporarily unavailable – reason: \(status.reason ?? "unknown", privacy: .public)")
+            }
 
         default:
             break

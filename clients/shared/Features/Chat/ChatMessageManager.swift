@@ -73,11 +73,4 @@ public final class ChatMessageManager: ObservableObject {
     /// Set of provider keys with configured API keys, updated via `model_info` IPC messages.
     @Published public var configuredProviders: Set<String> = ["anthropic"]
 
-    // MARK: - Memory status
-
-    /// Whether the memory backend is currently degraded (e.g. embedding failures).
-    /// Updated from `memory_status` IPC messages.
-    @Published public var isMemoryDegraded: Bool = false
-    /// Human-readable reason for degradation. Nil when memory is healthy or disabled.
-    @Published public var memoryDegradedReason: String? = nil
 }

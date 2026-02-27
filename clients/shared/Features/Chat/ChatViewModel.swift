@@ -202,19 +202,6 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.configuredProviders }
         set { messageManager.configuredProviders = newValue }
     }
-    /// Whether the memory backend is currently degraded (e.g. embedding failures).
-    /// Updated from `memory_status` IPC messages. When `true`, semantic recall is
-    /// unavailable and the assistant falls back to lexical-only search.
-    public var isMemoryDegraded: Bool {
-        get { messageManager.isMemoryDegraded }
-        set { messageManager.isMemoryDegraded = newValue }
-    }
-    /// Human-readable reason for degradation (e.g. "memory.embedding_failure: API 401").
-    /// Nil when memory is healthy or memory is disabled.
-    public var memoryDegradedReason: String? {
-        get { messageManager.memoryDegradedReason }
-        set { messageManager.memoryDegradedReason = newValue }
-    }
 
     // MARK: - Forwarding properties — ChatAttachmentManager
 
@@ -758,12 +745,6 @@ public final class ChatViewModel: ObservableObject {
                 self?.pendingMessageIds.removeAll()
                 self?.requestIdToMessageId.removeAll()
                 self?.pendingLocalDeletions.removeAll()
-                // Do NOT reset isMemoryDegraded/memoryDegradedReason here: the daemon
-                // only emits memory_status during turn processing (prepareMemoryContext),
-                // not as part of a reconnect handshake. Clearing on reconnect would
-                // produce a false healthy state after transient disconnects — the banner
-                // would disappear until the user sends another message. Preserve the
-                // last-known state; it will be updated when the next turn is processed.
                 // If a run was in progress when the connection dropped, the
                 // client may have missed the messageComplete (or the full
                 // assistant response). Reset the spinner and re-fetch history

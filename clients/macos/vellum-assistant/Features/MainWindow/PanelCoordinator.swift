@@ -767,8 +767,6 @@ struct ActiveChatViewWrapper: View {
             isHistoryLoaded: viewModel.isHistoryLoaded,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
-            isMemoryDegraded: viewModel.isMemoryDegraded,
-            memoryDegradedReason: viewModel.memoryDegradedReason,
             connectionDiagnosticHint: viewModel.connectionDiagnosticHint,
             threadId: threadId,
             displayedMessageCount: viewModel.displayedMessageCount,
