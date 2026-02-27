@@ -1334,14 +1334,25 @@ struct MainWindowView: View {
                                     return threadManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
                                 } isTargeted: { isTargeted in
                                     if isTargeted && thread.id != sidebar.draggingThreadId {
-                                        sidebar.dropTargetThreadId = thread.id
                                         if let dragId = sidebar.draggingThreadId {
-                                            let visible = threadManager.visibleThreads
-                                            let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
-                                            let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
-                                            sidebar.dropIndicatorAtBottom = sIdx < tIdx
+                                            let sourceIsSchedule = threadManager.visibleThreads.first(where: { $0.id == dragId })?.isScheduleThread ?? false
+                                            if !sourceIsSchedule {
+                                                // Cross-section drag (regular → scheduled): insertion goes
+                                                // to the section boundary, so show indicator at top of
+                                                // the first schedule thread to match actual insertion point.
+                                                sidebar.dropTargetThreadId = displayedScheduleThreads.first?.id ?? thread.id
+                                                sidebar.dropIndicatorAtBottom = false
+                                            } else {
+                                                sidebar.dropTargetThreadId = thread.id
+                                                let visible = threadManager.visibleThreads
+                                                let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
+                                                let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
+                                                sidebar.dropIndicatorAtBottom = sIdx < tIdx
+                                            }
+                                        } else {
+                                            sidebar.dropTargetThreadId = thread.id
                                         }
-                                    } else if !isTargeted && sidebar.dropTargetThreadId == thread.id {
+                                    } else if !isTargeted && (sidebar.dropTargetThreadId == thread.id || sidebar.dropTargetThreadId == displayedScheduleThreads.first?.id) {
                                         sidebar.dropTargetThreadId = nil
                                     }
                                 }
