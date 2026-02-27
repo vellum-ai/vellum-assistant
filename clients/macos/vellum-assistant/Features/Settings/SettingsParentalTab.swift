@@ -1288,7 +1288,9 @@ private struct PINSheet: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .id(step)
                 .onChange(of: pinInput) { _, v in
-                    if v.count == 6 { advance() }
+                    // enterCurrent requires a manual button press so the user
+                    // can review what they typed before triggering verification.
+                    if v.count == 6 && step != .enterCurrent { advance() }
                 }
 
             // Error / placeholder to keep height stable
@@ -1304,6 +1306,14 @@ private struct PINSheet: View {
             // Footer
             if isLoading {
                 ProgressView().scaleEffect(0.8)
+            } else if step == .enterCurrent {
+                HStack {
+                    VButton(label: "Cancel", style: .secondary) { dismiss() }
+                    Spacer()
+                    VButton(label: "Continue", style: .secondary) { advance() }
+                        .disabled(pinInput.count != 6)
+                        .keyboardShortcut(.return, modifiers: [])
+                }
             } else {
                 VButton(label: "Cancel", style: .secondary) { dismiss() }
             }
