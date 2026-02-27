@@ -26,6 +26,7 @@ export type GuardianActionMessageScenario =
   | 'guardian_followup_failed'
   | 'guardian_followup_declined_ack'
   | 'guardian_followup_clarification'
+  | 'guardian_pending_disambiguation'
   | 'guardian_expired_disambiguation'
   | 'guardian_followup_disambiguation'
   | 'guardian_stale_answered'
@@ -188,6 +189,11 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
 
     case 'guardian_followup_clarification':
       return "Sorry, I didn't quite catch that. Would you like to call them back, send them a message, or skip it for now?";
+
+    case 'guardian_pending_disambiguation':
+      return listedCodes
+        ? `You have multiple pending guardian questions. Please prefix your reply with the reference code (${listedCodes}) so I know which question you're answering.`
+        : 'You have multiple pending guardian questions. Please prefix your reply with the reference code so I know which question you\'re answering.';
 
     case 'guardian_expired_disambiguation':
       return listedCodes

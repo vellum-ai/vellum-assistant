@@ -461,7 +461,7 @@ export async function processMessage(
 
       // Unknown code: message starts with a 6-char alphanumeric token that doesn't match
       if (!codeMatch && totalActionable > 0) {
-        const possibleCodeMatch = content.match(/^([A-Z0-9]{6})\s/i);
+        const possibleCodeMatch = content.match(/^([A-F0-9]{6})\s/i);
         if (possibleCodeMatch) {
           const candidateCode = possibleCodeMatch[1].toUpperCase();
           const allDeliveries = [...allPending, ...allFollowup, ...allExpired];
@@ -493,7 +493,7 @@ export async function processMessage(
           .map((d) => { const req = getGuardianActionRequest(d.requestId); return req ? req.requestCode : null; })
           .filter((code): code is string => typeof code === 'string' && code.length > 0);
         const disambiguationScenario = allPending.length > 0
-          ? 'guardian_expired_disambiguation' as const
+          ? 'guardian_pending_disambiguation' as const
           : allFollowup.length > 0
             ? 'guardian_followup_disambiguation' as const
             : 'guardian_expired_disambiguation' as const;

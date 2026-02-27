@@ -906,7 +906,7 @@ export async function handleChannelInbound(
       // Detect when the message starts with a 6-char alphanumeric token that
       // resembles a request code but doesn't match any known delivery.
       if (!codeMatch && totalActionable > 0) {
-        const possibleCodeMatch = trimmedContent.match(/^([A-Z0-9]{6})\s/i);
+        const possibleCodeMatch = trimmedContent.match(/^([A-F0-9]{6})\s/i);
         if (possibleCodeMatch) {
           const candidateCode = possibleCodeMatch[1].toUpperCase();
           // Check if this code exists in ANY delivery across states
@@ -940,7 +940,7 @@ export async function handleChannelInbound(
 
         // Choose the appropriate disambiguation scenario based on which states are present
         const disambiguationScenario = allPending.length > 0
-          ? 'guardian_expired_disambiguation' as const   // pending takes priority label
+          ? 'guardian_pending_disambiguation' as const
           : allFollowup.length > 0
             ? 'guardian_followup_disambiguation' as const
             : 'guardian_expired_disambiguation' as const;
