@@ -208,14 +208,14 @@ final class ThreadSessionRestorer {
                 sessionId: session.id,
                 isArchived: delegate.isSessionArchived(session.id),
                 isPinned: isPinned,
-                pinnedOrder: isPinned ? pinnedCount : nil,
+                pinnedOrder: isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil,
                 displayOrder: session.displayOrder.map { Int($0) },
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 kind: kind,
                 source: session.source,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
             )
-            if isPinned { pinnedCount += 1 }
+            if isPinned && session.displayOrder == nil { pinnedCount += 1 }
             // VM creation is lazy — only the active thread will get a VM via
             // getOrCreateViewModel() when it's first accessed.
             restoredThreads.append(thread)

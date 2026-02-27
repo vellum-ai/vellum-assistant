@@ -451,14 +451,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 sessionId: session.id,
                 isArchived: isSessionArchived(session.id),
                 isPinned: isPinned,
-                pinnedOrder: isPinned ? nextPinnedOrder : nil,
+                pinnedOrder: isPinned ? (session.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil,
                 displayOrder: session.displayOrder.map { Int($0) },
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 kind: session.threadType == "private" ? .private : .standard,
                 source: session.source,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
             )
-            if isPinned { nextPinnedOrder += 1 }
+            if isPinned && session.displayOrder == nil { nextPinnedOrder += 1 }
             // VM creation is lazy — getOrCreateViewModel() will instantiate
             // when the thread is first accessed (e.g. selected by the user).
             threads.append(thread)
