@@ -10,6 +10,7 @@ import { isAssistantFeatureFlagEnabled } from './assistant-feature-flags.js';
 import { getBaseDataDir, getIsContainerized } from './env-registry.js';
 import { getConfig } from './loader.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
+import { skillFlagKey } from './skill-state.js';
 import { resolveUserReference } from './user-reference.js';
 
 const log = getLogger('system-prompt');
@@ -771,7 +772,7 @@ function appendSkillsCatalog(basePrompt: string): string {
   const config = getConfig();
 
   // Filter out skills whose assistant feature flag is explicitly OFF
-  const flagFiltered = skills.filter(s => isAssistantFeatureFlagEnabled(`feature_flags.${s.id}.enabled`, config));
+  const flagFiltered = skills.filter(s => isAssistantFeatureFlagEnabled(skillFlagKey(s.id), config));
 
   const sections: string[] = [basePrompt];
 

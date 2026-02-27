@@ -489,11 +489,11 @@ if [ -d "$SCRIPT_DIR/daemon-bin/bundled-skills" ]; then
     cp -R "$SCRIPT_DIR/daemon-bin/bundled-skills" "$RESOURCES_DIR/bundled-skills"
 fi
 
-# Always refresh assistant feature-flag defaults for the bundled gateway.
+# Always refresh feature flag registry for the bundled gateway.
 # The compiled gateway resolves this from Contents/Resources in app layouts.
-ASSISTANT_FLAG_DEFAULTS="$GATEWAY_SRC_DIR/src/assistant-feature-flag-defaults.json"
-if [ -f "$ASSISTANT_FLAG_DEFAULTS" ]; then
-    cp "$ASSISTANT_FLAG_DEFAULTS" "$RESOURCES_DIR/assistant-feature-flag-defaults.json"
+FEATURE_FLAG_REGISTRY="$GATEWAY_SRC_DIR/src/feature-flag-registry.json"
+if [ -f "$FEATURE_FLAG_REGISTRY" ]; then
+    cp "$FEATURE_FLAG_REGISTRY" "$RESOURCES_DIR/feature-flag-registry.json"
 fi
 
 # Always check resource bundles (they change independently of binaries)
