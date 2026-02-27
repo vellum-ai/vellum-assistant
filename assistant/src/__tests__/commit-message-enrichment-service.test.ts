@@ -3,11 +3,12 @@ import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
   _resetEnrichmentService,
   CommitEnrichmentService,
+  getEnrichmentService,
 } from '../workspace/commit-message-enrichment-service.js';
 import type { CommitContext } from '../workspace/commit-message-provider.js';
 import { _resetGitServiceRegistry,WorkspaceGitService } from '../workspace/git-service.js';
@@ -27,9 +28,16 @@ describe('CommitEnrichmentService', () => {
   });
 
   afterEach(async () => {
+    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    _resetEnrichmentService();
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
     }
+  });
+
+  afterAll(async () => {
+    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    _resetEnrichmentService();
   });
 
   function makeContext(overrides?: Partial<CommitContext>): CommitContext {

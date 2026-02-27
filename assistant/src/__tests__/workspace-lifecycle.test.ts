@@ -10,8 +10,12 @@ import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
+import {
+  _resetEnrichmentService,
+  getEnrichmentService,
+} from '../workspace/commit-message-enrichment-service.js';
 import {
   _resetGitServiceRegistry,
   getWorkspaceGitService,
@@ -36,10 +40,17 @@ describe('Workspace git lifecycle (integration)', () => {
     _resetHeartbeatState();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    _resetEnrichmentService();
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
     }
+  });
+
+  afterAll(async () => {
+    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    _resetEnrichmentService();
   });
 
   // Build a clean git env: strip all GIT_* env vars that CI runners
