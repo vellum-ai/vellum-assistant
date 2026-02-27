@@ -1,3 +1,4 @@
+import { isWorkspaceScopedInvocation } from '../permissions/workspace-policy.js';
 import { isSideEffectTool } from '../tools/side-effects.js';
 import { RiskLevel } from '../permissions/types.js';
 
@@ -8,7 +9,7 @@ export enum ToolIntent {
 
 // Tools whose invocations are always classified as Write regardless of other signals.
 const EXTERNAL_COMMUNICATION_PREFIXES = ['messaging_send', 'gmail_send'] as const;
-const EXTERNAL_COMMUNICATION_EXACT = new Set(['gmail_forward', 'call_start', 'send_notification']);
+const EXTERNAL_COMMUNICATION_EXACT = new Set(['gmail_forward', 'call_start', 'send_notification', 'messaging_reply']);
 const SCHEDULING_TOOLS = new Set(['schedule_create', 'schedule_update', 'schedule_delete']);
 
 /**
@@ -23,12 +24,13 @@ export function classifyIntent(
   workingDir: string,
   risk: RiskLevel,
 ): ToolIntent {
-  // 1. Sandboxed tools: the sandbox provides isolation so all operations
-  //    (including writes) cannot affect the host filesystem.
+  // 1. Sandboxed tools: the sandbox provides isolation so reads are safe.
+  //    For file_write and file_edit, only classify as Read when the target
+  //    path is within the workspace — writes outside the sandbox are Write.
   if (
     toolName === 'file_read' ||
-    toolName === 'file_write' ||
-    toolName === 'file_edit' ||
+    (toolName === 'file_write' && isWorkspaceScopedInvocation(toolName, input, workingDir)) ||
+    (toolName === 'file_edit' && isWorkspaceScopedInvocation(toolName, input, workingDir)) ||
     toolName === 'bash'
   ) {
     return ToolIntent.Read;
@@ -46,10 +48,9 @@ export function classifyIntent(
   // 5. Host mutations.
   if (toolName === 'host_file_write' || toolName === 'host_file_edit') return ToolIntent.Write;
 
-  // 6. Host bash — risk-dependent.
-  if (toolName === 'host_bash') {
-    return risk === RiskLevel.Low ? ToolIntent.Read : ToolIntent.Write;
-  }
+  // 6. Host bash — always Write. Risk level measures danger, not intent;
+  //    even low-risk commands can have side effects (e.g. redirections).
+  if (toolName === 'host_bash') return ToolIntent.Write;
 
   // 7. External communication.
   if (EXTERNAL_COMMUNICATION_EXACT.has(toolName)) return ToolIntent.Write;
