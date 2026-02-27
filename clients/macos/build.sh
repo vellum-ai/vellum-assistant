@@ -183,9 +183,10 @@ build_binaries() {
     # so the externalized import('@huggingface/transformers') resolves at runtime
     mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface"
     cp -R "$ASSISTANT_SRC_DIR/node_modules/@huggingface/transformers" "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers"
-    # Strip non-runtime files (source, types, sourcemaps, web/browser bundles, WASM)
+    # Strip non-runtime files (source, types, sourcemaps, web/browser bundles, WASM, model cache)
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/src"
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/types"
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/.cache"
     rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/README.md"
     rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/"*.map
     rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/"*.min.*
@@ -368,6 +369,7 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     cp -R "$ASSISTANT_SRC_DIR/node_modules/@huggingface/transformers" "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers"
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/src"
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/types"
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/.cache"
     rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/README.md"
     rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/"*.map
     rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/"*.min.*
