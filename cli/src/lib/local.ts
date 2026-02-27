@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
+import { createConnection } from "net";
 import { homedir } from "os";
 import { dirname, join } from "path";
 
@@ -95,6 +96,30 @@ function readWorkspaceIngressPublicBaseUrl(): string | undefined {
   }
 }
 
+/** Try a TCP connect to the Unix socket. Returns true if the handshake
+ *  completes within the timeout — false on connection refused, timeout,
+ *  or missing socket file. */
+function isSocketResponsive(socketPath: string, timeoutMs = 1500): Promise<boolean> {
+  if (!existsSync(socketPath)) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const socket = createConnection(socketPath);
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve(false);
+    }, timeoutMs);
+    socket.on("connect", () => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on("error", () => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
 async function discoverPublicUrl(): Promise<string | undefined> {
   const cloud = process.env.VELLUM_CLOUD;
   if (!cloud || cloud === "local") {
@@ -172,7 +197,15 @@ export async function startLocalDaemon(): Promise<void> {
     }
 
     if (!daemonAlive) {
-      // Remove stale socket so we can detect the fresh one
+      // The PID file was stale or missing, but a daemon with a different PID
+      // may still be listening on the socket (e.g. if the PID file was
+      // overwritten by a crashed restart attempt). Check before deleting.
+      if (await isSocketResponsive(socketFile)) {
+        console.log("   Daemon socket is responsive — skipping restart\n");
+        return;
+      }
+
+      // Socket is unresponsive or missing — safe to clean up and start fresh.
       try { unlinkSync(socketFile); } catch {}
 
       console.log("🔨 Starting daemon...");
