@@ -86,16 +86,23 @@ Tell the user: "Permissions configured! Now let's set up the redirect URL and ge
 
 Navigate to the "OAuth & Permissions" page if not already there.
 
-Use the gateway callback URL so OAuth returns through gateway ingress.
+Before entering the redirect URL, resolve the exact value from the well-known OAuth config:
+
+```
+credential_store describe:
+  service: "integration:slack"
+```
+
+Read the `redirectUri` field from that response and use it exactly as shown.
 
 In the "Redirect URLs" section:
 1. Click "Add New Redirect URL"
-2. Enter `$GATEWAY_BASE_URL/oauth/callback`
+2. Enter the `redirectUri` value returned above
 3. Click "Add" then "Save URLs"
 
 Take a `browser_snapshot` to confirm.
 
-Tell the user: "Redirect URL configured. This now routes back through your gateway callback URL."
+Tell the user: "Redirect URL configured using the redirect URI from Vellum's Slack OAuth profile."
 
 ## Step 5: Extract Client ID and Client Secret
 
@@ -137,7 +144,7 @@ Once connected, tell the user:
 Summarize what was accomplished:
 - Created a Slack App called "Vellum Assistant"
 - Configured User Token Scopes for reading, writing, and searching
-- Set up the OAuth redirect URL (`$GATEWAY_BASE_URL/oauth/callback`)
+- Set up the OAuth redirect URL from the Slack OAuth profile
 - Connected your Slack workspace
 
 ## Error Handling

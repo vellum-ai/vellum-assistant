@@ -124,7 +124,7 @@ Tell the user: "Consent screen is configured! Almost there — just need to crea
 
 > **Create OAuth Credentials**
 >
-> I'm about to create OAuth Web Application credentials for Vellum Assistant. This generates a client ID and secret that Vellum uses to initiate the authorization flow. We'll register the gateway callback URL so OAuth always returns through your configured gateway.
+> I'm about to create OAuth Desktop Application credentials for Vellum Assistant. This generates a client ID and secret that Vellum uses to initiate the authorization flow.
 
 Wait for the user to approve. If they decline, explain that credentials are the final step needed and offer to try again or cancel.
 
@@ -133,10 +133,10 @@ Once approved, navigate to `https://console.cloud.google.com/apis/credentials?pr
 Use `browser_click` on "+ Create Credentials" at the top, then select "OAuth client ID" from the dropdown.
 
 Take a `browser_snapshot` and fill in:
-1. **Application type:** Select **"Web application"** from the dropdown
+1. **Application type:** Select **"Desktop app"** from the dropdown
 2. **Name:** "Vellum Assistant"
-3. Under **Authorized redirect URIs**, add:
-   - `$GATEWAY_BASE_URL/oauth/callback`
+
+**Do NOT add any redirect URIs** for the desktop app flow.
 
 Use `browser_click` on the "Create" button.
 
@@ -177,7 +177,7 @@ action: "oauth2_connect"
 service: "integration:gmail"
 ```
 
-This auto-reads client_id/client_secret from the secure store and auto-fills endpoints, scopes, and params from well-known config. The OAuth flow returns through `$GATEWAY_BASE_URL/oauth/callback`.
+This auto-reads client_id/client_secret from the secure store and auto-fills endpoints, scopes, and params from well-known config.
 
 Wait for the flow to complete.
 
@@ -193,7 +193,7 @@ Summarize what was accomplished:
 - Created a Google Cloud project (or used an existing one)
 - Enabled the Gmail API and Google Calendar API
 - Configured the OAuth consent screen with appropriate scopes (including calendar)
-- Created OAuth Web Application credentials with gateway callback URL
+- Created OAuth Desktop Application credentials
 - Connected your Gmail and Google Calendar accounts
 
 ## Error Handling
