@@ -23,6 +23,16 @@ function ghPassthrough(args: string[]): number {
   return result.status ?? 1;
 }
 
+// Capture the current user and most recent run ID before triggering,
+// so we can detect the *new* run by comparing against the previous one.
+const { stdout: ghUser } = gh(["api", "user", "--jq", ".login"]);
+const runListArgs = [
+  "run", "list", "-R", REPO, "-w", WORKFLOW,
+  "-u", ghUser, "-e", "workflow_dispatch",
+  "--limit", "1", "--json", "databaseId", "--jq", ".[0].databaseId",
+];
+const { stdout: previousRunId } = gh(runListArgs);
+
 // Trigger the workflow
 console.log(`Triggering ${WORKFLOW} with agent=true...`);
 const trigger = ghPassthrough(["workflow", "run", WORKFLOW, "-R", REPO, "-f", "agent=true"]);
@@ -30,19 +40,12 @@ if (trigger !== 0) {
   process.exit(trigger);
 }
 
-// Find the run we just created — scope to workflow_dispatch by the current user
-// to avoid picking up an unrelated PR-triggered or other dispatch run.
-const { stdout: ghUser } = gh(["api", "user", "--jq", ".login"]);
-
+// Poll until a new run appears (different ID from the previous one)
 let runId = "";
-for (let attempt = 0; attempt < 10; attempt++) {
+for (let attempt = 0; attempt < 15; attempt++) {
   await new Promise((resolve) => setTimeout(resolve, 2000));
-  const { stdout: id } = gh([
-    "run", "list", "-R", REPO, "-w", WORKFLOW,
-    "-u", ghUser, "-e", "workflow_dispatch",
-    "--limit", "1", "--json", "databaseId", "--jq", ".[0].databaseId",
-  ]);
-  if (id) {
+  const { stdout: id } = gh(runListArgs);
+  if (id && id !== previousRunId) {
     runId = id;
     break;
   }
@@ -80,8 +83,8 @@ console.log("──────────────────────�
 
 // Download artifacts if any
 const { stdout: artifactCount } = gh([
-  "run", "view", runId, "-R", REPO,
-  "--json", "artifacts", "--jq", ".artifacts | length",
+  "api", `repos/${REPO}/actions/runs/${runId}/artifacts`,
+  "--jq", ".total_count",
 ]);
 
 if (parseInt(artifactCount, 10) > 0) {
