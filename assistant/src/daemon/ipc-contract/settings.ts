@@ -9,6 +9,13 @@ export interface VoiceConfigUpdateRequest {
   activationKey: string;
 }
 
+/** Request from the client to generate a custom avatar via Gemini. */
+export interface GenerateAvatarRequest {
+  type: 'generate_avatar';
+  /** Text description of the desired avatar appearance. */
+  description: string;
+}
+
 // === Server → Client ===
 
 /** Sent by the daemon to update a client-side setting (e.g. activation key). */
@@ -20,7 +27,23 @@ export interface ClientSettingsUpdate {
   value: string;
 }
 
+/** Sent by the daemon after the avatar image has been regenerated and saved to disk. */
+export interface AvatarUpdated {
+  type: 'avatar_updated';
+  /** Absolute path to the updated avatar image file. */
+  avatarPath: string;
+}
+
+/** Response to a generate_avatar request indicating success or failure. */
+export interface GenerateAvatarResponse {
+  type: 'generate_avatar_response';
+  /** Whether the avatar was generated successfully. */
+  success: boolean;
+  /** Error message when success is false. */
+  error?: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _SettingsClientMessages = VoiceConfigUpdateRequest;
-export type _SettingsServerMessages = ClientSettingsUpdate;
+export type _SettingsClientMessages = VoiceConfigUpdateRequest | GenerateAvatarRequest;
+export type _SettingsServerMessages = ClientSettingsUpdate | AvatarUpdated | GenerateAvatarResponse;

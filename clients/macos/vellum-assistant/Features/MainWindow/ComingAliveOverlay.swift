@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Full-screen overlay shown briefly after onboarding completes.
-/// Displays the dino avatar with a bouncy scale-up animation and a
+/// Displays the avatar with a bouncy scale-up animation and a
 /// radiating accent glow pulse, then calls `onComplete` so the caller
 /// can fade in the chat UI and send the wake-up message.
 struct ComingAliveOverlay: View {
@@ -15,7 +15,6 @@ struct ComingAliveOverlay: View {
     @State private var avatarOpacity: Double = 0.0
     @State private var glowScale: CGFloat = 0.6
     @State private var glowOpacity: Double = 0.0
-    @State private var cachedBlobImage: NSImage?
 
     /// Total transition budget: ~1.5 seconds.
     /// - 0.0s: avatar springs in (bouncy, ~0.6s settle)
@@ -46,21 +45,18 @@ struct ComingAliveOverlay: View {
                 .scaleEffect(glowScale)
                 .allowsHitTesting(false)
 
-            // Dino avatar
-            Image(nsImage: blobImage)
+            // Avatar image
+            Image(nsImage: appearance.fullAvatarImage)
                 .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 200, height: 180)
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 200, height: 200)
+                .clipShape(Circle())
                 .shadow(color: Meadow.avatarGradientStart.opacity(0.3), radius: 12)
                 .scaleEffect(avatarScale)
                 .opacity(avatarOpacity)
         }
         .onAppear {
-            rebuildBlobImage()
             startAnimation()
-        }
-        .onChange(of: appearance.palette) { _, _ in
-            rebuildBlobImage()
         }
         .accessibilityHidden(true)
     }
@@ -90,21 +86,5 @@ struct ComingAliveOverlay: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + completionDelay) {
             onComplete()
         }
-    }
-
-    // MARK: - Avatar Image
-
-    private var blobImage: NSImage {
-        cachedBlobImage ?? PixelSpriteBuilder.buildBlobNSImage(
-            pixelSize: Meadow.artPixelSize,
-            palette: appearance.palette
-        )
-    }
-
-    private func rebuildBlobImage() {
-        cachedBlobImage = PixelSpriteBuilder.buildBlobNSImage(
-            pixelSize: Meadow.artPixelSize,
-            palette: appearance.palette
-        )
     }
 }

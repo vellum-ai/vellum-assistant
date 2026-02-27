@@ -731,6 +731,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'voice_config_update',
     activationKey: 'fn',
   },
+  generate_avatar: {
+    type: 'generate_avatar',
+    description: 'a friendly purple cat with green eyes wearing a tiny hat',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -2019,6 +2023,15 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     personality: 'friendly',
     emoji: '',
     home: '',
+  },
+  avatar_updated: {
+    type: 'avatar_updated',
+    avatarPath: '/Users/test/.vellum/workspace/data/avatar/custom-avatar.png',
+  },
+  generate_avatar_response: {
+    type: 'generate_avatar_response',
+    success: true,
+    error: undefined,
   },
 };
 

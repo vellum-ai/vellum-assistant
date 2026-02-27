@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 struct IdentityPanel: View {
     let onClose: () -> Void
-    let onCustomizeAvatar: () -> Void
+    let onEditAvatar: () -> Void
     let daemonClient: DaemonClient
     @State private var appearance = AvatarAppearanceManager.shared
 
@@ -33,14 +33,21 @@ struct IdentityPanel: View {
 
                     // Card wrapping avatar + ID fields
                     VStack(spacing: 0) {
-                        // Compact avatar
-                        DinoSceneView(seed: identity?.name ?? remoteIdentity?.name ?? lockfileAssistant?.assistantId ?? "default", palette: appearance.palette, outfit: appearance.outfit)
-                            .frame(width: 120, height: 140)
+                        // Avatar image or initial-letter fallback (full-size for identity display)
+                        Image(nsImage: appearance.fullAvatarImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 120, height: 120)
+                            .clipShape(Circle())
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
+                            )
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, VSpacing.lg)
 
-                        // Customize Avatar CTA — directly under avatar
-                        VButton(label: "Customize Avatar", style: .secondary, isFullWidth: true, action: onCustomizeAvatar)
+                        // Edit Avatar CTA — switches to chat and pre-fills composer
+                        VButton(label: "Edit Avatar", style: .secondary, isFullWidth: true, action: onEditAvatar)
                             .padding(.top, VSpacing.sm)
                             .padding(.horizontal, VSpacing.lg)
                             .padding(.bottom, VSpacing.lg)

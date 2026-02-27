@@ -204,11 +204,14 @@ struct ChatBubble: View {
                 .overlay(alignment: .topLeading) {
                     if !isUser && showAvatar {
                         Image(nsImage: appearance.chatAvatarImage)
-                            .interpolation(.none)
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                             .frame(width: 28, height: 28)
                             .clipShape(Circle())
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
+                            )
                             .offset(x: -(28 + VSpacing.sm), y: 2)
                     }
                 }

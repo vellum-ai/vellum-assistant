@@ -326,7 +326,6 @@ public final class SettingsStore: ObservableObject {
         let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
         self.hasElevenLabsKey = elevenLabsKey != nil
         self.maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
-
         let storedImageGenModel = UserDefaults.standard.string(forKey: "selectedImageGenModel")
         if let storedImageGenModel, Self.availableImageGenModels.contains(storedImageGenModel) {
             self.selectedImageGenModel = storedImageGenModel
@@ -784,6 +783,7 @@ public final class SettingsStore: ObservableObject {
         let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
         hasElevenLabsKey = elevenLabsKey != nil
         maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
+
     }
 
     /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x".

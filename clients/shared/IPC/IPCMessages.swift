@@ -1129,6 +1129,18 @@ extension IPCIdentityGetRequest {
 /// Response containing assistant identity info.
 public typealias IdentityGetResponseMessage = IPCIdentityGetResponse
 
+/// Request to generate a custom avatar via DALL-E.
+public typealias GenerateAvatarRequestMessage = IPCGenerateAvatarRequest
+
+extension IPCGenerateAvatarRequest {
+    public init(description: String) {
+        self.init(type: "generate_avatar", description: description)
+    }
+}
+
+/// Response indicating whether avatar generation succeeded.
+public typealias GenerateAvatarResponseMessage = IPCGenerateAvatarResponse
+
 /// Push event: skill state changed.
 /// Backed by generated `IPCSkillStateChanged`.
 public typealias SkillStateChangedMessage = IPCSkillStateChanged
@@ -2336,6 +2348,8 @@ public enum ServerMessage: Decodable, Sendable {
     case recordingStart(IPCRecordingStart)
     case recordingStop(IPCRecordingStop)
     case clientSettingsUpdate(IPCClientSettingsUpdate)
+    case avatarUpdated(IPCAvatarUpdated)
+    case generateAvatarResponse(IPCGenerateAvatarResponse)
     case heartbeatConfigResponse(IPCHeartbeatConfigResponse)
     case heartbeatRunsListResponse(IPCHeartbeatRunsListResponse)
     case heartbeatRunNowResponse(IPCHeartbeatRunNowResponse)
@@ -2761,6 +2775,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "client_settings_update":
             let message = try IPCClientSettingsUpdate(from: decoder)
             self = .clientSettingsUpdate(message)
+        case "avatar_updated":
+            let message = try IPCAvatarUpdated(from: decoder)
+            self = .avatarUpdated(message)
+        case "generate_avatar_response":
+            let message = try IPCGenerateAvatarResponse(from: decoder)
+            self = .generateAvatarResponse(message)
         case "heartbeat_config_response":
             let message = try IPCHeartbeatConfigResponse(from: decoder)
             self = .heartbeatConfigResponse(message)

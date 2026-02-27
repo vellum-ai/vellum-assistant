@@ -513,6 +513,18 @@ public struct IPCAuthResult: Codable, Sendable {
     }
 }
 
+/// Sent by the daemon after the avatar image has been regenerated and saved to disk.
+public struct IPCAvatarUpdated: Codable, Sendable {
+    public let type: String
+    /// Absolute path to the updated avatar image file.
+    public let avatarPath: String
+
+    public init(type: String, avatarPath: String) {
+        self.type = type
+        self.avatarPath = avatarPath
+    }
+}
+
 public struct IPCBrowserCDPRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
@@ -1803,6 +1815,33 @@ public struct IPCGalleryManifest: Codable, Sendable {
         self.updatedAt = updatedAt
         self.categories = categories
         self.apps = apps
+    }
+}
+
+/// Request from the client to generate a custom avatar via DALL-E.
+public struct IPCGenerateAvatarRequest: Codable, Sendable {
+    public let type: String
+    /// Text description of the desired avatar appearance.
+    public let description: String
+
+    public init(type: String, description: String) {
+        self.type = type
+        self.description = description
+    }
+}
+
+/// Response to a generate_avatar request indicating success or failure.
+public struct IPCGenerateAvatarResponse: Codable, Sendable {
+    public let type: String
+    /// Whether the avatar was generated successfully.
+    public let success: Bool
+    /// Error message when success is false.
+    public let error: String?
+
+    public init(type: String, success: Bool, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.error = error
     }
 }
 
