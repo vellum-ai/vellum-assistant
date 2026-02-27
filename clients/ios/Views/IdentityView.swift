@@ -264,15 +264,17 @@ struct IdentityView: View {
                             .foregroundColor(VColor.textPrimary)
 
                         if let provenance = skill.provenance {
-                            Text(provenance.kind == "first-party" ? (provenance.provider ?? "Vellum") : (provenance.provider ?? "Third-party"))
+                            let label = provenance.kind == "first-party" ? (provenance.provider ?? "Vellum") : provenance.kind == "local" ? "Local" : (provenance.provider ?? "Third-party")
+                            let badgeColor: Color = provenance.kind == "first-party" ? .blue : provenance.kind == "local" ? .secondary : .orange
+                            Text(label)
                                 .font(.caption2)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
                                 .background(
                                     Capsule()
-                                        .fill(provenance.kind == "first-party" ? Color.blue.opacity(0.15) : Color.orange.opacity(0.15))
+                                        .fill(badgeColor.opacity(0.15))
                                 )
-                                .foregroundColor(provenance.kind == "first-party" ? .blue : .orange)
+                                .foregroundColor(badgeColor)
                         }
                     }
 

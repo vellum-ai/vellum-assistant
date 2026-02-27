@@ -1168,6 +1168,8 @@ struct AgentPanelContent: View {
             return provenance.provider ?? "Vellum"
         } else if provenance.kind == "third-party" {
             return provenance.provider ?? "Third-party"
+        } else if provenance.kind == "local" {
+            return "Local"
         }
         return nil
     }
@@ -1187,7 +1189,14 @@ struct AgentPanelContent: View {
 
     private func provenanceBadgeColor(_ skill: SkillInfo) -> Color {
         guard let provenance = skill.provenance else { return VColor.textMuted }
-        return provenance.kind == "first-party" ? VColor.accent : Amber._500
+        switch provenance.kind {
+        case "first-party":
+            return VColor.accent
+        case "third-party":
+            return Amber._500
+        default:
+            return VColor.textMuted
+        }
     }
 
     private func skillMetaItem(icon: String, value: String, color: Color = VColor.textMuted) -> some View {

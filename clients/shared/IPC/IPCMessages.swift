@@ -1045,7 +1045,7 @@ public typealias ClawhubInfo = IPCSkillsListResponseSkillClawhub
 /// Backed by generated `IPCSkillsListResponseSkillMissingRequirements`.
 public typealias MissingRequirements = IPCSkillsListResponseSkillMissingRequirements
 
-/// Provenance metadata indicating whether a skill is first-party or third-party.
+/// Provenance metadata indicating whether a skill is first-party, third-party, or local.
 /// Backed by generated `IPCSkillsListResponseSkillProvenance`.
 public typealias SkillProvenance = IPCSkillsListResponseSkillProvenance
 
