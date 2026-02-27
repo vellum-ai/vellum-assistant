@@ -202,22 +202,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     public func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
 
-        // Initialize crash reporting early so any startup errors are captured.
-        // Gate on the "collect-usage-data" UserDefaults key that is toggled by
-        // Settings > Privacy. Defaults to true when the key is not yet set
-        // (consistent with the daemon-side feature flag defaultEnabled: true).
-        // TODO: Replace the placeholder DSN with the real Sentry project DSN.
-        let collectUsageData = UserDefaults.standard.object(forKey: "feature_flags.collect-usage-data.enabled") as? Bool ?? true
-        if collectUsageData {
-            SentrySDK.start { options in
-                // Replace this placeholder DSN with the real Sentry project DSN
-                // before shipping to production. Create a project at sentry.io and
-                // copy the DSN from Settings > Client Keys.
-                options.dsn = "https://placeholder@o0.ingest.sentry.io/0"
-                options.debug = false
-                options.tracesSampleRate = 0.1
-                options.sendDefaultPii = false
-            }
+        // Initialize crash reporting eagerly so crashes before the daemon connects
+        // are captured. Privacy opt-out is checked after the daemon is ready and
+        // applied via SentrySDK.close() — matching the daemon-side pattern in
+        // lifecycle.ts (init at top, close after config load if flag disabled).
+        SentrySDK.start { options in
+            options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+            options.debug = false
+            options.tracesSampleRate = 0.1
+            options.sendDefaultPii = false
         }
 
         // Migration: remove legacy ios-pairing-enabled flag file.
@@ -1192,6 +1185,31 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 setupAmbientAgent()
                 refreshAppsCache()
                 refreshSkillsCache()
+                // Apply the privacy flag now that the gateway is reachable:
+                // close Sentry if the user has opted out of usage data collection.
+                checkAndApplyPrivacyFlag()
+            }
+        }
+    }
+
+    /// Queries the gateway feature-flags API for the collect-usage-data flag and,
+    /// if the user has opted out, shuts down Sentry to stop future event capturing.
+    /// Called after the daemon is first connected so the gateway is reachable.
+    private func checkAndApplyPrivacyFlag() {
+        Task {
+            do {
+                let flags = try await daemonClient.getFeatureFlags()
+                let collectUsageData = flags
+                    .first(where: { $0.key == "feature_flags.collect-usage-data.enabled" })
+                    .map { $0.enabled }
+                    ?? true
+                if !collectUsageData {
+                    SentrySDK.close()
+                }
+            } catch {
+                // Flag check is best-effort; Sentry stays active when the flag
+                // cannot be read (e.g. gateway not yet ready on first boot).
+                log.debug("Could not read privacy flag from gateway: \(error)")
             }
         }
     }
