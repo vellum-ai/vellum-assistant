@@ -1,12 +1,16 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import Anthropic from '@anthropic-ai/sdk';
 import sharp from 'sharp';
 
-import { getConfig } from '../../config/loader.js';
 import { RiskLevel } from '../../permissions/types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import {
+  createTimeout,
+  extractText,
+  getConfiguredProvider,
+  userMessage,
+} from '../../providers/provider-send-message.js';
+import type { Provider, ToolDefinition } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
 import { getWorkspaceDir } from '../../util/platform.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
@@ -14,6 +18,9 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 const log = getLogger('avatar-generator');
 
 const TOOL_NAME = 'set_avatar';
+
+/** Timeout for each SVG generation request (30 seconds). */
+const GENERATION_TIMEOUT_MS = 30_000;
 
 /** Canonical path where the custom avatar PNG is stored. */
 function getAvatarPath(): string {
@@ -60,6 +67,30 @@ function sanitizeSvg(svg: string): string {
   });
 }
 
+/** Generate SVG text from the provider with the given prompt. */
+async function generateSvg(provider: Provider, prompt: string): Promise<string | null> {
+  const { signal, cleanup } = createTimeout(GENERATION_TIMEOUT_MS);
+  try {
+    const response = await provider.sendMessage(
+      [userMessage(prompt)],
+      undefined,
+      undefined,
+      {
+        signal,
+        config: {
+          modelIntent: 'latency-optimized',
+          max_tokens: 4096,
+        },
+      },
+    );
+    cleanup();
+    return extractText(response) || null;
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
+}
+
 export const setAvatarTool: Tool = {
   name: TOOL_NAME,
   description:
@@ -89,7 +120,7 @@ export const setAvatarTool: Tool = {
 
   async execute(
     input: Record<string, unknown>,
-    context: ToolContext,
+    _context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const description = input.description;
     if (typeof description !== 'string' || description.trim() === '') {
@@ -99,57 +130,43 @@ export const setAvatarTool: Tool = {
       };
     }
 
-    const config = getConfig();
-    const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-
-    if (!apiKey) {
+    const provider = getConfiguredProvider();
+    if (!provider) {
       return {
-        content:
-          'No Anthropic API key configured. Please set your Anthropic API key to use avatar generation.',
+        content: 'No LLM provider configured. Cannot generate avatar.',
         isError: true,
       };
     }
 
     try {
-      const client = new Anthropic({ apiKey });
+      log.info({ description: description.trim() }, 'Generating SVG avatar via provider');
 
-      log.info({ description: description.trim() }, 'Generating SVG avatar via Claude');
+      const prompt =
+        `Generate an SVG avatar based on this description: ${description.trim()}\n\n` +
+        'Requirements:\n' +
+        '- Output ONLY the SVG code, no explanation\n' +
+        '- The SVG must be exactly 512x512 pixels (viewBox="0 0 512 512")\n' +
+        '- Use a cute, friendly, work-safe illustration style\n' +
+        '- Use vibrant but soft colors\n' +
+        '- Keep the design simple and recognizable at small sizes (28px)\n' +
+        '- Use a circular or rounded composition that fills the canvas\n' +
+        '- Add a subtle background color (not white/transparent)\n' +
+        '- Do NOT use external references, fonts, or images\n' +
+        '- Do NOT use filters, masks, clipPath, text, or foreignObject\n' +
+        '- NEVER duplicate attributes on the same element\n' +
+        '- Use only basic SVG elements (circle, rect, path, ellipse, polygon, g, defs, linearGradient, radialGradient)';
 
-      const response = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 4096,
-        messages: [
-          {
-            role: 'user',
-            content:
-              `Generate an SVG avatar based on this description: ${description.trim()}\n\n` +
-              'Requirements:\n' +
-              '- Output ONLY the SVG code, no explanation\n' +
-              '- The SVG must be exactly 512x512 pixels (viewBox="0 0 512 512")\n' +
-              '- Use a cute, friendly, work-safe illustration style\n' +
-              '- Use vibrant but soft colors\n' +
-              '- Keep the design simple and recognizable at small sizes (28px)\n' +
-              '- Use a circular or rounded composition that fills the canvas\n' +
-              '- Add a subtle background color (not white/transparent)\n' +
-              '- Do NOT use external references, fonts, or images\n' +
-              '- Do NOT use filters, masks, clipPath, text, or foreignObject\n' +
-              '- NEVER duplicate attributes on the same element\n' +
-              '- Use only basic SVG elements (circle, rect, path, ellipse, polygon, g, defs, linearGradient, radialGradient)',
-          },
-        ],
-      });
-
-      const textBlock = response.content.find((b) => b.type === 'text');
-      if (!textBlock || textBlock.type !== 'text') {
+      const responseText = await generateSvg(provider, prompt);
+      if (!responseText) {
         return {
-          content: 'Error: Claude returned no text content for the avatar.',
+          content: 'Error: provider returned no text content for the avatar.',
           isError: true,
         };
       }
 
-      const rawSvg = extractSvg(textBlock.text);
+      const rawSvg = extractSvg(responseText);
       if (!rawSvg) {
-        log.error({ response: textBlock.text.slice(0, 500) }, 'Failed to extract SVG from response');
+        log.error({ response: responseText.slice(0, 500) }, 'Failed to extract SVG from response');
         return {
           content: 'Error: could not extract valid SVG from the generated response. Please try again.',
           isError: true,
@@ -171,29 +188,20 @@ export const setAvatarTool: Tool = {
         log.warn({ error: renderMsg }, 'SVG render failed, retrying with simplified prompt');
 
         // Retry once with a stricter prompt
-        const retry = await client.messages.create({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          messages: [
-            {
-              role: 'user',
-              content:
-                `Generate a simple SVG avatar: ${description.trim()}\n\n` +
-                'STRICT requirements:\n' +
-                '- Output ONLY valid SVG code, nothing else\n' +
-                '- viewBox="0 0 512 512", width="512", height="512"\n' +
-                '- Use ONLY: circle, rect, ellipse, path, polygon, line, g, defs, linearGradient, radialGradient, stop\n' +
-                '- NEVER duplicate attributes on the same element\n' +
-                '- NEVER use filters, masks, clipPath, text, or foreignObject\n' +
-                '- Keep it simple: fewer than 30 elements total\n' +
-                '- Use a solid colored circular background\n' +
-                '- Cute, friendly cartoon style',
-            },
-          ],
-        });
+        const retryPrompt =
+          `Generate a simple SVG avatar: ${description.trim()}\n\n` +
+          'STRICT requirements:\n' +
+          '- Output ONLY valid SVG code, nothing else\n' +
+          '- viewBox="0 0 512 512", width="512", height="512"\n' +
+          '- Use ONLY: circle, rect, ellipse, path, polygon, line, g, defs, linearGradient, radialGradient, stop\n' +
+          '- NEVER duplicate attributes on the same element\n' +
+          '- NEVER use filters, masks, clipPath, text, or foreignObject\n' +
+          '- Keep it simple: fewer than 30 elements total\n' +
+          '- Use a solid colored circular background\n' +
+          '- Cute, friendly cartoon style';
 
-        const retryBlock = retry.content.find((b) => b.type === 'text');
-        const retrySvg = retryBlock?.type === 'text' ? extractSvg(retryBlock.text) : null;
+        const retryText = await generateSvg(provider, retryPrompt);
+        const retrySvg = retryText ? extractSvg(retryText) : null;
         if (!retrySvg) {
           return {
             content: `Avatar generation failed: SVG rendering error (${renderMsg}). Please try again.`,
