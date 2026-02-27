@@ -214,6 +214,7 @@ function main() {
 
   const server = Bun.serve({
     port: config.port,
+    idleTimeout: 1800,
     websocket: {
       open(ws) {
         if (isBrowserRelaySocketData(ws.data)) {

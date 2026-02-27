@@ -277,6 +277,7 @@ export class RuntimeHttpServer {
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
+      idleTimeout: 1800,
       maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
       fetch: (req, server) => this.handleRequest(req, server),
       websocket: {
