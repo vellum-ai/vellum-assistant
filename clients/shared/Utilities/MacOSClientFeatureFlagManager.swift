@@ -26,14 +26,19 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
 
     init(environment: [String: String]? = nil) {
         let env = environment ?? ProcessInfo.processInfo.environment
+        let isExplicitEnvironment = environment != nil
         var loaded: [String: Bool] = [:]
 
-        // Load UserDefaults overrides first (lowest priority among overrides)
-        let defaults = UserDefaults.standard
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(userDefaultsPrefix) {
-            let name = String(key.dropFirst(userDefaultsPrefix.count))
-            guard !name.isEmpty else { continue }
-            loaded[name] = defaults.bool(forKey: key)
+        // Load UserDefaults overrides only for production (non-explicit env).
+        // When an explicit environment is provided (e.g. tests/previews),
+        // skip UserDefaults to maintain isolation and determinism.
+        if !isExplicitEnvironment {
+            let defaults = UserDefaults.standard
+            for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(userDefaultsPrefix) {
+                let name = String(key.dropFirst(userDefaultsPrefix.count))
+                guard !name.isEmpty else { continue }
+                loaded[name] = defaults.bool(forKey: key)
+            }
         }
 
         // Env var overrides take priority over UserDefaults
