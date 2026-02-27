@@ -53,7 +53,7 @@ struct IdentityPanel: View {
                             .padding(.bottom, VSpacing.xl)
 
                         // Divider
-                        Divider().background(VColor.adaptiveColor(light: Moss._50, dark: Moss._500))
+                        Divider().background(adaptiveColor(light: Moss._50, dark: Moss._500))
 
                         // Role + Hatched date
                         VStack(alignment: .leading, spacing: VSpacing.lg) {
