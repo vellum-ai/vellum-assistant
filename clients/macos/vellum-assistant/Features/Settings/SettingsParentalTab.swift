@@ -46,7 +46,7 @@ struct SettingsParentalTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            // Header + enable toggle
+            // Header + enable toggle + PIN lock (merged into one card)
             enableSection
 
             if isEnabled {
@@ -60,7 +60,6 @@ struct SettingsParentalTab: View {
                     pendingApprovalsSection
                 }
 
-                pinSection
                 contentRestrictionsSection
                 toolCategorySection
                 // Allowlist and activity log are only visible to the parent
@@ -69,6 +68,22 @@ struct SettingsParentalTab: View {
                     integrationsSection
                     activityLogSection
                 }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let success = successMessage {
+                VToast(message: success, style: .success)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.md)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(VAnimation.standard, value: successMessage)
+        .onChange(of: successMessage) { msg in
+            guard msg != nil else { return }
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                withAnimation(VAnimation.standard) { successMessage = nil }
             }
         }
         .onAppear {
@@ -195,54 +210,48 @@ struct SettingsParentalTab: View {
                     .foregroundColor(VColor.error)
                     .textSelection(.enabled)
             }
-            if let success = successMessage {
-                Text(success)
+
+            if isEnabled {
+                VColor.divider
+                    .frame(height: 1)
+                    .padding(.vertical, VSpacing.xs)
+
+                Text("PIN Lock")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text(hasPIN
+                    ? "A 6-digit PIN protects these settings. You must enter it to make changes."
+                    : "Set a 6-digit PIN to lock parental control settings.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.success)
+                    .foregroundColor(VColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
-            }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
 
-    private var pinSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("PIN Lock")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            Text(hasPIN
-                ? "A 6-digit PIN protects these settings. You must enter it to make changes."
-                : "Set a 6-digit PIN to lock parental control settings.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-
-            HStack(spacing: VSpacing.sm) {
-                if hasPIN {
-                    VButton(label: "Change PIN", style: .secondary) {
-                        errorMessage = nil
-                        successMessage = nil
-                        pinSheetMode = .change
-                        showingPINSheet = true
+                HStack(spacing: VSpacing.sm) {
+                    if hasPIN {
+                        VButton(label: "Change PIN", style: .secondary) {
+                            errorMessage = nil
+                            successMessage = nil
+                            pinSheetMode = .change
+                            showingPINSheet = true
+                        }
+                        VButton(label: "Remove PIN", style: .danger) {
+                            errorMessage = nil
+                            successMessage = nil
+                            pinSheetMode = .clear
+                            showingPINSheet = true
+                        }
+                    } else {
+                        VButton(label: "Set PIN", style: .primary) {
+                            errorMessage = nil
+                            successMessage = nil
+                            pinSheetMode = .set
+                            showingPINSheet = true
+                        }
                     }
-                    VButton(label: "Remove PIN", style: .danger) {
-                        errorMessage = nil
-                        successMessage = nil
-                        pinSheetMode = .clear
-                        showingPINSheet = true
-                    }
-                } else {
-                    VButton(label: "Set PIN", style: .primary) {
-                        errorMessage = nil
-                        successMessage = nil
-                        pinSheetMode = .set
-                        showingPINSheet = true
-                    }
+                    Spacer()
                 }
-                Spacer()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -376,11 +385,33 @@ struct SettingsParentalTab: View {
 
     private var appsAndWidgetsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Apps")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            HStack {
+                Text("Apps")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button("All") {
+                    let allIds = AppListManager.shared.apps.map { $0.id }
+                    allowedApps = allIds
+                    updateAllowlist(apps: allIds, widgets: nil)
+                }
+                .buttonStyle(.plain)
+                .font(VFont.caption)
+                .foregroundColor(VColor.accent)
+                .accessibilityLabel("Allow all apps")
+                .disabled(isLoading)
+                Button("None") {
+                    allowedApps = []
+                    updateAllowlist(apps: [], widgets: nil)
+                }
+                .buttonStyle(.plain)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .accessibilityLabel("Disallow all apps")
+                .disabled(isLoading)
+            }
 
-            Text("Child profile can only access enabled apps.")
+            Text("Restricted Mode can only access enabled apps.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -398,6 +429,8 @@ struct SettingsParentalTab: View {
                         if let symbol = app.sfSymbol {
                             let gradientColors: [String] = app.iconBackground ?? ["#7C3AED", "#4F46E5"]
                             VAppIcon(sfSymbol: symbol, gradientColors: gradientColors, size: .small)
+                                .scaleEffect(0.5)
+                                .frame(width: 16, height: 16)
                         }
                         Text(app.name)
                             .font(VFont.body)
@@ -435,50 +468,52 @@ struct SettingsParentalTab: View {
         let iconColor: Color
     }
 
-    /// Build the list of integrations that are currently configured in the Connect tab.
+    /// Build the list of integrations that are currently configured in the Integrations tab.
     private var configuredIntegrations: [ConfiguredIntegration] {
         var result: [ConfiguredIntegration] = []
-        if settingsStore.telegramHasBotToken {
+        if settingsStore.hasPerplexityKey {
             result.append(ConfiguredIntegration(
-                id: "telegram",
-                label: "Telegram",
-                subtitle: "Message via Telegram bot",
-                icon: "paperplane.fill",
-                iconColor: .blue
-            ))
-        }
-        if settingsStore.twilioHasCredentials {
-            result.append(ConfiguredIntegration(
-                id: "sms",
-                label: "SMS",
-                subtitle: "Send and receive SMS messages",
-                icon: "message.fill",
-                iconColor: .green
-            ))
-            result.append(ConfiguredIntegration(
-                id: "voice",
-                label: "Voice",
-                subtitle: "Make and receive voice calls",
-                icon: "phone.fill",
+                id: "perplexity",
+                label: "Perplexity Search",
+                subtitle: "AI-powered web search",
+                icon: "magnifyingglass",
                 iconColor: .orange
             ))
         }
-        if let email = settingsStore.assistantEmail, !email.isEmpty {
+        if settingsStore.hasBraveKey {
             result.append(ConfiguredIntegration(
-                id: "email",
-                label: "Email",
-                subtitle: "Send and receive email",
-                icon: "envelope.fill",
-                iconColor: .gray
+                id: "brave",
+                label: "Brave Search",
+                subtitle: "Private web search",
+                icon: "magnifyingglass.circle.fill",
+                iconColor: Color(red: 0.97, green: 0.42, blue: 0.13)
             ))
         }
-        if !settingsStore.approvedDevices.isEmpty {
+        if settingsStore.hasImageGenKey {
             result.append(ConfiguredIntegration(
-                id: "mobile",
-                label: "Mobile (iOS)",
-                subtitle: "Access from paired iOS devices",
-                icon: "iphone",
+                id: "image_gen",
+                label: "Image Generation",
+                subtitle: "Generate images with Gemini",
+                icon: "photo.fill",
                 iconColor: .purple
+            ))
+        }
+        if settingsStore.hasElevenLabsKey {
+            result.append(ConfiguredIntegration(
+                id: "elevenlabs",
+                label: "Voice (ElevenLabs)",
+                subtitle: "Text-to-speech voice output",
+                icon: "waveform",
+                iconColor: .blue
+            ))
+        }
+        if settingsStore.twitterConnected {
+            result.append(ConfiguredIntegration(
+                id: "twitter",
+                label: "Twitter / X",
+                subtitle: "Post and read tweets",
+                icon: "bird.fill",
+                iconColor: .primary
             ))
         }
         return result
@@ -486,11 +521,38 @@ struct SettingsParentalTab: View {
 
     private var integrationsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Integrations")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            HStack {
+                Text("Integrations")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                let integrations = configuredIntegrations
+                if !integrations.isEmpty {
+                    Button("All") {
+                        let pin = settingsStore.cachedPIN ?? ""
+                        let allIds = integrations.map { $0.id }
+                        settingsStore.allowedIntegrations = allIds
+                        settingsStore.updateAllowedIntegrations(pin: pin, integrations: allIds)
+                    }
+                    .buttonStyle(.plain)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.accent)
+                    .accessibilityLabel("Allow all integrations")
+                    .disabled(isLoading)
+                    Button("None") {
+                        let pin = settingsStore.cachedPIN ?? ""
+                        settingsStore.allowedIntegrations = []
+                        settingsStore.updateAllowedIntegrations(pin: pin, integrations: [])
+                    }
+                    .buttonStyle(.plain)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .accessibilityLabel("Disallow all integrations")
+                    .disabled(isLoading)
+                }
+            }
 
-            Text("Child profile can only use enabled integrations.")
+            Text("Restricted Mode can only use enabled integrations.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -498,7 +560,7 @@ struct SettingsParentalTab: View {
 
             let integrations = configuredIntegrations
             if integrations.isEmpty {
-                Text("No integrations configured. Set up integrations in the Connect tab.")
+                Text("No integrations configured. Set up integrations in the Integrations tab.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .textSelection(.enabled)
@@ -506,11 +568,11 @@ struct SettingsParentalTab: View {
                 ForEach(integrations, id: \.id) { integration in
                     HStack(spacing: VSpacing.sm) {
                         ZStack {
-                            RoundedRectangle(cornerRadius: VRadius.sm)
+                            RoundedRectangle(cornerRadius: VRadius.xs)
                                 .fill(integration.iconColor)
-                                .frame(width: 28, height: 28)
+                                .frame(width: 14, height: 14)
                             Image(systemName: integration.icon)
-                                .font(.system(size: 13, weight: .medium))
+                                .font(.system(size: 7, weight: .medium))
                                 .foregroundColor(.white)
                         }
                         VStack(alignment: .leading, spacing: 1) {
