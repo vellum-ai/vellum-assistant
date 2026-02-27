@@ -45,9 +45,11 @@ struct AgentPanelContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Global search bar
-            VSearchBar(placeholder: "Search skills...", text: $globalSkillSearchQuery)
-                .padding(.bottom, VSpacing.lg)
+            // Search bar for available skills tab (installed tab has its own in the right panel)
+            if (visibleTab ?? selectedTab) == .available {
+                VSearchBar(placeholder: "Search skills...", text: $globalSkillSearchQuery)
+                    .padding(.bottom, VSpacing.lg)
+            }
 
             // Tab bar — hidden when locked to a single tab via visibleTab
             if visibleTab == nil {
@@ -862,6 +864,8 @@ struct AgentPanelContent: View {
                 categorySidebar
 
                 VStack(spacing: VSpacing.md) {
+                    VSearchBar(placeholder: "Search skills", text: $globalSkillSearchQuery)
+
                     if categoryFilteredSkills.isEmpty {
                         VEmptyState(
                             title: "No skills in this category",
@@ -881,7 +885,10 @@ struct AgentPanelContent: View {
     }
 
     private func skillCard(_ skill: SkillInfo) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        let isExpanded = expandedDetailSkillId == skill.id
+
+        return VStack(alignment: .leading, spacing: 0) {
+            // Top row: icon + info + remove button
             HStack(alignment: .top, spacing: VSpacing.md) {
                 skillIcon(skill.emoji)
 
@@ -895,98 +902,63 @@ struct AgentPanelContent: View {
                         .foregroundColor(VColor.textMuted)
                         .lineLimit(2)
 
-                    // Pill badges row
-                    HStack(spacing: VSpacing.xs) {
-                        VSkillTypePill(source: skill.source)
-
-                        // Provenance badge
-                        if let provenance = skill.provenance, let label = provenanceLabel(skill) {
-                            VSkillTypePill(type: .custom(
-                                label: label,
-                                icon: provenance.kind == "first-party" ? "checkmark.seal.fill" : "person.fill",
-                                foreground: provenanceBadgeColor(skill),
-                                background: provenanceBadgeColor(skill).opacity(0.15)
-                            ))
-                        }
-
-                        if skill.updateAvailable {
-                            Text("UPDATE")
-                                .font(VFont.small)
-                                .foregroundColor(Amber._500)
-                        }
-                    }
-                    .padding(.top, VSpacing.xxs)
-
-                    // Source link for third-party skills
-                    if let provenance = skill.provenance,
-                       provenance.kind == "third-party",
-                       let urlString = provenance.sourceUrl,
-                       let url = URL(string: urlString) {
-                        Link(destination: url) {
-                            HStack(spacing: 3) {
-                                Image(systemName: "arrow.up.right.square")
-                                    .font(.system(size: 9))
-                                Text("View on \(provenance.provider ?? "source")")
-                                    .font(VFont.small)
-                            }
-                            .foregroundColor(VColor.textMuted)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    VSkillTypePill(source: skill.source)
+                        .padding(.top, VSpacing.xxs)
                 }
 
                 Spacer(minLength: VSpacing.lg)
 
-                // Remove button for managed skills only
-                if skill.source == "managed" {
-                    Button {
-                        skillToDelete = skill
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "trash")
-                                .font(.system(size: 11))
-                            Text("Remove")
-                                .font(VFont.caption)
-                        }
+                // Remove button
+                Button {
+                    skillToDelete = skill
+                } label: {
+                    Text("Remove")
+                        .font(VFont.caption)
                         .foregroundColor(Danger._500)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.sm)
-                                .fill(Danger._500.opacity(0.1))
+                                .strokeBorder(Danger._500, lineWidth: 1)
                         )
-                    }
-                    .buttonStyle(.plain)
                 }
+                .buttonStyle(.plain)
             }
 
-            // Expandable details disclosure
-            DisclosureGroup(
-                isExpanded: Binding(
-                    get: { expandedDetailSkillId == skill.id },
-                    set: { isExpanded in
-                        withAnimation(VAnimation.fast) {
-                            if isExpanded {
-                                expandedDetailSkillId = skill.id
-                                skillsManager.fetchSkillBody(skillId: skill.id)
-                            } else {
-                                expandedDetailSkillId = nil
-                            }
-                        }
+            // Details toggle — full row is clickable
+            Button {
+                withAnimation(VAnimation.fast) {
+                    if isExpanded {
+                        expandedDetailSkillId = nil
+                    } else {
+                        expandedDetailSkillId = skill.id
+                        skillsManager.fetchSkillBody(skillId: skill.id)
                     }
-                )
-            ) {
+                }
+            } label: {
+                HStack {
+                    Spacer()
+                    Text("Details")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10))
+                        .foregroundColor(VColor.textMuted)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, VSpacing.sm)
+
+            // Expanded details content
+            if isExpanded {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     skillBody(for: skill.id)
                 }
                 .padding(.top, VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            } label: {
-                Text("Details")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
             }
-            .padding(.leading, 24 + VSpacing.md)
         }
         .padding(VSpacing.lg)
         .contentShape(Rectangle())

@@ -30,11 +30,11 @@ struct IntelligencePanel: View {
                         .foregroundColor(VColor.textPrimary)
                     Spacer()
                 }
-                .padding(.top, VSpacing.xxl)
-                .padding(.bottom, VSpacing.xl)
+                .padding(.top, VSpacing.xl)
+                .padding(.bottom, VSpacing.md)
+                .padding(.horizontal, VSpacing.xxl)
 
                 Divider().background(VColor.surfaceBorder)
-                    .padding(.bottom, VSpacing.xl)
 
                 // Tab bar
                 VStack(spacing: 0) {
@@ -44,13 +44,13 @@ struct IntelligencePanel: View {
                         }
                         Spacer()
                     }
+                    .padding(.horizontal, VSpacing.xxl)
 
                     Divider().background(VColor.surfaceBorder)
                 }
-                .padding(.bottom, VSpacing.lg)
+                .padding(.top, VSpacing.md)
+                .padding(.bottom, VSpacing.md)
             }
-            .frame(maxWidth: maxContentWidth)
-            .padding(.horizontal, VSpacing.xxl)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             // Tab content — each tab manages its own scrolling
