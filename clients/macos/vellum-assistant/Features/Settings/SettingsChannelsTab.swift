@@ -78,6 +78,7 @@ struct SettingsChannelsTab: View {
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
             store.refreshChannelGuardianStatus(channel: "voice")
+            store.refreshTelegramApprovedMembers()
             store.fetchSlackChannelConfig()
         }
         .onChange(of: store.twilioHasCredentials) { _, hasCredentials in
@@ -308,9 +309,70 @@ struct SettingsChannelsTab: View {
                 Divider().background(VColor.surfaceBorder)
                 guardianStatusRow(channel: "telegram")
             }
+
+            // Approved users (only when bot token exists and guardian is verified)
+            if store.telegramHasBotToken && store.telegramGuardianVerified {
+                Divider().background(VColor.surfaceBorder)
+                telegramApprovedUsersSection
+            }
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Telegram Approved Users
+
+    private var telegramApprovedUsersSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.xs) {
+                Text("Approved Users")
+                VInfoTooltip("Users who have been granted access to interact with your assistant via Telegram.")
+            }
+            .font(VFont.caption)
+            .foregroundColor(VColor.textSecondary)
+
+            if store.telegramApprovedMembersLoading {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            } else if store.telegramApprovedMembers.isEmpty {
+                Text("No approved users.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            } else {
+                ForEach(store.telegramApprovedMembers) { member in
+                    HStack(spacing: VSpacing.sm) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(member.displayName ?? member.username ?? member.externalUserId ?? member.id)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+                                .lineLimit(1)
+                            if let username = member.username, member.displayName != nil {
+                                Text("@\(username)")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                                    .lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                        VButton(label: "Revoke", style: .danger) {
+                            store.revokeTelegramApprovedMember(memberId: member.id)
+                        }
+                        .disabled(store.telegramRevokingMemberIds.contains(member.id))
+                    }
+                }
+            }
+
+            if let error = store.telegramApprovedMembersError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+        }
     }
 
     // MARK: - Telegram Credential Entry

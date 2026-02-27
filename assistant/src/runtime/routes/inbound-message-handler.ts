@@ -275,7 +275,7 @@ export async function handleChannelInbound(
 
         if (body.replyCallbackUrl) {
           const replyText = guardianNotified
-            ? "I've let my guardian know you'd like access. They'll send you a verification code if they approve your request."
+            ? "Hmm looks like you don't have access to talk to me. I'll let them know you tried talking to them and get back to you."
             : "Sorry, you haven't been approved to message this assistant.";
           try {
             await deliverChannelReply(body.replyCallbackUrl, {
@@ -342,7 +342,7 @@ export async function handleChannelInbound(
 
           if (body.replyCallbackUrl) {
             const replyText = guardianNotified
-              ? "I've let my guardian know you'd like access. They'll send you a verification code if they approve your request."
+              ? "Hmm looks like you don't have access to talk to me. I'll let them know you tried talking to them and get back to you."
               : "Sorry, you haven't been approved to message this assistant.";
             try {
               await deliverChannelReply(body.replyCallbackUrl, {
