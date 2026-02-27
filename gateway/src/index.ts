@@ -26,6 +26,7 @@ import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js"
 import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
+import { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } from "./http/routes/feature-flags.js";
 import { validateBearerToken } from "./http/auth/bearer.js";
 import { getLogger, initLogger } from "./logger.js";
 import { CircuitBreakerOpenError } from "./runtime/client.js";
@@ -145,6 +146,8 @@ function main() {
   const handleSlackDeliver = createSlackDeliverHandler(config);
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
+  const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
+  const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
 
   const handleRuntimeProxy = config.runtimeProxyEnabled
     ? createRuntimeProxyHandler(config)
@@ -395,6 +398,45 @@ function main() {
           authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
         }
         return res;
+      }
+
+      // ── Feature flags API ──
+      if (url.pathname === "/v1/feature-flags" && req.method === "GET") {
+        if (!config.runtimeBearerToken) {
+          return Response.json(
+            { error: "Service not configured: bearer token required" },
+            { status: 503 },
+          );
+        }
+        const authResult = validateBearerToken(
+          tracedReq.headers.get("authorization"),
+          config.runtimeBearerToken,
+        );
+        if (!authResult.authorized) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        return handleFeatureFlagsGet(tracedReq);
+      }
+
+      const featureFlagPatchMatch = url.pathname.match(/^\/v1\/feature-flags\/(.+)$/);
+      if (featureFlagPatchMatch && req.method === "PATCH") {
+        if (!config.runtimeBearerToken) {
+          return Response.json(
+            { error: "Service not configured: bearer token required" },
+            { status: 503 },
+          );
+        }
+        const authResult = validateBearerToken(
+          tracedReq.headers.get("authorization"),
+          config.runtimeBearerToken,
+        );
+        if (!authResult.authorized) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        const flagKey = decodeURIComponent(featureFlagPatchMatch[1]);
+        return handleFeatureFlagsPatch(tracedReq, flagKey);
       }
 
       if (handleRuntimeProxy) {
