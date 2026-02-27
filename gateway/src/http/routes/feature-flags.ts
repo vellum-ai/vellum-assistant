@@ -8,6 +8,12 @@ import { getLogger } from "../../logger.js";
 const log = getLogger("feature-flags");
 
 /**
+ * Serializes config writes so concurrent PATCH requests don't race on
+ * read-modify-write. Each write awaits the previous one before proceeding.
+ */
+let configWriteChain: Promise<void> = Promise.resolve();
+
+/**
  * Only allow keys matching `feature_flags.<flagId>.enabled` for the canonical format.
  * The flagId segment must be a non-empty string of lowercase alphanumeric chars,
  * dots, hyphens, and underscores.
@@ -202,34 +208,42 @@ export function createFeatureFlagsPatchHandler() {
       );
     }
 
-    try {
-      const result = readConfigFile();
-      if (!result.ok) {
-        log.error({ reason: result.reason, detail: result.detail }, "Config file is malformed, refusing to overwrite");
-        return Response.json(
-          { error: "Config file is malformed, cannot safely write" },
-          { status: 500 },
-        );
-      }
+    // Serialize config writes to prevent concurrent read-modify-write races
+    const writeResult = new Promise<Response>((resolve) => {
+      configWriteChain = configWriteChain.then(() => {
+        try {
+          const result = readConfigFile();
+          if (!result.ok) {
+            log.error({ reason: result.reason, detail: result.detail }, "Config file is malformed, refusing to overwrite");
+            resolve(Response.json(
+              { error: "Config file is malformed, cannot safely write" },
+              { status: 500 },
+            ));
+            return;
+          }
 
-      const config = result.data;
+          const config = result.data;
 
-      // Write to the new `assistantFeatureFlagValues` section (NOT the old `featureFlags` section)
-      const existingFlags =
-        config.assistantFeatureFlagValues && typeof config.assistantFeatureFlagValues === "object" && !Array.isArray(config.assistantFeatureFlagValues)
-          ? (config.assistantFeatureFlagValues as Record<string, unknown>)
-          : {};
+          // Write to the new `assistantFeatureFlagValues` section (NOT the old `featureFlags` section)
+          const existingFlags =
+            config.assistantFeatureFlagValues && typeof config.assistantFeatureFlagValues === "object" && !Array.isArray(config.assistantFeatureFlagValues)
+              ? (config.assistantFeatureFlagValues as Record<string, unknown>)
+              : {};
 
-      config.assistantFeatureFlagValues = { ...existingFlags, [flagKey]: enabled };
+          config.assistantFeatureFlagValues = { ...existingFlags, [flagKey]: enabled };
 
-      writeConfigFileAtomic(config);
+          writeConfigFileAtomic(config);
 
-      log.info({ flagKey, enabled }, "Feature flag updated");
+          log.info({ flagKey, enabled }, "Feature flag updated");
 
-      return Response.json({ key: flagKey, enabled });
-    } catch (err) {
-      log.error({ err, flagKey }, "Failed to update feature flag");
-      return Response.json({ error: "Internal server error" }, { status: 500 });
-    }
+          resolve(Response.json({ key: flagKey, enabled }));
+        } catch (err) {
+          log.error({ err, flagKey }, "Failed to update feature flag");
+          resolve(Response.json({ error: "Internal server error" }, { status: 500 }));
+        }
+      });
+    });
+
+    return writeResult;
   };
 }

@@ -471,4 +471,41 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const tmpFiles = files.filter((f: string) => f.endsWith(".tmp"));
     expect(tmpFiles.length).toBe(0);
   });
+
+  test("concurrent writes are serialized and no flag change is lost", async () => {
+    writeFileSync(configPath, JSON.stringify({}));
+    const handler = createFeatureFlagsPatchHandler();
+
+    // Fire multiple concurrent PATCH requests at the same time
+    const flagKeys = [
+      "feature_flags.browser.enabled",
+      "feature_flags.twitter.enabled",
+      "feature_flags.guardian-verify-setup.enabled",
+      "feature_flags.hatch-new-assistant.enabled",
+    ];
+
+    const results = await Promise.all(
+      flagKeys.map((key) =>
+        handler(
+          new Request(`http://gateway.test/v1/feature-flags/${key}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ enabled: false }),
+          }),
+          key,
+        ),
+      ),
+    );
+
+    // All should succeed
+    for (const res of results) {
+      expect(res.status).toBe(200);
+    }
+
+    // All flags should be persisted — none should be lost to a race
+    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    for (const key of flagKeys) {
+      expect(config.assistantFeatureFlagValues[key]).toBe(false);
+    }
+  });
 });
