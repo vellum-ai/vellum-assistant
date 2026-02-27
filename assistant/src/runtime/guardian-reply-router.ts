@@ -138,7 +138,7 @@ function parseRequestCode(text: string, scopeConversationId?: string): CodeParse
 
   // Scope to the current conversation when requested, so a code belonging
   // to a different session/conversation is not consumed here.
-  if (scopeConversationId && request.conversationId && request.conversationId !== scopeConversationId) {
+  if (scopeConversationId && (!request.conversationId || request.conversationId !== scopeConversationId)) {
     log.info(
       { event: 'router_code_conversation_mismatch', code, requestId: request.id, expected: scopeConversationId, actual: request.conversationId },
       'Request code matched a canonical request from a different conversation — ignoring',
@@ -217,7 +217,7 @@ export async function routeGuardianReply(
       // session from resolving requests that belong to a different session.
       if (conversationId) {
         const targetRequest = getCanonicalGuardianRequest(parsed.requestId);
-        if (targetRequest && targetRequest.conversationId && targetRequest.conversationId !== conversationId) {
+        if (targetRequest && (!targetRequest.conversationId || targetRequest.conversationId !== conversationId)) {
           log.info(
             { event: 'router_callback_conversation_mismatch', requestId: parsed.requestId, expected: conversationId, actual: targetRequest.conversationId },
             'Callback target request belongs to a different conversation — ignoring',
