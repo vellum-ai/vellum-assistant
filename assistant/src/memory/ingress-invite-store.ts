@@ -66,7 +66,7 @@ const DEFAULT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // Helpers
 // ---------------------------------------------------------------------------
 
-function hashToken(rawToken: string): string {
+export function hashToken(rawToken: string): string {
   return createHash('sha256').update(rawToken).digest('hex');
 }
 
@@ -268,6 +268,12 @@ export function redeemInvite(params: {
     return { error: 'invite_max_uses_reached' };
   }
 
+  // Enforce channel-scoped redemption: when the caller specifies a channel, it
+  // must match the channel the invite was created for.
+  if (params.sourceChannel && params.sourceChannel !== invite.sourceChannel) {
+    return { error: 'invite_channel_mismatch' };
+  }
+
   const newUseCount = invite.useCount + 1;
   const newStatus = newUseCount >= invite.maxUses ? 'redeemed' : 'active';
 
@@ -321,6 +327,30 @@ export function redeemInvite(params: {
   };
 
   return { invite: updatedInvite, member: rowToMember(memberRow) };
+}
+
+// ---------------------------------------------------------------------------
+// markInviteExpired
+// ---------------------------------------------------------------------------
+
+/**
+ * Transition an invite's status to 'expired' in storage. This is safe to call
+ * even if the invite is already expired — the WHERE clause scopes the update
+ * to 'active' rows so it becomes a no-op in that case.
+ */
+export function markInviteExpired(inviteId: string): void {
+  const db = getDb();
+  const now = Date.now();
+
+  db.update(assistantIngressInvites)
+    .set({ status: 'expired', updatedAt: now })
+    .where(
+      and(
+        eq(assistantIngressInvites.id, inviteId),
+        eq(assistantIngressInvites.status, 'active'),
+      ),
+    )
+    .run();
 }
 
 // ---------------------------------------------------------------------------
