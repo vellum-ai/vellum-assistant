@@ -15,5 +15,18 @@ assistant/src/config/bundled-skills/ @siddseethepalli
 # Memory system
 assistant/src/memory/ @siddseethepalli
 
+# Ingress / guardian / escalation domains
+assistant/src/runtime/routes/ @NgoHarrison
+assistant/src/runtime/ingress-service.ts @NgoHarrison
+assistant/src/runtime/channel-guardian-service.ts @NgoHarrison
+assistant/src/runtime/guardian-verification-templates.ts @NgoHarrison
+assistant/src/daemon/handlers/config-inbox.ts @NgoHarrison
+assistant/src/daemon/ipc-contract/inbox.ts @NgoHarrison
+assistant/src/notifications/ @NgoHarrison
+assistant/src/memory/ingress-* @NgoHarrison
+assistant/src/memory/inbox-* @NgoHarrison
+assistant/src/memory/guardian-* @NgoHarrison
+assistant/src/memory/channel-guardian-store.ts @NgoHarrison
+
 # CI/CD workflows
 .github/workflows/ @dvargas92495
