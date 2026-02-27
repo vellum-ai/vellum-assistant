@@ -63,6 +63,7 @@ import {
   routeGuardianReply,
   type GuardianReplyContext,
 } from '../runtime/guardian-reply-router.js';
+import * as pendingInteractions from '../runtime/pending-interactions.js';
 
 initializeDb();
 
@@ -71,6 +72,7 @@ function resetTables(): void {
   db.run('DELETE FROM scoped_approval_grants');
   db.run('DELETE FROM canonical_guardian_deliveries');
   db.run('DELETE FROM canonical_guardian_requests');
+  pendingInteractions.clear();
 }
 
 afterAll(() => {
@@ -112,6 +114,43 @@ function replyCtx(overrides: Partial<GuardianReplyContext> = {}): GuardianReplyC
     conversationId: 'conv-test',
     ...overrides,
   };
+}
+
+function registerPendingToolApprovalInteraction(
+  requestId: string,
+  conversationId: string,
+  toolName: string = 'shell',
+): ReturnType<typeof mock> {
+  const handleConfirmationResponse = mock(() => {});
+  const mockSession = {
+    handleConfirmationResponse,
+  } as unknown as import('../daemon/session.js').Session;
+
+  pendingInteractions.register(requestId, {
+    session: mockSession,
+    conversationId,
+    kind: 'confirmation',
+    confirmationDetails: {
+      toolName,
+      input: { command: 'echo hello' },
+      riskLevel: 'medium',
+      allowlistOptions: [
+        {
+          label: 'echo hello',
+          description: 'echo hello',
+          pattern: 'echo hello',
+        },
+      ],
+      scopeOptions: [
+        {
+          label: 'everywhere',
+          scope: 'everywhere',
+        },
+      ],
+    },
+  });
+
+  return handleConfirmationResponse;
 }
 
 // ===========================================================================
@@ -431,6 +470,7 @@ describe('routing invariant: code-only messages return clarification', () => {
       inputDigest: 'sha256:abc',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
+    registerPendingToolApprovalInteraction(req.id, 'conv-1', 'shell');
 
     const result = await routeGuardianReply(replyCtx({
       messageText: 'A1B2C3 approve',
@@ -454,6 +494,7 @@ describe('routing invariant: code-only messages return clarification', () => {
       requestCode: 'D4E5F6',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
+    registerPendingToolApprovalInteraction(req.id, 'conv-1', 'shell');
 
     const result = await routeGuardianReply(replyCtx({
       messageText: 'D4E5F6 reject',
@@ -537,6 +578,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       toolName: 'shell',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
+    registerPendingToolApprovalInteraction(req.id, 'conv-1', 'shell');
 
     // NL engine returns a decision without specifying target — but only one
     // request is pending, so it should be resolved without disambiguation.
@@ -638,6 +680,7 @@ describe('routing invariant: callback buttons route through canonical primitive'
       inputDigest: 'sha256:abc',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
+    registerPendingToolApprovalInteraction(req.id, 'conv-1', 'shell');
 
     const result = await routeGuardianReply(replyCtx({
       messageText: '',
@@ -661,6 +704,7 @@ describe('routing invariant: callback buttons route through canonical primitive'
       guardianExternalUserId: 'guardian-1',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
+    registerPendingToolApprovalInteraction(req.id, 'conv-1', 'shell');
 
     const result = await routeGuardianReply(replyCtx({
       messageText: '',
@@ -683,6 +727,7 @@ describe('routing invariant: callback buttons route through canonical primitive'
       guardianExternalUserId: 'guardian-1',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
+    registerPendingToolApprovalInteraction(req.id, 'conv-other', 'shell');
 
     const result = await routeGuardianReply(replyCtx({
       messageText: '',
