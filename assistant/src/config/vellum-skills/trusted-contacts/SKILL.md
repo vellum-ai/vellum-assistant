@@ -136,7 +136,7 @@ curl -s -X POST http://localhost:7830/v1/ingress/invites \
 
 Optional fields:
 - `maxUses` — how many times the link can be used (default: 1). Use a higher number for group invites.
-- `expiresInMs` — expiration time in milliseconds from now (e.g., `86400000` for 24 hours). Omit for no expiration.
+- `expiresInMs` — expiration time in milliseconds from now (e.g., `86400000` for 24 hours). Defaults to 7 days (`604800000`) if omitted.
 - `note` — a human-readable label for the invite (e.g., "For Mom", "Family group").
 
 The response contains `{ ok: true, invite: { id, token, ... } }`. The `token` field is the raw invite token — it is only returned at creation time and cannot be retrieved later.

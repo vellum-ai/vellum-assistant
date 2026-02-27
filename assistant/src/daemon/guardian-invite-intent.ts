@@ -55,9 +55,11 @@ const FILLER_PATTERN =
 
 function isConceptualQuestion(text: string): boolean {
   const cleaned = text.replace(/^\s*(hey|hi|hello|please|pls|plz)[,\s]+/i, '');
-  // Allow "list" / "show" questions through even though they start with
-  // question-like words — these are actionable list requests.
+  // Allow actionable requests through even though they start with
+  // question-like words — these are imperative invite management requests.
   if (LIST_INVITE_PATTERNS.some((p) => p.test(cleaned))) return false;
+  if (CREATE_INVITE_PATTERNS.some((p) => p.test(cleaned))) return false;
+  if (REVOKE_INVITE_PATTERNS.some((p) => p.test(cleaned))) return false;
   return CONCEPTUAL_PATTERNS.some((p) => p.test(cleaned));
 }
 
