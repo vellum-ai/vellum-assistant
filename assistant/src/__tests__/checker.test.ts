@@ -354,6 +354,30 @@ describe('Permission Checker', () => {
       test('env injection is high risk', async () => {
         expect(await classifyRisk('bash', { command: 'LD_PRELOAD=evil.so cmd' })).toBe(RiskLevel.High);
       });
+
+      test('wrapped rm via env is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'env rm -rf /tmp/x' })).toBe(RiskLevel.High);
+      });
+
+      test('wrapped rm via time is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'time rm file.txt' })).toBe(RiskLevel.High);
+      });
+
+      test('wrapped kill via env is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'env kill -9 1234' })).toBe(RiskLevel.High);
+      });
+
+      test('wrapped sudo via env is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'env sudo apt-get install foo' })).toBe(RiskLevel.High);
+      });
+
+      test('wrapped reboot via nice is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'nice reboot' })).toBe(RiskLevel.High);
+      });
+
+      test('wrapped pkill via nohup is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'nohup pkill node' })).toBe(RiskLevel.High);
+      });
     });
 
     // unknown tool

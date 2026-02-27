@@ -403,6 +403,8 @@ async function classifyRiskUncached(toolName: string, input: Record<string, unkn
 
       if (WRAPPER_PROGRAMS.has(prog)) {
         const wrapped = getWrappedProgram(seg);
+        if (wrapped === 'rm') return RiskLevel.High;
+        if (wrapped && HIGH_RISK_PROGRAMS.has(wrapped)) return RiskLevel.High;
         if (wrapped === 'curl' || wrapped === 'wget') {
           maxRisk = RiskLevel.Medium;
           continue;

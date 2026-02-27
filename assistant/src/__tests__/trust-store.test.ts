@@ -838,6 +838,7 @@ describe('Trust Store', () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe('default:allow-bash-rm-bootstrap');
       expect(match!.decision).toBe('allow');
+      expect(match!.allowHighRisk).toBe(true);
       // Outside workspace, the bootstrap rule doesn't match — the global
       // default:allow-bash-global rule matches instead (not the bootstrap rule).
       const other = findHighestPriorityRule('bash', ['rm BOOTSTRAP.md'], '/tmp/other-project');
@@ -852,6 +853,7 @@ describe('Trust Store', () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe('default:allow-bash-rm-updates');
       expect(match!.decision).toBe('allow');
+      expect(match!.allowHighRisk).toBe(true);
       // Outside workspace, should NOT match the updates rule
       const other = findHighestPriorityRule('bash', ['rm UPDATES.md'], '/tmp/other-project');
       expect(other).not.toBeNull();
