@@ -37,7 +37,7 @@ struct AvatarCustomizationPanel: View {
                     // Avatar preview
                     HStack {
                         Spacer()
-                        Image(nsImage: appearance.chatAvatarImage)
+                        Image(nsImage: appearance.fullAvatarImage)
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                             .frame(width: 120, height: 120)

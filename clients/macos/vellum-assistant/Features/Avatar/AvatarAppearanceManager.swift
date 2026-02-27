@@ -14,10 +14,21 @@ final class AvatarAppearanceManager {
     private var cachedFallbackAvatar: NSImage?
     /// The name used to build the cached fallback, so we can invalidate when identity changes.
     private var cachedFallbackName: String?
+    /// Cached chat-size avatar (56pt for 2x Retina).
+    private var cachedChatAvatar: NSImage?
+    /// Cached full-size fallback avatar for larger displays (identity panel, constellation).
+    private var cachedFullFallbackAvatar: NSImage?
+    private var cachedFullFallbackName: String?
 
-    /// Returns the custom avatar if set, otherwise an initial-letter placeholder (cached).
+    /// Returns the custom avatar resized for chat (56pt for 2x Retina) if available,
+    /// otherwise an initial-letter placeholder (cached).
     var chatAvatarImage: NSImage {
-        if let custom = customAvatarImage { return custom }
+        if let custom = customAvatarImage {
+            if let cached = cachedChatAvatar { return cached }
+            let resized = Self.resizedImage(custom, to: 56)
+            cachedChatAvatar = resized
+            return resized
+        }
 
         let name = assistantName
         if let cached = cachedFallbackAvatar, cachedFallbackName == name {
@@ -27,6 +38,22 @@ final class AvatarAppearanceManager {
         let avatar = Self.buildInitialLetterAvatar(name: name)
         cachedFallbackAvatar = avatar
         cachedFallbackName = name
+        return avatar
+    }
+
+    /// Returns the full-size custom avatar for large displays (identity panel, constellation node),
+    /// or falls back to a larger initial-letter circle.
+    var fullAvatarImage: NSImage {
+        if let custom = customAvatarImage { return custom }
+
+        let name = assistantName
+        if let cached = cachedFullFallbackAvatar, cachedFullFallbackName == name {
+            return cached
+        }
+
+        let avatar = Self.buildInitialLetterAvatar(name: name, size: 240)
+        cachedFullFallbackAvatar = avatar
+        cachedFullFallbackName = name
         return avatar
     }
 
@@ -89,7 +116,12 @@ final class AvatarAppearanceManager {
         guard let url = Self.resolveCustomAvatarURL(
             workspaceURL: customAvatarURL,
             legacyURL: Self.legacyAppSupportCustomAvatarURL()
-        ) else { return }
+        ) else {
+            customAvatarImage = nil
+            cachedChatAvatar = nil
+            return
+        }
+        cachedChatAvatar = nil
         customAvatarImage = NSImage(contentsOf: url)
     }
 
@@ -103,12 +135,17 @@ final class AvatarAppearanceManager {
               let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
 
         try? pngData.write(to: url)
+        cachedChatAvatar = nil
         customAvatarImage = image
     }
 
     /// Reloads the custom avatar from disk. Called when the daemon notifies
     /// that the avatar image has been regenerated (via `avatar_updated` IPC).
+    /// Invalidates all cached images so SwiftUI views pick up the new avatar.
     func reloadAvatar() {
+        cachedChatAvatar = nil
+        cachedFallbackAvatar = nil
+        cachedFullFallbackAvatar = nil
         loadCustomAvatar()
     }
 
@@ -116,7 +153,9 @@ final class AvatarAppearanceManager {
         try? FileManager.default.removeItem(at: customAvatarURL)
         try? FileManager.default.removeItem(at: Self.legacyAppSupportCustomAvatarURL())
         customAvatarImage = nil
+        cachedChatAvatar = nil
         cachedFallbackAvatar = nil
+        cachedFullFallbackAvatar = nil
     }
 
     // MARK: - File Watching
@@ -188,9 +227,46 @@ final class AvatarAppearanceManager {
         source.resume()
     }
 
+    // MARK: - Image Utilities
+
+    /// Resize an NSImage to a square of the given point size using aspect-fill:
+    /// scales the source to fully cover the target square, then crops the excess
+    /// so non-square images are centered rather than stretched.
+    static func resizedImage(_ source: NSImage, to size: CGFloat) -> NSImage {
+        let targetSize = NSSize(width: size, height: size)
+        let srcW = source.size.width
+        let srcH = source.size.height
+
+        // Determine crop rect: scale so the smaller dimension fills `size`,
+        // then center-crop the larger dimension.
+        let cropRect: NSRect
+        if srcW / srcH > 1 {
+            // Wider than tall -- crop horizontal excess
+            let cropW = srcH // square side in source coords
+            let originX = (srcW - cropW) / 2
+            cropRect = NSRect(x: originX, y: 0, width: cropW, height: srcH)
+        } else {
+            // Taller than wide (or square) -- crop vertical excess
+            let cropH = srcW // square side in source coords
+            let originY = (srcH - cropH) / 2
+            cropRect = NSRect(x: 0, y: originY, width: srcW, height: cropH)
+        }
+
+        let resized = NSImage(size: targetSize)
+        resized.lockFocus()
+        source.draw(
+            in: NSRect(origin: .zero, size: targetSize),
+            from: cropRect,
+            operation: .copy,
+            fraction: 1.0
+        )
+        resized.unlockFocus()
+        return resized
+    }
+
     // MARK: - Initial Letter Avatar
 
-    /// Build a 56px NSImage with a colored circle and white initial letter as fallback avatar.
+    /// Build a colored-circle NSImage with the assistant's initial letter as fallback avatar.
     static func buildInitialLetterAvatar(name: String, size: CGFloat = 56) -> NSImage {
         let image = NSImage(size: NSSize(width: size, height: size))
         image.lockFocus()

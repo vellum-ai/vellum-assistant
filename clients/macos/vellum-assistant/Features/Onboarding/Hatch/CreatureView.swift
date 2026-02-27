@@ -50,7 +50,7 @@ struct CreatureView: View {
     }
 
     private var avatarImage: some View {
-        Image(nsImage: appearance.chatAvatarImage)
+        Image(nsImage: appearance.fullAvatarImage)
             .resizable()
             .aspectRatio(contentMode: .fill)
             .frame(width: 200, height: 200)

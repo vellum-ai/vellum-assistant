@@ -1129,8 +1129,8 @@ struct ConstellationView: View {
                 }
             }
 
-            // Center avatar on top of everything
-            Image(nsImage: appearance.chatAvatarImage)
+            // Center avatar on top of everything (full-size for constellation display)
+            Image(nsImage: appearance.fullAvatarImage)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: centerAvatarSize, height: centerAvatarSize)
