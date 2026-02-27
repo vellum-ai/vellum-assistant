@@ -266,22 +266,11 @@ struct SettingsParentalTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                Button("All") {
-                    updateContentRestrictions(ContentTopic.allCases.map { $0.rawValue })
-                }
-                .buttonStyle(.plain)
-                .font(VFont.caption)
-                .foregroundColor(VColor.accent)
-                .accessibilityLabel("Select all content restrictions")
-                .disabled(isLoading)
-                Button("None") {
-                    updateContentRestrictions([])
-                }
-                .buttonStyle(.plain)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .accessibilityLabel("Deselect all content restrictions")
-                .disabled(isLoading)
+                AllNoneToggle(
+                    onAll: { updateContentRestrictions(ContentTopic.allCases.map { $0.rawValue }) },
+                    onNone: { updateContentRestrictions([]) },
+                    isLoading: isLoading
+                )
             }
 
             Text("Block responses on these topics.")
@@ -327,22 +316,11 @@ struct SettingsParentalTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                Button("All") {
-                    updateToolCategories(ToolCategory.allCases.map { $0.rawValue })
-                }
-                .buttonStyle(.plain)
-                .font(VFont.caption)
-                .foregroundColor(VColor.accent)
-                .accessibilityLabel("Select all tool restrictions")
-                .disabled(isLoading)
-                Button("None") {
-                    updateToolCategories([])
-                }
-                .buttonStyle(.plain)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .accessibilityLabel("Deselect all tool restrictions")
-                .disabled(isLoading)
+                AllNoneToggle(
+                    onAll: { updateToolCategories(ToolCategory.allCases.map { $0.rawValue }) },
+                    onNone: { updateToolCategories([]) },
+                    isLoading: isLoading
+                )
             }
 
             Text("Prevent the assistant from using these tool categories.")
@@ -390,25 +368,18 @@ struct SettingsParentalTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                Button("All") {
-                    let allIds = AppListManager.shared.apps.map { $0.id }
-                    allowedApps = allIds
-                    updateAllowlist(apps: allIds, widgets: nil)
-                }
-                .buttonStyle(.plain)
-                .font(VFont.caption)
-                .foregroundColor(VColor.accent)
-                .accessibilityLabel("Allow all apps")
-                .disabled(isLoading)
-                Button("None") {
-                    allowedApps = []
-                    updateAllowlist(apps: [], widgets: nil)
-                }
-                .buttonStyle(.plain)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .accessibilityLabel("Disallow all apps")
-                .disabled(isLoading)
+                AllNoneToggle(
+                    onAll: {
+                        let allIds = AppListManager.shared.apps.map { $0.id }
+                        allowedApps = allIds
+                        updateAllowlist(apps: allIds, widgets: nil)
+                    },
+                    onNone: {
+                        allowedApps = []
+                        updateAllowlist(apps: [], widgets: nil)
+                    },
+                    isLoading: isLoading
+                )
             }
 
             Text("Restricted Mode can only access enabled apps.")
@@ -528,27 +499,20 @@ struct SettingsParentalTab: View {
                 Spacer()
                 let integrations = configuredIntegrations
                 if !integrations.isEmpty {
-                    Button("All") {
-                        let pin = settingsStore.cachedPIN ?? ""
-                        let allIds = integrations.map { $0.id }
-                        settingsStore.allowedIntegrations = allIds
-                        settingsStore.updateAllowedIntegrations(pin: pin, integrations: allIds)
-                    }
-                    .buttonStyle(.plain)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.accent)
-                    .accessibilityLabel("Allow all integrations")
-                    .disabled(isLoading)
-                    Button("None") {
-                        let pin = settingsStore.cachedPIN ?? ""
-                        settingsStore.allowedIntegrations = []
-                        settingsStore.updateAllowedIntegrations(pin: pin, integrations: [])
-                    }
-                    .buttonStyle(.plain)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .accessibilityLabel("Disallow all integrations")
-                    .disabled(isLoading)
+                    AllNoneToggle(
+                        onAll: {
+                            let pin = settingsStore.cachedPIN ?? ""
+                            let allIds = integrations.map { $0.id }
+                            settingsStore.allowedIntegrations = allIds
+                            settingsStore.updateAllowedIntegrations(pin: pin, integrations: allIds)
+                        },
+                        onNone: {
+                            let pin = settingsStore.cachedPIN ?? ""
+                            settingsStore.allowedIntegrations = []
+                            settingsStore.updateAllowedIntegrations(pin: pin, integrations: [])
+                        },
+                        isLoading: isLoading
+                    )
                 }
             }
 
@@ -619,10 +583,10 @@ struct SettingsParentalTab: View {
                 Spacer()
                 Button { exportActivityLog() } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
+                        .font(VFont.captionMedium)
                 }
-                .buttonStyle(.plain)
-                .font(VFont.caption)
-                .foregroundColor(VColor.accent)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
                 .accessibilityLabel("Export activity log as CSV")
                 .disabled(settingsStore.activityLog.isEmpty)
                 VButton(label: "Clear Log", style: .danger) {
@@ -632,7 +596,7 @@ struct SettingsParentalTab: View {
                 .disabled(settingsStore.activityLog.isEmpty)
             }
 
-            Text("Actions taken while the child profile was active.")
+            Text("Actions taken during Restricted Mode sessions.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -727,15 +691,17 @@ struct SettingsParentalTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                Button("Refresh") {
+                Button {
                     loadPendingApprovals()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.plain)
-                .font(VFont.caption)
                 .foregroundColor(VColor.accent)
+                .accessibilityLabel("Refresh pending approvals")
             }
 
-            Text("Review and respond to permission requests from the child profile.")
+            Text("Review and respond to permission requests for Restricted Mode.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1174,6 +1140,55 @@ struct SettingsParentalTab: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - All/None Toggle
+
+private struct AllNoneToggle: View {
+    let onAll: () -> Void
+    let onNone: () -> Void
+    var isLoading: Bool = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button("All", action: onAll)
+                .buttonStyle(.plain)
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.accent)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+                .background(VColor.surface)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: VRadius.sm,
+                    bottomLeadingRadius: VRadius.sm,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0
+                ))
+
+            Divider()
+                .frame(height: 14)
+
+            Button("None", action: onNone)
+                .buttonStyle(.plain)
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.textMuted)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+                .background(VColor.surface)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: VRadius.sm,
+                    topTrailingRadius: VRadius.sm
+                ))
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .disabled(isLoading)
+        .accessibilityElement(children: .contain)
     }
 }
 
