@@ -157,8 +157,9 @@ build_binaries() {
     cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
     cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
     # Copy onnxruntime-node package (native .node/.dylib can't be embedded in compiled binary;
-    # --external makes the compiled binary resolve it via node_modules/ at runtime)
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common"
+    # --external makes the compiled binary resolve it via node_modules/ at runtime).
+    # Wipe the entire node_modules to remove stale packages from previous builds.
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules"
     mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules"
     cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/"
     cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-common" "$SCRIPT_DIR/daemon-bin/node_modules/"
@@ -321,8 +322,9 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${local_daemon_flags[@]}"
     cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
     cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
-    # Copy onnxruntime-node package (native .node/.dylib can't be embedded in compiled binary)
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common"
+    # Copy onnxruntime-node package (native .node/.dylib can't be embedded in compiled binary).
+    # Wipe the entire node_modules to remove stale packages from previous builds.
+    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules"
     mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules"
     cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/"
     cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-common" "$SCRIPT_DIR/daemon-bin/node_modules/"
