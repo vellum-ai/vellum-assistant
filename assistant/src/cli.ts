@@ -43,6 +43,72 @@ export function sanitizeUrlForDisplay(rawUrl: unknown): string {
   }
 }
 
+function stringifyConfirmationInputValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (value == null) return 'null';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+export function formatConfirmationInputLines(input: Record<string, unknown>): string[] {
+  const lines: string[] = [];
+  for (const key of Object.keys(input).sort()) {
+    const rawValue = input[key];
+    const value = key.toLowerCase().includes('url') && typeof rawValue === 'string'
+      ? sanitizeUrlForDisplay(rawValue)
+      : rawValue;
+    const rendered = stringifyConfirmationInputValue(value);
+    const renderedLines = rendered.split('\n');
+    if (renderedLines.length === 0) {
+      lines.push(`${key}:`);
+      continue;
+    }
+    lines.push(`${key}: ${renderedLines[0]}`);
+    for (const continuation of renderedLines.slice(1)) {
+      lines.push(`  ${continuation}`);
+    }
+  }
+  return lines;
+}
+
+export function formatConfirmationCommandPreview(req: Pick<ConfirmationRequest, 'toolName' | 'input'>): string {
+  if (req.toolName === 'bash' || req.toolName === 'host_bash') {
+    return String(req.input.command ?? '');
+  }
+  if (req.toolName === 'file_read' || req.toolName === 'host_file_read') {
+    return `read ${req.input.path ?? ''}`;
+  }
+  if (req.toolName === 'file_write' || req.toolName === 'host_file_write') {
+    return `write ${req.input.path ?? ''}`;
+  }
+  if (req.toolName === 'file_edit' || req.toolName === 'host_file_edit') {
+    return `edit ${req.input.path ?? ''}`;
+  }
+  if (req.toolName === 'web_fetch') {
+    return `fetch ${sanitizeUrlForDisplay(req.input.url ?? '')}`;
+  }
+  if (req.toolName === 'browser_navigate') {
+    return `navigate ${sanitizeUrlForDisplay(req.input.url ?? '')}`;
+  }
+  if (req.toolName === 'browser_close') {
+    return req.input.close_all_pages ? 'close all browser pages' : 'close browser page';
+  }
+  if (req.toolName === 'browser_click') {
+    return `click ${req.input.element_id ?? req.input.selector ?? ''}`;
+  }
+  if (req.toolName === 'browser_type') {
+    return `type into ${req.input.element_id ?? req.input.selector ?? ''}`;
+  }
+  if (req.toolName === 'browser_press_key') {
+    return `press "${req.input.key ?? ''}"`;
+  }
+  return req.toolName;
+}
+
 
 export async function startCli(): Promise<void> {
   const socketPath = getSocketPath();
@@ -138,48 +204,24 @@ export async function startCli(): Promise<void> {
     return false;
   }
 
-  function formatCommandPreview(req: ConfirmationRequest): string {
-    if (req.toolName === 'bash') {
-      return String(req.input.command ?? '');
-    }
-    if (req.toolName === 'file_read') {
-      return `read ${req.input.path ?? ''}`;
-    }
-    if (req.toolName === 'file_write') {
-      return `write ${req.input.path ?? ''}`;
-    }
-    if (req.toolName === 'web_fetch') {
-      return `fetch ${sanitizeUrlForDisplay(req.input.url ?? '')}`;
-    }
-    if (req.toolName === 'browser_navigate') {
-      return `navigate ${sanitizeUrlForDisplay(req.input.url ?? '')}`;
-    }
-    if (req.toolName === 'browser_close') {
-      return req.input.close_all_pages ? 'close all browser pages' : 'close browser page';
-    }
-    if (req.toolName === 'browser_click') {
-      return `click ${req.input.element_id ?? req.input.selector ?? ''}`;
-    }
-    if (req.toolName === 'browser_type') {
-      return `type into ${req.input.element_id ?? req.input.selector ?? ''}`;
-    }
-    if (req.toolName === 'browser_press_key') {
-      return `press "${req.input.key ?? ''}"`;
-    }
-    return `${req.toolName}: ${truncate(JSON.stringify(req.input), 80)}`;
-  }
-
   function renderConfirmationPrompt(req: ConfirmationRequest): void {
-    const preview = formatCommandPreview(req);
+    const preview = formatConfirmationCommandPreview(req);
+    const inputLines = formatConfirmationInputLines(req.input);
     process.stdout.write('\n');
     process.stdout.write(`\u250C ${req.toolName}: ${preview}\n`);
     process.stdout.write(`\u2502 Risk: ${req.riskLevel}${req.sandboxed ? '  [sandboxed]' : ''}\n`);
     if (req.executionTarget) {
       process.stdout.write(`\u2502 Target: ${req.executionTarget}\n`);
     }
+    if (inputLines.length > 0) {
+      process.stdout.write(`\u2502\n`);
+      for (const line of inputLines) {
+        process.stdout.write(`\u2502 ${line}\n`);
+      }
+    }
     if (req.diff) {
       const diffOutput = req.diff.isNewFile
-        ? formatNewFileDiff(req.diff.newContent, req.diff.filePath)
+        ? formatNewFileDiff(req.diff.newContent, req.diff.filePath, null)
         : formatDiff(req.diff.oldContent, req.diff.newContent, req.diff.filePath);
       if (diffOutput) {
         process.stdout.write(`\u2502\n`);
@@ -506,7 +548,7 @@ export async function startCli(): Promise<void> {
         toolStreaming = false;
         if (msg.diff) {
           const diffOutput = msg.diff.isNewFile
-            ? formatNewFileDiff(msg.diff.newContent, msg.diff.filePath)
+            ? formatNewFileDiff(msg.diff.newContent, msg.diff.filePath, null)
             : formatDiff(msg.diff.oldContent, msg.diff.newContent, msg.diff.filePath);
           if (diffOutput) {
             process.stdout.write(diffOutput);

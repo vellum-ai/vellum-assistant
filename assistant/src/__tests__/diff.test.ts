@@ -91,6 +91,18 @@ describe('formatDiff', () => {
     expect(result).toContain('-old content');
     expect(result).toContain('-line 2');
   });
+
+  test('uses a full fallback diff for oversized files without truncation markers', () => {
+    const old = Array.from({ length: 6 }, (_, i) => `old-${i + 1}`).join('\n');
+    const updated = Array.from({ length: 6 }, (_, i) => (i === 3 ? 'new-4' : `old-${i + 1}`)).join('\n');
+    const result = stripAnsi(formatDiff(old, updated, 'oversized.ts', { maxExactLines: 2 }));
+
+    expect(result).toContain('--- a/oversized.ts');
+    expect(result).toContain('+++ b/oversized.ts');
+    expect(result).toContain('-old-4');
+    expect(result).toContain('+new-4');
+    expect(result).not.toContain('Diff too large to display');
+  });
 });
 
 describe('formatNewFileDiff', () => {
@@ -117,6 +129,16 @@ describe('formatNewFileDiff', () => {
   test('does not truncate short files', () => {
     const content = 'a\nb\nc';
     const result = stripAnsi(formatNewFileDiff(content, 'small.ts'));
+    expect(result).not.toContain('more lines');
+  });
+
+  test('allows unbounded output when maxLines is null', () => {
+    const lines = Array.from({ length: 50 }, (_, i) => `line${i + 1}`);
+    const content = lines.join('\n');
+    const result = stripAnsi(formatNewFileDiff(content, 'all-lines.ts', null));
+
+    expect(result).toContain('+line1');
+    expect(result).toContain('+line50');
     expect(result).not.toContain('more lines');
   });
 });

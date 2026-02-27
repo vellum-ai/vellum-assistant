@@ -54,7 +54,7 @@ interface Hunk {
 }
 
 const CONTEXT_LINES = 3;
-const MAX_DIFF_LINES = 1000;
+const DEFAULT_MAX_EXACT_DIFF_LINES = 1000;
 
 /**
  * Group diff entries into hunks with surrounding context lines.
@@ -108,24 +108,44 @@ const CYAN = '\x1b[36m';
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
 
+export interface FormatDiffOptions {
+  maxExactLines?: number;
+}
+
+function formatLargeDiffFallback(oldLines: string[], newLines: string[], filePath: string): string {
+  let output = `${DIM}--- a/${filePath}${RESET}\n`;
+  output += `${DIM}+++ b/${filePath}${RESET}\n`;
+  output += `${CYAN}@@ -1,${oldLines.length} +1,${newLines.length} @@${RESET}\n`;
+
+  for (const line of oldLines) {
+    output += `${RED}-${line}${RESET}\n`;
+  }
+  for (const line of newLines) {
+    output += `${GREEN}+${line}${RESET}\n`;
+  }
+
+  return output;
+}
+
 /**
  * Format a colored unified diff from old and new file content.
  * Returns an empty string if the contents are identical.
  */
-export function formatDiff(oldContent: string, newContent: string, filePath: string): string {
+export function formatDiff(
+  oldContent: string,
+  newContent: string,
+  filePath: string,
+  options: FormatDiffOptions = {},
+): string {
   if (oldContent === newContent) return '';
 
   const oldLines = oldContent.split('\n');
   const newLines = newContent.split('\n');
+  const maxExactLines = options.maxExactLines ?? DEFAULT_MAX_EXACT_DIFF_LINES;
 
   // Guard against quadratic blowup on large files
-  if (oldLines.length > MAX_DIFF_LINES || newLines.length > MAX_DIFF_LINES) {
-    const removed = oldLines.length;
-    const added = newLines.length;
-    let output = `${DIM}--- a/${filePath}${RESET}\n`;
-    output += `${DIM}+++ b/${filePath}${RESET}\n`;
-    output += `${DIM}[Diff too large to display: ${removed} lines → ${added} lines]${RESET}\n`;
-    return output;
+  if (oldLines.length > maxExactLines || newLines.length > maxExactLines) {
+    return formatLargeDiffFallback(oldLines, newLines, filePath);
   }
 
   const entries = computeLineDiff(oldLines, newLines);
@@ -159,11 +179,14 @@ export function formatDiff(oldContent: string, newContent: string, filePath: str
 /**
  * Format a "new file" diff (everything is added).
  * Truncates to maxLines to avoid flooding the terminal.
+ * Pass `null` for unbounded output.
  */
-export function formatNewFileDiff(content: string, filePath: string, maxLines = 20): string {
+export function formatNewFileDiff(content: string, filePath: string, maxLines: number | null = 20): string {
   const lines = content.split('\n');
-  const truncated = lines.length > maxLines;
-  const displayLines = truncated ? lines.slice(0, maxLines) : lines;
+  const shouldTruncate = typeof maxLines === 'number' && Number.isFinite(maxLines);
+  const boundedMaxLines = shouldTruncate ? Math.max(0, Math.floor(maxLines)) : lines.length;
+  const truncated = lines.length > boundedMaxLines;
+  const displayLines = truncated ? lines.slice(0, boundedMaxLines) : lines;
 
   let output = `${DIM}--- /dev/null${RESET}\n`;
   output += `${DIM}+++ b/${filePath}${RESET}\n`;
@@ -174,7 +197,7 @@ export function formatNewFileDiff(content: string, filePath: string, maxLines = 
   }
 
   if (truncated) {
-    output += `${DIM}... ${lines.length - maxLines} more lines${RESET}\n`;
+    output += `${DIM}... ${lines.length - boundedMaxLines} more lines${RESET}\n`;
   }
 
   return output;

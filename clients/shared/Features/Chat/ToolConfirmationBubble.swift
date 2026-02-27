@@ -299,17 +299,25 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private func inlinePreview(_ preview: String) -> some View {
-        Text(preview)
-            .font(VFont.monoSmall)
-            .foregroundColor(VColor.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .textSelection(.enabled)
-            .padding(VSpacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(VColor.backgroundSubtle)
-            )
+        codePreviewBlock(preview, maxHeight: 220)
+    }
+
+    @ViewBuilder
+    private func codePreviewBlock(_ content: String, maxHeight: CGFloat) -> some View {
+        ScrollView {
+            Text(content)
+                .font(VFont.monoSmall)
+                .foregroundColor(VColor.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .frame(maxHeight: maxHeight)
+        .padding(VSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .fill(VColor.backgroundSubtle)
+        )
     }
 
     // MARK: - Description Text
@@ -345,22 +353,15 @@ public struct ToolConfirmationBubble: View {
             .accessibilityLabel(showDiff ? "Hide diff" : "View diff")
 
             if showDiff, let diffInfo = confirmation.diff {
+                let computedDiff = confirmation.unifiedDiffPreview ?? ""
+                let diffBody = computedDiff.isEmpty ? diffInfo.newContent : computedDiff
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(diffInfo.filePath)
                         .font(VFont.monoSmall)
                         .foregroundColor(VColor.textMuted)
 
-                    Text(diffInfo.newContent)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textSecondary)
-                        .lineLimit(10)
+                    codePreviewBlock(diffBody, maxHeight: 260)
                 }
-                .padding(VSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(VColor.backgroundSubtle)
-                )
                 .textSelection(.enabled)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }

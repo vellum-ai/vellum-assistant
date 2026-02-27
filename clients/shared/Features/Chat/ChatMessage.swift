@@ -138,7 +138,7 @@ public struct ToolConfirmationData: Equatable {
             guard let value = input[key]?.value else { return nil }
             let formatted: String
             if let str = value as? String {
-                formatted = str.count > 120 ? String(str.prefix(117)) + "..." : str
+                formatted = str
             } else if let bool = value as? Bool {
                 formatted = bool ? "true" : "false"
             } else if let num = value as? Int {
@@ -151,6 +151,171 @@ public struct ToolConfirmationData: Equatable {
             return "\(key): \(formatted)"
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// Unified diff preview for file change confirmations.
+    /// Uses an exact LCS diff for typical file sizes and a full, non-truncating
+    /// linear fallback for very large inputs.
+    public var unifiedDiffPreview: String? {
+        guard let diff else { return nil }
+        return Self.buildUnifiedDiff(
+            oldContent: diff.oldContent,
+            newContent: diff.newContent,
+            filePath: diff.filePath
+        )
+    }
+
+    private static let diffContextLines = 3
+    private static let maxExactDiffLines = 1000
+
+    private enum DiffEntryType {
+        case same
+        case add
+        case remove
+    }
+
+    private struct DiffEntry {
+        let type: DiffEntryType
+        let line: String
+    }
+
+    private struct DiffHunk {
+        let oldStart: Int
+        let oldCount: Int
+        let newStart: Int
+        let newCount: Int
+        let lines: [DiffEntry]
+    }
+
+    private static func buildUnifiedDiff(oldContent: String, newContent: String, filePath: String) -> String {
+        if oldContent == newContent { return "" }
+
+        let oldLines = oldContent.components(separatedBy: "\n")
+        let newLines = newContent.components(separatedBy: "\n")
+
+        if oldLines.count > maxExactDiffLines || newLines.count > maxExactDiffLines {
+            return buildLargeUnifiedDiff(oldLines: oldLines, newLines: newLines, filePath: filePath)
+        }
+
+        let entries = computeLineDiff(oldLines: oldLines, newLines: newLines)
+        let hunks = buildHunks(entries: entries)
+        if hunks.isEmpty { return "" }
+
+        var output = "--- a/\(filePath)\n"
+        output += "+++ b/\(filePath)\n"
+        for hunk in hunks {
+            output += "@@ -\(hunk.oldStart),\(hunk.oldCount) +\(hunk.newStart),\(hunk.newCount) @@\n"
+            for entry in hunk.lines {
+                switch entry.type {
+                case .same:
+                    output += " \(entry.line)\n"
+                case .remove:
+                    output += "-\(entry.line)\n"
+                case .add:
+                    output += "+\(entry.line)\n"
+                }
+            }
+        }
+        return output
+    }
+
+    private static func buildLargeUnifiedDiff(oldLines: [String], newLines: [String], filePath: String) -> String {
+        var output = "--- a/\(filePath)\n"
+        output += "+++ b/\(filePath)\n"
+        output += "@@ -1,\(oldLines.count) +1,\(newLines.count) @@\n"
+        for line in oldLines {
+            output += "-\(line)\n"
+        }
+        for line in newLines {
+            output += "+\(line)\n"
+        }
+        return output
+    }
+
+    private static func computeLineDiff(oldLines: [String], newLines: [String]) -> [DiffEntry] {
+        let m = oldLines.count
+        let n = newLines.count
+
+        var dp = Array(repeating: Array(repeating: 0, count: n + 1), count: m + 1)
+        if m > 0 && n > 0 {
+            for i in 1...m {
+                for j in 1...n {
+                    if oldLines[i - 1] == newLines[j - 1] {
+                        dp[i][j] = dp[i - 1][j - 1] + 1
+                    } else {
+                        dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
+                    }
+                }
+            }
+        }
+
+        var reversed: [DiffEntry] = []
+        var i = m
+        var j = n
+        while i > 0 || j > 0 {
+            if i > 0, j > 0, oldLines[i - 1] == newLines[j - 1] {
+                reversed.append(DiffEntry(type: .same, line: oldLines[i - 1]))
+                i -= 1
+                j -= 1
+            } else if j > 0, (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
+                reversed.append(DiffEntry(type: .add, line: newLines[j - 1]))
+                j -= 1
+            } else if i > 0 {
+                reversed.append(DiffEntry(type: .remove, line: oldLines[i - 1]))
+                i -= 1
+            }
+        }
+
+        return Array(reversed.reversed())
+    }
+
+    private static func buildHunks(entries: [DiffEntry]) -> [DiffHunk] {
+        var changeRanges: [(start: Int, end: Int)] = []
+        for i in entries.indices {
+            if entries[i].type != .same {
+                if !changeRanges.isEmpty,
+                   i - changeRanges[changeRanges.count - 1].end <= diffContextLines * 2 {
+                    changeRanges[changeRanges.count - 1].end = i + 1
+                } else {
+                    changeRanges.append((start: i, end: i + 1))
+                }
+            }
+        }
+
+        var hunks: [DiffHunk] = []
+        for range in changeRanges {
+            let contextStart = max(0, range.start - diffContextLines)
+            let contextEnd = min(entries.count, range.end + diffContextLines)
+            let hunkEntries = Array(entries[contextStart..<contextEnd])
+
+            var oldLine = 1
+            var newLine = 1
+            if contextStart > 0 {
+                for idx in 0..<contextStart {
+                    let entry = entries[idx]
+                    if entry.type == .same || entry.type == .remove { oldLine += 1 }
+                    if entry.type == .same || entry.type == .add { newLine += 1 }
+                }
+            }
+
+            var oldCount = 0
+            var newCount = 0
+            for entry in hunkEntries {
+                if entry.type == .same || entry.type == .remove { oldCount += 1 }
+                if entry.type == .same || entry.type == .add { newCount += 1 }
+            }
+
+            hunks.append(
+                DiffHunk(
+                    oldStart: oldLine,
+                    oldCount: oldCount,
+                    newStart: newLine,
+                    newCount: newCount,
+                    lines: hunkEntries
+                )
+            )
+        }
+        return hunks
     }
 
     /// Human-readable preview of the tool input (e.g. the bash command or file path).
