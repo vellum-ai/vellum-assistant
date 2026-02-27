@@ -31,7 +31,10 @@ export type GuardianActionMessageScenario =
   | 'guardian_stale_answered'
   | 'guardian_stale_expired'
   | 'guardian_stale_followup'
+  | 'guardian_stale_superseded'
   | 'guardian_superseded_remap'
+  | 'guardian_unknown_code'
+  | 'guardian_auto_matched'
   | 'outbound_message_copy'
   | 'followup_message_sent'
   | 'followup_call_started'
@@ -49,6 +52,10 @@ export interface GuardianActionMessageContext {
   failureReason?: string;
   counterpartyPhone?: string;
   requestCodes?: string[];
+  /** The code the guardian provided that was not recognized. */
+  unknownCode?: string;
+  /** The code of the active request that supersedes the one the guardian targeted. */
+  activeRequestCode?: string;
 }
 
 export interface ComposeGuardianActionMessageOptions {
@@ -200,6 +207,17 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
 
     case 'guardian_stale_followup':
       return 'It looks like this follow-up has already been handled. No further action is needed.';
+
+    case 'guardian_stale_superseded':
+      return 'This request is no longer active. The call has ended and no further action is needed.';
+
+    case 'guardian_unknown_code':
+      return context.unknownCode
+        ? `I don't recognize the code "${context.unknownCode}". Please check the reference code and try again.`
+        : "I don't recognize that reference code. Please check the code and try again.";
+
+    case 'guardian_auto_matched':
+      return 'Got it, routing your answer to the active request.';
 
     case 'guardian_superseded_remap':
       return context.questionText
