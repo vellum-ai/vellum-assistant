@@ -6,10 +6,15 @@
  * Each launcher is a shell script that hardcodes absolute paths to `bun`
  * and the CLI entrypoint, forwarding all arguments to the appropriate
  * subcommand.
+ *
+ * Commands are split into two categories:
+ * - CORE_COMMANDS: always installed, dispatched via the main CLI entrypoint
+ * - STANDALONE_COMMANDS: have their own entry points (e.g. skills with
+ *   dedicated CLI scripts)
  */
 
 import { execSync } from 'node:child_process';
-import { chmodSync,existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,8 +22,16 @@ import { getLogger } from '../util/logger.js';
 
 const log = getLogger('install-cli-launchers');
 
-/** Integration subcommands that should get standalone launchers. */
-const INTEGRATION_COMMANDS = ['doordash', 'map'];
+/** Core subcommands dispatched via the main CLI entrypoint (index.ts). */
+const CORE_COMMANDS = ['map'];
+
+/**
+ * Standalone commands with their own entry points.
+ * Path is relative to this file's directory (assistant/src/daemon/).
+ */
+const STANDALONE_COMMANDS: Record<string, string> = {
+  doordash: '../config/bundled-skills/doordash/doordash-entry.ts',
+};
 
 /**
  * Resolve the absolute path to the bun binary.
@@ -68,7 +81,7 @@ function hasSystemConflict(name: string, binDir: string): boolean {
  * Install standalone CLI launcher scripts in ~/.vellum/bin/.
  *
  * For each integration command, generates a shell script that execs
- * bun with the CLI entrypoint and the subcommand name prepended.
+ * bun with the appropriate entrypoint.
  * Uses the short name by default (e.g. `doordash`), falling back to
  * `vellum-<name>` if the short name conflicts with an existing system binary.
  */
@@ -83,13 +96,13 @@ export function installCliLaunchers(): void {
     return;
   }
 
-  const entrypoint = resolveCliEntrypoint();
-  if (!existsSync(entrypoint)) {
+  const mainEntrypoint = resolveCliEntrypoint();
+  if (!existsSync(mainEntrypoint)) {
     // In compiled builds (e.g. macOS app via `bun build --compile`), the
     // source tree isn't available.  Launcher scripts are a dev-mode
     // convenience; compiled builds use their own command dispatch, so we
     // silently skip installation.
-    log.debug({ entrypoint }, 'CLI entrypoint not found (compiled build?) — skipping launcher installation');
+    log.debug({ entrypoint: mainEntrypoint }, 'CLI entrypoint not found (compiled build?) — skipping launcher installation');
     return;
   }
 
@@ -97,18 +110,39 @@ export function installCliLaunchers(): void {
     mkdirSync(binDir, { recursive: true });
   }
 
-  for (const name of INTEGRATION_COMMANDS) {
+  const thisDir = import.meta.dirname ?? __dirname;
+  const installed: string[] = [];
+
+  // Install core command launchers (dispatched via main CLI)
+  for (const name of CORE_COMMANDS) {
     const launcherName = hasSystemConflict(name, binDir) ? `vellum-${name}` : name;
     const launcherPath = join(binDir, launcherName);
 
     const script = `#!/bin/bash
-exec "${bunPath}" "${entrypoint}" ${name} "$@"
+exec "${bunPath}" "${mainEntrypoint}" ${name} "$@"
 `;
 
     writeFileSync(launcherPath, script);
     chmodSync(launcherPath, 0o755);
-    log.debug({ launcherName, launcherPath }, 'Installed CLI launcher');
+    installed.push(launcherName);
+    log.debug({ launcherName, launcherPath }, 'Installed core CLI launcher');
   }
 
-  log.info({ binDir, commands: INTEGRATION_COMMANDS }, 'CLI launchers installed');
+  // Install standalone command launchers (own entry points)
+  for (const [name, relativeEntry] of Object.entries(STANDALONE_COMMANDS)) {
+    const launcherName = hasSystemConflict(name, binDir) ? `vellum-${name}` : name;
+    const launcherPath = join(binDir, launcherName);
+    const entrypoint = join(thisDir, relativeEntry);
+
+    const script = `#!/bin/bash
+exec "${bunPath}" "${entrypoint}" "$@"
+`;
+
+    writeFileSync(launcherPath, script);
+    chmodSync(launcherPath, 0o755);
+    installed.push(launcherName);
+    log.debug({ launcherName, launcherPath }, 'Installed standalone CLI launcher');
+  }
+
+  log.info({ binDir, commands: installed }, 'CLI launchers installed');
 }
