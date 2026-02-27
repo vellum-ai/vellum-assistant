@@ -365,7 +365,7 @@ export function recordInviteUse(params: {
 
   // Constrain the update to active invites so a concurrent revoke/expire
   // prevents this write rather than silently overwriting the new status.
-  const result = db.update(assistantIngressInvites)
+  db.update(assistantIngressInvites)
     .set({
       useCount: newUseCount,
       status: newStatus,
@@ -382,7 +382,15 @@ export function recordInviteUse(params: {
     )
     .run();
 
-  return result.changes > 0;
+  // Re-read to confirm the update took effect (the WHERE clause constrains
+  // to status = 'active', so a concurrent revoke/expire would prevent it).
+  const updated = db
+    .select({ useCount: assistantIngressInvites.useCount })
+    .from(assistantIngressInvites)
+    .where(eq(assistantIngressInvites.id, invite.id))
+    .get();
+
+  return !!updated && updated.useCount === newUseCount;
 }
 
 // ---------------------------------------------------------------------------

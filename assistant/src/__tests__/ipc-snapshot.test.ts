@@ -745,6 +745,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     action: 'approve_once',
     conversationId: 'conv-guardian-001',
   },
+  reorder_threads: {
+    type: 'reorder_threads',
+    updates: [
+      { sessionId: 'sess-001', displayOrder: 0, isPinned: false },
+      { sessionId: 'sess-002', displayOrder: 1, isPinned: true },
+    ],
+  },
 };
 
 // ---------------------------------------------------------------------------
