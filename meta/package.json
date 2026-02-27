@@ -1,6 +1,6 @@
 {
   "name": "vellum",
-  "version": "0.3.26",
+  "version": "0.3.27",
   "description": "Install the full Vellum stack locally",
   "bin": {
     "vellum": "./bin/vellum.js"
@@ -9,8 +9,8 @@
     "bin"
   ],
   "dependencies": {
-    "@vellumai/assistant": "0.3.26",
-    "@vellumai/cli": "0.3.26",
-    "@vellumai/vellum-gateway": "0.3.26"
+    "@vellumai/assistant": "0.3.27",
+    "@vellumai/cli": "0.3.27",
+    "@vellumai/vellum-gateway": "0.3.27"
   }
 }
