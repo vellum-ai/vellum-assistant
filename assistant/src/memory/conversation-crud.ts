@@ -156,7 +156,27 @@ export function createConversation(titleOrOpts?: string | { title?: string; thre
     source,
     memoryScopeId,
   };
-  db.insert(conversations).values(conversation).run();
+
+  // Retry on SQLITE_BUSY and SQLITE_IOERR — transient disk I/O errors or WAL
+  // contention can cause the first attempt to fail even under normal load.
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      db.insert(conversations).values(conversation).run();
+      break;
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? '';
+      if (attempt < MAX_RETRIES && (code === 'SQLITE_BUSY' || code.startsWith('SQLITE_IOERR'))) {
+        log.warn({ attempt, conversationId: id, code }, 'createConversation: transient SQLite error, retrying');
+        // Synchronous sleep — createConversation is synchronous and the
+        // retry window is short (50-150ms), so Bun.sleepSync is appropriate.
+        Bun.sleepSync(50 * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
+  }
+
   return conversation;
 }
 
