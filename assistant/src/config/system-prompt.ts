@@ -127,6 +127,7 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
     parts.push(buildGuardianVerificationRoutingSection());
     parts.push(buildAttachmentSection());
     parts.push(buildInChatConfigurationSection());
+    parts.push(buildVoiceSetupRoutingSection());
     parts.push(buildChannelCommandIntentSection());
   }
 
@@ -308,6 +309,40 @@ function buildInChatConfigurationSection(): string {
     '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
     '',
     '**Never tell the user to go to Settings to enter a value.** The Settings page is for reviewing and updating existing configuration, not for initial setup. Always prefer the in-chat flow for first-time configuration.',
+  ].join('\n');
+}
+
+export function buildVoiceSetupRoutingSection(): string {
+  return [
+    '## Routing: Voice Setup & Troubleshooting',
+    '',
+    'Voice features include push-to-talk (PTT), wake word detection, and text-to-speech.',
+    '',
+    '### Quick changes — use `voice_config_update` directly',
+    '- "Change my PTT key to ctrl" — call `voice_config_update` with `setting: "activation_key"`',
+    '- "Enable wake word" — call `voice_config_update` with `setting: "wake_word_enabled"`, `value: true`',
+    '- "Set my wake word to jarvis" — call `voice_config_update` with `setting: "wake_word_keyword"`',
+    '- "Set wake word timeout to 30 seconds" — call `voice_config_update` with `setting: "wake_word_timeout"`',
+    '',
+    'For simple setting changes, use the tool directly without loading the voice-setup skill.',
+    '',
+    '### Guided setup or troubleshooting — load the voice-setup skill',
+    'Load with: `skill_load` using `skill: "voice-setup"`',
+    '',
+    '**Trigger phrases:**',
+    '- "Help me set up voice"',
+    '- "Set up push-to-talk"',
+    '- "Configure voice / PTT / wake word"',
+    '- "PTT isn\'t working" / "push-to-talk not working"',
+    '- "Recording but no text"',
+    '- "Wake word not detecting"',
+    '- "Microphone not working"',
+    '- "Set up ElevenLabs" / "configure TTS"',
+    '',
+    '### Disambiguation',
+    '- Voice setup (this skill) = **local PTT, wake word, microphone permissions** on the Mac desktop app.',
+    '- Phone calls skill = **Twilio-powered voice calls** over the phone network. Completely separate.',
+    '- If the user says "voice" in the context of phone calls or Twilio, load `phone-calls` instead.',
   ].join('\n');
 }
 

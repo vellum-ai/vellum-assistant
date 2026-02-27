@@ -96,6 +96,25 @@ registerHook(
   },
 );
 
+// Broadcast voice config changes to all connected clients so every window
+// picks up the updated UserDefaults value immediately.
+registerHook('voice_config_update', (_name, input, _result, { broadcastToAllClients }) => {
+  const setting = (input.setting as string) ?? (input.activation_key ? 'activation_key' : undefined);
+  if (!setting) return;
+
+  const SETTING_TO_KEY: Record<string, string> = {
+    activation_key: 'pttActivationKey',
+    wake_word_enabled: 'wakeWordEnabled',
+    wake_word_keyword: 'wakeWordKeyword',
+    wake_word_timeout: 'wakeWordTimeoutSeconds',
+  };
+  const key = SETTING_TO_KEY[setting];
+  if (!key) return;
+
+  const value = input.value ?? input.activation_key;
+  broadcastToAllClients?.({ type: 'client_settings_update', key, value } as unknown as ServerMessage);
+});
+
 // ── Runner ───────────────────────────────────────────────────────────
 
 /**
