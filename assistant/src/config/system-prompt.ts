@@ -8,7 +8,7 @@ import { getLogger } from '../util/logger.js';
 import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
 import { getBaseDataDir, getIsContainerized } from './env-registry.js';
 import { getConfig } from './loader.js';
-import { isSkillFeatureEnabled } from './skill-state.js';
+import { isAssistantSkillEnabled } from './assistant-feature-flags.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 import { resolveUserReference } from './user-reference.js';
 
@@ -146,7 +146,7 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
     const config = getConfig();
     parts.push(buildToolPermissionSection());
     parts.push(buildTaskScheduleReminderRoutingSection());
-    if (isSkillFeatureEnabled('guardian-verify-setup', config)) {
+    if (isAssistantSkillEnabled('guardian-verify-setup', config)) {
       parts.push(buildGuardianVerificationRoutingSection());
     }
     parts.push(buildAttachmentSection());
@@ -786,8 +786,8 @@ function appendSkillsCatalog(basePrompt: string): string {
   const skills = loadSkillCatalog();
   const config = getConfig();
 
-  // Filter out skills whose feature flag is explicitly OFF
-  const flagFiltered = skills.filter(s => isSkillFeatureEnabled(s.id, config));
+  // Filter out skills whose assistant feature flag is explicitly OFF
+  const flagFiltered = skills.filter(s => isAssistantSkillEnabled(s.id, config));
 
   const sections: string[] = [basePrompt];
 
@@ -814,7 +814,7 @@ function buildDynamicSkillWorkflowSection(config: import('./schema.js').Assistan
     'After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.',
   ];
 
-  if (isSkillFeatureEnabled('browser', config)) {
+  if (isAssistantSkillEnabled('browser', config)) {
     lines.push(
       '',
       '### Browser Skill Prerequisite',
@@ -822,7 +822,7 @@ function buildDynamicSkillWorkflowSection(config: import('./schema.js').Assistan
     );
   }
 
-  if (isSkillFeatureEnabled('twitter', config)) {
+  if (isAssistantSkillEnabled('twitter', config)) {
     lines.push(
       '',
       '### X (Twitter) Skill',

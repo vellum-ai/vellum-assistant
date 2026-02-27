@@ -227,6 +227,9 @@ export const AssistantConfigSchema = z.object({
   featureFlags: z
     .record(z.string(), z.boolean({ error: 'featureFlags values must be booleans' }))
     .default({} as any),
+  assistantFeatureFlagValues: z
+    .record(z.string(), z.boolean({ error: 'assistantFeatureFlagValues values must be booleans' }))
+    .optional(),
 }).superRefine((config, ctx) => {
   if (config.contextWindow?.targetInputTokens != null && config.contextWindow?.maxInputTokens != null &&
       config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {

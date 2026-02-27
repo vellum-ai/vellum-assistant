@@ -12,7 +12,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { getConfig } from '../config/loader.js';
-import { isSkillFeatureEnabled } from '../config/skill-state.js';
+import { isAssistantSkillEnabled } from '../config/assistant-feature-flags.js';
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import type { Message, ToolDefinition } from '../providers/types.js';
@@ -219,12 +219,12 @@ export function projectSkillTools(
   const contextIds = contextEntries.map((e) => e.id);
   const allCandidateIds = new Set<string>([...contextIds, ...preactivated]);
 
-  // Feature flag gate: drop skills whose feature flag is explicitly OFF,
+  // Assistant feature flag gate: drop skills whose flag is explicitly OFF,
   // even if they have markers in conversation history from before the flag was turned off.
   const config = getConfig();
   const activeIds = new Set<string>();
   for (const id of allCandidateIds) {
-    if (isSkillFeatureEnabled(id, config)) {
+    if (isAssistantSkillEnabled(id, config)) {
       activeIds.add(id);
     }
   }

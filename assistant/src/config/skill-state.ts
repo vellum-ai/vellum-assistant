@@ -1,4 +1,5 @@
 import type { AssistantConfig, SkillEntryConfig } from './schema.js';
+import { isAssistantSkillEnabled } from './assistant-feature-flags.js';
 import type { SkillSummary } from './skills.js';
 import { checkSkillRequirements } from './skills.js';
 
@@ -13,17 +14,13 @@ export interface ResolvedSkill {
 }
 
 /**
- * Check whether a skill's feature flag is enabled.
- * Feature flag key format: `skills.<skillId>.enabled`.
- * Missing key defaults to `true` (enabled); explicit `false` means disabled.
+ * @deprecated Use `isAssistantSkillEnabled` from `./assistant-feature-flags.js` instead.
+ *
+ * Thin backward-compatible wrapper that delegates to the canonical resolver.
+ * Kept to avoid breaking existing call sites during migration.
  */
 export function isSkillFeatureEnabled(skillId: string, config: AssistantConfig): boolean {
-  const flags = config.featureFlags;
-  if (!flags) return true;
-  const key = `skills.${skillId}.enabled`;
-  const value = flags[key];
-  if (value === undefined) return true;
-  return value !== false;
+  return isAssistantSkillEnabled(skillId, config);
 }
 
 export function resolveSkillStates(
@@ -34,8 +31,8 @@ export function resolveSkillStates(
   const { entries, allowBundled } = config.skills ?? { entries: {}, allowBundled: null };
 
   for (const skill of catalog) {
-    // Feature flag gate: if the flag is explicitly OFF, skip this skill entirely
-    if (!isSkillFeatureEnabled(skill.id, config)) {
+    // Assistant feature flag gate: if the flag is explicitly OFF, skip this skill entirely
+    if (!isAssistantSkillEnabled(skill.id, config)) {
       continue;
     }
 

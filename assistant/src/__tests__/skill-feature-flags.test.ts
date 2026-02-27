@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import type { AssistantConfig } from '../config/schema.js';
 import { isSkillFeatureEnabled, resolveSkillStates } from '../config/skill-state.js';
+import { isAssistantFeatureFlagEnabled, isAssistantSkillEnabled } from '../config/assistant-feature-flags.js';
 import type { SkillSummary } from '../config/skills.js';
 
 // ---------------------------------------------------------------------------
@@ -17,6 +18,8 @@ function makeConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
       load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
       install: { nodeManager: 'npm' },
       allowBundled: null,
+      remoteProviders: { skillssh: { enabled: true }, clawhub: { enabled: true } },
+      remotePolicy: { blockSuspicious: true, blockMalware: true, maxSkillsShRisk: 'medium' },
     },
     ...overrides,
   } as AssistantConfig;
@@ -38,7 +41,7 @@ function makeSkill(id: string, source: 'bundled' | 'managed' = 'bundled'): Skill
 }
 
 // ---------------------------------------------------------------------------
-// isSkillFeatureEnabled
+// isSkillFeatureEnabled (legacy wrapper — backward compat)
 // ---------------------------------------------------------------------------
 
 describe('isSkillFeatureEnabled', () => {
@@ -73,6 +76,58 @@ describe('isSkillFeatureEnabled', () => {
     // Simulate a config that somehow has no featureFlags key
     delete (config as Record<string, unknown>).featureFlags;
     expect(isSkillFeatureEnabled('browser', config)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isAssistantSkillEnabled (new canonical resolver)
+// ---------------------------------------------------------------------------
+
+describe('isAssistantSkillEnabled', () => {
+  test('returns true when no flags set', () => {
+    const config = makeConfig({ featureFlags: {} });
+    expect(isAssistantSkillEnabled('browser', config)).toBe(true);
+  });
+
+  test('reads legacy featureFlags section', () => {
+    const config = makeConfig({
+      featureFlags: { 'skills.browser.enabled': false },
+    });
+    expect(isAssistantSkillEnabled('browser', config)).toBe(false);
+  });
+
+  test('new assistantFeatureFlagValues overrides legacy', () => {
+    const config = {
+      ...makeConfig({ featureFlags: { 'skills.browser.enabled': false } }),
+      assistantFeatureFlagValues: { 'feature_flags.browser.enabled': true },
+    } as AssistantConfig;
+    expect(isAssistantSkillEnabled('browser', config)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isAssistantFeatureFlagEnabled (full canonical key)
+// ---------------------------------------------------------------------------
+
+describe('isAssistantFeatureFlagEnabled', () => {
+  test('returns true for unknown flags (open by default)', () => {
+    const config = makeConfig({ featureFlags: {} });
+    expect(isAssistantFeatureFlagEnabled('feature_flags.unknown.enabled', config)).toBe(true);
+  });
+
+  test('reads legacy key via canonical key mapping', () => {
+    const config = makeConfig({
+      featureFlags: { 'skills.twitter.enabled': false },
+    });
+    expect(isAssistantFeatureFlagEnabled('feature_flags.twitter.enabled', config)).toBe(false);
+  });
+
+  test('assistantFeatureFlagValues takes priority over legacy', () => {
+    const config = {
+      ...makeConfig({ featureFlags: { 'skills.browser.enabled': false } }),
+      assistantFeatureFlagValues: { 'feature_flags.browser.enabled': true },
+    } as AssistantConfig;
+    expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(true);
   });
 });
 
@@ -125,6 +180,8 @@ describe('resolveSkillStates with feature flags', () => {
         load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
         install: { nodeManager: 'npm' },
         allowBundled: null,
+        remoteProviders: { skillssh: { enabled: true }, clawhub: { enabled: true } },
+        remotePolicy: { blockSuspicious: true, blockMalware: true, maxSkillsShRisk: 'medium' },
       },
     });
 

@@ -45,9 +45,20 @@ export type {
 } from './schema.js';
 
 /**
- * Feature flags are a top-level config section (Record<string, boolean>).
- * Skill feature flags use the key format `skills.<skillId>.enabled`.
+ * Legacy feature flags section (Record<string, boolean>).
+ * Uses the key format `skills.<skillId>.enabled`.
  * Missing key defaults to `true` (enabled); explicit `false` disables everywhere.
+ *
+ * @deprecated Prefer `assistantFeatureFlagValues` with canonical key format
+ * `feature_flags.<id>.enabled`. This section is kept for backward compatibility
+ * and is still consulted by the resolver as a fallback.
  */
 export type FeatureFlags = Record<string, boolean>;
+
+/**
+ * Assistant feature flag values using the canonical key format
+ * `feature_flags.<id>.enabled`. Takes priority over the legacy
+ * `featureFlags` section during resolution.
+ */
+export type AssistantFeatureFlagValues = Record<string, boolean>;
 
