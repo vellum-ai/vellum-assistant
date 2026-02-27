@@ -135,6 +135,18 @@ describe('namespacedSkillDir', () => {
   test('handles deeply nested source paths', () => {
     expect(namespacedSkillDir('a/b/c', 'x')).toBe('a--b--c--x');
   });
+
+  test('escapes literal double-hyphens in source to prevent collisions', () => {
+    // Without escaping, "foo/bar--baz" and "foo--bar/baz" would both produce
+    // "foo--bar--baz--skill". The encoding must be injective.
+    const nsA = namespacedSkillDir('foo/bar--baz', 'skill');
+    const nsB = namespacedSkillDir('foo--bar/baz', 'skill');
+    expect(nsA).not.toBe(nsB);
+  });
+
+  test('round-trips sources containing literal double-hyphens', () => {
+    expect(namespacedSkillDir('org--team/repo', 'x')).toBe('org-_-team--repo--x');
+  });
 });
 
 // ─── Security gate tests ─────────────────────────────────────────────────────────
@@ -301,6 +313,31 @@ describe('skillsshInstall namespacing', () => {
     expect(nsA).toBe('orgA--repoA--shared-skill');
     expect(nsB).toBe('orgB--repoB--shared-skill');
     expect(nsA).not.toBe(nsB);
+  });
+
+  test('re-install succeeds when namespaced directory already exists', async () => {
+    const mockSpawn = mockSuccessfulSpawn();
+    try {
+      // First install
+      const firstResult = await skillsshInstall({
+        candidate: makeCandidate(),
+        securityDecision: makeProceedDecision(),
+      });
+      expect(firstResult.success).toBe(true);
+
+      const namespacedDir = join(TEST_DIR, 'skills', 'test-org--test-repo--my-skill');
+      expect(existsSync(join(namespacedDir, 'SKILL.md'))).toBe(true);
+
+      // Second install (re-install) -- should not throw ENOTEMPTY
+      const secondResult = await skillsshInstall({
+        candidate: makeCandidate(),
+        securityDecision: makeProceedDecision(),
+      });
+      expect(secondResult.success).toBe(true);
+      expect(existsSync(join(namespacedDir, 'SKILL.md'))).toBe(true);
+    } finally {
+      mockSpawn.mockRestore();
+    }
   });
 });
 
