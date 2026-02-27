@@ -93,7 +93,7 @@ Derive an aggregate status from the per-reviewer statuses as follows (higher ent
 
 #### 5a. Handle pending reviews (initial wait)
 
-If the initial aggregate status from Steps 2–3 is **pending**, wait for reviews before acting. Poll every 60 seconds for up to **15 minutes**:
+If the initial aggregate status from Steps 2–3 is **pending** or **rate_limited**, wait for reviews before acting. Poll every 60 seconds for up to **15 minutes**:
 
 - Re-fetch review data (Step 2 commands) and re-determine aggregate status (Step 3).
 - If aggregate status is `approved` → proceed to Step 6.
