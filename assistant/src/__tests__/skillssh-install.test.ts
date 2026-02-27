@@ -18,8 +18,8 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { skillsshInstall } from '../skills/skillssh-install.js';
-import type { SkillsShInstallOptions, SkillsShProvenance } from '../skills/skillssh-install.js';
+import { namespacedSkillDir, skillsshInstall } from '../skills/skillssh-install.js';
+import type { SkillsShProvenance } from '../skills/skillssh-install.js';
 import type { SecurityDecision } from '../skills/security-decision.js';
 import type { SkillsShSearchWithAuditItem } from '../skills/skillssh.js';
 import { readSkillProvenance } from '../skills/managed-store.js';
@@ -79,11 +79,33 @@ function makeDoNotRecommendDecision(): SecurityDecision {
 /**
  * Simulate a successful `npx skills add` by creating the expected
  * skill directory and SKILL.md file in the managed skills dir.
+ * The CLI installs into skills/<skillId>/ (not namespaced).
  */
 function simulateSuccessfulInstall(skillId: string): void {
   const skillDir = join(TEST_DIR, 'skills', skillId);
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(join(skillDir, 'SKILL.md'), `---\nname: "${skillId}"\ndescription: "A test skill"\n---\n\n# ${skillId}\n`, 'utf-8');
+}
+
+function mockSuccessfulSpawn(): ReturnType<typeof spyOn> {
+  const originalSpawn = Bun.spawn;
+  return spyOn(Bun, 'spawn').mockImplementation((..._args: unknown[]) => {
+    simulateSuccessfulInstall('my-skill');
+    return {
+      stdout: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('OK'));
+          controller.close();
+        },
+      }),
+      stderr: new ReadableStream({
+        start(controller) { controller.close(); },
+      }),
+      exited: Promise.resolve(0),
+      pid: 12345,
+      kill: () => {},
+    } as unknown as ReturnType<typeof originalSpawn>;
+  });
 }
 
 // ─── Setup / Teardown ────────────────────────────────────────────────────────────
@@ -99,6 +121,22 @@ afterEach(() => {
   mock.restore();
 });
 
+// ─── namespacedSkillDir unit tests ───────────────────────────────────────────────
+
+describe('namespacedSkillDir', () => {
+  test('replaces slashes with double hyphens', () => {
+    expect(namespacedSkillDir('org/repo', 'my-skill')).toBe('org--repo--my-skill');
+  });
+
+  test('handles source without slashes', () => {
+    expect(namespacedSkillDir('single', 'skill')).toBe('single--skill');
+  });
+
+  test('handles deeply nested source paths', () => {
+    expect(namespacedSkillDir('a/b/c', 'x')).toBe('a--b--c--x');
+  });
+});
+
 // ─── Security gate tests ─────────────────────────────────────────────────────────
 
 describe('skillsshInstall security gate', () => {
@@ -111,6 +149,7 @@ describe('skillsshInstall security gate', () => {
 
     expect(result.success).toBe(false);
     expect(result.skillId).toBe('my-skill');
+    expect(result.namespacedId).toBe('test-org--test-repo--my-skill');
     expect(result.installedVia).toBe('policy');
     expect(result.error).toContain('Installation blocked');
     expect(result.error).toContain('do_not_recommend');
@@ -128,28 +167,7 @@ describe('skillsshInstall security gate', () => {
   });
 
   test('allows install when decision is do_not_recommend but override is true', async () => {
-    // Mock Bun.spawn to simulate a successful subprocess
-    const originalSpawn = Bun.spawn;
-    const mockSpawn = spyOn(Bun, 'spawn').mockImplementation((..._args: unknown[]) => {
-      const candidate = makeCandidate({ overallRisk: 'high' });
-      simulateSuccessfulInstall(candidate.skillId);
-
-      return {
-        stdout: new ReadableStream({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode('Skill installed successfully'));
-            controller.close();
-          },
-        }),
-        stderr: new ReadableStream({
-          start(controller) { controller.close(); },
-        }),
-        exited: Promise.resolve(0),
-        pid: 12345,
-        kill: () => {},
-      } as unknown as ReturnType<typeof originalSpawn>;
-    });
-
+    const mockSpawn = mockSuccessfulSpawn();
     try {
       const result = await skillsshInstall({
         candidate: makeCandidate({ overallRisk: 'high' }),
@@ -160,6 +178,7 @@ describe('skillsshInstall security gate', () => {
       expect(result.success).toBe(true);
       expect(result.installedVia).toBe('override');
       expect(result.skillId).toBe('my-skill');
+      expect(result.namespacedId).toBe('test-org--test-repo--my-skill');
       expect(result.installedPath).toBeDefined();
     } finally {
       mockSpawn.mockRestore();
@@ -167,26 +186,7 @@ describe('skillsshInstall security gate', () => {
   });
 
   test('allows install when decision is proceed', async () => {
-    const originalSpawn = Bun.spawn;
-    const mockSpawn = spyOn(Bun, 'spawn').mockImplementation((..._args: unknown[]) => {
-      simulateSuccessfulInstall('my-skill');
-
-      return {
-        stdout: new ReadableStream({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode('Skill installed successfully'));
-            controller.close();
-          },
-        }),
-        stderr: new ReadableStream({
-          start(controller) { controller.close(); },
-        }),
-        exited: Promise.resolve(0),
-        pid: 12345,
-        kill: () => {},
-      } as unknown as ReturnType<typeof originalSpawn>;
-    });
-
+    const mockSpawn = mockSuccessfulSpawn();
     try {
       const result = await skillsshInstall({
         candidate: makeCandidate(),
@@ -196,32 +196,14 @@ describe('skillsshInstall security gate', () => {
       expect(result.success).toBe(true);
       expect(result.installedVia).toBe('policy');
       expect(result.skillId).toBe('my-skill');
+      expect(result.namespacedId).toBe('test-org--test-repo--my-skill');
     } finally {
       mockSpawn.mockRestore();
     }
   });
 
   test('allows install when decision is proceed_with_caution', async () => {
-    const originalSpawn = Bun.spawn;
-    const mockSpawn = spyOn(Bun, 'spawn').mockImplementation((..._args: unknown[]) => {
-      simulateSuccessfulInstall('my-skill');
-
-      return {
-        stdout: new ReadableStream({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode('Skill installed successfully'));
-            controller.close();
-          },
-        }),
-        stderr: new ReadableStream({
-          start(controller) { controller.close(); },
-        }),
-        exited: Promise.resolve(0),
-        pid: 12345,
-        kill: () => {},
-      } as unknown as ReturnType<typeof originalSpawn>;
-    });
-
+    const mockSpawn = mockSuccessfulSpawn();
     try {
       const result = await skillsshInstall({
         candidate: makeCandidate({ overallRisk: 'medium' }),
@@ -236,30 +218,132 @@ describe('skillsshInstall security gate', () => {
   });
 });
 
+// ─── Validation tests ────────────────────────────────────────────────────────────
+
+describe('skillsshInstall validation', () => {
+  test('rejects empty skill ID', async () => {
+    const result = await skillsshInstall({
+      candidate: makeCandidate({ skillId: '' }),
+      securityDecision: makeProceedDecision(),
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Invalid skill ID');
+  });
+
+  test('rejects skill ID with path traversal', async () => {
+    const result = await skillsshInstall({
+      candidate: makeCandidate({ skillId: '../escape' }),
+      securityDecision: makeProceedDecision(),
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Invalid skill ID');
+  });
+
+  test('rejects empty source', async () => {
+    const result = await skillsshInstall({
+      candidate: makeCandidate({ source: '' }),
+      securityDecision: makeProceedDecision(),
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Invalid source');
+  });
+
+  test('rejects source with path traversal', async () => {
+    const result = await skillsshInstall({
+      candidate: makeCandidate({ source: '../../../etc' }),
+      securityDecision: makeProceedDecision(),
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Invalid source');
+  });
+
+  test('rejects source with backslashes', async () => {
+    const result = await skillsshInstall({
+      candidate: makeCandidate({ source: 'org\\repo' }),
+      securityDecision: makeProceedDecision(),
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Invalid source');
+  });
+});
+
+// ─── Namespacing tests ───────────────────────────────────────────────────────────
+
+describe('skillsshInstall namespacing', () => {
+  test('installs into source-namespaced directory', async () => {
+    const mockSpawn = mockSuccessfulSpawn();
+    try {
+      const result = await skillsshInstall({
+        candidate: makeCandidate(),
+        securityDecision: makeProceedDecision(),
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.namespacedId).toBe('test-org--test-repo--my-skill');
+
+      // The namespaced directory should exist, the raw one should have been moved
+      const namespacedDir = join(TEST_DIR, 'skills', 'test-org--test-repo--my-skill');
+      expect(existsSync(join(namespacedDir, 'SKILL.md'))).toBe(true);
+      expect(result.installedPath).toBe(namespacedDir);
+    } finally {
+      mockSpawn.mockRestore();
+    }
+  });
+
+  test('different sources with same skillId get different directories', () => {
+    const nsA = namespacedSkillDir('orgA/repoA', 'shared-skill');
+    const nsB = namespacedSkillDir('orgB/repoB', 'shared-skill');
+    expect(nsA).toBe('orgA--repoA--shared-skill');
+    expect(nsB).toBe('orgB--repoB--shared-skill');
+    expect(nsA).not.toBe(nsB);
+  });
+});
+
+// ─── SKILLS.md index tests ───────────────────────────────────────────────────────
+
+describe('skillsshInstall SKILLS.md index', () => {
+  test('adds entry to SKILLS.md index on successful install', async () => {
+    const mockSpawn = mockSuccessfulSpawn();
+    try {
+      const result = await skillsshInstall({
+        candidate: makeCandidate(),
+        securityDecision: makeProceedDecision(),
+      });
+
+      expect(result.success).toBe(true);
+
+      const indexPath = join(TEST_DIR, 'skills', 'SKILLS.md');
+      expect(existsSync(indexPath)).toBe(true);
+      const indexContent = readFileSync(indexPath, 'utf-8');
+      expect(indexContent).toContain('test-org--test-repo--my-skill');
+    } finally {
+      mockSpawn.mockRestore();
+    }
+  });
+
+  test('does not add entry to SKILLS.md on failed install', async () => {
+    const result = await skillsshInstall({
+      candidate: makeCandidate(),
+      securityDecision: makeDoNotRecommendDecision(),
+      userOverride: false,
+    });
+
+    expect(result.success).toBe(false);
+    const indexPath = join(TEST_DIR, 'skills', 'SKILLS.md');
+    expect(existsSync(indexPath)).toBe(false);
+  });
+});
+
 // ─── Provenance metadata tests ───────────────────────────────────────────────────
 
 describe('skillsshInstall provenance', () => {
   test('stores provenance metadata on successful install', async () => {
-    const originalSpawn = Bun.spawn;
-    const mockSpawn = spyOn(Bun, 'spawn').mockImplementation((..._args: unknown[]) => {
-      simulateSuccessfulInstall('my-skill');
-
-      return {
-        stdout: new ReadableStream({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode('OK'));
-            controller.close();
-          },
-        }),
-        stderr: new ReadableStream({
-          start(controller) { controller.close(); },
-        }),
-        exited: Promise.resolve(0),
-        pid: 12345,
-        kill: () => {},
-      } as unknown as ReturnType<typeof originalSpawn>;
-    });
-
+    const mockSpawn = mockSuccessfulSpawn();
     try {
       const candidate = makeCandidate();
       const result = await skillsshInstall({
@@ -282,8 +366,8 @@ describe('skillsshInstall provenance', () => {
       });
       expect(result.provenance!.auditSnapshot.capturedAt).toBeDefined();
 
-      // Verify the file was actually written
-      const provenancePath = join(TEST_DIR, 'skills', 'my-skill', '.provenance.json');
+      // Verify the file is in the namespaced directory
+      const provenancePath = join(TEST_DIR, 'skills', 'test-org--test-repo--my-skill', '.provenance.json');
       expect(existsSync(provenancePath)).toBe(true);
 
       const storedProvenance = JSON.parse(readFileSync(provenancePath, 'utf-8'));
@@ -294,29 +378,30 @@ describe('skillsshInstall provenance', () => {
     }
   });
 
-  test('provenance includes only dimensions present in the audit', async () => {
-    const originalSpawn = Bun.spawn;
-    const mockSpawn = spyOn(Bun, 'spawn').mockImplementation((..._args: unknown[]) => {
-      simulateSuccessfulInstall('my-skill');
-
-      return {
-        stdout: new ReadableStream({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode('OK'));
-            controller.close();
-          },
-        }),
-        stderr: new ReadableStream({
-          start(controller) { controller.close(); },
-        }),
-        exited: Promise.resolve(0),
-        pid: 12345,
-        kill: () => {},
-      } as unknown as ReturnType<typeof originalSpawn>;
-    });
-
+  test('provenance is written before integrity hash to prevent false tampering warnings', async () => {
+    const mockSpawn = mockSuccessfulSpawn();
     try {
-      // Only snyk dimension present
+      const result = await skillsshInstall({
+        candidate: makeCandidate(),
+        securityDecision: makeProceedDecision(),
+      });
+
+      expect(result.success).toBe(true);
+
+      // Both provenance and integrity should exist
+      const namespacedDir = join(TEST_DIR, 'skills', 'test-org--test-repo--my-skill');
+      expect(existsSync(join(namespacedDir, '.provenance.json'))).toBe(true);
+
+      const integrityPath = join(TEST_DIR, 'skills', '.integrity.json');
+      expect(existsSync(integrityPath)).toBe(true);
+    } finally {
+      mockSpawn.mockRestore();
+    }
+  });
+
+  test('provenance includes only dimensions present in the audit', async () => {
+    const mockSpawn = mockSuccessfulSpawn();
+    try {
       const candidate = makeCandidate({
         audit: {
           snyk: { risk: 'safe', analyzedAt: '2025-06-01T00:00:00Z' },
@@ -347,7 +432,7 @@ describe('skillsshInstall provenance', () => {
     expect(result.success).toBe(false);
     expect(result.provenance).toBeUndefined();
 
-    const provenancePath = join(TEST_DIR, 'skills', 'my-skill', '.provenance.json');
+    const provenancePath = join(TEST_DIR, 'skills', 'test-org--test-repo--my-skill', '.provenance.json');
     expect(existsSync(provenancePath)).toBe(false);
   });
 });
@@ -389,7 +474,6 @@ describe('skillsshInstall error handling', () => {
 
   test('returns error when SKILL.md is not found after install', async () => {
     const originalSpawn = Bun.spawn;
-    // Simulate subprocess success but without creating SKILL.md
     const mockSpawn = spyOn(Bun, 'spawn').mockImplementation((..._args: unknown[]) => {
       return {
         stdout: new ReadableStream({
