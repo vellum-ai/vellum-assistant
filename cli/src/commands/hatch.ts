@@ -1,6 +1,6 @@
-import { randomBytes, randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync } from "fs";
-import { homedir, userInfo } from "os";
+import { homedir, hostname, userInfo } from "os";
 import { join } from "path";
 
 import qrcode from "qrcode-terminal";
@@ -499,9 +499,11 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
       return;
     }
 
+    const hostId = createHash("sha256").update(hostname() + userInfo().username).digest("hex");
     const payload = JSON.stringify({
       type: "vellum-daemon",
       v: 4,
+      id: hostId,
       g: runtimeUrl,
       pairingRequestId,
       pairingSecret,
