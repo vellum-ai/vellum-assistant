@@ -97,17 +97,27 @@ interface TestReport {
   tests: { name: string; passed: boolean; message: string; durationMs: number; duration: string }[];
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function generateHtmlReport(report: TestReport): string {
   const testRows = report.tests
     .map((t) => {
       const icon = t.passed ? "✅" : "❌";
-      const screenshotLink = `agent-screenshots/${t.name}/`;
-      const videoLink = `agent-videos/${t.name}/screen-recording.mov`;
+      const encodedName = encodeURIComponent(t.name);
+      const screenshotLink = `agent-screenshots/${encodedName}/`;
+      const videoLink = `agent-videos/${encodedName}/screen-recording.mov`;
       return `<tr>
-        <td>${icon} ${t.name}</td>
+        <td>${icon} ${escapeHtml(t.name)}</td>
         <td>${t.passed ? "passed" : "failed"}</td>
         <td>${t.duration}</td>
-        <td>${t.passed ? "" : t.message}</td>
+        <td>${t.passed ? "" : escapeHtml(t.message)}</td>
         <td><a href="${screenshotLink}">screenshots</a> · <a href="${videoLink}">video</a></td>
       </tr>`;
     })
