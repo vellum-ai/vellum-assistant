@@ -6,7 +6,7 @@ import { getParentalControlSettings } from '../security/parental-control-store.j
 import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
-import { getIsContainerized } from './env-registry.js';
+import { getBaseDataDir, getIsContainerized } from './env-registry.js';
 import { getConfig } from './loader.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 import { resolveUserReference } from './user-reference.js';
@@ -628,7 +628,7 @@ function buildLearningMemorySection(): string {
 }
 
 function buildContainerizedSection(): string {
-  const baseDataDir = process.env['BASE_DATA_DIR'] ?? '$BASE_DATA_DIR';
+  const baseDataDir = getBaseDataDir() ?? '$BASE_DATA_DIR';
   return [
     '## Running in a Container — Data Persistence',
     '',
@@ -638,7 +638,6 @@ function buildContainerizedSection(): string {
     '',
     'Rules:',
     `- Always store new data, notes, memories, configs, and downloads under \`${baseDataDir}\``,
-    `- When tools write to paths like \`~/.vellum\` or \`/tmp\`, those paths are already mapped through \`${baseDataDir}\` — do not write to other locations`,
     '- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume',
     '- When in doubt, prefer paths nested under the data directory',
   ].join('\n');
