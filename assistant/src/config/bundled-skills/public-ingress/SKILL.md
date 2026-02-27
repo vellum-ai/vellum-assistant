@@ -24,7 +24,7 @@ First, check whether ingress is already configured:
 vellum config get ingress.publicBaseUrl
 ```
 
-Use the injected `GATEWAY_BASE_URL` as the local gateway target before proceeding.
+Use the injected `INTERNAL_GATEWAY_BASE_URL` as the local gateway target before proceeding.
 
 If `ingress.publicBaseUrl` is already set and the tunnel is running (check via `curl -s http://127.0.0.1:4040/api/tunnels`), tell the user the current status and ask if they want to reconfigure or if this is sufficient.
 
@@ -112,7 +112,7 @@ sleep 1
 Start ngrok in the background, tunneling to the local gateway target:
 
 ```bash
-nohup ngrok http "$GATEWAY_BASE_URL" --log=stdout > /tmp/ngrok.log 2>&1 &
+nohup ngrok http "$INTERNAL_GATEWAY_BASE_URL" --log=stdout > /tmp/ngrok.log 2>&1 &
 echo $! > /tmp/ngrok.pid
 ```
 
@@ -169,14 +169,14 @@ vellum config get ingress.enabled
 Summarize the setup:
 
 - **Public URL:** `<the-url>` (this is your `ingress.publicBaseUrl`)
-- **Local gateway target:** `$GATEWAY_BASE_URL`
+- **Local gateway target:** `$INTERNAL_GATEWAY_BASE_URL`
 - **ngrok dashboard:** http://127.0.0.1:4040
 
 Provide useful follow-up commands:
 
 - **Check tunnel status:** `curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "import sys,json; [print(t['public_url']) for t in json.load(sys.stdin)['tunnels']]"`
 - **View ngrok logs:** `cat /tmp/ngrok.log`
-- **Restart tunnel:** `pkill -f ngrok; sleep 1; nohup ngrok http "$GATEWAY_BASE_URL" --log=stdout > /tmp/ngrok.log 2>&1 &`
+- **Restart tunnel:** `pkill -f ngrok; sleep 1; nohup ngrok http "$INTERNAL_GATEWAY_BASE_URL" --log=stdout > /tmp/ngrok.log 2>&1 &`
 - **Stop tunnel:** `pkill -f ngrok`
 - **Rotate URL:** Stop and restart ngrok (free tier assigns a new URL each time; update `ingress.publicBaseUrl` afterward)
 
@@ -194,7 +194,7 @@ Sign in to https://dashboard.ngrok.com, copy a fresh token from the "Your Authto
 The ngrok process may not be running. Check with `ps aux | grep ngrok`. If not running, start it per Step 4. If running but 4040 is unresponsive, check `/tmp/ngrok.log` for errors.
 
 ### Gateway not reachable on local target
-Ensure the Vellum gateway is running on `$GATEWAY_BASE_URL`. Check with `curl -s "$GATEWAY_BASE_URL/healthz"`. If not running, start the assistant daemon first.
+Ensure the Vellum gateway is running on `$INTERNAL_GATEWAY_BASE_URL`. Check with `curl -s "$INTERNAL_GATEWAY_BASE_URL/healthz"`. If not running, start the assistant daemon first.
 
 ### "Too many connections" or tunnel limit errors
 ngrok's free tier allows one tunnel at a time. Stop any other ngrok tunnels before starting a new one.

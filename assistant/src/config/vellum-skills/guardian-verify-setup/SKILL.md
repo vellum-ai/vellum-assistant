@@ -9,7 +9,7 @@ You are helping your user set up guardian verification for a messaging channel (
 
 ## Prerequisites
 
-- Use the injected `GATEWAY_BASE_URL` for gateway API calls in this skill. Do not hardcode hosts or ports.
+- Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls in this skill. Do not hardcode hosts or ports.
 - Never call the daemon runtime port directly; always call the gateway URL.
 - The bearer token is stored at `~/.vellum/http-token`. Read it with: `TOKEN=$(cat ~/.vellum/http-token)`.
 - Run shell commands for this skill with `host_bash` (not sandbox `bash`) so host auth/token and gateway routing are reliable.
@@ -40,7 +40,7 @@ Execute the outbound start request:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST "$GATEWAY_BASE_URL/v1/integrations/guardian/outbound/start" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/outbound/start" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"channel": "<channel>", "destination": "<destination>"}'
@@ -78,7 +78,7 @@ If the user says they did not receive the code or asks to resend:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST "$GATEWAY_BASE_URL/v1/integrations/guardian/outbound/resend" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/outbound/resend" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"channel": "<channel>"}'
@@ -108,7 +108,7 @@ If the user wants to cancel the verification:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST "$GATEWAY_BASE_URL/v1/integrations/guardian/outbound/cancel" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/outbound/cancel" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"channel": "<channel>"}'
@@ -127,7 +127,7 @@ For **voice** verification only: after telling the user their code and instructi
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s "$GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=voice" \
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=voice" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -154,7 +154,7 @@ After the user reports entering the code, verify the binding was created:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s "$GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=<channel>" \
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=<channel>" \
   -H "Authorization: Bearer $TOKEN"
 ```
 

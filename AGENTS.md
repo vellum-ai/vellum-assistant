@@ -165,7 +165,7 @@ All assistant API requests from clients, CLI, skills, and user-facing tooling **
 
 **Ban on hardcoded runtime hosts/ports:** Do not embed `localhost:7821`, `127.0.0.1:7821`, or runtime-port-derived URLs in docs, skills, or user-facing guidance. Always reference gateway URLs instead. A CI guard test (`gateway-only-guard.test.ts`) enforces this — any new direct runtime URL reference in production code or skills will fail CI.
 
-**SKILL.md gateway URL pattern:** In skills, reference gateway APIs via `$GATEWAY_BASE_URL` only. This variable is injected by the shell tools (`bash` and `host_bash`) and resolves to the configured local gateway target. Do not hardcode `localhost`/ports for gateway API examples, and do not instruct users/agents to manually export `GATEWAY_BASE_URL` from Settings.
+**SKILL.md gateway URL pattern:** For local gateway API calls in skills, use `$INTERNAL_GATEWAY_BASE_URL` (injected by `bash` and `host_bash`). `$GATEWAY_BASE_URL` is also injected and resolves to the configured public ingress URL when set (falling back to the internal gateway target). Do not hardcode `localhost`/ports in skill examples, and do not instruct users/agents to manually export either variable from Settings.
 
 ## Assistant Feature Flags
 

@@ -9,7 +9,7 @@ You are helping your user manage trusted contacts and invite links for the Vellu
 
 ## Prerequisites
 
-- Use the injected `GATEWAY_BASE_URL` for gateway API calls in this skill. Do not hardcode hosts or ports.
+- Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls in this skill. Do not hardcode hosts or ports.
 - Use gateway control-plane routes only: this skill calls `/v1/ingress/*` and `/v1/integrations/telegram/config` on the gateway, never the daemon runtime port directly.
 - The bearer token is stored at `~/.vellum/http-token`. Read it with: `TOKEN=$(cat ~/.vellum/http-token)`.
 
@@ -29,7 +29,7 @@ Use this to show the user who currently has access, or to look up a specific con
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s "$GATEWAY_BASE_URL/v1/ingress/members" \
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -40,7 +40,7 @@ Optional query parameters for filtering:
 
 Example with filters:
 ```bash
-curl -s "$GATEWAY_BASE_URL/v1/ingress/members?sourceChannel=telegram&status=active" \
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members?sourceChannel=telegram&status=active" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -65,7 +65,7 @@ Ask the user: *"I'll add [name/identifier] on [channel] as an allowed contact. S
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST "$GATEWAY_BASE_URL/v1/ingress/members" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -97,7 +97,7 @@ First, list members to find the member's `id`, then revoke:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X DELETE "$GATEWAY_BASE_URL/v1/ingress/members/<member_id>" \
+curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members/<member_id>" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"reason": "<optional reason>"}'
@@ -113,7 +113,7 @@ Ask the user: *"I'll block [name/identifier]. They will be permanently denied fr
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST "$GATEWAY_BASE_URL/v1/ingress/members/<member_id>/block" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members/<member_id>/block" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"reason": "<optional reason>"}'
@@ -125,7 +125,7 @@ Use this when the guardian wants to invite someone to message the assistant on T
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST "$GATEWAY_BASE_URL/v1/ingress/invites" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -146,7 +146,7 @@ The response contains `{ ok: true, invite: { id, token, ... } }`. The `token` fi
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s "$GATEWAY_BASE_URL/v1/integrations/telegram/config" \
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/config" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -174,7 +174,7 @@ Use this to show the guardian their active (and optionally all) invite links.
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s "$GATEWAY_BASE_URL/v1/ingress/invites?sourceChannel=telegram" \
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites?sourceChannel=telegram" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -205,7 +205,7 @@ First, list invites to find the invite's `id`, then revoke:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X DELETE "$GATEWAY_BASE_URL/v1/ingress/invites/<invite_id>" \
+curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites/<invite_id>" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
