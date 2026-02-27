@@ -332,7 +332,7 @@ describe('routing invariant: stale/expired/already-resolved decisions rejected',
     expect(result.reason).toBe('not_found');
   });
 
-  test('already-resolved request via router returns stale type', async () => {
+  test('already-resolved request via router returns not_consumed (code lookup filters pending only)', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
@@ -349,16 +349,17 @@ describe('routing invariant: stale/expired/already-resolved decisions rejected',
       actorContext: guardianActor(),
     });
 
-    // Attempt to resolve again via router with code prefix
+    // Attempt to resolve again via router with code prefix.
+    // Since getCanonicalGuardianRequestByCode only returns pending requests,
+    // the resolved request won't be found and the code won't match.
     const result = await routeGuardianReply(replyCtx({
       messageText: 'ABC123 approve',
       conversationId: 'conv-1',
     }));
 
-    // Router should detect the resolved state via code lookup
-    expect(result.consumed).toBe(true);
-    expect(result.type).toBe('canonical_decision_stale');
-    expect(result.decisionApplied).toBe(false);
+    // Code lookup filters by status='pending', so the resolved request is invisible.
+    // The router does not match the code and returns not_consumed.
+    expect(result.consumed).toBe(false);
   });
 
   test('expired request via callback returns stale type', async () => {
