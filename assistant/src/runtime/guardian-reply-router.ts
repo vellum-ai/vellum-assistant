@@ -63,6 +63,7 @@ export interface GuardianReplyContext {
 export type GuardianReplyResultType =
   | 'canonical_decision_applied'
   | 'canonical_decision_stale'
+  | 'canonical_resolver_failed'
   | 'code_only_clarification'
   | 'disambiguation_needed'
   | 'nl_keep_pending'
@@ -448,13 +449,33 @@ async function applyDecision(
   });
 
   if (canonicalResult.applied) {
+    if (canonicalResult.resolverFailed) {
+      log.warn(
+        {
+          event: 'router_resolver_failed',
+          requestId,
+          action,
+          reason: canonicalResult.resolverFailureReason,
+        },
+        'Guardian reply router: resolver failed to execute side effects',
+      );
+
+      return {
+        decisionApplied: false,
+        consumed: true,
+        type: 'canonical_resolver_failed',
+        replyText: `Decision recorded but could not be completed: ${canonicalResult.resolverFailureReason ?? 'unknown error'}. Please try again.`,
+        requestId,
+        canonicalResult,
+      };
+    }
+
     log.info(
       {
         event: 'router_decision_applied',
         requestId,
         action,
         grantMinted: canonicalResult.grantMinted,
-        resolverFailed: canonicalResult.resolverFailed,
       },
       'Guardian reply router applied canonical decision',
     );
