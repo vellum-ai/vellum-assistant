@@ -8,7 +8,7 @@
  */
 
 import { findMember } from '../memory/ingress-member-store.js';
-import { findByTokenHash, hashToken, redeemInvite as storeRedeemInvite } from '../memory/ingress-invite-store.js';
+import { findByTokenHash, hashToken, markInviteExpired, redeemInvite as storeRedeemInvite } from '../memory/ingress-invite-store.js';
 
 // ---------------------------------------------------------------------------
 // Outcome type
@@ -67,6 +67,7 @@ export function redeemInvite(params: {
   }
 
   if (invite.expiresAt <= Date.now()) {
+    markInviteExpired(invite.id);
     return { ok: false, reason: 'expired' };
   }
 

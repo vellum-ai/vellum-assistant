@@ -330,6 +330,30 @@ export function redeemInvite(params: {
 }
 
 // ---------------------------------------------------------------------------
+// markInviteExpired
+// ---------------------------------------------------------------------------
+
+/**
+ * Transition an invite's status to 'expired' in storage. This is safe to call
+ * even if the invite is already expired — the WHERE clause scopes the update
+ * to 'active' rows so it becomes a no-op in that case.
+ */
+export function markInviteExpired(inviteId: string): void {
+  const db = getDb();
+  const now = Date.now();
+
+  db.update(assistantIngressInvites)
+    .set({ status: 'expired', updatedAt: now })
+    .where(
+      and(
+        eq(assistantIngressInvites.id, inviteId),
+        eq(assistantIngressInvites.status, 'active'),
+      ),
+    )
+    .run();
+}
+
+// ---------------------------------------------------------------------------
 // findByTokenHash
 // ---------------------------------------------------------------------------
 
