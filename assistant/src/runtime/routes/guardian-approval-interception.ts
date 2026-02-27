@@ -1181,7 +1181,10 @@ async function handleAccessRequestApproval(
     });
   }
 
-  // Only emit verification_sent when the code was actually delivered to the guardian.
+  // Emit verification_sent with visibleInSourceNow=true so the notification
+  // pipeline suppresses delivery — the guardian already received the
+  // verification code directly. Without this flag, the pipeline generates
+  // a redundant LLM message like "Good news! Your request has been approved."
   if (decisionResult.verificationSessionId && codeDelivered) {
     void emitNotificationSignal({
       sourceEventName: 'ingress.trusted_contact.verification_sent',
@@ -1192,7 +1195,7 @@ async function handleAccessRequestApproval(
         requiresAction: false,
         urgency: 'low',
         isAsyncBackground: true,
-        visibleInSourceNow: false,
+        visibleInSourceNow: true,
       },
       contextPayload: {
         sourceChannel: approval.channel,
