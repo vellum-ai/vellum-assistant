@@ -12,6 +12,7 @@ import { applyGuardianDecision } from '../../approvals/guardian-decision-primiti
 import { handleChannelDecision } from '../channel-approvals.js';
 import type { ApprovalAction } from '../channel-approval-types.js';
 import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';
+import { buildDecisionActions } from '../guardian-decision-types.js';
 import { httpError } from '../http-errors.js';
 import * as pendingInteractions from '../pending-interactions.js';
 
@@ -128,10 +129,7 @@ export function listGuardianDecisionPrompts(params: {
       state: 'pending',
       questionText: approval.reason ?? `Approve tool: ${approval.toolName ?? 'unknown'}`,
       toolName: approval.toolName ?? null,
-      actions: [
-        { action: 'approve_once', label: 'Approve once' },
-        { action: 'reject', label: 'Reject' },
-      ],
+      actions: buildDecisionActions({ forGuardianOnBehalf: true }),
       expiresAt: approval.expiresAt,
       conversationId: approval.conversationId,
       callSessionId: null,
@@ -151,20 +149,15 @@ export function listGuardianDecisionPrompts(params: {
     if (prompts.some(p => p.requestId === interaction.requestId)) continue;
 
     const details = interaction.confirmationDetails;
-    // Hide "approve always" when persistent trust rules are disallowed for this
-    // invocation, matching the gating in getChannelApprovalPrompt.
-    const showAlways = details.persistentDecisionsAllowed !== false;
     prompts.push({
       requestId: interaction.requestId,
       requestCode: interaction.requestId.slice(0, 6).toUpperCase(),
       state: 'pending',
       questionText: `Approve tool: ${details.toolName}`,
       toolName: details.toolName,
-      actions: [
-        { action: 'approve_once', label: 'Approve once' },
-        ...(showAlways ? [{ action: 'approve_always', label: 'Approve always' }] : []),
-        { action: 'reject', label: 'Reject' },
-      ],
+      actions: buildDecisionActions({
+        persistentDecisionsAllowed: details.persistentDecisionsAllowed,
+      }),
       expiresAt: Date.now() + 300_000,
       conversationId,
       callSessionId: null,
