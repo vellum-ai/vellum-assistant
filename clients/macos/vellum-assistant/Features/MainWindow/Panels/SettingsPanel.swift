@@ -16,7 +16,7 @@ enum SettingsTab: String {
     static func visibleTabs(isDevMode: Bool) -> [SettingsTab] {
         var tabs: [SettingsTab] = [
             .account, .channels, .modelsAndServices, .voice,
-            .permissions, .automation, .appearance
+            .automation, .appearance, .permissions
         ]
         if isDevMode {
             tabs.append(.advanced)
@@ -675,7 +675,7 @@ struct SettingsPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             // PERMISSIONS section (OS permissions)
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Permissions")
+                Text("macOS System Permissions")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
