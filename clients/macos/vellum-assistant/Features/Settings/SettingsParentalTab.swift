@@ -1086,6 +1086,10 @@ struct SettingsParentalTab: View {
                         hasPIN = r.has_pin
                         contentRestrictions = Set(r.content_restrictions)
                         blockedToolCategories = Set(r.blocked_tool_categories)
+                        // Clear PIN state when parental controls are disabled.
+                        if !r.enabled {
+                            settingsStore.cachedPIN = nil
+                        }
                     } else {
                         errorMessage = r.error ?? "Update failed."
                     }
