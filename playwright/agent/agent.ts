@@ -57,10 +57,25 @@ export interface AgentOptions {
 }
 
 export async function runAgent(options: AgentOptions): Promise<TestResult> {
+  const timeoutResult: TestResult = {
+    passed: false,
+    message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+  };
+
+  // Race the agent loop against a hard deadline so the timeout fires
+  // even if an await (API call, tool execution) is in flight.
+  return Promise.race([
+    runAgentLoop(options),
+    new Promise<TestResult>((resolve) =>
+      setTimeout(() => resolve(timeoutResult), MAX_TEST_DURATION_MS),
+    ),
+  ]);
+}
+
+async function runAgentLoop(options: AgentOptions): Promise<TestResult> {
   const { testContent, page, screenshotDir, verbose = false } = options;
 
   const client = new Anthropic();
-  const testStartTime = Date.now();
   const messages: Anthropic.MessageParam[] = [
     {
       role: "user",
@@ -69,16 +84,6 @@ export async function runAgent(options: AgentOptions): Promise<TestResult> {
   ];
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-    // Check time limit
-    const elapsed = Date.now() - testStartTime;
-    if (elapsed > MAX_TEST_DURATION_MS) {
-      const elapsedSec = Math.floor(elapsed / 1000);
-      return {
-        passed: false,
-        message: `Test timed out after ${elapsedSec}s (limit: ${MAX_TEST_DURATION_MS / 1000}s).`,
-      };
-    }
-
     if (verbose) {
       console.log(`  [agent] iteration ${iteration + 1}`);
     }
