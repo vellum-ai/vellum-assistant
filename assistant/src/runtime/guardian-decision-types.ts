@@ -40,7 +40,7 @@ export interface GuardianDecisionAction {
 export interface ApplyGuardianDecisionParams {
   requestId: string;
   action: string;
-  actorExternalUserId: string;
+  actorExternalUserId: string | undefined;
   actorChannel: ChannelId;
   conversationId?: string;
   callSessionId?: string;

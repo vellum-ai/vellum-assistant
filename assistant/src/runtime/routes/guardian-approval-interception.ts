@@ -611,7 +611,7 @@ export async function handleApprovalInterception(
             const cancelApplyResult = applyGuardianDecision({
               approval: guardianApprovalForRequest,
               decision: rejectDecision,
-              actorExternalUserId: senderExternalUserId ?? '',
+              actorExternalUserId: senderExternalUserId,
               actorChannel: sourceChannel,
             });
             if (cancelApplyResult.applied) {
