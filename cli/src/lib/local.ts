@@ -120,12 +120,18 @@ async function waitForSocketFile(socketPath: string, timeoutMs = 15000): Promise
 }
 
 async function startDaemonFromSource(assistantIndex: string): Promise<void> {
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
+  };
+  // Preserve TCP listener flag when falling back from bundled desktop daemon
+  if (process.env.VELLUM_DESKTOP_APP) {
+    env.VELLUM_DAEMON_TCP_ENABLED = process.env.VELLUM_DAEMON_TCP_ENABLED || "1";
+  }
+
   const child = spawn("bun", ["run", assistantIndex, "daemon", "start"], {
     stdio: "inherit",
-    env: {
-      ...process.env,
-      RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
-    },
+    env,
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -393,6 +399,8 @@ export async function startLocalDaemon(): Promise<void> {
       const assistantIndex = resolveAssistantIndexPath();
       if (assistantIndex) {
         console.log("   Bundled daemon socket not ready after 15s — falling back to source daemon...");
+        // Kill the bundled daemon to avoid two processes competing for the same socket/port
+        await stopProcessByPidFile(pidFile, "bundled daemon", [socketFile]);
         await startDaemonFromSource(assistantIndex);
         socketReady = await waitForSocketFile(socketFile, 15000);
       }
