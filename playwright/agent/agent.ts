@@ -13,6 +13,8 @@ import { TOOL_DEFINITIONS, executeTool, type TestResult } from "./tools";
 // ── Constants ───────────────────────────────────────────────────────
 
 const MAX_ITERATIONS = 1000;
+const MAX_RETRIES = 5;
+const INITIAL_RETRY_DELAY_MS = 5000;
 const MODEL = "claude-opus-4-6";
 
 const SYSTEM_PROMPT = `You are a QA test automation agent for a desktop application. Your job is to execute end-to-end test cases described in markdown and verify the expected outcomes.
@@ -61,15 +63,32 @@ export async function runAgent(options: AgentOptions): Promise<TestResult> {
       console.log(`  [agent] iteration ${iteration + 1}`);
     }
 
-    const stream = client.messages.stream({
-      model: MODEL,
-      max_tokens: 32000,
-      system: SYSTEM_PROMPT,
-      tools: TOOL_DEFINITIONS,
-      messages,
-    });
-
-    const response = await stream.finalMessage();
+    let response: Anthropic.Message;
+    for (let retry = 0; ; retry++) {
+      try {
+        const stream = client.messages.stream({
+          model: MODEL,
+          max_tokens: 32000,
+          system: SYSTEM_PROMPT,
+          tools: TOOL_DEFINITIONS,
+          messages,
+        });
+        response = await stream.finalMessage();
+        break;
+      } catch (err: unknown) {
+        const isRetryable =
+          err instanceof Anthropic.APIError &&
+          (err.status === 429 || err.status === 529 || err.status === 503);
+        if (!isRetryable || retry >= MAX_RETRIES) {
+          throw err;
+        }
+        const delay = INITIAL_RETRY_DELAY_MS * 2 ** retry;
+        if (verbose) {
+          console.log(`  [agent] API ${err.status} — retrying in ${delay / 1000}s (attempt ${retry + 1}/${MAX_RETRIES})`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
 
     // Collect assistant content blocks
     const assistantContent = response.content;

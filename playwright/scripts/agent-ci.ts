@@ -10,6 +10,7 @@ import { spawnSync } from "child_process";
 
 const REPO = "vellum-ai/vellum-assistant";
 const WORKFLOW = "playwright.yaml";
+const POLL_INTERVAL_MS = 5000;
 
 const detach = process.argv.includes("-d");
 
@@ -21,6 +22,64 @@ function gh(args: string[]): { stdout: string; status: number } {
 function ghPassthrough(args: string[]): number {
   const result = spawnSync("gh", args, { encoding: "utf-8", stdio: "inherit" });
   return result.status ?? 1;
+}
+
+interface StepInfo {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  number: number;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+interface JobInfo {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  steps: StepInfo[];
+  startedAt: string;
+}
+
+function formatElapsed(startTime: Date): string {
+  const elapsed = Math.floor((Date.now() - startTime.getTime()) / 1000);
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  if (mins === 0) return `${secs}s`;
+  return `${mins}m ${secs}s`;
+}
+
+function stepIcon(step: StepInfo): string {
+  if (step.conclusion === "success") return "✓";
+  if (step.conclusion === "failure") return "✗";
+  if (step.conclusion === "skipped") return "⊘";
+  if (step.status === "in_progress") return "●";
+  return "○";
+}
+
+function renderStatus(runUrl: string, startTime: Date, jobs: JobInfo[]): void {
+  const lines: string[] = [];
+
+  lines.push(`\x1b[2J\x1b[H`); // clear screen
+  lines.push(`Playwright Tests · ${runUrl}`);
+  lines.push(`Elapsed: ${formatElapsed(startTime)}`);
+  lines.push("");
+
+  // Find the "Playwright Tests" job (the only one we care about)
+  const job = jobs.find((j) => j.name === "Playwright Tests") ?? jobs[0];
+  if (!job) {
+    lines.push("  Waiting for job to start...");
+    process.stdout.write(lines.join("\n") + "\n");
+    return;
+  }
+
+  for (const step of job.steps) {
+    const icon = stepIcon(step);
+    const color = step.conclusion === "failure" ? "\x1b[31m" : step.conclusion === "success" ? "\x1b[32m" : step.status === "in_progress" ? "\x1b[33m" : "\x1b[90m";
+    lines.push(`  ${color}${icon}\x1b[0m ${step.name}`);
+  }
+
+  process.stdout.write(lines.join("\n") + "\n");
 }
 
 // Capture the current user and most recent run ID before triggering,
@@ -64,33 +123,60 @@ if (detach) {
   process.exit(0);
 }
 
-console.log(`Run: ${runUrl}\n`);
+// Poll until complete with custom status display
+const startTime = new Date();
+let conclusion = "";
 
-// Poll until complete
-const watchStatus = ghPassthrough(["run", "watch", runId, "-R", REPO, "--exit-status"]);
+while (true) {
+  const { stdout: json } = gh([
+    "run", "view", runId, "-R", REPO,
+    "--json", "status,conclusion,jobs",
+  ]);
 
-// Print summary
-const { stdout: summary } = gh([
-  "run", "view", runId, "-R", REPO,
-  "--json", "conclusion,displayTitle,updatedAt",
-  "--jq", `"Result: \\(.conclusion)  (\\(.displayTitle))\\nFinished: \\(.updatedAt)"`,
-]);
+  try {
+    const run = JSON.parse(json) as {
+      status: string;
+      conclusion: string | null;
+      jobs: JobInfo[];
+    };
 
-console.log("\n─────────────────────────────────────────");
-console.log(summary);
-console.log(`URL: ${runUrl}`);
-console.log("─────────────────────────────────────────");
+    renderStatus(runUrl, startTime, run.jobs);
 
-// Download artifacts if any
-const { stdout: artifactCount } = gh([
-  "api", `repos/${REPO}/actions/runs/${runId}/artifacts`,
-  "--jq", ".total_count",
-]);
+    if (run.status === "completed") {
+      conclusion = run.conclusion ?? "failure";
+      break;
+    }
+  } catch {
+    // API may return empty during initial queueing
+  }
 
-if (parseInt(artifactCount, 10) > 0) {
-  console.log("\nDownloading artifacts...");
-  ghPassthrough(["run", "download", runId, "-R", REPO, "-D", "test-results/ci-artifacts"]);
-  console.log("Saved to test-results/ci-artifacts/");
+  await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
 }
 
-process.exit(watchStatus);
+// Final summary
+const icon = conclusion === "success" ? "✓" : "✗";
+const color = conclusion === "success" ? "\x1b[32m" : "\x1b[31m";
+console.log(`\n${color}${icon}\x1b[0m Playwright Tests ${conclusion} in ${formatElapsed(startTime)}`);
+console.log(`  ${runUrl}`);
+
+// Fetch specific artifact URL
+const { stdout: artifactJson } = gh([
+  "api", `repos/${REPO}/actions/runs/${runId}/artifacts`,
+  "--jq", ".artifacts[0] // empty | {id, name}",
+]);
+
+if (artifactJson) {
+  try {
+    const artifact = JSON.parse(artifactJson) as { id: number; name: string };
+    const artifactUrl = `https://github.com/${REPO}/actions/runs/${runId}/artifacts/${artifact.id}`;
+    console.log(`  ${artifactUrl}`);
+
+    console.log("\nDownloading artifacts...");
+    ghPassthrough(["run", "download", runId, "-R", REPO, "-D", "test-results/ci-artifacts"]);
+    console.log("Saved to test-results/ci-artifacts/");
+  } catch {
+    // artifact JSON parse failed, skip download
+  }
+}
+
+process.exit(conclusion === "success" ? 0 : 1);
