@@ -12,7 +12,6 @@ import * as applescriptTool from "./applescript";
 import * as check from "./check";
 import * as click from "./click";
 import * as fill from "./fill";
-import * as getAnthropicApiKey from "./get-anthropic-api-key";
 import * as getCurrentUrl from "./get-current-url";
 import * as getPageContent from "./get-page-content";
 import * as getText from "./get-text";
@@ -22,6 +21,7 @@ import * as launchApp from "./launch-app";
 import * as reportResult from "./report-result";
 import * as runShell from "./run-shell";
 import * as screenshot from "./screenshot";
+import * as typeEnvVar from "./type-env-var";
 import * as waitTool from "./wait";
 import type { ToolContext, ToolHandlerResult, ToolModule } from "./types";
 
@@ -34,7 +34,6 @@ const TOOLS: ToolModule[] = [
   check,
   click,
   fill,
-  getAnthropicApiKey,
   getCurrentUrl,
   getPageContent,
   getText,
@@ -44,6 +43,7 @@ const TOOLS: ToolModule[] = [
   reportResult,
   runShell,
   screenshot,
+  typeEnvVar,
   waitTool,
 ];
 

@@ -22,7 +22,7 @@ The test cases are written from the perspective of a non-technical end user. You
 Available tool categories:
 - App lifecycle: launch_app — launches the desktop application.
 - Desktop interaction: applescript, run_shell, wait — interact with the native macOS app via System Events (clicking buttons, typing text, reading accessibility trees, taking screenshots).
-- Secrets: get_anthropic_api_key — retrieve the Anthropic API key from the environment when a test step requires entering an API key.
+- Secrets: type_env_var — type the value of an environment variable (e.g., ANTHROPIC_API_KEY) into the focused input field without exposing the secret in the conversation.
 - Browser tools: goto, click, fill, check, get_text, get_page_content, get_current_url, screenshot — for web-based UI testing.
 - Utility tools: http_request, report_result — for API calls and reporting test outcomes.
 
@@ -31,7 +31,7 @@ Rules:
 - Use applescript with System Events to interact with native macOS UI elements (buttons, text fields, etc.). Use the accessibility tree to discover element names and hierarchy.
 - When verifying UI state, take screenshots or inspect the accessibility tree as needed — the test steps won't tell you to do this explicitly.
 - Some actions (like launching an app) may take time. Be patient and retry if an element is not yet available.
-- Never embed secrets directly in test content. Use get_anthropic_api_key to retrieve the API key at runtime.
+- Never embed secrets directly in test content. Use type_env_var to type secret values (e.g., API keys) from environment variables without exposing them.
 - After completing all steps, verify each expected outcome.
 - You MUST call report_result exactly once when done, indicating whether the test passed or failed.
 - If a step fails (tool returns an error), try to recover once. If it still fails, report the test as failed with details.`;
