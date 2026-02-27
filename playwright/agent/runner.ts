@@ -8,6 +8,8 @@
  *   bun run agent/runner.ts [--headed] [--verbose] [case-filter]
  */
 
+import "dotenv/config";
+
 import { readdirSync, readFileSync } from "fs";
 import path from "path";
 
