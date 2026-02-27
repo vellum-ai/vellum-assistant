@@ -6,7 +6,6 @@
  * so adding/removing tools only requires editing this manifest.
  */
 
-import { RiskLevel } from '../permissions/types.js';
 import { accountManageTool } from './credentials/account-registry.js';
 import { credentialStoreTool } from './credentials/vault.js';
 import { memorySaveTool, memorySearchTool, memoryUpdateTool } from './memory/register.js';
@@ -20,22 +19,34 @@ import type { Tool } from './types.js';
 import { screenWatchTool } from './watch/screen-watch.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
-// Importing these modules triggers a top-level `registerTool()` call.
+// These static imports trigger top-level `registerTool()` side effects.
+//
+// IMPORTANT: These MUST be static imports (not dynamic `await import()`).
+// When the daemon is compiled with `bun --compile`, dynamic imports with
+// relative string literals resolve against the virtual `/$bunfs/root/`
+// filesystem root rather than the module's own directory, causing
+// "Cannot find module './filesystem/read.js'" crashes in production builds.
+// Static imports are resolved at bundle time and are always safe.
+import './assets/materialize.js';
+import './assets/search.js';
+import './filesystem/edit.js';
+import './filesystem/read.js';
+import './filesystem/view-image.js';
+import './filesystem/write.js';
+import './network/web-fetch.js';
+import './network/web-search.js';
+import './skills/delete-managed.js';
+import './skills/load.js';
+import './skills/scaffold-managed.js';
+import './swarm/delegate.js';
+import './system/request-permission.js';
+import './system/version.js';
+import './terminal/shell.js';
 
-export async function loadEagerModules(): Promise<void> {
-  await import('./filesystem/read.js');
-  await import('./filesystem/write.js');
-  await import('./filesystem/edit.js');
-  await import('./network/web-search.js');
-  await import('./network/web-fetch.js');
-  await import('./skills/load.js');
-  await import('./skills/scaffold-managed.js');
-  await import('./skills/delete-managed.js');
-  await import('./system/request-permission.js');
-  await import('./assets/search.js');
-  await import('./assets/materialize.js');
-  await import('./filesystem/view-image.js');
-  await import('./system/version.js');
+// loadEagerModules is a no-op now that all eager registrations happen via
+// static imports above. Kept for API compatibility with registry.ts callers.
+export function loadEagerModules(): Promise<void> {
+  return Promise.resolve();
 }
 
 // Tool names registered by the eager modules above.  Listed explicitly so
@@ -43,6 +54,7 @@ export async function loadEagerModules(): Promise<void> {
 // already in the registry before init ran (e.g. when a test file imports
 // an eager module at the top level).
 export const eagerModuleToolNames: string[] = [
+  'bash',
   'file_read',
   'file_write',
   'file_edit',
@@ -54,6 +66,7 @@ export const eagerModuleToolNames: string[] = [
   'request_system_permission',
   'asset_search',
   'asset_materialize',
+  'swarm_delegate',
   'view_image',
   'version',
 ];
@@ -78,76 +91,8 @@ export const explicitTools: Tool[] = [
 
 // ── Lazy tool descriptors ───────────────────────────────────────────
 // Tools that defer module loading until first invocation.
+// bash and swarm_delegate were previously lazy but are now eagerly registered
+// via side-effect imports above, preserving their full definitions (including
+// the `reason` field on bash) and fixing bun --compile module-not-found crashes.
 
-export const lazyTools: LazyToolDescriptor[] = [
-  {
-    name: 'bash',
-    description: 'Execute a shell command on the local machine',
-    category: 'terminal',
-    defaultRiskLevel: RiskLevel.Medium,
-    definition: {
-      name: 'bash',
-      description: 'Execute a shell command on the local machine',
-      input_schema: {
-        type: 'object',
-        properties: {
-          command: {
-            type: 'string',
-            description: 'The shell command to execute',
-          },
-          timeout_seconds: {
-            type: 'number',
-            description: 'Optional timeout in seconds. Defaults to the configured default (120s). Cannot exceed the configured maximum.',
-          },
-          network_mode: {
-            type: 'string',
-            enum: ['off', 'proxied'],
-            description: 'Network access mode for the command. "off" (default) blocks network access; "proxied" routes traffic through the credential proxy.',
-          },
-          credential_ids: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Optional list of credential IDs to inject via the proxy when network_mode is "proxied".',
-          },
-        },
-        required: ['command'],
-      },
-    },
-    loader: async () => {
-      const mod = await import('./terminal/shell.js');
-      return mod.shellTool;
-    },
-  },
-  {
-    name: 'swarm_delegate',
-    description: 'Decompose a complex task into parallel specialist subtasks and execute them concurrently.',
-    category: 'orchestration',
-    defaultRiskLevel: RiskLevel.Medium,
-    definition: {
-      name: 'swarm_delegate',
-      description: 'Decompose a complex task into parallel specialist subtasks and execute them concurrently. Use this for multi-part tasks that benefit from parallel research, coding, and review.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          objective: {
-            type: 'string',
-            description: 'The complex task to decompose and execute in parallel',
-          },
-          context: {
-            type: 'string',
-            description: 'Optional additional context about the task or codebase',
-          },
-          max_workers: {
-            type: 'number',
-            description: 'Maximum concurrent workers (1-6, default from config)',
-          },
-        },
-        required: ['objective'],
-      },
-    },
-    loader: async () => {
-      const mod = await import('./swarm/delegate.js');
-      return mod.swarmDelegateTool;
-    },
-  },
-];
+export const lazyTools: LazyToolDescriptor[] = [];
