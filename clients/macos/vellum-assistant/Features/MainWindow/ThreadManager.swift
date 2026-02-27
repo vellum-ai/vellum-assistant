@@ -636,10 +636,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             recompactPinnedOrders()
         } else {
             // Dropping onto an unpinned thread — reorder using displayOrder.
-            // If the source was pinned, unpin it first.
-            if threads[sourceIdx].isPinned {
+            // Capture pinned state BEFORE modifications so direction detection
+            // isn't affected by the unpin changing the source's list position.
+            let sourceWasPinned = threads[sourceIdx].isPinned
+
+            if sourceWasPinned {
                 threads[sourceIdx].isPinned = false
                 threads[sourceIdx].pinnedOrder = nil
+                threads[sourceIdx].displayOrder = nil
                 recompactPinnedOrders()
             }
 
@@ -662,10 +666,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             } else {
                 // Direction-aware: if source was visually above target (dragging down),
                 // insert AFTER target; if below (dragging up), insert BEFORE target.
-                let sourceVisualIdx = unpinned.firstIndex(where: { $0.id == sourceId })
-                let targetVisualIdx = unpinned.firstIndex(where: { $0.id == targetId })
+                // Pinned threads are always visually above unpinned ones, so a
+                // pinned→unpinned drag is always "dragging down".
+                let draggingDown: Bool
+                if sourceWasPinned {
+                    draggingDown = true
+                } else {
+                    let sourceVisualIdx = unpinned.firstIndex(where: { $0.id == sourceId })
+                    let targetVisualIdx = unpinned.firstIndex(where: { $0.id == targetId })
+                    draggingDown = (sourceVisualIdx ?? 0) < (targetVisualIdx ?? 0)
+                }
 
-                if let sIdx = sourceVisualIdx, let tIdx = targetVisualIdx, sIdx < tIdx {
+                if draggingDown {
                     let targetInFiltered = reordered.firstIndex(where: { $0.id == targetId }) ?? reordered.endIndex
                     insertPos = min(targetInFiltered + 1, reordered.endIndex)
                 } else {
