@@ -153,6 +153,9 @@ struct SettingsParentalTab: View {
                 },
                 daemonClient: daemonClient
             )
+            // Force a fresh view instance whenever the mode changes so @State
+            // resets correctly and onAppear always starts at the right step.
+            .id(pinSheetMode)
         }
         .sheet(isPresented: $showingRequestPermissionSheet) {
             RequestPermissionSheet(
@@ -1288,9 +1291,7 @@ private struct PINSheet: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .id(step)
                 .onChange(of: pinInput) { _, v in
-                    // enterCurrent requires a manual button press so the user
-                    // can review what they typed before triggering verification.
-                    if v.count == 6 && step != .enterCurrent { advance() }
+                    if v.count == 6 { advance() }
                 }
 
             // Error — only shown when present; no placeholder so spacing stays equal
@@ -1301,17 +1302,9 @@ private struct PINSheet: View {
                     .multilineTextAlignment(.center)
             }
 
-            // Footer
+            // Footer — Cancel only; steps advance automatically when 6 digits are entered
             if isLoading {
                 ProgressView().scaleEffect(0.8)
-            } else if step == .enterCurrent {
-                HStack {
-                    VButton(label: "Cancel", style: .secondary) { dismiss() }
-                    Spacer()
-                    VButton(label: "Continue", style: .secondary) { advance() }
-                        .disabled(pinInput.count != 6)
-                        .keyboardShortcut(.return, modifiers: [])
-                }
             } else {
                 VButton(label: "Cancel", style: .secondary) { dismiss() }
             }
