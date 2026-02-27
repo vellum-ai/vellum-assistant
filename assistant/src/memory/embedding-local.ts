@@ -1,3 +1,5 @@
+import { dirname, join } from 'node:path';
+
 import { getLogger } from '../util/logger.js';
 import { PromiseGuard } from '../util/promise-guard.js';
 import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
@@ -59,13 +61,20 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     let transformers: typeof import('@huggingface/transformers');
     try {
       transformers = await import('@huggingface/transformers');
-    } catch (err) {
-      // onnxruntime-node is not bundled in compiled binaries, so the import
-      // fails at runtime. Surface a clear error so callers can fall back to
-      // another embedding backend.
-      throw new Error(
-        `Local embedding backend unavailable: failed to load @huggingface/transformers (${err instanceof Error ? err.message : String(err)})`,
-      );
+    } catch {
+      // In compiled Bun binaries, bare specifier resolution starts from the
+      // virtual /$bunfs/root/ filesystem and can't find externalized packages.
+      // Fall back to resolving from the executable's real disk location where
+      // node_modules/ is co-located.
+      try {
+        const execDir = dirname(process.execPath);
+        const modulePath = join(execDir, 'node_modules', '@huggingface', 'transformers');
+        transformers = await import(modulePath);
+      } catch (err) {
+        throw new Error(
+          `Local embedding backend unavailable: failed to load @huggingface/transformers (${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
     }
     this.extractor = await transformers.pipeline('feature-extraction', this.model, {
       dtype: 'fp32',
