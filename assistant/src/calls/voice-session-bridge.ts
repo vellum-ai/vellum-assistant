@@ -307,6 +307,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     strictSideEffects,
   };
   session.setAssistantId(opts.assistantId ?? 'self');
+  session.callSessionId = opts.callSessionId;
   session.setGuardianContext(opts.guardianContext ?? null);
   session.setCommandIntent(null);
   session.setTurnChannelContext({
@@ -429,6 +430,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     session.setCommandIntent(null);
     session.setAssistantId('self');
     session.setVoiceCallControlPrompt(null);
+    session.callSessionId = undefined;
     // Reset the session's client callback to a no-op so the stale
     // closure doesn't intercept events from future turns on the same session.
     session.updateClient(() => {}, true);

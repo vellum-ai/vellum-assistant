@@ -36,7 +36,7 @@ function guardianApprovalDeniedMessage(
 }
 
 export type PreExecutionGateResult =
-  | { allowed: true; tool: Tool }
+  | { allowed: true; tool: Tool; grantConsumed?: boolean }
   | { allowed: false; result: ToolExecutionResult };
 
 /**
@@ -168,7 +168,36 @@ export class ToolApprovalHandler {
           executionTarget,
           grantId: grantResult.grant.id,
         }, 'Scoped grant consumed — allowing untrusted actor tool invocation');
-        // Grant consumed: fall through to remaining gates and normal execution
+
+        // Resolve the tool from the registry before returning. A consumed
+        // scoped grant is a complete authorization — the executor must skip
+        // the interactive permission/prompt flow entirely, otherwise
+        // non-interactive sessions (isInteractive: false) would auto-deny
+        // prompt-gated tools and burn the one-time grant.
+        const grantedTool = getTool(name);
+        if (!grantedTool) {
+          const available = getAllTools().filter((t) => t.executionMode !== 'proxy' || context.proxyToolResolver).map((t) => t.name).sort().join(', ');
+          const msg = `Unknown tool: ${name}. Available tools: ${available}`;
+          const durationMs = Date.now() - startTime;
+          emitLifecycleEvent({
+            type: 'error',
+            toolName: name,
+            executionTarget,
+            input,
+            workingDir: context.workingDir,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            requestId: context.requestId,
+            riskLevel,
+            decision: 'error',
+            durationMs,
+            errorMessage: msg,
+            isExpected: true,
+            errorCategory: 'tool_failure',
+          });
+          return { allowed: false, result: { content: msg, isError: true } };
+        }
+        return { allowed: true, tool: grantedTool, grantConsumed: true };
       } else {
         const reason = guardianApprovalDeniedMessage(context.guardianActorRole, name);
         log.warn({
