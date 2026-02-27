@@ -118,7 +118,7 @@ function generateHtmlReport(report: TestReport): string {
         <td>${t.passed ? "passed" : "failed"}</td>
         <td>${t.duration}</td>
         <td>${t.passed ? "" : escapeHtml(t.message)}</td>
-        <td><a href="${screenshotLink}">screenshots</a> · <a href="${videoLink}">video</a></td>
+        <td><a href="${screenshotLink}">screenshots</a> · <a href="${videoLink}">video</a> · <a href="agent-logs/${encodedName}.log">trace</a></td>
       </tr>`;
     })
     .join("\n");
@@ -213,6 +213,7 @@ async function runTestCase(
     page = await context.newPage();
 
     const screenshotDir = path.resolve(__dirname, "../test-results/agent-screenshots", testCase.name);
+    const traceLogPath = path.resolve(__dirname, "../test-results/agent-logs", `${testCase.name}.log`);
 
     // Start macOS screen recording (captures the actual desktop, not the browser tab)
     const videoDir = path.resolve(__dirname, "../test-results/agent-videos", testCase.name);
@@ -224,6 +225,7 @@ async function runTestCase(
       testContent,
       page,
       screenshotDir,
+      traceLogPath,
       verbose,
     });
 

@@ -5,6 +5,9 @@
  * and runs the agent in a loop until a test result is reported.
  */
 
+import { appendFileSync, mkdirSync, writeFileSync } from "fs";
+import path from "path";
+
 import Anthropic from "@anthropic-ai/sdk";
 import type { Page } from "playwright";
 
@@ -53,6 +56,7 @@ export interface AgentOptions {
   testContent: string;
   page: Page;
   screenshotDir: string;
+  traceLogPath?: string;
   verbose?: boolean;
 }
 
@@ -69,8 +73,21 @@ export async function runAgent(options: AgentOptions): Promise<TestResult> {
   }
 }
 
+function traceLog(logPath: string | undefined, entry: string): void {
+  if (!logPath) return;
+  const ts = new Date().toISOString();
+  appendFileSync(logPath, `[${ts}] ${entry}\n`);
+}
+
 async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise<TestResult> {
-  const { testContent, page, screenshotDir, verbose = false } = options;
+  const { testContent, page, screenshotDir, traceLogPath, verbose = false } = options;
+
+  // Initialize trace log
+  if (traceLogPath) {
+    mkdirSync(path.dirname(traceLogPath), { recursive: true });
+    writeFileSync(traceLogPath, "");
+    traceLog(traceLogPath, "Agent started");
+  }
 
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [
@@ -135,13 +152,12 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
     // Collect assistant content blocks
     const assistantContent = response.content;
 
-    if (verbose) {
-      for (const block of assistantContent) {
-        if (block.type === "text") {
-          console.log(`  [agent] text: ${block.text}`);
-        } else if (block.type === "tool_use") {
-          console.log(`  [agent] tool_use: ${block.name}(${JSON.stringify(block.input)})`);
-        }
+    for (const block of assistantContent) {
+      if (block.type === "text") {
+        traceLog(traceLogPath, `TEXT ${block.text}`);
+        if (verbose) console.log(`  [agent] text: ${block.text}`);
+      } else if (block.type === "tool_use") {
+        if (verbose) console.log(`  [agent] tool_use: ${block.name}(${JSON.stringify(block.input)})`);
       }
     }
 
@@ -170,12 +186,16 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
         };
       }
 
+      traceLog(traceLogPath, `CALL ${block.name}(${JSON.stringify(block.input)})`);
+
       const { result, testResult } = await executeTool(
         page,
         block.name,
         block.input as Record<string, unknown>,
         screenshotDir,
       );
+
+      traceLog(traceLogPath, `RESULT ${block.name}: ${result.success ? "ok" : "FAIL"} — ${result.data}`);
 
       if (verbose) {
         console.log(`  [agent] result: ${result.success ? "ok" : "FAIL"} - ${result.data}`);
