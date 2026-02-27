@@ -662,6 +662,9 @@ struct MainWindowView: View {
         .onReceive(daemonClient.$isConnected) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            threadManager.markActiveThreadSeenIfNeeded()
+        }
         .onChange(of: selectedThreadId) { _, newId in
             if let newId = newId {
                 threadManager.selectThread(id: newId)
