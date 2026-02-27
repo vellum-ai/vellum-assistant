@@ -1160,6 +1160,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     self.setupAmbientAgent()
                     self.refreshAppsCache()
                     self.refreshSkillsCache()
+                    self.checkAndApplyPrivacyFlag()
                 }
             }
         }
