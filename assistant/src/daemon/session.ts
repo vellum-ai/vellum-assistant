@@ -512,6 +512,9 @@ export class Session {
     metadata?: Record<string, unknown>,
     displayContent?: string,
   ): Promise<string> {
+    if (!this.processing) {
+      await this.ensureActorScopedHistory();
+    }
     return persistUserMessageImpl(this, content, attachments, requestId, metadata, displayContent);
   }
 
