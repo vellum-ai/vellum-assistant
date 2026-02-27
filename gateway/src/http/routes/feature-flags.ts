@@ -17,13 +17,21 @@ function getConfigPath(): string {
   return join(getRootDir(), "workspace", "config.json");
 }
 
-function readConfigFile(): Record<string, unknown> {
+type ConfigReadResult =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "malformed"; detail: string };
+
+function readConfigFile(): ConfigReadResult {
   const cfgPath = getConfigPath();
+  if (!existsSync(cfgPath)) {
+    return { ok: true, data: {} };
+  }
   try {
     const raw = readFileSync(cfgPath, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
+    return { ok: true, data: JSON.parse(raw) };
+  } catch (err) {
+    return { ok: false, reason: "malformed", detail: String(err) };
   }
 }
 
@@ -51,7 +59,9 @@ export type FeatureFlagEntry = {
 export function createFeatureFlagsGetHandler() {
   return async (_req: Request): Promise<Response> => {
     try {
-      const config = readConfigFile();
+      const result = readConfigFile();
+      // For GET, a malformed config degrades gracefully to empty flags
+      const config = result.ok ? result.data : {};
       const flags: Record<string, boolean> = {};
       const raw = config.featureFlags;
       if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -117,7 +127,16 @@ export function createFeatureFlagsPatchHandler() {
     }
 
     try {
-      const config = readConfigFile();
+      const result = readConfigFile();
+      if (!result.ok) {
+        log.error({ reason: result.reason, detail: result.detail }, "Config file is malformed, refusing to overwrite");
+        return Response.json(
+          { error: "Config file is malformed, cannot safely write" },
+          { status: 500 },
+        );
+      }
+
+      const config = result.data;
 
       // Preserve existing config keys; only update featureFlags
       const existingFlags =

@@ -435,7 +435,12 @@ function main() {
           authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
-        const flagKey = decodeURIComponent(featureFlagPatchMatch[1]);
+        let flagKey: string;
+        try {
+          flagKey = decodeURIComponent(featureFlagPatchMatch[1]);
+        } catch {
+          return Response.json({ error: "Invalid flag key encoding" }, { status: 400 });
+        }
         return handleFeatureFlagsPatch(tracedReq, flagKey);
       }
 
