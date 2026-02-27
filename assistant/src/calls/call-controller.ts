@@ -265,6 +265,15 @@ export class CallController {
   }
 
   /**
+   * Returns the question ID of the currently pending guardian consultation,
+   * or null if no consultation is active. Used by answerCall to match
+   * incoming answers to the correct consultation record.
+   */
+  getPendingConsultationQuestionId(): string | null {
+    return this.pendingConsultation?.questionId ?? null;
+  }
+
+  /**
    * Update guardian trust context for subsequent LLM turns.
    */
   setGuardianContext(ctx: GuardianRuntimeContext | null): void {
