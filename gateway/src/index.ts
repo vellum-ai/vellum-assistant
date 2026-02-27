@@ -214,6 +214,7 @@ function main() {
 
   const server = Bun.serve({
     port: config.port,
+    idleTimeout: 0,
     websocket: {
       open(ws) {
         if (isBrowserRelaySocketData(ws.data)) {
@@ -248,6 +249,7 @@ function main() {
       return Response.json({ error: "Internal server error" }, { status: 500 });
     },
     async fetch(req, svr) {
+      svr.timeout(req, 1800);
       const url = new URL(req.url);
 
       if (url.pathname === "/healthz") {
