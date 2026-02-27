@@ -606,11 +606,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
             var reordered = unpinned.filter { $0.id != sourceId }
 
-            // If the target is a schedule thread, insert the source at the boundary
-            // between regular and schedule threads (end of regular section) instead
-            // of before the schedule thread in the combined list.
+            // Determine the insertion position. When both source and target are
+            // schedule threads, use the target's actual position so schedule-to-
+            // schedule drags land at the correct spot. Only use the section boundary
+            // (first schedule thread) when dragging a regular thread onto a schedule
+            // thread (cross-section drag).
             let insertPos: Int
-            if targetThread.isScheduleThread {
+            let sourceThread = threads[sourceIdx]
+            if targetThread.isScheduleThread && !sourceThread.isScheduleThread {
                 insertPos = reordered.firstIndex(where: { $0.isScheduleThread }) ?? reordered.endIndex
             } else {
                 insertPos = reordered.firstIndex(where: { $0.id == beforeId }) ?? reordered.endIndex
@@ -620,17 +623,15 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 reordered.insert(movedThread, at: insertPos)
             }
 
-            // Only assign displayOrder to threads that need explicit ordering:
-            // 1. The thread that was dragged (it's now explicitly ordered)
-            // 2. Threads that already had a non-nil displayOrder (their relative
-            //    positions may have shifted)
-            // Threads that previously had nil displayOrder (sorted by recency)
-            // keep nil unless they were the source of the drag.
+            // Assign displayOrder to ALL threads in the reordered list. When a
+            // user drags a thread they are explicitly defining an ordering, so every
+            // thread in the affected section needs a concrete displayOrder. Without
+            // this, dragging between recency-sorted threads (nil displayOrder) would
+            // only assign an order to the source, causing it to jump to the top of
+            // the list since visibleThreads sorts non-nil displayOrder above nil.
             for (order, item) in reordered.enumerated() {
                 if let idx = threads.firstIndex(where: { $0.id == item.id }) {
-                    if item.id == sourceId || threads[idx].displayOrder != nil {
-                        threads[idx].displayOrder = order
-                    }
+                    threads[idx].displayOrder = order
                 }
             }
         }

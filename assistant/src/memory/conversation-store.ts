@@ -1,7 +1,7 @@
 // Re-export all conversation store functionality from focused sub-modules.
 // Existing imports from this file continue to work without changes.
 
-import { rawGet, rawRun } from './db.js';
+import { rawExec, rawGet, rawRun } from './db.js';
 import { ensureDisplayOrderMigration } from './conversation-display-order-migration.js';
 
 export {
@@ -75,13 +75,20 @@ export function batchSetDisplayOrders(
   updates: Array<{ id: string; displayOrder: number | null; isPinned: boolean }>,
 ): void {
   ensureDisplayOrderMigration();
-  for (const update of updates) {
-    rawRun(
-      'UPDATE conversations SET display_order = ?, is_pinned = ? WHERE id = ?',
-      update.displayOrder,
-      update.isPinned ? 1 : 0,
-      update.id,
-    );
+  rawExec('BEGIN');
+  try {
+    for (const update of updates) {
+      rawRun(
+        'UPDATE conversations SET display_order = ?, is_pinned = ? WHERE id = ?',
+        update.displayOrder,
+        update.isPinned ? 1 : 0,
+        update.id,
+      );
+    }
+    rawExec('COMMIT');
+  } catch (err) {
+    rawExec('ROLLBACK');
+    throw err;
   }
 }
 
