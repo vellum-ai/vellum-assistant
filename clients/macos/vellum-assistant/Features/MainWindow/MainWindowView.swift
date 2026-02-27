@@ -1347,12 +1347,13 @@ struct MainWindowView: View {
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)
                             .frame(minWidth: 14, minHeight: 14)
+                            .padding(.horizontal, 2)
                             .background(
-                                Circle()
+                                Capsule()
                                     .fill(Forest._700)
                             )
                             .offset(x: 4, y: 4)
-                            .contentShape(Circle())
+                            .contentShape(Capsule())
                             .onTapGesture {
                                 threadSwitcherHoverTimer?.cancel()
                                 threadSwitcherHoverTimer = nil
