@@ -105,7 +105,7 @@ function resolveAssistantIndexPath(): string | undefined {
   return undefined;
 }
 
-async function waitForSocketFile(socketPath: string, timeoutMs = 15000): Promise<boolean> {
+async function waitForSocketFile(socketPath: string, timeoutMs = 60000): Promise<boolean> {
   if (existsSync(socketPath)) return true;
 
   const start = Date.now();
@@ -390,26 +390,27 @@ export async function startLocalDaemon(): Promise<void> {
       }
     }
 
-    // Wait for socket at ~/.vellum/vellum.sock (up to 15s)
-    let socketReady = await waitForSocketFile(socketFile, 15000);
+    // Wait for socket at ~/.vellum/vellum.sock (up to 60s — fresh installs
+    // may need 30-60s for Qdrant download, migrations, and first-time init)
+    let socketReady = await waitForSocketFile(socketFile, 60000);
 
     // Dev fallback: if the bundled daemon did not create a socket in time,
     // fall back to source daemon startup so local `./build.sh run` still works.
     if (!socketReady) {
       const assistantIndex = resolveAssistantIndexPath();
       if (assistantIndex) {
-        console.log("   Bundled daemon socket not ready after 15s — falling back to source daemon...");
+        console.log("   Bundled daemon socket not ready after 60s — falling back to source daemon...");
         // Kill the bundled daemon to avoid two processes competing for the same socket/port
         await stopProcessByPidFile(pidFile, "bundled daemon", [socketFile]);
         await startDaemonFromSource(assistantIndex);
-        socketReady = await waitForSocketFile(socketFile, 15000);
+        socketReady = await waitForSocketFile(socketFile, 60000);
       }
     }
 
     if (socketReady) {
       console.log("   Daemon socket ready\n");
     } else {
-      console.log("   ⚠️  Daemon socket did not appear within 15s — continuing anyway\n");
+      console.log("   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n");
     }
   } else {
     console.log("🔨 Starting local daemon...");
@@ -454,16 +455,16 @@ export async function startGateway(assistantId?: string): Promise<string> {
   }
 
   // If no token is available (first startup — daemon hasn't written it yet),
-  // poll for the file to appear. The daemon writes the token shortly after
-  // startup, so we wait generously — the daemon socket wait is 15s, and
-  // the token may be written after the socket. Starting the gateway without
-  // auth is a security risk since the config is loaded once at startup and
-  // never reloads, so we fail rather than silently disabling auth.
+  // poll for the file to appear. On fresh installs the daemon may take 60s+
+  // for Qdrant download, migrations, and first-time init. Starting the
+  // gateway without auth is a security risk since the config is loaded once
+  // at startup and never reloads, so we fail rather than silently disabling auth.
   if (!runtimeProxyBearerToken) {
     console.log("   Waiting for bearer token file...");
-    const maxWait = 30000;
+    const maxWait = 60000;
     const pollInterval = 500;
     const start = Date.now();
+    const pidFile = join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "vellum.pid");
     while (Date.now() - start < maxWait) {
       await new Promise((r) => setTimeout(r, pollInterval));
       try {
@@ -475,12 +476,19 @@ export async function startGateway(assistantId?: string): Promise<string> {
       } catch {
         // File still doesn't exist, keep polling.
       }
+      // Check if the daemon process is still alive — no point waiting if it crashed
+      try {
+        const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+        if (pid) process.kill(pid, 0); // throws if process doesn't exist
+      } catch {
+        break; // daemon process is gone
+      }
     }
   }
 
   if (!runtimeProxyBearerToken) {
     throw new Error(
-      `Bearer token file not found at ${httpTokenPath} after 30s.\n` +
+      `Bearer token file not found at ${httpTokenPath} after 60s.\n` +
         "  The gateway cannot start without authentication — this would leave the proxy permanently unauthenticated.\n" +
         "  Ensure the daemon is running and has written the token file, or set VELLUM_HTTP_TOKEN_PATH to the correct path.",
     );
