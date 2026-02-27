@@ -31,6 +31,7 @@ struct SettingsParentalTab: View {
 
     // -- Set-PIN-to-enable sheet (shown when enabling parental controls without an existing PIN) --
     @State private var showingSetPINForEnableSheet: Bool = false
+    @State private var showingDisableConfirmation: Bool = false
 
 
     // -- Child: request permission sheet --
@@ -89,6 +90,14 @@ struct SettingsParentalTab: View {
             }
         }
         .animation(VAnimation.standard, value: showSuccessToast)
+        .alert("Disable Parental Controls?", isPresented: $showingDisableConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Disable", role: .destructive) {
+                updateEnabled(false)
+            }
+        } message: {
+            Text("This will remove all restrictions. Are you sure?")
+        }
         .onAppear {
             loadSettings()
             settingsStore.loadActivityLog()
@@ -183,7 +192,7 @@ struct SettingsParentalTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Restrict the assistant's capabilities and content topics. A PIN protects these settings from being changed.")
+            Text("Restrict the assistant's capabilities for child users. A PIN is required to change these settings.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -206,6 +215,10 @@ struct SettingsParentalTab: View {
                             // Enabling without an existing PIN — require the user to create
                             // one first so parental controls are always PIN-protected.
                             showingSetPINForEnableSheet = true
+                        } else if !newValue && isEnabled {
+                            // Disabling requires confirmation to prevent accidental removal
+                            // of all restrictions.
+                            showingDisableConfirmation = true
                         } else {
                             updateEnabled(newValue)
                         }
@@ -234,8 +247,8 @@ struct SettingsParentalTab: View {
                     .foregroundColor(VColor.textPrimary)
 
                 Text(hasPIN
-                    ? "A 6-digit PIN protects these settings. You must enter it to make changes."
-                    : "Set a 6-digit PIN to lock parental control settings.")
+                    ? "A 6-digit PIN protects these settings."
+                    : "Protect parental settings with a 6-digit PIN.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -287,7 +300,7 @@ struct SettingsParentalTab: View {
                 )
             }
 
-            Text("Block responses on these topics.")
+            Text("Block responses on specific topics in Restricted Mode.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .textSelection(.enabled)
@@ -338,7 +351,7 @@ struct SettingsParentalTab: View {
                 )
             }
 
-            Text("Prevent the assistant from using these tool categories.")
+            Text("Prevent certain tool categories from being used in Restricted Mode.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .textSelection(.enabled)
@@ -398,7 +411,7 @@ struct SettingsParentalTab: View {
                 )
             }
 
-            Text("Restricted Mode can only access enabled apps.")
+            Text("Choose which apps are accessible in Restricted Mode.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -535,7 +548,7 @@ struct SettingsParentalTab: View {
                 }
             }
 
-            Text("Restricted Mode can only use enabled integrations.")
+            Text("Choose which integrations are accessible in Restricted Mode.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -712,7 +725,7 @@ struct SettingsParentalTab: View {
                 .accessibilityLabel("Refresh pending approvals")
             }
 
-            Text("Review and respond to permission requests for Restricted Mode.")
+            Text("Review and approve permission requests from Restricted Mode.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1250,7 +1263,6 @@ private struct PINSheet: View {
 
     var body: some View {
         VStack(spacing: VSpacing.xl) {
-            Spacer(minLength: 0)
             // Header
             VStack(spacing: VSpacing.xs) {
                 Text(title)
@@ -1285,7 +1297,6 @@ private struct PINSheet: View {
                 Text(" ").font(VFont.caption)
             }
 
-            Spacer(minLength: 0)
             // Footer
             if isLoading {
                 ProgressView().scaleEffect(0.8)
@@ -1294,8 +1305,8 @@ private struct PINSheet: View {
             }
         }
         .padding(VSpacing.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(width: 320)
+        .fixedSize(horizontal: false, vertical: true)
         .background(VColor.background)
         .onAppear {
             // Always reset to the correct starting step for the given mode.
