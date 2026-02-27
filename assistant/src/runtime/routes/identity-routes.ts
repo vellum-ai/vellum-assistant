@@ -75,17 +75,35 @@ interface CpuInfo {
   maxCores: number;
 }
 
+// Track CPU usage over a rolling window so /healthz reports near-real-time
+// utilization instead of a lifetime average (total CPU time / total uptime).
+const CPU_SAMPLE_INTERVAL_MS = 5_000;
+let _lastCpuUsage: NodeJS.CpuUsage = process.cpuUsage();
+let _lastCpuTime: number = Date.now();
+let _cachedCpuPercent = 0;
+
+// Kick off the background sampler. unref() so it never prevents process exit.
+setInterval(() => {
+  const now = Date.now();
+  const newUsage = process.cpuUsage();
+  const elapsedMs = now - _lastCpuTime;
+  if (elapsedMs > 0) {
+    const deltaCpuUs =
+      (newUsage.user - _lastCpuUsage.user) +
+      (newUsage.system - _lastCpuUsage.system);
+    const deltaCpuMs = deltaCpuUs / 1000;
+    const numCores = cpus().length;
+    _cachedCpuPercent =
+      Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
+  }
+  _lastCpuUsage = newUsage;
+  _lastCpuTime = now;
+}, CPU_SAMPLE_INTERVAL_MS).unref();
+
 function getCpuInfo(): CpuInfo {
-  const usage = process.cpuUsage();
-  const uptimeMs = process.uptime() * 1000;
-  const cpuMs = (usage.user + usage.system) / 1000;
-  const numCores = cpus().length;
-  const currentPercent = uptimeMs > 0
-    ? Math.round((cpuMs / (uptimeMs * numCores)) * 10000) / 100
-    : 0;
   return {
-    currentPercent,
-    maxCores: numCores,
+    currentPercent: _cachedCpuPercent,
+    maxCores: cpus().length,
   };
 }
 
