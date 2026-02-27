@@ -120,7 +120,7 @@ matches_safe_line_pattern() {
             # This prevents e.g. `let apiStorageKey = "..."` from being whitelisted
             # even though its suffix (Storage) is in the safe list.
             if printf '%s\n' "$text" | grep -iE "(let|var|val)[[:space:]]+[a-zA-Z0-9_]*[Kk]ey[[:space:]]*=" >/dev/null 2>&1; then
-                if printf '%s\n' "$text" | grep -iE "(let|var|val)[[:space:]]+[a-zA-Z0-9_]*(api|access|private|secret|client|encryption|encrypt|jwt|signing|sign|auth|hmac|master|symmetric|asymmetric|shared|session|verification|verify|decryption|decrypt|service|deploy|registry|webhook|database)[a-zA-Z0-9_]*[Kk]ey" >/dev/null 2>&1; then
+                if printf '%s\n' "$text" | grep -iE "(let|var|val)[[:space:]]+[a-zA-Z0-9_]*(api|access|private|secret|client|encryption|encrypt|jwt|signing|sign|auth|hmac|master|symmetric|asymmetric|shared|session|verification|verify|decryption|decrypt|service|deploy|registry|webhook|database|db)[a-zA-Z0-9_]*[Kk]ey" >/dev/null 2>&1; then
                     continue
                 fi
             fi
@@ -234,6 +234,8 @@ if [ "${1:-}" = "--self-test" ]; then
     UNSAFE_SWIFT_API_KEY='let apiKey = "abcdefghijklmnopqrstuvwxyz"'
     # Swift compound key with sensitive prefix (dangerous — must NOT be whitelisted)
     UNSAFE_SWIFT_API_STORAGE_KEY='let apiStorageKey = "abcdefghijklmnopqrstuvwxyz"'
+    # Swift compound key with "db" sensitive prefix (dangerous — must NOT be whitelisted)
+    UNSAFE_SWIFT_DB_STORAGE_KEY='let dbStorageKey = "abcdefghijklmnopqrstuvwxyz"'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -477,6 +479,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_safe_line_pattern "$UNSAFE_SWIFT_API_STORAGE_KEY"; then
         echo -e "${RED}Self-test failed:${NC} Swift apiStorageKey constant was incorrectly whitelisted (sensitive prefix + safe suffix)"
+        exit 1
+    fi
+    if matches_safe_line_pattern "$UNSAFE_SWIFT_DB_STORAGE_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} Swift dbStorageKey constant was incorrectly whitelisted (sensitive prefix + safe suffix)"
         exit 1
     fi
 
