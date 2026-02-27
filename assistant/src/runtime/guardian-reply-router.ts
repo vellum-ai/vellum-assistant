@@ -353,6 +353,12 @@ async function applyDecision(
     `Guardian reply router: canonical decision not applied (${canonicalResult.reason})`,
   );
 
+  // When the canonical request doesn't exist, allow the message to fall
+  // through so the legacy handleApprovalInterception handler can process it.
+  if (canonicalResult.reason === 'not_found') {
+    return notConsumed();
+  }
+
   return {
     decisionApplied: false,
     consumed: true,
