@@ -16,6 +16,7 @@ import { getConfig } from '../config/loader.js';
 import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import type { ModelIntent } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
+import { composeFallbackCopy } from './copy-composer.js';
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal, RoutingIntent } from './signal.js';
@@ -251,17 +252,7 @@ function buildFallbackDecision(
     };
   }
 
-  const copy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {};
-  for (const ch of selectedChannels) {
-    const fallbackBody = isHighUrgencyAction
-      ? `Action required: ${signal.sourceEventName}`
-      : signal.sourceEventName;
-    copy[ch] = {
-      title: signal.sourceEventName,
-      body: fallbackBody,
-      ...(ch === 'telegram' ? { deliveryText: fallbackBody } : {}),
-    };
-  }
+  const copy = composeFallbackCopy(signal, selectedChannels);
 
   return {
     shouldNotify: true,
