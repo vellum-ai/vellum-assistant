@@ -29,7 +29,7 @@ struct IdentityPanel: View {
                         // "I'm [name]!" heading
                         Text("I'm \(remoteIdentity?.name.nilIfEmpty ?? identity?.name ?? lockfileAssistant?.assistantId ?? "Unknown")!")
                             .font(.system(size: 22, weight: .regular, design: .rounded))
-                            .foregroundColor(Color(hex: 0x4A4A46))
+                            .foregroundColor(VColor.textPrimary)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, VSpacing.xxl)
@@ -48,14 +48,12 @@ struct IdentityPanel: View {
                         Spacer()
 
                         // Update Avatar button
-                        VButton(label: "Update Avatar", style: .secondary, action: onEditAvatar)
+                        VButton(label: "Update Avatar", style: .primary, action: onEditAvatar)
                             .padding(.horizontal, VSpacing.lg)
                             .padding(.bottom, VSpacing.xl)
 
                         // Divider
-                        Rectangle()
-                            .fill(Color(hex: 0xF5F3EB))
-                            .frame(height: 2)
+                        Divider().background(VColor.adaptiveColor(light: Moss._50, dark: Moss._500))
 
                         // Role + Hatched date
                         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -71,7 +69,7 @@ struct IdentityPanel: View {
                         .padding(.vertical, VSpacing.lg)
                     }
                     .frame(maxHeight: .infinity)
-                    .background(Color(hex: 0xE8E6DA))
+                    .background(VColor.inputBackground)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 }
                 .frame(width: sidebarWidth)
@@ -217,10 +215,10 @@ struct IdentityPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(Color(hex: 0x6B6B5E))
+                .foregroundColor(VColor.textMuted)
             Text(value)
                 .font(VFont.caption)
-                .foregroundColor(Color(hex: 0x3D3D35))
+                .foregroundColor(VColor.textSecondary)
         }
     }
 
