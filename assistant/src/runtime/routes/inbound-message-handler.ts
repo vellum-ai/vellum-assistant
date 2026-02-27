@@ -1087,9 +1087,9 @@ export async function handleChannelInbound(
 
           let stateApplied = true;
           if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-            stateApplied = progressFollowupState(request.id, 'dispatching', turnResult.disposition) !== undefined;
+            stateApplied = progressFollowupState(request.id, 'dispatching', turnResult.disposition) !== null;
           } else if (turnResult.disposition === 'decline') {
-            stateApplied = finalizeFollowup(request.id, 'declined') !== undefined;
+            stateApplied = finalizeFollowup(request.id, 'declined') !== null;
           }
 
           if (!stateApplied) {
