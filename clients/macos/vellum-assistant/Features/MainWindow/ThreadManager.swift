@@ -563,6 +563,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// using displayOrder. When the target is a schedule thread, the source is
     /// inserted at the end of the unpinned regular threads list (the boundary
     /// between regular and scheduled threads).
+    ///
+    /// Only assigns displayOrder to the dragged thread and threads that already
+    /// had an explicit displayOrder. Threads without explicit ordering (sorted
+    /// by recency) keep nil displayOrder so new threads continue to appear at top.
     @discardableResult
     func moveThread(sourceId: UUID, beforeId: UUID) -> Bool {
         guard let sourceIdx = threads.firstIndex(where: { $0.id == sourceId }),
@@ -591,19 +595,42 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 recompactPinnedOrders()
             }
 
-            // Build the current visible unpinned order and insert the source before the target.
-            // Include schedule threads so that dropping on a schedule thread places the source
-            // at the boundary (end of regular threads, just before the first schedule thread).
-            let unpinned = visibleThreads.filter { !$0.isPinned }
+            // Build the unpinned list in sidebar display order: regular threads first,
+            // then schedule threads. This matches the UI sections and prevents dropping
+            // onto a schedule thread from inserting the source among regular threads
+            // at the wrong position.
+            let allUnpinned = visibleThreads.filter { !$0.isPinned }
+            let regularUnpinned = allUnpinned.filter { !$0.isScheduleThread }
+            let scheduleUnpinned = allUnpinned.filter { $0.isScheduleThread }
+            let unpinned = regularUnpinned + scheduleUnpinned
+
             var reordered = unpinned.filter { $0.id != sourceId }
-            let targetPos = reordered.firstIndex(where: { $0.id == beforeId }) ?? reordered.endIndex
-            if let movedThread = unpinned.first(where: { $0.id == sourceId }) ?? [threads[sourceIdx]].first {
-                reordered.insert(movedThread, at: targetPos)
+
+            // If the target is a schedule thread, insert the source at the boundary
+            // between regular and schedule threads (end of regular section) instead
+            // of before the schedule thread in the combined list.
+            let insertPos: Int
+            if targetThread.isScheduleThread {
+                insertPos = reordered.firstIndex(where: { $0.isScheduleThread }) ?? reordered.endIndex
+            } else {
+                insertPos = reordered.firstIndex(where: { $0.id == beforeId }) ?? reordered.endIndex
             }
-            // Assign sequential displayOrder to all reordered unpinned threads
+
+            if let movedThread = unpinned.first(where: { $0.id == sourceId }) ?? [threads[sourceIdx]].first {
+                reordered.insert(movedThread, at: insertPos)
+            }
+
+            // Only assign displayOrder to threads that need explicit ordering:
+            // 1. The thread that was dragged (it's now explicitly ordered)
+            // 2. Threads that already had a non-nil displayOrder (their relative
+            //    positions may have shifted)
+            // Threads that previously had nil displayOrder (sorted by recency)
+            // keep nil unless they were the source of the drag.
             for (order, item) in reordered.enumerated() {
                 if let idx = threads.firstIndex(where: { $0.id == item.id }) {
-                    threads[idx].displayOrder = order
+                    if item.id == sourceId || threads[idx].displayOrder != nil {
+                        threads[idx].displayOrder = order
+                    }
                 }
             }
         }
