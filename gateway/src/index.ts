@@ -485,7 +485,9 @@ function main() {
 
         // Explicitly reject the runtime bearer token on PATCH even if it is
         // otherwise valid — PATCH requires the dedicated feature-flag token.
-        // Skip this check if both tokens are identical (allows single-token deployments).
+        // The !== guard handles the (unlikely) edge case where both tokens are
+        // equal due to explicit env-var override — loadConfig() logs a warning
+        // and regenerates in the normal case to prevent collision.
         if (config.runtimeBearerToken && config.runtimeBearerToken !== config.featureFlagToken) {
           const isRuntimeToken = validateBearerToken(
             tracedReq.headers.get("authorization"),

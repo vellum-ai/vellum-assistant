@@ -9,9 +9,9 @@ const log = getLogger("feature-flags");
 /**
  * Only allow keys matching `skills.<skillId>.enabled` for the initial rollout.
  * The skillId segment must be a non-empty string of lowercase alphanumeric chars,
- * hyphens, and underscores.
+ * dots, hyphens, and underscores (matching managed skill ID validation).
  */
-const ALLOWED_KEY_RE = /^skills\.[a-z0-9_-]+\.enabled$/;
+const ALLOWED_KEY_RE = /^skills\.[a-z0-9][a-z0-9._-]*\.enabled$/;
 
 function getConfigPath(): string {
   return join(getRootDir(), "workspace", "config.json");
@@ -19,7 +19,6 @@ function getConfigPath(): string {
 
 type ConfigReadResult =
   | { ok: true; data: Record<string, unknown> }
-  | { ok: false; reason: "not_found" }
   | { ok: false; reason: "malformed"; detail: string };
 
 function readConfigFile(): ConfigReadResult {

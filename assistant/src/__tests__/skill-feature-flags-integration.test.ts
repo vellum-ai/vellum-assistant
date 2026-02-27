@@ -147,7 +147,7 @@ describe('buildSystemPrompt feature flag filtering', () => {
     expect(result).toContain('id="twitter"');
   });
 
-  test('all skills hidden when all flags are OFF', () => {
+  test('flagged-off skills hidden even when all workspace skill flags are OFF', () => {
     createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
     createSkillOnDisk('twitter', 'Twitter', 'Post to X/Twitter');
 
@@ -161,7 +161,7 @@ describe('buildSystemPrompt feature flag filtering', () => {
 
     const result = buildSystemPrompt();
 
-    expect(result).not.toContain('<available_skills>');
+    // browser and twitter should be hidden; bundled skills may still appear
     expect(result).not.toContain('id="browser"');
     expect(result).not.toContain('id="twitter"');
   });

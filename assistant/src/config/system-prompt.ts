@@ -141,9 +141,12 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
 
   // ── Extended sections (medium + high) ──
   if (tier !== 'low') {
+    const config = getConfig();
     parts.push(buildToolPermissionSection());
     parts.push(buildTaskScheduleReminderRoutingSection());
-    parts.push(buildGuardianVerificationRoutingSection());
+    if (isSkillFeatureEnabled('guardian-verify-setup', config)) {
+      parts.push(buildGuardianVerificationRoutingSection());
+    }
     parts.push(buildAttachmentSection());
     parts.push(buildInChatConfigurationSection());
     parts.push(buildChannelCommandIntentSection());

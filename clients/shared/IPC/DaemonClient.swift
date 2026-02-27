@@ -1536,10 +1536,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Toggle a feature flag via the gateway's PATCH /v1/feature-flags/:flagKey endpoint.
     /// Uses the dedicated feature-flag token (not the runtime bearer token) for auth.
     ///
-    /// On macOS in remote mode (`httpTransport` is set), delegates to `httpTransport`
-    /// which targets the remote gateway. In local mode (`httpTransport` is nil), calls
-    /// the local gateway directly (port 7830) because the runtime HTTP server doesn't
-    /// serve feature-flag routes.
+    /// On macOS: if `httpTransport` targets a **remote** gateway (non-localhost baseURL),
+    /// delegates to it. Otherwise (socket transport or local HTTP via `localHttpEnabled`),
+    /// calls the local gateway directly on port 7830 because the runtime HTTP server
+    /// doesn't serve feature-flag routes.
     /// On iOS, always delegates to `httpTransport` which targets the remote gateway.
     public func setFeatureFlag(key: String, enabled: Bool) async throws {
         guard let token = config.featureFlagToken, !token.isEmpty else {
@@ -1547,15 +1547,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         #if os(macOS)
-        // Remote mode: httpTransport targets the remote gateway, which serves
-        // feature-flag routes. Use it directly instead of hitting localhost.
-        if let httpTransport = self.httpTransport {
+        // Remote mode: httpTransport targets a non-local gateway (e.g. cloud).
+        // Delegate to it directly. When localHttpEnabled is on, httpTransport
+        // points at localhost (the runtime), which does NOT serve feature-flag
+        // routes — so we must fall through to the local gateway path below.
+        if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
             try await httpTransport.setFeatureFlag(key: key, enabled: enabled, featureFlagToken: token)
             return
         }
 
-        // Local mode: call the gateway directly. The runtime HTTP server
-        // (localHttpEnabled) doesn't have the feature-flag route.
+        // Local mode (socket, TCP, or local HTTP): call the gateway directly.
         let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
             .flatMap(Int.init) ?? 7830
         let baseURL = "http://127.0.0.1:\(gatewayPort)"
@@ -1585,6 +1586,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
         try await httpTransport.setFeatureFlag(key: key, enabled: enabled, featureFlagToken: token)
         #endif
+    }
+
+    /// Returns true if the given base URL points to localhost / 127.0.0.1.
+    private static func isLocalBaseURL(_ urlString: String) -> Bool {
+        guard let comps = URLComponents(string: urlString), let host = comps.host?.lowercased() else {
+            return false
+        }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
     }
 
     public enum FeatureFlagError: Error, LocalizedError {

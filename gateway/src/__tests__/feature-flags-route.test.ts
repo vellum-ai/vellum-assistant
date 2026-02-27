@@ -256,6 +256,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
       "skills.my-skill.enabled",
       "skills.my_skill.enabled",
       "skills.skill123.enabled",
+      "skills.my.dotted.skill.enabled",
     ];
 
     for (const key of validKeys) {

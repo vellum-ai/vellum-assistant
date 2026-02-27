@@ -91,7 +91,7 @@ export type GatewayConfig = {
   /** When true, trust X-Forwarded-For for client IP resolution (set when behind a reverse proxy). */
   trustProxy: boolean;
   /** Dedicated token for authenticating PATCH /v1/feature-flags/* requests (distinct from runtimeBearerToken). */
-  featureFlagToken: string | undefined;
+  featureFlagToken?: string | undefined;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -143,6 +143,24 @@ function getFeatureFlagTokenPath(): string {
  * doesn't exist. This follows the same pattern as http-token but uses a
  * separate file so the two tokens are independently revocable.
  */
+/** Force-generate a fresh feature-flag token, overwriting any existing file. */
+function regenerateFeatureFlagToken(): string | null {
+  const tokenPath = getFeatureFlagTokenPath();
+  try {
+    const dir = dirname(tokenPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const token = randomBytes(32).toString("hex");
+    writeFileSync(tokenPath, token + "\n", { mode: 0o600 });
+    log.info({ path: tokenPath }, "Regenerated feature-flag token to resolve collision");
+    return token;
+  } catch (err) {
+    log.warn({ err, path: tokenPath }, "Failed to regenerate feature-flag token file");
+    return null;
+  }
+}
+
 function readOrGenerateFeatureFlagToken(): string | null {
   const tokenPath = getFeatureFlagTokenPath();
   try {
@@ -241,8 +259,25 @@ export function loadConfig(): GatewayConfig {
   // Dedicated feature-flag client token: env var takes precedence, then file
   // (auto-generated on first run). Intentionally separate from runtimeBearerToken
   // so PATCH /v1/feature-flags/* can reject the runtime token.
-  const featureFlagToken =
+  let featureFlagToken: string | undefined =
     process.env.FEATURE_FLAG_TOKEN || readOrGenerateFeatureFlagToken() || undefined;
+
+  // Guard: if the feature-flag token collides with the runtime bearer token,
+  // the PATCH auth split is unenforceable. Regenerate the feature-flag token
+  // unless it was explicitly pinned via env var.
+  if (featureFlagToken && runtimeBearerToken && featureFlagToken === runtimeBearerToken) {
+    if (process.env.FEATURE_FLAG_TOKEN) {
+      log.warn("FEATURE_FLAG_TOKEN equals RUNTIME_BEARER_TOKEN — PATCH auth split is degraded");
+    } else {
+      log.warn("Feature-flag token collides with runtime bearer token — regenerating");
+      const newToken = regenerateFeatureFlagToken();
+      if (newToken) {
+        featureFlagToken = newToken;
+      } else {
+        log.error("Failed to regenerate feature-flag token; PATCH auth split is degraded");
+      }
+    }
+  }
 
   const MAX_TIMEOUT_MS = 2_147_483_647; // 2^31 - 1, max safe setTimeout delay
 
