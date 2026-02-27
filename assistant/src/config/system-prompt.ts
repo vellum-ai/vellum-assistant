@@ -640,6 +640,7 @@ function buildContainerizedSection(): string {
     `- Always store new data, notes, memories, configs, and downloads under \`${baseDataDir}\``,
     '- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume',
     '- When in doubt, prefer paths nested under the data directory',
+    '- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done — disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up',
   ].join('\n');
 }
 
