@@ -26,6 +26,7 @@ permissions:
 
 jobs:
   headless:
+    if: github.event_name != 'workflow_dispatch'
     name: Headless Browser Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
