@@ -40,6 +40,9 @@ struct SettingsParentalTab: View {
 
     // -- Parent: pending approvals --
     @State private var pendingRequests: [ApprovalRequestItem] = []
+    /// Timer that auto-refreshes the pending-approvals list every 15 seconds when the
+    /// parental profile is active, so newly submitted child requests appear promptly.
+    private let approvalRefreshTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -72,6 +75,17 @@ struct SettingsParentalTab: View {
             loadSettings()
             settingsStore.loadActivityLog()
             settingsStore.loadAllowedIntegrations(pin: settingsStore.cachedPIN ?? "")
+            // Load pending approvals immediately when the parental profile is active.
+            if settingsStore.activeProfile == "parental" && isEnabled {
+                loadPendingApprovals()
+            }
+        }
+        .onReceive(approvalRefreshTimer) { _ in
+            // Silently refresh the pending-approvals list in the background so the
+            // parent sees new child requests without having to tap Refresh manually.
+            if settingsStore.activeProfile == "parental" && isEnabled {
+                loadPendingApprovals()
+            }
         }
         .sheet(isPresented: $showingPINSheet) {
             PINSheet(

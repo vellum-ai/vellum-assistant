@@ -15,6 +15,9 @@ struct ChatBubble: View {
     var onReportMessage: ((String?) -> Void)?
     /// Called when expanding a tool call with truncated content to fetch the full text.
     var onRehydrate: (() -> Void)?
+    /// Called when the user taps "Request Permission" on a blocked tool call.
+    /// Receives `(toolName, reason)` from the request-permission sheet.
+    var onRequestPermission: ((String, String) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
@@ -29,6 +32,7 @@ struct ChatBubble: View {
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
     @State var stepsExpanded = false
+    @State private var showingRequestPermissionSheet = false
     /// Injected from the parent instead of observing the shared singleton directly.
     /// This avoids every ChatBubble in the list re-rendering whenever the overlay
     /// manager publishes any change (the "thundering herd" problem).
@@ -180,6 +184,11 @@ struct ChatBubble: View {
                         trailingStatus
                     }
 
+                    // "Request Permission" button — shown in child profile when a tool was blocked
+                    if !isUser && message.hasBlockedToolCall && onRequestPermission != nil {
+                        requestPermissionButton
+                    }
+
                     if hasOverflowActions {
                         overflowMenuButton
                             .opacity(showOverflowMenu ? 1 : 0)
@@ -220,6 +229,44 @@ struct ChatBubble: View {
             guard !Task.isCancelled else { return }
             mediaEmbedIntents = resolved
         }
+        .sheet(isPresented: $showingRequestPermissionSheet) {
+            let blockedToolName = message.toolCalls.first(where: { $0.isBlockedByParentalControls })?.toolName ?? ""
+            BlockedToolPermissionSheet(
+                toolName: blockedToolName,
+                onSubmit: { toolName, reason in
+                    showingRequestPermissionSheet = false
+                    onRequestPermission?(toolName, reason)
+                },
+                onCancel: {
+                    showingRequestPermissionSheet = false
+                }
+            )
+        }
+    }
+
+    // MARK: - Request Permission Button
+
+    private var requestPermissionButton: some View {
+        Button {
+            showingRequestPermissionSheet = true
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "lock.open.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(VColor.warning)
+                Text("Request Permission")
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.warning)
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.xs)
+            .background(Capsule().fill(VColor.warning.opacity(0.1)))
+            .overlay(Capsule().stroke(VColor.warning.opacity(0.4), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Request parent permission for blocked tool")
+        .padding(.top, VSpacing.xxs)
+        .transition(.opacity)
     }
 
     // MARK: - Overflow Menu

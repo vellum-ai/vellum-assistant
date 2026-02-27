@@ -768,6 +768,9 @@ struct ActiveChatViewWrapper: View {
             onRehydrateMessage: { messageId in
                 viewModel.rehydrateMessage(id: messageId)
             },
+            onRequestPermission: { toolName, reason in
+                viewModel.requestPermission(toolName: toolName, reason: reason)
+            },
             subagentDetailStore: viewModel.subagentDetailStore,
             resolveHttpPort: daemonClient.httpPortResolver,
             isHistoryLoaded: viewModel.isHistoryLoaded,

@@ -614,6 +614,11 @@ public struct ToolCallData: Identifiable, Equatable {
     public var buildingStatus: String?
     /// Sub-tool steps for claude_code tool calls (live progress tracking).
     public var claudeCodeSteps: [ClaudeCodeSubStep] = []
+    /// True when this tool call was blocked by parental control settings.
+    /// Detected by matching the well-known error result returned by the daemon.
+    public var isBlockedByParentalControls: Bool {
+        isError && (result ?? "").contains("blocked by parental control settings")
+    }
     /// Pre-decoded NSImage cached to avoid repeated base64 decoding in SwiftUI body.
     #if os(macOS)
     public var cachedImage: NSImage?
@@ -1377,6 +1382,12 @@ public struct ChatMessage: Identifiable, Equatable {
     /// during history loading (via maxTextChars/maxToolResultChars). Full content
     /// can be fetched on demand via message_content_request.
     public var wasTruncated: Bool = false
+
+    /// True when at least one tool call in this message was blocked by parental control settings.
+    /// Used to show the "Request Permission" affordance below the message bubble.
+    public var hasBlockedToolCall: Bool {
+        toolCalls.contains { $0.isBlockedByParentalControls }
+    }
 
     /// Concatenated text from all segments. Backward-compatible computed property.
     public var text: String {
