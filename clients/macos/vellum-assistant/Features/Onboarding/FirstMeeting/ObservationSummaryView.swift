@@ -160,7 +160,7 @@ private struct InsightRow: View {
             state: {
                 let s = OnboardingState()
                 s.currentStep = 4
-                s.assistantName = "Velly"
+                s.assistantName = "Assistant"
                 s.firstTaskCandidate = "organizing my project files"
                 s.observationInsights = [
                     "You switch between VS Code and Terminal frequently.",

@@ -84,6 +84,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     /// Threads that are not archived — used by the UI to populate the sidebar.
     /// Sorted: pinned first (by pinnedOrder ascending), then unpinned by lastInteractedAt descending.
+    /// Threads move to the top when messages are sent or received, but NOT when clicked/selected.
     var visibleThreads: [ThreadModel] {
         threads.filter { !$0.isArchived && $0.kind != .private }.sorted { a, b in
             if a.isPinned && b.isPinned {
@@ -133,13 +134,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func createThread() {
         // If the active thread is still empty, just keep it instead of creating another.
-        // Skip this optimisation for private threads — they have different persistence
-        // semantics and should not be silently reused as standard threads.
+        // Only reuse when the thread is truly fresh: no messages at all, no persisted
+        // session, and not a private thread (which have different persistence semantics).
         if let activeId = activeThreadId,
            let vm = chatViewModels[activeId],
-           !vm.messages.contains(where: { $0.role == .user }) {
+           vm.messages.isEmpty {
             let activeThread = threads.first(where: { $0.id == activeId })
-            if activeThread?.kind != .private {
+            if activeThread?.kind != .private && activeThread?.sessionId == nil {
                 return
             }
         }
@@ -200,6 +201,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         let thread = ThreadModel(title: title, sessionId: conversationId)
         let viewModel = makeViewModel()
         viewModel.sessionId = conversationId
+        // Mark history as loaded since this thread streams live — there is no
+        // prior history to fetch. Without this, handleAssistantMessageArrival
+        // would drop all live updates (unseen indicators, recency bumps) because
+        // the !isHistoryLoaded guard returns early.
+        viewModel.isHistoryLoaded = true
         // Start the message loop so the view model receives streamed messages
         viewModel.startMessageLoop()
 
@@ -227,6 +233,16 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         thread.hasUnseenLatestAssistantMessage = true
         let viewModel = makeViewModel()
         viewModel.sessionId = conversationId
+        // Do NOT set isHistoryLoaded here — notification threads have a
+        // pre-existing seed message persisted by conversation-pairing before
+        // the notification_thread_created event is emitted. Leaving
+        // isHistoryLoaded false allows ThreadSessionRestorer.loadHistoryIfNeeded
+        // to fetch that seed message when the thread is first selected.
+        // The handleAssistantMessageArrival guard dropping updates is correct
+        // for notification threads because their content arrives via history
+        // load, not live streaming. Unread state is already set explicitly
+        // above (hasUnseenLatestAssistantMessage = true).
+
         // Start the message loop so the view model receives streamed messages
         viewModel.startMessageLoop()
 
@@ -383,11 +399,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             // Skip sessions that already have a thread
             guard !threads.contains(where: { $0.sessionId == session.id }) else { continue }
 
+            let effectiveCreatedAt = session.createdAt ?? session.updatedAt
             let thread = ThreadModel(
                 title: session.title,
-                createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
+                createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 sessionId: session.id,
                 isArchived: isSessionArchived(session.id),
+                lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 kind: session.threadType == "private" ? .private : .standard,
                 source: session.source,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
@@ -610,18 +628,19 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func makeViewModel() -> ChatViewModel {
-        let viewModel = ChatViewModel(daemonClient: daemonClient, onToolCallsComplete: { [weak self] toolCalls in
+        let viewModel = ChatViewModel(daemonClient: daemonClient)
+        viewModel.onToolCallsComplete = { [weak self, weak viewModel] toolCalls in
             guard let self, let service = self.activityNotificationService else { return }
-            // Send notification when tool calls complete
+            let sessionId = viewModel?.sessionId ?? ""
             Task { @MainActor in
                 await service.notifySessionComplete(
                     summary: "Tool execution completed",
                     steps: toolCalls.count,
                     toolCalls: toolCalls,
-                    sessionId: "" // Session ID not needed for chat-based notifications
+                    sessionId: sessionId
                 )
             }
-        })
+        }
         viewModel.shouldAcceptConfirmation = { [weak self, weak viewModel] in
             guard let self, let viewModel else { return false }
             return self.isLatestToolUseRecipient(viewModel)
@@ -714,6 +733,34 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         threads[idx].hasUnseenLatestAssistantMessage = false
         if let sessionId = threads[idx].sessionId {
             emitConversationSeenSignal(conversationId: sessionId)
+        }
+    }
+
+    /// Mark all visible (non-archived, non-private) threads as seen and emit
+    /// IPC signals for each. Returns the IDs of threads that were actually
+    /// marked, so the caller can offer an undo action.
+    @discardableResult
+    internal func markAllThreadsSeen() -> [UUID] {
+        var markedIds: [UUID] = []
+        for idx in threads.indices {
+            guard !threads[idx].isArchived,
+                  threads[idx].kind != .private,
+                  threads[idx].hasUnseenLatestAssistantMessage else { continue }
+            threads[idx].hasUnseenLatestAssistantMessage = false
+            markedIds.append(threads[idx].id)
+            if let sessionId = threads[idx].sessionId {
+                emitConversationSeenSignal(conversationId: sessionId)
+            }
+        }
+        return markedIds
+    }
+
+    /// Restore the unseen flag for the given thread IDs (used by undo).
+    internal func restoreUnseen(threadIds: [UUID]) {
+        for id in threadIds {
+            if let idx = threads.firstIndex(where: { $0.id == id }) {
+                threads[idx].hasUnseenLatestAssistantMessage = true
+            }
         }
     }
 
@@ -975,11 +1022,16 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// avoids O(n) IPC calls per streaming response (one per text delta) while
     /// still advancing the server-side seen cursor.
     private func handleAssistantMessageArrival(threadId: UUID, previousSnapshot: AssistantActivitySnapshot?, currentSnapshot: AssistantActivitySnapshot) {
-        // Skip during thread restoration — loadHistoryIfNeeded populates
-        // messages which triggers the Combine publisher, but those are
-        // historical messages, not fresh assistant replies. Without this
-        // guard the handler would clear real unread state on app launch.
+        // Skip during thread restoration or history re-hydration —
+        // loadHistoryIfNeeded populates messages which triggers the Combine
+        // publisher, but those are historical messages, not fresh assistant
+        // replies. Without this guard the handler would clear real unread
+        // state on app launch, or bump threads to the top when clicking on
+        // them causes an evicted ViewModel to reload its history.
         guard !isRestoringThreads else { return }
+        if let vm = chatViewModels[threadId], vm.isLoadingHistory || !vm.isHistoryLoaded {
+            return
+        }
         guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
         updateLastInteracted(threadId: threadId)
         if threadId == activeThreadId {

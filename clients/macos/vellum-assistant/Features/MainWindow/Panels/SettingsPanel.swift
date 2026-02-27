@@ -1,16 +1,53 @@
 import SwiftUI
 import VellumAssistantShared
 
-enum SettingsTab: String, CaseIterable {
-    case connect = "Connect"
-    case integrations = "Integrations"
-    case trust = "Trust"
-    case reminders = "Schedules"
-    case heartbeat = "Heartbeat"
-    case wakeWord = "Wake Word"
+enum SettingsTab: String {
+    case account = "Account"
+    case channels = "Channels"
+    case modelsAndServices = "Models & Services"
+    case voice = "Voice"
+    case permissions = "Permissions"
+    case automation = "Automation"
     case appearance = "Appearance"
-    case advanced = "Advanced"
     case parental = "Parental"
+    case advanced = "Advanced"
+
+    /// Tabs shown in the sidebar. Advanced is only visible in dev mode.
+    static func visibleTabs(isDevMode: Bool) -> [SettingsTab] {
+        var tabs: [SettingsTab] = [
+            .account, .channels, .modelsAndServices, .voice,
+            .permissions, .automation, .appearance, .parental
+        ]
+        if isDevMode {
+            tabs.append(.advanced)
+        }
+        return tabs
+    }
+
+    /// Maps legacy tab names (from IPC or saved state) to current tabs.
+    /// The `isDevMode` parameter gates dev-only tabs so external callers
+    /// (e.g. daemon IPC) cannot navigate to them when dev mode is off.
+    static func fromLegacyRawValue(_ value: String, isDevMode: Bool = false) -> SettingsTab? {
+        let tab: SettingsTab?
+        // Try current values first
+        if let direct = SettingsTab(rawValue: value) {
+            tab = direct
+        } else {
+            // Map legacy names
+            switch value {
+            case "Connect": tab = .account
+            case "Integrations": tab = .modelsAndServices
+            case "Trust": tab = .permissions
+            case "Schedules": tab = .automation
+            case "Heartbeat": tab = .automation
+            case "Advanced": tab = .advanced
+            default: tab = nil
+            }
+        }
+        // Block dev-only tabs when dev mode is disabled
+        if tab == .advanced && !isDevMode { return nil }
+        return tab
+    }
 }
 
 @MainActor
@@ -25,7 +62,6 @@ struct SettingsPanel: View {
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
-    @State private var elevenLabsKeyText: String = ""
     @State private var showingTrustRules = false
     @State private var showingReminders = false
     @State private var showingScheduledTasks = false
@@ -46,8 +82,7 @@ struct SettingsPanel: View {
     @State private var showModelDropdown = false
     @State private var mouseDownMonitor: Any?
     @State private var modelDropdownFrame: CGRect = .zero
-    @State private var selectedTab: SettingsTab = .connect
-    @State private var testerModel: ToolPermissionTesterModel?
+    @State private var selectedTab: SettingsTab = .account
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -69,7 +104,7 @@ struct SettingsPanel: View {
             HStack(spacing: 0) {
                 // Left: nav sidebar
                 settingsNav
-                    .frame(width: 160)
+                    .frame(width: 200)
 
                 Divider()
 
@@ -93,8 +128,15 @@ struct SettingsPanel: View {
             store.refreshIngressConfig()
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
-            if testerModel == nil, let dc = daemonClient {
-                testerModel = ToolPermissionTesterModel(daemonClient: dc)
+            if let pending = store.pendingSettingsTab {
+                selectedTab = pending
+                store.pendingSettingsTab = nil
+            }
+        }
+        .onChange(of: store.pendingSettingsTab) { _, newTab in
+            if let tab = newTab {
+                selectedTab = tab
+                store.pendingSettingsTab = nil
             }
         }
         .onDisappear {
@@ -135,6 +177,11 @@ struct SettingsPanel: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
+            if let tab = notification.object as? SettingsTab {
+                selectedTab = tab
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Primary mechanism: Check permissions when app becomes active.
             // This handles the common case where the user grants permission in
@@ -166,7 +213,7 @@ struct SettingsPanel: View {
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            ForEach(SettingsTab.allCases, id: \.self) { tab in
+            ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -181,29 +228,24 @@ struct SettingsPanel: View {
     @ViewBuilder
     private var selectedTabContent: some View {
         switch selectedTab {
-        case .connect:
-            SettingsConnectTab(store: store, daemonClient: daemonClient, authManager: authManager)
-        case .integrations:
+        case .account:
+            SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
+        case .channels:
+            SettingsChannelsTab(store: store, daemonClient: daemonClient)
+        case .modelsAndServices:
             integrationsContent
-        case .trust:
-            trustContent
-        case .reminders:
-            remindersContent
-        case .heartbeat:
-            HeartbeatSettingsTab(daemonClient: daemonClient)
-        case .wakeWord:
-            WakeWordSettingsView()
+        case .voice:
+            VoiceSettingsView(store: store)
+        case .permissions:
+            permissionsContent
+        case .automation:
+            SettingsAutomationTab(daemonClient: daemonClient, showingReminders: $showingReminders, showingScheduledTasks: $showingScheduledTasks)
         case .appearance:
             SettingsAppearanceTab(store: store)
-        case .advanced:
-            SettingsAdvancedTab(
-                store: store,
-                threadManager: threadManager,
-                onClose: onClose,
-                daemonClient: daemonClient
-            )
         case .parental:
             SettingsParentalTab(daemonClient: daemonClient)
+        case .advanced:
+            SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
         }
     }
 
@@ -469,52 +511,6 @@ struct SettingsPanel: View {
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
 
-            // ELEVENLABS section (for Voice Mode TTS)
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("ElevenLabs")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                if store.hasElevenLabsKey {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
-                        Text(store.maskedElevenLabsKey)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        VButton(label: "Clear", style: .danger) {
-                            store.clearElevenLabsKey()
-                            elevenLabsKeyText = ""
-                        }
-                    }
-                } else {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Enter ElevenLabs API Key")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        VInfoTooltip("Get your key at elevenlabs.io/app/settings/api-keys")
-                    }
-
-                    SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-
-                    Text("Used for Voice Mode (text-to-speech). Get your key at elevenlabs.io/app/settings/api-keys")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-
-                    VButton(label: "Save", style: .primary) {
-                        store.saveElevenLabsKey(elevenLabsKeyText)
-                        elevenLabsKeyText = ""
-                    }
-                }
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
-
             // INTEGRATIONS section (hidden when empty)
             if daemonClient != nil && !integrations.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -672,11 +668,11 @@ struct SettingsPanel: View {
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    // MARK: - Trust Tab
+    // MARK: - Permissions Tab
 
-    private var trustContent: some View {
+    private var permissionsContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            // PERMISSIONS section
+            // PERMISSIONS section (OS permissions)
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("Permissions")
                     .font(VFont.sectionTitle)
@@ -767,83 +763,27 @@ struct SettingsPanel: View {
                 .vCard(background: VColor.surfaceSubtle)
             }
 
-            // PERMISSION SIMULATOR section
-            if let model = testerModel {
-                ToolPermissionTesterView(model: model)
-            }
-
-            // PRIVACY & SECURITY section
+            // COMPUTER USAGE section (moved from Advanced)
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Privacy & Security")
+                Text("Computer Usage")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                VStack(alignment: .leading, spacing: 0) {
-                    privacyBullet(icon: "eye.slash", text: "AI only runs when you explicitly trigger it")
-                    Divider().background(VColor.surfaceBorder)
-                    privacyBullet(icon: "lock.shield", text: "API key stored in macOS Keychain")
-                    Divider().background(VColor.surfaceBorder)
-                    privacyBullet(icon: "xmark.shield", text: "Your data is not used to train AI models")
-                    Divider().background(VColor.surfaceBorder)
-                    privacyBullet(icon: "internaldrive", text: "Session logs and knowledge stored locally on your Mac")
+                HStack {
+                    Text("Max Steps per Session")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    VInfoTooltip("Maximum number of tool-use steps the assistant can take in a single session")
+                    Spacer()
+                    Text("\(Int(store.maxSteps))")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textSecondary)
                 }
+
+                VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
-        }
-    }
-
-    // MARK: - Reminders Tab
-
-    private var remindersContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
-            if daemonClient != nil {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Reminders")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    HStack {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Manage Reminders")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Text("View and manage one-shot reminders created by the assistant")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        VButton(label: "Manage...", style: .tertiary) {
-                            showingReminders = true
-                        }
-                    }
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Scheduled Tasks")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    HStack {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Manage Scheduled Tasks")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Text("View and manage recurring tasks (cron and RRULE schedules)")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        VButton(label: "Manage...", style: .tertiary) {
-                            showingScheduledTasks = true
-                        }
-                    }
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-            }
         }
     }
 
@@ -1001,9 +941,9 @@ struct SettingsPanel: View {
 
                 Spacer()
 
-                Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle.fill")
+                Image(systemName: granted ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 16))
-                    .foregroundColor(granted ? VColor.success : VColor.error)
+                    .foregroundColor(granted ? VColor.success : VColor.textMuted)
             }
             .padding(VSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1051,21 +991,6 @@ struct SettingsPanel: View {
         }
     }
 
-    // MARK: - Privacy Bullet
-
-    private func privacyBullet(icon: String, text: String) -> some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(systemName: icon)
-                .font(.system(size: 12))
-                .foregroundColor(VColor.textMuted)
-                .frame(width: 16)
-            Text(text)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-        }
-        .padding(.vertical, VSpacing.md)
-    }
-
 }
 
 // MARK: - Settings Nav Row
@@ -1079,6 +1004,8 @@ private struct SettingsNavRow: View {
     var body: some View {
         Button(action: action) {
             Text(tab.rawValue)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .font(isSelected ? VFont.bodyMedium : VFont.body)
                 .foregroundColor(isSelected ? VColor.textPrimary : VColor.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1089,6 +1016,7 @@ private struct SettingsNavRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(tab.rawValue)
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }

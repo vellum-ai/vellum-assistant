@@ -1,3 +1,4 @@
+import { normalizeActivationKey } from '../../daemon/handlers/config-voice.js';
 import { RiskLevel } from '../../permissions/types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
@@ -23,14 +24,17 @@ function validateSetting(setting: string, value: unknown): { ok: true; coerced: 
     return { ok: false, error: `Unknown setting "${setting}". Valid settings: ${VALID_SETTINGS.join(', ')}` };
   }
 
-  const meta = VOICE_SETTINGS[setting as VoiceSettingName];
-
   switch (setting) {
     case 'activation_key': {
       if (typeof value !== 'string' || value.length === 0) {
         return { ok: false, error: 'activation_key must be a non-empty string' };
       }
-      return { ok: true, coerced: value };
+      // Use the canonical normalizer from config-voice handler
+      const result = normalizeActivationKey(value);
+      if (!result.ok) {
+        return { ok: false, error: result.reason };
+      }
+      return { ok: true, coerced: result.value };
     }
     case 'wake_word_enabled': {
       if (typeof value === 'boolean') return { ok: true, coerced: value };

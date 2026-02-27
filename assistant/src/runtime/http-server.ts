@@ -85,7 +85,6 @@ import {
   handleGetAttachmentContent,
   handleUploadAttachment,
 } from './routes/attachment-routes.js';
-import { handleDebug } from './routes/debug-routes.js';
 import {
   handleAnswerCall,
   handleCancelCall,
@@ -116,15 +115,29 @@ import {
   handleSearchConversations,
   handleSendMessage,
 } from './routes/conversation-routes.js';
+import { handleDebug } from './routes/debug-routes.js';
 import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
 import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
 import {
+  handleBlockMember,
+  handleCreateInvite,
+  handleListInvites,
+  handleListMembers,
+  handleRedeemInvite,
+  handleRevokeInvite,
+  handleRevokeMember,
+  handleUpsertMember,
+} from './routes/ingress-routes.js';
+import {
   handleCancelOutbound,
+  handleClearSlackChannelConfig,
   handleClearTelegramConfig,
   handleCreateGuardianChallenge,
   handleGetGuardianStatus,
+  handleGetSlackChannelConfig,
   handleGetTelegramConfig,
   handleResendOutbound,
+  handleSetSlackChannelConfig,
   handleSetTelegramCommands,
   handleSetTelegramConfig,
   handleSetupTelegram,
@@ -137,16 +150,6 @@ import {
   handlePairingRequest,
   handlePairingStatus,
 } from './routes/pairing-routes.js';
-import {
-  handleBlockMember,
-  handleCreateInvite,
-  handleListInvites,
-  handleListMembers,
-  handleRedeemInvite,
-  handleRevokeInvite,
-  handleRevokeMember,
-  handleUpsertMember,
-} from './routes/ingress-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
 
 // Re-export for consumers
@@ -316,7 +319,7 @@ export class RuntimeHttpServer {
     startGuardianExpirySweep(getGatewayInternalBaseUrl(), this.bearerToken, this.approvalCopyGenerator);
     log.info('Guardian approval expiry sweep started');
 
-    startGuardianActionSweep(getGatewayInternalBaseUrl(), this.bearerToken);
+    startGuardianActionSweep(getGatewayInternalBaseUrl(), this.bearerToken, this.guardianActionCopyGenerator);
     log.info('Guardian action expiry sweep started');
 
     log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
@@ -624,6 +627,7 @@ export class RuntimeHttpServer {
             return {
               id: c.id,
               title: c.title ?? 'Untitled',
+              createdAt: c.createdAt,
               updatedAt: c.updatedAt,
               threadType: c.threadType === 'private' ? 'private' : 'standard',
               source: c.source ?? 'user',
@@ -713,6 +717,11 @@ export class RuntimeHttpServer {
       if (endpoint === 'integrations/telegram/config' && req.method === 'DELETE') return await handleClearTelegramConfig();
       if (endpoint === 'integrations/telegram/commands' && req.method === 'POST') return await handleSetTelegramCommands(req);
       if (endpoint === 'integrations/telegram/setup' && req.method === 'POST') return await handleSetupTelegram(req);
+
+      // Integrations — Slack channel config
+      if (endpoint === 'integrations/slack/channel/config' && req.method === 'GET') return handleGetSlackChannelConfig();
+      if (endpoint === 'integrations/slack/channel/config' && req.method === 'POST') return await handleSetSlackChannelConfig(req);
+      if (endpoint === 'integrations/slack/channel/config' && req.method === 'DELETE') return handleClearSlackChannelConfig();
 
       // Integrations — Guardian verification
       if (endpoint === 'integrations/guardian/challenge' && req.method === 'POST') return await handleCreateGuardianChallenge(req);

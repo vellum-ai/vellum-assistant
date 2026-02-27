@@ -31,6 +31,7 @@ export { handleTelegramConfig, summarizeTelegramError } from './config-telegram.
 export { handleEnvVarsRequest, handleToolNamesList,handleToolPermissionSimulate } from './config-tools.js';
 export { handleAcceptStarterBundle,handleAddTrustRule, handleRemoveTrustRule, handleTrustRulesList, handleUpdateTrustRule } from './config-trust.js';
 export { handleTwilioConfig } from './config-twilio.js';
+export { broadcastClientSettingsUpdate, handleVoiceConfigUpdate, normalizeActivationKey } from './config-voice.js';
 
 // Assemble the combined dispatch map from domain-specific handler groups
 import { channelHandlers } from './config-channels.js';
@@ -46,6 +47,7 @@ import { telegramHandlers } from './config-telegram.js';
 import { toolHandlers } from './config-tools.js';
 import { trustHandlers } from './config-trust.js';
 import { twilioHandlers } from './config-twilio.js';
+import { voiceHandlers } from './config-voice.js';
 
 export const configHandlers = {
   ...modelHandlers,
@@ -61,4 +63,5 @@ export const configHandlers = {
   ...toolHandlers,
   ...parentalControlHandlers,
   ...heartbeatHandlers,
+  ...voiceHandlers,
 };

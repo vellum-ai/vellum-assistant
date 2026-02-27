@@ -299,6 +299,59 @@ export function readTwilioCredentials(): TwilioCredentials | null {
   }
 }
 
+export type SlackChannelCredentials = {
+  /** Slack Bot User OAuth Token (xoxb-...). */
+  botToken: string;
+  /** Slack App-Level Token for Socket Mode (xapp-...). */
+  appToken: string;
+};
+
+/**
+ * Check the credential metadata file for Slack channel credentials and read
+ * them from secure storage (keychain on macOS, then encrypted store).
+ *
+ * Returns `null` if:
+ * - The metadata file doesn't exist or can't be parsed
+ * - Slack channel bot_token or app_token entries are missing from metadata
+ * - The actual secret values can't be read from any backend
+ */
+export function readSlackChannelCredentials(): SlackChannelCredentials | null {
+  try {
+    const metadataPath = getMetadataPath();
+    if (!existsSync(metadataPath)) return null;
+
+    const raw = readFileSync(metadataPath, "utf-8");
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.credentials)) return null;
+
+    const hasBotToken = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "slack_channel" && c.field === "bot_token",
+    );
+    const hasAppToken = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "slack_channel" && c.field === "app_token",
+    );
+
+    if (!hasBotToken || !hasAppToken) return null;
+
+    const botToken = readCredentialWithFallback("credential:slack_channel:bot_token");
+    const appToken = readCredentialWithFallback("credential:slack_channel:app_token");
+
+    if (!botToken || !appToken) {
+      log.warn(
+        "Slack channel credential metadata exists but secrets could not be read from any backend",
+      );
+      return null;
+    }
+
+    return { botToken, appToken };
+  } catch (err) {
+    log.debug({ err }, "Failed to read Slack channel credentials");
+    return null;
+  }
+}
+
 export type WhatsAppCredentials = {
   /** WhatsApp Business phone number ID (numeric string). */
   phoneNumberId: string;

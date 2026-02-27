@@ -16,9 +16,11 @@ import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
+import { consumeScopedApprovalGrantByToolSignature } from '../memory/scoped-approval-grants.js';
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
+import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 
@@ -81,6 +83,8 @@ export interface VoiceRunEventSink {
 export interface VoiceTurnOptions {
   /** The conversation ID for this voice call's session. */
   conversationId: string;
+  /** The call session ID for scoped grant matching. */
+  callSessionId?: string;
   /** The transcribed caller utterance or synthetic marker. */
   content: string;
   /** Assistant scope for multi-assistant channels. */
@@ -129,7 +133,9 @@ function buildVoiceCallControlPrompt(opts: {
   const disclosureEnabled = config.calls?.disclosure?.enabled === true;
   const disclosureText = config.calls?.disclosure?.text?.trim();
   const disclosureRule = disclosureEnabled && disclosureText
-    ? `0. ${disclosureText}`
+    ? opts.isInbound
+      ? `0. ${disclosureText} This is an inbound call you are answering, so rewrite any disclosure naturally for pickup context. Do NOT say "I'm calling", "I called you", or "I'm calling on behalf of".`
+      : `0. ${disclosureText}`
     : '0. Begin the conversation naturally.';
 
   const lines: string[] = ['<voice_call_control>'];
@@ -145,7 +151,12 @@ function buildVoiceCallControlPrompt(opts: {
     '1. Be concise — keep responses to 1-3 sentences. Phone conversations should be brief and natural.',
     ...(opts.isCallerGuardian
       ? ['2. You are speaking directly with your guardian (your user). Do NOT use [ASK_GUARDIAN:]. If you need permission, information, or confirmation, ask them directly in the conversation. They can answer you right now.']
-      : ['2. You can consult your guardian at any time by including [ASK_GUARDIAN: your question here] in your response. When you do, add a natural hold message like "Let me check on that for you."']
+      : [[
+          '2. You can consult your guardian in two ways:',
+          '   - For general questions or information: [ASK_GUARDIAN: your question here]',
+          '   - For tool/action permission requests: [ASK_GUARDIAN_APPROVAL: {"question":"Describe what you need permission for","toolName":"the_tool_name","input":{...tool input object...}}]',
+          '   Use ASK_GUARDIAN_APPROVAL when you need permission to execute a specific tool or action. Use ASK_GUARDIAN for everything else (general questions, advice, information). When you use either marker, add a natural hold message like "Let me check on that for you."',
+        ].join('\n')]
     ),
   );
 
@@ -174,7 +185,7 @@ function buildVoiceCallControlPrompt(opts: {
       );
     } else {
       lines.push(
-        '7. If the latest user turn is "(call connected — deliver opening greeting)", greet the caller warmly and ask how you can help. Vary the wording; do not use a fixed template.',
+        '7. If the latest user turn is "(call connected — deliver opening greeting)", this is an inbound call you are answering (not a call you initiated). Greet the caller warmly and ask how you can help. Introduce yourself once at the start using your assistant name if you know it (for example: "Hey there, this is Ava, Sam\'s assistant. How can I help?"). If your assistant name is not known, skip the name and just identify yourself as the guardian\'s assistant. Do NOT say "I\'m calling" or "I\'m calling on behalf of". Vary the wording; do not use a fixed template.',
       );
     }
     lines.push(
@@ -192,7 +203,7 @@ function buildVoiceCallControlPrompt(opts: {
 
   lines.push(
     '9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.',
-    '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian.',
+    '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
     '</voice_call_control>',
   );
 
@@ -337,9 +348,39 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
   session.updateClient((msg: ServerMessage) => {
     if (msg.type === 'confirmation_request') {
       if (autoDeny) {
+        // Before auto-denying, check if a guardian from another channel
+        // has pre-approved this exact tool invocation via a scoped grant.
+        const inputDigest = computeToolApprovalDigest(msg.toolName, msg.input);
+        const consumeResult = consumeScopedApprovalGrantByToolSignature({
+          toolName: msg.toolName,
+          inputDigest,
+          consumingRequestId: msg.requestId,
+          assistantId: opts.assistantId,
+          executionChannel: 'voice',
+          conversationId: opts.conversationId,
+          callSessionId: opts.callSessionId,
+          requesterExternalUserId: opts.guardianContext?.requesterExternalUserId,
+        });
+
+        if (consumeResult.ok) {
+          log.info(
+            { turnId, toolName: msg.toolName, grantId: consumeResult.grant?.id },
+            'Consumed scoped grant — allowing non-guardian voice confirmation',
+          );
+          session.handleConfirmationResponse(
+            msg.requestId,
+            'allow',
+            undefined,
+            undefined,
+            `Permission approved for "${msg.toolName}": guardian pre-approved via scoped grant.`,
+          );
+          publishToHub(msg);
+          return;
+        }
+
         log.info(
           { turnId, toolName: msg.toolName },
-          'Auto-denying confirmation request for voice turn (forceStrictSideEffects)',
+          'Auto-denying confirmation request for voice turn (no matching scoped grant)',
         );
         session.handleConfirmationResponse(
           msg.requestId,

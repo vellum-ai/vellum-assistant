@@ -334,6 +334,11 @@ export interface OpenUrl {
   title?: string;
 }
 
+export interface NavigateSettings {
+  type: 'navigate_settings';
+  tab: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _IntegrationsClientMessages =
@@ -369,4 +374,5 @@ export type _IntegrationsServerMessages =
   | IntegrationListResponse
   | IntegrationConnectResult
   | OAuthConnectResultResponse
-  | OpenUrl;
+  | OpenUrl
+  | NavigateSettings;

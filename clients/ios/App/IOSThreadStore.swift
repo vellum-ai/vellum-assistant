@@ -307,9 +307,11 @@ class IOSThreadStore: ObservableObject {
 
         var restoredThreads: [IOSThread] = []
         for session in filteredSessions {
+            let effectiveCreatedAt = session.createdAt ?? session.updatedAt
             let thread = IOSThread(
                 title: session.title,
-                createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
+                createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
+                lastActivityAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 sessionId: session.id
             )
             let vm = ChatViewModel(daemonClient: daemonClient)
@@ -477,7 +479,7 @@ class IOSThreadStore: ObservableObject {
             self?.requestPaginatedHistory(sessionId: sessionId, beforeTimestamp: beforeTimestamp)
         }
 
-        try? daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
+        try? daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxToolResultChars: 1000)
     }
 
     /// Request an older page of history for pagination.
@@ -494,7 +496,7 @@ class IOSThreadStore: ObservableObject {
         }
         pendingHistoryBySessionId[sessionId] = thread.id
         do {
-            try daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
+            try daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
         } catch {
             pendingHistoryBySessionId.removeValue(forKey: sessionId)
             if let vm = viewModels[thread.id] {
@@ -537,7 +539,7 @@ class IOSThreadStore: ObservableObject {
         vm.onReconnectHistoryNeeded = { [weak self, weak vm] sessionId in
             guard let self, let _ = vm, let daemon = self.daemonClient as? DaemonClient else { return }
             self.pendingHistoryBySessionId[sessionId] = threadId
-            try? daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
+            try? daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxToolResultChars: 1000)
         }
     }
 

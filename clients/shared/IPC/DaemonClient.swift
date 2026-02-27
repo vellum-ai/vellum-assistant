@@ -380,6 +380,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `open_url` message.
     public var onOpenUrl: ((OpenUrlMessage) -> Void)?
 
+    /// Called when the daemon sends a `navigate_settings` message.
+    public var onNavigateSettings: ((IPCNavigateSettings) -> Void)?
+
     /// Called when the daemon sends a `ui_layout_config` message.
     public var onLayoutConfig: ((UiLayoutConfigMessage) -> Void)?
 
@@ -469,6 +472,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `recording_stop` message.
     public var onRecordingStop: ((IPCRecordingStop) -> Void)?
+
+    /// Called when the daemon sends a `client_settings_update` message.
+    public var onClientSettingsUpdate: ((IPCClientSettingsUpdate) -> Void)?
+
+    /// Called when the daemon broadcasts an `identity_changed` event (IDENTITY.md changed on disk).
+    public var onIdentityChanged: ((IPCIdentityChanged) -> Void)?
 
     // MARK: - Broadcast Subscribers
 

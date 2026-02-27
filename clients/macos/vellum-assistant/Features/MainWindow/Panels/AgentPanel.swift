@@ -919,6 +919,19 @@ struct AgentPanelContent: View {
                                     .fill(sourceBadgeColor(skill.source).opacity(0.15))
                             )
 
+                        // Provenance badge
+                        if let label = provenanceLabel(skill) {
+                            Text(label)
+                                .font(VFont.small)
+                                .foregroundColor(provenanceBadgeColor(skill))
+                                .padding(.horizontal, VSpacing.sm)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule()
+                                        .fill(provenanceBadgeColor(skill).opacity(0.15))
+                                )
+                        }
+
                         if skill.updateAvailable {
                             Text("UPDATE")
                                 .font(VFont.small)
@@ -930,6 +943,23 @@ struct AgentPanelContent: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                         .lineLimit(2)
+
+                    // Source link for third-party skills
+                    if let provenance = skill.provenance,
+                       provenance.kind == "third-party",
+                       let urlString = provenance.sourceUrl,
+                       let url = URL(string: urlString) {
+                        Link(destination: url) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.system(size: 9))
+                                Text("View on \(provenance.provider ?? "source")")
+                                    .font(VFont.small)
+                            }
+                            .foregroundColor(VColor.textMuted)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
 
                 Spacer(minLength: VSpacing.lg)
@@ -1036,6 +1066,19 @@ struct AgentPanelContent: View {
                             .fill(sourceBadgeColor(skill.source).opacity(0.15))
                     )
 
+                // Provenance badge
+                if let label = provenanceLabel(skill) {
+                    Text(label)
+                        .font(VFont.small)
+                        .foregroundColor(provenanceBadgeColor(skill))
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(provenanceBadgeColor(skill).opacity(0.15))
+                        )
+                }
+
                 Spacer()
 
                 if skill.source == "managed" {
@@ -1065,6 +1108,23 @@ struct AgentPanelContent: View {
                     } else {
                         skillMetaItem(icon: "arrow.up.circle", value: "Update available", color: Amber._500)
                     }
+                }
+
+                // Source link for third-party skills
+                if let provenance = skill.provenance,
+                   provenance.kind == "third-party",
+                   let urlString = provenance.sourceUrl,
+                   let url = URL(string: urlString) {
+                    Link(destination: url) {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 9))
+                            Text("View on \(provenance.provider ?? "source")")
+                                .font(VFont.small)
+                        }
+                        .foregroundColor(VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
@@ -1102,6 +1162,18 @@ struct AgentPanelContent: View {
         }
     }
 
+    private func provenanceLabel(_ skill: SkillInfo) -> String? {
+        guard let provenance = skill.provenance else { return nil }
+        if provenance.kind == "first-party" {
+            return provenance.provider ?? "Vellum"
+        } else if provenance.kind == "third-party" {
+            return provenance.provider ?? "Third-party"
+        } else if provenance.kind == "local" {
+            return "Local"
+        }
+        return nil
+    }
+
     private func sourceBadgeColor(_ source: String) -> Color {
         switch source {
         case "bundled":
@@ -1109,6 +1181,18 @@ struct AgentPanelContent: View {
         case "managed", "clawhub":
             return VColor.success
         case "workspace":
+            return Amber._500
+        default:
+            return VColor.textMuted
+        }
+    }
+
+    private func provenanceBadgeColor(_ skill: SkillInfo) -> Color {
+        guard let provenance = skill.provenance else { return VColor.textMuted }
+        switch provenance.kind {
+        case "first-party":
+            return VColor.accent
+        case "third-party":
             return Amber._500
         default:
             return VColor.textMuted

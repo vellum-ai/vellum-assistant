@@ -28,6 +28,9 @@ export interface NotificationDeliveryRow {
   conversationId: string | null;
   messageId: string | null;
   conversationStrategy: string | null;
+  threadAction: string | null;
+  threadTargetConversationId: string | null;
+  threadDecisionFallbackUsed: number | null;
   clientDeliveryStatus: string | null;
   clientDeliveryError: string | null;
   clientDeliveryAt: number | null;
@@ -52,6 +55,9 @@ function rowToDelivery(row: typeof notificationDeliveries.$inferSelect): Notific
     conversationId: row.conversationId,
     messageId: row.messageId,
     conversationStrategy: row.conversationStrategy,
+    threadAction: row.threadAction,
+    threadTargetConversationId: row.threadTargetConversationId,
+    threadDecisionFallbackUsed: row.threadDecisionFallbackUsed,
     clientDeliveryStatus: row.clientDeliveryStatus,
     clientDeliveryError: row.clientDeliveryError,
     clientDeliveryAt: row.clientDeliveryAt,
@@ -76,6 +82,9 @@ export interface CreateDeliveryParams {
   conversationId?: string;
   messageId?: string;
   conversationStrategy?: string;
+  threadAction?: string;
+  threadTargetConversationId?: string;
+  threadDecisionFallbackUsed?: boolean;
 }
 
 /** Create a new delivery audit record. */
@@ -99,6 +108,9 @@ export function createDelivery(params: CreateDeliveryParams): NotificationDelive
     conversationId: params.conversationId ?? null,
     messageId: params.messageId ?? null,
     conversationStrategy: params.conversationStrategy ?? null,
+    threadAction: params.threadAction ?? null,
+    threadTargetConversationId: params.threadTargetConversationId ?? null,
+    threadDecisionFallbackUsed: params.threadDecisionFallbackUsed != null ? (params.threadDecisionFallbackUsed ? 1 : 0) : null,
     clientDeliveryStatus: null,
     clientDeliveryError: null,
     clientDeliveryAt: null,
@@ -191,11 +203,10 @@ export function listDeliveries(decisionId: string): NotificationDeliveryRow[] {
   return rows.map(rowToDelivery);
 }
 
-/** Check whether a delivery already exists for a given decision+channel+destination triple. */
-export function findDeliveryByDecisionChannelAndDestination(
+/** Check whether a delivery already exists for a given decision+channel pair. */
+export function findDeliveryByDecisionAndChannel(
   decisionId: string,
   channel: NotificationChannel,
-  destination: string,
 ): NotificationDeliveryRow | undefined {
   const db = getDb();
   const row = db
@@ -205,7 +216,6 @@ export function findDeliveryByDecisionChannelAndDestination(
       and(
         eq(notificationDeliveries.notificationDecisionId, decisionId),
         eq(notificationDeliveries.channel, channel),
-        eq(notificationDeliveries.destination, destination),
       ),
     )
     .get();

@@ -9,6 +9,7 @@
 
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import {
+  countPendingRequestsByCallSessionId,
   createGuardianActionDelivery,
   createGuardianActionRequest,
   updateDeliveryStatus,
@@ -26,6 +27,10 @@ export interface GuardianDispatchParams {
   conversationId: string;
   assistantId: string;
   pendingQuestion: CallPendingQuestion;
+  /** Tool identity for tool-approval requests (absent for informational ASK_GUARDIAN). */
+  toolName?: string;
+  /** Canonical SHA-256 digest of tool input for tool-approval requests. */
+  inputDigest?: string;
 }
 
 function applyDeliveryStatus(deliveryId: string, result: NotificationDeliveryResult): void {
@@ -47,6 +52,8 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
     conversationId,
     assistantId,
     pendingQuestion,
+    toolName,
+    inputDigest,
   } = params;
 
   try {
@@ -62,12 +69,20 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
       pendingQuestionId: pendingQuestion.id,
       questionText: pendingQuestion.questionText,
       expiresAt,
+      toolName,
+      inputDigest,
     });
 
     log.info(
       { requestId: request.id, requestCode: request.requestCode, callSessionId },
       'Created guardian action request',
     );
+
+    // Count how many guardian requests are already pending for this call.
+    // This count is a candidate-affinity hint: the decision engine uses it
+    // to prefer reusing an existing thread when multiple questions arise
+    // in the same call session.
+    const activeGuardianRequestCount = countPendingRequestsByCallSessionId(callSessionId);
 
     // Route through the canonical notification pipeline. The paired vellum
     // conversation from this pipeline is the canonical guardian thread.
@@ -90,6 +105,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
         callSessionId,
         questionText: pendingQuestion.questionText,
         pendingQuestionId: pendingQuestion.id,
+        activeGuardianRequestCount,
       },
       dedupeKey: `guardian:${request.id}`,
       onThreadCreated: (info) => {

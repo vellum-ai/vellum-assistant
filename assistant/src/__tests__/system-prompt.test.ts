@@ -257,6 +257,42 @@ describe('buildSystemPrompt', () => {
     });
   });
 
+  test('includes UPDATES.md content when file exists', () => {
+    writeFileSync(join(TEST_DIR, 'UPDATES.md'), '# v1.2\n\nNew feature added.');
+    const result = buildSystemPrompt();
+    expect(result).toContain('## Recent Updates');
+    expect(result).toContain('New feature added.');
+  });
+
+  test('omits updates section when UPDATES.md is empty', () => {
+    writeFileSync(join(TEST_DIR, 'UPDATES.md'), '   \n  \n  ');
+    const result = buildSystemPrompt();
+    expect(result).not.toContain('## Recent Updates');
+  });
+
+  test('omits updates section when UPDATES.md does not exist', () => {
+    const result = buildSystemPrompt();
+    expect(result).not.toContain('## Recent Updates');
+  });
+
+  test('includes update handling instructions when UPDATES.md exists', () => {
+    writeFileSync(join(TEST_DIR, 'UPDATES.md'), '# v1.3\n\nSome update notes.');
+    const result = buildSystemPrompt();
+    expect(result).toContain('### Update Handling');
+    expect(result).toContain('Use your judgment');
+  });
+
+  test('omits update handling instructions when UPDATES.md is absent', () => {
+    const result = buildSystemPrompt();
+    expect(result).not.toContain('### Update Handling');
+  });
+
+  test('config section lists UPDATES.md', () => {
+    const result = buildSystemPrompt();
+    expect(result).toContain('`UPDATES.md`');
+    expect(result).toContain('Release update notes');
+  });
+
   test('strips comment lines starting with _ from prompt files', () => {
     writeFileSync(
       join(TEST_DIR, 'IDENTITY.md'),

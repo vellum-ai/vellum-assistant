@@ -50,6 +50,12 @@ cp .env.example .env
 | `RUNTIME_GATEWAY_ORIGIN_SECRET` | No | — | Dedicated secret for the `X-Gateway-Origin` proof header on `/channels/inbound`. When not set, falls back to the bearer token. Both gateway and runtime must share the same value. |
 | `VELLUM_DAEMON_SOCKET` | No | `~/.vellum/vellum.sock` | Override the daemon socket path |
 
+## Update Bulletin
+
+When a release includes relevant updates, the daemon materializes release notes from the bundled `src/config/templates/UPDATES.md` into `~/.vellum/workspace/UPDATES.md` on startup. The assistant uses judgment to surface updates to the user when relevant, and deletes the file when done.
+
+**For release maintainers:** Update `assistant/src/config/templates/UPDATES.md` with release notes before each relevant release. Leave the template empty (or comment-only) for releases with no user/assistant-facing changes.
+
 ## Usage
 
 ### Start the daemon

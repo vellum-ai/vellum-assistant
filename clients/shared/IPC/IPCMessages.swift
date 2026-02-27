@@ -325,8 +325,8 @@ extension IPCUserMessage {
         #endif
     }
 
-    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String? = nil) {
-        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage, bypassSecretCheck: bypassSecretCheck, channel: channel ?? Self.defaultChannel, interface: interface ?? Self.defaultInterface)
+    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String? = nil, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil) {
+        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage, bypassSecretCheck: bypassSecretCheck, channel: channel ?? Self.defaultChannel, interface: interface ?? Self.defaultInterface, pttActivationKey: pttActivationKey, microphonePermissionGranted: microphonePermissionGranted)
     }
 }
 
@@ -1045,6 +1045,10 @@ public typealias ClawhubInfo = IPCSkillsListResponseSkillClawhub
 /// Backed by generated `IPCSkillsListResponseSkillMissingRequirements`.
 public typealias MissingRequirements = IPCSkillsListResponseSkillMissingRequirements
 
+/// Provenance metadata indicating whether a skill is first-party, third-party, or local.
+/// Backed by generated `IPCSkillsListResponseSkillProvenance`.
+public typealias SkillProvenance = IPCSkillsListResponseSkillProvenance
+
 /// Full skill info from the daemon's resolved skill list.
 /// Backed by generated `IPCSkillsListResponseSkill`.
 public typealias SkillInfo = IPCSkillsListResponseSkill
@@ -1054,12 +1058,12 @@ extension IPCSkillsListResponseSkill: Identifiable {}
 extension IPCSkillsListResponseSkill {
     /// Backward-compatible init that defaults `id` to `name`.
     public init(name: String, description: String, emoji: String?, homepage: String?, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements?, installedVersion: String?, latestVersion: String?, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub?) {
-        self.init(id: name, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: state, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub)
+        self.init(id: name, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: state, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: nil)
     }
 
     /// Returns a copy with a different `state`, preserving all other fields including `id`.
     public func withState(_ newState: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub)
+        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: provenance)
     }
 }
 
@@ -2289,6 +2293,7 @@ public enum ServerMessage: Decodable, Sendable {
     case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
     case openUrl(OpenUrlMessage)
+    case navigateSettings(IPCNavigateSettings)
     case integrationListResponse(IPCIntegrationListResponse)
     case integrationConnectResult(IPCIntegrationConnectResult)
     case oauthConnectResult(IPCOAuthConnectResultResponse)
@@ -2330,6 +2335,7 @@ public enum ServerMessage: Decodable, Sendable {
     case recordingResume(IPCRecordingResume)
     case recordingStart(IPCRecordingStart)
     case recordingStop(IPCRecordingStop)
+    case clientSettingsUpdate(IPCClientSettingsUpdate)
     case heartbeatConfigResponse(IPCHeartbeatConfigResponse)
     case heartbeatRunsListResponse(IPCHeartbeatRunsListResponse)
     case heartbeatRunNowResponse(IPCHeartbeatRunNowResponse)
@@ -2337,6 +2343,7 @@ public enum ServerMessage: Decodable, Sendable {
     case heartbeatChecklistWriteResponse(IPCHeartbeatChecklistWriteResponse)
     case messageContentResponse(IPCMessageContentResponse)
     case tokenRotated(TokenRotatedMessage)
+    case identityChanged(IPCIdentityChanged)
     case pong
     case unknown(String)
 
@@ -2616,6 +2623,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "open_url":
             let message = try OpenUrlMessage(from: decoder)
             self = .openUrl(message)
+        case "navigate_settings":
+            let message = try IPCNavigateSettings(from: decoder)
+            self = .navigateSettings(message)
         case "get_signing_identity":
             let message = try IPCGetSigningIdentityRequest(from: decoder)
             self = .getSigningIdentity(message)
@@ -2748,6 +2758,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "recording_stop":
             let message = try IPCRecordingStop(from: decoder)
             self = .recordingStop(message)
+        case "client_settings_update":
+            let message = try IPCClientSettingsUpdate(from: decoder)
+            self = .clientSettingsUpdate(message)
         case "heartbeat_config_response":
             let message = try IPCHeartbeatConfigResponse(from: decoder)
             self = .heartbeatConfigResponse(message)
@@ -2769,6 +2782,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "token_rotated":
             let message = try TokenRotatedMessage(from: decoder)
             self = .tokenRotated(message)
+        case "identity_changed":
+            let message = try IPCIdentityChanged(from: decoder)
+            self = .identityChanged(message)
         case "pong":
             self = .pong
         default:

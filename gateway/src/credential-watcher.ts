@@ -15,9 +15,11 @@ import {
   readTelegramCredentials,
   readTwilioCredentials,
   readWhatsAppCredentials,
+  readSlackChannelCredentials,
   type TelegramCredentials,
   type TwilioCredentials,
   type WhatsAppCredentials,
+  type SlackChannelCredentials,
 } from "./credential-reader.js";
 
 const log = getLogger("credential-watcher");
@@ -31,6 +33,8 @@ export type CredentialChangeEvent = {
   twilioChanged: boolean;
   whatsappCredentials: WhatsAppCredentials | null;
   whatsappChanged: boolean;
+  slackChannelCredentials: SlackChannelCredentials | null;
+  slackChannelChanged: boolean;
 };
 
 export type CredentialChangeCallback = (event: CredentialChangeEvent) => void;
@@ -47,6 +51,8 @@ export class CredentialWatcher {
   private lastWhatsAppAccessToken: string | undefined;
   private lastWhatsAppAppSecret: string | undefined;
   private lastWhatsAppWebhookVerifyToken: string | undefined;
+  private lastSlackChannelBotToken: string | undefined;
+  private lastSlackChannelAppToken: string | undefined;
   private callback: CredentialChangeCallback;
   private metadataPath: string;
 
@@ -138,6 +144,7 @@ export class CredentialWatcher {
     const telegramCredentials = readTelegramCredentials();
     const twilioCredentials = readTwilioCredentials();
     const whatsappCredentials = readWhatsAppCredentials();
+    const slackChannelCredentials = readSlackChannelCredentials();
 
     const newBotToken = telegramCredentials?.botToken;
     const newWebhookSecret = telegramCredentials?.webhookSecret;
@@ -147,6 +154,8 @@ export class CredentialWatcher {
     const newWhatsAppAccessToken = whatsappCredentials?.accessToken;
     const newWhatsAppAppSecret = whatsappCredentials?.appSecret;
     const newWhatsAppWebhookVerifyToken = whatsappCredentials?.webhookVerifyToken;
+    const newSlackChannelBotToken = slackChannelCredentials?.botToken;
+    const newSlackChannelAppToken = slackChannelCredentials?.appToken;
 
     const telegramChanged =
       newBotToken !== this.lastBotToken ||
@@ -162,7 +171,11 @@ export class CredentialWatcher {
       newWhatsAppAppSecret !== this.lastWhatsAppAppSecret ||
       newWhatsAppWebhookVerifyToken !== this.lastWhatsAppWebhookVerifyToken;
 
-    if (!telegramChanged && !twilioChanged && !whatsappChanged) {
+    const slackChannelChanged =
+      newSlackChannelBotToken !== this.lastSlackChannelBotToken ||
+      newSlackChannelAppToken !== this.lastSlackChannelAppToken;
+
+    if (!telegramChanged && !twilioChanged && !whatsappChanged && !slackChannelChanged) {
       return;
     }
 
@@ -174,6 +187,8 @@ export class CredentialWatcher {
     this.lastWhatsAppAccessToken = newWhatsAppAccessToken;
     this.lastWhatsAppAppSecret = newWhatsAppAppSecret;
     this.lastWhatsAppWebhookVerifyToken = newWhatsAppWebhookVerifyToken;
+    this.lastSlackChannelBotToken = newSlackChannelBotToken;
+    this.lastSlackChannelAppToken = newSlackChannelAppToken;
 
     if (telegramChanged) {
       log.info(
@@ -193,6 +208,12 @@ export class CredentialWatcher {
         "WhatsApp credentials changed",
       );
     }
+    if (slackChannelChanged) {
+      log.info(
+        { hasCredentials: !!slackChannelCredentials },
+        "Slack channel credentials changed",
+      );
+    }
 
     this.callback({
       telegramCredentials,
@@ -201,6 +222,8 @@ export class CredentialWatcher {
       twilioChanged,
       whatsappCredentials,
       whatsappChanged,
+      slackChannelCredentials,
+      slackChannelChanged,
     });
   }
 }

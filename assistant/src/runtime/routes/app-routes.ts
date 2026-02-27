@@ -77,7 +77,7 @@ ${noncedHtml}
   // We keep 'unsafe-inline' so arbitrary app content works.
   const csp = [
     "default-src 'self'",
-    `style-src 'self' 'nonce-${nonce}' 'unsafe-inline'`,
+    "style-src 'self' 'unsafe-inline'",
     "script-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
     "font-src 'self' data: https:",

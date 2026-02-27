@@ -431,7 +431,7 @@ export class AgentLoop {
         if (hasTextBlock) {
           resultBlocks.push({
             type: 'text',
-            text: '<system_notice>Your previous text was already displayed to the user in real-time as you generated it. Continue naturally from where you left off — do not repeat or rephrase what you already said above.</system_notice>',
+            text: '<system_notice>Your previous text was already shown to the user in real time. Do not repeat or rephrase it. Do not narrate retries or internal process chatter ("let me try", "that didn\'t work"). Keep working with tools silently unless you need user input, and only send user-facing text when you have concrete progress or final results.</system_notice>',
           });
         }
 

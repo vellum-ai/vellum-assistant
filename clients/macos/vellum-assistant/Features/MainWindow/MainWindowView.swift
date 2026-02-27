@@ -293,9 +293,7 @@ struct MainWindowView: View {
     /// Resolve display names for thread export.
     private func resolveParticipantNames() -> ChatTranscriptFormatter.ParticipantNames {
         // Assistant name: IdentityInfo → UserDefaults → fallback
-        let assistantName = IdentityInfo.load()?.name
-            ?? UserDefaults.standard.string(forKey: "assistantName")
-            ?? "Assistant"
+        let assistantName = IdentityInfo.load()?.name ?? "Assistant"
 
         // User name: stored profile → system name → fallback
         let userName: String = {
@@ -477,85 +475,93 @@ struct MainWindowView: View {
             }
     }
 
+    /// Top bar extracted to break up type-checker complexity.
+    private var topBarView: some View {
+        HStack(spacing: VSpacing.sm) {
+            VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarExpanded, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                withAnimation(VAnimation.panel) {
+                    sidebarExpanded.toggle()
+                }
+            }
+            if isChatBubbleVisible {
+                ChatBubbleToggle(
+                    isActive: isChatBubbleActive,
+                    tooltip: isChatBubbleActive ? "Hide chat" : "Show chat",
+                    onToggle: { toggleChatBubble() }
+                )
+            }
+            Spacer()
+            PTTKeyIndicator {
+                settingsStore.pendingSettingsTab = .voice
+                windowState.selection = .panel(.settings)
+            }
+            if windowState.isShowingChat || isChatBubbleActive {
+                // Copy Thread button — only visible when there's content to copy
+                if threadManager.activeViewModel?.messages.contains(where: {
+                    !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }) == true {
+                    VIconButton(
+                        label: "Copy thread",
+                        icon: copyThread.showConfirmation ? "checkmark" : "list.clipboard",
+                        isActive: copyThread.showConfirmation,
+                        iconOnly: true,
+                        tooltip: copyThread.showConfirmation ? "Copied!" : "Copy thread"
+                    ) {
+                        let messages = threadManager.activeViewModel?.messages ?? []
+                        let title = threadManager.activeThread?.title
+                        let names = resolveParticipantNames()
+                        let markdown = ChatTranscriptFormatter.threadMarkdown(
+                            messages: messages,
+                            threadTitle: title,
+                            participantNames: names
+                        )
+                        guard !markdown.isEmpty else { return }
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(markdown, forType: .string)
+                        copyThread.cancel()
+                        copyThread.showConfirmation = true
+                        let timer = DispatchWorkItem { [copyThread] in copyThread.showConfirmation = false }
+                        copyThread.confirmationTimer = timer
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+                    }
+                }
+
+                // Voice mode toggle
+                VIconButton(
+                    label: "Voice Mode",
+                    icon: voiceModeManager.state != .off ? "waveform.circle.fill" : "waveform.circle",
+                    isActive: voiceModeManager.state != .off,
+                    iconOnly: true,
+                    tooltip: voiceModeManager.state != .off ? "Exit voice mode" : "Voice mode"
+                ) {
+                    toggleVoiceMode()
+                }
+
+                // Temporary chat toggle — always visible on private threads (so users can exit temp chat),
+                // only visible on normal threads when no messages exist yet
+                if threadManager.activeThread?.kind == .private || threadManager.activeViewModel?.messages.contains(where: {
+                    !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }) != true {
+                    TemporaryChatToggle(
+                        isActive: threadManager.activeThread?.kind == .private,
+                        tooltip: threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat",
+                        onToggle: { toggleTemporaryChat() }
+                    )
+                }
+            }
+        }
+        .padding(.leading, trafficLightPadding)
+        .padding(.trailing, VSpacing.lg)
+        .frame(height: 36)
+        .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+    }
+
     /// Core layout extracted to break up type-checker complexity.
     private var coreLayoutView: some View {
         GeometryReader { geometry in
             Group {
                 VStack(spacing: 0) {
-                    // Top bar (always visible, above sidebar)
-                    HStack(spacing: VSpacing.sm) {
-                        VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarExpanded, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
-                            withAnimation(VAnimation.panel) {
-                                sidebarExpanded.toggle()
-                            }
-                        }
-                        if isChatBubbleVisible {
-                            ChatBubbleToggle(
-                                isActive: isChatBubbleActive,
-                                tooltip: isChatBubbleActive ? "Hide chat" : "Show chat",
-                                onToggle: { toggleChatBubble() }
-                            )
-                        }
-                        Spacer()
-                        if windowState.isShowingChat || isChatBubbleActive {
-                            // Copy Thread button — only visible when there's content to copy
-                            if threadManager.activeViewModel?.messages.contains(where: {
-                                !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            }) == true {
-                                VIconButton(
-                                    label: "Copy thread",
-                                    icon: copyThread.showConfirmation ? "checkmark" : "list.clipboard",
-                                    isActive: copyThread.showConfirmation,
-                                    iconOnly: true,
-                                    tooltip: copyThread.showConfirmation ? "Copied!" : "Copy thread"
-                                ) {
-                                    let messages = threadManager.activeViewModel?.messages ?? []
-                                    let title = threadManager.activeThread?.title
-                                    let names = resolveParticipantNames()
-                                    let markdown = ChatTranscriptFormatter.threadMarkdown(
-                                        messages: messages,
-                                        threadTitle: title,
-                                        participantNames: names
-                                    )
-                                    guard !markdown.isEmpty else { return }
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(markdown, forType: .string)
-                                    copyThread.cancel()
-                                    copyThread.showConfirmation = true
-                                    let timer = DispatchWorkItem { [copyThread] in copyThread.showConfirmation = false }
-                                    copyThread.confirmationTimer = timer
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
-                                }
-                            }
-
-                            // Voice mode toggle
-                            VIconButton(
-                                label: "Voice Mode",
-                                icon: voiceModeManager.state != .off ? "waveform.circle.fill" : "waveform.circle",
-                                isActive: voiceModeManager.state != .off,
-                                iconOnly: true,
-                                tooltip: voiceModeManager.state != .off ? "Exit voice mode" : "Voice mode"
-                            ) {
-                                toggleVoiceMode()
-                            }
-
-                            // Temporary chat toggle — always visible on private threads (so users can exit temp chat),
-                            // only visible on normal threads when no messages exist yet
-                            if threadManager.activeThread?.kind == .private || threadManager.activeViewModel?.messages.contains(where: {
-                                !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            }) != true {
-                                TemporaryChatToggle(
-                                    isActive: threadManager.activeThread?.kind == .private,
-                                    tooltip: threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat",
-                                    onToggle: { toggleTemporaryChat() }
-                                )
-                            }
-                        }
-                    }
-                    .padding(.leading, trafficLightPadding)
-                    .padding(.trailing, VSpacing.lg)
-                    .frame(height: 36)
-                    .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+                    topBarView
 
                     // Main container: sidebar + content with uniform padding
                     HStack(spacing: 16) {
@@ -664,15 +670,13 @@ struct MainWindowView: View {
         .onChange(of: threadManager.activeThreadId) { oldId, newId in
             // Sync activeThreadId changes back to selectedThreadId to keep sidebar selection in sync
             selectedThreadId = newId
-            // Update persistentThreadId when the active thread changes, but only
-            // if the user is currently viewing a thread or has no selection (not an overlay).
+            // Always sync persistentThreadId so the sidebar highlights the
+            // correct thread — even when an overlay (.panel, .app) is active.
+            // Without this, archiving the active thread while viewing a panel
+            // leaves persistentThreadId pointing at the archived (invisible) thread
+            // and the sidebar shows no active highlight.
             if let newId {
-                switch windowState.selection {
-                case .thread, .none, .appEditing:
-                    windowState.persistentThreadId = newId
-                default:
-                    break
-                }
+                windowState.persistentThreadId = newId
             }
             if case .panel(.intelligence) = windowState.selection {
                 windowState.selection = nil
@@ -766,14 +770,17 @@ struct MainWindowView: View {
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected: Bool = {
-            // Any panel selection deselects all threads
-            if case .panel = windowState.selection {
+            switch windowState.selection {
+            case .panel:
                 return false
+            case .thread(let id):
+                return id == thread.id
+            case .appEditing(_, let threadId):
+                return threadId == thread.id
+            case .app, .none:
+                // No explicit thread in selection; fall back to the persistent thread.
+                return thread.id == windowState.persistentThreadId
             }
-            if thread.id == windowState.persistentThreadId { return true }
-            if case .thread(let id) = windowState.selection, id == thread.id { return true }
-            if case .appEditing(_, let threadId) = windowState.selection, threadId == thread.id { return true }
-            return false
         }()
         let isHovered = sidebar.isHoveredThread == thread.id
         let isBusy = threadManager.isThreadBusy(thread.id)
@@ -1170,10 +1177,26 @@ struct MainWindowView: View {
                 .padding(.horizontal, VSpacing.md)
 
             // MARK: Threads (scrollable)
-            SidebarThreadsHeader(onNewThread: {
-                windowState.selection = nil
-                threadManager.createThread()
-            })
+            SidebarThreadsHeader(
+                hasUnseenThreads: threadManager.unseenVisibleConversationCount > 0,
+                onMarkAllSeen: {
+                    let markedIds = threadManager.markAllThreadsSeen()
+                    guard !markedIds.isEmpty else { return }
+                    let count = markedIds.count
+                    windowState.showToast(
+                        message: "Marked \(count) thread\(count == 1 ? "" : "s") as seen",
+                        style: .success,
+                        primaryAction: VToastAction(label: "Undo") {
+                            threadManager.restoreUnseen(threadIds: markedIds)
+                            windowState.dismissToast()
+                        }
+                    )
+                },
+                onNewThread: {
+                    windowState.selection = nil
+                    threadManager.createThread()
+                }
+            )
 
             ScrollView {
                 VStack(spacing: 0) {
@@ -1486,6 +1509,8 @@ private struct SidebarNavRow: View {
 }
 
 private struct SidebarThreadsHeader: View {
+    let hasUnseenThreads: Bool
+    let onMarkAllSeen: () -> Void
     let onNewThread: () -> Void
 
     var body: some View {
@@ -1494,11 +1519,28 @@ private struct SidebarThreadsHeader: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(VColor.textPrimary)
             Spacer()
+            if hasUnseenThreads {
+                VIconButton(
+                    label: "Mark all as seen",
+                    icon: "checkmark.circle",
+                    iconOnly: true,
+                    tooltip: "Mark all as seen",
+                    action: onMarkAllSeen
+                )
+            }
             VIconButton(label: "New thread", icon: "plus", iconOnly: true, action: onNewThread)
         }
         .padding(.leading, 20)
         .padding(.trailing, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
+        .contextMenu {
+            Button {
+                onMarkAllSeen()
+            } label: {
+                Label("Mark All as Seen", systemImage: "checkmark.circle")
+            }
+            .disabled(!hasUnseenThreads)
+        }
     }
 }
 
@@ -1588,7 +1630,7 @@ private struct DrawerThemeToggle: View {
                                     ? VColor.hoverOverlay.opacity(0.1)
                                     : Color.clear
                             )
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     }
                     .buttonStyle(.plain)
                     .help(option.tooltip)

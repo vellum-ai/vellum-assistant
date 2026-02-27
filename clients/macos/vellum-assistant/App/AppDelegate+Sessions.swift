@@ -330,6 +330,9 @@ extension AppDelegate {
                 return false
             }
             threadManager.activeThreadId = thread.id
+            // Switch the main content area to the chat thread so the user sees it
+            // even if they were last viewing a panel, app, or other non-chat view.
+            mainWindow?.windowState.selection = nil
             // Clear unseen state and notify the daemon when deep-linking into a
             // conversation. selectThread's unseen-clear is guarded by
             // id != previousActiveId, which is false when activeThreadId was

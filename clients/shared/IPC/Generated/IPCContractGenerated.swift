@@ -914,6 +914,21 @@ public struct IPCChannelReadinessResponseSnapshotRemoteCheck: Codable, Sendable 
     }
 }
 
+/// Sent by the daemon to update a client-side setting (e.g. activation key).
+public struct IPCClientSettingsUpdate: Codable, Sendable {
+    public let type: String
+    /// The setting key to update (e.g. "activationKey").
+    public let key: String
+    /// The new value for the setting.
+    public let value: String
+
+    public init(type: String, key: String, value: String) {
+        self.type = type
+        self.key = key
+        self.value = value
+    }
+}
+
 /// Structured command intent — bypasses text parsing when present.
 public struct IPCCommandIntent: Codable, Sendable {
     public let domain: String
@@ -2297,6 +2312,25 @@ public struct IPCHomeBaseGetResponseHomeBasePreviewMetric: Codable, Sendable {
     }
 }
 
+/// Server push — broadcast when IDENTITY.md changes on disk.
+public struct IPCIdentityChanged: Codable, Sendable {
+    public let type: String
+    public let name: String
+    public let role: String
+    public let personality: String
+    public let emoji: String
+    public let home: String
+
+    public init(type: String, name: String, role: String, personality: String, emoji: String, home: String) {
+        self.type = type
+        self.name = name
+        self.role = role
+        self.personality = personality
+        self.emoji = emoji
+        self.home = home
+    }
+}
+
 public struct IPCIdentityGetRequest: Codable, Sendable {
     public let type: String
 
@@ -2915,6 +2949,16 @@ public struct IPCModelSetRequest: Codable, Sendable {
     public init(type: String, model: String) {
         self.type = type
         self.model = model
+    }
+}
+
+public struct IPCNavigateSettings: Codable, Sendable {
+    public let type: String
+    public let tab: String
+
+    public init(type: String, tab: String) {
+        self.type = type
+        self.tab = tab
     }
 }
 
@@ -3767,6 +3811,7 @@ public struct IPCSessionListResponse: Codable, Sendable {
 public struct IPCSessionListResponseSession: Codable, Sendable {
     public let id: String
     public let title: String
+    public let createdAt: Int?
     public let updatedAt: Int
     public let threadType: String?
     public let source: String?
@@ -3777,9 +3822,10 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     /// Attention state metadata for a conversation's latest assistant message.
     public let assistantAttention: IPCAssistantAttention?
 
-    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: IPCAssistantAttention? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: IPCAssistantAttention? = nil) {
         self.id = id
         self.title = title
+        self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.threadType = threadType
         self.source = source
@@ -4296,8 +4342,9 @@ public struct IPCSkillsListResponseSkill: Codable, Sendable {
     public let updateAvailable: Bool
     public let userInvocable: Bool
     public let clawhub: IPCSkillsListResponseSkillClawhub?
+    public let provenance: IPCSkillsListResponseSkillProvenance?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements? = nil, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements? = nil, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub? = nil, provenance: IPCSkillsListResponseSkillProvenance? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4312,6 +4359,7 @@ public struct IPCSkillsListResponseSkill: Codable, Sendable {
         self.updateAvailable = updateAvailable
         self.userInvocable = userInvocable
         self.clawhub = clawhub
+        self.provenance = provenance
     }
 }
 
@@ -4340,6 +4388,20 @@ public struct IPCSkillsListResponseSkillMissingRequirements: Codable, Sendable {
         self.bins = bins
         self.env = env
         self.permissions = permissions
+    }
+}
+
+public struct IPCSkillsListResponseSkillProvenance: Codable, Sendable {
+    public let kind: String
+    public let provider: String?
+    public let originId: String?
+    public let sourceUrl: String?
+
+    public init(kind: String, provider: String? = nil, originId: String? = nil, sourceUrl: String? = nil) {
+        self.kind = kind
+        self.provider = provider
+        self.originId = originId
+        self.sourceUrl = sourceUrl
     }
 }
 
@@ -5712,10 +5774,14 @@ public struct IPCUserMessage: Codable, Sendable {
     public let channel: String?
     /// Originating interface identifier (e.g. 'macos').
     public let interface: String
+    /// Push-to-talk activation key configured on the client (e.g. 'fn', 'ctrl', 'fn_shift', 'none').
+    public let pttActivationKey: String?
+    /// Whether the client has been granted microphone permission by the OS.
+    public let microphonePermissionGranted: Bool?
     /// Structured command intent — bypasses text parsing when present.
     public let commandIntent: IPCCommandIntent?
 
-    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, commandIntent: IPCCommandIntent? = nil) {
+    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil, commandIntent: IPCCommandIntent? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.content = content
@@ -5725,6 +5791,8 @@ public struct IPCUserMessage: Codable, Sendable {
         self.bypassSecretCheck = bypassSecretCheck
         self.channel = channel
         self.interface = interface
+        self.pttActivationKey = pttActivationKey
+        self.microphonePermissionGranted = microphonePermissionGranted
         self.commandIntent = commandIntent
     }
 }
@@ -5789,6 +5857,18 @@ public struct IPCVercelApiConfigResponse: Codable, Sendable {
         self.hasToken = hasToken
         self.success = success
         self.error = error
+    }
+}
+
+/// Request from a session or IPC client to change the voice activation key.
+public struct IPCVoiceConfigUpdateRequest: Codable, Sendable {
+    public let type: String
+    /// The desired activation key (enum value or natural-language name).
+    public let activationKey: String
+
+    public init(type: String, activationKey: String) {
+        self.type = type
+        self.activationKey = activationKey
     }
 }
 

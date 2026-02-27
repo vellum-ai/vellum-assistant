@@ -8,6 +8,11 @@
  * POST   /v1/integrations/telegram/commands — register bot commands
  * POST   /v1/integrations/telegram/setup    — composite: set config + register commands
  *
+ * Slack channel:
+ * GET    /v1/integrations/slack/channel/config — get current config status
+ * POST   /v1/integrations/slack/channel/config — validate and store credentials
+ * DELETE /v1/integrations/slack/channel/config — clear credentials
+ *
  * Guardian verification:
  * POST   /v1/integrations/guardian/challenge        — create a verification challenge
  * GET    /v1/integrations/guardian/status            — check guardian binding status
@@ -21,7 +26,11 @@ import {
   createGuardianChallenge,
   getGuardianStatus,
 } from '../../daemon/handlers/config-channels.js';
-import { httpError } from '../http-errors.js';
+import {
+  clearSlackChannelConfig,
+  getSlackChannelConfig,
+  setSlackChannelConfig,
+} from '../../daemon/handlers/config-slack-channel.js';
 import {
   clearTelegramConfig,
   getTelegramConfig,
@@ -29,14 +38,15 @@ import {
   setTelegramConfig,
   setupTelegram,
 } from '../../daemon/handlers/config-telegram.js';
+import { normalizePhoneNumber } from '../../util/phone.js';
 import {
   cancelOutbound,
   normalizeTelegramDestination,
   resendOutbound,
   startOutbound,
 } from '../guardian-outbound-actions.js';
+import { httpError } from '../http-errors.js';
 import { guardianVerificationLimiter } from '../verification-rate-limiter.js';
-import { normalizePhoneNumber } from '../../util/phone.js';
 
 /**
  * GET /v1/integrations/telegram/config
@@ -93,6 +103,38 @@ export async function handleSetupTelegram(req: Request): Promise<Response> {
   const result = await setupTelegram(body.commands, body.botToken);
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });
+}
+
+// ---------------------------------------------------------------------------
+// Slack channel config
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /v1/integrations/slack/channel/config
+ */
+export function handleGetSlackChannelConfig(): Response {
+  const result = getSlackChannelConfig();
+  return Response.json(result);
+}
+
+/**
+ * POST /v1/integrations/slack/channel/config
+ *
+ * Body: { botToken?: string, appToken?: string }
+ */
+export async function handleSetSlackChannelConfig(req: Request): Promise<Response> {
+  const body = (await req.json()) as { botToken?: string; appToken?: string };
+  const result = await setSlackChannelConfig(body.botToken, body.appToken);
+  const status = result.success ? 200 : 400;
+  return Response.json(result, { status });
+}
+
+/**
+ * DELETE /v1/integrations/slack/channel/config
+ */
+export function handleClearSlackChannelConfig(): Response {
+  const result = clearSlackChannelConfig();
+  return Response.json(result);
 }
 
 // ---------------------------------------------------------------------------

@@ -297,15 +297,15 @@ describe('Trust Store', () => {
     });
 
     test('returns null when tool does not match', () => {
-      addRule('file_write', 'git *', '/tmp');
-      // host_bash default is 'ask' so findMatchingRule (allow-only) won't find it
-      const match = findMatchingRule('host_bash', 'git push', '/tmp');
+      addRule('file_write', 'file_write:/tmp/*', '/tmp');
+      // host_file_read default is 'ask' so findMatchingRule (allow-only) won't find it
+      const match = findMatchingRule('host_file_read', 'host_file_read:/etc/hosts', '/tmp');
       expect(match).toBeNull();
     });
 
     test('returns null when pattern does not match', () => {
-      addRule('host_bash', 'git *', '/tmp');
-      const match = findMatchingRule('host_bash', 'npm install', '/tmp');
+      addRule('host_file_read', 'host_file_read:/etc/hosts', '/tmp');
+      const match = findMatchingRule('host_file_read', 'host_file_read:/var/log/syslog', '/tmp');
       expect(match).toBeNull();
     });
 
@@ -324,8 +324,8 @@ describe('Trust Store', () => {
       });
 
       test('does not match when scope is outside rule scope', () => {
-        addRule('host_bash', 'npm *', '/home/user/project');
-        const match = findMatchingRule('host_bash', 'npm install', '/home/other');
+        addRule('host_file_read', 'host_file_read:/home/user/project/*', '/home/user/project');
+        const match = findMatchingRule('host_file_read', 'host_file_read:/home/user/project/file.txt', '/home/other');
         expect(match).toBeNull();
       });
 
@@ -342,8 +342,8 @@ describe('Trust Store', () => {
       });
 
       test('does not match sibling path with shared prefix', () => {
-        addRule('host_bash', 'npm *', '/home/user/project');
-        const match = findMatchingRule('host_bash', 'npm install', '/home/user/project-evil');
+        addRule('host_file_read', 'host_file_read:/home/user/project/*', '/home/user/project');
+        const match = findMatchingRule('host_file_read', 'host_file_read:/home/user/project/file.txt', '/home/user/project-evil');
         expect(match).toBeNull();
       });
 
@@ -360,8 +360,8 @@ describe('Trust Store', () => {
       });
 
       test('does not match sibling with glob-suffixed scope', () => {
-        addRule('host_bash', 'npm *', '/home/user/project*');
-        const match = findMatchingRule('host_bash', 'npm install', '/home/user/project-evil');
+        addRule('host_file_read', 'host_file_read:/home/user/project/*', '/home/user/project*');
+        const match = findMatchingRule('host_file_read', 'host_file_read:/home/user/project/file.txt', '/home/user/project-evil');
         expect(match).toBeNull();
       });
     });
@@ -375,9 +375,9 @@ describe('Trust Store', () => {
       });
 
       test('matches exact string', () => {
-        addRule('host_bash', 'git status', '/tmp');
-        expect(findMatchingRule('host_bash', 'git status', '/tmp')).not.toBeNull();
-        expect(findMatchingRule('host_bash', 'git push', '/tmp')).toBeNull();
+        addRule('host_file_read', 'host_file_read:/etc/hosts', '/tmp');
+        expect(findMatchingRule('host_file_read', 'host_file_read:/etc/hosts', '/tmp')).not.toBeNull();
+        expect(findMatchingRule('host_file_read', 'host_file_read:/etc/passwd', '/tmp')).toBeNull();
       });
 
       test('matches file path pattern', () => {
@@ -545,9 +545,9 @@ describe('Trust Store', () => {
     });
 
     test('findMatchingRule ignores deny rules', () => {
-      // Use host_bash — bash has a default allow rule that would match.
-      addRule('host_bash', 'rm *', '/tmp', 'deny');
-      const match = findMatchingRule('host_bash', 'rm file.txt', '/tmp');
+      // Use host_file_read — it has an 'ask' default so findMatchingRule (allow-only) won't find it.
+      addRule('host_file_read', 'host_file_read:/etc/*', '/tmp', 'deny');
+      const match = findMatchingRule('host_file_read', 'host_file_read:/etc/hosts', '/tmp');
       expect(match).toBeNull();
     });
 
@@ -671,7 +671,7 @@ describe('Trust Store', () => {
       expect(defaults).toHaveLength(NUM_DEFAULTS);
       for (const rule of defaults) {
         expect(rule.priority).toBe(DEFAULT_PRIORITY_BY_ID.get(rule.id)!);
-        if (rule.id === 'default:allow-bash-rm-bootstrap') {
+        if (rule.id === 'default:allow-bash-rm-bootstrap' || rule.id === 'default:allow-bash-rm-updates') {
           expect(rule.scope).toBe(join(testDir, 'workspace'));
         } else {
           expect(rule.scope).toBe('everywhere');
@@ -693,12 +693,16 @@ describe('Trust Store', () => {
         'browser_close',
         'browser_extract',
         'browser_fill_credential',
+        'browser_hover',
         'browser_navigate',
         'browser_press_key',
         'browser_screenshot',
+        'browser_scroll',
+        'browser_select_option',
         'browser_snapshot',
         'browser_type',
         'browser_wait_for',
+        'browser_wait_for_download',
         'computer_use_click',
         'computer_use_double_click',
         'computer_use_drag',
@@ -802,12 +806,12 @@ describe('Trust Store', () => {
       expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-host_file_edit-global')!);
     });
 
-    test('findHighestPriorityRule matches default ask for host_bash', () => {
+    test('findHighestPriorityRule matches default allow for host_bash', () => {
       const match = findHighestPriorityRule('host_bash', ['ls'], '/tmp');
       expect(match).not.toBeNull();
-      expect(match!.id).toBe('default:ask-host_bash-global');
-      expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-host_bash-global')!);
+      expect(match!.id).toBe('default:allow-host_bash-global');
+      expect(match!.decision).toBe('allow');
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:allow-host_bash-global')!);
     });
 
     test('findHighestPriorityRule matches default ask for computer_use_click', () => {
@@ -834,12 +838,26 @@ describe('Trust Store', () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe('default:allow-bash-rm-bootstrap');
       expect(match!.decision).toBe('allow');
+      expect(match!.allowHighRisk).toBe(true);
       // Outside workspace, the bootstrap rule doesn't match — the global
       // default:allow-bash-global rule matches instead (not the bootstrap rule).
       const other = findHighestPriorityRule('bash', ['rm BOOTSTRAP.md'], '/tmp/other-project');
       expect(other).not.toBeNull();
       expect(other!.id).not.toBe('default:allow-bash-rm-bootstrap');
       expect(other!.id).toBe('default:allow-bash-global');
+    });
+
+    test('updates delete rule matches only when workingDir is the workspace dir', () => {
+      const workspaceDir = join(testDir, 'workspace');
+      const match = findHighestPriorityRule('bash', ['rm UPDATES.md'], workspaceDir);
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:allow-bash-rm-updates');
+      expect(match!.decision).toBe('allow');
+      expect(match!.allowHighRisk).toBe(true);
+      // Outside workspace, should NOT match the updates rule
+      const other = findHighestPriorityRule('bash', ['rm UPDATES.md'], '/tmp/other-project');
+      expect(other).not.toBeNull();
+      expect(other!.id).not.toBe('default:allow-bash-rm-updates');
     });
 
     test('default ask does not affect files outside protected directory', () => {

@@ -3,13 +3,16 @@
  *
  * Validates that the deterministic fallback correctly classifies signals based
  * on urgency + requiresAction, that channel selection respects connected channels,
- * and that the copy-composer generates correct fallback copy for known event names.
+ * the copy-composer generates correct fallback copy for known event names, and
+ * thread action types are structurally correct.
  */
 
 import { describe, expect, test } from 'bun:test';
 
 import { composeFallbackCopy } from '../notifications/copy-composer.js';
+import { validateThreadActions } from '../notifications/decision-engine.js';
 import type { NotificationSignal } from '../notifications/signal.js';
+import type { ThreadCandidateSet } from '../notifications/thread-candidates.js';
 import type { NotificationChannel } from '../notifications/types.js';
 
 // -- Helpers -----------------------------------------------------------------
@@ -168,6 +171,140 @@ describe('notification decision strategy', () => {
         });
         expect(signal.attentionHints.urgency).toBe(urgency);
       }
+    });
+  });
+
+  // -- Thread action validation -----------------------------------------------
+
+  describe('thread action validation', () => {
+    const validChannels: NotificationChannel[] = ['vellum', 'telegram'];
+    const candidateSet: ThreadCandidateSet = {
+      vellum: [
+        {
+          conversationId: 'conv-001',
+          title: 'Reminder thread',
+          updatedAt: Date.now(),
+          latestSourceEventName: 'reminder.fired',
+          channel: 'vellum',
+        },
+        {
+          conversationId: 'conv-002',
+          title: 'Guardian thread',
+          updatedAt: Date.now(),
+          latestSourceEventName: 'guardian.question',
+          channel: 'vellum',
+          guardianContext: { pendingUnresolvedRequestCount: 2 },
+        },
+      ],
+      telegram: [
+        {
+          conversationId: 'conv-003',
+          title: 'Telegram thread',
+          updatedAt: Date.now(),
+          latestSourceEventName: 'reminder.fired',
+          channel: 'telegram',
+        },
+      ],
+    };
+
+    test('accepts start_new action', () => {
+      const result = validateThreadActions(
+        { vellum: { action: 'start_new' } },
+        validChannels,
+        candidateSet,
+      );
+      expect(result.vellum).toEqual({ action: 'start_new' });
+    });
+
+    test('accepts reuse_existing with valid candidate conversationId', () => {
+      const result = validateThreadActions(
+        { vellum: { action: 'reuse_existing', conversationId: 'conv-001' } },
+        validChannels,
+        candidateSet,
+      );
+      expect(result.vellum).toEqual({ action: 'reuse_existing', conversationId: 'conv-001' });
+    });
+
+    test('downgrades reuse_existing with invalid conversationId to start_new', () => {
+      const result = validateThreadActions(
+        { vellum: { action: 'reuse_existing', conversationId: 'conv-INVALID' } },
+        validChannels,
+        candidateSet,
+      );
+      expect(result.vellum).toEqual({ action: 'start_new' });
+    });
+
+    test('downgrades reuse_existing without conversationId to start_new', () => {
+      const result = validateThreadActions(
+        { vellum: { action: 'reuse_existing' } },
+        validChannels,
+        candidateSet,
+      );
+      expect(result.vellum).toEqual({ action: 'start_new' });
+    });
+
+    test('downgrades reuse_existing with empty conversationId to start_new', () => {
+      const result = validateThreadActions(
+        { vellum: { action: 'reuse_existing', conversationId: '  ' } },
+        validChannels,
+        candidateSet,
+      );
+      expect(result.vellum).toEqual({ action: 'start_new' });
+    });
+
+    test('rejects reuse_existing targeting a different channel candidate', () => {
+      // conv-003 is a telegram candidate, not a vellum candidate
+      const result = validateThreadActions(
+        { vellum: { action: 'reuse_existing', conversationId: 'conv-003' } },
+        validChannels,
+        candidateSet,
+      );
+      expect(result.vellum).toEqual({ action: 'start_new' });
+    });
+
+    test('ignores thread actions for channels not in validChannels', () => {
+      const result = validateThreadActions(
+        { sms: { action: 'start_new' } },
+        validChannels,
+        candidateSet,
+      );
+      expect(result).toEqual({});
+    });
+
+    test('handles null/undefined input gracefully', () => {
+      expect(validateThreadActions(null, validChannels, candidateSet)).toEqual({});
+      expect(validateThreadActions(undefined, validChannels, candidateSet)).toEqual({});
+    });
+
+    test('handles missing candidate set — all reuse_existing downgrade to start_new', () => {
+      const result = validateThreadActions(
+        { vellum: { action: 'reuse_existing', conversationId: 'conv-001' } },
+        validChannels,
+        undefined,
+      );
+      expect(result.vellum).toEqual({ action: 'start_new' });
+    });
+
+    test('supports multiple channels simultaneously', () => {
+      const result = validateThreadActions(
+        {
+          vellum: { action: 'reuse_existing', conversationId: 'conv-002' },
+          telegram: { action: 'start_new' },
+        },
+        validChannels,
+        candidateSet,
+      );
+      expect(result.vellum).toEqual({ action: 'reuse_existing', conversationId: 'conv-002' });
+      expect(result.telegram).toEqual({ action: 'start_new' });
+    });
+
+    test('ignores unknown action values', () => {
+      const result = validateThreadActions(
+        { vellum: { action: 'unknown_action' } },
+        validChannels,
+        candidateSet,
+      );
+      expect(result.vellum).toBeUndefined();
     });
   });
 });

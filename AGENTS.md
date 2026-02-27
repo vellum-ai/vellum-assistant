@@ -5,7 +5,7 @@
 Bun + TypeScript monorepo with multiple packages:
 
 - `assistant/` — Main backend service (Bun + TypeScript)
-- `gateway/` — Telegram webhook gateway (Bun + TypeScript)
+- `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `clients/` — Client apps (macOS/iOS/etc). See `clients/AGENTS.md` and platform docs like `clients/macos/CLAUDE.md`.
 - `scripts/` — Utility scripts
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`)
@@ -60,7 +60,7 @@ These are the most commonly used slash commands defined in `.claude/commands/`:
 | `/safe-do <description>` | Like `/do` but creates a PR without auto-merging — pauses for human review. Keeps the worktree in place for addressing feedback. The PR body includes the original prompt for traceability. |
 | `/swarm [workers] [max-tasks] [--namespace NAME]` | Process `.private/TODO.md` in parallel — one worktree per agent, auto-merge PRs (auto-assigned to the current user), respawn agents until the list is empty. Uses `--namespace` to prefix branch names and avoid collisions with other parallel swarms (auto-generates a random 4-char hex if omitted). When `--namespace` is explicitly provided, only TODO items prefixed with `[<namespace>]` are processed; when auto-generated, all items are processed. |
 | `/blitz <feature>` | End-to-end feature delivery: plan, create GitHub issues on a project board, swarm-execute in parallel, gate each PR on Codex/Devin review approval before merging (per-PR feedback loops with up to 3 fix cycles), then run a recursive sweep loop (check reviews, swarm to address feedback, review and merge feedback PRs, repeat) until all PRs — including transitive feedback PRs — are fully reviewed. Supports `--auto`, `--workers N`, `--skip-plan`, `--skip-reviews`. Pass `--skip-reviews` to merge immediately without waiting for reviews (default is to wait). Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. |
-| `/safe-blitz <feature>` | Like `/blitz` but merges milestone PRs into a feature branch instead of main, with per-milestone direct-push feedback loops (push fixes to milestone branch, re-request reviews, repeat until clean or 3 cycles) and a final sweep before opening a PR for manual review. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
+| `/safe-blitz <feature>` | Like `/blitz` but merges milestone PRs into a feature branch instead of main, with per-milestone direct-push feedback loops (push fixes to milestone branch, re-request reviews, repeat until clean or 3 cycles) and an automatic final sweep (no approval prompt) before opening a PR for manual review. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--workers N`, `--skip-plan`, `--branch NAME`. |
 | `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merge the feature branch PR into main, set the project issue to Done, close the issue, and clean up locally. Auto-detects from current branch, open `feature/*` PRs, or project board. |
 | `/mainline [title]` | Ship the current uncommitted changes to main via a squash-merged PR. The PR body includes the original prompt (if provided) for traceability. |
 | `/ship-and-merge [title]` | Create a PR, wait for Codex and Devin reviews, fix valid feedback (up to 3 rounds), and squash-merge once approved. The PR body includes the original prompt (if provided) for traceability. |
@@ -336,8 +336,29 @@ Prefer skills in `assistant/skills/vellum-skills/` that teach the model how to u
 
 Keep the system prompt as minimal as possible. Avoid adding instructions about how to use tools; only document what tools exist when they are basic, primitive, and universally useful. Prefer CLI programs that the assistant can progressively learn to use via `--help`.
 
+## Assistant-Driven Judgement
+
+All judgement calls that affect the user's experience should be made by the assistant through the daemon process — not by hard-coded logic or deterministic heuristics in application code.
+
+Concretely:
+- **Prefer LLM judgement over if/else.** When a decision requires interpreting intent, tone, priority, relevance, or any other subjective quality, route it through the assistant rather than encoding a fixed rule. Hard-coded heuristics are brittle and cannot adapt to context the way the model can.
+- **Reserve deterministic logic for mechanical operations.** Parsing, validation, data transformation, access control, and protocol enforcement are fine as code. The line is: if the decision requires understanding meaning or context, it belongs to the assistant; if it's purely structural or policy-enforced, code is appropriate.
+- **Don't approximate the assistant with heuristics.** If you find yourself writing a cascade of string matches, keyword checks, or scoring functions to simulate what the model would decide, stop — that's a sign the decision should be delegated to the daemon instead.
+- **Treat the daemon as the judgement layer.** The assistant carries user context, preferences, conversation history, and identity. Decisions routed through it benefit from all of that. Decisions made in application code discard it.
+
+When in doubt, ask: "Am I encoding a judgement that the assistant could make better with context?" If yes, route it through the daemon.
+
 ## Migration Guidance
 
 When touching existing tool-based flows, migrate behavior toward skill-driven CLI usage instead of adding new registered tools.
 
 Reasoning: every registered tool increases model context overhead, while the model can usually learn CLI usage from skills on demand and install missing CLI dependencies when needed.
+
+## Release Update Hygiene
+
+When shipping a release that includes user-facing or assistant-facing changes:
+
+1. **Update the template**: Edit `assistant/src/config/templates/UPDATES.md` with freeform markdown describing what changed and how it affects behavior or capabilities.
+2. **Leave empty for no-op releases**: If the release has no relevant changes, keep the template empty or comment-only (lines starting with `_` are stripped).
+3. **Don't modify workspace files directly**: The workspace `UPDATES.md` is managed by the daemon's startup sync — never edit `~/.vellum/workspace/UPDATES.md` manually.
+4. **Checkpoint keys**: `updates:active_releases` and `updates:completed_releases` in the `memory_checkpoints` table track bulletin lifecycle. Don't manipulate these directly.

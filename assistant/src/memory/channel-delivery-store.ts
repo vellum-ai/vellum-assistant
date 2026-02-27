@@ -8,33 +8,31 @@
  *   - delivery-channels.ts — verification replies, segment progress, delivery guards
  */
 
+export type { PendingVerificationReply } from './delivery-channels.js';
 export {
-  recordInbound,
-  linkMessage,
-  findMessageBySourceId,
-  storePayload,
-  clearPayload,
-  getLatestStoredPayload,
-} from './delivery-crud.js';
-export type { InboundResult, RecordInboundOptions } from './delivery-crud.js';
-
-export {
-  acknowledgeDelivery,
-  markProcessed,
-  recordProcessingFailure,
-  getRetryableEvents,
-  getDeadLetterEvents,
-  replayDeadLetters,
-} from './delivery-status.js';
-
-export {
-  storePendingVerificationReply,
-  getPendingVerificationReply,
+  claimRunDelivery,
   clearPendingVerificationReply,
   getDeliveredSegmentCount,
-  updateDeliveredSegmentCount,
-  claimRunDelivery,
-  resetRunDeliveryClaim,
+  getPendingVerificationReply,
   resetAllRunDeliveryClaims,
+  resetRunDeliveryClaim,
+  storePendingVerificationReply,
+  updateDeliveredSegmentCount,
 } from './delivery-channels.js';
-export type { PendingVerificationReply } from './delivery-channels.js';
+export type { InboundResult, RecordInboundOptions } from './delivery-crud.js';
+export {
+  clearPayload,
+  findMessageBySourceId,
+  getLatestStoredPayload,
+  linkMessage,
+  recordInbound,
+  storePayload,
+} from './delivery-crud.js';
+export {
+  acknowledgeDelivery,
+  getDeadLetterEvents,
+  getRetryableEvents,
+  markProcessed,
+  recordProcessingFailure,
+  replayDeadLetters,
+} from './delivery-status.js';

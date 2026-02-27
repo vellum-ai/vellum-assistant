@@ -101,6 +101,19 @@ const WRAPPER_PROGRAMS = new Set([
 // value of -u) as the wrapped program instead of `echo`.
 const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir']);
 
+// Bare filenames that `rm` is allowed to delete at Medium risk (instead of
+// High) so workspace-scoped allow rules can approve them without the
+// dangerous `allowHighRisk` flag. Only matches when the args contain no
+// flags and exactly one of these filenames.
+const RM_SAFE_BARE_FILES = new Set(['BOOTSTRAP.md', 'UPDATES.md']);
+
+function isRmOfKnownSafeFile(args: string[]): boolean {
+  if (args.length !== 1) return false;
+  const target = args[0];
+  if (target.startsWith('-') || target.includes('/')) return false;
+  return RM_SAFE_BARE_FILES.has(target);
+}
+
 /**
  * Given a segment whose program is a known wrapper, return the first
  * non-flag argument (i.e. the wrapped program name).  Returns `undefined`
@@ -121,19 +134,6 @@ function getWrappedProgram(seg: { program: string; args: string[] }): string | u
     return arg;
   }
   return undefined;
-}
-
-function isHighRiskRm(args: string[]): boolean {
-  // rm with -r, -rf, -fr, or targeting root/home
-  for (const arg of args) {
-    if (arg.startsWith('-') && (arg.includes('r') || arg.includes('f'))) {
-      return true;
-    }
-    if (arg === '/' || arg === '~' || arg === '$HOME') {
-      return true;
-    }
-  }
-  return false;
 }
 
 function getStringField(input: Record<string, unknown>, ...keys: string[]): string {
@@ -398,9 +398,14 @@ async function classifyRiskUncached(toolName: string, input: Record<string, unkn
       if (HIGH_RISK_PROGRAMS.has(prog)) return RiskLevel.High;
 
       if (prog === 'rm') {
-        if (isHighRiskRm(seg.args)) return RiskLevel.High;
-        maxRisk = RiskLevel.Medium;
-        continue;
+        // `rm` of known safe workspace files (no flags, bare filename) is
+        // Medium rather than High so scope-limited allow rules can approve
+        // it without needing allowHighRisk, which would bypass path checks.
+        if (isRmOfKnownSafeFile(seg.args)) {
+          maxRisk = RiskLevel.Medium;
+          continue;
+        }
+        return RiskLevel.High;
       }
 
       if (prog === 'chmod' || prog === 'chown' || prog === 'chgrp'
@@ -417,7 +422,14 @@ async function classifyRiskUncached(toolName: string, input: Record<string, unkn
       }
 
       if (WRAPPER_PROGRAMS.has(prog)) {
+        // `command -v` and `command -V` are read-only lookups (print where
+        // a command lives) — don't escalate to high risk for those.
+        if (prog === 'command' && seg.args.length > 0 && (seg.args[0] === '-v' || seg.args[0] === '-V')) {
+          continue;
+        }
         const wrapped = getWrappedProgram(seg);
+        if (wrapped === 'rm') return RiskLevel.High;
+        if (wrapped && HIGH_RISK_PROGRAMS.has(wrapped)) return RiskLevel.High;
         if (wrapped === 'curl' || wrapped === 'wget') {
           maxRisk = RiskLevel.Medium;
           continue;

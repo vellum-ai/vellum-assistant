@@ -9,6 +9,7 @@ import type {
   SlackApiResponse,
   SlackAuthTestResponse,
   SlackConversationHistoryResponse,
+  SlackChatDeleteResponse,
   SlackConversationLeaveResponse,
   SlackConversationMarkResponse,
   SlackConversationRepliesResponse,
@@ -185,6 +186,17 @@ export async function addReaction(
     channel,
     timestamp,
     name,
+  });
+}
+
+export async function deleteMessage(
+  token: string,
+  channel: string,
+  ts: string,
+): Promise<SlackChatDeleteResponse> {
+  return request<SlackChatDeleteResponse>(token, 'chat.delete', undefined, {
+    channel,
+    ts,
   });
 }
 

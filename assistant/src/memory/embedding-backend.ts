@@ -9,6 +9,11 @@ import { OpenAIEmbeddingBackend } from './embedding-openai.js';
 
 const log = getLogger('memory-embeddings');
 
+// Tracks whether the local embedding backend has permanently failed to load
+// (e.g., onnxruntime-node missing in a compiled binary). Once set, `auto` mode
+// skips `local` as primary, avoiding repeated fallback latency and cost.
+let localBackendBroken = false;
+
 /**
  * Lazy wrapper around LocalEmbeddingBackend that dynamically imports the
  * module on first use. This avoids eagerly loading @huggingface/transformers
@@ -17,6 +22,7 @@ const log = getLogger('memory-embeddings');
  * import would crash the entire daemon at startup. By deferring the import,
  * the failure is contained and other embedding backends can be used instead.
  */
+
 class LazyLocalEmbeddingBackend implements EmbeddingBackend {
   readonly provider = 'local' as const;
   readonly model: string;
@@ -29,20 +35,44 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
 
   async embed(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
     const backend = await this.getDelegate();
-    return backend.embed(texts, options);
+    try {
+      return await backend.embed(texts, options);
+    } catch (err) {
+      // The onnxruntime-node failure surfaces here during the first embed() call
+      // (via LocalEmbeddingBackend.initialize()). Mark broken so auto mode stops
+      // selecting local on subsequent requests.
+      if (!localBackendBroken && isInitializationError(err)) {
+        localBackendBroken = true;
+        log.warn({ err }, 'Local embedding backend permanently unavailable; auto mode will skip it');
+      }
+      throw err;
+    }
   }
 
   private async getDelegate(): Promise<EmbeddingBackend> {
     if (this.delegate) return this.delegate;
     if (!this.initPromise) {
       this.initPromise = (async () => {
-        const { LocalEmbeddingBackend } = await import('./embedding-local.js');
-        this.delegate = new LocalEmbeddingBackend(this.model);
-        return this.delegate;
+        try {
+          const { LocalEmbeddingBackend } = await import('./embedding-local.js');
+          this.delegate = new LocalEmbeddingBackend(this.model);
+          return this.delegate;
+        } catch (err) {
+          localBackendBroken = true;
+          log.warn({ err }, 'Local embedding backend permanently unavailable; auto mode will skip it');
+          throw err;
+        }
       })();
     }
     return this.initPromise;
   }
+}
+
+/** Detect errors thrown by LocalEmbeddingBackend.initialize() so we can
+ *  distinguish permanent init failures from transient embed-time errors. */
+function isInitializationError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.message.includes('Local embedding backend unavailable');
 }
 
 /** Global cache of embedding backend instances, keyed by "provider:model". */
@@ -104,6 +134,7 @@ export function clearEmbeddingBackendCache(): void {
   backendCache.clear();
   vectorCache.clear();
   vectorCacheBytes = 0;
+  localBackendBroken = false;
 }
 
 function cacheKey(provider: string, model: string): string {
@@ -163,6 +194,7 @@ export function selectEmbeddingBackend(config: AssistantConfig): EmbeddingBacken
   for (const provider of order) {
     switch (provider) {
       case 'local':
+        if (localBackendBroken) continue;
         return {
           backend: getCachedOrCreate('local', config.memory.embeddings.localModel,
             () => new LazyLocalEmbeddingBackend(config.memory.embeddings.localModel)),

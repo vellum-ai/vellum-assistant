@@ -3,6 +3,7 @@
 // Follows the same sliding-window pattern as gateway/src/auth-rate-limiter.ts.
 
 import type { HttpErrorResponse } from '../http-errors.js';
+import { isPrivateAddress } from './auth.js';
 
 const DEFAULT_MAX_REQUESTS = 60;
 const DEFAULT_WINDOW_MS = 60_000; // 60 seconds
@@ -132,17 +133,28 @@ export const apiRateLimiter = new TokenRateLimiter();
 export const ipRateLimiter = new TokenRateLimiter(DEFAULT_IP_MAX_REQUESTS, DEFAULT_IP_WINDOW_MS, MAX_TRACKED_IPS);
 
 /**
- * Extract the client IP from a request using the actual peer address.
- *
- * The runtime sits behind the gateway and should not trust X-Forwarded-For or
- * X-Real-IP headers — a client can spoof those to rotate IPs and bypass
- * per-IP rate limits. The gateway handles proxy-header trust with an explicit
- * trustProxy flag; here we always use the peer address from Bun's requestIP().
+ * Extract the client IP from a request. Only trusts proxy headers
+ * (X-Forwarded-For, X-Real-IP) when the peer IP is loopback or private,
+ * meaning the request arrived via the gateway. Direct connections from
+ * external clients use the peer IP, preventing header spoofing.
  */
 export function extractClientIp(
   req: Request,
   server: { requestIP(req: Request): { address: string } | null },
 ): string {
-  const peerIp = server.requestIP(req);
-  return peerIp?.address ?? '0.0.0.0';
+  const peerIp = server.requestIP(req)?.address ?? '0.0.0.0';
+
+  if (isPrivateAddress(peerIp)) {
+    const forwarded = req.headers.get('x-forwarded-for');
+    if (forwarded) {
+      const first = forwarded.split(',')[0].trim();
+      if (first) return first;
+    }
+
+    const realIp = req.headers.get('x-real-ip');
+    if (realIp) return realIp.trim();
+  }
+
+  return peerIp;
 }
+

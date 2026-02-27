@@ -727,6 +727,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'heartbeat_checklist_write',
     content: '- [ ] Check email\n- [ ] Review PRs',
   },
+  voice_config_update: {
+    type: 'voice_config_update',
+    activationKey: 'fn',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -839,8 +843,8 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   session_list_response: {
     type: 'session_list_response',
     sessions: [
-      { id: 'sess-001', title: 'First session', updatedAt: 1700000000, threadType: 'standard' },
-      { id: 'sess-002', title: 'Second session', updatedAt: 1700001000, threadType: 'standard', assistantAttention: { hasUnseenLatestAssistantMessage: true, latestAssistantMessageAt: 1700001000, lastSeenConfidence: 'explicit', lastSeenSignalType: 'macos_notification_view' } },
+      { id: 'sess-001', title: 'First session', createdAt: 1699999000, updatedAt: 1700000000, threadType: 'standard' },
+      { id: 'sess-002', title: 'Second session', createdAt: 1700000000, updatedAt: 1700001000, threadType: 'standard', assistantAttention: { hasUnseenLatestAssistantMessage: true, latestAssistantMessageAt: 1700001000, lastSeenConfidence: 'explicit', lastSeenSignalType: 'macos_notification_view' } },
     ],
   },
   sessions_clear_response: {
@@ -1077,6 +1081,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         degraded: false,
         updateAvailable: false,
         userInvocable: true,
+        provenance: { kind: 'first-party', provider: 'Vellum' },
       },
     ],
   },
@@ -1997,6 +2002,23 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   heartbeat_checklist_write_response: {
     type: 'heartbeat_checklist_write_response',
     success: true,
+  },
+  navigate_settings: {
+    type: 'navigate_settings',
+    tab: 'general',
+  },
+  client_settings_update: {
+    type: 'client_settings_update',
+    key: 'activationKey',
+    value: 'fn',
+  },
+  identity_changed: {
+    type: 'identity_changed',
+    name: 'Vellum',
+    role: 'assistant',
+    personality: 'friendly',
+    emoji: '',
+    home: '',
   },
 };
 

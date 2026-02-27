@@ -16,7 +16,7 @@ const log = getLogger("runtime-proxy");
 const WEBHOOK_PATH_RE = /^\/webhooks\//;
 
 export function createRuntimeProxyHandler(config: GatewayConfig) {
-  return async (req: Request): Promise<Response> => {
+  return async (req: Request, clientIp?: string): Promise<Response> => {
     const start = performance.now();
     const url = new URL(req.url);
 
@@ -61,6 +61,12 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     // the upstream service and must be forwarded.
     if (config.runtimeProxyRequireAuth) {
       reqHeaders.delete("authorization");
+    }
+
+    // Inject the real client IP so the runtime can rate-limit per-user,
+    // overwriting any client-supplied value to prevent spoofing.
+    if (clientIp) {
+      reqHeaders.set('x-forwarded-for', clientIp);
     }
 
     // Add the runtime's bearer token so the upstream accepts the request

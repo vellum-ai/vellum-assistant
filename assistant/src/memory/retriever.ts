@@ -476,17 +476,28 @@ function formatRecallResult(
   const degradationNotice = collected.semanticSearchFailed
     ? '[Note: Semantic search is currently unavailable. Memory recall is limited to lexical and recency matching — results may be incomplete or miss semantically relevant memories.]'
     : undefined;
-  const noticeTokenCost = degradationNotice
-    ? estimateTextTokens(degradationNotice) + 2 // +2 for '\n\n' separator
+  const noticeOnlyTokenCost = degradationNotice
+    ? estimateTextTokens(degradationNotice)
     : 0;
-  const candidateBudget = Math.max(1, maxInjectTokens - noticeTokenCost);
+  // +2 for '\n\n' separator — only needed when candidates are also present
+  const noticeTokenCost = noticeOnlyTokenCost + (degradationNotice ? 2 : 0);
+  // When the notice alone exceeds the budget, skip it entirely so
+  // injectedText never exceeds maxInjectTokens.
+  const budgetForNotice = noticeTokenCost <= maxInjectTokens;
+  const candidateBudget = budgetForNotice ? maxInjectTokens - noticeTokenCost : maxInjectTokens;
 
   const selected = trimToTokenBudget(merged, candidateBudget, config.memory.retrieval.injectionFormat);
   markItemUsage(selected);
 
   let injectedText = buildInjectedText(selected, config.memory.retrieval.injectionFormat);
 
-  if (degradationNotice) {
+  // Show the notice if it fits: when candidates are present the separator
+  // cost was already reserved; when no candidates were selected, the notice
+  // alone (without separator) may still fit even if the full cost didn't.
+  const canShowNotice = degradationNotice && (
+    budgetForNotice || (selected.length === 0 && noticeOnlyTokenCost <= maxInjectTokens)
+  );
+  if (canShowNotice) {
     injectedText = injectedText.length > 0
       ? injectedText + '\n\n' + degradationNotice
       : degradationNotice;

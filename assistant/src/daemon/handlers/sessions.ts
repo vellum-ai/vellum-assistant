@@ -39,6 +39,7 @@ import { executeRecordingIntent } from '../recording-executor.js';
 import { resolveRecordingIntent } from '../recording-intent.js';
 import { classifyRecordingIntentFallback, containsRecordingKeywords } from '../recording-intent-fallback.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
+import { resolveChannelCapabilities } from '../session-runtime-assembly.js';
 import { generateVideoThumbnail } from '../video-thumbnail.js';
 import { handleRecordingPause, handleRecordingRestart, handleRecordingResume, handleRecordingStart, handleRecordingStop } from './recording.js';
 import {
@@ -87,6 +88,13 @@ export async function handleUserMessage(
       userMessageInterface: ipcInterface,
       assistantMessageInterface: ipcInterface,
     };
+
+    // Update channel capabilities eagerly so both immediate and queued paths
+    // reflect the latest PTT / microphone state from the client.
+    session.setChannelCapabilities(resolveChannelCapabilities(ipcChannel, ipcInterface, {
+      pttActivationKey: msg.pttActivationKey,
+      microphonePermissionGranted: msg.microphonePermissionGranted,
+    }));
 
     const dispatchUserMessage = (
       content: string,
@@ -557,6 +565,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
       return {
         id: c.id,
         title: c.title ?? 'Untitled',
+        createdAt: c.createdAt,
         updatedAt: c.updatedAt,
         threadType: normalizeThreadType(c.threadType),
         source: c.source ?? 'user',
