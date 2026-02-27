@@ -1588,7 +1588,7 @@ struct SettingsChannelsTab: View {
     private var mobileCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Mobile")
+                Text("Mobile (iOS)")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Connect your phone to your assistant through the iOS app")

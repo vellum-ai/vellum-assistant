@@ -3,8 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Standalone gateway configuration card — local gateway target, gateway URL,
-/// connection status, and bearer token management. Designed to be embedded
-/// in any settings tab.
+/// and connection status. Designed to be embedded in any settings tab.
 @MainActor
 struct GatewaySettingsCard: View {
     @ObservedObject var store: SettingsStore
@@ -12,12 +11,7 @@ struct GatewaySettingsCard: View {
 
     @State private var gatewayUrlText: String = ""
     @FocusState private var isGatewayUrlFocused: Bool
-    @State private var bearerToken: String = ""
-    @State private var tokenRevealed: Bool = false
-    @State private var tokenCopied: Bool = false
     @State private var gatewayTargetCopied: Bool = false
-    @State private var showingRegenerateConfirmation: Bool = false
-    @State private var isRegeneratingToken: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -32,7 +26,6 @@ struct GatewaySettingsCard: View {
         .onAppear {
             store.refreshIngressConfig()
             gatewayUrlText = store.ingressPublicBaseUrl
-            refreshBearerToken()
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
             if !isGatewayUrlFocused {
@@ -48,14 +41,6 @@ struct GatewaySettingsCard: View {
             guard loaded else { return }
             Task { await store.testGatewayOnly() }
             Task { await store.testTunnelOnly() }
-        }
-        .alert("Regenerate Bearer Token", isPresented: $showingRegenerateConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Regenerate", role: .destructive) {
-                regenerateHttpToken()
-            }
-        } message: {
-            Text("This will generate a new security token and restart your assistant. Any paired devices will need to reconnect.")
         }
     }
 
@@ -164,90 +149,6 @@ struct GatewaySettingsCard: View {
                 }
             }
 
-            Divider()
-                .background(VColor.surfaceBorder)
-
-            bearerTokenContent
-        }
-    }
-
-    // MARK: - Bearer Token Content
-
-    private var bearerTokenContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Bearer Token")
-                .font(VFont.bodyMedium)
-                .foregroundColor(VColor.textSecondary)
-
-            if bearerToken.isEmpty {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
-                    Text("Bearer token not found. Restart the daemon to generate it.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else {
-                HStack(spacing: VSpacing.sm) {
-                    // Masked or revealed token
-                    if tokenRevealed {
-                        Text(bearerToken)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    } else {
-                        Text(String(repeating: "\u{2022}", count: min(bearerToken.count, 24)))
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    // Reveal/hide toggle
-                    Button {
-                        tokenRevealed.toggle()
-                    } label: {
-                        Image(systemName: tokenRevealed ? "eye.slash" : "eye")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(tokenRevealed ? "Hide token" : "Reveal token")
-                    .help(tokenRevealed ? "Hide token" : "Reveal token")
-
-                    // Copy button
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(bearerToken, forType: .string)
-                        tokenCopied = true
-                        Task {
-                            try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            tokenCopied = false
-                        }
-                    } label: {
-                        Image(systemName: tokenCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(tokenCopied ? VColor.success : VColor.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Copy bearer token")
-                    .help("Copy token")
-
-                    // Regenerate button
-                    Button("Regenerate") {
-                        showingRegenerateConfirmation = true
-                    }
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.accent)
-                }
-            }
         }
     }
 
@@ -296,53 +197,4 @@ struct GatewaySettingsCard: View {
         }
     }
 
-    // MARK: - Token Helpers
-
-    private func refreshBearerToken() {
-        bearerToken = readHttpToken() ?? ""
-    }
-
-    private func regenerateHttpToken() {
-        let tokenPath = resolveHttpTokenPath()
-        // Generate new random bytes before deleting the old file so a
-        // SecRandomCopyBytes failure doesn't leave us with no token at all.
-        var bytes = [UInt8](repeating: 0, count: 32)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return }
-        let newToken = bytes.map { String(format: "%02x", $0) }.joined()
-        try? FileManager.default.removeItem(atPath: tokenPath)
-        let dir = (tokenPath as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: tokenPath, contents: Data(newToken.utf8), attributes: [.posixPermissions: 0o600])
-        bearerToken = newToken
-        // Kill the daemon so the health monitor restarts it with the new token.
-        // The daemon only reads the token at startup, so a restart is required.
-        isRegeneratingToken = true
-        let pidPath = resolvePidPath()
-        if let pidStr = try? String(contentsOfFile: pidPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
-           let pid = Int32(pidStr) {
-            kill(pid, SIGTERM)
-        }
-        // Wait for the daemon to restart and become reachable with the new token.
-        Task {
-            let base = store.localGatewayTarget.hasSuffix("/")
-                ? String(store.localGatewayTarget.dropLast())
-                : store.localGatewayTarget
-            guard let url = URL(string: "\(base)/v1/health") else {
-                isRegeneratingToken = false
-                return
-            }
-            var request = URLRequest(url: url)
-            request.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
-            request.timeoutInterval = 2
-            for _ in 0..<30 { // up to ~30s
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                if let (_, response) = try? await URLSession.shared.data(for: request),
-                   let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                    isRegeneratingToken = false
-                    return
-                }
-            }
-            isRegeneratingToken = false
-        }
-    }
 }
