@@ -29,6 +29,7 @@ struct SettingsAccountTab: View {
             accountSection
             assistantInfoSection
             switchAssistantSection
+            GatewaySettingsCard(store: store, daemonClient: daemonClient)
             retireAssistantSection
             hatchNewAssistantSection
         }
