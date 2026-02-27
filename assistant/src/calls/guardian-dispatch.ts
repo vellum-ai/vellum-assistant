@@ -23,6 +23,11 @@ import type { CallPendingQuestion } from './types.js';
 
 const log = getLogger('guardian-dispatch');
 
+// Per-callSessionId serialization lock. Ensures that concurrent dispatches for
+// the same call session are serialized so the second dispatch always sees the
+// delivery row (and thus the guardian conversation ID) persisted by the first.
+const pendingDispatches = new Map<string, Promise<void>>();
+
 export interface GuardianDispatchParams {
   callSessionId: string;
   conversationId: string;
@@ -48,6 +53,31 @@ function applyDeliveryStatus(deliveryId: string, result: NotificationDeliveryRes
  * Fire-and-forget: errors are logged but do not propagate.
  */
 export async function dispatchGuardianQuestion(params: GuardianDispatchParams): Promise<void> {
+  const { callSessionId } = params;
+
+  // Serialize concurrent dispatches for the same call session so the second
+  // dispatch always sees the guardian conversation ID persisted by the first.
+  const preceding = pendingDispatches.get(callSessionId);
+  const current = (preceding ?? Promise.resolve()).then(() =>
+    dispatchGuardianQuestionInner(params),
+  );
+  // Store a suppressed-error variant so the chain never rejects, and keep
+  // a stable reference for the cleanup identity check below.
+  const suppressed = current.catch(() => {});
+  pendingDispatches.set(callSessionId, suppressed);
+
+  try {
+    await current;
+  } finally {
+    // Clean up the map entry only if it still points to our promise, to avoid
+    // removing a later dispatch's entry.
+    if (pendingDispatches.get(callSessionId) === suppressed) {
+      pendingDispatches.delete(callSessionId);
+    }
+  }
+}
+
+async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Promise<void> {
   const {
     callSessionId,
     conversationId,
