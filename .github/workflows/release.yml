@@ -923,8 +923,11 @@ jobs:
             "${{ needs.push-assistant-image.result }}" \
             "${{ needs.push-gateway-image.result }}" \
             "${{ needs.release.result }}" \
-            "${{ needs.update-platform.result }}"; do
-            if [ "$result" = "failure" ]; then
+            "${{ needs.update-platform.result }}" \
+            "${{ needs.ci-cli.result }}" \
+            "${{ needs.ci-gateway.result }}" \
+            "${{ needs.ci-playwright.result }}"; do
+            if [ "$result" = "failure" ] || [ "$result" = "skipped" ]; then
               RELEASE_FAILED="true"
               break
             fi
