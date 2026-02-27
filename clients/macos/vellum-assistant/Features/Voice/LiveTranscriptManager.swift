@@ -68,6 +68,9 @@ final class LiveTranscriptManager: ObservableObject {
     /// Daemon client for sending IPC messages.
     private weak var daemonClient: DaemonClient?
 
+    /// Reference to the thread manager so we can create a transcript thread when listening stops.
+    private weak var threadManager: ThreadManager?
+
     /// Rolling buffer duration — discard segments older than this.
     private static let bufferDuration: TimeInterval = 10 * 60 // 10 minutes
 
@@ -99,6 +102,12 @@ final class LiveTranscriptManager: ObservableObject {
     /// Late-bind the daemon client for IPC communication.
     func setDaemonClient(_ client: DaemonClient) {
         self.daemonClient = client
+    }
+
+    /// Late-bind the thread manager so we can create a transcript thread
+    /// when live listening stops.
+    func setThreadManager(_ manager: ThreadManager) {
+        self.threadManager = manager
     }
 
     // MARK: - Public API
@@ -172,11 +181,15 @@ final class LiveTranscriptManager: ObservableObject {
         }
 
         sendIPCStop()
+
+        // Create a new thread with the transcript if we captured anything
+        createTranscriptThreadIfNeeded()
+
         status = .idle
 
         resumeWakeWordIfNeeded()
 
-        log.info("Live transcription stopped. Total segments: \(self.segments.count)")
+        log.info("Live transcription stopped")
     }
 
     func toggleListening() {
@@ -203,6 +216,66 @@ final class LiveTranscriptManager: ObservableObject {
     }
 
     // MARK: - Private
+
+    private func createTranscriptThreadIfNeeded() {
+        guard !segments.isEmpty else { return }
+        guard let threadManager else {
+            log.warning("No thread manager available — skipping transcript thread creation")
+            return
+        }
+
+        let segmentCount = segments.count
+        let transcriptText = formatTranscript()
+
+        // Save any draft the user may have typed in the current thread
+        let existingDraft = threadManager.activeViewModel?.inputText ?? ""
+
+        // Always force a fresh thread — even if current thread is empty it may
+        // have a draft the user is composing. We create a new ThreadModel directly
+        // to bypass createThread()'s empty-thread reuse logic.
+        threadManager.createThread()
+
+        // If createThread() reused the current empty thread and it had a draft,
+        // we need to ensure we don't clobber it. Check if a new thread was actually
+        // created by comparing view models.
+        guard let viewModel = threadManager.activeViewModel else {
+            log.error("Failed to get active view model for transcript thread")
+            return
+        }
+
+        // If there was a draft and we're on the same thread, restore it after sending
+        let hadDraft = !existingDraft.isEmpty && existingDraft != transcriptText
+
+        viewModel.inputText = transcriptText
+        viewModel.sendMessage()
+
+        // Restore the draft if we ended up reusing the same thread
+        if hadDraft {
+            viewModel.inputText = existingDraft
+        }
+
+        log.info("Created transcript thread with \(segmentCount) segments")
+
+        // Clear the buffer now that it's been captured in a thread
+        segments.removeAll()
+    }
+
+    private func formatTranscript() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+
+        var lines: [String] = []
+        lines.append("## Audio Transcript")
+        lines.append("[captured from system audio]")
+        lines.append("")
+
+        for segment in segments {
+            let timestamp = formatter.string(from: segment.timestamp)
+            lines.append("[\(timestamp)] \(segment.text)")
+        }
+
+        return lines.joined(separator: "\n")
+    }
 
     private var isErrorStatus: Bool {
         if case .error = status { return true }
