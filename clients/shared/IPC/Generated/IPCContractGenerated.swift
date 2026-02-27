@@ -1818,7 +1818,7 @@ public struct IPCGalleryManifest: Codable, Sendable {
     }
 }
 
-/// Request from the client to generate a custom avatar via DALL-E.
+/// Request from the client to generate a custom avatar via Gemini.
 public struct IPCGenerateAvatarRequest: Codable, Sendable {
     public let type: String
     /// Text description of the desired avatar appearance.
@@ -1894,6 +1894,92 @@ public struct IPCGetSigningIdentityResponse: Codable, Sendable {
         self.keyId = keyId
         self.publicKey = publicKey
         self.error = error
+    }
+}
+
+public struct IPCGuardianActionDecision: Codable, Sendable {
+    public let type: String
+    public let requestId: String
+    public let action: String
+    public let conversationId: String?
+
+    public init(type: String, requestId: String, action: String, conversationId: String? = nil) {
+        self.type = type
+        self.requestId = requestId
+        self.action = action
+        self.conversationId = conversationId
+    }
+}
+
+public struct IPCGuardianActionDecisionResponse: Codable, Sendable {
+    public let type: String
+    public let applied: Bool
+    public let reason: String?
+    public let requestId: String?
+    public let userText: String?
+
+    public init(type: String, applied: Bool, reason: String? = nil, requestId: String? = nil, userText: String? = nil) {
+        self.type = type
+        self.applied = applied
+        self.reason = reason
+        self.requestId = requestId
+        self.userText = userText
+    }
+}
+
+public struct IPCGuardianActionsPendingRequest: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+
+    public init(type: String, conversationId: String) {
+        self.type = type
+        self.conversationId = conversationId
+    }
+}
+
+public struct IPCGuardianActionsPendingResponse: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let prompts: [IPCGuardianActionsPendingResponsePrompt]
+
+    public init(type: String, conversationId: String, prompts: [IPCGuardianActionsPendingResponsePrompt]) {
+        self.type = type
+        self.conversationId = conversationId
+        self.prompts = prompts
+    }
+}
+
+public struct IPCGuardianActionsPendingResponsePrompt: Codable, Sendable {
+    public let requestId: String
+    public let requestCode: String
+    public let state: String
+    public let questionText: String
+    public let toolName: String?
+    public let actions: [IPCGuardianActionsPendingResponsePromptAction]
+    public let expiresAt: Int
+    public let conversationId: String
+    public let callSessionId: String?
+
+    public init(requestId: String, requestCode: String, state: String, questionText: String, toolName: String?, actions: [IPCGuardianActionsPendingResponsePromptAction], expiresAt: Int, conversationId: String, callSessionId: String?) {
+        self.requestId = requestId
+        self.requestCode = requestCode
+        self.state = state
+        self.questionText = questionText
+        self.toolName = toolName
+        self.actions = actions
+        self.expiresAt = expiresAt
+        self.conversationId = conversationId
+        self.callSessionId = callSessionId
+    }
+}
+
+public struct IPCGuardianActionsPendingResponsePromptAction: Codable, Sendable {
+    public let action: String
+    public let label: String
+
+    public init(action: String, label: String) {
+        self.action = action
+        self.label = label
     }
 }
 

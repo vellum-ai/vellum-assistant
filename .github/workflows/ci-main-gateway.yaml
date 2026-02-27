@@ -49,8 +49,8 @@ jobs:
           WORKFLOW_NAME="${WORKFLOW_REF%%@*}"
           WORKFLOW_NAME="${WORKFLOW_NAME##*/}"
 
-          # Get the last 10 completed runs of this workflow on main (excluding current)
-          RUNS=$(gh api "/repos/${{ github.repository }}/actions/workflows/${WORKFLOW_NAME}/runs?branch=main&status=completed&per_page=10" \
+          # Get the last 100 completed runs of this workflow on main (excluding current)
+          RUNS=$(gh api "/repos/${{ github.repository }}/actions/workflows/${WORKFLOW_NAME}/runs?branch=main&status=completed&per_page=100" \
             --jq '[.workflow_runs[] | select(.id != '${{ github.run_id }}') | .conclusion]')
 
           # Count consecutive failures from most recent
