@@ -510,7 +510,7 @@ extension AppDelegate {
         )
     }
 
-    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+    public func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
 
         let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "")
