@@ -313,7 +313,13 @@ export async function consumeGrantForInvocation(
     return first;
   }
 
+  // When maxWaitMs is 0, skip retry entirely — used by non-voice channels
+  // where grant-minting race conditions don't apply.
   const maxWait = options?.maxWaitMs ?? GRANT_RETRY_MAX_WAIT_MS;
+  if (maxWait <= 0) {
+    return first;
+  }
+
   const interval = options?.intervalMs ?? GRANT_RETRY_INTERVAL_MS;
   const deadline = Date.now() + maxWait;
 

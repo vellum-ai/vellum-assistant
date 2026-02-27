@@ -246,8 +246,17 @@ export class ToolApprovalHandler {
     // required. Deferring consumption to this point ensures a downstream
     // rejection (allowedToolNames, task-run preflight, registry lookup)
     // does not waste the one-time-use grant.
+    //
+    // Retry polling is scoped to the voice channel where a race condition
+    // exists between fire-and-forget turn execution and LLM fallback grant
+    // minting (2-5s). Non-voice channels get an instant sync lookup so
+    // normal denials are not delayed.
     if (needsGrantConsumption && deferredConsumeParams) {
-      const grantResult = await consumeGrantForInvocation(deferredConsumeParams);
+      const isVoice = context.executionChannel === 'voice';
+      const grantResult = await consumeGrantForInvocation(
+        deferredConsumeParams,
+        isVoice ? undefined : { maxWaitMs: 0 },
+      );
 
       if (grantResult.ok) {
         log.info({

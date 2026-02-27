@@ -241,7 +241,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       inputDigest: computeToolApprovalDigest('shell', { command: 'ls' }),
       consumingRequestId: 'consumer-miss',
       assistantId: 'self',
-    });
+    }, { maxWaitMs: 0 });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -263,7 +263,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       inputDigest: digest,
       consumingRequestId: 'consumer-mismatch-tool',
       assistantId: 'self',
-    });
+    }, { maxWaitMs: 0 });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -284,7 +284,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       inputDigest: computeToolApprovalDigest('shell', { command: 'rm -rf /' }),
       consumingRequestId: 'consumer-mismatch-input',
       assistantId: 'self',
-    });
+    }, { maxWaitMs: 0 });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -306,7 +306,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       inputDigest: computeToolApprovalDigest('shell', {}),
       consumingRequestId: 'consumer-assist-mismatch',
       assistantId: 'assistant-B',
-    });
+    }, { maxWaitMs: 0 });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -329,7 +329,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       inputDigest: computeToolApprovalDigest('shell', {}),
       consumingRequestId: 'consumer-expired',
       assistantId: 'self',
-    });
+    }, { maxWaitMs: 0 });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -360,7 +360,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       inputDigest: computeToolApprovalDigest('shell', {}),
       consumingRequestId: 'consumer-second',
       assistantId: 'self',
-    });
+    }, { maxWaitMs: 0 });
     expect(second.ok).toBe(false);
     if (second.ok) return;
     expect(second.reason).toBe('no_match');
@@ -389,7 +389,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       inputDigest: digest,
       consumingRequestId: 'consumer-sig-second',
       assistantId: 'self',
-    });
+    }, { maxWaitMs: 0 });
     expect(second.ok).toBe(false);
     if (second.ok) return;
     expect(second.reason).toBe('no_match');
@@ -440,7 +440,7 @@ describe('approval-primitive / consumeGrantForInvocation', () => {
       consumingRequestId: 'consumer-ctx-mismatch',
       assistantId: 'self',
       conversationId: 'conv-B',
-    });
+    }, { maxWaitMs: 0 });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
