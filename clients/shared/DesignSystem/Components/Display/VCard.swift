@@ -16,7 +16,7 @@ public struct VCard<Content: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(Color(hex: 0xE8E6DA), lineWidth: 2)
             )
     }
 }
