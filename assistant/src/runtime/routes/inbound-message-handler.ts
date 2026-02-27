@@ -1105,31 +1105,33 @@ export async function handleChannelInbound(
                 });
 
                 if ('ok' in remapResult && remapResult.ok) {
-                  resolveGuardianActionRequest(currentPending.id, answerText, sourceChannel, body.senderExternalUserId);
+                  const resolved = resolveGuardianActionRequest(currentPending.id, answerText, sourceChannel, body.senderExternalUserId);
 
-                  await tryMintGuardianActionGrant({
-                    resolvedRequest: currentPending,
-                    answerText,
-                    decisionChannel: sourceChannel,
-                    guardianExternalUserId: body.senderExternalUserId,
-                    approvalConversationGenerator,
-                  });
+                  if (resolved) {
+                    await tryMintGuardianActionGrant({
+                      resolvedRequest: currentPending,
+                      answerText,
+                      decisionChannel: sourceChannel,
+                      guardianExternalUserId: body.senderExternalUserId,
+                      approvalConversationGenerator,
+                    });
 
-                  const remapText = await composeGuardianActionMessageGenerative(
-                    { scenario: 'guardian_superseded_remap', questionText: currentPending.questionText },
-                    {},
-                    guardianActionCopyGenerator,
-                  );
-                  try {
-                    await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: remapText, assistantId }, bearerToken);
-                  } catch (err) {
-                    log.error({ err, externalChatId }, 'Failed to deliver superseded remap confirmation');
+                    const remapText = await composeGuardianActionMessageGenerative(
+                      { scenario: 'guardian_superseded_remap', questionText: currentPending.questionText },
+                      {},
+                      guardianActionCopyGenerator,
+                    );
+                    try {
+                      await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: remapText, assistantId }, bearerToken);
+                    } catch (err) {
+                      log.error({ err, externalChatId }, 'Failed to deliver superseded remap confirmation');
+                    }
+                    log.info(
+                      { supersededRequestId: request.id, remappedToRequestId: currentPending.id },
+                      'Late approval for superseded request remapped to current pending request',
+                    );
+                    return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'superseded_remapped' });
                   }
-                  log.info(
-                    { supersededRequestId: request.id, remappedToRequestId: currentPending.id },
-                    'Late approval for superseded request remapped to current pending request',
-                  );
-                  return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'superseded_remapped' });
                 }
                 log.warn(
                   { callSessionId: currentPending.callSessionId, error: 'error' in remapResult ? remapResult.error : 'unknown' },
