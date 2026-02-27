@@ -202,7 +202,7 @@ describe("GET /v1/feature-flags handler", () => {
 });
 
 describe("PATCH /v1/feature-flags/:flagKey handler", () => {
-  test("writes to assistantFeatureFlagValues section in config", async () => {
+  test("writes to both assistantFeatureFlagValues and legacy featureFlags sections", async () => {
     writeFileSync(configPath, JSON.stringify({}));
 
     const handler = createFeatureFlagsPatchHandler();
@@ -222,8 +222,8 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     // Verify persistence to the NEW section
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(false);
-    // Should NOT write to the old featureFlags section
-    expect(config.featureFlags).toBeUndefined();
+    // Should also write to the legacy featureFlags section for backward compatibility
+    expect(config.featureFlags["skills.browser.enabled"]).toBe(false);
   });
 
   test("preserves existing config keys when writing", async () => {
@@ -250,8 +250,9 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(config.sms).toEqual({ phoneNumber: "+1234567890" });
     expect(config.email).toEqual({ address: "test@example.com" });
-    // Legacy section should be preserved untouched
+    // Legacy section should preserve existing keys and add the new legacy key
     expect(config.featureFlags["skills.existing.enabled"]).toBe(true);
+    expect(config.featureFlags["skills.browser.enabled"]).toBe(true);
     // New section should have both old and new values
     expect(config.assistantFeatureFlagValues["feature_flags.twitter.enabled"]).toBe(true);
     expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(true);
@@ -276,6 +277,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(true);
+    expect(config.featureFlags["skills.browser.enabled"]).toBe(true);
   });
 
   // Validation tests
@@ -464,6 +466,8 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     expect(config.sms).toEqual({ phoneNumber: "+1234" });
     expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(true);
     expect(config.assistantFeatureFlagValues["feature_flags.twitter.enabled"]).toBe(false);
+    // Legacy section should also be written
+    expect(config.featureFlags["skills.twitter.enabled"]).toBe(false);
 
     // Verify no temp files left behind
     const { readdirSync } = await import("node:fs");
