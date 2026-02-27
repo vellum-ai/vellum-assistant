@@ -7,7 +7,7 @@ If `$ARGUMENTS` is empty, stop and tell the user to provide a description of wha
 ## Repo-specific gotchas
 
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
-- **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
+- **CI**: Wait for CI checks to pass before merging. Use `.claude/wait-ci <PR_NUMBER>` before `gh pr merge`.
 
 ## Steps
 
@@ -290,7 +290,7 @@ Read AGENTS.md in the repo root for project conventions and structure.
 ## Repo-specific gotchas
 - `gh pr view` does NOT support a `merged` --json field. Use `state` and `mergedAt`: `gh pr view <N> --json state,mergedAt,title,url`
 - This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
-- Do NOT wait for CI checks to pass before merging. Merge immediately.
+- Wait for CI checks to pass before merging. Use `.claude/wait-ci <PR_NUMBER>` before `gh pr merge`.
 - `tail` and `head` may not be available in the shell. Don't pipe to them.
 
 ## Your worktree

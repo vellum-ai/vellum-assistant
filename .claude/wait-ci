@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# .claude/wait-ci — Wait for CI checks on a PR to complete
+# Polls every 30 seconds. Exits 0 if all pass, 1 if any fail, 2 on timeout.
+#
+# Usage: .claude/wait-ci <PR_NUMBER> [MAX_WAIT_SECONDS]
+#   PR_NUMBER          The PR number to check
+#   MAX_WAIT_SECONDS   Timeout in seconds (default: 600 = 10 minutes)
+
+usage() {
+  cat <<'EOF'
+Usage: .claude/wait-ci <PR_NUMBER> [MAX_WAIT_SECONDS]
+
+Waits for all CI checks on a PR to complete.
+  - Exits 0 if all checks pass (or no checks are configured).
+  - Exits 1 if any check fails.
+  - Exits 2 if timeout is reached with checks still pending.
+
+Arguments:
+  PR_NUMBER          The PR number to check (required)
+  MAX_WAIT_SECONDS   Timeout in seconds (default: 600)
+EOF
+}
+
+if [[ $# -lt 1 ]] || [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+PR_NUMBER="$1"
+MAX_WAIT="${2:-600}"
+POLL_INTERVAL=30
+ELAPSED=0
+
+echo "==> Waiting for CI checks on PR #$PR_NUMBER (timeout: ${MAX_WAIT}s)..."
+
+while true; do
+  CHECKS=$(gh pr checks "$PR_NUMBER" --json name,state,conclusion 2>/dev/null || echo "[]")
+  TOTAL=$(echo "$CHECKS" | jq 'length')
+
+  if [[ "$TOTAL" -eq 0 ]]; then
+    echo "No CI checks configured on PR #$PR_NUMBER. Proceeding."
+    exit 0
+  fi
+
+  PENDING=$(echo "$CHECKS" | jq '[.[] | select(.state != "COMPLETED")] | length')
+  FAILED=$(echo "$CHECKS" | jq '[.[] | select(.state == "COMPLETED" and .conclusion == "FAILURE")] | length')
+
+  if [[ "$FAILED" -gt 0 ]]; then
+    echo "CI checks failed on PR #$PR_NUMBER:" >&2
+    echo "$CHECKS" | jq -r '.[] | select(.conclusion == "FAILURE") | "  \(.name): FAILURE"' >&2
+    exit 1
+  fi
+
+  if [[ "$PENDING" -eq 0 ]]; then
+    echo "All $TOTAL CI checks passed on PR #$PR_NUMBER."
+    exit 0
+  fi
+
+  if [[ "$ELAPSED" -ge "$MAX_WAIT" ]]; then
+    echo "Timeout: CI checks still pending after ${MAX_WAIT}s on PR #$PR_NUMBER." >&2
+    echo "$CHECKS" | jq -r '.[] | select(.state != "COMPLETED") | "  \(.name): \(.state)"' >&2
+    exit 2
+  fi
+
+  echo "CI: $((TOTAL - PENDING))/$TOTAL complete (${ELAPSED}s/${MAX_WAIT}s)..."
+  sleep "$POLL_INTERVAL"
+  ELAPSED=$((ELAPSED + POLL_INTERVAL))
+done
