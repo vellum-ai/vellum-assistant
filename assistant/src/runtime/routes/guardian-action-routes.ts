@@ -35,7 +35,7 @@ export function handleGuardianActionsPending(req: Request): Response {
   }
 
   const prompts = listGuardianDecisionPrompts({ conversationId });
-  return Response.json({ prompts });
+  return Response.json({ conversationId, prompts });
 }
 
 // ---------------------------------------------------------------------------

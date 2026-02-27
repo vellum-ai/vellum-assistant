@@ -469,7 +469,7 @@ final class HTTPTransport {
 
             do {
                 let decoded = try JSONDecoder().decode(GuardianActionsPendingHTTPResponse.self, from: data)
-                onMessage?(.guardianActionsPendingResponse(GuardianActionsPendingResponseMessage(prompts: decoded.prompts)))
+                onMessage?(.guardianActionsPendingResponse(GuardianActionsPendingResponseMessage(conversationId: decoded.conversationId, prompts: decoded.prompts)))
             } catch {
                 log.error("Failed to decode guardian actions pending response: \(error)")
             }
@@ -522,6 +522,7 @@ final class HTTPTransport {
 
     /// Response wrapper for the HTTP guardian actions pending endpoint.
     private struct GuardianActionsPendingHTTPResponse: Decodable {
+        let conversationId: String?
         let prompts: [GuardianDecisionPromptWire]
     }
 

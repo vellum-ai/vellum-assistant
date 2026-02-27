@@ -3051,6 +3051,7 @@ public struct GuardianDecisionPromptWire: Decodable, Sendable {
 
 /// Server -> Client: list of pending guardian decision prompts.
 public struct GuardianActionsPendingResponseMessage: Decodable, Sendable {
+    public let conversationId: String?
     public let prompts: [GuardianDecisionPromptWire]
 }
 

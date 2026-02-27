@@ -20,6 +20,7 @@ export interface GuardianActionDecision {
 
 export interface GuardianActionsPendingResponse {
   type: 'guardian_actions_pending_response';
+  conversationId: string;
   prompts: Array<{
     requestId: string;
     requestCode: string;

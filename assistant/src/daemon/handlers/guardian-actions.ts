@@ -12,7 +12,7 @@ const VALID_ACTIONS = new Set<string>(['approve_once', 'approve_always', 'reject
 export const guardianActionsHandlers = defineHandlers({
   guardian_actions_pending_request: (msg: GuardianActionsPendingRequest, socket, ctx) => {
     const prompts = listGuardianDecisionPrompts({ conversationId: msg.conversationId });
-    ctx.send(socket, { type: 'guardian_actions_pending_response', prompts });
+    ctx.send(socket, { type: 'guardian_actions_pending_response', conversationId: msg.conversationId, prompts });
   },
 
   guardian_action_decision: (msg: GuardianActionDecision, socket, ctx) => {

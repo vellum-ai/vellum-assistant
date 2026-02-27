@@ -2394,6 +2394,14 @@ public final class ChatViewModel: ObservableObject {
             return
         }
 
+        // Responses are broadcast to all subscribers. Skip responses scoped to
+        // a different conversation to avoid incorrectly stale-marking our
+        // genuinely pending prompts.
+        if let responseConversationId = response.conversationId,
+           responseConversationId != myConversationId {
+            return
+        }
+
         let relevantPrompts = response.prompts.filter { $0.conversationId == myConversationId }
         let incomingIds = Set(relevantPrompts.map(\.requestId))
 
@@ -2441,7 +2449,20 @@ public final class ChatViewModel: ObservableObject {
 
     /// Process the server's response to a guardian action decision submission.
     func handleGuardianActionDecisionResponse(_ response: GuardianActionDecisionResponseMessage) {
-        guard let requestId = response.requestId else { return }
+        guard let requestId = response.requestId else {
+            // The server returned without a requestId (e.g., already-resolved or
+            // not-found paths). Clear isSubmitting on any locally-tracked pending
+            // actions and refresh prompts so the UI doesn't stay stuck.
+            if !response.applied {
+                for pendingRequestId in pendingGuardianActions.keys {
+                    if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == pendingRequestId }) {
+                        messages[idx].guardianDecision?.isSubmitting = false
+                    }
+                }
+                refreshGuardianPrompts()
+            }
+            return
+        }
 
         let submittedAction = pendingGuardianActions.removeValue(forKey: requestId)
 
