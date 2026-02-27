@@ -17,6 +17,10 @@ final class LiveTranscriptionEngine {
     /// `isFinal` is true when the recognition session produces a final result.
     var onTranscription: ((_ text: String, _ isFinal: Bool) -> Void)?
 
+    /// Called just before a rolling session restart so the manager can
+    /// flush the current partial text as a finalized segment.
+    var onSessionWillRestart: (() -> Void)?
+
     private(set) var isRunning = false
 
     private var speechRecognizer: SFSpeechRecognizer?
@@ -234,6 +238,9 @@ final class LiveTranscriptionEngine {
 
     private func restartSession() {
         guard isRunning else { return }
+        // Let the manager flush the current partial as a finalized segment
+        // before the old session is torn down and a new one starts.
+        onSessionWillRestart?()
         tearDownSession()
         startRecognitionSession()
     }

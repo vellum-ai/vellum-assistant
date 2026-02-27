@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import os
+import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "LiveTranscriptManager")
 
@@ -301,6 +302,25 @@ final class LiveTranscriptManager: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.handleTranscription(text: text, isFinal: isFinal)
+            }
+        }
+
+        // Flush the current partial as a finalized segment before a rolling
+        // session restart (every ~55s). Without this, the partial text from
+        // the outgoing session is lost when the new session overwrites it.
+        transcriptionEngine.onSessionWillRestart = { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.currentPartialText.isEmpty else { return }
+                let segment = TranscriptSegment(
+                    text: self.currentPartialText.trimmingCharacters(in: .whitespacesAndNewlines),
+                    timestamp: Date(),
+                    isFinal: true
+                )
+                if !segment.text.isEmpty {
+                    self.segments.append(segment)
+                    self.sendIPCUpdate(segment)
+                }
+                self.currentPartialText = ""
             }
         }
     }
