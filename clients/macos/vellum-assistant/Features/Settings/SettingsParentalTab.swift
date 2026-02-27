@@ -23,6 +23,7 @@ struct SettingsParentalTab: View {
     @State private var isLoading: Bool = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @State private var showSuccessToast: Bool = false
 
     // -- PIN sheet --
     @State private var showingPINSheet: Bool = false
@@ -71,21 +72,23 @@ struct SettingsParentalTab: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if let success = successMessage {
-                VToast(message: success, style: .success)
+            if showSuccessToast, let msg = successMessage {
+                VToast(message: msg, style: .success)
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.bottom, VSpacing.md)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .onAppear {
+                        Task {
+                            try? await Task.sleep(for: .seconds(3))
+                            withAnimation(VAnimation.standard) {
+                                showSuccessToast = false
+                                successMessage = nil
+                            }
+                        }
+                    }
             }
         }
-        .animation(VAnimation.standard, value: successMessage)
-        .onChange(of: successMessage) { _, newMsg in
-            guard newMsg != nil else { return }
-            Task {
-                try? await Task.sleep(for: .seconds(3))
-                withAnimation(VAnimation.standard) { successMessage = nil }
-            }
-        }
+        .animation(VAnimation.standard, value: showSuccessToast)
         .onAppear {
             loadSettings()
             settingsStore.loadActivityLog()
@@ -119,15 +122,18 @@ struct SettingsParentalTab: View {
                             case .set:
                                 hasPIN = true
                                 successMessage = "PIN set."
+                                showSuccessToast = true
                             case .change:
                                 // The old PIN is now invalid; clear the cache so subsequent
                                 // updates don't silently send a stale credential.
                                 settingsStore.cachedPIN = nil
                                 successMessage = "PIN changed."
+                                showSuccessToast = true
                             case .clear:
                                 hasPIN = false
                                 settingsStore.cachedPIN = nil
                                 successMessage = "PIN cleared."
+                                showSuccessToast = true
                             }
                         }
                     case .failure(let msg):
@@ -598,7 +604,7 @@ struct SettingsParentalTab: View {
                     exportActivityLog()
                 }
                 .disabled(settingsStore.activityLog.isEmpty)
-                VButton(label: "Clear Log", style: .danger) {
+                VButton(label: "Clear Log", leftIcon: "trash", style: .danger, size: .small) {
                     settingsStore.clearActivityLogEntries(pin: settingsStore.cachedPIN)
                 }
                 .accessibilityLabel("Clear activity log")
@@ -838,9 +844,10 @@ struct SettingsParentalTab: View {
     // MARK: - Daemon interactions
 
     private func loadSettings() {
-        isLoading = true
         errorMessage = nil
 
+        guard daemonClient != nil else { return }
+        isLoading = true
         let stream = daemonClient?.subscribe()
         Task {
             do {
@@ -935,10 +942,14 @@ struct SettingsParentalTab: View {
     }
 
     private func updateAllowlist(apps: [String]?, widgets: [String]?) {
-        isLoading = true
+        // Optimistic update so toggles respond immediately even if daemon is unavailable.
+        if let apps = apps { allowedApps = apps; settingsStore.allowedApps = apps }
+        if let widgets = widgets { allowedWidgets = widgets; settingsStore.allowedWidgets = widgets }
         errorMessage = nil
         successMessage = nil
 
+        guard daemonClient != nil else { return }
+        isLoading = true
         let stream = daemonClient?.subscribe()
         let pin = settingsStore.cachedPIN
         Task {
@@ -1059,10 +1070,13 @@ struct SettingsParentalTab: View {
     }
 
     private func updateContentRestrictions(_ restrictions: [String]) {
-        isLoading = true
+        // Optimistic update so toggles respond immediately even if daemon is unavailable.
+        contentRestrictions = Set(restrictions)
         errorMessage = nil
         successMessage = nil
 
+        guard daemonClient != nil else { return }
+        isLoading = true
         let stream = daemonClient?.subscribe()
         let pin = settingsStore.cachedPIN
         Task {
@@ -1104,10 +1118,13 @@ struct SettingsParentalTab: View {
     }
 
     private func updateToolCategories(_ categories: [String]) {
-        isLoading = true
+        // Optimistic update so toggles respond immediately even if daemon is unavailable.
+        blockedToolCategories = Set(categories)
         errorMessage = nil
         successMessage = nil
 
+        guard daemonClient != nil else { return }
+        isLoading = true
         let stream = daemonClient?.subscribe()
         let pin = settingsStore.cachedPIN
         Task {
@@ -1243,6 +1260,7 @@ private struct PINSheet: View {
 
     var body: some View {
         VStack(spacing: VSpacing.xl) {
+            Spacer(minLength: 0)
             // Header
             VStack(spacing: VSpacing.xs) {
                 Text(title)
@@ -1261,6 +1279,7 @@ private struct PINSheet: View {
             // always reset to "" before the step is changed, so a stale
             // onChange callback from the previous step can never fire advance().
             PINCircleField(text: $pinInput, focusTrigger: pinFocusTrigger)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .id(step)
                 .onChange(of: pinInput) { _, v in
                     if v.count == 6 { advance() }
@@ -1276,6 +1295,7 @@ private struct PINSheet: View {
                 Text(" ").font(VFont.caption)
             }
 
+            Spacer(minLength: 0)
             // Footer
             if isLoading {
                 ProgressView().scaleEffect(0.8)
@@ -1284,11 +1304,22 @@ private struct PINSheet: View {
             }
         }
         .padding(VSpacing.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(width: 320)
         .background(VColor.background)
         .onAppear {
-            step = (mode == .set) ? .enterNew : .enterCurrent
+            // Always reset to the correct starting step for the given mode.
+            // This handles re-presentation of the sheet after a previous session.
+            if mode == .set {
+                step = .enterNew
+            } else {
+                step = .enterCurrent
+            }
             pinInput = ""
+            storedCurrent = ""
+            storedNew = ""
+            errorMessage = nil
+            isLoading = false
         }
     }
 
