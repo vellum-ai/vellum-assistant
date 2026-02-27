@@ -54,10 +54,12 @@ const LEGACY_KEY_ALLOWLIST = new Set([
 function isTestFile(filePath: string): boolean {
   return (
     filePath.includes('/__tests__/') ||
+    filePath.includes('/Tests/') ||
     filePath.endsWith('.test.ts') ||
     filePath.endsWith('.test.js') ||
     filePath.endsWith('.spec.ts') ||
-    filePath.endsWith('.spec.js')
+    filePath.endsWith('.spec.js') ||
+    filePath.endsWith('Tests.swift')
   );
 }
 
@@ -68,14 +70,14 @@ function isTestFile(filePath: string): boolean {
 describe('assistant feature flag guard', () => {
   test('no production files use legacy skills.<id>.enabled key format outside allowlist', () => {
     // Search for the legacy key pattern in string literals across the codebase.
-    // The pattern matches quoted strings like 'skills.browser.enabled' or
-    // "skills.browser.enabled".
-    const pattern = `['"]skills\\.[a-z][a-z0-9._-]*\\.enabled['"]`;
+    // The pattern matches quoted strings like 'skills.browser.enabled',
+    // "skills.browser.enabled", or `skills.browser.enabled`.
+    const pattern = `['"\`]skills\\.[a-z][a-z0-9._-]*\\.enabled['"\`]`;
 
     let grepOutput = '';
     try {
       grepOutput = execSync(
-        `git grep -lE ${JSON.stringify(pattern)} -- '*.ts' '*.js' '*.swift'`,
+        `git grep -lE ${JSON.stringify(pattern)} -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.swift'`,
         { encoding: 'utf-8', cwd: getRepoRoot() },
       ).trim();
     } catch (err) {
