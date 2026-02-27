@@ -20,22 +20,32 @@ import type { Tool } from './types.js';
 import { screenWatchTool } from './watch/screen-watch.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
-// Importing these modules triggers a top-level `registerTool()` call.
+// These static imports trigger top-level `registerTool()` side effects.
+//
+// IMPORTANT: These MUST be static imports (not dynamic `await import()`).
+// When the daemon is compiled with `bun --compile`, dynamic imports with
+// relative string literals resolve against the virtual `/$bunfs/root/`
+// filesystem root rather than the module's own directory, causing
+// "Cannot find module './filesystem/read.js'" crashes in production builds.
+// Static imports are resolved at bundle time and are always safe.
+import './assets/materialize.js';
+import './assets/search.js';
+import './filesystem/edit.js';
+import './filesystem/read.js';
+import './filesystem/view-image.js';
+import './filesystem/write.js';
+import './network/web-fetch.js';
+import './network/web-search.js';
+import './skills/delete-managed.js';
+import './skills/load.js';
+import './skills/scaffold-managed.js';
+import './system/request-permission.js';
+import './system/version.js';
 
-export async function loadEagerModules(): Promise<void> {
-  await import('./filesystem/read.js');
-  await import('./filesystem/write.js');
-  await import('./filesystem/edit.js');
-  await import('./network/web-search.js');
-  await import('./network/web-fetch.js');
-  await import('./skills/load.js');
-  await import('./skills/scaffold-managed.js');
-  await import('./skills/delete-managed.js');
-  await import('./system/request-permission.js');
-  await import('./assets/search.js');
-  await import('./assets/materialize.js');
-  await import('./filesystem/view-image.js');
-  await import('./system/version.js');
+// loadEagerModules is a no-op now that all eager registrations happen via
+// static imports above. Kept for API compatibility with registry.ts callers.
+export function loadEagerModules(): Promise<void> {
+  return Promise.resolve();
 }
 
 // Tool names registered by the eager modules above.  Listed explicitly so
