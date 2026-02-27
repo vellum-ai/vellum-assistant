@@ -37,7 +37,7 @@ struct LiveListeningIndicator: View {
         .onAppear {
             isPulsing = manager.isListening
         }
-        .onChange(of: manager.isListening) { listening in
+        .onChange(of: manager.isListening) { _, listening in
             isPulsing = listening
         }
     }
