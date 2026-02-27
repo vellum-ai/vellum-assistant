@@ -89,6 +89,14 @@ function canonicalToLegacyKey(canonicalKey: string): string | undefined {
   return `skills.${match[1]}.enabled`;
 }
 
+/**
+ * Optional skill-to-flag overrides. This lets a skill be gated by a flag whose
+ * key does not have to match the skill ID.
+ */
+const SKILL_FLAG_KEY_OVERRIDES: Record<string, string> = {
+  'sms-setup': 'feature_flags.sms.enabled',
+};
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -136,10 +144,14 @@ export function isAssistantFeatureFlagEnabled(key: string, config: AssistantConf
 /**
  * Convenience: check whether a skill is enabled by its skill ID.
  *
- * Translates the skill ID to the canonical key format
- * `feature_flags.<skillId>.enabled` and delegates to the full resolver.
+ * Uses a skill-specific override key when one is declared; otherwise
+ * falls back to `feature_flags.<skillId>.enabled`.
  */
 export function isAssistantSkillEnabled(skillId: string, config: AssistantConfig): boolean {
+  const overrideKey = SKILL_FLAG_KEY_OVERRIDES[skillId];
+  if (overrideKey) {
+    return isAssistantFeatureFlagEnabled(overrideKey, config);
+  }
   return isAssistantFeatureFlagEnabled(`feature_flags.${skillId}.enabled`, config);
 }
 

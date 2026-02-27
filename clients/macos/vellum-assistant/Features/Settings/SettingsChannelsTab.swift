@@ -9,6 +9,7 @@ import VellumAssistantShared
 struct SettingsChannelsTab: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
+    private static let smsFeatureFlagKey = "feature_flags.sms.enabled"
 
     @State private var bearerToken: String = ""
     @State private var tokenRevealed: Bool = false
@@ -16,6 +17,7 @@ struct SettingsChannelsTab: View {
     @State private var showingPairingQR: Bool = false
     @State private var showingRegenerateConfirmation: Bool = false
     @State private var advancedExpanded: Bool = false
+    @State private var isSmsFeatureEnabled: Bool = true
 
     // Telegram credential entry
     @State private var telegramBotTokenText = ""
@@ -72,10 +74,15 @@ struct SettingsChannelsTab: View {
             store.refreshApprovedDevices()
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
-            store.refreshChannelGuardianStatus(channel: "sms")
             store.refreshChannelGuardianStatus(channel: "voice")
             store.refreshTelegramApprovedMembers()
             store.fetchSlackChannelConfig()
+            Task {
+                await loadSmsFeatureFlag()
+                if isSmsFeatureEnabled {
+                    store.refreshChannelGuardianStatus(channel: "sms")
+                }
+            }
         }
         .onChange(of: store.twilioHasCredentials) { _, hasCredentials in
             if !hasCredentials {
@@ -189,7 +196,9 @@ struct SettingsChannelsTab: View {
             telegramCard
             slackChannelCard
             voiceCard
-            twilioCard
+            if isSmsFeatureEnabled {
+                twilioCard
+            }
             emailCard
         }
     }
@@ -1707,6 +1716,32 @@ struct SettingsChannelsTab: View {
 
 
     // MARK: - Token Helpers
+
+    private func loadSmsFeatureFlag() async {
+        // Primary source: gateway feature-flags API.
+        if let daemonClient {
+            do {
+                let flags = try await daemonClient.getFeatureFlags()
+                if let smsFlag = flags.first(where: { $0.key == Self.smsFeatureFlagKey }) {
+                    isSmsFeatureEnabled = smsFlag.enabled
+                    return
+                }
+            } catch {
+                // Fall through to local config fallback.
+            }
+        }
+
+        // Fallback: local workspace config values.
+        let config = WorkspaceConfigIO.read()
+        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool],
+           let enabled = canonicalFlags[Self.smsFeatureFlagKey] {
+            isSmsFeatureEnabled = enabled
+            return
+        }
+
+        // No legacy `skills.*` fallback in new production code. If canonical
+        // values are absent, keep the default enabled behavior.
+    }
 
     private func refreshBearerToken() {
         bearerToken = readHttpToken() ?? ""
