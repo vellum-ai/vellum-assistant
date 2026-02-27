@@ -65,10 +65,7 @@ struct IdentityPanel: View {
                     Spacer()
                 }
                 .frame(width: sidebarWidth)
-                .padding(.leading, panelPadding)
                 .padding(.trailing, VSpacing.lg)
-                .padding(.top, panelPadding)
-                .padding(.bottom, panelPadding)
                 .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
@@ -89,9 +86,7 @@ struct IdentityPanel: View {
                 RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg)
                     .stroke(isFullscreen ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
             )
-            .padding(.top, isFullscreen ? 0 : panelPadding)
-            .padding(.trailing, isFullscreen ? 0 : panelPadding)
-            .padding(.bottom, isFullscreen ? 0 : panelPadding)
+            .padding(.trailing, 0)
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
         .overlay {

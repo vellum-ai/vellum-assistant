@@ -4,7 +4,7 @@ import AppKit
 #endif
 
 public struct VButton: View {
-    public enum Style: Hashable { case primary, secondary, tertiary, danger }
+    public enum Style: Hashable { case primary, secondary, tertiary, danger, ghost }
     public enum Size: Hashable { case small, medium, large }
 
     public let label: String
@@ -131,7 +131,7 @@ private struct VButtonStyle: ButtonStyle {
                 : adaptiveColor(light: Color(hex: 0x3D5739), dark: Forest._800)
         case .danger:
             return isHovered ? Color(hex: 0xA53817) : Color(hex: 0x8A2F13)
-        case .tertiary:
+        case .tertiary, .ghost:
             return .clear
         case .secondary:
             return .clear
@@ -156,6 +156,10 @@ private struct VButtonStyle: ButtonStyle {
             if isPressed { return VColor.ghostPressed }
             if isHovered { return VColor.ghostHover }
             return .clear
+        case .ghost:
+            if isPressed { return VColor.ghostPressed }
+            if isHovered { return VColor.ghostHover }
+            return .clear
         }
     }
 
@@ -165,6 +169,7 @@ private struct VButtonStyle: ButtonStyle {
         case .tertiary: return VColor.buttonSecondaryText
         case .secondary: return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
         case .danger: return .white
+        case .ghost: return VColor.textMuted
         }
     }
 
@@ -173,7 +178,7 @@ private struct VButtonStyle: ButtonStyle {
         case .tertiary:
             if isPressed { return VColor.ghostPressed }
             return VColor.buttonSecondaryBorder
-        case .secondary:
+        case .secondary, .ghost:
             return .clear
         default:
             return .clear

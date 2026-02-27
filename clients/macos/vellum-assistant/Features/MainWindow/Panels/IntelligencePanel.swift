@@ -21,41 +21,36 @@ struct IntelligencePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header + tab bar (fixed at top)
-            VStack(alignment: .leading, spacing: 0) {
-                // Header
-                HStack(alignment: .center) {
-                    Text("Intelligence")
-                        .font(VFont.panelTitle)
-                        .foregroundColor(VColor.textPrimary)
+            // Header
+            HStack(alignment: .center) {
+                Text("Intelligence")
+                    .font(VFont.panelTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+            }
+            .padding(.bottom, VSpacing.md)
+
+            Divider().background(VColor.surfaceBorder)
+
+            // Tab bar
+            VStack(spacing: 0) {
+                HStack(spacing: VSpacing.xl) {
+                    ForEach(IntelligenceTab.allCases, id: \.self) { tab in
+                        tabButton(tab.rawValue, tab: tab)
+                    }
                     Spacer()
                 }
-                .padding(.top, VSpacing.xxl)
-                .padding(.bottom, VSpacing.xl)
 
                 Divider().background(VColor.surfaceBorder)
-                    .padding(.bottom, VSpacing.xl)
-
-                // Tab bar
-                VStack(spacing: 0) {
-                    HStack(spacing: VSpacing.xl) {
-                        ForEach(IntelligenceTab.allCases, id: \.self) { tab in
-                            tabButton(tab.rawValue, tab: tab)
-                        }
-                        Spacer()
-                    }
-
-                    Divider().background(VColor.surfaceBorder)
-                }
-                .padding(.bottom, VSpacing.lg)
             }
-            .frame(maxWidth: maxContentWidth)
-            .padding(.horizontal, VSpacing.xxl)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, VSpacing.md)
+            .padding(.bottom, VSpacing.md)
 
-            // Tab content — each tab manages its own scrolling
+            // Tab content
             tabContent
+                .padding(.top, VSpacing.sm)
         }
+        .padding(VSpacing.xl)
     }
 
     // MARK: - Tab Button
@@ -93,7 +88,7 @@ struct IntelligencePanel: View {
                 onEditAvatar: onEditAvatar,
                 daemonClient: daemonClient
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .clipped()
 
         case .installedSkills:
@@ -103,10 +98,7 @@ struct IntelligencePanel: View {
                     daemonClient: daemonClient,
                     visibleTab: .installed
                 )
-                .frame(maxWidth: maxContentWidth)
-                .padding(.horizontal, VSpacing.xxl)
-                .padding(.bottom, VSpacing.xxl)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
         case .communitySkills:
@@ -116,10 +108,7 @@ struct IntelligencePanel: View {
                     daemonClient: daemonClient,
                     visibleTab: .available
                 )
-                .frame(maxWidth: maxContentWidth)
-                .padding(.horizontal, VSpacing.xxl)
-                .padding(.bottom, VSpacing.xxl)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
