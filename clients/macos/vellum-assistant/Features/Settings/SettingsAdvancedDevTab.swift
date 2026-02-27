@@ -117,7 +117,8 @@ struct SettingsAdvancedDevTab: View {
                             key: flag.key,
                             enabled: newValue,
                             defaultEnabled: flag.defaultEnabled,
-                            description: flag.description
+                            description: flag.description,
+                            label: flag.label
                         )
                     }
                     // Persist via gateway API
@@ -131,7 +132,8 @@ struct SettingsAdvancedDevTab: View {
                                     key: flag.key,
                                     enabled: !newValue,
                                     defaultEnabled: flag.defaultEnabled,
-                                    description: flag.description
+                                    description: flag.description,
+                                    label: flag.label
                                 )
                             }
                         }
