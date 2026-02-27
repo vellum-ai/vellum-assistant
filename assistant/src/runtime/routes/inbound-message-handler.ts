@@ -16,10 +16,9 @@ import { RESEND_COOLDOWN_MS } from '../../daemon/handlers/config-channels.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import {
-  createApprovalRequest,
-  findPendingAccessRequestForRequester,
-} from '../../memory/channel-guardian-store.js';
-import { createCanonicalGuardianRequest } from '../../memory/canonical-guardian-store.js';
+  createCanonicalGuardianRequest,
+  listCanonicalGuardianRequests,
+} from '../../memory/canonical-guardian-store.js';
 import { recordConversationSeenSignal } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
@@ -602,38 +601,17 @@ export async function handleChannelInbound(
       assistantId: canonicalAssistantId,
     });
 
-    createApprovalRequest({
-      runId: `ingress-escalation-${Date.now()}`,
+    createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      sourceChannel,
       conversationId: result.conversationId,
-      assistantId: canonicalAssistantId,
-      channel: sourceChannel,
-      requesterExternalUserId: body.senderExternalUserId ?? '',
-      requesterChatId: externalChatId,
+      requesterExternalUserId: body.senderExternalUserId ?? undefined,
       guardianExternalUserId: binding.guardianExternalUserId,
-      guardianChatId: binding.guardianDeliveryChatId,
       toolName: 'ingress_message',
-      riskLevel: 'escalated_ingress',
-      reason: 'Ingress policy requires guardian approval',
-      expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
+      questionText: 'Ingress policy requires guardian approval',
+      expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
     });
-
-    // Dual-write: create the canonical guardian request alongside the legacy
-    // approval request so the canonical decision pipeline can resolve it.
-    try {
-      createCanonicalGuardianRequest({
-        kind: 'tool_approval',
-        sourceType: 'channel',
-        sourceChannel,
-        conversationId: result.conversationId,
-        requesterExternalUserId: body.senderExternalUserId ?? undefined,
-        guardianExternalUserId: binding.guardianExternalUserId,
-        toolName: 'ingress_message',
-        questionText: 'Ingress policy requires guardian approval',
-        expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
-      });
-    } catch (err) {
-      log.warn({ err }, 'Failed to create canonical guardian request for ingress escalation');
-    }
 
     // Emit notification signal through the unified pipeline (fire-and-forget).
     // This lets the decision engine route escalation alerts to all configured
@@ -1651,18 +1629,18 @@ function notifyGuardianOfAccessRequest(params: {
     return false;
   }
 
-  // Deduplicate: skip if there is already a pending approval request for
+  // Deduplicate: skip if there is already a pending canonical request for
   // the same requester on this channel.  Still return true — the guardian
   // was already notified for this request.
-  const existing = findPendingAccessRequestForRequester(
-    canonicalAssistantId,
+  const existingCanonical = listCanonicalGuardianRequests({
+    status: 'pending',
+    requesterExternalUserId: senderExternalUserId,
     sourceChannel,
-    senderExternalUserId,
-    'ingress_access_request',
-  );
-  if (existing) {
+    toolName: 'ingress_access_request',
+  });
+  if (existingCanonical.length > 0) {
     log.debug(
-      { sourceChannel, senderExternalUserId, existingId: existing.id },
+      { sourceChannel, senderExternalUserId, existingId: existingCanonical[0].id },
       'Skipping duplicate access request notification',
     );
     return true;
@@ -1671,40 +1649,18 @@ function notifyGuardianOfAccessRequest(params: {
   const senderIdentifier = senderName || senderUsername || senderExternalUserId;
   const requestId = `access-req-${canonicalAssistantId}-${sourceChannel}-${senderExternalUserId}-${Date.now()}`;
 
-  const approvalRequest = createApprovalRequest({
-    runId: `ingress-access-request-${Date.now()}`,
-    requestId,
+  const canonicalRequest = createCanonicalGuardianRequest({
+    id: requestId,
+    kind: 'tool_approval',
+    sourceType: 'channel',
+    sourceChannel,
     conversationId: `access-req-${sourceChannel}-${senderExternalUserId}`,
-    assistantId: canonicalAssistantId,
-    channel: sourceChannel,
     requesterExternalUserId: senderExternalUserId,
-    requesterChatId: externalChatId,
     guardianExternalUserId: binding.guardianExternalUserId,
-    guardianChatId: binding.guardianDeliveryChatId,
     toolName: 'ingress_access_request',
-    riskLevel: 'access_request',
-    reason: `${senderIdentifier} is requesting access to the assistant`,
-    expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
+    questionText: `${senderIdentifier} is requesting access to the assistant`,
+    expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
   });
-
-  // Dual-write: create the canonical guardian request alongside the legacy
-  // approval request so the canonical decision pipeline can resolve it.
-  try {
-    createCanonicalGuardianRequest({
-      id: requestId,
-      kind: 'tool_approval',
-      sourceType: 'channel',
-      sourceChannel,
-      conversationId: `access-req-${sourceChannel}-${senderExternalUserId}`,
-      requesterExternalUserId: senderExternalUserId,
-      guardianExternalUserId: binding.guardianExternalUserId,
-      toolName: 'ingress_access_request',
-      questionText: `${senderIdentifier} is requesting access to the assistant`,
-      expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
-    });
-  } catch (err) {
-    log.warn({ err }, 'Failed to create canonical guardian request for access request');
-  }
 
   void emitNotificationSignal({
     sourceEventName: 'ingress.access_request',
@@ -1726,10 +1682,7 @@ function notifyGuardianOfAccessRequest(params: {
       senderUsername: senderUsername ?? null,
       senderIdentifier,
     },
-    // Scoped to the approval request ID so duplicate notifications for the
-    // same request are suppressed, but a new request (after deny/expire)
-    // gets its own dedupe key and the guardian is notified again.
-    dedupeKey: `access-request:${approvalRequest.id}`,
+    dedupeKey: `access-request:${canonicalRequest.id}`,
   });
 
   log.info(

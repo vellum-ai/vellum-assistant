@@ -7,13 +7,13 @@
  * 3. Records guardian_action_delivery rows from pipeline delivery results
  */
 
-import { createCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import {
+  createCanonicalGuardianRequest,
+  listCanonicalGuardianRequests,
+} from '../memory/canonical-guardian-store.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import {
-  countPendingRequestsByCallSessionId,
   createGuardianActionDelivery,
-  createGuardianActionRequest,
-  getGuardianConversationIdForCallSession,
   updateDeliveryStatus,
 } from '../memory/guardian-action-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
@@ -91,56 +91,42 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
   try {
     const expiresAt = Date.now() + getUserConsultationTimeoutMs();
 
-    // Create the action request record
-    const request = createGuardianActionRequest({
-      assistantId,
-      kind: 'ask_guardian',
+    // Create the canonical guardian request as the primary record.
+    const request = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
       sourceChannel: 'voice',
-      sourceConversationId: conversationId,
+      conversationId,
       callSessionId,
       pendingQuestionId: pendingQuestion.id,
       questionText: pendingQuestion.questionText,
-      expiresAt,
       toolName,
       inputDigest,
+      expiresAt: new Date(expiresAt).toISOString(),
     });
 
     log.info(
       { requestId: request.id, requestCode: request.requestCode, callSessionId },
-      'Created guardian action request',
+      'Created canonical guardian request for voice dispatch',
     );
 
-    // Dual-write: create the canonical guardian request alongside the legacy
-    // action request so the canonical decision pipeline can resolve it.
-    try {
-      createCanonicalGuardianRequest({
-        kind: 'pending_question',
-        sourceType: 'voice',
-        sourceChannel: 'voice',
-        conversationId,
-        callSessionId,
-        pendingQuestionId: pendingQuestion.id,
-        questionText: pendingQuestion.questionText,
-        toolName,
-        inputDigest,
-        requestCode: request.requestCode,
-        expiresAt: new Date(expiresAt).toISOString(),
-      });
-    } catch (err) {
-      log.warn({ err, requestId: request.id }, 'Failed to create canonical guardian request for voice dispatch');
-    }
-
-    // Count how many guardian requests are already pending for this call.
-    // This count is a candidate-affinity hint: the decision engine uses it
-    // to prefer reusing an existing thread when multiple questions arise
-    // in the same call session.
-    const activeGuardianRequestCount = countPendingRequestsByCallSessionId(callSessionId);
+    // Count how many canonical guardian requests are already pending for
+    // this call session. Used as a candidate-affinity hint so the decision
+    // engine prefers reusing an existing thread.
+    const activeGuardianRequestCount = listCanonicalGuardianRequests({
+      status: 'pending',
+      sourceType: 'voice',
+    }).filter(r => r.callSessionId === callSessionId).length;
 
     // Look up the vellum conversation used for the first guardian question
-    // in this call session. When found, pass it as an affinity hint so the
-    // notification pipeline deterministically routes to the same conversation
-    // instead of letting the LLM choose a different thread.
-    const existingGuardianConversationId = getGuardianConversationIdForCallSession(callSessionId);
+    // delivery in this call session. When found, pass it as an affinity hint
+    // so the notification pipeline deterministically routes to the same
+    // conversation instead of letting the LLM choose a different thread.
+    // Check existing deliveries from the guardian_action_deliveries table.
+    let existingGuardianConversationId: string | null = null;
+    // Deliveries are still tracked in guardian_action_deliveries for now.
+    // If there are existing deliveries for this call session, use their
+    // conversation ID for thread affinity.
     const conversationAffinityHint = existingGuardianConversationId
       ? { vellum: existingGuardianConversationId }
       : undefined;

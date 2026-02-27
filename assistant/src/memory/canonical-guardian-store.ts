@@ -235,9 +235,12 @@ export function getCanonicalGuardianRequestByCode(code: string): CanonicalGuardi
 export interface ListCanonicalGuardianRequestsFilters {
   status?: CanonicalRequestStatus;
   guardianExternalUserId?: string;
+  requesterExternalUserId?: string;
   conversationId?: string;
   sourceType?: string;
+  sourceChannel?: string;
   kind?: string;
+  toolName?: string;
 }
 
 export function listCanonicalGuardianRequests(filters?: ListCanonicalGuardianRequestsFilters): CanonicalGuardianRequest[] {
@@ -253,11 +256,20 @@ export function listCanonicalGuardianRequests(filters?: ListCanonicalGuardianReq
   if (filters?.conversationId) {
     conditions.push(eq(canonicalGuardianRequests.conversationId, filters.conversationId));
   }
+  if (filters?.requesterExternalUserId) {
+    conditions.push(eq(canonicalGuardianRequests.requesterExternalUserId, filters.requesterExternalUserId));
+  }
   if (filters?.sourceType) {
     conditions.push(eq(canonicalGuardianRequests.sourceType, filters.sourceType));
   }
+  if (filters?.sourceChannel) {
+    conditions.push(eq(canonicalGuardianRequests.sourceChannel, filters.sourceChannel));
+  }
   if (filters?.kind) {
     conditions.push(eq(canonicalGuardianRequests.kind, filters.kind));
+  }
+  if (filters?.toolName) {
+    conditions.push(eq(canonicalGuardianRequests.toolName, filters.toolName));
   }
 
   if (conditions.length === 0) {

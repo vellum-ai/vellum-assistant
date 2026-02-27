@@ -70,6 +70,12 @@ function rowToApprovalRequest(row: typeof channelGuardianApprovalRequests.$infer
 // Operations
 // ---------------------------------------------------------------------------
 
+/**
+ * @internal Test-only helper. Production code should create guardian requests
+ * via `createCanonicalGuardianRequest` in canonical-guardian-store.ts.
+ * This function is retained solely so that existing test fixtures that seed
+ * legacy approval rows continue to compile.
+ */
 export function createApprovalRequest(params: {
   runId: string;
   requestId?: string;
@@ -535,10 +541,9 @@ export function countPendingByConversation(
 }
 
 /**
- * Check for an existing pending (non-expired) approval request for a specific
- * requester on a channel. Used to deduplicate access requests — repeated
- * messages from the same non-member should not create duplicate approval
- * requests while one is already pending.
+ * @internal Test-only helper. Production code should query canonical guardian
+ * requests via `listCanonicalGuardianRequests` in canonical-guardian-store.ts.
+ * Retained for existing test fixtures that check legacy approval dedup.
  */
 export function findPendingAccessRequestForRequester(
   assistantId: string,

@@ -13,10 +13,6 @@
 
 import { answerCall } from '../calls/call-domain.js';
 import type { CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
-import {
-  getByPendingQuestionId,
-  resolveGuardianActionRequest,
-} from '../memory/guardian-action-store.js';
 import type { ApprovalAction } from '../runtime/channel-approval-types.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 import { addRule } from '../permissions/trust-store.js';
@@ -217,18 +213,6 @@ const pendingQuestionResolver: GuardianRequestResolver = {
       // so the system stays consistent. The call may have already timed out.
     }
 
-    // 2. Resolve the legacy guardian action request (if it exists).
-    // Look up by pendingQuestionId to find the matching legacy record.
-    const legacyRequest = getByPendingQuestionId(request.pendingQuestionId);
-    if (legacyRequest) {
-      resolveGuardianActionRequest(
-        legacyRequest.id,
-        answerText,
-        actor.channel,
-        actor.externalUserId,
-      );
-    }
-
     log.info(
       {
         event: 'resolver_pending_question_applied',
@@ -238,7 +222,6 @@ const pendingQuestionResolver: GuardianRequestResolver = {
         pendingQuestionId: request.pendingQuestionId,
         answerText,
         answerCallOk: 'ok' in (answerResult as any) ? (answerResult as any).ok : false,
-        legacyResolved: !!legacyRequest,
       },
       'Pending question resolver: canonical decision applied',
     );
