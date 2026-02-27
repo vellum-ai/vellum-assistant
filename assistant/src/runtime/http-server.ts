@@ -277,6 +277,7 @@ export class RuntimeHttpServer {
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
+      idleTimeout: 0,
       maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
       fetch: (req, server) => this.handleRequest(req, server),
       websocket: {
@@ -372,6 +373,12 @@ export class RuntimeHttpServer {
   }
 
   private async handleRequest(req: Request, server: ReturnType<typeof Bun.serve>): Promise<Response> {
+    server.timeout(req, 1800);
+    // Skip request logging for health-check probes to reduce log noise.
+    const url = new URL(req.url);
+    if (url.pathname === '/healthz' && req.method === 'GET') {
+      return this.routeRequest(req, server);
+    }
     return withRequestLogging(req, () => this.routeRequest(req, server));
   }
 

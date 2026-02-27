@@ -39,8 +39,9 @@ public struct VIconButton: View {
                         .font(VFont.caption)
                 }
             }
+            .foregroundColor(iconForegroundColor)
         }
-        .buttonStyle(VIconButtonStyle(isActive: isActive, isHovered: isHovered, iconOnly: iconOnly))
+        .buttonStyle(VIconButtonStyle(isActive: isActive, isHovered: isHovered))
         #if os(macOS)
         .onHover { hovering in
             isHovered = hovering
@@ -52,6 +53,13 @@ public struct VIconButton: View {
         #endif
         .accessibilityLabel(label)
         .modifier(OptionalHelpModifier(tooltip: tooltip))
+    }
+
+    private var iconForegroundColor: Color {
+        if isActive {
+            return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._300)
+        }
+        return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
     }
 }
 
@@ -70,30 +78,47 @@ private struct OptionalHelpModifier: ViewModifier {
     }
 }
 
-private struct VIconButtonStyle: ButtonStyle {
-    let isActive: Bool
-    let isHovered: Bool
-    let iconOnly: Bool
+public struct VIconButtonStyle: ButtonStyle {
+    public var isActive: Bool
+    public var isHovered: Bool
+    public var isFocused: Bool
+    public var size: CGFloat?
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundColor(foregroundColor(isPressed: configuration.isPressed))
-            .padding(VSpacing.sm)
-            .background(backgroundColor(isPressed: configuration.isPressed))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .animation(VAnimation.fast, value: configuration.isPressed)
-            .animation(VAnimation.fast, value: isHovered)
+    @Environment(\.isEnabled) private var isEnabled
+
+    public init(isActive: Bool = false, isHovered: Bool, isFocused: Bool = false, size: CGFloat? = nil) {
+        self.isActive = isActive
+        self.isHovered = isHovered
+        self.isFocused = isFocused
+        self.size = size
     }
 
-    private func foregroundColor(isPressed: Bool) -> Color {
-        if isActive || isPressed {
-            return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._300)
-        }
-        return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
+    public func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: VRadius.md)
+
+        configuration.label
+            .frame(width: size, height: size)
+            .padding(size == nil ? VSpacing.sm : 0)
+            .background(shape.fill(backgroundColor(isPressed: configuration.isPressed)))
+            .overlay(
+                shape.stroke(
+                    borderColor,
+                    lineWidth: isEnabled && isFocused ? 1.25 : 1
+                )
+            )
+            .clipShape(shape)
+            .contentShape(shape)
+            .focusEffectDisabled()
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(VAnimation.fast, value: configuration.isPressed)
+            .animation(VAnimation.fast, value: isHovered)
+            .animation(VAnimation.fast, value: isFocused)
     }
 
     private func backgroundColor(isPressed: Bool) -> Color {
+        guard isEnabled else {
+            return isActive ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear
+        }
         if isActive {
             if isPressed { return adaptiveColor(light: Moss._200, dark: Moss._600) }
             if isHovered { return adaptiveColor(light: Moss._200, dark: Moss._600) }
@@ -103,6 +128,11 @@ private struct VIconButtonStyle: ButtonStyle {
             if isHovered { return adaptiveColor(light: Moss._100, dark: Moss._700) }
             return .clear
         }
+    }
+
+    private var borderColor: Color {
+        guard isEnabled, isFocused else { return .clear }
+        return VColor.accent.opacity(0.72)
     }
 }
 
