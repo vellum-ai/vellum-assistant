@@ -191,7 +191,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     // Step 2: Guardian answers -> resolve the request
     const resolved = resolveGuardianActionRequest(
       request.id,
-      'Yes, go ahead',
+      'yes',
       'telegram',
       'guardian-user-123',
     );
@@ -201,7 +201,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     // Step 3: Mint a scoped grant from the resolved request
     tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
-      answerText: 'Yes, go ahead',
+      answerText: 'yes',
       decisionChannel: 'telegram',
       guardianExternalUserId: 'guardian-user-123',
     });
@@ -348,13 +348,13 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     });
 
     // Guardian answers via desktop (vellum channel)
-    const resolved = resolveGuardianActionRequest(request.id, 'Approved', 'vellum');
+    const resolved = resolveGuardianActionRequest(request.id, 'approve', 'vellum');
     expect(resolved).not.toBeNull();
 
     // Mint with decisionChannel: 'vellum' (desktop path)
     tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
-      answerText: 'Approved',
+      answerText: 'approve',
       decisionChannel: 'vellum',
     });
 
@@ -440,7 +440,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(grants.length).toBe(0);
   });
 
-  test('grant IS minted for free-form affirmative answer', () => {
+  test('no grant minted for unrecognised free-form answer (fail-closed)', () => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
@@ -456,7 +456,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       inputDigest,
     });
 
-    // Free-form affirmative that doesn't match a known phrase exactly
+    // Free-form text that doesn't match a known approval phrase
     const resolved = resolveGuardianActionRequest(request.id, 'Sure, go ahead and run it', 'telegram');
     expect(resolved).not.toBeNull();
 
@@ -466,7 +466,40 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       decisionChannel: 'telegram',
     });
 
-    // Grant should be minted — free-form answers default to affirmative
+    // No grant — unrecognised text is not treated as approval (fail-closed)
+    const db = getDb();
+    const grants = db
+      .select()
+      .from(scopedApprovalGrants)
+      .all();
+    expect(grants.length).toBe(0);
+  });
+
+  test.each(['yes', 'approve', 'approve once', 'allow', 'go ahead'])('grant IS minted for approval keyword: %s', (approveWord) => {
+    const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
+
+    const request = createGuardianActionRequest({
+      assistantId: ASSISTANT_ID,
+      kind: 'ask_guardian',
+      sourceChannel: 'voice',
+      sourceConversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      pendingQuestionId: nextPendingQuestionId(),
+      questionText: 'Can I run the command?',
+      expiresAt: Date.now() + 60_000,
+      toolName: TOOL_NAME,
+      inputDigest,
+    });
+
+    const resolved = resolveGuardianActionRequest(request.id, approveWord, 'telegram');
+    expect(resolved).not.toBeNull();
+
+    tryMintGuardianActionGrant({
+      resolvedRequest: resolved!,
+      answerText: approveWord,
+      decisionChannel: 'telegram',
+    });
+
     const db = getDb();
     const grants = db
       .select()

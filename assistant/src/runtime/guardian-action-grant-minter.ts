@@ -23,7 +23,7 @@ export const GUARDIAN_ACTION_GRANT_TTL_MS = 5 * 60 * 1000;
  *
  * Skips silently when:
  *   - The resolved request has no toolName/inputDigest (informational consult).
- *   - The guardian's answer is classified as a denial (preserves the deny path).
+ *   - The guardian's answer is not an explicit approval (fail-closed).
  *
  * Fails silently on error -- grant minting is best-effort and must never
  * block the guardian-action answer flow.
@@ -42,21 +42,23 @@ export function tryMintGuardianActionGrant(params: {
     return;
   }
 
-  // Gate on affirmative guardian decisions. Use the deterministic approval
-  // parser to detect explicit denials ("no", "reject", "deny", "cancel").
-  // Unrecognized free-form answers are treated as affirmative since the
-  // guardian chose to respond to the call.
+  // Gate on explicit affirmative guardian decisions (fail-closed).
+  // Only mint when the deterministic parser recognises an approval keyword
+  // ("yes", "approve", "allow", "go ahead", etc.).  Unrecognised text
+  // (e.g. "nope", "don't do that") is treated as non-approval and skipped,
+  // preventing ambiguous answers from producing grants.
   const decision = parseApprovalDecision(answerText);
-  if (decision?.action === 'reject') {
+  if (decision?.action !== 'approve_once' && decision?.action !== 'approve_always') {
     log.info(
       {
-        event: 'guardian_action_grant_skipped_denial',
+        event: 'guardian_action_grant_skipped_no_approval',
         toolName: resolvedRequest.toolName,
         requestId: resolvedRequest.id,
         answerText,
+        parsedAction: decision?.action ?? null,
         decisionChannel,
       },
-      'Skipped grant minting: guardian answer classified as denial',
+      'Skipped grant minting: guardian answer not classified as explicit approval',
     );
     return;
   }
