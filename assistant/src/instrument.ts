@@ -32,8 +32,15 @@ function redactObject(obj: unknown): unknown {
   return obj;
 }
 
-/** Call after dotenv has loaded so SENTRY_DSN is available. */
-export function initSentry(): void {
+/**
+ * Call after dotenv has loaded so SENTRY_DSN is available.
+ * Pass enabled=false to skip initialization entirely (e.g. when the user has
+ * opted out of crash reporting via the "collect-usage-data" feature flag).
+ * The @sentry/node SDK no-ops all calls when not initialized, so guards on
+ * individual Sentry.captureException callsites are not required.
+ */
+export function initSentry(enabled = true): void {
+  if (!enabled) return;
   Sentry.init({
     dsn: getSentryDsn(),
     release: `vellum-assistant@${APP_VERSION}`,

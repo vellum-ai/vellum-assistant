@@ -15,6 +15,7 @@ import {
   getRuntimeProxyBearerToken,
   validateEnv,
 } from '../config/env.js';
+import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
 import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
 import { syncUpdateBulletinOnStartup } from '../config/update-bulletin.js';
@@ -96,7 +97,6 @@ export async function runDaemon(): Promise<void> {
   let socketCreated = false;
 
   try {
-    initSentry();
     await initLogfire();
 
     // Migration order matters: first move legacy flat files into the data dir
@@ -172,6 +172,11 @@ export async function runDaemon(): Promise<void> {
     if (config.logFile.dir) {
       initLogger({ dir: config.logFile.dir, retentionDays: config.logFile.retentionDays });
     }
+
+    // Initialize crash reporting only if the user has opted in (default: enabled).
+    // Config is available here so the flag can be resolved against persisted overrides.
+    const collectUsageData = isAssistantFeatureFlagEnabled('feature_flags.collect-usage-data.enabled', config);
+    initSentry(collectUsageData);
 
     await initializeProvidersAndTools(config);
 
