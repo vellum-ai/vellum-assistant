@@ -35,8 +35,8 @@ struct SettingsAccountTab: View {
             assistantInfoSection
             switchAssistantSection
             GatewaySettingsCard(store: store, daemonClient: daemonClient)
-            retireAssistantSection
             hatchNewAssistantSection
+            retireAssistantSection
         }
         .onAppear {
             Task { await authManager.checkSession() }
