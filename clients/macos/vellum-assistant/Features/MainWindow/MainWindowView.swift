@@ -810,7 +810,7 @@ struct MainWindowView: View {
                     VBusyIndicator()
                         .frame(width: 20, height: 20)
                 case .waitingForInput:
-                    Image(systemName: "questionmark.circle.fill")
+                    Image(systemName: "exclamationmark.circle.fill")
                         .font(.system(size: 12))
                         .foregroundColor(VColor.warning)
                         .frame(width: 20, height: 20)
