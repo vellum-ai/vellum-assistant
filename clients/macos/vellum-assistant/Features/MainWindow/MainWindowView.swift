@@ -1730,7 +1730,7 @@ private struct ProfileSwitchModal: View {
             }
 
             // Gap between content and footer
-            Spacer().frame(height: VSpacing.xxl)
+            Spacer().frame(height: VSpacing.lg)
 
             // Footer buttons
             HStack {
@@ -1741,8 +1741,7 @@ private struct ProfileSwitchModal: View {
                     .keyboardShortcut(.return, modifiers: [])
             }
         }
-        .padding(.horizontal, VSpacing.xl)
-        .padding(.vertical, VSpacing.xxl)
+        .padding(VSpacing.lg)
         .frame(maxWidth: .infinity)
     }
 
@@ -1753,7 +1752,7 @@ private struct ProfileSwitchModal: View {
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
         }
-        .padding(VSpacing.xl)
+        .padding(VSpacing.lg)
         .frame(maxWidth: .infinity)
     }
 

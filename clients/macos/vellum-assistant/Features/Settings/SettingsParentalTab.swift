@@ -721,10 +721,9 @@ struct SettingsParentalTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                VIconButton(label: "Refresh pending approvals", icon: "arrow.clockwise", iconOnly: true) {
+                VButton(label: "Refresh", leftIcon: "arrow.clockwise", style: .primary, size: .small) {
                     loadPendingApprovals()
                 }
-                .accessibilityLabel("Refresh pending approvals")
             }
 
             Text("Review and approve permission requests from Restricted Mode.")
@@ -1267,46 +1266,40 @@ private struct PINSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Content — centered
-            VStack(spacing: VSpacing.md) {
-                // Header
-                VStack(spacing: VSpacing.xs) {
-                    Text(title)
-                        .font(VFont.headline)
-                        .foregroundColor(VColor.textPrimary)
-                    Text(stepSubtitle)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-
-                // Single input field — `.id(step)` tears it down and rebuilds it
-                // (triggering auto-focus) whenever the step changes. `pinInput` is
-                // always reset to "" before the step is changed, so a stale
-                // onChange callback from the previous step can never fire advance().
-                PINCircleField(text: $pinInput, focusTrigger: pinFocusTrigger)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .id(step)
-                    .onChange(of: pinInput) { _, v in
-                        if v.count == 6 { advance() }
-                    }
-
-                // Error / placeholder to keep height stable
-                if let error = errorMessage {
-                    Text(error)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.error)
-                        .multilineTextAlignment(.center)
-                } else {
-                    Text(" ").font(VFont.caption)
-                }
+        VStack(spacing: VSpacing.lg) {
+            // Header
+            VStack(spacing: VSpacing.xs) {
+                Text(title)
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
+                Text(stepSubtitle)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .center)
 
-            // Gap between content and footer
-            Spacer().frame(height: VSpacing.xxl)
+            // Single input field — `.id(step)` tears it down and rebuilds it
+            // (triggering auto-focus) whenever the step changes. `pinInput` is
+            // always reset to "" before the step is changed, so a stale
+            // onChange callback from the previous step can never fire advance().
+            PINCircleField(text: $pinInput, focusTrigger: pinFocusTrigger)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .id(step)
+                .onChange(of: pinInput) { _, v in
+                    if v.count == 6 { advance() }
+                }
+
+            // Error / placeholder to keep height stable
+            if let error = errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+                    .multilineTextAlignment(.center)
+            } else {
+                Text(" ").font(VFont.caption)
+            }
 
             // Footer
             if isLoading {
@@ -1315,8 +1308,8 @@ private struct PINSheet: View {
                 VButton(label: "Cancel", style: .secondary) { dismiss() }
             }
         }
-        .padding(VSpacing.xl)
-        .frame(width: 320)
+        .padding(VSpacing.lg)
+        .frame(width: 300)
         .fixedSize(horizontal: false, vertical: true)
         .background(VColor.background)
         .onAppear {
@@ -1830,38 +1823,34 @@ private struct UnlockPINView: View {
     @State private var focusTrigger: Int = 0
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Content
-            VStack(spacing: VSpacing.md) {
-                VStack(spacing: VSpacing.xs) {
-                    Text("Enter PIN to Make Changes")
-                        .font(VFont.headline)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Parental settings are PIN-protected. Enter your PIN once to unlock changes for this session.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-
-                PINCircleField(text: $pinInput, focusTrigger: focusTrigger)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .onChange(of: pinInput) { _, v in
-                        if v.count == 6 { verify() }
-                    }
-
-                if let error = errorMessage {
-                    Text(error)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.error)
-                        .multilineTextAlignment(.center)
-                } else {
-                    Text(" ").font(VFont.caption)
-                }
+        VStack(spacing: VSpacing.lg) {
+            // Header
+            VStack(spacing: VSpacing.xs) {
+                Text("Enter PIN to Make Changes")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Parental settings are PIN-protected. Enter your PIN once to unlock changes for this session.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .center)
 
-            Spacer().frame(height: VSpacing.xxl)
+            PINCircleField(text: $pinInput, focusTrigger: focusTrigger)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .onChange(of: pinInput) { _, v in
+                    if v.count == 6 { verify() }
+                }
+
+            if let error = errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+                    .multilineTextAlignment(.center)
+            } else {
+                Text(" ").font(VFont.caption)
+            }
 
             if isLoading {
                 ProgressView().scaleEffect(0.8)
@@ -1869,8 +1858,8 @@ private struct UnlockPINView: View {
                 VButton(label: "Cancel", style: .secondary) { onDismiss() }
             }
         }
-        .padding(VSpacing.xl)
-        .frame(width: 320)
+        .padding(VSpacing.lg)
+        .frame(width: 300)
         .fixedSize(horizontal: false, vertical: true)
         .background(VColor.background)
     }
