@@ -63,10 +63,6 @@ struct SettingsChannelsTab: View {
     // Shared label column width for channelStatusRow and guardianLabel alignment
     private let labelColumnWidth: CGFloat = 140
 
-    // Token regeneration state
-    @State private var isRegeneratingToken: Bool = false
-
-
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             connectionsSection
@@ -1665,7 +1661,7 @@ struct SettingsChannelsTab: View {
         let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
         let hasToken = !bearerToken.isEmpty
 
-        if isRegeneratingToken {
+        if store.isRegeneratingToken {
             HStack(spacing: VSpacing.sm) {
                 mobilePairingLabel
                 ProgressView()
@@ -1730,7 +1726,7 @@ struct SettingsChannelsTab: View {
         bearerToken = newToken
         // Kill the daemon so the health monitor restarts it with the new token.
         // The daemon only reads the token at startup, so a restart is required.
-        isRegeneratingToken = true
+        store.isRegeneratingToken = true
         let pidPath = resolvePidPath()
         if let pidStr = try? String(contentsOfFile: pidPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
            let pid = Int32(pidStr) {
@@ -1742,7 +1738,7 @@ struct SettingsChannelsTab: View {
                 ? String(store.localGatewayTarget.dropLast())
                 : store.localGatewayTarget
             guard let url = URL(string: "\(base)/v1/health") else {
-                isRegeneratingToken = false
+                store.isRegeneratingToken = false
                 return
             }
             var request = URLRequest(url: url)
@@ -1752,11 +1748,11 @@ struct SettingsChannelsTab: View {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 if let (_, response) = try? await URLSession.shared.data(for: request),
                    let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                    isRegeneratingToken = false
+                    store.isRegeneratingToken = false
                     return
                 }
             }
-            isRegeneratingToken = false
+            store.isRegeneratingToken = false
         }
     }
 }
