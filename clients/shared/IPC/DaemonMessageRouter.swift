@@ -282,6 +282,8 @@ extension DaemonClient {
             onIdentityChanged?(msg)
         case .avatarUpdated(let msg):
             onAvatarUpdated?(msg)
+        case .generateAvatarResponse(let msg):
+            onGenerateAvatarResponse?(msg)
         default:
             break
         }

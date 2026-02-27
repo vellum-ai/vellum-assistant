@@ -512,6 +512,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `avatar_updated` message after regenerating the avatar.
     public var onAvatarUpdated: ((IPCAvatarUpdated) -> Void)?
 
+    /// Called when the daemon sends a `generate_avatar_response` message.
+    public var onGenerateAvatarResponse: ((IPCGenerateAvatarResponse) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -1305,6 +1308,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Request identity info via IPC.
     public func sendIdentityGet() throws {
         try send(IdentityGetRequestMessage())
+    }
+
+    /// Request avatar generation via the daemon's set_avatar tool.
+    public func sendGenerateAvatar(description: String) throws {
+        try send(GenerateAvatarRequestMessage(description: description))
     }
 
     // MARK: - Local Daemon HTTP Helpers
