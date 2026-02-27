@@ -99,6 +99,8 @@ struct MainWindowView: View {
     @State private var showThreadSwitcher = false
     /// Work item for the delayed hover trigger on the collapsed thread section.
     @State private var threadSwitcherHoverTimer: DispatchWorkItem?
+    /// Work item that dismisses the thread switcher popover after leaving the hover area.
+    @State private var threadSwitcherDismissTimer: DispatchWorkItem?
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
 
@@ -1370,6 +1372,10 @@ struct MainWindowView: View {
                 .onHover { hovering in
                     guard regularThreads.count > 1 else { return }
                     if hovering {
+                        // Cancel any pending dismiss
+                        threadSwitcherDismissTimer?.cancel()
+                        threadSwitcherDismissTimer = nil
+                        // Start open timer
                         threadSwitcherHoverTimer?.cancel()
                         let work = DispatchWorkItem {
                             showThreadSwitcher = true
@@ -1379,6 +1385,14 @@ struct MainWindowView: View {
                     } else {
                         threadSwitcherHoverTimer?.cancel()
                         threadSwitcherHoverTimer = nil
+                        // Schedule dismiss — gives time to move mouse into the popover
+                        if showThreadSwitcher {
+                            let dismiss = DispatchWorkItem {
+                                showThreadSwitcher = false
+                            }
+                            threadSwitcherDismissTimer = dismiss
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: dismiss)
+                        }
                     }
                 }
                 .popover(isPresented: $showThreadSwitcher, arrowEdge: .trailing) {
@@ -1436,6 +1450,20 @@ struct MainWindowView: View {
                     }
                     .frame(width: 200)
                     .padding(.bottom, VSpacing.sm)
+                    .onHover { hovering in
+                        if hovering {
+                            // Mouse entered popover — cancel pending dismiss
+                            threadSwitcherDismissTimer?.cancel()
+                            threadSwitcherDismissTimer = nil
+                        } else {
+                            // Mouse left popover — dismiss after short delay
+                            let dismiss = DispatchWorkItem {
+                                showThreadSwitcher = false
+                            }
+                            threadSwitcherDismissTimer = dismiss
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: dismiss)
+                        }
+                    }
                 }
             }
 
