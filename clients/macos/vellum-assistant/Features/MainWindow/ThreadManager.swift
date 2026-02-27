@@ -610,20 +610,26 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// had an explicit displayOrder. Threads without explicit ordering (sorted
     /// by recency) keep nil displayOrder so new threads continue to appear at top.
     @discardableResult
-    func moveThread(sourceId: UUID, beforeId: UUID) -> Bool {
+    func moveThread(sourceId: UUID, targetId: UUID) -> Bool {
         guard let sourceIdx = threads.firstIndex(where: { $0.id == sourceId }),
-              let targetIdx = threads.firstIndex(where: { $0.id == beforeId }) else { return false }
+              let targetIdx = threads.firstIndex(where: { $0.id == targetId }) else { return false }
         let targetThread = threads[targetIdx]
 
         if targetThread.isPinned {
             // Dropping onto a pinned thread — pin the source if needed and reorder
-            if !threads[sourceIdx].isPinned {
+            let sourceWasPinned = threads[sourceIdx].isPinned
+            if !sourceWasPinned {
                 threads[sourceIdx].isPinned = true
             }
             let targetOrder = targetThread.pinnedOrder ?? 0
-            threads[sourceIdx].pinnedOrder = targetOrder
+            let sourceOrder = sourceWasPinned ? (threads[sourceIdx].pinnedOrder ?? Int.max) : Int.max
+
+            // Direction-aware: if source is above target (lower order), insert after target
+            let insertOrder = sourceOrder < targetOrder ? targetOrder + 1 : targetOrder
+
+            threads[sourceIdx].pinnedOrder = insertOrder
             for i in threads.indices where threads[i].isPinned && threads[i].id != sourceId {
-                if let order = threads[i].pinnedOrder, order >= targetOrder {
+                if let order = threads[i].pinnedOrder, order >= insertOrder {
                     threads[i].pinnedOrder = order + 1
                 }
             }
@@ -648,17 +654,23 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
             var reordered = unpinned.filter { $0.id != sourceId }
 
-            // Determine the insertion position. When both source and target are
-            // schedule threads, use the target's actual position so schedule-to-
-            // schedule drags land at the correct spot. Only use the section boundary
-            // (first schedule thread) when dragging a regular thread onto a schedule
-            // thread (cross-section drag).
             let insertPos: Int
             let sourceThread = threads[sourceIdx]
             if targetThread.isScheduleThread && !sourceThread.isScheduleThread {
+                // Cross-section drag: insert at section boundary
                 insertPos = reordered.firstIndex(where: { $0.isScheduleThread }) ?? reordered.endIndex
             } else {
-                insertPos = reordered.firstIndex(where: { $0.id == beforeId }) ?? reordered.endIndex
+                // Direction-aware: if source was visually above target (dragging down),
+                // insert AFTER target; if below (dragging up), insert BEFORE target.
+                let sourceVisualIdx = unpinned.firstIndex(where: { $0.id == sourceId })
+                let targetVisualIdx = unpinned.firstIndex(where: { $0.id == targetId })
+
+                if let sIdx = sourceVisualIdx, let tIdx = targetVisualIdx, sIdx < tIdx {
+                    let targetInFiltered = reordered.firstIndex(where: { $0.id == targetId }) ?? reordered.endIndex
+                    insertPos = min(targetInFiltered + 1, reordered.endIndex)
+                } else {
+                    insertPos = reordered.firstIndex(where: { $0.id == targetId }) ?? reordered.endIndex
+                }
             }
 
             if let movedThread = unpinned.first(where: { $0.id == sourceId }) ?? [threads[sourceIdx]].first {

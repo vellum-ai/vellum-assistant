@@ -34,6 +34,11 @@ final class SidebarInteractionState {
     var showControlCenterDrawer: Bool = false
     /// Thread ID that is currently the drop target during a drag-and-drop reorder.
     var dropTargetThreadId: UUID?
+    /// Thread ID currently being dragged (set on drag start, cleared on drop).
+    var draggingThreadId: UUID?
+    /// Whether the drop indicator should appear at the bottom of the target (true)
+    /// or the top (false). Set based on drag direction.
+    var dropIndicatorAtBottom: Bool = false
 }
 
 /// Copy-thread confirmation state.
@@ -974,7 +979,10 @@ struct MainWindowView: View {
                 NSCursor.pop()
             }
         }
-        .draggable(thread.id.uuidString) {
+        .onDrag {
+            sidebar.draggingThreadId = thread.id
+            return NSItemProvider(object: thread.id.uuidString as NSString)
+        } preview: {
             HStack(spacing: VSpacing.xs) {
                 if thread.isPinned {
                     Image(systemName: "pin.fill")
@@ -1248,7 +1256,7 @@ struct MainWindowView: View {
                     ForEach(displayedThreads) { thread in
                         threadItem(thread)
                             .padding(.bottom, VSpacing.xxs)
-                            .overlay(alignment: .top) {
+                            .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                 if sidebar.dropTargetThreadId == thread.id {
                                     Rectangle()
                                         .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
@@ -1258,12 +1266,23 @@ struct MainWindowView: View {
                             }
                             .dropDestination(for: String.self) { items, _ in
                                 sidebar.dropTargetThreadId = nil
+                                sidebar.draggingThreadId = nil
                                 guard let droppedId = items.first,
                                       let sourceUUID = UUID(uuidString: droppedId),
                                       sourceUUID != thread.id else { return false }
-                                return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
+                                return threadManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
                             } isTargeted: { isTargeted in
-                                sidebar.dropTargetThreadId = isTargeted ? thread.id : nil
+                                if isTargeted && thread.id != sidebar.draggingThreadId {
+                                    sidebar.dropTargetThreadId = thread.id
+                                    if let dragId = sidebar.draggingThreadId {
+                                        let visible = threadManager.visibleThreads
+                                        let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
+                                        let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
+                                        sidebar.dropIndicatorAtBottom = sIdx < tIdx
+                                    }
+                                } else if !isTargeted && sidebar.dropTargetThreadId == thread.id {
+                                    sidebar.dropTargetThreadId = nil
+                                }
                             }
                     }
 
@@ -1298,7 +1317,7 @@ struct MainWindowView: View {
                         ForEach(displayedScheduleThreads) { thread in
                             threadItem(thread)
                                 .padding(.bottom, VSpacing.xxs)
-                                .overlay(alignment: .top) {
+                                .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                     if sidebar.dropTargetThreadId == thread.id {
                                         Rectangle()
                                             .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
@@ -1308,12 +1327,23 @@ struct MainWindowView: View {
                                 }
                                 .dropDestination(for: String.self) { items, _ in
                                     sidebar.dropTargetThreadId = nil
+                                    sidebar.draggingThreadId = nil
                                     guard let droppedId = items.first,
                                           let sourceUUID = UUID(uuidString: droppedId),
                                           sourceUUID != thread.id else { return false }
-                                    return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
+                                    return threadManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
                                 } isTargeted: { isTargeted in
-                                    sidebar.dropTargetThreadId = isTargeted ? thread.id : nil
+                                    if isTargeted && thread.id != sidebar.draggingThreadId {
+                                        sidebar.dropTargetThreadId = thread.id
+                                        if let dragId = sidebar.draggingThreadId {
+                                            let visible = threadManager.visibleThreads
+                                            let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
+                                            let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
+                                            sidebar.dropIndicatorAtBottom = sIdx < tIdx
+                                        }
+                                    } else if !isTargeted && sidebar.dropTargetThreadId == thread.id {
+                                        sidebar.dropTargetThreadId = nil
+                                    }
                                 }
                         }
 
