@@ -147,7 +147,7 @@ build_binaries() {
     command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
 
     # Daemon
-    local daemon_flags=(--external electron --external "chromium-bidi/*" --external onnxruntime-node --external @huggingface/transformers)
+    local daemon_flags=(--external electron --external "chromium-bidi/*" --external onnxruntime-node)
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
@@ -169,48 +169,22 @@ build_binaries() {
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common/lib"
     rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common/README.md"
     find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
-    # Strip non-native-platform binaries to save space
+    # Strip non-native-platform binaries to save space (keep all darwin archs —
+    # uname -m is unreliable under Rosetta, returning x86_64 on Apple Silicon)
     local onnx_bin="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/bin/napi-v3"
     if [ -d "$onnx_bin" ]; then
         find "$onnx_bin" -mindepth 1 -maxdepth 1 -not -name darwin -exec rm -rf {} +
-        if [ "$UNIVERSAL_BUILD" != true ] && [ -d "$onnx_bin/darwin" ]; then
-            local arch=$(uname -m)
-            [ "$arch" = "x86_64" ] && arch="x64"
-            find "$onnx_bin/darwin" -mindepth 1 -maxdepth 1 -not -name "$arch" -exec rm -rf {} +
-        fi
     fi
-    # Copy @huggingface/transformers and its runtime deps (sharp, @img/*)
-    # so the externalized import('@huggingface/transformers') resolves at runtime
-    mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface"
-    cp -R "$ASSISTANT_SRC_DIR/node_modules/@huggingface/transformers" "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers"
-    # Strip non-runtime files (source, types, sourcemaps, web/browser bundles, WASM, model cache)
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/src"
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/types"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/README.md"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/"*.map
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/"*.min.*
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/transformers.js"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/transformers.web.js"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/ort-wasm-*"
-    # Stage sharp (static dep of transformers Node entry) and its native bindings
-    cp -R "$ASSISTANT_SRC_DIR/node_modules/sharp" "$SCRIPT_DIR/daemon-bin/node_modules/sharp"
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/sharp/src"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/sharp/README.md"
-    mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules/@img"
-    for img_pkg in "$ASSISTANT_SRC_DIR/node_modules/@img/"*; do
-        [ -d "$img_pkg" ] && cp -R "$img_pkg" "$SCRIPT_DIR/daemon-bin/node_modules/@img/"
-    done
-    # Strip dirs that codesign misinterprets as bundles (recursive across
-    # all staged node_modules to catch nested copies like sharp/sharp/ and
-    # transformers/transformers/.cache)
-    find "$SCRIPT_DIR/daemon-bin/node_modules" -type d -name "glib-2.0" -exec rm -rf {} + 2>/dev/null || true
-    find "$SCRIPT_DIR/daemon-bin/node_modules" -type d -name ".cache" -exec rm -rf {} + 2>/dev/null || true
-    # Stage sharp's JS dependencies
-    for dep in detect-libc semver; do
-        if [ -d "$ASSISTANT_SRC_DIR/node_modules/$dep" ]; then
-            cp -R "$ASSISTANT_SRC_DIR/node_modules/$dep" "$SCRIPT_DIR/daemon-bin/node_modules/$dep"
-        fi
-    done
+    # Pre-bundle @huggingface/transformers + all JS deps (onnxruntime-common, sharp,
+    # detect-libc, etc.) into a single file. This avoids Bun compiled binary bugs
+    # with subdirectory entry points and CJS/ESM dual-instance issues.
+    # Native .node binaries are left external. The bundle is placed inside
+    # onnxruntime-node/dist/ so native binary relative paths resolve correctly.
+    echo 'export * from "@huggingface/transformers";' > "$ASSISTANT_SRC_DIR/_bundle-entry.js"
+    bun build "$ASSISTANT_SRC_DIR/_bundle-entry.js" \
+        --outfile "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/dist/transformers-bundle.mjs" \
+        --target node --format esm --external "*.node"
+    rm -f "$ASSISTANT_SRC_DIR/_bundle-entry.js"
     find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
     # Copy bundled skills
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
@@ -339,7 +313,7 @@ if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     fi
 fi
 if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
-    local_daemon_flags=(--external electron --external "chromium-bidi/*" --external onnxruntime-node --external @huggingface/transformers)
+    local_daemon_flags=(--external electron --external "chromium-bidi/*" --external onnxruntime-node)
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         local_daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
@@ -359,42 +333,17 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common/lib"
     rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common/README.md"
     find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
+    # Strip non-native-platform binaries (keep all darwin archs — uname -m unreliable under Rosetta)
     onnx_bin="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/bin/napi-v3"
     if [ -d "$onnx_bin" ]; then
         find "$onnx_bin" -mindepth 1 -maxdepth 1 -not -name darwin -exec rm -rf {} +
-        if [ "$UNIVERSAL_BUILD" != true ] && [ -d "$onnx_bin/darwin" ]; then
-            _arch=$(uname -m)
-            [ "$_arch" = "x86_64" ] && _arch="x64"
-            find "$onnx_bin/darwin" -mindepth 1 -maxdepth 1 -not -name "$_arch" -exec rm -rf {} +
-        fi
     fi
-    # Copy @huggingface/transformers and its runtime deps (sharp, @img/*)
-    mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface"
-    cp -R "$ASSISTANT_SRC_DIR/node_modules/@huggingface/transformers" "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers"
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/src"
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/types"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/README.md"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/"*.map
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/"*.min.*
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/transformers.js"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/transformers.web.js"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/dist/ort-wasm-*"
-    cp -R "$ASSISTANT_SRC_DIR/node_modules/sharp" "$SCRIPT_DIR/daemon-bin/node_modules/sharp"
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/sharp/src"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/sharp/README.md"
-    mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules/@img"
-    for img_pkg in "$ASSISTANT_SRC_DIR/node_modules/@img/"*; do
-        [ -d "$img_pkg" ] && cp -R "$img_pkg" "$SCRIPT_DIR/daemon-bin/node_modules/@img/"
-    done
-    # Strip dirs that codesign misinterprets as bundles (recursive across
-    # all staged node_modules to catch nested copies)
-    find "$SCRIPT_DIR/daemon-bin/node_modules" -type d -name "glib-2.0" -exec rm -rf {} + 2>/dev/null || true
-    find "$SCRIPT_DIR/daemon-bin/node_modules" -type d -name ".cache" -exec rm -rf {} + 2>/dev/null || true
-    for dep in detect-libc semver; do
-        if [ -d "$ASSISTANT_SRC_DIR/node_modules/$dep" ]; then
-            cp -R "$ASSISTANT_SRC_DIR/node_modules/$dep" "$SCRIPT_DIR/daemon-bin/node_modules/$dep"
-        fi
-    done
+    # Pre-bundle @huggingface/transformers + all JS deps into a single file
+    echo 'export * from "@huggingface/transformers";' > "$ASSISTANT_SRC_DIR/_bundle-entry.js"
+    bun build "$ASSISTANT_SRC_DIR/_bundle-entry.js" \
+        --outfile "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/dist/transformers-bundle.mjs" \
+        --target node --format esm --external "*.node"
+    rm -f "$ASSISTANT_SRC_DIR/_bundle-entry.js"
     find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
 fi
 
@@ -481,7 +430,7 @@ if [ "$NEEDS_REBUILD" = true ]; then
         for wasm in "$SCRIPT_DIR/daemon-bin/"*.wasm; do
             [ -f "$wasm" ] && cp "$wasm" "$RESOURCES_DIR/"
         done
-        # Bundle externalized node_modules (onnxruntime, @huggingface/transformers, sharp, etc.)
+        # Bundle externalized node_modules (onnxruntime + pre-bundled transformers)
         if [ -d "$SCRIPT_DIR/daemon-bin/node_modules" ]; then
             rm -rf "$MACOS_DIR/node_modules"
             cp -R "$SCRIPT_DIR/daemon-bin/node_modules" "$MACOS_DIR/node_modules"
