@@ -22,13 +22,6 @@ export interface ApprovalActionOption {
   label: string;
 }
 
-/** Default action options presented to users across all channels. */
-export const DEFAULT_APPROVAL_ACTIONS: readonly ApprovalActionOption[] = [
-  { id: 'approve_once', label: 'Approve once' },
-  { id: 'approve_always', label: 'Approve always' },
-  { id: 'reject', label: 'Reject' },
-] as const;
-
 /**
  * Map `GuardianDecisionAction[]` to `ApprovalActionOption[]` so channel
  * prompt payloads can be derived from the unified decision action set.
