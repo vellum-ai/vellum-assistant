@@ -219,4 +219,71 @@ describe('invite-redemption-service', () => {
 
     expect(outcome).toEqual({ ok: false, reason: 'channel_mismatch' });
   });
+
+  test('returns invalid_token for an active member with a bogus token (no membership probing)', () => {
+    // Pre-create an active member
+    upsertMember({
+      sourceChannel: 'telegram',
+      externalUserId: 'probed-user',
+      status: 'active',
+    });
+
+    // Attempt to redeem with a bogus token — must NOT leak membership status
+    const outcome = redeemInvite({
+      rawToken: 'completely-bogus-token',
+      sourceChannel: 'telegram',
+      externalUserId: 'probed-user',
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'invalid_token' });
+  });
+
+  test('returns expired for an active member with an expired invite token', () => {
+    // Create an expired invite
+    const { rawToken } = createInvite({
+      sourceChannel: 'telegram',
+      maxUses: 5,
+      expiresInMs: -1,
+    });
+
+    // Pre-create an active member
+    upsertMember({
+      sourceChannel: 'telegram',
+      externalUserId: 'expired-token-user',
+      status: 'active',
+    });
+
+    // Expired token must return expired, not already_member
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: 'telegram',
+      externalUserId: 'expired-token-user',
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'expired' });
+  });
+
+  test('returns channel_mismatch for an active member with a valid token for a different channel', () => {
+    // Create an invite for SMS
+    const { rawToken } = createInvite({
+      sourceChannel: 'sms',
+      maxUses: 5,
+    });
+
+    // Pre-create an active member on telegram
+    upsertMember({
+      sourceChannel: 'telegram',
+      externalUserId: 'cross-channel-user',
+      status: 'active',
+    });
+
+    // Valid token for wrong channel must return channel_mismatch, not already_member
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: 'telegram',
+      externalUserId: 'cross-channel-user',
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'channel_mismatch' });
+  });
 });

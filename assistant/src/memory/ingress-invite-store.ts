@@ -66,7 +66,7 @@ const DEFAULT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // Helpers
 // ---------------------------------------------------------------------------
 
-function hashToken(rawToken: string): string {
+export function hashToken(rawToken: string): string {
   return createHash('sha256').update(rawToken).digest('hex');
 }
 

@@ -8,7 +8,7 @@
  */
 
 import { findMember } from '../memory/ingress-member-store.js';
-import { redeemInvite as storeRedeemInvite } from '../memory/ingress-invite-store.js';
+import { findByTokenHash, hashToken, redeemInvite as storeRedeemInvite } from '../memory/ingress-invite-store.js';
 
 // ---------------------------------------------------------------------------
 // Outcome type
@@ -51,7 +51,37 @@ export function redeemInvite(params: {
     return { ok: false, reason: 'missing_identity' };
   }
 
-  // Check if the caller is already a member on this channel
+  // Validate the invite token before any membership checks to prevent
+  // membership-status probing with arbitrary tokens.
+  const tokenHash = hashToken(rawToken);
+  const invite = findByTokenHash(tokenHash);
+
+  if (!invite) {
+    return { ok: false, reason: 'invalid_token' };
+  }
+
+  if (invite.status !== 'active') {
+    const mapped = STORE_ERROR_TO_REASON[`invite_${invite.status}`];
+    if (mapped) return mapped;
+    return { ok: false, reason: 'invalid_token' };
+  }
+
+  if (invite.expiresAt <= Date.now()) {
+    return { ok: false, reason: 'expired' };
+  }
+
+  if (invite.useCount >= invite.maxUses) {
+    return { ok: false, reason: 'max_uses_reached' };
+  }
+
+  // Enforce channel match: the token must belong to the channel the caller
+  // is redeeming from.
+  if (sourceChannel !== invite.sourceChannel) {
+    return { ok: false, reason: 'channel_mismatch' };
+  }
+
+  // Token is valid — now safe to check existing membership without leaking
+  // membership status to callers with bogus tokens.
   const existingMember = findMember({
     assistantId,
     sourceChannel,
