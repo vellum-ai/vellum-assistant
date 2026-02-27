@@ -14,6 +14,13 @@ public struct VThreadIcon: View {
     /// design system decoupled from feature types.
     var dotColor: Color?
 
+    public init(title: String, size: Size, isActive: Bool = false, dotColor: Color? = nil) {
+        self.title = title
+        self.size = size
+        self.isActive = isActive
+        self.dotColor = dotColor
+    }
+
     public enum Size {
         /// 20pt — for popover list items
         case small
