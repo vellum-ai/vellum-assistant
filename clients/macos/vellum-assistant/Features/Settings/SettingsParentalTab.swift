@@ -46,7 +46,7 @@ struct SettingsParentalTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            // Header + enable toggle
+            // Header + enable toggle + PIN lock (merged into one card)
             enableSection
 
             if isEnabled {
@@ -60,7 +60,6 @@ struct SettingsParentalTab: View {
                     pendingApprovalsSection
                 }
 
-                pinSection
                 contentRestrictionsSection
                 toolCategorySection
                 // Allowlist and activity log are only visible to the parent
@@ -69,6 +68,22 @@ struct SettingsParentalTab: View {
                     integrationsSection
                     activityLogSection
                 }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let success = successMessage {
+                VToast(message: success, style: .success)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.md)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(VAnimation.standard, value: successMessage)
+        .onChange(of: successMessage) { msg in
+            guard msg != nil else { return }
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                withAnimation(VAnimation.standard) { successMessage = nil }
             }
         }
         .onAppear {
@@ -195,54 +210,48 @@ struct SettingsParentalTab: View {
                     .foregroundColor(VColor.error)
                     .textSelection(.enabled)
             }
-            if let success = successMessage {
-                Text(success)
+
+            if isEnabled {
+                VColor.divider
+                    .frame(height: 1)
+                    .padding(.vertical, VSpacing.xs)
+
+                Text("PIN Lock")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text(hasPIN
+                    ? "A 6-digit PIN protects these settings. You must enter it to make changes."
+                    : "Set a 6-digit PIN to lock parental control settings.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.success)
+                    .foregroundColor(VColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
-            }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
 
-    private var pinSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("PIN Lock")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            Text(hasPIN
-                ? "A 6-digit PIN protects these settings. You must enter it to make changes."
-                : "Set a 6-digit PIN to lock parental control settings.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-
-            HStack(spacing: VSpacing.sm) {
-                if hasPIN {
-                    VButton(label: "Change PIN", style: .secondary) {
-                        errorMessage = nil
-                        successMessage = nil
-                        pinSheetMode = .change
-                        showingPINSheet = true
+                HStack(spacing: VSpacing.sm) {
+                    if hasPIN {
+                        VButton(label: "Change PIN", style: .secondary) {
+                            errorMessage = nil
+                            successMessage = nil
+                            pinSheetMode = .change
+                            showingPINSheet = true
+                        }
+                        VButton(label: "Remove PIN", style: .danger) {
+                            errorMessage = nil
+                            successMessage = nil
+                            pinSheetMode = .clear
+                            showingPINSheet = true
+                        }
+                    } else {
+                        VButton(label: "Set PIN", style: .primary) {
+                            errorMessage = nil
+                            successMessage = nil
+                            pinSheetMode = .set
+                            showingPINSheet = true
+                        }
                     }
-                    VButton(label: "Remove PIN", style: .danger) {
-                        errorMessage = nil
-                        successMessage = nil
-                        pinSheetMode = .clear
-                        showingPINSheet = true
-                    }
-                } else {
-                    VButton(label: "Set PIN", style: .primary) {
-                        errorMessage = nil
-                        successMessage = nil
-                        pinSheetMode = .set
-                        showingPINSheet = true
-                    }
+                    Spacer()
                 }
-                Spacer()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -435,50 +444,52 @@ struct SettingsParentalTab: View {
         let iconColor: Color
     }
 
-    /// Build the list of integrations that are currently configured in the Connect tab.
+    /// Build the list of integrations that are currently configured in the Integrations tab.
     private var configuredIntegrations: [ConfiguredIntegration] {
         var result: [ConfiguredIntegration] = []
-        if settingsStore.telegramHasBotToken {
+        if settingsStore.hasPerplexityKey {
             result.append(ConfiguredIntegration(
-                id: "telegram",
-                label: "Telegram",
-                subtitle: "Message via Telegram bot",
-                icon: "paperplane.fill",
-                iconColor: .blue
-            ))
-        }
-        if settingsStore.twilioHasCredentials {
-            result.append(ConfiguredIntegration(
-                id: "sms",
-                label: "SMS",
-                subtitle: "Send and receive SMS messages",
-                icon: "message.fill",
-                iconColor: .green
-            ))
-            result.append(ConfiguredIntegration(
-                id: "voice",
-                label: "Voice",
-                subtitle: "Make and receive voice calls",
-                icon: "phone.fill",
+                id: "perplexity",
+                label: "Perplexity Search",
+                subtitle: "AI-powered web search",
+                icon: "magnifyingglass",
                 iconColor: .orange
             ))
         }
-        if let email = settingsStore.assistantEmail, !email.isEmpty {
+        if settingsStore.hasBraveKey {
             result.append(ConfiguredIntegration(
-                id: "email",
-                label: "Email",
-                subtitle: "Send and receive email",
-                icon: "envelope.fill",
-                iconColor: .gray
+                id: "brave",
+                label: "Brave Search",
+                subtitle: "Private web search",
+                icon: "magnifyingglass.circle.fill",
+                iconColor: Color(red: 0.97, green: 0.42, blue: 0.13)
             ))
         }
-        if !settingsStore.approvedDevices.isEmpty {
+        if settingsStore.hasImageGenKey {
             result.append(ConfiguredIntegration(
-                id: "mobile",
-                label: "Mobile (iOS)",
-                subtitle: "Access from paired iOS devices",
-                icon: "iphone",
+                id: "image_gen",
+                label: "Image Generation",
+                subtitle: "Generate images with Gemini",
+                icon: "photo.fill",
                 iconColor: .purple
+            ))
+        }
+        if settingsStore.hasElevenLabsKey {
+            result.append(ConfiguredIntegration(
+                id: "elevenlabs",
+                label: "Voice (ElevenLabs)",
+                subtitle: "Text-to-speech voice output",
+                icon: "waveform",
+                iconColor: .blue
+            ))
+        }
+        if settingsStore.twitterConnected {
+            result.append(ConfiguredIntegration(
+                id: "twitter",
+                label: "Twitter / X",
+                subtitle: "Post and read tweets",
+                icon: "bird.fill",
+                iconColor: .primary
             ))
         }
         return result
@@ -490,7 +501,7 @@ struct SettingsParentalTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Child profile can only use enabled integrations.")
+            Text("Restricted profile can only use enabled integrations.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -498,7 +509,7 @@ struct SettingsParentalTab: View {
 
             let integrations = configuredIntegrations
             if integrations.isEmpty {
-                Text("No integrations configured. Set up integrations in the Connect tab.")
+                Text("No integrations configured. Set up integrations in the Integrations tab.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .textSelection(.enabled)
