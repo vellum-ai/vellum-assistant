@@ -384,7 +384,38 @@ Secure cross-user messaging allows external users (non-guardians) to interact wi
 
 ### Ingress Membership
 
-External users join through **invite tokens** — the owner creates an invite via IPC, and the external user redeems the token by sending it as a channel message. Redemption auto-creates a **member** record with an access policy:
+External users join through **invite tokens**. There are two invite flows:
+
+1. **IPC-based (legacy)** — The owner creates an invite via IPC, obtains the raw token, and shares it manually. The external user redeems the token by sending it as a channel message.
+2. **Guardian-initiated invite links (Telegram)** — The guardian asks the assistant to create an invite link via desktop chat. The assistant creates an invite, builds a channel-specific deep link, and presents it for sharing. The invitee clicks the link and is automatically granted access.
+
+#### Guardian-Initiated Invite Link Flow (Telegram)
+
+1. **Guardian requests invite** — The guardian asks the assistant (via desktop chat) to create a Telegram invite link. The `guardian-invite-intent.ts` module detects the intent and routes the request into the `trusted-contacts` skill.
+2. **Invite creation** — The skill creates an invite token via the ingress HTTP API and passes it to the Telegram invite transport adapter, which builds a shareable deep link: `https://t.me/<bot>?start=iv_<token>`.
+3. **Guardian shares link** — The guardian copies the deep link and shares it with the invitee through any messaging channel.
+4. **Invitee redeems** — The invitee clicks the link, which opens Telegram and sends `/start iv_<token>` to the bot. The inbound message handler extracts the token via the transport adapter, redeems it through the invite redemption service, and auto-creates an active member record.
+5. **Access granted** — The invitee receives a welcome message and all subsequent messages pass the ingress ACL.
+
+The `iv_` prefix distinguishes invite tokens from `gv_` (guardian verification) tokens, which use the same Telegram `/start` deep-link mechanism.
+
+#### Invite Redemption Architecture
+
+The invite redemption system uses a three-layer architecture:
+
+- **Core redemption engine** (`invite-redemption-service.ts`) — Channel-agnostic business logic that validates tokens, enforces expiry/use-count/channel-match constraints, handles member reactivation, and returns a discriminated-union `InviteRedemptionOutcome`. Deterministic reply templates (`invite-redemption-templates.ts`) map each outcome to a user-facing message without passing through the LLM.
+- **Channel transport adapters** (`channel-invite-transport.ts` + `channel-invite-transports/`) — A registry of per-channel adapters that know how to build shareable deep links (`buildShareableInvite`) and extract inbound tokens (`extractInboundToken`). Currently only the Telegram adapter is implemented.
+- **Conversational orchestration** (`guardian-invite-intent.ts`) — Pattern-based intent detection that intercepts guardian invite management requests (create, list, revoke) in the session pipeline and forces immediate entry into the `trusted-contacts` skill, bypassing the normal agent loop.
+
+#### Deferred Channel Support
+
+The transport adapter registry is architecturally extensible to additional channels. The following are not yet implemented:
+
+- **SMS** — Requires a deep-link strategy compatible with SMS (e.g., a short URL that redirects to an SMS reply flow or web-based redemption page). The core redemption engine is channel-agnostic and ready.
+- **Slack** — Requires DM-safe ingress (Socket Mode currently handles channel messages but DM-initiated invite flows need additional routing). The adapter would build Slack deep links or slash-command payloads.
+- **Voice** — Requires DTMF or speech-based token capture during an inbound call. The adapter would need to integrate with the voice relay state machine for token entry.
+
+Redemption auto-creates a **member** record with an access policy:
 
 - **`allow`** — Messages are processed normally through the agent pipeline.
 - **`deny`** — Messages are rejected with a refusal notice.
@@ -416,6 +447,12 @@ If no guardian binding exists, escalation fails closed — the message is denied
 | `src/daemon/handlers/config-inbox.ts` | IPC handlers for ingress invite and member contracts |
 | `src/daemon/ipc-contract/inbox.ts` | TypeScript type definitions for ingress IPC messages |
 | `src/runtime/routes/channel-routes.ts` | ACL enforcement point — member lookup, policy check, escalation creation |
+| `src/runtime/invite-redemption-service.ts` | Core redemption engine — token validation, member creation, discriminated-union outcomes |
+| `src/runtime/invite-redemption-templates.ts` | Deterministic reply templates for each redemption outcome |
+| `src/runtime/channel-invite-transport.ts` | Transport adapter registry — `buildShareableInvite` / `extractInboundToken` per channel |
+| `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — builds `t.me/<bot>?start=iv_<token>` deep links, extracts `iv_` tokens from `/start` commands |
+| `src/daemon/guardian-invite-intent.ts` | Intent detection — routes guardian invite management requests into the `trusted-contacts` skill |
+| `src/runtime/ingress-service.ts` | Shared business logic for invite/member operations (HTTP + IPC) |
 
 ## Database
 
