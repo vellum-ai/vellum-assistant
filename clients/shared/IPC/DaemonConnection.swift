@@ -68,12 +68,12 @@ extension DaemonClient {
                         throw NWError.posix(.ECONNREFUSED)
                     }
                 } else {
-                    // Socket file doesn't exist — fail fast with ENOENT instead of
-                    // letting NWConnection hang until the connect timeout (ETIMEDOUT).
-                    log.warning("Daemon socket not found at \(path, privacy: .public)")
-                    isConnecting = false
+                    // Socket doesn't exist yet — notify the health monitor so it
+                    // can trigger a daemon restart, but don't hard-fail. Let
+                    // NWConnection proceed; the 5s connect timeout gives the daemon
+                    // a grace period to create the socket during startup.
+                    log.warning("Daemon socket not found at \(path, privacy: .public) — proceeding with connect timeout")
                     NotificationCenter.default.post(name: .daemonSocketNotFound, object: self)
-                    throw NWError.posix(.ENOENT)
                 }
             }
 
