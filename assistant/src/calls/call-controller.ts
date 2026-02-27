@@ -810,6 +810,16 @@ export class CallController {
         // still non-null.
         if (this.pendingConsultation) {
           clearTimeout(this.pendingConsultation.timer);
+
+          // Expire store-side consultation records so clients don't observe
+          // a completed call with a dangling pendingQuestion, and guardian
+          // replies are cleanly rejected instead of hitting answerCall failures.
+          expirePendingQuestions(this.callSessionId);
+          const previousRequest = getPendingRequestByCallSessionId(this.callSessionId);
+          if (previousRequest) {
+            expireGuardianActionRequest(previousRequest.id, 'cancelled');
+          }
+
           this.pendingConsultation = null;
         }
 
