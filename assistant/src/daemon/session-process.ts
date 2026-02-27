@@ -421,7 +421,10 @@ export async function processMessage(
         isTrusted: true,
       },
       conversationId: session.conversationId,
-      approvalConversationGenerator: _approvalConversationGenerator,
+      // Desktop path: disable NL classification to avoid consuming non-decision
+      // messages while a tool confirmation is pending. Deterministic code-prefix
+      // and callback parsing remain active.
+      approvalConversationGenerator: undefined,
     });
 
     if (routerResult.consumed) {
