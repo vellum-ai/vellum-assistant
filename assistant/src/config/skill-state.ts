@@ -12,6 +12,20 @@ export interface ResolvedSkill {
   configEntry?: SkillEntryConfig;
 }
 
+/**
+ * Check whether a skill's feature flag is enabled.
+ * Feature flag key format: `skills.<skillId>.enabled`.
+ * Missing key defaults to `true` (enabled); explicit `false` means disabled.
+ */
+export function isSkillFeatureEnabled(skillId: string, config: AssistantConfig): boolean {
+  const flags = config.featureFlags;
+  if (!flags) return true;
+  const key = `skills.${skillId}.enabled`;
+  const value = flags[key];
+  if (value === undefined) return true;
+  return value !== false;
+}
+
 export function resolveSkillStates(
   catalog: SkillSummary[],
   config: AssistantConfig,
@@ -20,6 +34,11 @@ export function resolveSkillStates(
   const { entries, allowBundled } = config.skills ?? { entries: {}, allowBundled: null };
 
   for (const skill of catalog) {
+    // Feature flag gate: if the flag is explicitly OFF, skip this skill entirely
+    if (!isSkillFeatureEnabled(skill.id, config)) {
+      continue;
+    }
+
     // Filter bundled skills by allowlist
     if (skill.source === 'bundled' && allowBundled != null && !allowBundled.includes(skill.id)) {
       continue;
