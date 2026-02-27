@@ -54,6 +54,7 @@ import { createGuardianActionCopyGenerator, createGuardianFollowUpConversationGe
 import { initPairingHandlers } from './handlers/pairing.js';
 import { installCliLaunchers } from './install-cli-launchers.js';
 import type { ServerMessage } from './ipc-protocol.js';
+import { getMcpServerManager } from '../mcp/manager.js';
 import { initializeProvidersAndTools, registerMessagingProviders,registerWatcherProviders } from './providers-setup.js';
 import { seedInterfaceFiles } from './seed-files.js';
 import { DaemonServer } from './server.js';
@@ -398,6 +399,12 @@ export async function runDaemon(): Promise<void> {
     server.setHeartbeatService(heartbeat);
     log.info({ enabled: heartbeatConfig.enabled, intervalMs: heartbeatConfig.intervalMs }, 'Heartbeat service configured');
 
+    // Retrieve the MCP manager if MCP servers were configured.
+    // The manager is a singleton created during initializeProvidersAndTools().
+    const mcpManager = config.mcp?.servers && Object.keys(config.mcp.servers).length > 0
+      ? getMcpServerManager()
+      : null;
+
     installShutdownHandlers({
       server,
       workspaceHeartbeat,
@@ -407,6 +414,7 @@ export async function runDaemon(): Promise<void> {
       scheduler,
       memoryWorker,
       qdrantManager,
+      mcpManager,
       cleanupPidFile,
     });
   } catch (err) {

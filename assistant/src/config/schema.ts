@@ -115,6 +115,16 @@ export {
   SandboxConfigSchema,
 } from './sandbox-schema.js';
 export type {
+  McpConfig,
+  McpServerConfig,
+  McpTransport,
+} from './mcp-schema.js';
+export {
+  McpConfigSchema,
+  McpServerConfigSchema,
+  McpTransportSchema,
+} from './mcp-schema.js';
+export type {
   RemotePolicyConfig,
   RemoteProviderConfig,
   RemoteProvidersConfig,
@@ -152,6 +162,7 @@ import {
   TimeoutConfigSchema,
   UiConfigSchema,
 } from './core-schema.js';
+import { McpConfigSchema } from './mcp-schema.js';
 import { MemoryConfigSchema } from './memory-schema.js';
 import { NotificationsConfigSchema } from './notifications-schema.js';
 import { SandboxConfigSchema } from './sandbox-schema.js';
@@ -213,6 +224,7 @@ export const AssistantConfigSchema = z.object({
     .default([]),
   heartbeat: HeartbeatConfigSchema.default({} as any),
   swarm: SwarmConfigSchema.default({} as any),
+  mcp: McpConfigSchema.default({} as any),
   skills: SkillsConfigSchema.default({} as any),
   workspaceGit: WorkspaceGitConfigSchema.default({} as any),
   calls: CallsConfigSchema.default({} as any),
