@@ -680,6 +680,17 @@ export class CallController {
             + `The unanswered question was: "${questionText}"`,
           );
           // Fall through to normal turn completion (idle + flushPendingInstructions)
+        } else if (this.pendingInstructions.some((instr) => instr.startsWith('[USER_ANSWERED:'))) {
+          // A guardian answer arrived mid-turn and is queued in
+          // pendingInstructions but hasn't been flushed yet. The in-flight
+          // LLM response was generated without knowledge of this answer, so
+          // creating a new consultation now would supersede the old one and
+          // desynchronize the flow. Skip this consultation — the answer will
+          // be flushed on the next turn, and if the model still needs to
+          // consult a guardian, it will emit another ASK_GUARDIAN then.
+          log.info({ callSessionId: this.callSessionId }, 'Deferring ASK_GUARDIAN — queued USER_ANSWERED pending');
+          recordCallEvent(this.callSessionId, 'guardian_consult_deferred', { question: questionText });
+          // Fall through to normal turn completion (idle + flushPendingInstructions)
         } else {
           // Cancel any prior pending consultation (superseded by this new one)
           if (this.pendingConsultation) {
@@ -791,6 +802,17 @@ export class CallController {
 
       // Check for END_CALL marker
       if (responseText.includes(END_CALL_MARKER)) {
+        // Clear any pending consultation before completing the call.
+        // Without this, the consultation timeout can fire on an already-ended
+        // call, overwriting 'completed' status back to 'in_progress' and
+        // starting a new LLM turn on a dead session. Similarly, a late
+        // handleUserAnswer could be accepted since pendingConsultation is
+        // still non-null.
+        if (this.pendingConsultation) {
+          clearTimeout(this.pendingConsultation.timer);
+          this.pendingConsultation = null;
+        }
+
         const currentSession = getCallSession(this.callSessionId);
         const shouldNotifyCompletion = currentSession
           ? currentSession.status !== 'completed' && currentSession.status !== 'failed' && currentSession.status !== 'cancelled'
