@@ -377,6 +377,7 @@ export async function startLocalDaemon(): Promise<void> {
       }
 
       const child = spawn(daemonBinary, [], {
+        cwd: dirname(daemonBinary),
         detached: true,
         stdio: "ignore",
         env: daemonEnv,
