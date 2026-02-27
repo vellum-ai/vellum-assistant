@@ -58,7 +58,7 @@ describe('unified feature flag registry guard', () => {
       const flag = flags[i];
       const prefix = `flags[${i}]`;
 
-      if (typeof flag !== 'object' || flag === null || Array.isArray(flag)) {
+      if (typeof flag !== 'object' || !flag || Array.isArray(flag)) {
         violations.push(`${prefix}: entry is not an object`);
         continue;
       }

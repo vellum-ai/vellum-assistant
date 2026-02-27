@@ -26,8 +26,8 @@
 
 import type { ChannelId } from '../channels/types.js';
 import {
-  updateApprovalDecision,
   type GuardianApprovalRequest,
+  updateApprovalDecision,
 } from '../memory/channel-guardian-store.js';
 import {
   getCanonicalGuardianRequest,
@@ -35,8 +35,6 @@ import {
   type CanonicalGuardianRequest,
   type CanonicalRequestStatus,
 } from '../memory/canonical-guardian-store.js';
-import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
-import { getLogger } from '../util/logger.js';
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
@@ -46,8 +44,10 @@ import {
   handleChannelDecision,
   type PendingApprovalInfo,
 } from '../runtime/channel-approvals.js';
-import { mintGrantFromDecision } from './approval-primitive.js';
 import type { ApplyGuardianDecisionResult } from '../runtime/guardian-decision-types.js';
+import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
+import { getLogger } from '../util/logger.js';
+import { mintGrantFromDecision } from './approval-primitive.js';
 import {
   getResolver,
   type ActorContext,

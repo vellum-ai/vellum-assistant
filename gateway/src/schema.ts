@@ -70,6 +70,52 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/health": {
+        get: {
+          summary: "Runtime health (via gateway)",
+          description:
+            "Authenticated gateway endpoint that proxies runtime health checks to `/v1/health` on the assistant runtime.",
+          operationId: "runtimeHealth",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Runtime health returned",
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "Bearer token not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "502": {
+              description: "Failed to reach assistant runtime",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "504": {
+              description: "Assistant runtime request timed out",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/webhooks/telegram": {
         post: {
           summary: "Telegram webhook",
@@ -723,6 +769,296 @@ export function buildSchema(): Record<string, unknown> {
                 },
               },
             },
+          },
+        },
+      },
+      "/v1/integrations/telegram/config": {
+        get: {
+          summary: "Get Telegram integration config",
+          description:
+            "Authenticated gateway endpoint that forwards Telegram integration config reads to the assistant runtime.",
+          operationId: "telegramConfigGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Telegram config returned" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        post: {
+          summary: "Set Telegram integration config",
+          description:
+            "Authenticated gateway endpoint that forwards Telegram integration config writes to the assistant runtime.",
+          operationId: "telegramConfigPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Telegram config updated" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        delete: {
+          summary: "Clear Telegram integration config",
+          description:
+            "Authenticated gateway endpoint that clears Telegram integration config via the assistant runtime.",
+          operationId: "telegramConfigDelete",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Telegram config cleared" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/telegram/commands": {
+        post: {
+          summary: "Set Telegram commands",
+          description:
+            "Authenticated gateway endpoint that forwards Telegram command registration to the assistant runtime.",
+          operationId: "telegramCommandsPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Telegram commands updated" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/telegram/setup": {
+        post: {
+          summary: "Run Telegram setup",
+          description:
+            "Authenticated gateway endpoint that forwards Telegram setup orchestration to the assistant runtime.",
+          operationId: "telegramSetupPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Telegram setup completed" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/ingress/members": {
+        get: {
+          summary: "List ingress members",
+          description:
+            "Authenticated gateway endpoint that lists ingress members via the assistant runtime.",
+          operationId: "ingressMembersGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Ingress members returned" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        post: {
+          summary: "Upsert ingress member",
+          description:
+            "Authenticated gateway endpoint that creates or updates an ingress member via the assistant runtime.",
+          operationId: "ingressMembersPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Ingress member upserted" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/ingress/members/{memberId}": {
+        delete: {
+          summary: "Revoke ingress member",
+          description:
+            "Authenticated gateway endpoint that revokes an ingress member via the assistant runtime.",
+          operationId: "ingressMemberDelete",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "memberId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Ingress member revoked" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "404": { description: "Member not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/ingress/members/{memberId}/block": {
+        post: {
+          summary: "Block ingress member",
+          description:
+            "Authenticated gateway endpoint that blocks an ingress member via the assistant runtime.",
+          operationId: "ingressMemberBlockPost",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "memberId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Ingress member blocked" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "404": { description: "Member not found or already blocked" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/ingress/invites": {
+        get: {
+          summary: "List ingress invites",
+          description:
+            "Authenticated gateway endpoint that lists ingress invites via the assistant runtime.",
+          operationId: "ingressInvitesGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Ingress invites returned" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        post: {
+          summary: "Create ingress invite",
+          description:
+            "Authenticated gateway endpoint that creates an ingress invite via the assistant runtime.",
+          operationId: "ingressInvitesPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Ingress invite created" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/ingress/invites/redeem": {
+        post: {
+          summary: "Redeem ingress invite",
+          description:
+            "Authenticated gateway endpoint that redeems an ingress invite via the assistant runtime.",
+          operationId: "ingressInvitesRedeemPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Ingress invite redeemed" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "404": { description: "Invite not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/ingress/invites/{inviteId}": {
+        delete: {
+          summary: "Revoke ingress invite",
+          description:
+            "Authenticated gateway endpoint that revokes an ingress invite via the assistant runtime.",
+          operationId: "ingressInvitesDelete",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "inviteId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Ingress invite revoked" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "404": { description: "Invite not found or already revoked" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
           },
         },
       },

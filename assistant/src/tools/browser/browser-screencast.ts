@@ -1,7 +1,7 @@
 import { v4 as uuid } from 'uuid';
 
 import type { BrowserFrame, BrowserViewSurfaceData, ServerMessage } from '../../daemon/ipc-contract.js';
-import { browserManager, SCREENCAST_WIDTH, SCREENCAST_HEIGHT } from './browser-manager.js';
+import { browserManager, SCREENCAST_HEIGHT,SCREENCAST_WIDTH } from './browser-manager.js';
 
 // Track active screencast sessions
 const activeScreencasts = new Map<string, { surfaceId: string }>();

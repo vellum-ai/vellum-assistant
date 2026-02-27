@@ -117,7 +117,7 @@ export class VoiceConfigUpdateTool implements Tool {
       };
     }
 
-    if (value === undefined || value === null) {
+    if (value === undefined) {
       return {
         content: `Error: "value" is required for setting "${setting}".`,
         isError: true,

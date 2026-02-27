@@ -1,0 +1,129 @@
+import { describe, test, expect, mock, afterEach } from "bun:test";
+import type { GatewayConfig } from "../config.js";
+
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { createRuntimeHealthProxyHandler } = await import(
+  "../http/routes/runtime-health-proxy.js"
+);
+
+function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
+  const merged: GatewayConfig = {
+    telegramBotToken: "tok",
+    telegramWebhookSecret: "wh-ver",
+    telegramApiBaseUrl: "https://api.telegram.org",
+    assistantRuntimeBaseUrl: "http://localhost:7821",
+    routingEntries: [],
+    defaultAssistantId: undefined,
+    unmappedPolicy: "reject",
+    port: 7830,
+    runtimeBearerToken: "runtime-token",
+    runtimeGatewayOriginSecret: "gateway-origin",
+    runtimeProxyEnabled: false,
+    runtimeProxyRequireAuth: true,
+    runtimeProxyBearerToken: undefined,
+    shutdownDrainMs: 5000,
+    runtimeTimeoutMs: 30000,
+    runtimeMaxRetries: 2,
+    runtimeInitialBackoffMs: 500,
+    telegramDeliverAuthBypass: false,
+    telegramInitialBackoffMs: 1000,
+    telegramMaxRetries: 3,
+    telegramTimeoutMs: 15000,
+    maxWebhookPayloadBytes: 1048576,
+    logFile: { dir: undefined, retentionDays: 30 },
+    maxAttachmentBytes: 20971520,
+    maxAttachmentConcurrency: 3,
+    twilioAuthToken: undefined,
+    twilioAccountSid: undefined,
+    twilioPhoneNumber: undefined,
+    smsDeliverAuthBypass: false,
+    ingressPublicBaseUrl: undefined,
+    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
+    whatsappPhoneNumberId: undefined,
+    whatsappAccessToken: undefined,
+    whatsappAppSecret: undefined,
+    whatsappWebhookVerifyToken: undefined,
+    whatsappDeliverAuthBypass: false,
+    whatsappTimeoutMs: 15000,
+    whatsappMaxRetries: 3,
+    whatsappInitialBackoffMs: 1000,
+    slackChannelBotToken: undefined,
+    slackChannelAppToken: undefined,
+    slackDeliverAuthBypass: false,
+    trustProxy: false,
+    ...overrides,
+  };
+  if (merged.runtimeGatewayOriginSecret === undefined) {
+    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
+  }
+  return merged;
+}
+
+afterEach(() => {
+  fetchMock = mock(async () => new Response());
+});
+
+describe("runtime health proxy", () => {
+  test("forwards to runtime /v1/health", async () => {
+    const captured: string[] = [];
+    fetchMock = mock(async (input: string | URL | Request) => {
+      captured.push(String(input));
+      return new Response(JSON.stringify({ status: "healthy" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const handler = createRuntimeHealthProxyHandler(makeConfig());
+    const res = await handler.handleRuntimeHealth(
+      new Request("http://localhost:7830/v1/health"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(captured).toEqual(["http://localhost:7821/v1/health"]);
+    expect(await res.json()).toEqual({ status: "healthy" });
+  });
+
+  test("replaces caller auth with runtime auth and forwards gateway-origin proof", async () => {
+    let capturedHeaders: Headers | undefined;
+    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as unknown as Headers;
+      return new Response("ok", { status: 200 });
+    });
+
+    const handler = createRuntimeHealthProxyHandler(makeConfig());
+    const res = await handler.handleRuntimeHealth(
+      new Request("http://localhost:7830/v1/health", {
+        headers: {
+          authorization: "Bearer caller-token",
+          host: "localhost:7830",
+        },
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(capturedHeaders?.get("authorization")).toBe("Bearer runtime-token");
+    expect(capturedHeaders?.get("X-Gateway-Origin")).toBe("gateway-origin");
+    expect(capturedHeaders?.has("host")).toBe(false);
+  });
+
+  test("returns 504 on timeout", async () => {
+    fetchMock = mock(async () => {
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    });
+
+    const handler = createRuntimeHealthProxyHandler(makeConfig({ runtimeTimeoutMs: 100 }));
+    const res = await handler.handleRuntimeHealth(
+      new Request("http://localhost:7830/v1/health"),
+    );
+
+    expect(res.status).toBe(504);
+    expect(await res.json()).toEqual({ error: "Gateway Timeout" });
+  });
+});

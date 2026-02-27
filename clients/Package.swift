@@ -1,7 +1,7 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-let appVersion = "0.3.19"
+let appVersion = "0.3.20"
 
 let package = Package(
     name: "vellum-assistant",
@@ -61,7 +61,8 @@ let package = Package(
                 .process("Resources/vellum-design-system.css"),
                 .process("Resources/vellum-widgets.js"),
                 .process("Resources/vellum-edit-animator.js"),
-                .copy("Resources/editor")
+                .copy("Resources/editor"),
+                .process("Resources/initial-avatar.png")
             ],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),

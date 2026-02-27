@@ -1,11 +1,11 @@
-import type { GuardianActionDecision, GuardianActionsPendingRequest } from '../ipc-protocol.js';
-import { listGuardianDecisionPrompts } from '../../runtime/routes/guardian-action-routes.js';
-import { getPendingApprovalForRequest } from '../../memory/channel-guardian-store.js';
 import { applyGuardianDecision } from '../../approvals/guardian-decision-primitive.js';
-import { handleChannelDecision } from '../../runtime/channel-approvals.js';
+import { getPendingApprovalForRequest } from '../../memory/channel-guardian-store.js';
 import type { ApprovalAction } from '../../runtime/channel-approval-types.js';
+import { handleChannelDecision } from '../../runtime/channel-approvals.js';
 import * as pendingInteractions from '../../runtime/pending-interactions.js';
 import { handleAccessRequestDecision } from '../../runtime/routes/access-request-decision.js';
+import { listGuardianDecisionPrompts } from '../../runtime/routes/guardian-action-routes.js';
+import type { GuardianActionDecision, GuardianActionsPendingRequest } from '../ipc-protocol.js';
 import { defineHandlers, log } from './shared.js';
 
 const VALID_ACTIONS = new Set<string>(['approve_once', 'approve_always', 'reject']);

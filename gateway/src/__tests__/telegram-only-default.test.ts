@@ -1,10 +1,9 @@
 import { describe, test, expect, afterAll } from "bun:test";
 
 /**
- * Proves that non-Telegram requests return 404 when the gateway runs in its
- * default configuration (proxy disabled). Uses the same routing logic as
- * src/index.ts so that changes to the production routing (e.g. accidentally
- * enabling the proxy by default) will be caught by this test.
+ * Proves that runtime proxy passthrough routes stay disabled by default while
+ * dedicated gateway routes still work. Uses the same routing logic as
+ * src/index.ts so that changes to production defaults are caught here.
  */
 
 // Minimal env for loadConfig
@@ -12,6 +11,7 @@ const env: Record<string, string> = {
   TELEGRAM_BOT_TOKEN: "test-tok",
   TELEGRAM_WEBHOOK_SECRET: "wh-sec",
   ASSISTANT_RUNTIME_BASE_URL: "http://localhost:7821",
+  RUNTIME_BEARER_TOKEN: "test-runtime-token",
   GATEWAY_PORT: "7830",
   // GATEWAY_RUNTIME_PROXY_ENABLED intentionally unset → defaults to false
 };
@@ -35,10 +35,15 @@ const { createTelegramWebhookHandler } = await import(
 const { createRuntimeProxyHandler } = await import(
   "../http/routes/runtime-proxy.js"
 );
+const { createRuntimeHealthProxyHandler } = await import(
+  "../http/routes/runtime-health-proxy.js"
+);
+const { validateBearerToken } = await import("../http/auth/bearer.js");
 
 const config = loadConfig();
 
 const { handler: handleTelegramWebhook } = createTelegramWebhookHandler(config);
+const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
 
 // Mirror production routing from src/index.ts: only create proxy when enabled
 const handleRuntimeProxy = config.runtimeProxyEnabled
@@ -60,6 +65,17 @@ async function handleRequest(req: Request): Promise<Response> {
     return handleTelegramWebhook(req);
   }
 
+  if (url.pathname === "/v1/health" && req.method === "GET") {
+    const authResult = validateBearerToken(
+      req.headers.get("authorization"),
+      config.runtimeBearerToken ?? "",
+    );
+    if (!authResult.authorized) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    return runtimeHealthProxy.handleRuntimeHealth(req);
+  }
+
   if (handleRuntimeProxy) {
     return handleRuntimeProxy(req);
   }
@@ -74,7 +90,7 @@ afterAll(() => {
   }
 });
 
-describe("Telegram-only default: non-Telegram requests return 404", () => {
+describe("Telegram-only default: runtime proxy is disabled by default", () => {
   test("GET / returns 404", async () => {
     const res = await handleRequest(new Request("http://gateway.test/"));
     expect(res.status).toBe(404);
@@ -82,9 +98,9 @@ describe("Telegram-only default: non-Telegram requests return 404", () => {
     expect(body.error).toBe("Not found");
   });
 
-  test("GET /v1/health returns 404", async () => {
+  test("GET /v1/health returns 401 without bearer auth", async () => {
     const res = await handleRequest(new Request("http://gateway.test/v1/health"));
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(401);
   });
 
   test("POST /v1/assistants/foo/chat returns 404", async () => {

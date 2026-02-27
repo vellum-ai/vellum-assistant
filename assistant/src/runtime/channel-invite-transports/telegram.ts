@@ -11,9 +11,9 @@
 import type { ChannelId } from '../../channels/types.js';
 import { getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import {
-  registerTransport,
   type ChannelInviteTransport,
   type InviteSharePayload,
+  registerTransport,
 } from '../channel-invite-transport.js';
 
 // ---------------------------------------------------------------------------

@@ -19,8 +19,8 @@ import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
-import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
+import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 

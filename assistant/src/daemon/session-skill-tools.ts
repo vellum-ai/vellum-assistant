@@ -13,9 +13,9 @@ import { join } from 'node:path';
 
 import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
 import { getConfig } from '../config/loader.js';
+import { skillFlagKey } from '../config/skill-state.js';
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
 import { loadSkillCatalog } from '../config/skills.js';
-import { skillFlagKey } from '../config/skill-state.js';
 import type { Message, ToolDefinition } from '../providers/types.js';
 import type { ActiveSkillEntry } from '../skills/active-skill-tools.js';
 import { deriveActiveSkills } from '../skills/active-skill-tools.js';

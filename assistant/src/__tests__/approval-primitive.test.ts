@@ -29,13 +29,13 @@ mock.module('../util/logger.js', () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { scopedApprovalGrants } from '../memory/schema.js';
 import {
-  mintGrantFromDecision,
   consumeGrantForInvocation,
+  mintGrantFromDecision,
   type MintGrantParams,
 } from '../approvals/approval-primitive.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { scopedApprovalGrants } from '../memory/schema.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 
 initializeDb();

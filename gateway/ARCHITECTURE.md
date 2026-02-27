@@ -25,6 +25,7 @@ Internet
        v
      Gateway (http://127.0.0.1:7830)
        |
+       +-- Dedicated /v1/health --> Runtime /v1/health
        +-- Runtime proxy /v1/* --> Runtime (http://127.0.0.1:7821)
        +-- /webhooks/* --> BLOCKED (404, never forwarded to runtime)
 ```
@@ -98,6 +99,60 @@ Guardian verification endpoints are exposed directly by the gateway and forwarde
 |------|---------|
 | `gateway/src/http/routes/guardian-control-plane-proxy.ts` | Guardian control-plane proxy handlers and upstream forwarding |
 | `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/integrations/guardian/*` |
+
+### Runtime Health Proxy
+
+Runtime health is exposed directly by the gateway at `GET /v1/health` and forwarded to the runtime's `GET /v1/health` endpoint even when the broad runtime proxy is disabled.
+
+**Authentication boundary:**
+
+- Gateway validates caller bearer auth against the runtime token.
+- Gateway forwards the request to runtime with the runtime bearer token and `X-Gateway-Origin` proof header.
+- Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `gateway/src/http/routes/runtime-health-proxy.ts` | Runtime health proxy handler and upstream forwarding |
+| `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/health` |
+
+### Telegram + Ingress Control-Plane Proxies
+
+Telegram integration setup/config endpoints and ingress members/invites endpoints are also exposed directly by the gateway and forwarded to runtime handlers even when the broad runtime proxy is disabled.
+
+**Forwarded Telegram endpoints:**
+
+| Method | Path |
+|--------|------|
+| GET/POST/DELETE | `/v1/integrations/telegram/config` |
+| POST | `/v1/integrations/telegram/commands` |
+| POST | `/v1/integrations/telegram/setup` |
+
+**Forwarded ingress endpoints:**
+
+| Method | Path |
+|--------|------|
+| GET/POST | `/v1/ingress/members` |
+| DELETE | `/v1/ingress/members/:memberId` |
+| POST | `/v1/ingress/members/:memberId/block` |
+| GET/POST | `/v1/ingress/invites` |
+| DELETE | `/v1/ingress/invites/:inviteId` |
+| POST | `/v1/ingress/invites/redeem` |
+
+**Authentication boundary:**
+
+- Gateway validates caller bearer auth against the runtime token.
+- Gateway forwards requests to runtime with the runtime bearer token and `X-Gateway-Origin` proof header.
+- Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `gateway/src/http/routes/telegram-control-plane-proxy.ts` | Telegram control-plane proxy handlers and upstream forwarding |
+| `gateway/src/http/routes/ingress-control-plane-proxy.ts` | Ingress control-plane proxy handlers and upstream forwarding |
+| `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/integrations/telegram/*` and `/v1/ingress/*` |
 
 ### Channel Binding Lifecycle (Lane Separation)
 

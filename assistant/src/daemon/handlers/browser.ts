@@ -1,4 +1,4 @@
-import { browserManager, SCREENCAST_WIDTH, SCREENCAST_HEIGHT } from '../../tools/browser/browser-manager.js';
+import { browserManager, SCREENCAST_HEIGHT,SCREENCAST_WIDTH } from '../../tools/browser/browser-manager.js';
 import { defineHandlers,log } from './shared.js';
 
 export const browserHandlers = defineHandlers({

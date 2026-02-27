@@ -54,12 +54,22 @@ describe("/schema route", () => {
     expect(body.paths["/healthz"]).toBeDefined();
     expect(body.paths["/readyz"]).toBeDefined();
     expect(body.paths["/schema"]).toBeDefined();
+    expect(body.paths["/v1/health"]).toBeDefined();
     expect(body.paths["/webhooks/telegram"]).toBeDefined();
     expect(body.paths["/webhooks/twilio/voice"]).toBeDefined();
     expect(body.paths["/webhooks/twilio/status"]).toBeDefined();
     expect(body.paths["/webhooks/twilio/connect-action"]).toBeDefined();
     expect(body.paths["/webhooks/twilio/relay"]).toBeDefined();
     expect(body.paths["/webhooks/oauth/callback"]).toBeDefined();
+    expect(body.paths["/v1/integrations/telegram/config"]).toBeDefined();
+    expect(body.paths["/v1/integrations/telegram/commands"]).toBeDefined();
+    expect(body.paths["/v1/integrations/telegram/setup"]).toBeDefined();
+    expect(body.paths["/v1/ingress/members"]).toBeDefined();
+    expect(body.paths["/v1/ingress/members/{memberId}"]).toBeDefined();
+    expect(body.paths["/v1/ingress/members/{memberId}/block"]).toBeDefined();
+    expect(body.paths["/v1/ingress/invites"]).toBeDefined();
+    expect(body.paths["/v1/ingress/invites/redeem"]).toBeDefined();
+    expect(body.paths["/v1/ingress/invites/{inviteId}"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/challenge"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/status"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/outbound/start"]).toBeDefined();
@@ -146,5 +156,21 @@ describe("buildSchema()", () => {
       description: "Optional Telegram chat action to emit (currently only `typing`)",
     });
     expect(telegramDeliver.anyOf).toContainEqual({ required: ["chatAction"] });
+  });
+
+  test("ingress member block request body is required", () => {
+    const schema = buildSchema() as {
+      paths: Record<string, {
+        post?: {
+          requestBody?: {
+            required?: boolean;
+          };
+        };
+      }>;
+    };
+
+    const ingressMemberBlockPost = schema.paths["/v1/ingress/members/{memberId}/block"]?.post;
+    expect(ingressMemberBlockPost).toBeDefined();
+    expect(ingressMemberBlockPost?.requestBody?.required).toBe(true);
   });
 });

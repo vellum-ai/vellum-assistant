@@ -10,6 +10,7 @@ You are helping your user manage trusted contacts and invite links for the Vellu
 ## Prerequisites
 
 - The gateway API is available at `http://localhost:7830` (or the configured gateway port).
+- Use gateway control-plane routes only: this skill calls `/v1/ingress/*` and `/v1/integrations/telegram/config` on the gateway, never the daemon runtime port directly.
 - The bearer token is stored at `~/.vellum/http-token`. Read it with: `TOKEN=$(cat ~/.vellum/http-token)`.
 
 ## Concepts

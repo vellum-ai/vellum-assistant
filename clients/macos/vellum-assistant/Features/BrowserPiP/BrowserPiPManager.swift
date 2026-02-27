@@ -16,7 +16,7 @@ final class BrowserPiPManager: ObservableObject {
     @Published var highlights: [BrowserHighlight] = []
     @Published var isInteractive: Bool = false
     var handoffMessage: String?
-    var frameSize: CGSize = CGSize(width: 1280, height: 960)
+    var frameSize: CGSize = CGSize(width: 800, height: 600)
 
     var activePage: BrowserPage? {
         pages.first(where: { $0.active })

@@ -4,13 +4,13 @@
  * These endpoints let desktop clients fetch pending guardian prompts and
  * submit button decisions without relying on text parsing.
  */
+import { applyGuardianDecision } from '../../approvals/guardian-decision-primitive.js';
 import {
   getPendingApprovalForRequest,
   listPendingApprovalRequests,
 } from '../../memory/channel-guardian-store.js';
-import { applyGuardianDecision } from '../../approvals/guardian-decision-primitive.js';
-import { handleChannelDecision } from '../channel-approvals.js';
 import type { ApprovalAction } from '../channel-approval-types.js';
+import { handleChannelDecision } from '../channel-approvals.js';
 import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';
 import { buildDecisionActions } from '../guardian-decision-types.js';
 import { httpError } from '../http-errors.js';
