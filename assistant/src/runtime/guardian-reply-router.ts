@@ -304,10 +304,30 @@ export async function routeGuardianReply(
 
   // ── 3. NL classification via the conversational approval engine ──
   if (messageText.length > 0 && approvalConversationGenerator) {
-    const pendingRequests = findPendingCanonicalRequests(actor, ctx.pendingRequestIds);
+    const allPendingRequests = findPendingCanonicalRequests(actor, ctx.pendingRequestIds);
+
+    if (allPendingRequests.length === 0) {
+      return notConsumed();
+    }
+
+    // Scope pending requests to the current conversation so disambiguation
+    // only shows requests that can actually be resolved from this thread.
+    // Requests without a conversationId are included as they may be global.
+    const pendingRequests = conversationId
+      ? allPendingRequests.filter(r => !r.conversationId || r.conversationId === conversationId)
+      : allPendingRequests;
 
     if (pendingRequests.length === 0) {
-      return notConsumed();
+      log.info(
+        { event: 'router_nl_no_conversation_requests', conversationId, totalPending: allPendingRequests.length },
+        'No pending requests match the current conversation',
+      );
+      return {
+        decisionApplied: false,
+        consumed: true,
+        type: 'not_consumed',
+        replyText: 'No pending requests in this conversation.',
+      };
     }
 
     // Build the conversation context for the NL engine
