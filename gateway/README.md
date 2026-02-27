@@ -216,6 +216,11 @@ The gateway serves as the single public ingress point for all external callbacks
 | `/webhooks/twilio/sms` | POST | Twilio SMS webhook — validates X-Twilio-Signature (HMAC-SHA1), normalizes into `GatewayInboundEventV1` with `sourceChannel: "sms"`, deduplicates by `MessageSid`, and forwards to runtime |
 | `/deliver/sms` | POST | Internal endpoint for the assistant runtime to deliver outbound SMS messages via the Twilio Messages API |
 | `/webhooks/oauth/callback` | GET | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime |
+| `/v1/integrations/guardian/challenge` | POST | Authenticated control-plane proxy for creating guardian verification challenges |
+| `/v1/integrations/guardian/status` | GET | Authenticated control-plane proxy for guardian binding status |
+| `/v1/integrations/guardian/outbound/start` | POST | Authenticated control-plane proxy for starting outbound guardian verification |
+| `/v1/integrations/guardian/outbound/resend` | POST | Authenticated control-plane proxy for resending outbound guardian verification |
+| `/v1/integrations/guardian/outbound/cancel` | POST | Authenticated control-plane proxy for cancelling outbound guardian verification |
 | `/healthz` | GET | Liveness probe |
 | `/readyz` | GET | Readiness probe |
 | `/schema` | GET | Returns the OpenAPI 3.1 schema for this gateway |
@@ -283,9 +288,9 @@ Inbound SMS follows the same gateway-only pattern as voice and Telegram:
 
 When `INGRESS_PUBLIC_BASE_URL` is configured, the gateway prioritizes it as the canonical URL for Twilio signature validation. If the signature only validates against the raw local request URL (fallback), a warning is logged indicating potential drift between the configured ingress URL and the actual webhook registration. The raw URL fallback is preserved for local-dev operability.
 
-## Default Mode: Telegram-Only
+## Default Mode: Dedicated Routes Only
 
-By default the gateway only serves the Telegram webhook endpoint (`/webhooks/telegram`). All other HTTP requests return `404`. The runtime proxy is **opt-in** — set `GATEWAY_RUNTIME_PROXY_ENABLED=true` to enable it. This behavior is enforced by automated tests.
+By default, the broad runtime proxy is disabled. Dedicated gateway-managed routes (webhooks, delivery endpoints, and explicit control-plane proxies such as `/v1/integrations/guardian/*`) remain available, but arbitrary runtime passthrough routes return `404` unless `GATEWAY_RUNTIME_PROXY_ENABLED=true`.
 
 ## Runtime Proxy Mode
 

@@ -10,6 +10,7 @@ You are helping your user set up guardian verification for a messaging channel (
 ## Prerequisites
 
 - The gateway API is available at `http://localhost:7830` (or the configured gateway port).
+- Never call the daemon runtime port directly; always call the gateway URL.
 - The bearer token is stored at `~/.vellum/http-token`. Read it with: `TOKEN=$(cat ~/.vellum/http-token)`.
 - Run shell commands for this skill with `host_bash` (not sandbox `bash`) so host auth/token and localhost routing are reliable.
 - Keep narration minimal: execute required calls first, then provide a concise status update. Do not narrate internal install/check/load chatter unless something fails.

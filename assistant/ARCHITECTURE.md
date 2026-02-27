@@ -64,7 +64,7 @@ All guardian approval decisions — regardless of how they arrive — route thro
 
 ### Outbound Guardian Verification (HTTP Endpoints)
 
-Guardian verification can be initiated through the runtime HTTP API as an alternative to the legacy IPC-only flow. This enables chat-first verification where the assistant guides the user through guardian setup via normal conversation.
+Guardian verification can be initiated through gateway HTTP endpoints (which forward to runtime handlers) as an alternative to the legacy IPC-only flow. This enables chat-first verification where the assistant guides the user through guardian setup via normal conversation.
 
 **HTTP Endpoints:**
 
@@ -74,11 +74,11 @@ Guardian verification can be initiated through the runtime HTTP API as an altern
 | `/v1/integrations/guardian/outbound/resend` | POST | Resend the verification code for an active session. Body: `{ channel, assistantId? }` |
 | `/v1/integrations/guardian/outbound/cancel` | POST | Cancel an active outbound verification session. Body: `{ channel, assistantId? }` |
 
-All endpoints are bearer-authenticated via the runtime HTTP token (`~/.vellum/http-token`).
+All endpoints are bearer-authenticated via the gateway token (`~/.vellum/http-token` in local setups). Skills and user-facing tooling should target the gateway URL (default `http://localhost:7830`), not the runtime port.
 
 **Shared Business Logic:**
 
-The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`config-channels.ts`) both delegate to the same action functions in `guardian-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across SMS, Telegram, and voice channels. It returns `OutboundActionResult` objects that the transport layer (HTTP or IPC) maps to its respective response format.
+The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`config-channels.ts`) both delegate to the same action functions in `guardian-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across SMS, Telegram, and voice channels. It returns `OutboundActionResult` objects that the transport layer (gateway-forwarded HTTP or IPC) maps to its respective response format.
 
 **Chat-First Orchestration Flow:**
 

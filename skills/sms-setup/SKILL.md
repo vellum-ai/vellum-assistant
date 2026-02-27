@@ -176,7 +176,7 @@ Install and load the **guardian-verify-setup** skill to handle the verification 
 
 When invoking the skill, indicate the channel is `sms`. The guardian-verify-setup skill manages the full outbound verification flow, including:
 - Collecting the user's phone number as the destination (accepts any common format -- the API normalizes to E.164)
-- Starting the outbound verification session via `POST /v1/integrations/guardian/outbound/start` with `channel: "sms"`
+- Starting the outbound verification session via the gateway endpoint `POST /v1/integrations/guardian/outbound/start` with `channel: "sms"`
 - Sending a 6-digit code to the phone number that the user must reply with from the SMS channel
 - Checking guardian status to confirm the binding was created
 - Handling resend, cancel, and error cases

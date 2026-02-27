@@ -72,6 +72,33 @@ The feature-flag token is auto-generated on first gateway startup if the file do
 | `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions |
 | `gateway/src/feature-flag-registry.json` | Bundled copy of the unified registry for compiled binary resolution |
 
+### Guardian Verification Control-Plane Proxy
+
+Guardian verification endpoints are exposed directly by the gateway and forwarded to runtime integration handlers even when the broad runtime proxy is disabled. This keeps assistant skills and user-facing tooling on gateway URLs only.
+
+**Forwarded endpoints:**
+
+| Method | Path |
+|--------|------|
+| POST | `/v1/integrations/guardian/challenge` |
+| GET | `/v1/integrations/guardian/status` |
+| POST | `/v1/integrations/guardian/outbound/start` |
+| POST | `/v1/integrations/guardian/outbound/resend` |
+| POST | `/v1/integrations/guardian/outbound/cancel` |
+
+**Authentication boundary:**
+
+- Gateway validates caller bearer auth against the runtime token.
+- Gateway forwards requests to runtime with the runtime bearer token and `X-Gateway-Origin` proof header.
+- Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `gateway/src/http/routes/guardian-control-plane-proxy.ts` | Guardian control-plane proxy handlers and upstream forwarding |
+| `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/integrations/guardian/*` |
+
 ### Channel Binding Lifecycle (Lane Separation)
 
 Each channel (desktop, Telegram, etc.) operates in its own **lane**: conversations created by an external channel are never displayed in the desktop thread list, and desktop conversations are never exposed to external channels. The `channelBinding` metadata on a conversation is used solely for routing inbound/outbound messages within that lane and for filtering sessions during desktop session restoration.

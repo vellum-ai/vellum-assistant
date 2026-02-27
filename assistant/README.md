@@ -338,7 +338,7 @@ Guardian verification can also be initiated through normal desktop chat. When th
 3. Call the outbound HTTP endpoints to start, resend, or cancel verification.
 4. Guide the user through the verification lifecycle conversationally.
 
-**Outbound HTTP Endpoints** (available when the runtime HTTP server is running):
+**Outbound HTTP Endpoints** (exposed via the gateway API and forwarded to the runtime):
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -346,7 +346,7 @@ Guardian verification can also be initiated through normal desktop chat. When th
 | `/v1/integrations/guardian/outbound/resend` | POST | Resend verification code. Body: `{ channel, assistantId? }` |
 | `/v1/integrations/guardian/outbound/cancel` | POST | Cancel active session. Body: `{ channel, assistantId? }` |
 
-These endpoints share the same business logic as the IPC-based verification flow via `guardian-outbound-actions.ts`.
+These endpoints share the same business logic as the IPC-based verification flow via `guardian-outbound-actions.ts`. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly.
 
 **Security constraint:** Guardian verification control-plane endpoints are restricted to guardian and desktop (trusted) actors only. Non-guardian and unverified-channel actors cannot invoke these endpoints conversationally via tools. Attempts are denied with a message explaining that guardian verification actions are restricted to guardian users.
 

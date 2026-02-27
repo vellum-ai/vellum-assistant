@@ -29,6 +29,7 @@ import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
 import { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } from "./http/routes/feature-flags.js";
+import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-control-plane-proxy.js";
 import { validateBearerToken } from "./http/auth/bearer.js";
 import { getLogger, initLogger } from "./logger.js";
 import { CircuitBreakerOpenError } from "./runtime/client.js";
@@ -196,6 +197,7 @@ function main() {
   const handleSlackDeliver = createSlackDeliverHandler(config);
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
+  const guardianControlPlaneProxy = createGuardianControlPlaneProxyHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
 
@@ -409,6 +411,44 @@ function main() {
           authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
         }
         return res;
+      }
+
+      // ── Guardian verification control-plane proxy ──
+      if (
+        (url.pathname === "/v1/integrations/guardian/challenge" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/guardian/status" && req.method === "GET")
+        || (url.pathname === "/v1/integrations/guardian/outbound/start" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/guardian/outbound/resend" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/guardian/outbound/cancel" && req.method === "POST")
+      ) {
+        if (!config.runtimeBearerToken) {
+          return Response.json(
+            { error: "Service not configured: bearer token required" },
+            { status: 503 },
+          );
+        }
+        const authResult = validateBearerToken(
+          tracedReq.headers.get("authorization"),
+          config.runtimeBearerToken,
+        );
+        if (!authResult.authorized) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        if (url.pathname === "/v1/integrations/guardian/challenge") {
+          return guardianControlPlaneProxy.handleCreateGuardianChallenge(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/guardian/status") {
+          return guardianControlPlaneProxy.handleGetGuardianStatus(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/guardian/outbound/start") {
+          return guardianControlPlaneProxy.handleStartGuardianOutbound(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/guardian/outbound/resend") {
+          return guardianControlPlaneProxy.handleResendGuardianOutbound(tracedReq);
+        }
+        return guardianControlPlaneProxy.handleCancelGuardianOutbound(tracedReq);
       }
 
       if (url.pathname === "/integrations/status" && req.method === "GET") {

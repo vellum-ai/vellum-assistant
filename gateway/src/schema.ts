@@ -726,6 +726,140 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/integrations/guardian/challenge": {
+        post: {
+          summary: "Create guardian verification challenge",
+          description:
+            "Authenticated gateway endpoint that forwards guardian challenge creation to the assistant runtime.",
+          operationId: "guardianChallenge",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Challenge created" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/guardian/status": {
+        get: {
+          summary: "Get guardian binding status",
+          description:
+            "Authenticated gateway endpoint that forwards guardian status checks to the assistant runtime.",
+          operationId: "guardianStatus",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channel",
+              in: "query",
+              required: false,
+              schema: { type: "string", enum: ["sms", "voice", "telegram"] },
+              description: "Optional guardian channel filter.",
+            },
+            {
+              name: "assistantId",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Optional assistant identifier override.",
+            },
+          ],
+          responses: {
+            "200": { description: "Guardian status returned" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/guardian/outbound/start": {
+        post: {
+          summary: "Start outbound guardian verification",
+          description:
+            "Authenticated gateway endpoint that starts outbound guardian verification (sms, voice, or telegram).",
+          operationId: "guardianOutboundStart",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Outbound verification started" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "429": { description: "Rate limited by verification policy" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/guardian/outbound/resend": {
+        post: {
+          summary: "Resend outbound guardian verification",
+          description:
+            "Authenticated gateway endpoint that resends the current outbound guardian verification code.",
+          operationId: "guardianOutboundResend",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Verification resent" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "429": { description: "Rate limited by verification policy" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/guardian/outbound/cancel": {
+        post: {
+          summary: "Cancel outbound guardian verification",
+          description:
+            "Authenticated gateway endpoint that cancels an active outbound guardian verification session.",
+          operationId: "guardianOutboundCancel",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Verification cancelled" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/integrations/status": {
         get: {
           summary: "Integration status",
