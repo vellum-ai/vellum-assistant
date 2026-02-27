@@ -1,15 +1,19 @@
 /**
- * Tests that the voice bridge does NOT consume scoped approval grants.
+ * Tests that the voice bridge consumes scoped approval grants via the
+ * unified approval primitive before auto-denying non-guardian callers.
  *
- * Grant consumption is handled exclusively by the pre-exec gate in
- * approval-primitive.ts (via tool-approval-handler.ts). The bridge's
- * role is transport UX only: guardian auto-allow, non-guardian auto-deny.
+ * Some confirmation_request events originate from proxy/network paths
+ * (e.g. PermissionPrompter in createProxyApprovalCallback) that bypass
+ * the pre-exec gate. The bridge must check for a matching scoped grant
+ * and allow the confirmation if one exists.
  *
  * Verifies:
- *   1. Non-guardian confirmation requests are auto-denied even when a
- *      matching grant exists (bridge does not consume it).
- *   2. Guardian auto-allow path remains unchanged.
- *   3. Grants are revoked on call end (controller.destroy).
+ *   1. Non-guardian confirmation requests are auto-allowed when a
+ *      matching grant exists (bridge consumes it via the primitive).
+ *   2. Non-guardian confirmation requests are auto-denied when no
+ *      matching grant exists.
+ *   3. Guardian auto-allow path remains unchanged.
+ *   4. Grants are revoked on call end (controller.destroy).
  */
 
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -245,14 +249,14 @@ function grantParams(overrides: Partial<CreateScopedApprovalGrantParams> = {}): 
 // Tests
 // ===========================================================================
 
-describe('voice bridge confirmation handling (no bridge-side grant consumption)', () => {
+describe('voice bridge confirmation handling (grant consumption via primitive)', () => {
   beforeEach(() => {
     clearTables();
   });
 
-  test('non-guardian with matching grant: still auto-denied (bridge does not consume grants)', async () => {
-    // Even with a matching grant in the DB, the bridge should auto-deny.
-    // Grant consumption is handled at the pre-exec gate, not the bridge.
+  test('non-guardian with matching grant: auto-allowed (bridge consumes grant via primitive)', async () => {
+    // A matching grant should be consumed and the confirmation allowed.
+    // This covers proxy/network confirmation requests that bypass the pre-exec gate.
     createScopedApprovalGrant(grantParams());
 
     const mockData = createMockSession();
@@ -281,17 +285,16 @@ describe('voice bridge confirmation handling (no bridge-side grant consumption)'
 
     const decision = mockData.getConfirmationDecision();
     expect(decision).not.toBeNull();
-    expect(decision!.decision).toBe('deny');
-    expect(decision!.reason).toContain('Permission denied');
+    expect(decision!.decision).toBe('allow');
+    expect(decision!.reason).toContain('guardian pre-approved via scoped grant');
 
-    // The grant should remain unconsumed (still active) since the bridge
-    // no longer touches it — only the pre-exec gate consumes grants.
+    // The grant should be consumed (no longer active)
     const db = getDb();
     const activeGrants = db.select()
       .from(scopedApprovalGrants)
       .where(eq(scopedApprovalGrants.status, 'active'))
       .all();
-    expect(activeGrants.length).toBe(1);
+    expect(activeGrants.length).toBe(0);
   });
 
   test('non-guardian without grant: auto-denied', async () => {

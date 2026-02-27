@@ -10,6 +10,7 @@
  * dependencies at startup via `setVoiceBridgeDeps()`.
  */
 
+import { consumeGrantForInvocation } from '../approvals/approval-primitive.js';
 import type { ChannelId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
@@ -18,6 +19,7 @@ import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
@@ -348,14 +350,44 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     if (msg.type === 'confirmation_request') {
       if (autoDeny) {
         // Non-guardian voice callers have no interactive approval UI.
-        // Grant consumption (scoped approval grants) is handled at the
-        // pre-exec gate in tool-approval-handler.ts / approval-primitive.ts,
-        // so the bridge simply auto-denies here. If a grant exists, the
-        // pre-exec gate will consume it before this confirmation_request
-        // is ever emitted.
+        // The pre-exec gate (tool-approval-handler.ts) handles grant
+        // consumption for tool execution confirmations, but some
+        // confirmation_request events originate from proxy/network
+        // paths (e.g. PermissionPrompter in createProxyApprovalCallback)
+        // that bypass the pre-exec gate. We must check for a matching
+        // scoped grant here so those cases are not incorrectly denied.
+        const inputDigest = computeToolApprovalDigest(msg.toolName, msg.input);
+        const consumeResult = consumeGrantForInvocation({
+          requestId: msg.requestId,
+          toolName: msg.toolName,
+          inputDigest,
+          consumingRequestId: msg.requestId,
+          assistantId: opts.assistantId ?? 'self',
+          executionChannel: 'voice',
+          conversationId: opts.conversationId,
+          callSessionId: opts.callSessionId,
+          requesterExternalUserId: opts.guardianContext?.requesterExternalUserId,
+        });
+
+        if (consumeResult.ok) {
+          log.info(
+            { turnId, toolName: msg.toolName, grantId: consumeResult.grant.id },
+            'Consumed scoped grant — allowing non-guardian voice confirmation',
+          );
+          session.handleConfirmationResponse(
+            msg.requestId,
+            'allow',
+            undefined,
+            undefined,
+            `Permission approved for "${msg.toolName}": guardian pre-approved via scoped grant.`,
+          );
+          publishToHub(msg);
+          return;
+        }
+
         log.info(
           { turnId, toolName: msg.toolName },
-          'Auto-denying confirmation request for non-guardian voice turn',
+          'Auto-denying confirmation request for non-guardian voice turn (no matching scoped grant)',
         );
         session.handleConfirmationResponse(
           msg.requestId,
