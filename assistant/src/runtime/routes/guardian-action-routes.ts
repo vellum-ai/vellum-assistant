@@ -84,10 +84,14 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
     // pending interactions and use verification sessions instead.
     if (approval.toolName === 'ingress_access_request') {
       const mappedAction = action === 'reject' ? 'deny' as const : 'approve' as const;
+      // Use 'desktop' as the actor identity because this endpoint is
+      // unauthenticated — we cannot verify the caller is the assigned
+      // guardian, so we record a generic desktop origin instead of
+      // falsely attributing the decision to guardianExternalUserId.
       const decisionResult = handleAccessRequestDecision(
         approval,
         mappedAction,
-        approval.guardianExternalUserId ?? 'desktop',
+        'desktop',
       );
       return Response.json({
         applied: decisionResult.type !== 'stale',
@@ -172,6 +176,8 @@ export function listGuardianDecisionPrompts(params: {
   // excluded here — resolving them requires the answerCall + resolveGuardianActionRequest
   // flow which is handled by the conversational session-process path, not by the
   // deterministic button decision endpoint.
+  // TODO: Surface voice guardian-action requests as read-only informational prompts
+  // so desktop clients can see them even though they can't be resolved via buttons.
 
   // 3. Pending confirmation interactions (direct tool approval prompts)
   const interactions = pendingInteractions.getByConversation(conversationId);

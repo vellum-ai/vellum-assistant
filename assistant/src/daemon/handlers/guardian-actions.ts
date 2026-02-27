@@ -48,10 +48,14 @@ export const guardianActionsHandlers = defineHandlers({
       // pending interactions and use verification sessions instead.
       if (approval.toolName === 'ingress_access_request') {
         const mappedAction = msg.action === 'reject' ? 'deny' as const : 'approve' as const;
+        // Use 'desktop' as the actor identity because this endpoint is
+        // unauthenticated — we cannot verify the caller is the assigned
+        // guardian, so we record a generic desktop origin instead of
+        // falsely attributing the decision to guardianExternalUserId.
         const decisionResult = handleAccessRequestDecision(
           approval,
           mappedAction,
-          approval.guardianExternalUserId ?? 'desktop',
+          'desktop',
         );
         ctx.send(socket, {
           type: 'guardian_action_decision_response',

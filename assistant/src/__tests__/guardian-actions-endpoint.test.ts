@@ -629,9 +629,10 @@ describe('IPC guardian_action_decision', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].applied).toBe(true);
     expect(mockHandleAccessRequestDecision).toHaveBeenCalledTimes(1);
-    // Guardian identity should be passed through
+    // Actor is 'desktop' because this endpoint is unauthenticated —
+    // we cannot verify the caller is the assigned guardian.
     const call = mockHandleAccessRequestDecision.mock.calls[0]!;
-    expect(call[2]).toBe('guardian-99');
+    expect(call[2]).toBe('desktop');
   });
 
   test('returns stale for stale access request', () => {
