@@ -1,1 +1,1 @@
-../../scripts/commands/swarm.md
+../../../.claude/commands/swarm.md

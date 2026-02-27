@@ -1,1 +1,1 @@
-../../scripts/commands/mainline.md
+../../../.claude/commands/mainline.md
