@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import Foundation
 import os
 
@@ -6,6 +7,18 @@ private let log = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
     category: "AlwaysOnAudioMonitor"
 )
+
+// KVO-observable UserDefaults properties for scoped wake word settings observation.
+// Using @objc dynamic enables Combine's publisher(for:) key-path KVO without
+// listening to every UserDefaults write app-wide.
+extension UserDefaults {
+    @objc dynamic var wakeWordKeyword: String {
+        return string(forKey: "wakeWordKeyword") ?? "computer"
+    }
+    @objc dynamic var wakeWordEnabled: Bool {
+        return bool(forKey: "wakeWordEnabled")
+    }
+}
 
 /// Always-on audio monitor that manages a `WakeWordEngine` for keyword
 /// detection. The engine owns its own audio pipeline internally.
@@ -26,7 +39,7 @@ final class AlwaysOnAudioMonitor: ObservableObject {
 
     private let engine: WakeWordEngine
     private var configurationChangeObserver: NSObjectProtocol?
-    private var keywordObserver: NSObjectProtocol?
+    private var cancellables = Set<AnyCancellable>()
     /// Tracks the last-observed wakeWordEnabled value so we only react to actual changes,
     /// not unrelated UserDefaults writes (which would restart the engine mid-session).
     private var lastKnownWakeWordEnabled: Bool?
@@ -42,9 +55,6 @@ final class AlwaysOnAudioMonitor: ObservableObject {
 
     deinit {
         if let observer = configurationChangeObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = keywordObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         engine.stop()
@@ -102,20 +112,22 @@ final class AlwaysOnAudioMonitor: ObservableObject {
     }
 
     private func observeKeywordChanges() {
-        keywordObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+        // Scoped KVO observation on the specific key avoids the broad
+        // UserDefaults.didChangeNotification which fires on every write app-wide,
+        // causing high-frequency Task spawning during settings interaction.
+        UserDefaults.standard.publisher(for: \.wakeWordKeyword)
+            .dropFirst()
+            .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
+            .sink { [weak self] newKeyword in
+                self?.engine.updateKeyword(newKeyword)
+            }
+            .store(in: &cancellables)
+
+        UserDefaults.standard.publisher(for: \.wakeWordEnabled)
+            .dropFirst()
+            .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
+            .sink { [weak self] enabled in
                 guard let self else { return }
-
-                // Handle keyword changes
-                let newKeyword = UserDefaults.standard.string(forKey: "wakeWordKeyword") ?? "computer"
-                self.engine.updateKeyword(newKeyword)
-
-                // Handle enabled/disabled toggle — only react when the value actually changes
-                let enabled = UserDefaults.standard.bool(forKey: "wakeWordEnabled")
                 guard enabled != self.lastKnownWakeWordEnabled else { return }
                 self.lastKnownWakeWordEnabled = enabled
 
@@ -127,7 +139,7 @@ final class AlwaysOnAudioMonitor: ObservableObject {
                     self.stopMonitoring()
                 }
             }
-        }
+            .store(in: &cancellables)
     }
 
     private func handleConfigurationChange() {

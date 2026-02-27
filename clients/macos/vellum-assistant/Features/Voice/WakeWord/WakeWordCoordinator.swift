@@ -27,6 +27,9 @@ final class WakeWordCoordinator: ObservableObject {
 
     private let activationWindow = WakeWordActivationWindow()
     private var stateCancellable: AnyCancellable?
+    /// Stored so it can be cancelled on rapid voice mode toggles, preventing
+    /// stacked restart callbacks from queuing up via the old asyncAfter pattern.
+    private var restartMonitorTask: Task<Void, Never>?
 
     /// Cooldown after activation to prevent re-triggering from leftover audio.
     private var lastActivationTime: Date?
@@ -185,18 +188,24 @@ final class WakeWordCoordinator: ObservableObject {
                             WakeWordFeedback.playDeactivationChime()
                             self.activationWindow.show(state: .listening)
                         }
-                        // Delay to let voice mode's audio engine fully release the mic
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                            guard let self else { return }
-                            guard self.voiceModeManager.state == .off else { return }
+                        // Cancel any pending restart before scheduling a new one — rapid
+                        // voice mode toggles would otherwise stack up multiple callbacks.
+                        self.restartMonitorTask?.cancel()
+                        self.restartMonitorTask = Task { @MainActor [weak self] in
+                            // Delay to let voice mode's audio engine fully release the mic
+                            try? await Task.sleep(for: .seconds(1))
+                            guard !Task.isCancelled else { return }
+                            guard let self, self.voiceModeManager.state == .off else { return }
                             self.audioMonitor.startMonitoring()
                         }
                     }
                     self.activatedViaWakeWord = false  // always reset, regardless of setting
                 } else if self.audioMonitor.isListening {
                     // Voice mode activated (via button or other path) — stop wake word
-                    // engine so it doesn't compete for the microphone.
+                    // engine so it doesn't compete for the microphone. Also cancel any
+                    // pending restart that hasn't fired yet.
                     log.info("Voice mode activated externally — pausing wake word engine")
+                    self.restartMonitorTask?.cancel()
                     self.audioMonitor.stopMonitoring()
                 }
             }

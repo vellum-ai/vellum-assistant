@@ -242,10 +242,16 @@ final class SpeechWakeWordEngine: WakeWordEngine {
     }
 
     private func tearDownSession() {
+        // Tap must be removed before stopping the engine — AVAudioEngine retains
+        // input taps internally, so removing after stop can leave a dangling
+        // callback reference and cause a retain cycle in AVAudio's render thread.
+        audioEngine.inputNode.removeTap(onBus: 0)
         if audioEngine.isRunning {
             audioEngine.stop()
         }
-        audioEngine.inputNode.removeTap(onBus: 0)
+        // reset() releases all internal AVAudioEngine resources (nodes, formats,
+        // render graph) that stop() alone does not free.
+        audioEngine.reset()
 
         recognitionRequest?.endAudio()
         recognitionRequest = nil
