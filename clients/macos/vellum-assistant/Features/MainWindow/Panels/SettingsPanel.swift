@@ -104,7 +104,7 @@ struct SettingsPanel: View {
             HStack(spacing: 0) {
                 // Left: nav sidebar
                 settingsNav
-                    .frame(width: 160)
+                    .frame(width: 200)
 
                 Divider()
 
@@ -1004,6 +1004,8 @@ private struct SettingsNavRow: View {
     var body: some View {
         Button(action: action) {
             Text(tab.rawValue)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .font(isSelected ? VFont.bodyMedium : VFont.body)
                 .foregroundColor(isSelected ? VColor.textPrimary : VColor.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1014,6 +1016,7 @@ private struct SettingsNavRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(tab.rawValue)
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
