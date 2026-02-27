@@ -1589,7 +1589,7 @@ private struct ProfileSwitcherSidebarRow: View {
         .buttonStyle(.plain)
         .padding(.horizontal, isExpanded ? VSpacing.sm : VSpacing.xs)
         .padding(.bottom, isExpanded ? VSpacing.sm : 0)
-        .help(isExpanded ? "Switch profile" : "\(profileLabel) — tap to switch")
+        .help(isExpanded ? "Switch mode" : "\(profileLabel) — tap to switch")
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
@@ -1740,7 +1740,7 @@ private struct ProfileSwitchModal: View {
             HStack {
                 VButton(label: "Cancel", style: .secondary) { dismiss() }
                 Spacer()
-                VButton(label: "Switch Profile", style: .primary) {
+                VButton(label: "Switch Mode", style: .primary) {
                     performSwitch()
                 }
                 .disabled(isChildToParental && pin.count != 6)
