@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
+import { isAssistantFeatureFlagEnabled, isAssistantSkillEnabled } from '../config/assistant-feature-flags.js';
 import type { AssistantConfig } from '../config/schema.js';
 import { isSkillFeatureEnabled, resolveSkillStates } from '../config/skill-state.js';
-import { isAssistantFeatureFlagEnabled, isAssistantSkillEnabled } from '../config/assistant-feature-flags.js';
 import type { SkillSummary } from '../config/skills.js';
 
 // ---------------------------------------------------------------------------

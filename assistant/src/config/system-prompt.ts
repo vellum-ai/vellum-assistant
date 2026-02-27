@@ -6,9 +6,9 @@ import { getParentalControlSettings } from '../security/parental-control-store.j
 import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
+import { isAssistantSkillEnabled } from './assistant-feature-flags.js';
 import { getBaseDataDir, getIsContainerized } from './env-registry.js';
 import { getConfig } from './loader.js';
-import { isAssistantSkillEnabled } from './assistant-feature-flags.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 import { resolveUserReference } from './user-reference.js';
 

@@ -6,6 +6,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import type { ServerWebSocket } from 'bun';
@@ -240,7 +241,7 @@ export class RuntimeHttpServer {
   /** Read the feature-flag client token from disk so it can be included in pairing approval responses. */
   private readFeatureFlagToken(): string | undefined {
     try {
-      const baseDir = process.env.BASE_DATA_DIR?.trim() || require('node:os').homedir();
+      const baseDir = process.env.BASE_DATA_DIR?.trim() || homedir();
       const tokenPath = join(baseDir, '.vellum', 'feature-flag-token');
       const token = readFileSync(tokenPath, 'utf-8').trim();
       return token || undefined;

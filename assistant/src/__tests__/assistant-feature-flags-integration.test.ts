@@ -8,7 +8,7 @@
  *   - Legacy keys/section still read (backward compat)
  *   - New assistantFeatureFlagValues takes priority over legacy featureFlags
  */
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -113,7 +113,7 @@ function createSkillOnDisk(id: string, name: string, description: string): void 
     `---\nname: "${name}"\ndescription: "${description}"\n---\n\nInstructions for ${id}.\n`,
   );
   const indexPath = join(skillsDir, 'SKILLS.md');
-  const existing = existsSync(indexPath) ? require('node:fs').readFileSync(indexPath, 'utf-8') : '';
+  const existing = existsSync(indexPath) ? readFileSync(indexPath, 'utf-8') : '';
   writeFileSync(indexPath, existing + `- ${id}\n`);
 }
 

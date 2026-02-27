@@ -1,5 +1,5 @@
-import { getConfig } from '../../config/loader.js';
 import { isAssistantSkillEnabled } from '../../config/assistant-feature-flags.js';
+import { getConfig } from '../../config/loader.js';
 import type { SkillSummary } from '../../config/skills.js';
 import { loadSkillBySelector, loadSkillCatalog } from '../../config/skills.js';
 import { RiskLevel } from '../../permissions/types.js';

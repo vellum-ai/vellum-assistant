@@ -11,8 +11,8 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { getConfig } from '../config/loader.js';
 import { isAssistantSkillEnabled } from '../config/assistant-feature-flags.js';
+import { getConfig } from '../config/loader.js';
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import type { Message, ToolDefinition } from '../providers/types.js';

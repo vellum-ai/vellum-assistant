@@ -2,7 +2,7 @@
  * Integration tests for skill feature flag enforcement at system prompt,
  * skill_load, and session-skill-tools projection layers.
  */
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -107,7 +107,7 @@ function createSkillOnDisk(id: string, name: string, description: string): void 
   );
   // Ensure SKILLS.md index references the skill
   const indexPath = join(skillsDir, 'SKILLS.md');
-  const existing = existsSync(indexPath) ? require('node:fs').readFileSync(indexPath, 'utf-8') : '';
+  const existing = existsSync(indexPath) ? readFileSync(indexPath, 'utf-8') : '';
   writeFileSync(indexPath, existing + `- ${id}\n`);
 }
 
