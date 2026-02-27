@@ -224,14 +224,16 @@ After the guardian-verify-setup skill completes verification for a channel, load
 
 **Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
 
+Use `GATEWAY_BASE_URL` set to the configured gateway URL from Settings "Local Gateway Target" when running the status checks below.
+
 To re-check guardian status later, query the channel(s) that were verified:
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
 # Check SMS guardian status
-curl -s http://localhost:7830/v1/integrations/guardian/status?channel=sms \
+curl -s "$GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=sms" \
   -H "Authorization: Bearer $TOKEN"
 # Check voice guardian status
-curl -s http://localhost:7830/v1/integrations/guardian/status?channel=voice \
+curl -s "$GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=voice" \
   -H "Authorization: Bearer $TOKEN"
 ```
 

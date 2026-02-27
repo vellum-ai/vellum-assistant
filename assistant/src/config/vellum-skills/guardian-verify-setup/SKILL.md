@@ -9,10 +9,10 @@ You are helping your user set up guardian verification for a messaging channel (
 
 ## Prerequisites
 
-- The gateway API is available at `http://localhost:7830` (or the configured gateway port).
+- Set `GATEWAY_BASE_URL` to the configured gateway URL from Settings "Local Gateway Target" before running API calls in this skill.
 - Never call the daemon runtime port directly; always call the gateway URL.
 - The bearer token is stored at `~/.vellum/http-token`. Read it with: `TOKEN=$(cat ~/.vellum/http-token)`.
-- Run shell commands for this skill with `host_bash` (not sandbox `bash`) so host auth/token and localhost routing are reliable.
+- Run shell commands for this skill with `host_bash` (not sandbox `bash`) so host auth/token and gateway routing are reliable.
 - Keep narration minimal: execute required calls first, then provide a concise status update. Do not narrate internal install/check/load chatter unless something fails.
 
 ## Step 1: Confirm Channel
@@ -40,7 +40,7 @@ Execute the outbound start request:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST http://localhost:7830/v1/integrations/guardian/outbound/start \
+curl -s -X POST "$GATEWAY_BASE_URL/v1/integrations/guardian/outbound/start" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"channel": "<channel>", "destination": "<destination>"}'
@@ -78,7 +78,7 @@ If the user says they did not receive the code or asks to resend:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST http://localhost:7830/v1/integrations/guardian/outbound/resend \
+curl -s -X POST "$GATEWAY_BASE_URL/v1/integrations/guardian/outbound/resend" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"channel": "<channel>"}'
@@ -108,7 +108,7 @@ If the user wants to cancel the verification:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST http://localhost:7830/v1/integrations/guardian/outbound/cancel \
+curl -s -X POST "$GATEWAY_BASE_URL/v1/integrations/guardian/outbound/cancel" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"channel": "<channel>"}'
@@ -127,7 +127,7 @@ For **voice** verification only: after telling the user their code and instructi
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s http://localhost:7830/v1/integrations/guardian/status?channel=voice \
+curl -s "$GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=voice" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -154,7 +154,7 @@ After the user reports entering the code, verify the binding was created:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s http://localhost:7830/v1/integrations/guardian/status?channel=<channel> \
+curl -s "$GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=<channel>" \
   -H "Authorization: Bearer $TOKEN"
 ```
 

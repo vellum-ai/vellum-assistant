@@ -621,7 +621,7 @@ Run the **public-ingress** skill to set up ngrok and configure `ingress.publicBa
 
 ### Call connects but no audio / one-way audio
 - The ConversationRelay WebSocket may not be connecting. Check that `ingress.publicBaseUrl` is correct and the tunnel is active
-- Verify the gateway is running on `http://127.0.0.1:${GATEWAY_PORT:-7830}`
+- Verify the gateway is running at your configured Local Gateway Target (`$GATEWAY_BASE_URL`)
 
 ### "Number not eligible for caller identity"
 The user's phone number is not owned by or verified with the Twilio account. The number must be either purchased through Twilio or added as a verified caller ID at https://console.twilio.com/us1/develop/phone-numbers/manage/verified.
