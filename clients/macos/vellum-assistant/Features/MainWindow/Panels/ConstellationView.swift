@@ -901,6 +901,10 @@ struct ConstellationView: View {
                 height: panOffset.height + dragOffset.height
             )
             ZStack {
+                // Static dotted grid (unaffected by zoom/pan)
+                DottedGridBackground()
+                    .allowsHitTesting(false)
+
                 canvas(size: proxy.size)
                     .scaleEffect(zoomScale)
                     .offset(totalOffset)
@@ -1153,6 +1157,36 @@ struct ConstellationView: View {
                     .spring(response: 0.5, dampingFraction: 0.7).delay(0.05),
                     value: phase
                 )
+        }
+    }
+}
+
+// MARK: - Dotted Grid Background
+
+private struct DottedGridBackground: View {
+    let spacing: CGFloat = 24
+    let dotRadius: CGFloat = 1.5
+
+    var body: some View {
+        Canvas { context, size in
+            let cols = Int(size.width / spacing) + 1
+            let rows = Int(size.height / spacing) + 1
+            for row in 0..<rows {
+                for col in 0..<cols {
+                    let x = CGFloat(col) * spacing
+                    let y = CGFloat(row) * spacing
+                    let rect = CGRect(
+                        x: x - dotRadius,
+                        y: y - dotRadius,
+                        width: dotRadius * 2,
+                        height: dotRadius * 2
+                    )
+                    context.fill(
+                        Path(ellipseIn: rect),
+                        with: .color(VColor.textMuted.opacity(0.2))
+                    )
+                }
+            }
         }
     }
 }

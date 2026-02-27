@@ -24,45 +24,55 @@ struct IdentityPanel: View {
         HStack(alignment: .top, spacing: 0) {
             // Left sidebar: title, avatar, ID card — hidden in fullscreen
             if !isFullscreen {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Header
-                    Text("Identity")
-                        .font(VFont.panelTitle)
-                        .foregroundColor(VColor.textPrimary)
-                        .padding(.bottom, VSpacing.lg)
-
-                    // Card wrapping avatar + ID fields
+                VStack(spacing: 0) {
                     VStack(spacing: 0) {
-                        // Avatar image or initial-letter fallback (full-size for identity display)
+                        // "I'm [name]!" heading
+                        Text("I'm \(remoteIdentity?.name.nilIfEmpty ?? identity?.name ?? lockfileAssistant?.assistantId ?? "Unknown")!")
+                            .font(.system(size: 22, weight: .regular, design: .rounded))
+                            .foregroundColor(Color(hex: 0x4A4A46))
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, VSpacing.xxl)
+                            .padding(.horizontal, VSpacing.lg)
+
+                        Spacer()
+
+                        // Large centered avatar
                         Image(nsImage: appearance.fullAvatarImage)
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .frame(width: 120, height: 120)
+                            .frame(width: 180, height: 180)
                             .clipShape(Circle())
-                            .overlay(
-                                Circle()
-                                    .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
-                            )
                             .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.top, VSpacing.lg)
 
-                        // Edit Avatar CTA — switches to chat and pre-fills composer
-                        VButton(label: "Edit Avatar", style: .secondary, isFullWidth: true, action: onEditAvatar)
-                            .padding(.top, VSpacing.sm)
+                        Spacer()
+
+                        // Update Avatar button
+                        VButton(label: "Update Avatar", style: .secondary, action: onEditAvatar)
                             .padding(.horizontal, VSpacing.lg)
-                            .padding(.bottom, VSpacing.lg)
+                            .padding(.bottom, VSpacing.xl)
 
-                        // ID card fields
-                        ScrollView {
-                            idCardSection(identity: identity, remoteIdentity: remoteIdentity)
-                                .padding(.horizontal, VSpacing.lg)
-                                .padding(.bottom, VSpacing.lg)
+                        // Divider
+                        Rectangle()
+                            .fill(Color(hex: 0xF5F3EB))
+                            .frame(height: 2)
+
+                        // Role + Hatched date
+                        VStack(alignment: .leading, spacing: VSpacing.lg) {
+                            let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
+                            if let role, !role.isEmpty {
+                                identityInfoRow(label: "Role", value: role)
+                            }
+                            if let date = metadata?.createdAt {
+                                identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
+                            }
                         }
+                        .padding(.horizontal, VSpacing.lg)
+                        .padding(.vertical, VSpacing.lg)
                     }
-                    .background(VColor.backgroundSubtle)
+                    .frame(maxHeight: .infinity)
+                    .background(Color(hex: 0xE8E6DA))
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-
-                    Spacer()
                 }
                 .frame(width: sidebarWidth)
                 .padding(.leading, panelPadding)
@@ -206,6 +216,23 @@ struct IdentityPanel: View {
                     .textSelection(.enabled)
             }
         }
+    }
+
+    private func identityInfoRow(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            Text(label)
+                .font(VFont.caption)
+                .foregroundColor(Color(hex: 0x6B6B5E))
+            Text(value)
+                .font(VFont.caption)
+                .foregroundColor(Color(hex: 0x3D3D35))
+        }
+    }
+
+    private func formatHatchedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMM yyyy"
+        return formatter.string(from: date)
     }
 
     private func formatDate(_ date: Date) -> String {
