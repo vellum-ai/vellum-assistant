@@ -489,6 +489,13 @@ if [ -d "$SCRIPT_DIR/daemon-bin/bundled-skills" ]; then
     cp -R "$SCRIPT_DIR/daemon-bin/bundled-skills" "$RESOURCES_DIR/bundled-skills"
 fi
 
+# Always refresh assistant feature-flag defaults for the bundled gateway.
+# The compiled gateway resolves this from Contents/Resources in app layouts.
+ASSISTANT_FLAG_DEFAULTS="$GATEWAY_SRC_DIR/src/assistant-feature-flag-defaults.json"
+if [ -f "$ASSISTANT_FLAG_DEFAULTS" ]; then
+    cp "$ASSISTANT_FLAG_DEFAULTS" "$RESOURCES_DIR/assistant-feature-flag-defaults.json"
+fi
+
 # Always check resource bundles (they change independently of binaries)
 # Copy SPM resource bundles into Contents/Resources/
 # ResourceBundle.swift checks Bundle.main.resourceURL (Contents/Resources/) first,

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("feature-flag-defaults");
@@ -26,14 +26,15 @@ const REGISTRY_RELATIVE = join("meta", "assistant-feature-flags", REGISTRY_FILEN
  * can still resolve defaults without the repo-root `meta/` tree.
  *
  * We try several candidate locations so lookup works in monorepo dev,
- * gateway-only Docker, and explicit test overrides.
+ * gateway-only Docker, packaged macOS app bundles, and explicit test overrides.
  *
  * Candidate order:
  *   1. `FEATURE_FLAG_DEFAULTS_PATH` env var (explicit override)
  *   2. Bundled copy adjacent to gateway source (`gateway/src/<file>`)
- *   3. Monorepo layout: walk up two levels from gateway/src/
- *   4. Docker / gateway-only layout: adjacent to gateway src (`<root>/meta/...`)
- *   5. cwd-based fallback
+ *   3. macOS app bundle resources (`Contents/Resources/<file>`)
+ *   4. Monorepo layout: walk up two levels from gateway/src/
+ *   5. Docker / gateway-only layout: adjacent to gateway src (`<root>/meta/...`)
+ *   6. cwd-based fallback
  */
 function getRegistryCandidates(): string[] {
   const candidates: string[] = [];
@@ -49,16 +50,21 @@ function getRegistryCandidates(): string[] {
   // 2. Bundled gateway-local copy
   candidates.push(join(srcDir, REGISTRY_FILENAME));
 
-  // 3. Monorepo layout: gateway/src -> repo root is ../../
+  // 3. Packaged macOS app layout: <App>.app/Contents/MacOS/vellum-gateway
+  //    defaults live under <App>.app/Contents/Resources/<file>.
+  const execDir = dirname(process.execPath);
+  candidates.push(join(execDir, "..", "Resources", REGISTRY_FILENAME));
+
+  // 4. Monorepo layout: gateway/src -> repo root is ../../
   const repoRoot = join(srcDir, "..", "..");
   candidates.push(join(repoRoot, REGISTRY_RELATIVE));
 
-  // 4. Docker layout: the gateway Dockerfile copies the gateway dir to /app,
+  // 5. Docker layout: the gateway Dockerfile copies the gateway dir to /app,
   //    so the meta dir (if mounted or copied) may be under /app/../meta or a
   //    sibling directory. Also check one level up from srcDir (gateway root).
   candidates.push(join(srcDir, "..", REGISTRY_RELATIVE));
 
-  // 5. cwd-based fallback
+  // 6. cwd-based fallback
   candidates.push(join(process.cwd(), REGISTRY_RELATIVE));
 
   return candidates;
