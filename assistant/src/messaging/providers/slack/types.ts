@@ -116,4 +116,9 @@ export type SlackReactionAddResponse = SlackApiResponse;
 
 export type SlackConversationLeaveResponse = SlackApiResponse;
 
+export interface SlackChatDeleteResponse extends SlackApiResponse {
+  channel: string;
+  ts: string;
+}
+
 export type SlackConversationMarkResponse = SlackApiResponse;
