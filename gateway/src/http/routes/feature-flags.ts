@@ -2,16 +2,24 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "
 import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { getRootDir } from "../../credential-reader.js";
+import { loadFeatureFlagDefaults, isFlagDeclared } from "../../feature-flag-defaults.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("feature-flags");
 
 /**
- * Only allow keys matching `skills.<skillId>.enabled` for the initial rollout.
- * The skillId segment must be a non-empty string of lowercase alphanumeric chars,
- * dots, hyphens, and underscores (matching managed skill ID validation).
+ * Only allow keys matching `feature_flags.<flagId>.enabled` for the canonical format.
+ * The flagId segment must be a non-empty string of lowercase alphanumeric chars,
+ * dots, hyphens, and underscores.
  */
-const ALLOWED_KEY_RE = /^skills\.[a-z0-9][a-z0-9._-]*\.enabled$/;
+const ALLOWED_KEY_RE = /^feature_flags\.[a-z0-9][a-z0-9._-]*\.enabled$/;
+
+/**
+ * Legacy key format: `skills.<skillId>.enabled`.
+ * Used to read persisted values from the old `featureFlags` config section
+ * and map them to the canonical `feature_flags.<id>.enabled` format.
+ */
+const LEGACY_KEY_RE = /^skills\.([a-z0-9][a-z0-9._-]*)\.enabled$/;
 
 function getConfigPath(): string {
   return join(getRootDir(), "workspace", "config.json");
@@ -54,30 +62,87 @@ function writeConfigFileAtomic(data: Record<string, unknown>): void {
   renameSync(tmpPath, cfgPath);
 }
 
+/**
+ * Convert a legacy `skills.<id>.enabled` key to the canonical
+ * `feature_flags.<id>.enabled` format. Returns null if the key doesn't
+ * match the legacy format.
+ */
+function legacyKeyToCanonical(legacyKey: string): string | null {
+  const match = LEGACY_KEY_RE.exec(legacyKey);
+  if (!match) return null;
+  return `feature_flags.${match[1]}.enabled`;
+}
+
+/**
+ * Read persisted flag values from both legacy and new config sections.
+ * Returns a map of canonical key -> boolean value.
+ *
+ * Priority (highest wins):
+ * 1. `assistantFeatureFlagValues` section (new canonical storage)
+ * 2. `featureFlags` section with legacy key mapping
+ */
+function readPersistedFlags(config: Record<string, unknown>): Map<string, boolean> {
+  const result = new Map<string, boolean>();
+
+  // Read legacy `featureFlags` section and map keys
+  const legacyRaw = config.featureFlags;
+  if (legacyRaw && typeof legacyRaw === "object" && !Array.isArray(legacyRaw)) {
+    for (const [k, v] of Object.entries(legacyRaw as Record<string, unknown>)) {
+      if (typeof v !== "boolean") continue;
+
+      // Try to map legacy key to canonical format
+      const canonicalKey = legacyKeyToCanonical(k);
+      if (canonicalKey) {
+        result.set(canonicalKey, v);
+      } else if (ALLOWED_KEY_RE.test(k)) {
+        // Already in canonical format (unlikely in legacy section, but handle gracefully)
+        result.set(k, v);
+      }
+      // Skip keys that don't match either format
+    }
+  }
+
+  // Read new `assistantFeatureFlagValues` section (overrides legacy)
+  const newRaw = config.assistantFeatureFlagValues;
+  if (newRaw && typeof newRaw === "object" && !Array.isArray(newRaw)) {
+    for (const [k, v] of Object.entries(newRaw as Record<string, unknown>)) {
+      if (typeof v !== "boolean") continue;
+      if (ALLOWED_KEY_RE.test(k)) {
+        result.set(k, v);
+      }
+    }
+  }
+
+  return result;
+}
+
 export type FeatureFlagEntry = {
   key: string;
   enabled: boolean;
+  defaultEnabled: boolean;
+  description: string;
 };
 
 export function createFeatureFlagsGetHandler() {
   return async (_req: Request): Promise<Response> => {
     try {
+      const defaults = loadFeatureFlagDefaults();
       const result = readConfigFile();
-      // For GET, a malformed config degrades gracefully to empty flags
+      // For GET, a malformed config degrades gracefully to empty persisted values
       const config = result.ok ? result.data : {};
-      const flags: Record<string, boolean> = {};
-      const raw = config.featureFlags;
-      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-        for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-          if (typeof v === "boolean") {
-            flags[k] = v;
-          }
-        }
-      }
+      const persisted = readPersistedFlags(config);
 
-      const entries: FeatureFlagEntry[] = Object.entries(flags).map(
-        ([key, enabled]) => ({ key, enabled }),
-      );
+      // Build entries for ALL declared flags, merging persisted values
+      const entries: FeatureFlagEntry[] = [];
+      for (const [key, def] of Object.entries(defaults)) {
+        const persistedValue = persisted.get(key);
+        entries.push({
+          key,
+          enabled: persistedValue !== undefined ? persistedValue : def.defaultEnabled,
+          defaultEnabled: def.defaultEnabled,
+          description: def.description,
+        });
+      }
 
       return Response.json({ flags: entries });
     } catch (err) {
@@ -99,7 +164,15 @@ export function createFeatureFlagsPatchHandler() {
 
     if (!ALLOWED_KEY_RE.test(flagKey)) {
       return Response.json(
-        { error: "Invalid flag key format. Must match: skills.<skillId>.enabled" },
+        { error: "Invalid flag key format. Must match: feature_flags.<flagId>.enabled" },
+        { status: 400 },
+      );
+    }
+
+    // Validate that the flag key exists in the defaults registry
+    if (!isFlagDeclared(flagKey)) {
+      return Response.json(
+        { error: `Unknown flag key: "${flagKey}" is not declared in the defaults registry` },
         { status: 400 },
       );
     }
@@ -141,13 +214,13 @@ export function createFeatureFlagsPatchHandler() {
 
       const config = result.data;
 
-      // Preserve existing config keys; only update featureFlags
+      // Write to the new `assistantFeatureFlagValues` section (NOT the old `featureFlags` section)
       const existingFlags =
-        config.featureFlags && typeof config.featureFlags === "object" && !Array.isArray(config.featureFlags)
-          ? (config.featureFlags as Record<string, unknown>)
+        config.assistantFeatureFlagValues && typeof config.assistantFeatureFlagValues === "object" && !Array.isArray(config.assistantFeatureFlagValues)
+          ? (config.assistantFeatureFlagValues as Record<string, unknown>)
           : {};
 
-      config.featureFlags = { ...existingFlags, [flagKey]: enabled };
+      config.assistantFeatureFlagValues = { ...existingFlags, [flagKey]: enabled };
 
       writeConfigFileAtomic(config);
 
