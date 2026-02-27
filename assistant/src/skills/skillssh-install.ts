@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { getLogger } from '../util/logger.js';
@@ -66,11 +66,13 @@ function getSkillsShProjectRoot(): string {
 
 /**
  * Derive a source-namespaced directory name from source and skillId.
- * Replaces slashes with double-hyphens so the result is a flat, safe directory name.
+ * Uses collision-safe encoding: literal `--` in the source is escaped to `-_-`
+ * before `/` is replaced with `--`, making the mapping injective.
  * Example: source="org/repo", skillId="my-skill" -> "org--repo--my-skill"
+ * Example: source="foo--bar/baz", skillId="x" -> "foo-_-bar--baz--x"
  */
 export function namespacedSkillDir(source: string, skillId: string): string {
-  const sanitized = source.replace(/\//g, '--');
+  const sanitized = source.replace(/--/g, '-_-').replace(/\//g, '--');
   return `${sanitized}--${skillId}`;
 }
 
@@ -227,9 +229,14 @@ export async function skillsshInstall(
       };
     }
 
-    // Relocate to namespaced directory when the raw and namespaced paths differ
+    // Relocate to namespaced directory when the raw and namespaced paths differ.
+    // On re-install the namespaced dir may already exist from a previous install,
+    // so remove it first to prevent ENOTEMPTY from renameSync.
     if (rawInstalledDir !== namespacedDir) {
       mkdirSync(dirname(namespacedDir), { recursive: true });
+      if (existsSync(namespacedDir)) {
+        rmSync(namespacedDir, { recursive: true });
+      }
       renameSync(rawInstalledDir, namespacedDir);
     }
 
