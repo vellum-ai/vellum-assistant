@@ -10,6 +10,7 @@ struct GatewaySettingsCard: View {
     var daemonClient: DaemonClient?
 
     @State private var gatewayUrlText: String = ""
+    @State private var isGatewayUrlFocused: Bool = false
     @State private var gatewayTargetCopied: Bool = false
 
     var body: some View {
@@ -27,7 +28,9 @@ struct GatewaySettingsCard: View {
             gatewayUrlText = store.ingressPublicBaseUrl
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
-            gatewayUrlText = newValue
+            if !isGatewayUrlFocused {
+                gatewayUrlText = newValue
+            }
         }
         .onChange(of: store.ingressConfigLoaded) { _, loaded in
             guard loaded else { return }
@@ -105,7 +108,7 @@ struct GatewaySettingsCard: View {
                     .foregroundColor(VColor.textSecondary)
             }
 
-            VInlineActionField(text: $gatewayUrlText, placeholder: "https://your-tunnel.example.com") {
+            VInlineActionField(text: $gatewayUrlText, placeholder: "https://your-tunnel.example.com", allowEmpty: true, isFocused: $isGatewayUrlFocused) {
                 store.saveIngressPublicBaseUrl(gatewayUrlText)
             }
 
