@@ -13,7 +13,7 @@ export type GuardianInviteIntentResult =
 // These capture imperative requests to manage Telegram invite links.
 
 const CREATE_INVITE_PATTERNS: RegExp[] = [
-  /\bcreate\s+(?:a\s+)?(?:telegram\s+)?invite\s*(?:link)?\b/i,
+  /\bcreate\s+(?:an?\s+)?(?:telegram\s+)?invite\s*(?:link)?\b/i,
   /\binvite\s+(?:someone|somebody|a\s+friend|a\s+person)\s+(?:on|to|via|through)\s+telegram\b/i,
   /\b(?:make|generate|get)\s+(?:a\s+|an\s+)?(?:telegram\s+)?invite\s*(?:link)?\b/i,
   /\btelegram\s+invite\s*(?:link)?\b/i,
@@ -62,9 +62,11 @@ function isConceptualQuestion(text: string): boolean {
 }
 
 function detectAction(text: string): 'create' | 'list' | 'revoke' | undefined {
-  if (CREATE_INVITE_PATTERNS.some((p) => p.test(text))) return 'create';
+  // Check revoke and list before create — create patterns include the broad
+  // `telegram invite link` matcher that would otherwise swallow revoke/list inputs.
   if (REVOKE_INVITE_PATTERNS.some((p) => p.test(text))) return 'revoke';
   if (LIST_INVITE_PATTERNS.some((p) => p.test(text))) return 'list';
+  if (CREATE_INVITE_PATTERNS.some((p) => p.test(text))) return 'create';
   return undefined;
 }
 
