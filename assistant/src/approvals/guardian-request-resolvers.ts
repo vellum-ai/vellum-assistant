@@ -12,7 +12,8 @@
  */
 
 import type { CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
-import type { ApprovalAction } from '../runtime/channel-approval-types.js';
+import type { ApprovalAction, ApprovalDecisionResult } from '../runtime/channel-approval-types.js';
+import { handleChannelDecision } from '../runtime/channel-approvals.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('guardian-request-resolvers');
@@ -87,6 +88,28 @@ const pendingInteractionResolver: GuardianRequestResolver = {
       return { ok: false, reason: 'tool_approval request missing conversationId' };
     }
 
+    // Actually resolve the pending interaction so the tool call gets unblocked.
+    const channelDecision: ApprovalDecisionResult = {
+      action: decision.action,
+      source: 'plain_text',
+      requestId: request.id,
+    };
+    const channelResult = handleChannelDecision(request.conversationId, channelDecision);
+
+    if (!channelResult.applied) {
+      // The pending interaction was already consumed (stale) or not found.
+      // The canonical CAS already committed, so this is not an error — just
+      // means the interaction was resolved by another path (e.g. legacy).
+      log.warn(
+        {
+          event: 'resolver_tool_approval_channel_stale',
+          requestId: request.id,
+          conversationId: request.conversationId,
+        },
+        'Tool approval resolver: handleChannelDecision returned applied:false (interaction already consumed)',
+      );
+    }
+
     log.info(
       {
         event: 'resolver_tool_approval_applied',
@@ -94,6 +117,7 @@ const pendingInteractionResolver: GuardianRequestResolver = {
         action: decision.action,
         conversationId: request.conversationId,
         toolName: request.toolName,
+        channelApplied: channelResult.applied,
       },
       'Tool approval resolver: canonical decision applied',
     );

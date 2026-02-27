@@ -324,7 +324,7 @@ export async function routeGuardianReply(
       );
       return {
         decisionApplied: false,
-        consumed: true,
+        consumed: false,
         type: 'not_consumed',
         replyText: 'No pending requests in this conversation.',
       };
