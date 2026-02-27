@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import * as fs from 'node:fs';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 // --- In-memory checkpoint store ---
 const store = new Map<string, string>();

@@ -131,6 +131,7 @@ export function createChallenge(params: {
     nextResendAt: null,
     codeDigits: 6,
     maxAttempts: 3,
+    verificationPurpose: 'guardian' as const,
     bootstrapTokenHash: null,
     createdAt: now,
     updatedAt: now,

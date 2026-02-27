@@ -94,6 +94,11 @@ private func makeSessionListResponse(sessions: [(id: String, title: String, crea
     return try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
 }
 
+/// Convenience overload with threadType and optional channelBinding.
+private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, threadType: String?, channelBinding: [String: Any]?)]) -> SessionListResponseMessage {
+    makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.updatedAt, $0.threadType, $0.channelBinding) })
+}
+
 /// Convenience overload with threadType but no channelBinding.
 private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, threadType: String?)]) -> SessionListResponseMessage {
     makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.updatedAt, $0.threadType, nil) })

@@ -6,10 +6,10 @@ import { RiskLevel } from '../permissions/types.js';
 const WORKSPACE_DIR = '/tmp/test-workspace';
 
 describe('classifyIntent', () => {
-  // ── host_bash: risk-dependent ─────────────────────────────────────
+  // ── host_bash: always Write (risk level != intent) ───────────────
 
-  test('host_bash + RiskLevel.Low → Read', () => {
-    expect(classifyIntent('host_bash', { command: 'ls' }, WORKSPACE_DIR, RiskLevel.Low)).toBe(ToolIntent.Read);
+  test('host_bash + RiskLevel.Low → Write', () => {
+    expect(classifyIntent('host_bash', { command: 'ls' }, WORKSPACE_DIR, RiskLevel.Low)).toBe(ToolIntent.Write);
   });
 
   test('host_bash + RiskLevel.Medium → Write', () => {
@@ -88,12 +88,22 @@ describe('classifyIntent', () => {
     ).toBe(ToolIntent.Read);
   });
 
-  test('file_write (outside workspace) → Read (sandboxed)', () => {
-    // Sandboxed tools are always Read regardless of target path — the sandbox
-    // provides isolation so writes cannot affect the host filesystem.
+  test('file_write (outside workspace) → Write', () => {
     expect(
       classifyIntent('file_write', { file_path: '/etc/shadow' }, WORKSPACE_DIR, RiskLevel.Low),
+    ).toBe(ToolIntent.Write);
+  });
+
+  test('file_edit (workspace-scoped) → Read', () => {
+    expect(
+      classifyIntent('file_edit', { file_path: `${WORKSPACE_DIR}/bar.txt` }, WORKSPACE_DIR, RiskLevel.Low),
     ).toBe(ToolIntent.Read);
+  });
+
+  test('file_edit (outside workspace) → Write', () => {
+    expect(
+      classifyIntent('file_edit', { file_path: '/etc/shadow' }, WORKSPACE_DIR, RiskLevel.Low),
+    ).toBe(ToolIntent.Write);
   });
 
   test('bash (sandbox enabled) → Read', () => {
@@ -108,6 +118,10 @@ describe('classifyIntent', () => {
 
   test('call_start → Write', () => {
     expect(classifyIntent('call_start', {}, WORKSPACE_DIR, RiskLevel.Low)).toBe(ToolIntent.Write);
+  });
+
+  test('messaging_reply → Write', () => {
+    expect(classifyIntent('messaging_reply', {}, WORKSPACE_DIR, RiskLevel.Low)).toBe(ToolIntent.Write);
   });
 
   // ── Default ───────────────────────────────────────────────────────

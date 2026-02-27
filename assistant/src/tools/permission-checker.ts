@@ -3,12 +3,11 @@ import { getHookManager } from '../hooks/manager.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import { addRule } from '../permissions/trust-store.js';
-import { RiskLevel } from '../permissions/types.js';
 import { getLogger } from '../util/logger.js';
-import type { ExecutionTarget } from './types.js';
 import { buildPolicyContext } from './policy-context.js';
 import { isSideEffectTool } from './side-effects.js';
 import { wrapCommand } from './terminal/sandbox.js';
+import type { ExecutionTarget } from './types.js';
 import type { Tool, ToolContext, ToolLifecycleEvent } from './types.js';
 
 const log = getLogger('permission-checker');

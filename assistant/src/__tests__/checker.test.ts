@@ -417,8 +417,7 @@ describe('Permission Checker', () => {
 
     test('plain rm (without -rf) is high risk and prompts despite default allow rule', async () => {
       // Validates that ALL rm commands are escalated to High risk, not just rm -rf.
-      // The default allow rule for host_bash auto-approves Low risk (Read intent) but
-      // High risk always prompts and Medium risk Write intent is gated.
+      // High risk always prompts regardless of intent classification.
       const result = await check('host_bash', { command: 'rm single-file.txt' }, '/tmp');
       expect(result.decision).toBe('prompt');
       expect(result.reason).toContain('High risk');
@@ -502,11 +501,10 @@ describe('Permission Checker', () => {
       expect(result.matchedRule?.id).toBe('default:ask-host_file_edit-global');
     });
 
-    test('host_bash auto-allows low risk via default allow rule', async () => {
+    test('host_bash prompts via intent gate even for low risk (Write intent)', async () => {
       const result = await check('host_bash', { command: 'ls' }, '/tmp');
-      expect(result.decision).toBe('allow');
-      expect(result.reason).toContain('Matched trust rule');
-      expect(result.matchedRule?.id).toBe('default:allow-host_bash-global');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Write operation');
     });
 
     test('intent gate: default allow + Write intent → prompt (host_bash curl)', async () => {
@@ -1492,11 +1490,11 @@ describe('Permission Checker', () => {
       expect(result.matchedRule?.id).toBe('default:allow-bash-global');
     });
 
-    test('host_bash auto-allows low risk in strict mode (default allow rule is a matching rule)', async () => {
+    test('host_bash prompts even for low risk in strict mode (Write intent gate)', async () => {
       testConfig.permissions.mode = 'strict';
       const result = await check('host_bash', { command: 'ls' }, '/tmp');
-      expect(result.decision).toBe('allow');
-      expect(result.matchedRule?.id).toBe('default:allow-host_bash-global');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Write operation');
     });
 
     test('high-risk host_bash (rm) with no matching rule returns prompt in strict mode', async () => {
@@ -2444,11 +2442,11 @@ describe('Permission Checker', () => {
         expect(result.matchedRule?.id).toBe('default:allow-bash-global');
       });
 
-      test('low-risk host_bash auto-allows in strict mode (default allow rule is a matching rule)', async () => {
+      test('low-risk host_bash prompts in strict mode (Write intent gate)', async () => {
         testConfig.permissions.mode = 'strict';
         const result = await check('host_bash', { command: 'echo hello' }, '/tmp');
-        expect(result.decision).toBe('allow');
-        expect(result.matchedRule?.id).toBe('default:allow-host_bash-global');
+        expect(result.decision).toBe('prompt');
+        expect(result.reason).toContain('Write operation');
       });
 
       test('low-risk file_read with no rule prompts in strict mode', async () => {
@@ -2510,10 +2508,10 @@ describe('Permission Checker', () => {
     //    target-scoped. ───────────────────────────────────────────────
 
     describe('Invariant 4: host execution approvals are explicit and target-scoped', () => {
-      test('host_bash auto-allows low risk via default allow rule', async () => {
+      test('host_bash prompts for low risk (Write intent gate)', async () => {
         const result = await check('host_bash', { command: 'ls' }, '/tmp');
-        expect(result.decision).toBe('allow');
-        expect(result.matchedRule?.id).toBe('default:allow-host_bash-global');
+        expect(result.decision).toBe('prompt');
+        expect(result.reason).toContain('Write operation');
       });
 
       test('host_file_read auto-allows by default (Read intent)', async () => {
@@ -2561,7 +2559,7 @@ describe('Permission Checker', () => {
 
         // Different target — the target-scoped rule should NOT match;
         // falls back to default host_bash allow rule, but intent gate prompts
-        // for Write operations (unknown program = medium risk = Write intent)
+        // because all host_bash operations are Write intent
         const noMatchResult = await check('host_bash', { command: 'run script.js' }, '/tmp', {
           executionTarget: '/usr/local/bin/bun',
         });
@@ -3290,10 +3288,10 @@ describe('workspace mode — auto-allow workspace-scoped operations', () => {
     expect(result.decision).toBe('allow');
   });
 
-  test('host_bash → allow (default allow rule matches)', async () => {
+  test('host_bash → prompt (Write intent gate)', async () => {
     const result = await check('host_bash', { command: 'ls' }, workspaceDir);
-    expect(result.decision).toBe('allow');
-    expect(result.reason).toContain('Matched trust rule');
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toContain('Write operation');
   });
 
   // ── explicit rules still take precedence in workspace mode ──

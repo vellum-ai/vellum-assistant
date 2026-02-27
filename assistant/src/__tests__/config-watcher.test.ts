@@ -73,6 +73,7 @@ const fakeWatcher = {
 };
 
 mock.module('node:fs', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const actual = require('node:fs');
   return {
     ...actual,

@@ -28,6 +28,9 @@ export interface NotificationDeliveryRow {
   conversationId: string | null;
   messageId: string | null;
   conversationStrategy: string | null;
+  threadAction: string | null;
+  threadTargetConversationId: string | null;
+  threadDecisionFallbackUsed: number | null;
   clientDeliveryStatus: string | null;
   clientDeliveryError: string | null;
   clientDeliveryAt: number | null;
@@ -52,6 +55,9 @@ function rowToDelivery(row: typeof notificationDeliveries.$inferSelect): Notific
     conversationId: row.conversationId,
     messageId: row.messageId,
     conversationStrategy: row.conversationStrategy,
+    threadAction: row.threadAction,
+    threadTargetConversationId: row.threadTargetConversationId,
+    threadDecisionFallbackUsed: row.threadDecisionFallbackUsed,
     clientDeliveryStatus: row.clientDeliveryStatus,
     clientDeliveryError: row.clientDeliveryError,
     clientDeliveryAt: row.clientDeliveryAt,
@@ -76,6 +82,9 @@ export interface CreateDeliveryParams {
   conversationId?: string;
   messageId?: string;
   conversationStrategy?: string;
+  threadAction?: string;
+  threadTargetConversationId?: string;
+  threadDecisionFallbackUsed?: boolean;
 }
 
 /** Create a new delivery audit record. */
@@ -99,6 +108,9 @@ export function createDelivery(params: CreateDeliveryParams): NotificationDelive
     conversationId: params.conversationId ?? null,
     messageId: params.messageId ?? null,
     conversationStrategy: params.conversationStrategy ?? null,
+    threadAction: params.threadAction ?? null,
+    threadTargetConversationId: params.threadTargetConversationId ?? null,
+    threadDecisionFallbackUsed: params.threadDecisionFallbackUsed != null ? (params.threadDecisionFallbackUsed ? 1 : 0) : null,
     clientDeliveryStatus: null,
     clientDeliveryError: null,
     clientDeliveryAt: null,

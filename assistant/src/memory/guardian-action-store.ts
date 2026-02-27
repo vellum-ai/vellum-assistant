@@ -7,7 +7,7 @@
  * answer resolves the request and all other deliveries are marked answered.
  */
 
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, lt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getLogger } from '../util/logger.js';
@@ -210,6 +210,26 @@ export function getPendingRequestByCallSessionId(callSessionId: string): Guardia
     .orderBy(desc(guardianActionRequests.createdAt))
     .get();
   return row ? rowToRequest(row) : null;
+}
+
+/**
+ * Count pending guardian action requests for a given call session.
+ * Used as a candidate-affinity hint so the decision engine knows how many
+ * active guardian requests already exist for the current call.
+ */
+export function countPendingRequestsByCallSessionId(callSessionId: string): number {
+  const db = getDb();
+  const row = db
+    .select({ count: count() })
+    .from(guardianActionRequests)
+    .where(
+      and(
+        eq(guardianActionRequests.callSessionId, callSessionId),
+        eq(guardianActionRequests.status, 'pending'),
+      ),
+    )
+    .get();
+  return row?.count ?? 0;
 }
 
 /**
@@ -595,6 +615,16 @@ export function getPendingDeliveriesByDestination(
  * Look up a pending delivery by destination conversation ID (for mac channel routing).
  */
 export function getPendingDeliveryByConversation(conversationId: string): GuardianActionDelivery | null {
+  const all = getPendingDeliveriesByConversation(conversationId);
+  return all.length > 0 ? all[0] : null;
+}
+
+/**
+ * Look up all pending deliveries by destination conversation ID.
+ * Used for disambiguation when a reused vellum thread has multiple active
+ * guardian requests.
+ */
+export function getPendingDeliveriesByConversation(conversationId: string): GuardianActionDelivery[] {
   try {
     const db = getDb();
     const rows = db
@@ -612,11 +642,11 @@ export function getPendingDeliveryByConversation(conversationId: string): Guardi
         ),
       )
       .all();
-    return rows.length > 0 ? rowToDelivery(rows[0].delivery) : null;
+    return rows.map((r) => rowToDelivery(r.delivery));
   } catch (err) {
     if (err instanceof Error && err.message.includes('no such table')) {
       log.warn({ err }, 'guardian tables not yet created');
-      return null;
+      return [];
     }
     throw err;
   }
@@ -669,6 +699,16 @@ export function getExpiredDeliveriesByDestination(
  * Look up an expired delivery by destination conversation ID (for mac channel routing).
  */
 export function getExpiredDeliveryByConversation(conversationId: string): GuardianActionDelivery | null {
+  const all = getExpiredDeliveriesByConversation(conversationId);
+  return all.length > 0 ? all[0] : null;
+}
+
+/**
+ * Look up all expired deliveries by destination conversation ID.
+ * Used for disambiguation when a reused vellum thread has multiple expired
+ * guardian requests eligible for follow-up.
+ */
+export function getExpiredDeliveriesByConversation(conversationId: string): GuardianActionDelivery[] {
   try {
     const db = getDb();
     const rows = db
@@ -687,11 +727,11 @@ export function getExpiredDeliveryByConversation(conversationId: string): Guardi
         ),
       )
       .all();
-    return rows.length > 0 ? rowToDelivery(rows[0].delivery) : null;
+    return rows.map((r) => rowToDelivery(r.delivery));
   } catch (err) {
     if (err instanceof Error && err.message.includes('no such table')) {
       log.warn({ err }, 'guardian tables not yet created');
-      return null;
+      return [];
     }
     throw err;
   }
@@ -746,6 +786,16 @@ export function getFollowupDeliveriesByDestination(
  * state by destination conversation ID (for mac channel routing).
  */
 export function getFollowupDeliveryByConversation(conversationId: string): GuardianActionDelivery | null {
+  const all = getFollowupDeliveriesByConversation(conversationId);
+  return all.length > 0 ? all[0] : null;
+}
+
+/**
+ * Look up all deliveries for requests in `awaiting_guardian_choice` follow-up
+ * state by destination conversation ID. Used for disambiguation when a reused
+ * vellum thread has multiple follow-up guardian requests.
+ */
+export function getFollowupDeliveriesByConversation(conversationId: string): GuardianActionDelivery[] {
   try {
     const db = getDb();
     const rows = db
@@ -764,11 +814,11 @@ export function getFollowupDeliveryByConversation(conversationId: string): Guard
         ),
       )
       .all();
-    return rows.length > 0 ? rowToDelivery(rows[0].delivery) : null;
+    return rows.map((r) => rowToDelivery(r.delivery));
   } catch (err) {
     if (err instanceof Error && err.message.includes('no such table')) {
       log.warn({ err }, 'guardian tables not yet created');
-      return null;
+      return [];
     }
     throw err;
   }

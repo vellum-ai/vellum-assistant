@@ -2,6 +2,7 @@ import * as net from 'node:net';
 
 import type { ChannelId } from '../../channels/types.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
+import { findMember, revokeMember } from '../../memory/ingress-member-store.js';
 import {
   createVerificationChallenge,
   findActiveSession,
@@ -173,8 +174,25 @@ export function handleGuardianVerification(
       const result = getGuardianStatus(channel, assistantId);
       ctx.send(socket, { type: 'guardian_verification_response', ...result });
     } else if (msg.action === 'revoke') {
+      // Capture binding before revoking so we can revoke the guardian's
+      // ingress member record — without this, the guardian would still pass
+      // the ACL check after unbinding.
+      const bindingBeforeRevoke = getGuardianBinding(assistantId, channel);
       revokeGuardianBinding(assistantId, channel);
       revokePendingChallenges(assistantId, channel);
+
+      if (bindingBeforeRevoke) {
+        const member = findMember({
+          assistantId,
+          sourceChannel: channel,
+          externalUserId: bindingBeforeRevoke.guardianExternalUserId,
+          externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
+        });
+        if (member) {
+          revokeMember(member.id, 'guardian_binding_revoked');
+        }
+      }
+
       ctx.send(socket, {
         type: 'guardian_verification_response',
         success: true,

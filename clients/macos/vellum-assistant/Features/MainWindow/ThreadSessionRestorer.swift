@@ -105,7 +105,7 @@ final class ThreadSessionRestorer {
         }
 
         do {
-            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
+            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxToolResultChars: 1000)
         } catch {
             log.error("Failed to send history_request: \(error.localizedDescription)")
             pendingHistoryBySessionId.removeValue(forKey: sessionId)
@@ -120,7 +120,7 @@ final class ThreadSessionRestorer {
         guard let thread = delegate.threads.first(where: { $0.sessionId == sessionId }) else { return }
         pendingHistoryBySessionId[sessionId] = thread.id
         do {
-            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
+            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxToolResultChars: 1000)
         } catch {
             log.error("Failed to send reconnect history_request: \(error.localizedDescription)")
             pendingHistoryBySessionId.removeValue(forKey: sessionId)
@@ -139,7 +139,7 @@ final class ThreadSessionRestorer {
         }
         pendingHistoryBySessionId[sessionId] = thread.id
         do {
-            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxTextChars: 2000, maxToolResultChars: 1000)
+            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
         } catch {
             log.error("Failed to send paginated history_request: \(error.localizedDescription)")
             pendingHistoryBySessionId.removeValue(forKey: sessionId)

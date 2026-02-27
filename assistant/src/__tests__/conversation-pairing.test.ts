@@ -2,8 +2,9 @@
  * Regression tests for notification conversation pairing.
  *
  * Validates that pairDeliveryWithConversation materializes conversations
- * and messages according to the channel's conversation strategy, and that
- * errors in pairing never break the notification pipeline.
+ * and messages according to the channel's conversation strategy, handles
+ * thread reuse decisions, and that errors in pairing never break the
+ * notification pipeline.
  */
 
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
@@ -21,6 +22,9 @@ let mockConversationId = 'conv-001';
 let mockMessageId = 'msg-001';
 let createConversationShouldThrow = false;
 let addMessageShouldThrow = false;
+
+/** Simulated existing conversations for getConversation mock. */
+let mockExistingConversations: Record<string, { id: string; source: string; title: string | null }> = {};
 
 const createConversationMock = mock((_opts?: unknown) => {
   if (createConversationShouldThrow) throw new Error('DB write failed');
@@ -40,14 +44,19 @@ const addMessageMock = mock(
   },
 );
 
+const getConversationMock = mock((id: string) => {
+  return mockExistingConversations[id] ?? null;
+});
+
 mock.module('../memory/conversation-store.js', () => ({
   createConversation: createConversationMock,
   addMessage: addMessageMock,
+  getConversation: getConversationMock,
 }));
 
 import { pairDeliveryWithConversation } from '../notifications/conversation-pairing.js';
 import type { NotificationSignal } from '../notifications/signal.js';
-import type { NotificationChannel, RenderedChannelCopy } from '../notifications/types.js';
+import type { NotificationChannel, RenderedChannelCopy, ThreadAction } from '../notifications/types.js';
 
 // ── Test helpers ────────────────────────────────────────────────────────
 
@@ -82,10 +91,12 @@ describe('pairDeliveryWithConversation', () => {
   beforeEach(() => {
     createConversationMock.mockClear();
     addMessageMock.mockClear();
+    getConversationMock.mockClear();
     mockConversationId = 'conv-001';
     mockMessageId = 'msg-001';
     createConversationShouldThrow = false;
     addMessageShouldThrow = false;
+    mockExistingConversations = {};
   });
 
   // ── start_new_conversation (vellum) ─────────────────────────────────
@@ -99,6 +110,8 @@ describe('pairDeliveryWithConversation', () => {
     expect(result.conversationId).toBe('conv-001');
     expect(result.messageId).toBe('msg-001');
     expect(result.strategy).toBe('start_new_conversation');
+    expect(result.createdNewConversation).toBe(true);
+    expect(result.threadDecisionFallbackUsed).toBe(false);
     expect(createConversationMock).toHaveBeenCalledTimes(1);
     expect(addMessageMock).toHaveBeenCalledTimes(1);
     const callArgs = createConversationMock.mock.calls[0]![0] as Record<string, unknown>;
@@ -195,6 +208,7 @@ describe('pairDeliveryWithConversation', () => {
     expect(result.conversationId).toBe('conv-001');
     expect(result.messageId).toBe('msg-001');
     expect(result.strategy).toBe('continue_existing_conversation');
+    expect(result.createdNewConversation).toBe(true);
     expect(createConversationMock).toHaveBeenCalledTimes(1);
     const callArgs = createConversationMock.mock.calls[0]![0] as Record<string, unknown>;
     expect(callArgs.threadType).toBe('background');
@@ -218,8 +232,93 @@ describe('pairDeliveryWithConversation', () => {
     expect(result.conversationId).toBeNull();
     expect(result.messageId).toBeNull();
     expect(result.strategy).toBe('not_deliverable');
+    expect(result.createdNewConversation).toBe(false);
     expect(createConversationMock).not.toHaveBeenCalled();
     expect(addMessageMock).not.toHaveBeenCalled();
+  });
+
+  // ── Thread reuse (reuse_existing) ─────────────────────────────────
+
+  test('reuses existing conversation when threadAction is reuse_existing and target is valid', async () => {
+    mockExistingConversations['conv-existing'] = {
+      id: 'conv-existing',
+      source: 'notification',
+      title: 'Previous Thread',
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy({ threadSeedMessage: 'Follow-up notification message content' });
+    const threadAction: ThreadAction = { action: 'reuse_existing', conversationId: 'conv-existing' };
+
+    const result = await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy, { threadAction });
+
+    expect(result.conversationId).toBe('conv-existing');
+    expect(result.messageId).toBe('msg-001');
+    expect(result.createdNewConversation).toBe(false);
+    expect(result.threadDecisionFallbackUsed).toBe(false);
+    // Should NOT have created a new conversation — only addMessage should be called
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).toHaveBeenCalledTimes(1);
+    // Verify addMessage was called with the existing conversation ID
+    expect(addMessageMock.mock.calls[0]![0]).toBe('conv-existing');
+  });
+
+  test('falls back to new conversation when reuse target does not exist', async () => {
+    // No existing conversations — target is stale/invalid
+    const signal = makeSignal();
+    const copy = makeCopy();
+    const threadAction: ThreadAction = { action: 'reuse_existing', conversationId: 'conv-nonexistent' };
+
+    const result = await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy, { threadAction });
+
+    expect(result.conversationId).toBe('conv-001');
+    expect(result.messageId).toBe('msg-001');
+    expect(result.createdNewConversation).toBe(true);
+    expect(result.threadDecisionFallbackUsed).toBe(true);
+    expect(createConversationMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('falls back to new conversation when reuse target has wrong source', async () => {
+    // Conversation exists but was created by user, not notification
+    mockExistingConversations['conv-user'] = {
+      id: 'conv-user',
+      source: 'user',
+      title: 'User Thread',
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy();
+    const threadAction: ThreadAction = { action: 'reuse_existing', conversationId: 'conv-user' };
+
+    const result = await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy, { threadAction });
+
+    expect(result.conversationId).toBe('conv-001');
+    expect(result.createdNewConversation).toBe(true);
+    expect(result.threadDecisionFallbackUsed).toBe(true);
+  });
+
+  test('creates new conversation when threadAction is start_new', async () => {
+    const signal = makeSignal();
+    const copy = makeCopy();
+    const threadAction: ThreadAction = { action: 'start_new' };
+
+    const result = await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy, { threadAction });
+
+    expect(result.conversationId).toBe('conv-001');
+    expect(result.createdNewConversation).toBe(true);
+    expect(result.threadDecisionFallbackUsed).toBe(false);
+    expect(createConversationMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('creates new conversation when threadAction is undefined (default)', async () => {
+    const signal = makeSignal();
+    const copy = makeCopy();
+
+    const result = await pairDeliveryWithConversation(signal, 'vellum' as NotificationChannel, copy);
+
+    expect(result.conversationId).toBe('conv-001');
+    expect(result.createdNewConversation).toBe(true);
+    expect(result.threadDecisionFallbackUsed).toBe(false);
   });
 
   // ── Error resilience ──────────────────────────────────────────────
@@ -236,6 +335,7 @@ describe('pairDeliveryWithConversation', () => {
     expect(result.messageId).toBeNull();
     // Strategy should still be resolved from the policy registry
     expect(result.strategy).toBe('start_new_conversation');
+    expect(result.createdNewConversation).toBe(false);
   });
 
   test('catches addMessage errors and returns null IDs without throwing', async () => {

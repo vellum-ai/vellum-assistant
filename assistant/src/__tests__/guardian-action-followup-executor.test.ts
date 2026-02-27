@@ -71,9 +71,9 @@ import {
   startFollowupFromExpiredRequest,
   updateDeliveryStatus,
 } from '../memory/guardian-action-store.js';
+import { conversations } from '../memory/schema.js';
 import { executeFollowupAction } from '../runtime/guardian-action-followup-executor.js';
 import { resolveCounterparty } from '../runtime/guardian-action-followup-executor.js';
-import { conversations } from '../memory/schema.js';
 
 initializeDb();
 
