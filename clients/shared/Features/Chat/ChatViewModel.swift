@@ -666,12 +666,10 @@ public final class ChatViewModel: ObservableObject {
         // displayedMessages is updated automatically via the messageManager.$messages
         // publisher subscription set up in init.
         // After deleting the oldest messages, reset the history cursor to the oldest
-        // retained message so pagination doesn't try to fetch the now-deleted range.
-        // The deleted history is permanently gone from memory, so mark hasMoreHistory
-        // false to prevent the UI from showing a "load more" spinner for unreachable data.
+        // retained message so the next pagination fetch starts from that point.
+        // Do NOT clear hasMoreHistory — the daemon still has older pages available.
         if let oldestRetained = messages.first {
             historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
-            hasMoreHistory = false
         }
         // Reset pagination so the display window doesn't reference indices beyond the
         // newly shortened array. trimKeepRecent < messagePageSize is possible, so clamp.
