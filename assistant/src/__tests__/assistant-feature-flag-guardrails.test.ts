@@ -65,13 +65,14 @@ describe('assistant feature flag key format guard', () => {
 
     // Search for string literals and template literals containing
     // `skills.<id>.enabled` or `skills.${...}.enabled` in .ts files
-    // under assistant/src/ (excluding test files and allowlisted paths).
-    // The pattern catches both literal keys (e.g., `skills.foo.enabled`) and
-    // template literal forms (e.g., `skills.${skillId}.enabled`).
+    // under assistant/src/ and gateway/src/ (excluding test files and
+    // allowlisted paths). The pattern catches both literal keys
+    // (e.g., `skills.foo.enabled`) and template literal forms
+    // (e.g., `skills.${skillId}.enabled`).
     let grepOutput = '';
     try {
       grepOutput = execSync(
-        `git grep -lE "skills\\.[a-z0-9_-]+\\.enabled|skills\\.\\$\\{" -- 'assistant/src/**/*.ts'`,
+        `git grep -lE "skills\\.[a-z0-9_-]+\\.enabled|skills\\.\\$\\{" -- 'assistant/src/**/*.ts' 'gateway/src/**/*.ts'`,
         { encoding: 'utf-8', cwd: repoRoot },
       ).trim();
     } catch (err) {
@@ -179,25 +180,40 @@ describe('assistant feature flag declaration coverage guard', () => {
     );
     const declaredKeys = new Set(Object.keys(registry));
 
-    // Extract full keys from isAssistantFeatureFlagEnabled('<key>', ...) in non-test files
+    // Extract full keys from isAssistantFeatureFlagEnabled('<key>', ...) calls
+    // in non-test production files. We read each matching file and apply a
+    // multiline regex so that calls split across lines are still caught:
+    //
+    //   isAssistantFeatureFlagEnabled(
+    //     'feature_flags.foo.enabled',
+    //     config,
+    //   )
+    //
     const usedKeys = new Set<string>();
-    let flagLines = '';
+    let matchingFiles = '';
     try {
-      flagLines = execSync(
-        `git grep -n "isAssistantFeatureFlagEnabled" -- 'assistant/src/**/*.ts' ':!assistant/src/__tests__/**'`,
+      matchingFiles = execSync(
+        `git grep -l "isAssistantFeatureFlagEnabled" -- 'assistant/src/**/*.ts' ':!assistant/src/__tests__/**'`,
         { encoding: 'utf-8', cwd: repoRoot },
       ).trim();
     } catch (err) {
       if ((err as { status?: number }).status !== 1) throw err;
     }
 
-    if (flagLines) {
-      for (const line of flagLines.split('\n')) {
-        // Match isAssistantFeatureFlagEnabled('key' or "key"
-        const match = line.match(/isAssistantFeatureFlagEnabled\(\s*['"]([^'"]+)['"]/);
-        if (match) {
+    if (matchingFiles) {
+      // Multiline regex: match the function name, optional whitespace/newlines,
+      // opening paren, optional whitespace/newlines, then a quoted string key.
+      const multilinePattern = /isAssistantFeatureFlagEnabled\(\s*['"]([^'"]+)['"]/g;
+      for (const relPath of matchingFiles.split('\n')) {
+        if (!relPath) continue;
+        const absPath = join(repoRoot, relPath);
+        const content = readFileSync(absPath, 'utf-8');
+        let match: RegExpExecArray | null;
+        while ((match = multilinePattern.exec(content)) !== null) {
           usedKeys.add(match[1]);
         }
+        // Reset lastIndex since we reuse the regex across files
+        multilinePattern.lastIndex = 0;
       }
     }
 
