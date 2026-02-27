@@ -60,9 +60,9 @@ extension AppDelegate {
         let markAllSeenItem = NSMenuItem(
             title: "Mark All Threads as Seen",
             action: #selector(markAllThreadsSeen),
-            keyEquivalent: "\u{1b}" // Escape key
+            keyEquivalent: "k"
         )
-        markAllSeenItem.keyEquivalentModifierMask = .shift
+        markAllSeenItem.keyEquivalentModifierMask = [.command, .shift]
         markAllSeenItem.target = self
         fileMenu.addItem(markAllSeenItem)
 
@@ -331,10 +331,8 @@ extension AppDelegate {
         }
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
             showStatusMenu()
-        } else if PermissionManager.screenRecordingStatus() == .granted {
-            startScreenCapture()
         } else {
-            toggleQuickInput(aboveDock: true, requestScreenPermission: true)
+            toggleQuickInput()
         }
     }
 
@@ -500,14 +498,21 @@ extension AppDelegate {
         let markedIds = threadManager.markAllThreadsSeen()
         guard !markedIds.isEmpty else { return }
         let count = markedIds.count
-        mainWindow?.windowState.showToast(
+        let toastId = mainWindow?.windowState.showToast(
             message: "Marked \(count) thread\(count == 1 ? "" : "s") as seen",
             style: .success,
             primaryAction: VToastAction(label: "Undo") { [weak self] in
                 self?.mainWindow?.threadManager.restoreUnseen(threadIds: markedIds)
                 self?.mainWindow?.windowState.dismissToast()
+            },
+            onDismiss: { [weak self] in
+                self?.mainWindow?.threadManager.commitPendingSeenSignals()
             }
         )
+        threadManager.schedulePendingSeenSignals { [weak self] in
+            guard let toastId else { return }
+            self?.mainWindow?.windowState.dismissToast(id: toastId)
+        }
     }
 
     public func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {

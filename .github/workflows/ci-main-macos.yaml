@@ -9,7 +9,7 @@ on:
       - '.github/workflows/ci-main-macos.yaml'
 
 jobs:
-  build-check:
+  build:
     name: macOS Build
     runs-on: macos-14
     timeout-minutes: 15
@@ -55,26 +55,15 @@ jobs:
             macos-spm-${{ hashFiles('clients/Package.resolved') }}-
             macos-spm-
 
-      - name: Cache Bun dependencies (assistant)
+      - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
-          path: assistant/node_modules
-          key: macos-bun-assistant-${{ hashFiles('assistant/bun.lock') }}
-          restore-keys: macos-bun-assistant-
-
-      - name: Cache Bun dependencies (cli)
-        uses: actions/cache@v4
-        with:
-          path: cli/node_modules
-          key: macos-bun-cli-${{ hashFiles('cli/bun.lock') }}
-          restore-keys: macos-bun-cli-
-
-      - name: Cache Bun dependencies (gateway)
-        uses: actions/cache@v4
-        with:
-          path: gateway/node_modules
-          key: macos-bun-gateway-${{ hashFiles('gateway/bun.lock') }}
-          restore-keys: macos-bun-gateway-
+          path: |
+            assistant/node_modules
+            cli/node_modules
+            gateway/node_modules
+          key: macos-bun-${{ hashFiles('assistant/bun.lock', 'cli/bun.lock', 'gateway/bun.lock') }}
+          restore-keys: macos-bun-
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -83,21 +72,19 @@ jobs:
 
       - name: Build binaries
         working-directory: clients/macos
-        run: ./build.sh binaries --universal
+        run: ./build.sh binaries
 
       - name: Build release .app
         working-directory: clients/macos
         run: |
           SIGN_IDENTITY="Developer ID Application" \
+          SKIP_CLEAN=1 \
+          RELEASE_ARCH_FLAGS="--arch arm64" \
           ./build.sh release
           ls -la "dist/Vellum.app"
 
           codesign --verify --deep --strict "dist/Vellum.app"
           echo "Code signature verified"
-
-      - name: Run tests
-        working-directory: clients/macos
-        run: ./build.sh test
 
       - name: Cleanup keychain
         if: always()
@@ -139,3 +126,27 @@ jobs:
           fi
 
           echo "Consecutive failures on main: $CONSECUTIVE"
+
+  test:
+    name: macOS Tests
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-
+
+      - name: Run tests
+        working-directory: clients/macos
+        run: ./build.sh test

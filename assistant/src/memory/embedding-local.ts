@@ -58,24 +58,29 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
   private async initialize(): Promise<void> {
     log.info({ model: this.model }, 'Loading local embedding model (first load downloads the model)');
+
+    // In compiled Bun binaries, bare specifier resolution for packages with
+    // subdirectory entry points (like onnxruntime-common's dist/esm/index.js)
+    // fails. Additionally, CJS/ESM dual-instance issues cause onnxruntime-node's
+    // backend registration to be invisible to transformers. To solve both, the
+    // build step pre-bundles all JS deps into a single file placed inside
+    // onnxruntime-node/dist/ so native .node binary relative paths resolve.
+    const execDir = dirname(process.execPath);
+    const bundlePath = join(execDir, 'node_modules', 'onnxruntime-node', 'dist', 'transformers-bundle.mjs');
     let transformers: typeof import('@huggingface/transformers');
     try {
-      transformers = await import('@huggingface/transformers');
+      transformers = await import(bundlePath);
     } catch {
-      // In compiled Bun binaries, bare specifier resolution starts from the
-      // virtual /$bunfs/root/ filesystem and can't find externalized packages.
-      // Fall back to resolving from the executable's real disk location where
-      // node_modules/ is co-located.
+      // Fall back to bare specifier for dev mode (running via `bun run`, not compiled)
       try {
-        const execDir = dirname(process.execPath);
-        const modulePath = join(execDir, 'node_modules', '@huggingface', 'transformers');
-        transformers = await import(modulePath);
+        transformers = await import('@huggingface/transformers');
       } catch (err) {
         throw new Error(
           `Local embedding backend unavailable: failed to load @huggingface/transformers (${err instanceof Error ? err.message : String(err)})`,
         );
       }
     }
+
     this.extractor = await transformers.pipeline('feature-extraction', this.model, {
       dtype: 'fp32',
     }) as unknown as FeatureExtractionPipeline;

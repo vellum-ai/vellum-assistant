@@ -9,6 +9,7 @@ import VellumAssistantShared
 struct SettingsChannelsTab: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
+    private static let smsFeatureFlagKey = "feature_flags.sms.enabled"
 
     @State private var bearerToken: String = ""
     @State private var tokenRevealed: Bool = false
@@ -16,6 +17,7 @@ struct SettingsChannelsTab: View {
     @State private var showingPairingQR: Bool = false
     @State private var showingRegenerateConfirmation: Bool = false
     @State private var advancedExpanded: Bool = false
+    @State private var isSmsFeatureEnabled: Bool = true
 
     // Telegram credential entry
     @State private var telegramBotTokenText = ""
@@ -63,10 +65,6 @@ struct SettingsChannelsTab: View {
     // Shared label column width for channelStatusRow and guardianLabel alignment
     private let labelColumnWidth: CGFloat = 140
 
-    // Token regeneration state
-    @State private var isRegeneratingToken: Bool = false
-
-
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             connectionsSection
@@ -76,10 +74,15 @@ struct SettingsChannelsTab: View {
             store.refreshApprovedDevices()
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
-            store.refreshChannelGuardianStatus(channel: "sms")
             store.refreshChannelGuardianStatus(channel: "voice")
             store.refreshTelegramApprovedMembers()
             store.fetchSlackChannelConfig()
+            Task {
+                await loadSmsFeatureFlag()
+                if isSmsFeatureEnabled {
+                    store.refreshChannelGuardianStatus(channel: "sms")
+                }
+            }
         }
         .onChange(of: store.twilioHasCredentials) { _, hasCredentials in
             if !hasCredentials {
@@ -193,7 +196,9 @@ struct SettingsChannelsTab: View {
             telegramCard
             slackChannelCard
             voiceCard
-            twilioCard
+            if isSmsFeatureEnabled {
+                twilioCard
+            }
             emailCard
         }
     }
@@ -1235,7 +1240,7 @@ struct SettingsChannelsTab: View {
 
                 TextField(placeholder, text: destinationBinding)
                     .font(VFont.body)
-                    .textFieldStyle(.roundedBorder)
+                    .vInputStyle()
                     .frame(maxWidth: 200)
 
                 VButton(label: "Send verification", style: .secondary) {
@@ -1588,7 +1593,7 @@ struct SettingsChannelsTab: View {
     private var mobileCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Mobile")
+                Text("Mobile (iOS)")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Connect your phone to your assistant through the iOS app")
@@ -1665,7 +1670,7 @@ struct SettingsChannelsTab: View {
         let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
         let hasToken = !bearerToken.isEmpty
 
-        if isRegeneratingToken {
+        if store.isRegeneratingToken {
             HStack(spacing: VSpacing.sm) {
                 mobilePairingLabel
                 ProgressView()
@@ -1712,6 +1717,32 @@ struct SettingsChannelsTab: View {
 
     // MARK: - Token Helpers
 
+    private func loadSmsFeatureFlag() async {
+        // Primary source: gateway feature-flags API.
+        if let daemonClient {
+            do {
+                let flags = try await daemonClient.getFeatureFlags()
+                if let smsFlag = flags.first(where: { $0.key == Self.smsFeatureFlagKey }) {
+                    isSmsFeatureEnabled = smsFlag.enabled
+                    return
+                }
+            } catch {
+                // Fall through to local config fallback.
+            }
+        }
+
+        // Fallback: local workspace config values.
+        let config = WorkspaceConfigIO.read()
+        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool],
+           let enabled = canonicalFlags[Self.smsFeatureFlagKey] {
+            isSmsFeatureEnabled = enabled
+            return
+        }
+
+        // No legacy `skills.*` fallback in new production code. If canonical
+        // values are absent, keep the default enabled behavior.
+    }
+
     private func refreshBearerToken() {
         bearerToken = readHttpToken() ?? ""
     }
@@ -1730,7 +1761,7 @@ struct SettingsChannelsTab: View {
         bearerToken = newToken
         // Kill the daemon so the health monitor restarts it with the new token.
         // The daemon only reads the token at startup, so a restart is required.
-        isRegeneratingToken = true
+        store.isRegeneratingToken = true
         let pidPath = resolvePidPath()
         if let pidStr = try? String(contentsOfFile: pidPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
            let pid = Int32(pidStr) {
@@ -1742,7 +1773,7 @@ struct SettingsChannelsTab: View {
                 ? String(store.localGatewayTarget.dropLast())
                 : store.localGatewayTarget
             guard let url = URL(string: "\(base)/v1/health") else {
-                isRegeneratingToken = false
+                store.isRegeneratingToken = false
                 return
             }
             var request = URLRequest(url: url)
@@ -1752,11 +1783,11 @@ struct SettingsChannelsTab: View {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 if let (_, response) = try? await URLSession.shared.data(for: request),
                    let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                    isRegeneratingToken = false
+                    store.isRegeneratingToken = false
                     return
                 }
             }
-            isRegeneratingToken = false
+            store.isRegeneratingToken = false
         }
     }
 }

@@ -3,9 +3,35 @@ import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 import { getLogger } from '../util/logger.js';
 import { enforceGuardianOnlyPolicy } from './guardian-control-plane-policy.js';
 import { getAllTools, getTool } from './registry.js';
+import { isSideEffectTool } from './side-effects.js';
 import type { ExecutionTarget, Tool, ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 
 const log = getLogger('tool-approval-handler');
+
+function isUntrustedGuardianActorRole(role: ToolContext['guardianActorRole']): boolean {
+  return role === 'non-guardian' || role === 'unverified_channel';
+}
+
+function requiresGuardianApprovalForActor(
+  toolName: string,
+  input: Record<string, unknown>,
+  executionTarget: ExecutionTarget,
+): boolean {
+  // Side-effect tools always require guardian approval for untrusted actors.
+  // Read-only host execution is also blocked because it can leak sensitive
+  // local information (e.g. shell/file reads).
+  return isSideEffectTool(toolName, input) || executionTarget === 'host';
+}
+
+function guardianApprovalDeniedMessage(
+  actorRole: ToolContext['guardianActorRole'],
+  toolName: string,
+): string {
+  if (actorRole === 'unverified_channel') {
+    return `Permission denied for "${toolName}": this action requires guardian approval from a verified channel identity.`;
+  }
+  return `Permission denied for "${toolName}": this action requires guardian approval and the current actor is not the guardian.`;
+}
 
 export type PreExecutionGateResult =
   | { allowed: true; tool: Tool }
@@ -109,6 +135,40 @@ export class ToolApprovalHandler {
         durationMs,
       });
       return { allowed: false, result: { content: guardianCheck.reason!, isError: true } };
+    }
+
+    // Untrusted actors cannot execute host tools or side-effect tools directly.
+    // They must go through guardian approval mediation instead of obtaining
+    // privileged execution in-band.
+    if (
+      isUntrustedGuardianActorRole(context.guardianActorRole)
+      && requiresGuardianApprovalForActor(name, input, executionTarget)
+    ) {
+      const reason = guardianApprovalDeniedMessage(context.guardianActorRole, name);
+      log.warn({
+        toolName: name,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        actorRole: context.guardianActorRole,
+        executionTarget,
+        reason: 'guardian_approval_required',
+      }, 'Guardian approval gate blocked untrusted actor tool invocation');
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent({
+        type: 'permission_denied',
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel,
+        decision: 'deny',
+        reason,
+        durationMs,
+      });
+      return { allowed: false, result: { content: reason, isError: true } };
     }
 
     // Gate tools not active for the current turn

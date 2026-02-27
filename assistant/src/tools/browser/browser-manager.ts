@@ -509,17 +509,28 @@ class BrowserManager {
     this.cdpSessions.set(sessionId, cdp);
     this.screencastCallbacks.set(sessionId, onFrame);
 
+    // Throttle frame delivery to ~4fps max to avoid flooding IPC and the client.
+    // This materially reduces CPU on heavy pages (e.g. cloud consoles) while
+    // still keeping enough visual continuity for guided browser actions.
+    const MIN_FRAME_INTERVAL_MS = 250;
+    let lastFrameTime = 0;
+
     cdp.on('Page.screencastFrame', (params) => {
-      onFrame({ data: params.data as string, metadata: params.metadata as ScreencastFrameMetadata });
+      const now = Date.now();
+      if (now - lastFrameTime >= MIN_FRAME_INTERVAL_MS) {
+        lastFrameTime = now;
+        onFrame({ data: params.data as string, metadata: params.metadata as ScreencastFrameMetadata });
+      }
+      // Always ack so CDP continues delivering frames (otherwise it stalls)
       silentlyWithLog(cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }), 'screencast frame ack');
     });
 
     await cdp.send('Page.startScreencast', {
       format: 'jpeg',
-      quality: 60,
-      maxWidth: 1280,
-      maxHeight: 960,
-      everyNthFrame: 1,
+      quality: 40,
+      maxWidth: 1024,
+      maxHeight: 768,
+      everyNthFrame: 2,
     });
   }
 

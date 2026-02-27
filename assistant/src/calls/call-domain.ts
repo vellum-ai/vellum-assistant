@@ -72,6 +72,8 @@ export type CancelCallInput = {
 export type AnswerCallInput = {
   callSessionId: string;
   answer: string;
+  /** When provided, the answer is matched to this specific pending question/consultation. */
+  pendingQuestionId?: string;
 };
 
 export type RelayInstructionInput = {
@@ -516,17 +518,17 @@ export async function cancelCall(input: CancelCallInput): Promise<{ ok: true; se
 
 /**
  * Answer a pending question for an active call.
+ *
+ * When `pendingQuestionId` is provided, the answer is matched to that specific
+ * pending question/consultation rather than relying on transient controller
+ * state. This allows answers to arrive while the call is active and not paused,
+ * as long as the referenced question is still pending.
  */
 export async function answerCall(input: AnswerCallInput): Promise<{ ok: true; questionId: string } | CallError> {
-  const { callSessionId, answer } = input;
+  const { callSessionId, answer, pendingQuestionId } = input;
 
   if (!answer || typeof answer !== 'string') {
     return { ok: false, error: 'Missing answer', status: 400 };
-  }
-
-  const question = getPendingQuestion(callSessionId);
-  if (!question) {
-    return { ok: false, error: 'No pending question found', status: 404 };
   }
 
   const controller = getCallController(callSessionId);
@@ -535,11 +537,47 @@ export async function answerCall(input: AnswerCallInput): Promise<{ ok: true; qu
     return { ok: false, error: 'No active controller for this call', status: 409 };
   }
 
+  // When a specific question is targeted, validate it matches the active
+  // consultation. This prevents stale or duplicate answers from being
+  // applied to the wrong consultation.
+  if (pendingQuestionId) {
+    const activeQuestionId = controller.getPendingConsultationQuestionId();
+    if (!activeQuestionId) {
+      log.warn(
+        { callSessionId, pendingQuestionId },
+        'answerCall: pendingQuestionId provided but no consultation is active',
+      );
+      return { ok: false, error: 'Referenced question is no longer pending', status: 409 };
+    }
+    if (activeQuestionId !== pendingQuestionId) {
+      log.warn(
+        { callSessionId, pendingQuestionId, activeQuestionId },
+        'answerCall: pendingQuestionId does not match active consultation',
+      );
+      return { ok: false, error: 'Referenced question is stale — a newer consultation has superseded it', status: 409 };
+    }
+  }
+
+  // Look up the pending question in the store for record-keeping
+  const question = getPendingQuestion(callSessionId);
+  if (!question) {
+    return { ok: false, error: 'No pending question found', status: 404 };
+  }
+
+  // When pendingQuestionId is given, double-check it matches the store record
+  if (pendingQuestionId && question.id !== pendingQuestionId) {
+    log.warn(
+      { callSessionId, pendingQuestionId, storeQuestionId: question.id },
+      'answerCall: store pending question does not match requested pendingQuestionId',
+    );
+    return { ok: false, error: 'Referenced question is stale', status: 409 };
+  }
+
   const accepted = await controller.handleUserAnswer(answer);
   if (!accepted) {
     log.warn(
       { callSessionId },
-      'answerCall: controller rejected the answer (not in waiting_on_user state)',
+      'answerCall: controller rejected the answer (no pending consultation)',
     );
     return { ok: false, error: 'Controller is not waiting for an answer', status: 409 };
   }

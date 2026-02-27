@@ -1,3 +1,5 @@
+import { isAssistantSkillEnabled } from '../../config/assistant-feature-flags.js';
+import { getConfig } from '../../config/loader.js';
 import type { SkillSummary } from '../../config/skills.js';
 import { loadSkillBySelector, loadSkillCatalog } from '../../config/skills.js';
 import { RiskLevel } from '../../permissions/types.js';
@@ -46,6 +48,15 @@ export class SkillLoadTool implements Tool {
 
     const skill = loaded.skill;
 
+    // Assistant feature flag gate: reject loading if the skill's flag is OFF
+    const config = getConfig();
+    if (!isAssistantSkillEnabled(skill.id, config)) {
+      return {
+        content: `Error: skill "${skill.id}" is currently unavailable (disabled by feature flag)`,
+        isError: true,
+      };
+    }
+
     // Load catalog for include validation and child metadata output
     let catalogIndex: Map<string, SkillSummary> | undefined;
     if (skill.includes && skill.includes.length > 0) {
@@ -83,14 +94,15 @@ export class SkillLoadTool implements Tool {
       const childLines: string[] = [];
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
-        if (child) {
-          childLines.push(`  - ${child.id}: ${child.name} — ${child.description} (${child.skillFilePath})`);
+        if (!child) continue;
+        if (!isAssistantSkillEnabled(childId, config)) continue;
 
-          // Load the included skill's body content
-          const childLoaded = loadSkillBySelector(childId);
-          if (childLoaded.skill && childLoaded.skill.body.length > 0) {
-            includedBodies.push(`--- Included Skill: ${childLoaded.skill.name} (${childId}) ---\n${childLoaded.skill.body}`);
-          }
+        childLines.push(`  - ${child.id}: ${child.name} — ${child.description} (${child.skillFilePath})`);
+
+        // Load the included skill's body content
+        const childLoaded = loadSkillBySelector(childId);
+        if (childLoaded.skill && childLoaded.skill.body.length > 0) {
+          includedBodies.push(`--- Included Skill: ${childLoaded.skill.name} (${childId}) ---\n${childLoaded.skill.body}`);
         }
       }
       immediateChildrenSection = `Included Skills (immediate):\n${childLines.join('\n')}`;
@@ -113,6 +125,7 @@ export class SkillLoadTool implements Tool {
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
         if (!child) continue;
+        if (!isAssistantSkillEnabled(childId, config)) continue;
         let childHash: string | undefined;
         try {
           childHash = computeSkillVersionHash(child.directoryPath);

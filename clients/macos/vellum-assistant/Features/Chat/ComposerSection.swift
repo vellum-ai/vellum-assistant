@@ -25,6 +25,7 @@ struct ComposerSection: View {
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
+    let onFileDrop: ([URL]) -> Void
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
     let onRetrySessionError: () -> Void
@@ -84,6 +85,7 @@ struct ComposerSection: View {
                 onAttach: onAttach,
                 onRemoveAttachment: onRemoveAttachment,
                 onPaste: onPaste,
+                onFileDrop: onFileDrop,
                 onMicrophoneToggle: onMicrophoneToggle,
                 placeholderText: "What would you like to do?",
                 editorContentHeight: $editorContentHeight,

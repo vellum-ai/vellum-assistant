@@ -165,6 +165,20 @@ All assistant API requests from clients, CLI, skills, and user-facing tooling **
 
 **Ban on hardcoded runtime hosts/ports:** Do not embed `localhost:7821`, `127.0.0.1:7821`, or runtime-port-derived URLs in docs, skills, or user-facing guidance. Always reference gateway URLs instead. A CI guard test (`gateway-only-guard.test.ts`) enforces this — any new direct runtime URL reference in production code or skills will fail CI.
 
+## Assistant Feature Flags
+
+Assistant feature flags are the canonical assistant-scoped flagging mechanism for enabling/disabling assistant behavior across the system. They are declaration-driven and not limited to skills.
+
+- **Canonical key format:** `feature_flags.<flagId>.enabled`. All new code must use this format. The legacy `skills.<id>.enabled` format is still read for backward compatibility but must not be introduced in new code.
+- **Defaults registry:** All declared flags and their default values live in `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`. Keys declared in this registry participate in UI exposure and have registry-defined defaults. Undeclared keys still respect persisted config overrides but default to enabled when no override exists.
+- **Resolver:** The canonical resolver in `assistant/src/config/assistant-feature-flags.ts` resolves effective flag state by checking (in order): explicit config overrides, legacy config values, registry defaults (for declared keys), and finally `true` (for undeclared keys with no persisted override).
+- **Gateway API:** The gateway owns the `/v1/feature-flags` REST API for reading and mutating flags. New writes are stored in the `assistantFeatureFlagValues` config section using canonical keys.
+- **Guard tests:** A guard test (`assistant-feature-flag-guard.test.ts`) enforces two invariants:
+  1. All feature flag key literals in production code use the canonical `feature_flags.<id>.enabled` format (not the legacy `skills.<id>.enabled` format).
+  2. All feature flag keys referenced in the defaults registry use the canonical format.
+
+When adding a new assistant feature flag, declare it in the defaults registry. When referencing a feature flag in code, always use the canonical key format.
+
 ## LLM Provider Abstraction
 
 All LLM calls in production code **MUST** go through the provider abstraction layer — never import `@anthropic-ai/sdk` (or any other provider SDK) directly.
@@ -327,6 +341,13 @@ Conversational guardian verification control-plane invocation is guardian-only. 
 ## Memory Provenance Invariant
 
 All memory extraction and retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not trigger profile extraction or receive memory recall/conflict disclosures. This invariant is enforced in `indexer.ts` (write gate) and `session-memory.ts` (read gate).
+
+## Guardian Privilege Isolation Invariant
+
+Untrusted actors (`non-guardian`, `unverified_channel`) must never receive privileged host/tool capabilities or privileged conversation context directly.
+
+- Tool execution gate: untrusted actors cannot execute host-target tools or side-effect tools in-band. These actions require guardian-mediated approval flow. Enforcement lives in `assistant/src/tools/tool-approval-handler.ts`.
+- History view gate: when loading session history for untrusted actors, only untrusted-provenance messages are included and compacted summaries are suppressed. This prevents replay of guardian-era context after trust downgrades. Enforcement lives in `assistant/src/daemon/session-lifecycle.ts` and actor-scoped reload wiring in `assistant/src/daemon/session.ts`.
 
 ## Tooling Direction
 

@@ -131,13 +131,17 @@ struct SettingsPanel: View {
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
             if let pending = store.pendingSettingsTab {
-                selectedTab = pending
+                if pending != .advanced || store.isDevMode {
+                    selectedTab = pending
+                }
                 store.pendingSettingsTab = nil
             }
         }
         .onChange(of: store.pendingSettingsTab) { _, newTab in
             if let tab = newTab {
-                selectedTab = tab
+                if tab != .advanced || store.isDevMode {
+                    selectedTab = tab
+                }
                 store.pendingSettingsTab = nil
             }
         }
@@ -181,6 +185,7 @@ struct SettingsPanel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
             if let tab = notification.object as? SettingsTab {
+                if tab == .advanced && !store.isDevMode { return }
                 selectedTab = tab
             }
         }
@@ -252,7 +257,11 @@ struct SettingsPanel: View {
         case .parental:
             permissionsContent
         case .advanced:
-            SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
+            if store.isDevMode {
+                SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
+            } else {
+                SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
+            }
         }
     }
 
@@ -288,18 +297,28 @@ struct SettingsPanel: View {
                         VInfoTooltip("Get your API key at console.anthropic.com")
                     }
 
-                    SecureField("This is your private generated key", text: $apiKeyText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                    HStack(spacing: VSpacing.sm) {
+                        SecureField("This is your private generated key", text: $apiKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
 
-                    Text("Get your API key at console.anthropic.com")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        VButton(label: "Save", style: .primary) {
+                            store.saveAPIKey(apiKeyText)
+                            apiKeyText = ""
+                        }
+                    }
 
-                    VButton(label: "Save", style: .primary) {
-                        store.saveAPIKey(apiKeyText)
-                        apiKeyText = ""
+                    HStack(spacing: 0) {
+                        Text("Get your API key at ")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Link("console.anthropic.com", destination: URL(string: "https://console.anthropic.com")!)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
                     }
                 }
 
@@ -390,18 +409,28 @@ struct SettingsPanel: View {
                         VInfoTooltip("Get your API key at perplexity.ai/settings/api")
                     }
 
-                    SecureField("Your Perplexity API key", text: $perplexityKeyText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                    HStack(spacing: VSpacing.sm) {
+                        SecureField("Your Perplexity API key", text: $perplexityKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
 
-                    Text("Get your API key at perplexity.ai/settings/api")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        VButton(label: "Save", style: .primary) {
+                            store.savePerplexityKey(perplexityKeyText)
+                            perplexityKeyText = ""
+                        }
+                    }
 
-                    VButton(label: "Save", style: .primary) {
-                        store.savePerplexityKey(perplexityKeyText)
-                        perplexityKeyText = ""
+                    HStack(spacing: 0) {
+                        Text("Get your API key at ")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Link("perplexity.ai/settings/api", destination: URL(string: "https://perplexity.ai/settings/api")!)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
                     }
                 }
             }
@@ -436,18 +465,28 @@ struct SettingsPanel: View {
                         VInfoTooltip("Get your API key at brave.com/search/api")
                     }
 
-                    SecureField("Your Brave Search API key", text: $braveKeyText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                    HStack(spacing: VSpacing.sm) {
+                        SecureField("Your Brave Search API key", text: $braveKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
 
-                    Text("Get your API key at brave.com/search/api")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        VButton(label: "Save", style: .primary) {
+                            store.saveBraveKey(braveKeyText)
+                            braveKeyText = ""
+                        }
+                    }
 
-                    VButton(label: "Save", style: .primary) {
-                        store.saveBraveKey(braveKeyText)
-                        braveKeyText = ""
+                    HStack(spacing: 0) {
+                        Text("Get your API key at ")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Link("brave.com/search/api", destination: URL(string: "https://brave.com/search/api")!)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
                     }
                 }
             }
@@ -500,18 +539,28 @@ struct SettingsPanel: View {
                         VInfoTooltip("Get your API key at aistudio.google.com/apikey")
                     }
 
-                    SecureField("Your Gemini API key", text: $imageGenKeyText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                    HStack(spacing: VSpacing.sm) {
+                        SecureField("Your Gemini API key", text: $imageGenKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
 
-                    Text("Get your API key at aistudio.google.com/apikey")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        VButton(label: "Save", style: .primary) {
+                            store.saveImageGenKey(imageGenKeyText)
+                            imageGenKeyText = ""
+                        }
+                    }
 
-                    VButton(label: "Save", style: .primary) {
-                        store.saveImageGenKey(imageGenKeyText)
-                        imageGenKeyText = ""
+                    HStack(spacing: 0) {
+                        Text("Get your API key at ")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Link("aistudio.google.com/apikey", destination: URL(string: "https://aistudio.google.com/apikey")!)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
                     }
                 }
             }
@@ -591,9 +640,17 @@ struct SettingsPanel: View {
                             .foregroundColor(VColor.textPrimary)
 
                         HStack {
-                            Text("Create an app at developer.x.com")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                            HStack(spacing: 0) {
+                                Text("Create an app at ")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                                Link("developer.x.com", destination: URL(string: "https://developer.x.com")!)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.accent)
+                                    .onHover { hovering in
+                                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                    }
+                            }
                             Spacer()
                             VButton(label: "Save", style: .primary) {
                                 store.saveTwitterLocalClient(

@@ -80,6 +80,12 @@ public func resolveHttpTokenPath(environment: [String: String]? = nil) -> String
     return resolveVellumDir(environment: environment) + "/http-token"
 }
 
+/// Resolve the feature-flag bearer token path.
+/// Uses BASE_DATA_DIR when set to match daemon root resolution.
+public func resolveFeatureFlagTokenPath(environment: [String: String]? = nil) -> String {
+    return resolveVellumDir(environment: environment) + "/feature-flag-token"
+}
+
 /// Resolve the daemon PID file path, honoring `BASE_DATA_DIR`.
 public func resolvePidPath(environment: [String: String]? = nil) -> String {
     return resolveVellumDir(environment: environment) + "/vellum.pid"
@@ -94,6 +100,25 @@ public func readHttpToken(environment: [String: String]? = nil) -> String? {
         data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
     } catch {
         log.error("Failed to read HTTP token from \(tokenPath, privacy: .private): \(error)")
+        return nil
+    }
+    guard let token = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+          !token.isEmpty else {
+        return nil
+    }
+    return token
+}
+
+/// Read the feature-flag bearer token from disk.
+/// Used to authenticate PATCH /v1/feature-flags/:flagKey requests.
+public func readFeatureFlagToken(environment: [String: String]? = nil) -> String? {
+    let tokenPath = resolveFeatureFlagTokenPath(environment: environment)
+    let data: Data
+    do {
+        data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
+    } catch {
+        log.error("Failed to read feature-flag token from \(tokenPath, privacy: .private): \(error)")
         return nil
     }
     guard let token = String(data: data, encoding: .utf8)?
@@ -120,6 +145,11 @@ public protocol DaemonClientProtocol {
 extension Notification.Name {
     /// Posted by `DaemonClient` on the main actor immediately after `isConnected` transitions to `true`.
     public static let daemonDidReconnect = Notification.Name("daemonDidReconnect")
+
+    /// Posted when a connection attempt fails because the daemon socket does not exist (ENOENT).
+    /// The health monitor observes this to trigger an immediate restart instead of waiting
+    /// for the next periodic health check.
+    public static let daemonSocketNotFound = Notification.Name("daemonSocketNotFound")
 }
 
 /// Platform-agnostic client for communicating with the Vellum daemon.
@@ -1504,6 +1534,264 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Clear all approved devices.
     public func sendApprovedDevicesClear() throws {
         try send(ApprovedDevicesClearMessage())
+    }
+
+    // MARK: - Feature Flags
+
+    /// A single assistant feature flag entry returned by `GET /v1/feature-flags`.
+    /// Used by the `fetchAssistantFeatureFlags()` API path.
+    public struct AssistantFeatureFlagEntry: Decodable, Identifiable {
+        public let key: String
+        public let enabled: Bool
+        public let defaultEnabled: Bool
+        public let description: String
+
+        public var id: String { key }
+
+        public init(key: String, enabled: Bool, defaultEnabled: Bool, description: String) {
+            self.key = key
+            self.enabled = enabled
+            self.defaultEnabled = defaultEnabled
+            self.description = description
+        }
+    }
+
+    /// A feature flag sourced from the gateway API.
+    /// Used by the `getFeatureFlags()` API path and the settings UI.
+    public struct AssistantFeatureFlag: Decodable, Identifiable {
+        public let key: String
+        public let enabled: Bool
+        public let defaultEnabled: Bool?
+        public let description: String?
+
+        public var id: String { key }
+
+        public init(key: String, enabled: Bool, defaultEnabled: Bool? = true, description: String? = nil) {
+            self.key = key
+            self.enabled = enabled
+            self.defaultEnabled = defaultEnabled
+            self.description = description
+        }
+
+        /// Derive a human-readable name from the flag key.
+        /// e.g. "feature_flags.hatch-new-assistant.enabled" -> "Hatch New Assistant"
+        public var displayName: String {
+            var name = key
+            // Strip common prefix/suffix patterns
+            if name.hasPrefix("feature_flags.") {
+                name = String(name.dropFirst("feature_flags.".count))
+            }
+            if name.hasSuffix(".enabled") {
+                name = String(name.dropLast(".enabled".count))
+            }
+            // Convert snake_case/dot.case to Title Case
+            return name
+                .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+                .replacingOccurrences(of: ".", with: " ")
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
+                .joined(separator: " ")
+        }
+    }
+
+    /// Response shape for `GET /v1/feature-flags` (AssistantFeatureFlagEntry variant).
+    private struct AssistantFeatureFlagsResponse: Decodable {
+        let flags: [AssistantFeatureFlagEntry]
+    }
+
+    /// Response shape from `GET /v1/feature-flags` (AssistantFeatureFlag variant).
+    private struct FeatureFlagsResponse: Decodable {
+        let flags: [AssistantFeatureFlag]
+    }
+
+    /// Resolve the runtime bearer token from either `httpTransport` or the on-disk token file.
+    /// Returns `nil` when no runtime token is available.
+    private func resolveRuntimeBearerToken() -> String? {
+        if let httpTransport = self.httpTransport, let bt = httpTransport.bearerToken, !bt.isEmpty {
+            return bt
+        }
+        return readHttpToken()
+    }
+
+    /// Resolve an auth token for feature-flag requests.
+    /// Prefers the dedicated feature-flag token; falls back to the runtime bearer
+    /// token so that remote setups without `~/.vellum/feature-flag-token` still work.
+    private func resolveFeatureFlagAuthToken() -> String? {
+        if let ff = config.featureFlagToken, !ff.isEmpty { return ff }
+        // Fall back to runtime bearer token
+        if let httpTransport { return httpTransport.bearerToken }
+        #if os(macOS)
+        return readHttpToken()
+        #else
+        return nil
+        #endif
+    }
+
+    /// Fetch all assistant feature flags from the gateway's `GET /v1/feature-flags` endpoint.
+    /// Uses the runtime bearer token or feature-flag token for auth.
+    ///
+    /// Routing logic mirrors `setFeatureFlag`: remote mode delegates to `httpTransport`,
+    /// local mode calls the gateway directly on port 7830.
+    public func fetchAssistantFeatureFlags() async throws -> [AssistantFeatureFlagEntry] {
+        guard let token = resolveFeatureFlagAuthToken() else {
+            throw FeatureFlagError.missingToken
+        }
+
+        #if os(macOS)
+        if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
+            return try await httpTransport.fetchAssistantFeatureFlags(featureFlagToken: token)
+        }
+
+        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+            .flatMap(Int.init) ?? 7830
+        let baseURL = "http://127.0.0.1:\(gatewayPort)"
+        guard let url = URL(string: "\(baseURL)/v1/feature-flags") else {
+            throw FeatureFlagError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw FeatureFlagError.requestFailed(statusCode)
+        }
+
+        let decoded = try JSONDecoder().decode(AssistantFeatureFlagsResponse.self, from: data)
+        return decoded.flags
+        #else
+        guard let httpTransport else {
+            throw FeatureFlagError.requestFailed(0)
+        }
+        return try await httpTransport.fetchAssistantFeatureFlags(featureFlagToken: token)
+        #endif
+    }
+
+    /// Fetch all assistant feature flags from the gateway's GET /v1/feature-flags endpoint.
+    /// Authenticates with the feature-flag token when available, otherwise falls back
+    /// to the runtime bearer token (the gateway accepts both).
+    public func getFeatureFlags() async throws -> [AssistantFeatureFlag] {
+        guard let token = resolveFeatureFlagAuthToken() else {
+            throw FeatureFlagError.missingToken
+        }
+
+        #if os(macOS)
+        if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
+            return try await httpTransport.getFeatureFlags(featureFlagToken: token)
+        }
+
+        // Local mode: call the gateway directly.
+        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+            .flatMap(Int.init) ?? 7830
+        let baseURL = "http://127.0.0.1:\(gatewayPort)"
+        guard let url = URL(string: "\(baseURL)/v1/feature-flags") else {
+            throw FeatureFlagError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw FeatureFlagError.requestFailed(statusCode)
+        }
+
+        let decoded = try JSONDecoder().decode(FeatureFlagsResponse.self, from: data)
+        return decoded.flags
+        #else
+        guard let httpTransport else {
+            throw FeatureFlagError.requestFailed(0)
+        }
+        return try await httpTransport.getFeatureFlags(featureFlagToken: token)
+        #endif
+    }
+
+    /// Toggle a feature flag via the gateway's PATCH /v1/feature-flags/:flagKey endpoint.
+    /// Authenticates with the feature-flag token when available, otherwise falls back
+    /// to the runtime bearer token (the gateway accepts both).
+    ///
+    /// On macOS: if `httpTransport` targets a **remote** gateway (non-localhost baseURL),
+    /// delegates to it. Otherwise (socket transport or local HTTP via `localHttpEnabled`),
+    /// calls the local gateway directly on port 7830 because the runtime HTTP server
+    /// doesn't serve feature-flag routes.
+    /// On iOS, always delegates to `httpTransport` which targets the remote gateway.
+    public func setFeatureFlag(key: String, enabled: Bool) async throws {
+        guard let token = resolveFeatureFlagAuthToken() else {
+            throw FeatureFlagError.missingToken
+        }
+
+        #if os(macOS)
+        // Remote mode: httpTransport targets a non-local gateway (e.g. cloud).
+        // Delegate to it directly. When localHttpEnabled is on, httpTransport
+        // points at localhost (the runtime), which does NOT serve feature-flag
+        // routes — so we must fall through to the local gateway path below.
+        if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
+            try await httpTransport.setFeatureFlag(key: key, enabled: enabled, featureFlagToken: token)
+            return
+        }
+
+        // Local mode (socket, TCP, or local HTTP): call the gateway directly.
+        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+            .flatMap(Int.init) ?? 7830
+        let baseURL = "http://127.0.0.1:\(gatewayPort)"
+        let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
+        guard let url = URL(string: "\(baseURL)/v1/feature-flags/\(encoded)") else {
+            throw FeatureFlagError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+
+        let body: [String: Any] = ["enabled": enabled]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw FeatureFlagError.requestFailed(statusCode)
+        }
+        #else
+        // iOS: httpTransport targets the remote gateway, which serves feature-flag routes.
+        guard let httpTransport else {
+            throw FeatureFlagError.requestFailed(0)
+        }
+        try await httpTransport.setFeatureFlag(key: key, enabled: enabled, featureFlagToken: token)
+        #endif
+    }
+
+    /// Returns true if the given base URL points to localhost / 127.0.0.1.
+    private static func isLocalBaseURL(_ urlString: String) -> Bool {
+        guard let comps = URLComponents(string: urlString), let host = comps.host?.lowercased() else {
+            return false
+        }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+    }
+
+    public enum FeatureFlagError: Error, LocalizedError {
+        case missingToken
+        case invalidURL
+        case requestFailed(Int)
+
+        public var errorDescription: String? {
+            switch self {
+            case .missingToken:
+                return "Feature-flag token not available"
+            case .invalidURL:
+                return "Invalid feature-flag endpoint URL"
+            case .requestFailed(let code):
+                return "Feature-flag request failed (HTTP \(code))"
+            }
+        }
     }
 
 }

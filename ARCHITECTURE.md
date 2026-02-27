@@ -24,6 +24,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel thread actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_thread_created` IPC is emitted only on actual creation, not on reuse.
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.
 - Trusted contact ingress ACL is channel-agnostic; identity binding adapts per channel (chat ID, E.164 phone, external user ID) without channel-specific branching.
+- **Assistant feature flags** control skill availability at runtime. The canonical key format is `feature_flags.<flagId>.enabled`; the legacy `skills.<id>.enabled` format is still read for backward compatibility but new code must use the canonical format. Default values for all declared flags live in the shared defaults registry at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`. The gateway owns the `/v1/feature-flags` REST API (see [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)); the daemon resolves effective flag state via the assistant feature-flag resolver (see [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)). When a flag is OFF, the corresponding skill is excluded from all exposure surfaces: client skill lists, system prompt catalog, `skill_load`, runtime tool projection, and included child skills. Guard tests enforce that all flag keys in code use the canonical format and that all referenced flags are declared in the defaults registry.
 
 ## System Overview
 
@@ -221,6 +222,7 @@ graph TB
         GW_SLACK_DELIVER["Slack Deliver<br/>/deliver/slack<br/>(internal, from runtime)"]
         GW_OAUTH["OAuth Callback<br/>/webhooks/oauth/callback"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
+        GW_FEATURE_FLAGS["Feature Flags API<br/>GET /v1/feature-flags<br/>PATCH /v1/feature-flags/:key"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
     end
 
@@ -449,6 +451,31 @@ graph TB
     classDef storage fill:#78909c,stroke:#37474f,color:#fff
     classDef provider fill:#ef5350,stroke:#c62828,color:#fff
 ```
+
+## Assistant Feature Flags
+
+Assistant feature flags are the canonical mechanism for controlling skill availability at runtime. They are separate from macOS client feature flags (which are local-only, stored in UserDefaults, and control client-side UI behavior).
+
+**Separation of concerns:**
+
+| Flag Type | Scope | Storage | Managed By |
+|-----------|-------|---------|------------|
+| Assistant feature flags | Gateway-managed, workspace config | `~/.vellum/workspace/config.json` under `assistantFeatureFlagValues` | Gateway `/v1/feature-flags` API |
+| macOS client feature flags | Local-only, per-device | UserDefaults (plist) | macOS app directly |
+
+**Defaults registry:** All assistant feature flags are declared in `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`. Each entry specifies a `defaultEnabled` value and a human-readable `description`. Flags not declared in the registry default to enabled (open by default).
+
+**Canonical key format:** `feature_flags.<flag_id>.enabled` (e.g., `feature_flags.browser.enabled`). The legacy format `skills.<id>.enabled` is still read from the `featureFlags` config section for backward compatibility but is being phased out.
+
+**Resolution priority:** When determining whether a flag is enabled, the resolver checks (highest priority first):
+1. `config.assistantFeatureFlagValues[key]` (new canonical section)
+2. `config.featureFlags[legacyKey]` (legacy backward-compat mapping)
+3. Defaults registry `defaultEnabled`
+4. `true` (unknown flags are open by default)
+
+**Domain docs:**
+- Assistant-side resolver and enforcement points: [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)
+- Gateway defaults loader and REST API: [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)
 
 ## Maintenance Rule
 

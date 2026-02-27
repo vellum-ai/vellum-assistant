@@ -361,11 +361,13 @@ struct QRPairingSheet: View {
                 return
             }
             let localLanUrl = response["localLanUrl"] as? String
+            let featureFlagToken = response["featureFlagToken"] as? String
             savePairingConfig(
                 bearerToken: bearerToken,
                 gatewayUrl: gatewayUrl,
                 hostId: payload.hostId,
-                localLanUrl: localLanUrl
+                localLanUrl: localLanUrl,
+                featureFlagToken: featureFlagToken
             )
             connectToMac()
 
@@ -433,11 +435,13 @@ struct QRPairingSheet: View {
                         return
                     }
                     let localLanUrl = json["localLanUrl"] as? String
+                    let featureFlagToken = json["featureFlagToken"] as? String
                     savePairingConfig(
                         bearerToken: bearerToken,
                         gatewayUrl: gatewayUrl,
                         hostId: payload.hostId,
-                        localLanUrl: localLanUrl
+                        localLanUrl: localLanUrl,
+                        featureFlagToken: featureFlagToken
                     )
                     connectToMac()
 
@@ -462,12 +466,17 @@ struct QRPairingSheet: View {
 
     // MARK: - Config Persistence
 
-    private func savePairingConfig(bearerToken: String, gatewayUrl: String, hostId: String, localLanUrl: String?) {
+    private func savePairingConfig(bearerToken: String, gatewayUrl: String, hostId: String, localLanUrl: String?, featureFlagToken: String? = nil) {
         UserDefaults.standard.set(gatewayUrl, forKey: UserDefaultsKeys.gatewayBaseURL)
         _ = APIKeyManager.shared.setAPIKey(bearerToken, provider: "runtime-bearer-token")
         if !hostId.isEmpty {
             UserDefaults.standard.set(hostId, forKey: "gateway_host_id")
         }
+        if let ffToken = featureFlagToken, !ffToken.isEmpty {
+            _ = APIKeyManager.shared.setAPIKey(ffToken, provider: "feature-flag-token")
+        }
+        // Don't delete on absence — the server may not send featureFlagToken yet,
+        // so a missing field shouldn't wipe a previously stored token.
 
         // Generate conversation key if missing
         if UserDefaults.standard.string(forKey: UserDefaultsKeys.conversationKey)?.isEmpty != false {

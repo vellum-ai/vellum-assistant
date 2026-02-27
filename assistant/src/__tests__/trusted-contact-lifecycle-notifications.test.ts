@@ -276,7 +276,9 @@ describe('trusted contact lifecycle notification signals', () => {
 
     await handleChannelInbound(guardianReq, undefined, TEST_BEARER_TOKEN);
 
-    // Should emit guardian_decision (approved) and verification_sent signals
+    // guardian_decision should NOT fire at approval time when verification
+    // is still pending — it would cause the notification pipeline to send a
+    // premature "approved" message to the guardian's chat.
     const guardianDecisionSignals = emitSignalCalls.filter(
       (c) => c.sourceEventName === 'ingress.trusted_contact.guardian_decision',
     );
@@ -284,19 +286,15 @@ describe('trusted contact lifecycle notification signals', () => {
       (c) => c.sourceEventName === 'ingress.trusted_contact.verification_sent',
     );
 
-    expect(guardianDecisionSignals.length).toBe(1);
+    expect(guardianDecisionSignals.length).toBe(0);
     expect(verificationSentSignals.length).toBe(1);
 
-    // Verify guardian_decision payload
-    const gdPayload = guardianDecisionSignals[0].contextPayload as Record<string, unknown>;
-    expect(gdPayload.decision).toBe('approved');
-    expect(gdPayload.requesterExternalUserId).toBe('requester-user-456');
-    expect(gdPayload.decidedByExternalUserId).toBe('guardian-user-789');
-
-    // Verify verification_sent payload
-    const vsPayload = verificationSentSignals[0].contextPayload as Record<string, unknown>;
+    // Verify verification_sent payload and that it's suppressed from delivery
+    const vsSignal = verificationSentSignals[0];
+    const vsPayload = vsSignal.contextPayload as Record<string, unknown>;
     expect(vsPayload.requesterExternalUserId).toBe('requester-user-456');
     expect(vsPayload.verificationSessionId).toBeDefined();
+    expect((vsSignal.attentionHints as Record<string, unknown>).visibleInSourceNow).toBe(true);
 
     // Should NOT emit denied signal
     const deniedSignals = emitSignalCalls.filter(

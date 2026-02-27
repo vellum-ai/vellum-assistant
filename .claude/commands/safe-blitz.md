@@ -66,6 +66,14 @@ Read and follow `.claude/phases/plan-and-spec.md`. For safe-blitz mode, replace 
 
 **Skip the approval step** (step 5 in plan-and-spec.md). Do NOT pause for user confirmation after creating the plan. Instead, log a summary of the plan (project issue link, milestone list, feature branch name) and proceed directly to the next phase. Safe-blitz already has review gates on every milestone PR and a final PR into main, so an upfront approval is unnecessary.
 
+**Update the blitz heartbeat** after planning completes to prevent the entry from going stale during long-running phases:
+```bash
+SAFE_NS=$(echo "<namespace>" | tr '/' '-')
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS 2>/dev/null || true
+echo "<namespace> safe-blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS
+mv .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS .private/ACTIVE_BLITZ.md
+```
+
 ## Phase 3: Prepare Milestone List
 
 Do NOT use `.claude/phases/populate-todo.md` here. Instead, maintain an internal ordered list of milestones (M1, M2, ..., MN) with their titles and GitHub issue numbers. These milestones will be executed **one at a time** in Phase 4 — do NOT write them all to TODO.md at once.
@@ -186,6 +194,14 @@ Address the review feedback on PR #<milestone-pr-number> (<milestone-pr-url>):
 
 #### 4a. Add to TODO.md and execute
 
+**Update the blitz heartbeat** before each milestone execution to prevent the entry from going stale:
+```bash
+SAFE_NS=$(echo "<namespace>" | tr '/' '-')
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS 2>/dev/null || true
+echo "<namespace> safe-blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS
+mv .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS .private/ACTIVE_BLITZ.md
+```
+
 1. Prepend this single milestone item to `.private/TODO.md` (preserve existing items) with the namespace prefix:
    ```
    - [<namespace>] M<N>: <title> (#<issue-number>)
@@ -222,9 +238,10 @@ Address the review feedback on PR #<milestone-pr-number> (<milestone-pr-url>):
 
 **Update the blitz heartbeat** before entering the feedback loop (and at the start of each feedback cycle) to prevent the entry from going stale:
 ```bash
-grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
-echo "<namespace> safe-blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
-mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+SAFE_NS=$(echo "<namespace>" | tr '/' '-')
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS 2>/dev/null || true
+echo "<namespace> safe-blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS
+mv .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS .private/ACTIVE_BLITZ.md
 ```
 
 Instead of using the full sweep+swarm machinery (which creates new PRs), per-milestone feedback is handled by pushing fixes directly to the milestone PR branch. This is faster and avoids the overhead of creating, reviewing, and merging intermediate feedback PRs.
@@ -462,9 +479,10 @@ Proceed to step 4d.
 
 **Update the blitz heartbeat** at the start of each sweep loop iteration to prevent the entry from going stale:
 ```bash
-grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
-echo "<namespace> safe-blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
-mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+SAFE_NS=$(echo "<namespace>" | tr '/' '-')
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS 2>/dev/null || true
+echo "<namespace> safe-blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS
+mv .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS .private/ACTIVE_BLITZ.md
 ```
 
 After all milestones are merged and their individual reviews are clean, run one final recursive sweep on the entire feature branch.
@@ -683,8 +701,9 @@ gh pr checks <final-pr-number> --json name,state,conclusion --jq '.[] | {name: .
 
 Remove this safe-blitz's entry from `.private/ACTIVE_BLITZ.md`:
 ```bash
-grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
-mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+SAFE_NS=$(echo "<namespace>" | tr '/' '-')
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS 2>/dev/null || true
+mv .private/ACTIVE_BLITZ.md.tmp.$SAFE_NS .private/ACTIVE_BLITZ.md
 ```
 If the file is now empty (only blank lines), delete it: `rm -f .private/ACTIVE_BLITZ.md`
 

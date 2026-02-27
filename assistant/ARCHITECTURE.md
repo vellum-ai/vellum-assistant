@@ -309,6 +309,54 @@ Release-driven update notification system that surfaces release notes to the ass
 
 ---
 
+### Assistant Feature Flags — Resolver and Enforcement Points
+
+The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is the canonical module for determining whether an assistant feature flag is enabled. It loads default values from the registry at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json` and resolves the effective state for each declared flag. Assistant feature flags are declaration-driven assistant-scoped booleans that can gate any assistant behavior; skill availability is one consumer.
+
+**Canonical key format:** `feature_flags.<flag_id>.enabled` (e.g., `feature_flags.hatch-new-assistant.enabled`).
+
+**Resolution priority** (highest wins):
+1. `config.assistantFeatureFlagValues[key]` — new canonical config section, written by the gateway's PATCH endpoint
+2. `config.featureFlags[legacyKey]` — legacy `skills.<id>.enabled` key mapping (backward-compat)
+3. Defaults registry `defaultEnabled` — from `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`
+4. `true` — unknown/undeclared flags with no persisted override default to enabled
+
+**Backward-compat path:** The legacy `featureFlags` config section (key format `skills.<id>.enabled`) is still read as a fallback during resolution. New writes go to `assistantFeatureFlagValues` using the canonical format. The `isSkillFeatureEnabled()` wrapper in `config/skill-state.ts` is deprecated but retained as a thin delegate to `isAssistantSkillEnabled()` for migration compatibility.
+
+**Storage:** Flags are persisted in `~/.vellum/workspace/config.json`. New writes go to the `assistantFeatureFlagValues` section (managed by the gateway's `/v1/feature-flags` API — see [`gateway/ARCHITECTURE.md`](../gateway/ARCHITECTURE.md)). The legacy `featureFlags` section is still read for backward compatibility. The daemon's config watcher hot-reloads this file, so flag changes take effect on the next tool resolution or session.
+
+**Public API:**
+- `isAssistantFeatureFlagEnabled(key, config)` — full resolver with the canonical key
+- `isAssistantSkillEnabled(skillId, config)` — convenience wrapper that constructs `feature_flags.<skillId>.enabled` and delegates
+- `isSkillFeatureEnabled(skillId, config)` — deprecated legacy wrapper in `config/skill-state.ts`
+
+**Skill-gating guarantee:** For skills that are explicitly mapped to declared assistant flags, when the flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at five independent points:
+
+| Enforcement Point | Module | Effect |
+|-------------------|--------|--------|
+| **1. Client skill list** | `resolveSkillStates()` in `config/skill-state.ts` | Skills with flag OFF are excluded from the resolved list returned to IPC clients (macOS skill list, settings UI). The skill never appears in the client. |
+| **2. System prompt skill catalog** | `appendSkillsCatalog()` in `config/system-prompt.ts` | The model-visible `## Skills Catalog` section in the system prompt filters out flagged-off skills. The model cannot see or reference them. |
+| **3. `skill_load` tool** | `executeSkillLoad()` in `tools/skills/load.ts` | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`. |
+| **4. Runtime tool projection** | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered. |
+| **5. Included child skills** | `executeSkillLoad()` in `tools/skills/load.ts` | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
+
+All five enforcement points use `isAssistantSkillEnabled()` from `config/assistant-feature-flags.ts` for consistency.
+
+**Migration path:** The legacy `skills.<id>.enabled` key format is still read from the `featureFlags` config section for backward compatibility. New code must use the canonical `feature_flags.<id>.enabled` format. Guard tests enforce canonical key usage and declaration coverage for literal key references.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/config/assistant-feature-flags.ts` | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `isAssistantSkillEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader |
+| `src/config/skill-state.ts` | `isSkillFeatureEnabled()` (deprecated wrapper) — delegates to canonical resolver; `resolveSkillStates()` — enforcement point 1 |
+| `src/config/system-prompt.ts` | `appendSkillsCatalog()` — enforcement point 2 |
+| `src/tools/skills/load.ts` | `executeSkillLoad()` — enforcement points 3 and 5 |
+| `src/daemon/session-skill-tools.ts` | `projectSkillTools()` — enforcement point 4 |
+| `src/config/schema.ts` | `featureFlags` and `assistantFeatureFlagValues` field definitions in `AssistantConfig` (Zod schema) |
+| `src/config/types.ts` | Type definitions for `FeatureFlags` (legacy) and `AssistantFeatureFlagValues` (canonical) |
+| `src/daemon/handlers/skills.ts` | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses |
+| `meta/assistant-feature-flags/assistant-feature-flag-defaults.json` | Shared defaults registry (repo root) — all declared flags with default values and descriptions |
 
 ---
 
@@ -366,10 +414,11 @@ graph LR
     subgraph "~/.vellum/ (Root Files)"
         SOCK["vellum.sock<br/>Unix domain socket"]
         TRUST["protected/trust.json<br/>Tool permission rules"]
+        FF_TOKEN["feature-flag-token<br/>Dedicated auth for PATCH /v1/feature-flags"]
     end
 
     subgraph "~/.vellum/workspace/ (Workspace Files)"
-        CONFIG["config files<br/>Hot-reloaded by daemon"]
+        CONFIG["config files<br/>Hot-reloaded by daemon<br/>(includes featureFlags)"]
         ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
         ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
         APPS_STORE["data/apps/<br/><app-id>.json + pages/*.html<br/>prebuilt Home Base seeded here"]

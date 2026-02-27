@@ -29,6 +29,48 @@ Internet
        +-- /webhooks/* --> BLOCKED (404, never forwarded to runtime)
 ```
 
+### Assistant Feature Flags API
+
+The gateway exposes a REST API for reading and mutating assistant feature flags. Assistant feature flags are assistant-scoped, declaration-driven booleans that can gate any assistant behavior. Skill availability is one consumer, but not a required coupling (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for resolver and skill enforcement details).
+
+**Defaults registry loader:** The gateway loads the defaults registry from `meta/assistant-feature-flags/assistant-feature-flag-defaults.json` via `loadFeatureFlagDefaults()` in `gateway/src/feature-flag-defaults.ts`. The registry is loaded once and cached for the lifetime of the process. Invalid entries are skipped with a warning. The `isFlagDeclared()` helper validates that a flag key exists in the registry before allowing writes.
+
+**Endpoints (GET/PATCH contract):**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/feature-flags` | List all declared assistant feature flags from the defaults registry, merged with persisted values from workspace config. Returns `{ flags: FeatureFlagEntry[] }` where each entry has `key`, `enabled`, `defaultEnabled`, and `description`. |
+| PATCH | `/v1/feature-flags/:key` | Set a single assistant feature flag. Body: `{ "enabled": true\|false }`. Key must match `feature_flags.<flagId>.enabled` and be declared in the defaults registry. Writes to the `assistantFeatureFlagValues` config section. |
+
+**Defaults registry:** All declared assistant feature flags and their default values are defined in the shared defaults registry at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`. The gateway loads this registry on startup via `gateway/src/feature-flag-defaults.ts`. The GET endpoint merges persisted overrides with registry defaults to produce the full flag list. The PATCH endpoint validates that the target flag key exists in the registry before accepting a write. Only declared keys are exposed by this API.
+
+**Flag key format:** The canonical key format is `feature_flags.<flagId>.enabled`. Only keys matching this pattern are accepted by the PATCH endpoint; other patterns are rejected with 400. The legacy `skills.<id>.enabled` format is still read from persisted config for backward compatibility, but new writes always use the canonical format and are stored in the `assistantFeatureFlagValues` config section.
+
+**Storage:** Flag overrides are persisted in `~/.vellum/workspace/config.json`. New writes go to the `assistantFeatureFlagValues` section as a `Record<string, boolean>`. The GET endpoint reads from both `assistantFeatureFlagValues` (priority) and the legacy `featureFlags` section (with key mapping from `skills.<id>.enabled` to canonical format). The gateway writes atomically (temp file + rename). The daemon's config watcher hot-reloads changes, so flag mutations take effect on the next session or tool resolution without a restart.
+
+**Token separation (authentication boundary):**
+
+The assistant feature flags API uses a dedicated token (the **feature-flag token**) stored at `~/.vellum/feature-flag-token`, separate from the **runtime token** (`~/.vellum/http-token`). This separation ensures that clients with feature-flag access cannot access runtime endpoints, and vice versa.
+
+| Operation | Accepted tokens |
+|-----------|----------------|
+| `GET /v1/feature-flags` | Runtime bearer token OR feature-flag token |
+| `PATCH /v1/feature-flags/:key` | Feature-flag token ONLY (runtime token is explicitly rejected) |
+
+The feature-flag token is auto-generated on first gateway startup if the file does not exist. The gateway watches the token file for changes and hot-reloads without restart.
+
+**`assistantFeatureFlagValues` config section:** This is the canonical storage location for assistant feature flag overrides. It is a `Record<string, boolean>` keyed by canonical flag keys (`feature_flags.<id>.enabled`). The gateway's PATCH handler writes exclusively to this section. The daemon's resolver reads it with highest priority, falling back to the legacy `featureFlags` section and then the defaults registry. Undeclared keys are ignored by the resolver.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `gateway/src/http/routes/feature-flags.ts` | GET and PATCH handlers; config read/write logic; legacy key mapping; key format validation |
+| `gateway/src/feature-flag-defaults.ts` | `loadFeatureFlagDefaults()` — loads the shared defaults registry; `isFlagDeclared()` — validates flag keys |
+| `gateway/src/config.ts` | `readOrGenerateFeatureFlagToken()` — token provisioning; `featureFlagToken` config field |
+| `gateway/src/index.ts` | Route registration, auth enforcement (dual-token for GET, flag-token-only for PATCH), token file watcher |
+| `meta/assistant-feature-flags/assistant-feature-flag-defaults.json` | Shared defaults registry (repo root) — all declared flags with default values and descriptions |
+
 ### Channel Binding Lifecycle (Lane Separation)
 
 Each channel (desktop, Telegram, etc.) operates in its own **lane**: conversations created by an external channel are never displayed in the desktop thread list, and desktop conversations are never exposed to external channels. The `channelBinding` metadata on a conversation is used solely for routing inbound/outbound messages within that lane and for filtering sessions during desktop session restoration.

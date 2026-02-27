@@ -23,6 +23,14 @@ struct SettingsAccountTab: View {
     @State private var remoteIdentity: RemoteIdentityInfo?
     @State private var devModeTapCount: Int = 0
     @State private var devModeMessage: String?
+    @State private var isHatchFlagEnabled: Bool = true
+    @State private var isLoadingHatchFlag: Bool = false
+
+    /// Whether the hatch new assistant feature flag is enabled.
+    /// Defaults to `true` until the gateway responds. Once the gateway response
+    /// arrives, this reflects the value of `feature_flags.hatch-new-assistant.enabled`.
+
+    private static let hatchNewAssistantFlagKey = "feature_flags.hatch-new-assistant.enabled"
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -30,8 +38,8 @@ struct SettingsAccountTab: View {
             assistantInfoSection
             switchAssistantSection
             GatewaySettingsCard(store: store, daemonClient: daemonClient)
-            retireAssistantSection
             hatchNewAssistantSection
+            retireAssistantSection
         }
         .onAppear {
             Task { await authManager.checkSession() }
@@ -48,6 +56,7 @@ struct SettingsAccountTab: View {
                     remoteIdentity = await daemonClient?.fetchRemoteIdentity()
                 }
             }
+            Task { await loadHatchFlag() }
         }
         .onChange(of: store.platformBaseUrl) { _, newValue in
             if !isPlatformUrlFocused {
@@ -103,6 +112,39 @@ struct SettingsAccountTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
+            if store.isDevMode {
+                Text("Platform URL")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+
+                HStack(spacing: VSpacing.sm) {
+                    TextField("https://platform.vellum.ai", text: $platformUrlText)
+                        .focused($isPlatformUrlFocused)
+                        .vInputStyle()
+                        .font(VFont.mono)
+                        .onSubmit {
+                            store.savePlatformBaseUrl(platformUrlText)
+                            Task { await store.checkVellumPlatform() }
+                        }
+                    VButton(label: "Save", style: .primary) {
+                        store.savePlatformBaseUrl(platformUrlText)
+                        Task { await store.checkVellumPlatform() }
+                    }
+                }
+            }
+
+            // Platform connection status
+            ConnectionStatusRow(
+                label: "Platform",
+                status: platformStatusInfo,
+                isRefreshing: store.isCheckingVellumPlatform,
+                lastChecked: store.platformLastChecked
+            ) {
+                Task { await store.checkVellumPlatform() }
+            }
+
+            Divider().background(VColor.surfaceBorder)
+
             if authManager.isLoading {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "arrow.triangle.2.circlepath")
@@ -148,41 +190,6 @@ struct SettingsAccountTab: View {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
-            }
-
-            if store.isDevMode {
-                Divider().background(VColor.surfaceBorder)
-
-                Text("Platform URL")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-
-                HStack(spacing: VSpacing.sm) {
-                    TextField("https://platform.vellum.ai", text: $platformUrlText)
-                        .focused($isPlatformUrlFocused)
-                        .vInputStyle()
-                        .font(VFont.mono)
-                        .onSubmit {
-                            store.savePlatformBaseUrl(platformUrlText)
-                            Task { await store.checkVellumPlatform() }
-                        }
-                    VButton(label: "Save", style: .primary) {
-                        store.savePlatformBaseUrl(platformUrlText)
-                        Task { await store.checkVellumPlatform() }
-                    }
-                }
-            }
-
-            Divider().background(VColor.surfaceBorder)
-
-            // Platform connection status
-            ConnectionStatusRow(
-                label: "Platform",
-                status: platformStatusInfo,
-                isRefreshing: store.isCheckingVellumPlatform,
-                lastChecked: store.platformLastChecked
-            ) {
-                Task { await store.checkVellumPlatform() }
             }
         }
         .padding(VSpacing.lg)
@@ -381,9 +388,62 @@ struct SettingsAccountTab: View {
 
     // MARK: - Hatch New Assistant
 
+    /// Fetch the hatch-new-assistant flag from the gateway API.
+    /// Falls back to the local workspace config if the gateway is unreachable.
+    private func loadHatchFlag() async {
+        guard let daemonClient else { return }
+        isLoadingHatchFlag = true
+        do {
+            let flags = try await daemonClient.getFeatureFlags()
+            if let hatchFlag = flags.first(where: { $0.key == Self.hatchNewAssistantFlagKey }) {
+                isHatchFlagEnabled = hatchFlag.enabled
+                isLoadingHatchFlag = false
+                return
+            }
+        } catch {
+            // Gateway unreachable — fall through to local config fallback
+        }
+
+        // Fallback: read from local workspace config
+        let config = WorkspaceConfigIO.read()
+
+        // Check canonical assistantFeatureFlagValues first (new format)
+        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool] {
+            let canonicalKeys = [
+                Self.hatchNewAssistantFlagKey,
+                "feature_flags.hatch_new_assistant.enabled"
+            ]
+            for key in canonicalKeys {
+                if let enabled = canonicalFlags[key] {
+                    isHatchFlagEnabled = enabled
+                    isLoadingHatchFlag = false
+                    return
+                }
+            }
+        }
+
+        // Check legacy featureFlags section
+        if let featureFlags = config["featureFlags"] as? [String: Any] {
+            let legacyKeys = [
+                "skills.hatch_new_assistant.enabled",
+                "skills.hatch-new-assistant.enabled"
+            ]
+            for key in legacyKeys {
+                if let enabled = featureFlags[key] as? Bool {
+                    isHatchFlagEnabled = enabled
+                    isLoadingHatchFlag = false
+                    return
+                }
+            }
+        }
+        // On failure, default to showing the hatch section
+        isHatchFlagEnabled = true
+        isLoadingHatchFlag = false
+    }
+
     @ViewBuilder
     private var hatchNewAssistantSection: some View {
-        if FeatureFlagManager.shared.isEnabled(.hatchNewAssistantEnabled) {
+        if isHatchFlagEnabled {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("Hatch New Assistant")
                     .font(VFont.sectionTitle)

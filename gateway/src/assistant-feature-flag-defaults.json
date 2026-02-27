@@ -1,0 +1,10 @@
+{
+  "feature_flags.hatch-new-assistant.enabled": {
+    "defaultEnabled": true,
+    "description": "Show Hatch New Assistant action in Settings > Account"
+  },
+  "feature_flags.sms.enabled": {
+    "defaultEnabled": true,
+    "description": "Show SMS setup in Settings > Connect and enable the SMS setup skill"
+  }
+}

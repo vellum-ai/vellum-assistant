@@ -30,6 +30,8 @@ final class BrowserPiPManager: ObservableObject {
     private var moveObserver: Any?
     private var resizeObserver: Any?
     private let decodeQueue = DispatchQueue(label: "browser-pip-frame-decode")
+    private var isDecodingFrame = false
+    private var pendingFrameBase64: String?
     weak var daemonClient: DaemonClient?
 
     // Saved position
@@ -175,21 +177,50 @@ final class BrowserPiPManager: ObservableObject {
         currentFrame = nil
         isInteractive = false
         handoffMessage = nil
+        pendingFrameBase64 = nil
+        isDecodingFrame = false
 
         log.info("Dismissed browser PiP panel")
     }
 
     private func decodeFrame(_ base64: String) {
+        if isDecodingFrame {
+            pendingFrameBase64 = base64
+            return
+        }
+        startFrameDecode(base64)
+    }
+
+    private func startFrameDecode(_ base64: String) {
+        isDecodingFrame = true
         decodeQueue.async { [weak self] in
+            guard let self else { return }
             guard let data = Data(base64Encoded: base64),
-                  let image = NSImage(data: data) else { return }
-            DispatchQueue.main.async {
-                self?.currentFrame = image
-                if image.size.width > 0 && image.size.height > 0 {
-                    self?.frameSize = image.size
+                  let image = NSImage(data: data) else {
+                DispatchQueue.main.async { [weak self] in
+                    self?.finishFrameDecode()
                 }
+                return
+            }
+            DispatchQueue.main.async {
+                guard self.isVisible else {
+                    self.finishFrameDecode()
+                    return
+                }
+                self.currentFrame = image
+                if image.size.width > 0 && image.size.height > 0 {
+                    self.frameSize = image.size
+                }
+                self.finishFrameDecode()
             }
         }
+    }
+
+    private func finishFrameDecode() {
+        isDecodingFrame = false
+        guard let next = pendingFrameBase64 else { return }
+        pendingFrameBase64 = nil
+        startFrameDecode(next)
     }
 
     private func scheduleActionTextClear() {

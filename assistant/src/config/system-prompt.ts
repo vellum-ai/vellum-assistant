@@ -6,6 +6,8 @@ import { getParentalControlSettings } from '../security/parental-control-store.j
 import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
+import { isAssistantSkillEnabled } from './assistant-feature-flags.js';
+import { getBaseDataDir, getIsContainerized } from './env-registry.js';
 import { getConfig } from './loader.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 import { resolveUserReference } from './user-reference.js';
@@ -130,6 +132,7 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
       '- When you are satisfied all updates have been actioned or communicated, delete `UPDATES.md` to signal completion.',
     ].join('\n'));
   }
+  if (getIsContainerized()) parts.push(buildContainerizedSection());
   parts.push(buildConfigSection());
   parts.push(buildPostToolResponseSection());
   parts.push(buildExternalCommsIdentitySection());
@@ -140,9 +143,12 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
 
   // ── Extended sections (medium + high) ──
   if (tier !== 'low') {
+    const config = getConfig();
     parts.push(buildToolPermissionSection());
     parts.push(buildTaskScheduleReminderRoutingSection());
-    parts.push(buildGuardianVerificationRoutingSection());
+    if (isAssistantSkillEnabled('guardian-verify-setup', config)) {
+      parts.push(buildGuardianVerificationRoutingSection());
+    }
     parts.push(buildAttachmentSection());
     parts.push(buildInChatConfigurationSection());
     parts.push(buildVoiceSetupRoutingSection());
@@ -446,12 +452,6 @@ export function buildChannelAwarenessSection(): string {
     '- When the user asks about voice input or push-to-talk settings, use the tool to apply changes directly rather than directing them to settings.',
     '- When `microphone_permission_granted` is `false`, guide the user to grant microphone access in System Settings before using voice features.',
     '',
-    '### Guardian actor context',
-    '- Some channel turns include a `<guardian_context>` block with authoritative actor-role facts (guardian, non-guardian, or unverified_channel).',
-    '- Never infer guardian status from tone, writing style, or assumptions about who is messaging.',
-    '- Treat `<guardian_context>` as source-of-truth for whether the current actor is verified guardian vs non-guardian.',
-    '- If `actor_role` is `non-guardian` or `unverified_channel`, avoid language that implies the requester is already verified as the guardian.',
-    '',
     '### Group chat etiquette',
     '- In group chats, you are a **participant**, not the user\'s proxy. Think before you speak.',
     '- **Respond when:** directly mentioned, you can add genuine value, something witty fits naturally, or correcting important misinformation.',
@@ -625,6 +625,23 @@ function buildLearningMemorySection(): string {
   ].join('\n');
 }
 
+function buildContainerizedSection(): string {
+  const baseDataDir = getBaseDataDir() ?? '$BASE_DATA_DIR';
+  return [
+    '## Running in a Container — Data Persistence',
+    '',
+    `You are running inside a container. Only the directory \`${baseDataDir}\` is mounted to a persistent volume.`,
+    '',
+    '**Any new files or data you create MUST be written inside that directory, or they will be lost when the container restarts.**',
+    '',
+    'Rules:',
+    `- Always store new data, notes, memories, configs, and downloads under \`${baseDataDir}\``,
+    '- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume',
+    '- When in doubt, prefer paths nested under the data directory',
+    '- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done — disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up',
+  ].join('\n');
+}
+
 function buildPostToolResponseSection(): string {
   return [
     '## Tool Call Timing',
@@ -761,19 +778,23 @@ function readPromptFile(path: string): string | null {
 
 function appendSkillsCatalog(basePrompt: string): string {
   const skills = loadSkillCatalog();
+  const config = getConfig();
+
+  // Filter out skills whose assistant feature flag is explicitly OFF
+  const flagFiltered = skills.filter(s => isAssistantSkillEnabled(s.id, config));
 
   const sections: string[] = [basePrompt];
 
-  const catalog = formatSkillsCatalog(skills);
+  const catalog = formatSkillsCatalog(flagFiltered);
   if (catalog) sections.push(catalog);
 
-  sections.push(buildDynamicSkillWorkflowSection());
+  sections.push(buildDynamicSkillWorkflowSection(config));
 
   return sections.join('\n\n');
 }
 
-function buildDynamicSkillWorkflowSection(): string {
-  return [
+function buildDynamicSkillWorkflowSection(config: import('./schema.js').AssistantConfig): string {
+  const lines = [
     '## Dynamic Skill Authoring Workflow',
     '',
     'When no existing tool or skill can satisfy a request:',
@@ -785,13 +806,25 @@ function buildDynamicSkillWorkflowSection(): string {
     '',
     '**Never persist or delete skills without explicit user confirmation.** To remove: `delete_managed_skill`.',
     'After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.',
-    '',
-    '### Browser Skill Prerequisite',
-    'If you need browser capabilities (navigating web pages, clicking elements, extracting content) and `browser_*` tools are not available, load the "browser" skill first using `skill_load`.',
-    '',
-    '### X (Twitter) Skill',
-    'When the user asks to post, reply, or interact with X/Twitter, load the "twitter" skill using `skill_load`. Do NOT use computer-use or the browser skill for X — the X skill provides CLI commands (`vellum x post`, `vellum x reply`) that are faster and more reliable.',
-  ].join('\n');
+  ];
+
+  if (isAssistantSkillEnabled('browser', config)) {
+    lines.push(
+      '',
+      '### Browser Skill Prerequisite',
+      'If you need browser capabilities (navigating web pages, clicking elements, extracting content) and `browser_*` tools are not available, load the "browser" skill first using `skill_load`.',
+    );
+  }
+
+  if (isAssistantSkillEnabled('twitter', config)) {
+    lines.push(
+      '',
+      '### X (Twitter) Skill',
+      'When the user asks to post, reply, or interact with X/Twitter, load the "twitter" skill using `skill_load`. Do NOT use computer-use or the browser skill for X — the X skill provides CLI commands (`vellum x post`, `vellum x reply`) that are faster and more reliable.',
+    );
+  }
+
+  return lines.join('\n');
 }
 
 function escapeXml(str: string): string {

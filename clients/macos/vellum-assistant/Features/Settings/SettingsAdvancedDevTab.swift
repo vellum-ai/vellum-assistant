@@ -8,7 +8,10 @@ struct SettingsAdvancedDevTab: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
 
-    @State private var flagStates: [(flag: FeatureFlag, enabled: Bool)] = []
+    @State private var macOSFlagStates: [(flag: MacOSClientFeatureFlag, enabled: Bool)] = []
+    @State private var assistantFlags: [DaemonClient.AssistantFeatureFlag] = []
+    @State private var assistantFlagsError: String?
+    @State private var isLoadingAssistantFlags = false
     @State private var showingEnvVars = false
     @State private var appEnvVars: [(String, String)] = []
     @State private var daemonEnvVars: [(String, String)] = []
@@ -21,19 +24,23 @@ struct SettingsAdvancedDevTab: View {
                 ToolPermissionTesterView(model: model)
             }
 
-            // Feature Flags
-            featureFlagSection
+            // Assistant Feature Flags (gateway-sourced)
+            assistantFeatureFlagSection
+
+            // macOS Feature Flags (local)
+            macOSFeatureFlagSection
 
             // Developer section (env vars)
             developerSection
         }
         .onAppear {
-            flagStates = FeatureFlag.allCases.map { flag in
-                (flag: flag, enabled: FeatureFlagManager.shared.isEnabled(flag))
+            macOSFlagStates = MacOSClientFeatureFlag.allCases.map { flag in
+                (flag: flag, enabled: MacOSClientFeatureFlagManager.shared.isEnabled(flag))
             }
             if testerModel == nil, let dc = daemonClient {
                 testerModel = ToolPermissionTesterModel(daemonClient: dc)
             }
+            Task { await loadAssistantFlags() }
         }
         .sheet(isPresented: $showingEnvVars) {
             SettingsPanelEnvVarsSheet(appEnvVars: appEnvVars, daemonEnvVars: daemonEnvVars)
@@ -43,20 +50,126 @@ struct SettingsAdvancedDevTab: View {
         }
     }
 
-    // MARK: - Feature Flags
+    // MARK: - Assistant Feature Flags
 
-    private var featureFlagSection: some View {
+    private func loadAssistantFlags() async {
+        guard let daemonClient else { return }
+        isLoadingAssistantFlags = true
+        assistantFlagsError = nil
+        do {
+            assistantFlags = try await daemonClient.getFeatureFlags()
+        } catch {
+            assistantFlagsError = error.localizedDescription
+        }
+        isLoadingAssistantFlags = false
+    }
+
+    private var assistantFeatureFlagSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Feature Flags")
+            HStack {
+                Text("Assistant Feature Flags")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                if isLoadingAssistantFlags {
+                    ProgressView()
+                        .controlSize(.small)
+                        .progressViewStyle(.circular)
+                }
+            }
+
+            Text("Sourced from the gateway API. Changes are synced remotely.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+
+            if let error = assistantFlagsError {
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 12))
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                }
+            } else if assistantFlags.isEmpty && !isLoadingAssistantFlags {
+                Text("No assistant feature flags available.")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+            } else {
+                ForEach(assistantFlags) { flag in
+                    assistantFlagRow(flag: flag)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    private func assistantFlagRow(flag: DaemonClient.AssistantFeatureFlag) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            Toggle(flag.displayName, isOn: Binding(
+                get: {
+                    assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
+                },
+                set: { newValue in
+                    // Optimistically update local state
+                    if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
+                        assistantFlags[index] = DaemonClient.AssistantFeatureFlag(
+                            key: flag.key,
+                            enabled: newValue,
+                            defaultEnabled: flag.defaultEnabled,
+                            description: flag.description
+                        )
+                    }
+                    // Persist via gateway API
+                    Task {
+                        do {
+                            try await daemonClient?.setFeatureFlag(key: flag.key, enabled: newValue)
+                        } catch {
+                            // Revert on failure
+                            if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
+                                assistantFlags[index] = DaemonClient.AssistantFeatureFlag(
+                                    key: flag.key,
+                                    enabled: !newValue,
+                                    defaultEnabled: flag.defaultEnabled,
+                                    description: flag.description
+                                )
+                            }
+                        }
+                    }
+                }
+            ))
+            .toggleStyle(.switch)
+            .font(VFont.body)
+            .foregroundColor(VColor.textSecondary)
+
+            if let description = flag.description, !description.isEmpty {
+                Text(description)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+        }
+    }
+
+    // MARK: - macOS Feature Flags
+
+    private var macOSFeatureFlagSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("macOS Feature Flags")
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            ForEach(Array(flagStates.enumerated()), id: \.element.flag) { index, entry in
+            Text("Local-only flags stored in UserDefaults on this Mac.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+
+            ForEach(Array(macOSFlagStates.enumerated()), id: \.element.flag) { index, entry in
                 Toggle(entry.flag.displayName, isOn: Binding(
-                    get: { flagStates[index].enabled },
+                    get: { macOSFlagStates[index].enabled },
                     set: { newValue in
-                        flagStates[index].enabled = newValue
-                        FeatureFlagManager.shared.setOverride(entry.flag, enabled: newValue)
+                        macOSFlagStates[index].enabled = newValue
+                        MacOSClientFeatureFlagManager.shared.setOverride(entry.flag, enabled: newValue)
                     }
                 ))
                 .toggleStyle(.switch)

@@ -13,6 +13,8 @@ struct HeartbeatConfigView: View {
     @State private var activeHoursStart: Int = 9
     @State private var activeHoursEnd: Int = 17
     @State private var nextRunAt: Int?
+    @State private var isApplyingFromServer = false
+    @State private var saveErrorMessage: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -64,6 +66,7 @@ struct HeartbeatConfigView: View {
                                 .toggleStyle(.switch)
                                 .labelsHidden()
                                 .onChange(of: enabled) { _, newValue in
+                                    guard !isApplyingFromServer else { return }
                                     saveConfig(enabled: newValue)
                                 }
                         }
@@ -92,6 +95,7 @@ struct HeartbeatConfigView: View {
                             .labelsHidden()
                             .fixedSize()
                             .onChange(of: intervalMinutes) { _, newValue in
+                                guard !isApplyingFromServer else { return }
                                 saveConfig(intervalMs: newValue * 60 * 1000)
                             }
                         }
@@ -114,6 +118,7 @@ struct HeartbeatConfigView: View {
                                     .toggleStyle(.switch)
                                     .labelsHidden()
                                     .onChange(of: activeHoursEnabled) { _, newValue in
+                                        guard !isApplyingFromServer else { return }
                                         if newValue {
                                             saveConfig(activeHoursStart: Double(activeHoursStart), activeHoursEnd: Double(activeHoursEnd))
                                         } else {
@@ -135,6 +140,7 @@ struct HeartbeatConfigView: View {
                                     .labelsHidden()
                                     .fixedSize()
                                     .onChange(of: activeHoursStart) { _, newValue in
+                                        guard !isApplyingFromServer else { return }
                                         saveConfig(activeHoursStart: Double(newValue))
                                     }
 
@@ -149,6 +155,7 @@ struct HeartbeatConfigView: View {
                                     .labelsHidden()
                                     .fixedSize()
                                     .onChange(of: activeHoursEnd) { _, newValue in
+                                        guard !isApplyingFromServer else { return }
                                         saveConfig(activeHoursEnd: Double(newValue))
                                     }
                                 }
@@ -167,6 +174,18 @@ struct HeartbeatConfigView: View {
                                 Text(formatTimestamp(nextRun))
                                     .font(VFont.mono)
                                     .foregroundColor(VColor.textSecondary)
+                            }
+                        }
+
+                        // Inline save error
+                        if let saveError = saveErrorMessage {
+                            HStack(spacing: VSpacing.sm) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(VColor.error)
+                                Text(saveError)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.error)
                             }
                         }
                     }
@@ -215,6 +234,8 @@ struct HeartbeatConfigView: View {
                     self.errorMessage = response.error ?? "Unknown error"
                     return
                 }
+                self.errorMessage = nil
+                self.isApplyingFromServer = true
                 self.enabled = response.enabled
                 self.intervalMinutes = response.intervalMs / 60.0 / 1000.0
                 if let start = response.activeHoursStart, let end = response.activeHoursEnd,
@@ -226,6 +247,11 @@ struct HeartbeatConfigView: View {
                     self.activeHoursEnabled = false
                 }
                 self.nextRunAt = response.nextRunAt
+                // Defer reset to the next run-loop tick so SwiftUI's onChange
+                // closures fire while the flag is still true.
+                DispatchQueue.main.async {
+                    self.isApplyingFromServer = false
+                }
             }
         }
     }
@@ -247,13 +273,18 @@ struct HeartbeatConfigView: View {
         activeHoursStart: Double? = nil,
         activeHoursEnd: Double? = nil
     ) {
-        try? daemonClient.sendHeartbeatConfigSet(
-            enabled: enabled,
-            intervalMs: intervalMs,
-            activeHoursStart: activeHoursStart,
-            activeHoursEnd: activeHoursEnd
-        )
-        // Refresh to get updated nextRunAt
-        try? daemonClient.sendHeartbeatConfigGet()
+        do {
+            try daemonClient.sendHeartbeatConfigSet(
+                enabled: enabled,
+                intervalMs: intervalMs,
+                activeHoursStart: activeHoursStart,
+                activeHoursEnd: activeHoursEnd
+            )
+            // Refresh to get updated nextRunAt
+            try daemonClient.sendHeartbeatConfigGet()
+            saveErrorMessage = nil
+        } catch {
+            saveErrorMessage = "Failed to save: \(error.localizedDescription)"
+        }
     }
 }

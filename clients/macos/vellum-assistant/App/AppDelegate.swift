@@ -216,8 +216,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         UserDefaults.standard.removeObject(forKey: "NSWindow Frame com_apple_SwiftUI_Settings_window")
 
 
-        if let envPath = FeatureFlagManager.findRepoEnvFile() {
-            FeatureFlagManager.shared.loadFromFile(at: envPath)
+        if let envPath = MacOSClientFeatureFlagManager.findRepoEnvFile() {
+            MacOSClientFeatureFlagManager.shared.loadFromFile(at: envPath)
         }
 
         applyThemePreference()
@@ -908,7 +908,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
             // Local assistant or no assistant.
-            if FeatureFlagManager.shared.isEnabled(.localHttpEnabled) {
+            if MacOSClientFeatureFlagManager.shared.isEnabled(.localHttpEnabled) {
                 // Use HTTP transport for the local daemon instead of IPC.
                 // Bearer token is nil; resolved lazily at connect time.
                 let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
@@ -1607,11 +1607,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
-    func toggleQuickInput(aboveDock: Bool = false, requestScreenPermission: Bool = false) {
+    func toggleQuickInput(aboveDock: Bool = false, requestScreenPermission: Bool? = nil) {
         if let window = quickInputWindow, window.isVisible {
             window.dismiss()
             return
         }
+
+        // Auto-detect screen recording permission if not explicitly specified
+        let shouldShowPermissionPrompt = requestScreenPermission
+            ?? (PermissionManager.screenRecordingStatus() != .granted)
 
         let window = QuickInputWindow()
         window.onSubmit = { [weak self, weak window] message, imageData in
@@ -1636,7 +1640,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 .prefix(3)
                 .map { QuickInputThread(id: $0.id, title: $0.title) }
         }
-        window.showScreenPermissionPrompt = requestScreenPermission
+        window.showScreenPermissionPrompt = shouldShowPermissionPrompt
         if aboveDock {
             window.showAboveDock()
         } else {

@@ -2,26 +2,20 @@ import Foundation
 
 private let flagPrefix = "VELLUM_FLAG_"
 
-public enum FeatureFlag: String, CaseIterable {
-    case demo
+public enum MacOSClientFeatureFlag: String, CaseIterable {
     case userHostedEnabled = "user_hosted_enabled"
-    case featureFlagEditorEnabled = "feature_flag_editor_enabled"
-    case hatchNewAssistantEnabled = "hatch_new_assistant_enabled"
     case localHttpEnabled = "local_http_enabled"
 
     public var displayName: String {
         switch self {
-        case .demo: return "Demo"
         case .userHostedEnabled: return "User Hosted Enabled"
-        case .featureFlagEditorEnabled: return "Feature Flag Editor Enabled"
-        case .hatchNewAssistantEnabled: return "Hatch New Assistant Enabled"
         case .localHttpEnabled: return "Local HTTP Enabled"
         }
     }
 }
 
-public final class FeatureFlagManager: @unchecked Sendable {
-    public static let shared = FeatureFlagManager()
+public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
+    public static let shared = MacOSClientFeatureFlagManager()
 
     private let lock = NSLock()
     private var flags: [String: Bool]
@@ -43,7 +37,7 @@ public final class FeatureFlagManager: @unchecked Sendable {
         return flags[Self.normalize(flag)] ?? false
     }
 
-    public func isEnabled(_ flag: FeatureFlag) -> Bool {
+    public func isEnabled(_ flag: MacOSClientFeatureFlag) -> Bool {
         isEnabled(flag.rawValue)
     }
 
@@ -59,7 +53,7 @@ public final class FeatureFlagManager: @unchecked Sendable {
         flags[Self.normalize(flag)] = enabled
     }
 
-    public func setOverride(_ flag: FeatureFlag, enabled: Bool) {
+    public func setOverride(_ flag: MacOSClientFeatureFlag, enabled: Bool) {
         setOverride(flag.rawValue, enabled: enabled)
     }
 
@@ -69,7 +63,7 @@ public final class FeatureFlagManager: @unchecked Sendable {
         flags.removeValue(forKey: Self.normalize(flag))
     }
 
-    public func removeOverride(_ flag: FeatureFlag) {
+    public func removeOverride(_ flag: MacOSClientFeatureFlag) {
         removeOverride(flag.rawValue)
     }
 

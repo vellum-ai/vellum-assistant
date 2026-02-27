@@ -875,7 +875,7 @@ export async function handleChannelInbound(
             // the guardian action request if answerCall succeeds, so that a
             // failed delivery (e.g. pending question timed out) leaves the
             // request pending for retry from another channel.
-            const answerResult = await answerCall({ callSessionId: request.callSessionId, answer: answerText });
+            const answerResult = await answerCall({ callSessionId: request.callSessionId, answer: answerText, pendingQuestionId: request.pendingQuestionId });
 
             if (!('ok' in answerResult) || !answerResult.ok) {
               const errorMsg = 'error' in answerResult ? answerResult.error : 'Unknown error';

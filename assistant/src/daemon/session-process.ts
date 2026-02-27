@@ -105,6 +105,7 @@ export interface ProcessSessionContext {
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
+  ensureActorScopedHistory(): Promise<void>;
   persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>, displayContent?: string): Promise<string>;
   runAgentLoop(
     content: string,
@@ -380,6 +381,7 @@ export async function processMessage(
   options?: { isInteractive?: boolean },
   displayContent?: string,
 ): Promise<string> {
+  await session.ensureActorScopedHistory();
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
 
@@ -488,7 +490,7 @@ export async function processMessage(
         // the guardian action request if answerCall succeeds, so that a
         // failed delivery leaves the request pending for retry from
         // another channel.
-        const answerResult = await answerCall({ callSessionId: guardianRequest.callSessionId, answer: answerText });
+        const answerResult = await answerCall({ callSessionId: guardianRequest.callSessionId, answer: answerText, pendingQuestionId: guardianRequest.pendingQuestionId });
 
         if ('ok' in answerResult && answerResult.ok) {
           const resolved = resolveGuardianActionRequest(guardianRequest.id, answerText, 'vellum');
