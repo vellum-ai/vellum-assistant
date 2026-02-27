@@ -54,11 +54,6 @@ struct SettingsView: View {
                         Label("Reminders", systemImage: "bell")
                     }
                     NavigationLink {
-                        IOSParentalControlSection()
-                    } label: {
-                        Label("Parental Controls", systemImage: "lock.shield")
-                    }
-                    NavigationLink {
                         PrivateThreadsSection(store: threadStore)
                     } label: {
                         Label("Private Threads", systemImage: "lock.shield.fill")

@@ -10,7 +10,6 @@ enum SettingsTab: String {
     case automation = "Automation"
     case appearance = "Appearance"
     case privacy = "Privacy"
-    case parental = "Parental"
     case advanced = "Advanced"
 
     /// Tabs shown in the sidebar. Advanced is only visible in dev mode.
@@ -41,7 +40,6 @@ enum SettingsTab: String {
             case "Trust": tab = .permissions
             case "Schedules": tab = .automation
             case "Heartbeat": tab = .automation
-            case "Parental": tab = .permissions
             case "Advanced": tab = .advanced
             default: tab = nil
             }
@@ -257,8 +255,6 @@ struct SettingsPanel: View {
             SettingsAppearanceTab(store: store)
         case .privacy:
             SettingsPrivacyTab(daemonClient: daemonClient)
-        case .parental:
-            permissionsContent
         case .advanced:
             if store.isDevMode {
                 SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
@@ -824,8 +820,6 @@ struct SettingsPanel: View {
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
 
-            // PARENTAL CONTROLS section
-            SettingsParentalTab(daemonClient: daemonClient)
         }
     }
 

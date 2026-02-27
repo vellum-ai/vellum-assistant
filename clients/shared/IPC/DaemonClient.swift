@@ -377,18 +377,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `heartbeat_checklist_write_response` message.
     public var onHeartbeatChecklistWriteResponse: ((IPCHeartbeatChecklistWriteResponse) -> Void)?
 
-    /// Called when the daemon sends a `parental_control_get_response` message.
-    public var onParentalControlGetResponse: ((ParentalControlGetResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `parental_control_verify_pin_response` message.
-    public var onParentalControlVerifyPinResponse: ((ParentalControlVerifyPinResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `parental_control_set_pin_response` message.
-    public var onParentalControlSetPinResponse: ((ParentalControlSetPinResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `parental_control_update_response` message.
-    public var onParentalControlUpdateResponse: ((ParentalControlUpdateResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `twitter_integration_config_response` message.
     public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
 
@@ -1448,48 +1436,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(DocumentListRequestMessage(
             type: "document_list",
             conversationId: conversationId
-        ))
-    }
-
-    // MARK: - Parental Control
-
-    /// Request the current parental control settings and PIN status.
-    public func sendParentalControlGet() throws {
-        try send(ParentalControlGetRequestMessage())
-    }
-
-    /// Verify a PIN attempt without changing any state.
-    public func sendParentalControlVerifyPin(pin: String) throws {
-        try send(ParentalControlVerifyPinRequestMessage(pin: pin))
-    }
-
-    /// Set the parental control PIN for the first time.
-    public func sendParentalControlSetPin(newPin: String) throws {
-        try send(ParentalControlSetPinRequestMessage.set(newPin: newPin))
-    }
-
-    /// Change the existing parental control PIN.
-    public func sendParentalControlChangePin(currentPin: String, newPin: String) throws {
-        try send(ParentalControlSetPinRequestMessage.change(currentPin: currentPin, newPin: newPin))
-    }
-
-    /// Clear the parental control PIN.
-    public func sendParentalControlClearPin(currentPin: String) throws {
-        try send(ParentalControlSetPinRequestMessage.clear(currentPin: currentPin))
-    }
-
-    /// Update parental control settings (enable/disable, content restrictions, tool blocks).
-    public func sendParentalControlUpdate(
-        pin: String? = nil,
-        enabled: Bool? = nil,
-        contentRestrictions: [String]? = nil,
-        blockedToolCategories: [String]? = nil
-    ) throws {
-        try send(ParentalControlUpdateRequestMessage(
-            pin: pin,
-            enabled: enabled,
-            contentRestrictions: contentRestrictions,
-            blockedToolCategories: blockedToolCategories
         ))
     }
 

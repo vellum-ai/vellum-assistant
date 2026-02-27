@@ -254,14 +254,6 @@ extension DaemonClient {
             onHeartbeatChecklistResponse?(msg)
         case .heartbeatChecklistWriteResponse(let msg):
             onHeartbeatChecklistWriteResponse?(msg)
-        case .parentalControlGetResponse(let msg):
-            onParentalControlGetResponse?(msg)
-        case .parentalControlVerifyPinResponse(let msg):
-            onParentalControlVerifyPinResponse?(msg)
-        case .parentalControlSetPinResponse(let msg):
-            onParentalControlSetPinResponse?(msg)
-        case .parentalControlUpdateResponse(let msg):
-            onParentalControlUpdateResponse?(msg)
         case .pairingApprovalRequest(let msg):
             onPairingApprovalRequest?(msg)
         case .approvedDevicesListResponse(let msg):
