@@ -22,6 +22,10 @@ import {
   revokeMember,
   upsertMember,
 } from '../memory/ingress-member-store.js';
+import {
+  redeemInvite as redeemInviteTyped,
+  type InviteRedemptionOutcome,
+} from './invite-redemption-service.js';
 
 // ---------------------------------------------------------------------------
 // Response shapes — used by both HTTP routes and IPC handlers
@@ -161,6 +165,24 @@ export function redeemIngressInvite(params: {
     return { ok: false, error: result.error };
   }
   return { ok: true, data: inviteToResponse(result.invite) };
+}
+
+// ---------------------------------------------------------------------------
+// Typed invite redemption — preferred entry point for new callers
+// ---------------------------------------------------------------------------
+
+export { type InviteRedemptionOutcome } from './invite-redemption-service.js';
+
+export function redeemIngressInviteTyped(params: {
+  rawToken: string;
+  sourceChannel: string;
+  externalUserId?: string;
+  externalChatId?: string;
+  displayName?: string;
+  username?: string;
+  assistantId?: string;
+}): InviteRedemptionOutcome {
+  return redeemInviteTyped(params);
 }
 
 // ---------------------------------------------------------------------------

@@ -66,7 +66,7 @@ const DEFAULT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // Helpers
 // ---------------------------------------------------------------------------
 
-function hashToken(rawToken: string): string {
+export function hashToken(rawToken: string): string {
   return createHash('sha256').update(rawToken).digest('hex');
 }
 
@@ -268,6 +268,12 @@ export function redeemInvite(params: {
     return { error: 'invite_max_uses_reached' };
   }
 
+  // Enforce channel-scoped redemption: when the caller specifies a channel, it
+  // must match the channel the invite was created for.
+  if (params.sourceChannel && params.sourceChannel !== invite.sourceChannel) {
+    return { error: 'invite_channel_mismatch' };
+  }
+
   const newUseCount = invite.useCount + 1;
   const newStatus = newUseCount >= invite.maxUses ? 'redeemed' : 'active';
 
@@ -321,6 +327,86 @@ export function redeemInvite(params: {
   };
 
   return { invite: updatedInvite, member: rowToMember(memberRow) };
+}
+
+// ---------------------------------------------------------------------------
+// recordInviteUse — consume one use without creating a member row
+// ---------------------------------------------------------------------------
+
+/**
+ * Increment an invite's use count and record redemption metadata without
+ * inserting a new member row. Used when reactivating an existing inactive
+ * member via invite — the member row already exists and just needs an
+ * update, so the transactional INSERT in `redeemInvite` would hit a
+ * unique-key constraint.
+ *
+ * Returns `true` if the use was recorded, or `false` if the invite was
+ * concurrently revoked/expired (the WHERE clause constrains to
+ * `status = 'active'` so a stale write is impossible).
+ */
+export function recordInviteUse(params: {
+  inviteId: string;
+  externalUserId?: string;
+  externalChatId?: string;
+}): boolean {
+  const db = getDb();
+  const now = Date.now();
+
+  const invite = db
+    .select()
+    .from(assistantIngressInvites)
+    .where(eq(assistantIngressInvites.id, params.inviteId))
+    .get();
+
+  if (!invite) return false;
+
+  const newUseCount = invite.useCount + 1;
+  const newStatus = newUseCount >= invite.maxUses ? 'redeemed' : 'active';
+
+  // Constrain the update to active invites so a concurrent revoke/expire
+  // prevents this write rather than silently overwriting the new status.
+  const result = db.update(assistantIngressInvites)
+    .set({
+      useCount: newUseCount,
+      status: newStatus,
+      redeemedByExternalUserId: params.externalUserId ?? null,
+      redeemedByExternalChatId: params.externalChatId ?? null,
+      redeemedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(assistantIngressInvites.id, invite.id),
+        eq(assistantIngressInvites.status, 'active'),
+      ),
+    )
+    .run();
+
+  return result.changes > 0;
+}
+
+// ---------------------------------------------------------------------------
+// markInviteExpired
+// ---------------------------------------------------------------------------
+
+/**
+ * Transition an invite's status to 'expired' in storage. This is safe to call
+ * even if the invite is already expired — the WHERE clause scopes the update
+ * to 'active' rows so it becomes a no-op in that case.
+ */
+export function markInviteExpired(inviteId: string): void {
+  const db = getDb();
+  const now = Date.now();
+
+  db.update(assistantIngressInvites)
+    .set({ status: 'expired', updatedAt: now })
+    .where(
+      and(
+        eq(assistantIngressInvites.id, inviteId),
+        eq(assistantIngressInvites.status, 'active'),
+      ),
+    )
+    .run();
 }
 
 // ---------------------------------------------------------------------------
