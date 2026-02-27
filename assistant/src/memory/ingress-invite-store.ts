@@ -268,6 +268,12 @@ export function redeemInvite(params: {
     return { error: 'invite_max_uses_reached' };
   }
 
+  // Enforce channel-scoped redemption: when the caller specifies a channel, it
+  // must match the channel the invite was created for.
+  if (params.sourceChannel && params.sourceChannel !== invite.sourceChannel) {
+    return { error: 'invite_channel_mismatch' };
+  }
+
   const newUseCount = invite.useCount + 1;
   const newStatus = newUseCount >= invite.maxUses ? 'redeemed' : 'active';
 

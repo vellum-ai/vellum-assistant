@@ -1,0 +1,222 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+
+const testDir = mkdtempSync(join(tmpdir(), 'invite-redemption-service-test-'));
+
+mock.module('../util/platform.js', () => ({
+  getDataDir: () => testDir,
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getSocketPath: () => join(testDir, 'test.sock'),
+  getPidPath: () => join(testDir, 'test.pid'),
+  getDbPath: () => join(testDir, 'test.db'),
+  getLogPath: () => join(testDir, 'test.log'),
+  ensureDataDir: () => {},
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
+import { getSqlite, initializeDb, resetDb } from '../memory/db.js';
+import { createInvite } from '../memory/ingress-invite-store.js';
+import { upsertMember } from '../memory/ingress-member-store.js';
+import { redeemInvite, type InviteRedemptionOutcome } from '../runtime/invite-redemption-service.js';
+
+initializeDb();
+
+afterAll(() => {
+  resetDb();
+  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+});
+
+function resetTables() {
+  getSqlite().run('DELETE FROM assistant_ingress_members');
+  getSqlite().run('DELETE FROM assistant_ingress_invites');
+}
+
+describe('invite-redemption-service', () => {
+  beforeEach(resetTables);
+
+  test('redeems a valid invite and returns typed outcome', () => {
+    const { rawToken, invite } = createInvite({ sourceChannel: 'telegram', maxUses: 1 });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: 'telegram',
+      externalUserId: 'user-1',
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome).toEqual({
+      ok: true,
+      type: 'redeemed',
+      memberId: expect.any(String),
+      inviteId: invite.id,
+    });
+  });
+
+  test('returns invalid_token for a bogus token', () => {
+    const outcome = redeemInvite({
+      rawToken: 'totally-bogus-token',
+      sourceChannel: 'telegram',
+      externalUserId: 'user-1',
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'invalid_token' });
+  });
+
+  test('returns expired for an expired invite', () => {
+    // Create an invite that expired 1 ms ago
+    const { rawToken } = createInvite({
+      sourceChannel: 'telegram',
+      maxUses: 1,
+      expiresInMs: -1,
+    });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: 'telegram',
+      externalUserId: 'user-1',
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'expired' });
+  });
+
+  test('returns revoked for a revoked invite', () => {
+    const { revokeInvite: revokeStoreFn } = require('../memory/ingress-invite-store.js') as typeof import('../memory/ingress-invite-store.js');
+
+    const { rawToken, invite } = createInvite({
+      sourceChannel: 'telegram',
+      maxUses: 1,
+    });
+    revokeStoreFn(invite.id);
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: 'telegram',
+      externalUserId: 'user-1',
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'revoked' });
+  });
+
+  test('returns max_uses_reached when invite is fully consumed', () => {
+    const { rawToken } = createInvite({ sourceChannel: 'telegram', maxUses: 1 });
+
+    // First redemption should succeed
+    const first = redeemInvite({
+      rawToken,
+      sourceChannel: 'telegram',
+      externalUserId: 'user-1',
+    });
+    expect(first.ok).toBe(true);
+
+    // Second attempt should fail — the invite is now fully redeemed
+    const second = redeemInvite({
+      rawToken,
+      sourceChannel: 'telegram',
+      externalUserId: 'user-2',
+    });
+
+    expect(second).toEqual({ ok: false, reason: 'max_uses_reached' });
+  });
+
+  test('returns channel_mismatch when redeeming on wrong channel', () => {
+    const { rawToken } = createInvite({ sourceChannel: 'telegram', maxUses: 1 });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: 'sms',
+      externalUserId: 'user-1',
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'channel_mismatch' });
+  });
+
+  test('returns missing_identity when no externalUserId or externalChatId', () => {
+    const { rawToken } = createInvite({ sourceChannel: 'telegram', maxUses: 1 });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: 'telegram',
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'missing_identity' });
+  });
+
+  test('returns already_member when user is already an active member', () => {
+    const { rawToken } = createInvite({ sourceChannel: 'telegram', maxUses: 5 });
+
+    // Pre-create an active member
+    upsertMember({
+      sourceChannel: 'telegram',
+      externalUserId: 'existing-user',
+      status: 'active',
+    });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: 'telegram',
+      externalUserId: 'existing-user',
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect((outcome as Extract<InviteRedemptionOutcome, { type: 'already_member' }>).type).toBe('already_member');
+    expect((outcome as Extract<InviteRedemptionOutcome, { type: 'already_member' }>).memberId).toEqual(expect.any(String));
+  });
+
+  test('does not return already_member for a revoked member', () => {
+    const { rawToken } = createInvite({ sourceChannel: 'telegram', maxUses: 5 });
+
+    // Pre-create a revoked member
+    const member = upsertMember({
+      sourceChannel: 'telegram',
+      externalUserId: 'revoked-user',
+      status: 'revoked',
+    });
+    expect(member.status).toBe('revoked');
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: 'telegram',
+      externalUserId: 'revoked-user',
+    });
+
+    // Should redeem, not return already_member
+    expect(outcome.ok).toBe(true);
+    expect((outcome as Extract<InviteRedemptionOutcome, { type: 'redeemed' }>).type).toBe('redeemed');
+  });
+
+  test('raw token is not present in the outcome object', () => {
+    const { rawToken } = createInvite({ sourceChannel: 'telegram', maxUses: 1 });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: 'telegram',
+      externalUserId: 'user-1',
+    });
+
+    // Verify the raw token does not appear anywhere in the serialized outcome
+    const serialized = JSON.stringify(outcome);
+    expect(serialized).not.toContain(rawToken);
+  });
+
+  test('channel enforcement blocks cross-channel redemption (voice invite via slack)', () => {
+    const { rawToken } = createInvite({ sourceChannel: 'voice', maxUses: 1 });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: 'slack',
+      externalUserId: 'user-1',
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'channel_mismatch' });
+  });
+});
