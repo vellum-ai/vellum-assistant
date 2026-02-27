@@ -100,6 +100,8 @@ struct SettingsPrivacyTab: View {
         isUpdating = true
         do {
             try await daemonClient.setFeatureFlag(key: Self.collectUsageDataKey, enabled: enabled)
+            // Clear any previous error so stale failure messages don't persist after a successful save.
+            loadError = nil
         } catch {
             // Revert the optimistic toggle on failure
             collectUsageData = !enabled
