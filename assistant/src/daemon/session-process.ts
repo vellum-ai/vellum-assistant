@@ -34,7 +34,7 @@ import { processGuardianFollowUpTurn } from '../runtime/guardian-action-conversa
 import { executeFollowupAction } from '../runtime/guardian-action-followup-executor.js';
 import { tryMintGuardianActionGrant } from '../runtime/guardian-action-grant-minter.js';
 import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
-import type { GuardianActionCopyGenerator, GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
+import type { ApprovalConversationGenerator, GuardianActionCopyGenerator, GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
 import { getLogger } from '../util/logger.js';
 import { resolveGuardianVerificationIntent } from './guardian-verification-intent.js';
 import type { UsageStats } from './ipc-contract.js';
@@ -55,6 +55,7 @@ const log = getLogger('session-process');
 // generator through Session / DaemonServer constructors.
 let _guardianFollowUpGenerator: GuardianFollowUpConversationGenerator | undefined;
 let _guardianActionCopyGenerator: GuardianActionCopyGenerator | undefined;
+let _approvalConversationGenerator: ApprovalConversationGenerator | undefined;
 
 /** Inject the guardian follow-up conversation generator (called from lifecycle.ts). */
 export function setGuardianFollowUpConversationGenerator(gen: GuardianFollowUpConversationGenerator): void {
@@ -64,6 +65,11 @@ export function setGuardianFollowUpConversationGenerator(gen: GuardianFollowUpCo
 /** Inject the guardian action copy generator (called from lifecycle.ts). */
 export function setGuardianActionCopyGenerator(gen: GuardianActionCopyGenerator): void {
   _guardianActionCopyGenerator = gen;
+}
+
+/** Inject the approval conversation generator (called from lifecycle.ts). */
+export function setApprovalConversationGenerator(gen: ApprovalConversationGenerator): void {
+  _approvalConversationGenerator = gen;
 }
 
 /** Build a model_info event with fresh config data. */
@@ -525,7 +531,7 @@ export async function processMessage(
           if ('ok' in answerResult && answerResult.ok) {
             const resolved = resolveGuardianActionRequest(request.id, answerText, 'vellum');
             if (resolved) {
-              tryMintGuardianActionGrant({ resolvedRequest: resolved, answerText, decisionChannel: 'vellum' });
+              await tryMintGuardianActionGrant({ request, answerText, decisionChannel: 'vellum', approvalConversationGenerator: _approvalConversationGenerator });
             }
             const replyText = resolved
               ? 'Your answer has been relayed to the call.'
@@ -623,7 +629,7 @@ export async function processMessage(
                 if ('ok' in remapResult && remapResult.ok) {
                   const resolved = resolveGuardianActionRequest(currentPending.id, answerText, 'vellum');
                   if (resolved) {
-                    tryMintGuardianActionGrant({ resolvedRequest: resolved, answerText, decisionChannel: 'vellum' });
+                    await tryMintGuardianActionGrant({ request: currentPending, answerText, decisionChannel: 'vellum', approvalConversationGenerator: _approvalConversationGenerator });
                   }
                   const remapText = await composeGuardianActionMessageGenerative({ scenario: 'guardian_superseded_remap', questionText: currentPending.questionText }, {}, _guardianActionCopyGenerator);
                   const remapMsg = createAssistantMessage(remapText);

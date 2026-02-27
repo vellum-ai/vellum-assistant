@@ -985,12 +985,14 @@ export async function handleChannelInbound(
           const resolved = resolveGuardianActionRequest(request.id, answerText, sourceChannel, body.senderExternalUserId);
 
           if (resolved) {
-            tryMintGuardianActionGrant({
-              resolvedRequest: resolved,
+            await tryMintGuardianActionGrant({
+              request,
               answerText,
               decisionChannel: sourceChannel,
               guardianExternalUserId: body.senderExternalUserId,
+              approvalConversationGenerator,
             });
+
             return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'resolved' });
           } else {
             const freshRequest = getGuardianActionRequest(request.id);
@@ -1104,12 +1106,14 @@ export async function handleChannelInbound(
 
                 if ('ok' in remapResult && remapResult.ok) {
                   const resolved = resolveGuardianActionRequest(currentPending.id, answerText, sourceChannel, body.senderExternalUserId);
+
                   if (resolved) {
-                    tryMintGuardianActionGrant({
-                      resolvedRequest: resolved,
+                    await tryMintGuardianActionGrant({
+                      request: currentPending,
                       answerText,
                       decisionChannel: sourceChannel,
                       guardianExternalUserId: body.senderExternalUserId,
+                      approvalConversationGenerator,
                     });
                   }
 
