@@ -28,6 +28,10 @@ struct SettingsParentalTab: View {
     // -- PIN sheet --
     @State private var showingPINSheet: Bool = false
     @State private var pinSheetMode: PINSheetMode = .set
+    /// Incremented each time the PIN sheet is opened so `.id(pinSheetOpenCount)`
+    /// always produces a fresh PINSheet instance — even when the mode is the same
+    /// as the previous open (e.g. two consecutive "Change PIN" taps).
+    @State private var pinSheetOpenCount: Int = 0
 
     // -- Set-PIN-to-enable sheet (shown when enabling parental controls without an existing PIN) --
     @State private var showingSetPINForEnableSheet: Bool = false
@@ -153,9 +157,9 @@ struct SettingsParentalTab: View {
                 },
                 daemonClient: daemonClient
             )
-            // Force a fresh view instance whenever the mode changes so @State
-            // resets correctly and onAppear always starts at the right step.
-            .id(pinSheetMode)
+            // Force a fresh view instance on every open so @State always resets
+            // to initial values and onAppear reliably fires at the correct step.
+            .id(pinSheetOpenCount)
         }
         .sheet(isPresented: $showingRequestPermissionSheet) {
             RequestPermissionSheet(
@@ -275,6 +279,7 @@ struct SettingsParentalTab: View {
                             errorMessage = nil
                             successMessage = nil
                             pinSheetMode = .change
+                            pinSheetOpenCount += 1
                             showingPINSheet = true
                         }
                     } else {
@@ -282,6 +287,7 @@ struct SettingsParentalTab: View {
                             errorMessage = nil
                             successMessage = nil
                             pinSheetMode = .set
+                            pinSheetOpenCount += 1
                             showingPINSheet = true
                         }
                     }
@@ -1233,7 +1239,9 @@ private struct PINSheet: View {
         case enterCurrent, enterNew, confirmNew
     }
 
-    @State private var step: Step = .enterCurrent
+    // Initialized from `mode` so the very first render already shows the
+    // correct step — no waiting for onAppear.
+    @State private var step: Step
     /// The single active input field — reset to "" on every step transition so
     /// `.id(step)` always recreates `PINCircleField` with a clean, focused field.
     @State private var pinInput: String = ""
@@ -1248,6 +1256,13 @@ private struct PINSheet: View {
     @State private var pinFocusTrigger: Int = 0
 
     @Environment(\.dismiss) private var dismiss
+
+    init(mode: PINSheetMode, onComplete: @escaping (PINSheetResult) -> Void, daemonClient: DaemonClient?) {
+        self.mode = mode
+        self.onComplete = onComplete
+        self.daemonClient = daemonClient
+        _step = State(initialValue: mode == .set ? .enterNew : .enterCurrent)
+    }
 
     private var title: String {
         switch mode {
