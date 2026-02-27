@@ -8,8 +8,8 @@
 import type {
   SlackApiResponse,
   SlackAuthTestResponse,
-  SlackConversationHistoryResponse,
   SlackChatDeleteResponse,
+  SlackConversationHistoryResponse,
   SlackConversationLeaveResponse,
   SlackConversationMarkResponse,
   SlackConversationRepliesResponse,
