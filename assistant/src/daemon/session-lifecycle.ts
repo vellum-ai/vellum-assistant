@@ -19,11 +19,12 @@ import { repairHistory } from './history-repair.js';
 import type { SurfaceData,SurfaceType, UsageStats } from './ipc-protocol.js';
 import { unregisterCallNotifiers,unregisterWatchNotifiers } from './session-notifiers.js';
 import type { MessageQueue } from './session-queue-manager.js';
+import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
 import { resetSkillToolProjection } from './session-skill-tools.js';
 
 const log = getLogger('session-lifecycle');
 
-type GuardianActorRole = 'guardian' | 'non-guardian' | 'unverified_channel';
+type GuardianActorRole = GuardianRuntimeContext['actorRole'];
 
 function parseProvenanceActorRole(metadata: string | null): GuardianActorRole | undefined {
   if (!metadata) return undefined;
