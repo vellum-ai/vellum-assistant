@@ -271,6 +271,31 @@ export class ToolApprovalHandler {
         return { allowed: true, tool, grantConsumed: true };
       }
 
+      // Treat abort as a cancellation — not a grant denial. This matches
+      // the abort check at the top of checkPreExecutionGates so the caller
+      // sees a consistent "Cancelled" result instead of a spurious
+      // guardian_approval_required denial during voice barge-in.
+      if (grantResult.reason === 'aborted') {
+        const durationMs = Date.now() - startTime;
+        emitLifecycleEvent({
+          type: 'error',
+          toolName: name,
+          executionTarget,
+          input,
+          workingDir: context.workingDir,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          requestId: context.requestId,
+          riskLevel,
+          decision: 'error',
+          durationMs,
+          errorMessage: 'Cancelled',
+          isExpected: true,
+          errorCategory: 'tool_failure',
+        });
+        return { allowed: false, result: { content: 'Cancelled', isError: true } };
+      }
+
       // No matching grant or race condition — deny.
       const reason = guardianApprovalDeniedMessage(context.guardianActorRole, name);
       log.warn({

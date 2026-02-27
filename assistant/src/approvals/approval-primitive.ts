@@ -167,7 +167,7 @@ export interface ConsumeByToolSignatureParams {
 
 export type ConsumeGrantResult =
   | { ok: true; grant: ScopedApprovalGrant }
-  | { ok: false; reason: 'no_match' | 'scope_mismatch' | 'expired' | 'already_consumed' };
+  | { ok: false; reason: 'no_match' | 'scope_mismatch' | 'expired' | 'already_consumed' | 'aborted' };
 
 export interface ConsumeGrantParams {
   requestId?: string;
@@ -339,14 +339,16 @@ export async function consumeGrantForInvocation(
   while (Date.now() < deadline) {
     // Exit promptly on cancellation (e.g. voice barge-in) so the session
     // can tear down the current turn without waiting for the full timeout.
+    // Returns 'aborted' (not 'no_match') so callers can distinguish
+    // cancellation from a genuine grant miss.
     if (signal?.aborted) {
-      return first;
+      return { ok: false, reason: 'aborted' };
     }
 
     await new Promise((resolve) => setTimeout(resolve, interval));
 
     if (signal?.aborted) {
-      return first;
+      return { ok: false, reason: 'aborted' };
     }
 
     const result = consumeGrantSync(params);
