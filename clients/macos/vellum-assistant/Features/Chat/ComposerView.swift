@@ -293,7 +293,10 @@ struct ComposerView: View {
                     )
                 }
                 .onAppear {
-                    isStopPulsing = isSending && !hasPendingConfirmation
+                    isStopPulsing = false
+                    DispatchQueue.main.async {
+                        isStopPulsing = isSending && !hasPendingConfirmation
+                    }
                 }
                 .accessibilityLabel("Stop generation")
             } else {
