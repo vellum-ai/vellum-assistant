@@ -11,7 +11,7 @@
 import "dotenv/config";
 
 import { type ChildProcess, spawn } from "child_process";
-import { mkdirSync, readdirSync, readFileSync } from "fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
@@ -77,6 +77,16 @@ function discoverTestCases(casesDir: string, filter?: string): TestCase[] {
   }
 
   return cases;
+}
+
+// ── Formatting ──────────────────────────────────────────────────────
+
+function formatDuration(ms: number): string {
+  const secs = Math.floor(ms / 1000);
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  if (mins === 0) return `${remSecs}s`;
+  return `${mins}m ${remSecs}s`;
 }
 
 // ── Runner ──────────────────────────────────────────────────────────
@@ -231,6 +241,22 @@ async function main(): Promise<void> {
     `Results: ${passed} passed, ${failed} failed (${(totalDuration / 1000).toFixed(1)}s total)`,
   );
   console.log("─".repeat(60));
+
+  // Write test report for artifact consumption
+  const reportDir = path.resolve(__dirname, "../test-results");
+  mkdirSync(reportDir, { recursive: true });
+  const report = {
+    timestamp: new Date().toISOString(),
+    summary: { passed, failed, totalDurationMs: totalDuration },
+    tests: results.map((r) => ({
+      name: r.name,
+      passed: r.passed,
+      message: r.message,
+      durationMs: r.durationMs,
+      duration: formatDuration(r.durationMs),
+    })),
+  };
+  writeFileSync(path.join(reportDir, "test-report.json"), JSON.stringify(report, null, 2));
 
   if (failed > 0) {
     process.exit(1);

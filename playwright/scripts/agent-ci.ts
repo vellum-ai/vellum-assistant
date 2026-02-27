@@ -58,6 +58,50 @@ function stepIcon(step: StepInfo): string {
   return "○";
 }
 
+function formatStepDuration(step: StepInfo): string {
+  if (step.startedAt && step.completedAt) {
+    const start = new Date(step.startedAt);
+    const end = new Date(step.completedAt);
+    const secs = Math.floor((end.getTime() - start.getTime()) / 1000);
+    const mins = Math.floor(secs / 60);
+    const remSecs = secs % 60;
+    if (mins === 0) return `${remSecs}s`;
+    return `${mins}m ${remSecs}s`;
+  }
+  if (step.startedAt && step.status === "in_progress") {
+    const secs = Math.floor((Date.now() - new Date(step.startedAt).getTime()) / 1000);
+    const mins = Math.floor(secs / 60);
+    const remSecs = secs % 60;
+    if (mins === 0) return `${remSecs}s`;
+    return `${mins}m ${remSecs}s`;
+  }
+  return "";
+}
+
+interface TestLine {
+  name: string;
+  passed: boolean;
+  duration: string;
+}
+
+/** Parse test result lines from the "Run Playwright tests" step logs. */
+function parseTestLines(logText: string): TestLine[] {
+  const tests: TestLine[] = [];
+  // Match runner output: "  ✓ test-name (12.3s)" or "  ✗ test-name (12.3s)"
+  const regex = /^\s*[✓✗]\s+(.+?)\s+\(([^)]+)\)/gm;
+  let match;
+  while ((match = regex.exec(logText)) !== null) {
+    tests.push({
+      name: match[1],
+      passed: logText[match.index + logText.slice(match.index).search(/[✓✗]/)] === "✓",
+      duration: match[2],
+    });
+  }
+  return tests;
+}
+
+let cachedTestLines: TestLine[] = [];
+
 function renderStatus(runUrl: string, startTime: Date, jobs: JobInfo[]): void {
   const lines: string[] = [];
 
@@ -76,8 +120,19 @@ function renderStatus(runUrl: string, startTime: Date, jobs: JobInfo[]): void {
 
   for (const step of job.steps) {
     const icon = stepIcon(step);
+    const duration = formatStepDuration(step);
+    const durationSuffix = duration ? ` \x1b[90m(${duration})\x1b[0m` : "";
     const color = step.conclusion === "failure" ? "\x1b[31m" : step.conclusion === "success" ? "\x1b[32m" : step.status === "in_progress" ? "\x1b[33m" : "\x1b[90m";
-    lines.push(`  ${color}${icon}\x1b[0m ${step.name}`);
+    lines.push(`  ${color}${icon}\x1b[0m ${step.name}${durationSuffix}`);
+
+    // Show test sub-bullets under "Run Playwright tests"
+    if (step.name === "Run Playwright tests" && cachedTestLines.length > 0) {
+      for (const t of cachedTestLines) {
+        const tIcon = t.passed ? "✓" : "✗";
+        const tColor = t.passed ? "\x1b[32m" : "\x1b[31m";
+        lines.push(`    ${tColor}${tIcon}\x1b[0m ${t.name} \x1b[90m(${t.duration})\x1b[0m`);
+      }
+    }
   }
 
   process.stdout.write(lines.join("\n") + "\n");
@@ -141,6 +196,26 @@ while (true) {
       jobs: JobInfo[];
     };
 
+    // Fetch test sub-bullets from job logs when the test step has finished
+    const playwrightJob = run.jobs.find((j) => j.name === "Playwright Tests");
+    const testStep = playwrightJob?.steps.find((s) => s.name === "Run Playwright tests");
+    if (testStep?.completedAt && cachedTestLines.length === 0 && playwrightJob) {
+      try {
+        const { stdout: jobsJson } = gh([
+          "run", "view", runId, "-R", REPO, "--json", "jobs", "--jq",
+          `.jobs[] | select(.name == "Playwright Tests") | .databaseId`,
+        ]);
+        if (jobsJson) {
+          const { stdout: logText } = gh([
+            "api", `repos/${REPO}/actions/jobs/${jobsJson}/logs`,
+          ]);
+          cachedTestLines = parseTestLines(logText);
+        }
+      } catch {
+        // Log fetching may fail; continue without sub-bullets
+      }
+    }
+
     renderStatus(runUrl, startTime, run.jobs);
 
     if (run.status === "completed") {
@@ -159,6 +234,16 @@ const icon = conclusion === "success" ? "✓" : "✗";
 const color = conclusion === "success" ? "\x1b[32m" : "\x1b[31m";
 console.log(`\n${color}${icon}\x1b[0m Playwright Tests ${conclusion} in ${formatElapsed(startTime)}`);
 console.log(`  ${runUrl}`);
+
+// Show individual test results
+if (cachedTestLines.length > 0) {
+  console.log("\n  Tests:");
+  for (const t of cachedTestLines) {
+    const tIcon = t.passed ? "✓" : "✗";
+    const tColor = t.passed ? "\x1b[32m" : "\x1b[31m";
+    console.log(`    ${tColor}${tIcon}\x1b[0m ${t.name} \x1b[90m(${t.duration})\x1b[0m`);
+  }
+}
 
 // Fetch specific artifact URL
 const { stdout: artifactJson } = gh([
