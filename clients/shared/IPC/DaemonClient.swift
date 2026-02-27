@@ -1555,6 +1555,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         let flags: [AssistantFeatureFlagEntry]
     }
 
+    /// Resolve the runtime bearer token from either `httpTransport` or the on-disk token file.
+    /// Returns `nil` when no runtime token is available.
+    private func resolveRuntimeBearerToken() -> String? {
+        if let httpTransport = self.httpTransport, let bt = httpTransport.bearerToken, !bt.isEmpty {
+            return bt
+        }
+        return readHttpToken()
+    }
+
     /// Fetch all assistant feature flags from the gateway's `GET /v1/feature-flags` endpoint.
     /// Uses the runtime bearer token or feature-flag token for auth.
     ///
@@ -1564,6 +1573,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         let token: String
         if let ffToken = config.featureFlagToken, !ffToken.isEmpty {
             token = ffToken
+        } else if let runtimeToken = resolveRuntimeBearerToken(), !runtimeToken.isEmpty {
+            // The gateway GET /v1/feature-flags accepts either the feature-flag
+            // token or the runtime bearer token, so fall back to the runtime
+            // token for clients that only have it (e.g. older pairings).
+            token = runtimeToken
         } else {
             throw FeatureFlagError.missingToken
         }

@@ -402,8 +402,17 @@ struct SettingsAccountTab: View {
             }
         }
 
-        // Fallback: read from local workspace config (legacy path)
+        // Fallback: read from local workspace config
         let config = WorkspaceConfigIO.read()
+
+        // Check canonical assistantFeatureFlagValues first (new format)
+        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool],
+           let enabled = canonicalFlags[Self.hatchFlagKey] {
+            isHatchFlagEnabled = enabled
+            return
+        }
+
+        // Check legacy featureFlags section
         if let featureFlags = config["featureFlags"] as? [String: Any] {
             let legacyKeys = [
                 "skills.hatch_new_assistant.enabled",
