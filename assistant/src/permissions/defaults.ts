@@ -132,7 +132,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     scope: workspaceDir,
     decision: 'allow',
     priority: 100,
-    allowHighRisk: true,
   };
 
   const updatesDeleteRule: DefaultRuleTemplate = {
@@ -142,7 +141,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     scope: workspaceDir,
     decision: 'allow',
     priority: 100,
-    allowHighRisk: true,
   };
 
   // Skill source directories — writing or editing skill source files should
