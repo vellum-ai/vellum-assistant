@@ -484,12 +484,7 @@ struct VoiceSettingsView: View {
                     }
                 }
             } else {
-                SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
-                    .vInputStyle()
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-
-                VButton(label: "Save", style: .primary) {
+                VInlineActionField(text: $elevenLabsKeyText, placeholder: "Your ElevenLabs API key", isSecure: true) {
                     store.saveElevenLabsKey(elevenLabsKeyText)
                     elevenLabsKeyText = ""
                 }
