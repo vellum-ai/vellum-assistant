@@ -712,6 +712,22 @@ public final class SettingsStore: ObservableObject {
             log.error("Failed to send parental control get request on init: \(error)")
         }
 
+        // Re-fetch parental control state on (re)connect so the profile switcher
+        // in the sidebar appears immediately without the user needing to open Settings.
+        if let daemonClient {
+            daemonClient.$isConnected
+                .filter { $0 }
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    do {
+                        try self.daemonClient?.sendParentalControlGet()
+                    } catch {
+                        log.error("Failed to re-fetch parental control state after reconnect: \(error)")
+                    }
+                }
+                .store(in: &cancellables)
+        }
+
         // Ingress config is refreshed by onAppear in SettingsPanel,
         // not here, to avoid duplicate get requests whose
         // stale responses could overwrite an optimistic toggle.

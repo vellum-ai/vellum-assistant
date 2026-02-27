@@ -19,8 +19,11 @@ struct ThreadModel: Identifiable, Hashable {
     var kind: ThreadKind
     var source: String?
     var hasUnseenLatestAssistantMessage: Bool = false
+    /// The profile this thread belongs to ("parental" or "child").
+    /// Used to hide parental threads from child mode and vice versa.
+    var profile: String
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil, hasUnseenLatestAssistantMessage: Bool = false) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, profile: String = "parental") {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -32,6 +35,7 @@ struct ThreadModel: Identifiable, Hashable {
         self.kind = kind
         self.source = source
         self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
+        self.profile = profile
     }
 
     /// Whether this thread was created by a schedule or reminder trigger.

@@ -199,6 +199,7 @@ final class ThreadSessionRestorer {
                 .title
             let title = existingTitle ?? session.title
 
+            let storedProfiles = (UserDefaults.standard.dictionary(forKey: "threadSessionProfiles") as? [String: String]) ?? [:]
             let thread = ThreadModel(
                 title: title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
@@ -206,7 +207,8 @@ final class ThreadSessionRestorer {
                 isArchived: delegate.isSessionArchived(session.id),
                 kind: kind,
                 source: session.source,
-                hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+                hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
+                profile: storedProfiles[session.id] ?? "parental"
             )
             // VM creation is lazy — only the active thread will get a VM via
             // getOrCreateViewModel() when it's first accessed.
