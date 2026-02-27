@@ -280,6 +280,68 @@ External users who are not the guardian can gain access to the assistant through
 | `src/memory/channel-guardian-store.ts` | Approval request and verification challenge persistence |
 | `src/config/vellum-skills/trusted-contacts/SKILL.md` | Skill teaching the assistant to manage contacts via HTTP API |
 
+### Guardian-Initiated Invite Links
+
+A complementary access-granting flow where the guardian proactively creates a shareable invite link rather than waiting for an unknown user to request access. Currently implemented for Telegram; the architecture supports future channel adapters.
+
+**Three-layer architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Conversational Orchestration (guardian-invite-intent.ts)    │
+│  Pattern-based intent detection → forces trusted-contacts    │
+│  skill load for create / list / revoke actions               │
+├─────────────────────────────────────────────────────────────┤
+│  Channel Transport Adapters (channel-invite-transport.ts)    │
+│  Registry of per-channel adapters:                           │
+│    • buildShareableInvite(token) → { url, displayText }     │
+│    • extractInboundToken(payload) → token | undefined        │
+│  Registered: Telegram  │  Deferred: SMS, Slack, Voice       │
+├─────────────────────────────────────────────────────────────┤
+│  Core Redemption Engine (invite-redemption-service.ts)       │
+│  Channel-agnostic token validation, expiry, use-count,       │
+│  channel-match enforcement, member creation/reactivation     │
+│  Returns: InviteRedemptionOutcome (discriminated union)      │
+│  Reply templates: invite-redemption-templates.ts             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Invite link flow (Telegram):**
+
+1. Guardian asks the assistant to create an invite via desktop chat.
+2. `guardian-invite-intent.ts` detects the intent and rewrites the message to force-load the `trusted-contacts` skill.
+3. The skill calls the ingress HTTP API to create an invite token, then calls the Telegram transport adapter to build a deep link: `https://t.me/<bot>?start=iv_<token>`.
+4. Guardian shares the link with the invitee out-of-band.
+5. Invitee clicks the link, opening Telegram which sends `/start iv_<token>` to the bot.
+6. The gateway forwards the message to `/channels/inbound`. The inbound handler calls `getTransport('telegram').extractInboundToken()` to parse the `iv_` token.
+7. The token is redeemed via `invite-redemption-service.ts`, which validates, creates an active member record, and returns a `redeemed` outcome.
+8. A deterministic welcome message is delivered to the invitee (bypasses the LLM pipeline).
+
+**Token prefix convention:** The `iv_` prefix distinguishes invite tokens from `gv_` (guardian verification) tokens. Both use the same Telegram `/start` deep-link mechanism but are routed to different handlers.
+
+**Inbound intercept points:** Invite token extraction runs early in the inbound handler, before ACL denial, so valid invites short-circuit the membership check. Two intercept branches handle: (a) non-members — the invite creates their first member record; (b) inactive members (revoked/pending) — the invite reactivates them.
+
+**Deferred channel adapters:**
+
+| Channel | Status | Prerequisites |
+|---------|--------|--------------|
+| Telegram | Shipped | Bot username resolved from credential metadata or `TELEGRAM_BOT_USERNAME` env |
+| SMS | Deferred | Needs a deep-link strategy compatible with SMS (short URL or web redemption page) |
+| Slack | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing |
+| Voice | Deferred | Needs DTMF or speech-based token capture integrated with the voice relay state machine |
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/runtime/invite-redemption-service.ts` | Core redemption engine — token validation, member creation, discriminated-union outcomes |
+| `src/runtime/invite-redemption-templates.ts` | Deterministic reply templates for each redemption outcome |
+| `src/runtime/channel-invite-transport.ts` | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface |
+| `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction |
+| `src/daemon/guardian-invite-intent.ts` | Intent detection — routes create/list/revoke requests into the trusted-contacts skill |
+| `src/runtime/ingress-service.ts` | Shared business logic for invite/member operations (used by both HTTP routes and IPC) |
+| `src/runtime/routes/inbound-message-handler.ts` | Invite token intercept in the inbound flow (non-member and inactive-member branches) |
+
 ### Update Bulletin System
 
 Release-driven update notification system that surfaces release notes to the assistant via the system prompt.
