@@ -40,21 +40,20 @@ mock.module('../util/logger.js', () => ({
 import type { Session } from '../daemon/session.js';
 import {
   createApprovalRequest,
-  createBinding,
-  getAllPendingApprovalsByGuardianChat,
   type GuardianApprovalRequest,
 } from '../memory/channel-guardian-store.js';
-import { initializeDb, resetDb } from '../memory/db.js';
-import * as scopedGrantStore from '../memory/scoped-approval-grants.js';
-import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import * as approvalMessageComposer from '../runtime/approval-message-composer.js';
 import * as gatewayClient from '../runtime/gateway-client.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
-import {
-  handleApprovalInterception,
-  GRANT_TTL_MS,
-} from '../runtime/routes/guardian-approval-interception.js';
 import type { GuardianContext } from '../runtime/routes/channel-route-shared.js';
+import {
+  GRANT_TTL_MS,
+  handleApprovalInterception,
+} from '../runtime/routes/guardian-approval-interception.js';
+import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
+
+import '../memory/scoped-approval-grants.js';
 
 initializeDb();
 
@@ -78,7 +77,6 @@ const TOOL_INPUT = { command: 'rm -rf /tmp/test' };
 
 function resetTables(): void {
   try {
-    const { getDb } = require('../memory/db.js');
     const db = getDb();
     db.run('DELETE FROM channel_guardian_approval_requests');
     db.run('DELETE FROM scoped_approval_grants');
@@ -144,16 +142,8 @@ function makeGuardianContext(): GuardianContext {
   };
 }
 
-function makeNonGuardianContext(): GuardianContext {
-  return {
-    actorRole: 'non-guardian',
-    denialReason: undefined,
-  };
-}
-
 function countGrants(): number {
   try {
-    const { getDb } = require('../memory/db.js');
     const db = getDb();
     const row = db.$client.prepare('SELECT count(*) as cnt FROM scoped_approval_grants').get() as { cnt: number };
     return row.cnt;
@@ -164,7 +154,6 @@ function countGrants(): number {
 
 function getLatestGrant(): Record<string, unknown> | null {
   try {
-    const { getDb } = require('../memory/db.js');
     const db = getDb();
     const row = db.$client.prepare('SELECT * FROM scoped_approval_grants ORDER BY created_at DESC LIMIT 1').get();
     return (row as Record<string, unknown>) ?? null;

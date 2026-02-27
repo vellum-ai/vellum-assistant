@@ -29,16 +29,16 @@ mock.module('../util/logger.js', () => ({
   truncateForLog: (value: string) => value,
 }));
 
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { scopedApprovalGrants } from '../memory/schema.js';
 import {
-  type CreateScopedApprovalGrantParams,
   consumeScopedApprovalGrantByRequestId,
   consumeScopedApprovalGrantByToolSignature,
   createScopedApprovalGrant,
+  type CreateScopedApprovalGrantParams,
   expireScopedApprovalGrants,
   revokeScopedApprovalGrantsForContext,
 } from '../memory/scoped-approval-grants.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { scopedApprovalGrants } from '../memory/schema.js';
 import {
   canonicalJsonSerialize,
   computeToolApprovalDigest,
@@ -389,7 +389,7 @@ describe('scoped-approval-grants / expiry', () => {
   });
 
   test('already-consumed grants are not affected by expiry sweep', () => {
-    const pastExpiry = new Date(Date.now() - 1_000).toISOString();
+    const _pastExpiry = new Date(Date.now() - 1_000).toISOString();
     createScopedApprovalGrant(
       grantParams({ scopeMode: 'request_id', requestId: 'req-consumed', expiresAt: new Date(Date.now() + 60_000).toISOString() }),
     );

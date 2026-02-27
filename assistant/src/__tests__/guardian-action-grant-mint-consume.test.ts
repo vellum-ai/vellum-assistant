@@ -46,20 +46,18 @@ mock.module('../util/logger.js', () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────
 
+import { createCallSession, createPendingQuestion } from '../calls/call-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import {
   createGuardianActionRequest,
   resolveGuardianActionRequest,
 } from '../memory/guardian-action-store.js';
+import { conversations, scopedApprovalGrants } from '../memory/schema.js';
 import {
   consumeScopedApprovalGrantByToolSignature,
-  type CreateScopedApprovalGrantParams,
-  createScopedApprovalGrant,
 } from '../memory/scoped-approval-grants.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { conversations, scopedApprovalGrants } from '../memory/schema.js';
-import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { tryMintGuardianActionGrant } from '../runtime/guardian-action-grant-minter.js';
-import { createCallSession, createPendingQuestion } from '../calls/call-store.js';
+import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 
 initializeDb();
 
