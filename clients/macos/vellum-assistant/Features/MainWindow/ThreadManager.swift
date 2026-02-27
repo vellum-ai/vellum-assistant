@@ -70,8 +70,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Flag to suppress lastActiveThreadIdString writes during initialization and session restoration.
     private var isRestoringThreads = false
     /// Subscription to activeViewModel's messages count changes.
-    /// Forwards only message count changes to ThreadManager's objectWillChange.
+    /// Drives activeMessageCount so only message-count-dependent views re-render,
+    /// not the entire window tree.
     private var activeViewModelCancellable: AnyCancellable?
+    /// Tracks the message count of the active thread's view model.
+    /// SwiftUI views that need to react to new messages should observe this
+    /// instead of subscribing to ThreadManager.objectWillChange, which fires
+    /// for every property change and causes full-tree re-renders.
+    @Published public private(set) var activeMessageCount: Int = 0
     /// Subscriptions to per-thread busy-state changes (isSending, isThinking, pendingQueuedCount).
     private var busyStateCancellables: [UUID: Set<AnyCancellable>] = [:]
     /// Subscription to assistant activity per thread.
@@ -290,8 +296,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         threads.remove(at: index)
         chatViewModels.removeValue(forKey: id)
-        unsubscribeFromBusyState(for: id)
-        threadInteractionStates.removeValue(forKey: id)
+        unsubscribeAllForThread(id: id)
         vmAccessOrder.removeAll { $0 == id }
 
         // Reclaim memory held by static caches that may reference
@@ -338,8 +343,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             archivedSessionIds = archived
             // Session ID already known — safe to release the view model.
             chatViewModels.removeValue(forKey: id)
-            unsubscribeFromBusyState(for: id)
-            threadInteractionStates.removeValue(forKey: id)
+            unsubscribeAllForThread(id: id)
             vmAccessOrder.removeAll { $0 == id }
         } else if chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true
                     && chatViewModels[id]?.isBootstrapping != true {
@@ -348,8 +352,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             // a session will never be created, so there is nothing to backfill.
             // Clean up immediately.
             chatViewModels.removeValue(forKey: id)
-            unsubscribeFromBusyState(for: id)
-            threadInteractionStates.removeValue(forKey: id)
+            unsubscribeAllForThread(id: id)
             vmAccessOrder.removeAll { $0 == id }
         } else {
             // Session ID is nil but a session is expected (user messages exist
@@ -798,8 +801,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func removeChatViewModel(for threadId: UUID) {
         chatViewModels.removeValue(forKey: threadId)
-        unsubscribeFromBusyState(for: threadId)
-        threadInteractionStates.removeValue(forKey: threadId)
+        unsubscribeAllForThread(id: threadId)
         vmAccessOrder.removeAll { $0 == threadId }
     }
 
@@ -1056,8 +1058,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             archived.insert(sessionId)
             archivedSessionIds = archived
             chatViewModels.removeValue(forKey: threadId)
-            unsubscribeFromBusyState(for: threadId)
-            threadInteractionStates.removeValue(forKey: threadId)
+            unsubscribeAllForThread(id: threadId)
             vmAccessOrder.removeAll { $0 == threadId }
         }
         // Re-send ordering now that this thread has a session ID.
@@ -1249,7 +1250,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Does NOT clear `threadInteractionStates` — the last known interaction
     /// state is preserved so that evicted (but still visible) threads continue
     /// showing the correct sidebar cue.  Callers that permanently remove a
-    /// thread (close / archive) should clear the entry explicitly.
+    /// thread (close / archive) should use `unsubscribeAllForThread(id:)` instead.
     private func unsubscribeFromBusyState(for threadId: UUID) {
         busyStateCancellables.removeValue(forKey: threadId)
         assistantActivityCancellables[threadId]?.cancel()
@@ -1257,6 +1258,20 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         latestAssistantActivitySnapshots.removeValue(forKey: threadId)
         busyThreadIds.remove(threadId)
         interactionStateCancellables.removeValue(forKey: threadId)
+    }
+
+    /// Atomically cancel all per-thread subscriptions and remove cached state
+    /// for a thread that is being permanently removed (closed, archived, or
+    /// session-backfilled-then-discarded). Unlike `unsubscribeFromBusyState`,
+    /// this also clears `threadInteractionStates` so stale sidebar cues don't linger.
+    private func unsubscribeAllForThread(id: UUID) {
+        busyStateCancellables[id] = nil
+        assistantActivityCancellables[id]?.cancel()
+        assistantActivityCancellables[id] = nil
+        latestAssistantActivitySnapshots.removeValue(forKey: id)
+        busyThreadIds.remove(id)
+        interactionStateCancellables[id] = nil
+        threadInteractionStates.removeValue(forKey: id)
     }
 
     // MARK: - Interaction State
@@ -1322,23 +1337,21 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Subscribe to the active ChatViewModel's messages publisher.
-    /// Only forwards changes when the message count changes, preserving the
-    /// wrapper-view isolation pattern that prevents high-frequency ChatViewModel
-    /// updates (like keystroke events, streaming deltas) from invalidating MainWindowView.
+    /// Updates activeMessageCount so only views that depend on the message count
+    /// re-render, preventing full-tree invalidation on every streaming token.
     private func subscribeToActiveViewModel() {
         // Cancel previous subscription
         activeViewModelCancellable?.cancel()
         activeViewModelCancellable = nil
+        // Reset so views don't show a stale count while the new thread loads.
+        activeMessageCount = 0
 
         // Subscribe to the new active view model if one exists
         guard let viewModel = activeViewModel else { return }
 
-        // Observe message count changes to drive the sidebar unread indicator.
         activeViewModelCancellable = viewModel.messageManager.$messages
-            .map { $0.count }
-            .removeDuplicates()
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
+            .sink { [weak self] newMessages in
+                self?.activeMessageCount = newMessages.count
             }
     }
 
