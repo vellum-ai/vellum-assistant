@@ -36,6 +36,7 @@ import { tryMintGuardianActionGrant } from '../runtime/guardian-action-grant-min
 import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
 import type { GuardianActionCopyGenerator, GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
 import { getLogger } from '../util/logger.js';
+import { resolveGuardianInviteIntent } from './guardian-invite-intent.js';
 import { resolveGuardianVerificationIntent } from './guardian-verification-intent.js';
 import type { UsageStats } from './ipc-contract.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
@@ -299,6 +300,15 @@ export async function drainQueue(session: ProcessSessionContext, reason: QueueDr
       log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent intercepted in queue — forcing skill flow');
       agentLoopContent = guardianIntent.rewrittenContent;
       session.preactivatedSkillIds = ['guardian-verify-setup'];
+    } else {
+      // Guardian invite intent interception — force invite management
+      // requests into the trusted-contacts skill flow.
+      const inviteIntent = resolveGuardianInviteIntent(resolvedContent);
+      if (inviteIntent.kind === 'invite_management') {
+        log.info({ conversationId: session.conversationId, action: inviteIntent.action }, 'Guardian invite intent intercepted in queue — forcing skill flow');
+        agentLoopContent = inviteIntent.rewrittenContent;
+        session.preactivatedSkillIds = ['trusted-contacts'];
+      }
     }
   }
 
@@ -743,6 +753,15 @@ export async function processMessage(
       log.info({ conversationId: session.conversationId, channelHint: guardianIntent.channelHint }, 'Guardian verification intent intercepted — forcing skill flow');
       agentLoopContent = guardianIntent.rewrittenContent;
       session.preactivatedSkillIds = ['guardian-verify-setup'];
+    } else {
+      // Guardian invite intent interception — force invite management
+      // requests into the trusted-contacts skill flow.
+      const inviteIntent = resolveGuardianInviteIntent(resolvedContent);
+      if (inviteIntent.kind === 'invite_management') {
+        log.info({ conversationId: session.conversationId, action: inviteIntent.action }, 'Guardian invite intent intercepted — forcing skill flow');
+        agentLoopContent = inviteIntent.rewrittenContent;
+        session.preactivatedSkillIds = ['trusted-contacts'];
+      }
     }
   }
 

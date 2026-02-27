@@ -56,7 +56,7 @@
     {
       "id": "trusted-contacts",
       "name": "Trusted Contacts",
-      "description": "Manage trusted contacts \u2014 list, allow, revoke, and block users who can message the assistant through external channels",
+      "description": "Manage trusted contacts and Telegram invite links \u2014 list, allow, revoke, block users, and create/list/revoke shareable invite links",
       "emoji": "\ud83d\udc65"
     }
   ]
