@@ -170,8 +170,8 @@ class MockSession {
   }
 }
 
-// Mock child_process to prevent getScreenDimensions() from running Swift on Linux CI
-// where CoreGraphics is not available and the execSync call hangs for 10s.
+// Mock child_process to prevent getScreenDimensions() from running osascript on Linux CI
+// where AppKit/NSScreen is not available and the execSync call would fail.
 mock.module('node:child_process', () => ({
   execSync: () => '1920x1080',
   execFileSync: () => '',
