@@ -134,6 +134,26 @@ describe('assistant feature flag guard', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Test: bundled copy stays in sync with canonical registry
+  // ---------------------------------------------------------------------------
+
+  test('bundled assistant-feature-flag-defaults.json matches the canonical meta/ copy', () => {
+    const canonicalPath = getRegistryPath();
+    const bundledPath = join(process.cwd(), 'src', 'config', 'assistant-feature-flag-defaults.json');
+
+    const canonical = readFileSync(canonicalPath, 'utf-8');
+    const bundled = readFileSync(bundledPath, 'utf-8');
+
+    expect(bundled, [
+      'The bundled copy at assistant/src/config/assistant-feature-flag-defaults.json',
+      'is out of sync with the canonical copy at meta/assistant-feature-flags/assistant-feature-flag-defaults.json.',
+      '',
+      'To fix: copy the canonical file over the bundled one:',
+      '  cp meta/assistant-feature-flags/assistant-feature-flag-defaults.json assistant/src/config/assistant-feature-flag-defaults.json',
+    ].join('\n')).toBe(canonical);
+  });
+
+  // ---------------------------------------------------------------------------
   // Test: registry entries have required fields
   // ---------------------------------------------------------------------------
 
