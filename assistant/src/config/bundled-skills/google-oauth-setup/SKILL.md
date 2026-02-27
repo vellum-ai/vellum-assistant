@@ -109,9 +109,7 @@ Tell the user:
 >
 > A dialog will show your **Client ID** and **Client Secret**. Copy both values — you'll need them in the next step.
 
-(Use the injected `GATEWAY_BASE_URL` value to build the callback URL shown above.)
-
-**Important:** Channel users must use **"Web application"** credentials (not Desktop app) because the OAuth callback goes through the gateway's public URL.
+**Important:** Channel users must use **"Web application"** credentials (not Desktop app) because the OAuth callback goes through the gateway URL.
 
 ### Channel Step 6: Store Credentials
 

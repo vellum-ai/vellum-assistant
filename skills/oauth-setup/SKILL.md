@@ -98,8 +98,8 @@ Take a `browser_screenshot` after adding all scopes.
 
 Check the `redirectUri` from the config:
 - If it mentions "not currently configured", `GATEWAY_BASE_URL`, or `INGRESS_PUBLIC_BASE_URL` — the user needs a public gateway URL configured. Check if one is set; if not, load the `public-ingress` skill first.
-- Otherwise, enter the `redirectUri` exactly as provided.
 - If it says "automatic" — skip this step entirely (no redirect URI needed).
+- Otherwise, enter the `redirectUri` exactly as provided.
 
 Take a `browser_snapshot` to confirm.
 
