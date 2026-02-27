@@ -98,13 +98,15 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             }
             if a.isPinned { return true }
             if b.isPinned { return false }
-            // Threads with explicit displayOrder come before those without
-            if let aOrder = a.displayOrder, let bOrder = b.displayOrder {
-                return aOrder < bOrder
+            // Threads without explicit displayOrder (nil) sort by recency and
+            // appear ABOVE explicitly-ordered threads so new/active threads are
+            // never buried below stale manual ordering.
+            if a.displayOrder == nil && b.displayOrder == nil {
+                return a.lastInteractedAt > b.lastInteractedAt
             }
-            if a.displayOrder != nil { return true }
-            if b.displayOrder != nil { return false }
-            return a.lastInteractedAt > b.lastInteractedAt
+            if a.displayOrder == nil { return true }
+            if b.displayOrder == nil { return false }
+            return a.displayOrder! < b.displayOrder!
         }
     }
 
