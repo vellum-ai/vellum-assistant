@@ -5,7 +5,7 @@ import SwiftUI
 struct HatchingStepView: View {
     @Bindable var state: OnboardingState
 
-    @State private var cliLauncher = CLILauncher()
+    @State private var cliLauncher = AssistantCli()
     @State private var showContent = false
     @State private var eggWobble = false
     @State private var eggCracked = false
@@ -181,7 +181,7 @@ struct HatchingStepView: View {
     private func startHatching() {
         let apiKey = APIKeyManager.getKey() ?? ""
 
-        let config = CLILauncher.RemoteHatchConfig(
+        let config = AssistantCli.RemoteHatchConfig(
             remote: state.cloudProvider,
             gcpProjectId: state.gcpProjectId,
             gcpZone: state.gcpZone,

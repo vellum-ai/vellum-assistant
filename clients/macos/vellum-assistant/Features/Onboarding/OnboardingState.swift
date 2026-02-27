@@ -52,6 +52,7 @@ final class OnboardingState {
     var sshHost: String = ""
     var sshUser: String = ""
     var sshPrivateKey: String = ""
+    var customQRCodeImageData: Data = Data()
     var selectedModel: String = "claude-opus-4-6"
     var isHatching: Bool = false
     var hatchLogLines: [String] = []
