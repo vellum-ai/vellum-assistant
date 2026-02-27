@@ -7,7 +7,7 @@
  * answer resolves the request and all other deliveries are marked answered.
  */
 
-import { and, count, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, lt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getLogger } from '../util/logger.js';
@@ -244,6 +244,45 @@ export function countPendingRequestsByCallSessionId(callSessionId: string): numb
     )
     .get();
   return row?.count ?? 0;
+}
+
+/**
+ * Look up the vellum conversation ID used for the first guardian question
+ * delivery in a given call session. Returns the conversation ID when one
+ * exists, or null if no vellum delivery has been recorded yet.
+ *
+ * Used by guardian-dispatch to enforce deterministic thread affinity:
+ * all guardian questions within the same call session should route to
+ * the same vellum conversation.
+ */
+export function getGuardianConversationIdForCallSession(callSessionId: string): string | null {
+  try {
+    const db = getDb();
+    const row = db
+      .select({ conversationId: guardianActionDeliveries.destinationConversationId })
+      .from(guardianActionDeliveries)
+      .innerJoin(
+        guardianActionRequests,
+        eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
+      )
+      .where(
+        and(
+          eq(guardianActionRequests.callSessionId, callSessionId),
+          eq(guardianActionDeliveries.destinationChannel, 'vellum'),
+          isNotNull(guardianActionDeliveries.destinationConversationId),
+        ),
+      )
+      .orderBy(guardianActionDeliveries.createdAt)
+      .limit(1)
+      .get();
+    return row?.conversationId ?? null;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no such table')) {
+      log.warn({ err }, 'guardian tables not yet created');
+      return null;
+    }
+    throw err;
+  }
 }
 
 /**

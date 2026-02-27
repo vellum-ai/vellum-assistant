@@ -133,6 +133,12 @@ export interface EmitSignalParams {
   routingIntent?: RoutingIntent;
   /** Free-form hints from the source for the decision engine. */
   routingHints?: Record<string, unknown>;
+  /**
+   * Per-channel conversation affinity hint. Forces the decision engine to
+   * reuse the specified conversation for the given channel(s), bypassing
+   * LLM thread-routing judgment. Keyed by channel name, value is conversationId.
+   */
+  conversationAffinityHint?: Partial<Record<string, string>>;
   /** Optional deduplication key. */
   dedupeKey?: string;
   /**
@@ -177,6 +183,7 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
     attentionHints: params.attentionHints,
     routingIntent: params.routingIntent,
     routingHints: params.routingHints,
+    conversationAffinityHint: params.conversationAffinityHint,
   };
 
   try {

@@ -12,6 +12,7 @@ import {
   countPendingRequestsByCallSessionId,
   createGuardianActionDelivery,
   createGuardianActionRequest,
+  getGuardianConversationIdForCallSession,
   updateDeliveryStatus,
 } from '../memory/guardian-action-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
@@ -21,6 +22,11 @@ import { getUserConsultationTimeoutMs } from './call-constants.js';
 import type { CallPendingQuestion } from './types.js';
 
 const log = getLogger('guardian-dispatch');
+
+// Per-callSessionId serialization lock. Ensures that concurrent dispatches for
+// the same call session are serialized so the second dispatch always sees the
+// delivery row (and thus the guardian conversation ID) persisted by the first.
+const pendingDispatches = new Map<string, Promise<void>>();
 
 export interface GuardianDispatchParams {
   callSessionId: string;
@@ -47,6 +53,31 @@ function applyDeliveryStatus(deliveryId: string, result: NotificationDeliveryRes
  * Fire-and-forget: errors are logged but do not propagate.
  */
 export async function dispatchGuardianQuestion(params: GuardianDispatchParams): Promise<void> {
+  const { callSessionId } = params;
+
+  // Serialize concurrent dispatches for the same call session so the second
+  // dispatch always sees the guardian conversation ID persisted by the first.
+  const preceding = pendingDispatches.get(callSessionId);
+  const current = (preceding ?? Promise.resolve()).then(() =>
+    dispatchGuardianQuestionInner(params),
+  );
+  // Store a suppressed-error variant so the chain never rejects, and keep
+  // a stable reference for the cleanup identity check below.
+  const suppressed = current.catch(() => {});
+  pendingDispatches.set(callSessionId, suppressed);
+
+  try {
+    await current;
+  } finally {
+    // Clean up the map entry only if it still points to our promise, to avoid
+    // removing a later dispatch's entry.
+    if (pendingDispatches.get(callSessionId) === suppressed) {
+      pendingDispatches.delete(callSessionId);
+    }
+  }
+}
+
+async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Promise<void> {
   const {
     callSessionId,
     conversationId,
@@ -84,6 +115,22 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
     // in the same call session.
     const activeGuardianRequestCount = countPendingRequestsByCallSessionId(callSessionId);
 
+    // Look up the vellum conversation used for the first guardian question
+    // in this call session. When found, pass it as an affinity hint so the
+    // notification pipeline deterministically routes to the same conversation
+    // instead of letting the LLM choose a different thread.
+    const existingGuardianConversationId = getGuardianConversationIdForCallSession(callSessionId);
+    const conversationAffinityHint = existingGuardianConversationId
+      ? { vellum: existingGuardianConversationId }
+      : undefined;
+
+    if (existingGuardianConversationId) {
+      log.info(
+        { callSessionId, existingGuardianConversationId },
+        'Found existing guardian conversation for call session — enforcing thread affinity',
+      );
+    }
+
     // Route through the canonical notification pipeline. The paired vellum
     // conversation from this pipeline is the canonical guardian thread.
     let vellumDeliveryId: string | null = null;
@@ -107,6 +154,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
         pendingQuestionId: pendingQuestion.id,
         activeGuardianRequestCount,
       },
+      conversationAffinityHint,
       dedupeKey: `guardian:${request.id}`,
       onThreadCreated: (info) => {
         if (info.sourceEventName !== 'guardian.question' || vellumDeliveryId) return;
