@@ -140,6 +140,7 @@ public final class MainWindow {
     let avatarEvolutionState: AvatarEvolutionState?
     var onMicrophoneToggle: (() -> Void)?
     let voiceModeManager = VoiceModeManager()
+    let liveTranscriptManager = LiveTranscriptManager()
 
     /// Wake-up greeting to auto-send after the "coming alive" transition completes.
     /// Set by AppDelegate on first launch; consumed by MainWindowView.
@@ -296,7 +297,7 @@ public final class MainWindow {
             }
         } : nil
 
-        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, avatarEvolutionState: avatarEvolutionState, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
+        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, avatarEvolutionState: avatarEvolutionState, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, liveTranscriptManager: liveTranscriptManager, onSendWakeUp: wakeUpCallback)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
