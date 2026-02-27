@@ -452,6 +452,31 @@ graph TB
     classDef provider fill:#ef5350,stroke:#c62828,color:#fff
 ```
 
+## Assistant Feature Flags
+
+Assistant feature flags are the canonical mechanism for controlling skill availability at runtime. They are separate from macOS client feature flags (which are local-only, stored in UserDefaults, and control client-side UI behavior).
+
+**Separation of concerns:**
+
+| Flag Type | Scope | Storage | Managed By |
+|-----------|-------|---------|------------|
+| Assistant feature flags | Gateway-managed, workspace config | `~/.vellum/workspace/config.json` under `assistantFeatureFlagValues` | Gateway `/v1/feature-flags` API |
+| macOS client feature flags | Local-only, per-device | UserDefaults (plist) | macOS app directly |
+
+**Defaults registry:** All assistant feature flags are declared in `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`. Each entry specifies a `defaultEnabled` value and a human-readable `description`. Flags not declared in the registry default to enabled (open by default).
+
+**Canonical key format:** `feature_flags.<flag_id>.enabled` (e.g., `feature_flags.browser.enabled`). The legacy format `skills.<id>.enabled` is still read from the `featureFlags` config section for backward compatibility but is being phased out.
+
+**Resolution priority:** When determining whether a flag is enabled, the resolver checks (highest priority first):
+1. `config.assistantFeatureFlagValues[key]` (new canonical section)
+2. `config.featureFlags[legacyKey]` (legacy backward-compat mapping)
+3. Defaults registry `defaultEnabled`
+4. `true` (unknown flags are open by default)
+
+**Domain docs:**
+- Assistant-side resolver and enforcement points: [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)
+- Gateway defaults loader and REST API: [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)
+
 ## Maintenance Rule
 
 When architecture changes, update the relevant domain architecture document(s) above and keep this index aligned.
