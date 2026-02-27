@@ -368,14 +368,19 @@ class BrowserManager {
     let page: Page | undefined;
 
     // In connectOverCDP mode, Chrome often starts with a pre-opened blank tab.
-    // Reuse that tab first to avoid spawning an extra visible window/tab that
-    // appears unused to the user.
+    // Only reuse blank/new-tab pages to avoid hijacking active user tabs, which
+    // could cause user-visible disruption or data loss when the session closes.
     if (this._browserMode === 'cdp' && !this._browserLaunched && typeof context.pages === 'function') {
+      const BLANK_TAB_URLS = new Set(['about:blank', 'chrome://newtab/', 'chrome://new-tab-page/']);
       const claimedPages = new Set(this.pages.values());
-      const reusable = context.pages().find((p) => !p.isClosed() && !claimedPages.has(p));
+      const reusable = context.pages().find((p) => {
+        if (p.isClosed() || claimedPages.has(p)) return false;
+        const url = p.url();
+        return BLANK_TAB_URLS.has(url) || url === '';
+      });
       if (reusable) {
         page = reusable;
-        log.debug({ sessionId }, 'Reusing existing CDP page instead of creating a new page');
+        log.debug({ sessionId, url: reusable.url() }, 'Reusing blank CDP tab instead of creating a new page');
       }
     }
 
