@@ -158,6 +158,7 @@ const icon = conclusion === "success" ? "✓" : "✗";
 const color = conclusion === "success" ? "\x1b[32m" : "\x1b[31m";
 console.log(`\n${color}${icon}\x1b[0m Playwright Tests ${conclusion} in ${formatElapsed(startTime)}`);
 console.log(`  ${runUrl}`);
+console.log(`  ${runUrl}#artifacts`);
 
 // Download artifacts if any
 const { stdout: artifactCount } = gh([
