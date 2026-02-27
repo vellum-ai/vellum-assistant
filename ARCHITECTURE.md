@@ -24,7 +24,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel thread actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_thread_created` IPC is emitted only on actual creation, not on reuse.
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.
 - Trusted contact ingress ACL is channel-agnostic; identity binding adapts per channel (chat ID, E.164 phone, external user ID) without channel-specific branching.
-- **Assistant feature flags** control skill availability at runtime. The canonical key format is `feature_flags.<flagId>.enabled`; the legacy `skills.<id>.enabled` format is still read for backward compatibility but new code must use the canonical format. Default values for all declared flags live in the shared defaults registry at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`. The gateway owns the `/v1/feature-flags` REST API (see [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)); the daemon resolves effective flag state via the assistant feature-flag resolver (see [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)). When a flag is OFF, the corresponding skill is excluded from all exposure surfaces: client skill lists, system prompt catalog, `skill_load`, runtime tool projection, and included child skills. Guard tests enforce that all flag keys in code use the canonical format and that all referenced flags are declared in the defaults registry.
+- **Assistant feature flags** control skill availability at runtime. The canonical key format is `feature_flags.<flagId>.enabled`; the legacy `skills.<id>.enabled` format is no longer supported. All declared flags live in the unified registry at `meta/feature-flags/feature-flag-registry.json`, scoped by `scope` (`assistant` or `macos`). Labels come from the registry. Bundled copies exist at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. The gateway owns the `/v1/feature-flags` REST API (see [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)); the daemon resolves effective flag state via the assistant feature-flag resolver (see [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)). When a flag is OFF, the corresponding skill is excluded from all exposure surfaces: client skill lists, system prompt catalog, `skill_load`, runtime tool projection, and included child skills. Guard tests enforce that all flag keys in code use the canonical format and that all referenced flags are declared in the unified registry.
 
 ## System Overview
 
@@ -454,24 +454,23 @@ graph TB
 
 ## Assistant Feature Flags
 
-Assistant feature flags are the canonical mechanism for controlling skill availability at runtime. They are separate from macOS client feature flags (which are local-only, stored in UserDefaults, and control client-side UI behavior).
+All feature flags (assistant-scoped and macOS-scoped) are declared in the unified registry at `meta/feature-flags/feature-flag-registry.json`. Each entry has `id`, `scope`, `key`, `label`, `description`, and `defaultEnabled`. Flags are scoped: `assistant` flags gate daemon behavior via the gateway API, while `macos` flags control client-side UI behavior stored in UserDefaults.
 
 **Separation of concerns:**
 
 | Flag Type | Scope | Storage | Managed By |
 |-----------|-------|---------|------------|
-| Assistant feature flags | Gateway-managed, workspace config | `~/.vellum/workspace/config.json` under `assistantFeatureFlagValues` | Gateway `/v1/feature-flags` API |
-| macOS client feature flags | Local-only, per-device | UserDefaults (plist) | macOS app directly |
+| Assistant feature flags (`scope: "assistant"`) | Gateway-managed, workspace config | `~/.vellum/workspace/config.json` under `assistantFeatureFlagValues` | Gateway `/v1/feature-flags` API |
+| macOS client feature flags (`scope: "macos"`) | Local-only, per-device | UserDefaults (plist) | macOS app directly |
 
-**Defaults registry:** All assistant feature flags are declared in `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`. Each entry specifies a `defaultEnabled` value and a human-readable `description`. Flags not declared in the registry default to enabled (open by default).
+**Unified registry:** The canonical source is `meta/feature-flags/feature-flag-registry.json`. Bundled copies are maintained at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. Labels come from the registry. Flags not declared in the registry default to enabled (open by default).
 
-**Canonical key format:** `feature_flags.<flag_id>.enabled` (e.g., `feature_flags.browser.enabled`). The legacy format `skills.<id>.enabled` is still read from the `featureFlags` config section for backward compatibility but is being phased out.
+**Canonical key format:** `feature_flags.<flag_id>.enabled` (e.g., `feature_flags.browser.enabled`). The legacy `skills.<id>.enabled` format is no longer supported.
 
-**Resolution priority:** When determining whether a flag is enabled, the resolver checks (highest priority first):
-1. `config.assistantFeatureFlagValues[key]` (new canonical section)
-2. `config.featureFlags[legacyKey]` (legacy backward-compat mapping)
-3. Defaults registry `defaultEnabled`
-4. `true` (unknown flags are open by default)
+**Resolution priority:** When determining whether an assistant flag is enabled, the resolver checks (highest priority first):
+1. `config.assistantFeatureFlagValues[key]` (canonical config section)
+2. Defaults registry `defaultEnabled`
+3. `true` (unknown flags are open by default)
 
 **Domain docs:**
 - Assistant-side resolver and enforcement points: [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)

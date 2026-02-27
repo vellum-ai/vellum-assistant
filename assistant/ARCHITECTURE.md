@@ -311,17 +311,14 @@ Release-driven update notification system that surfaces release notes to the ass
 
 ### Assistant Feature Flags — Resolver and Enforcement Points
 
-The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is the canonical module for determining whether an assistant feature flag is enabled. It loads default values from the registry at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json` and resolves the effective state for each declared flag. Assistant feature flags are declaration-driven assistant-scoped booleans that can gate any assistant behavior; skill availability is one consumer.
+The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is the canonical module for determining whether an assistant feature flag is enabled. It loads default values from the unified registry at `meta/feature-flags/feature-flag-registry.json` (bundled copy at `src/config/feature-flag-registry.json`) and resolves the effective state for each declared assistant-scope flag. Assistant feature flags are declaration-driven assistant-scoped booleans that can gate any assistant behavior; skill availability is one consumer.
 
 **Canonical key format:** `feature_flags.<flag_id>.enabled` (e.g., `feature_flags.hatch-new-assistant.enabled`).
 
 **Resolution priority** (highest wins):
-1. `config.assistantFeatureFlagValues[key]` — new canonical config section, written by the gateway's PATCH endpoint
-2. `config.featureFlags[legacyKey]` — legacy `skills.<id>.enabled` key mapping (backward-compat)
-3. Defaults registry `defaultEnabled` — from `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`
-4. `true` — unknown/undeclared flags with no persisted override default to enabled
-
-**Backward-compat path:** The legacy `featureFlags` config section (key format `skills.<id>.enabled`) is still read as a fallback during resolution. New writes go to `assistantFeatureFlagValues` using the canonical format. The `isSkillFeatureEnabled()` wrapper in `config/skill-state.ts` is deprecated but retained as a thin delegate to `isAssistantSkillEnabled()` for migration compatibility.
+1. `config.assistantFeatureFlagValues[key]` — canonical config section, written by the gateway's PATCH endpoint
+2. Defaults registry `defaultEnabled` — from the unified registry (`meta/feature-flags/feature-flag-registry.json`, filtered to `scope: "assistant"`)
+3. `true` — unknown/undeclared flags with no persisted override default to enabled
 
 **Storage:** Flags are persisted in `~/.vellum/workspace/config.json`. New writes go to the `assistantFeatureFlagValues` section (managed by the gateway's `/v1/feature-flags` API — see [`gateway/ARCHITECTURE.md`](../gateway/ARCHITECTURE.md)). The legacy `featureFlags` section is still read for backward compatibility. The daemon's config watcher hot-reloads this file, so flag changes take effect on the next tool resolution or session.
 
@@ -342,7 +339,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 
 All five enforcement points use `isAssistantSkillEnabled()` from `config/assistant-feature-flags.ts` for consistency.
 
-**Migration path:** The legacy `skills.<id>.enabled` key format is still read from the `featureFlags` config section for backward compatibility. New code must use the canonical `feature_flags.<id>.enabled` format. Guard tests enforce canonical key usage and declaration coverage for literal key references.
+**Migration path:** The legacy `skills.<id>.enabled` key format is no longer supported. All code must use the canonical `feature_flags.<id>.enabled` format. Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
 
 **Key source files:**
 
@@ -356,7 +353,8 @@ All five enforcement points use `isAssistantSkillEnabled()` from `config/assista
 | `src/config/schema.ts` | `featureFlags` and `assistantFeatureFlagValues` field definitions in `AssistantConfig` (Zod schema) |
 | `src/config/types.ts` | Type definitions for `FeatureFlags` (legacy) and `AssistantFeatureFlagValues` (canonical) |
 | `src/daemon/handlers/skills.ts` | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses |
-| `meta/assistant-feature-flags/assistant-feature-flag-defaults.json` | Shared defaults registry (repo root) — all declared flags with default values and descriptions |
+| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions |
+| `src/config/feature-flag-registry.json` | Bundled copy of the unified registry for compiled binary resolution |
 
 ---
 
