@@ -1180,6 +1180,20 @@ exports[`IPC message snapshots ClientMessage types heartbeat_checklist_write ser
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types voice_config_update serializes to expected JSON 1`] = `
+{
+  "activationKey": "fn",
+  "type": "voice_config_update",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types generate_avatar serializes to expected JSON 1`] = `
+{
+  "description": "a friendly purple cat with green eyes wearing a tiny hat",
+  "type": "generate_avatar",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -3140,5 +3154,45 @@ exports[`IPC message snapshots ServerMessage types heartbeat_checklist_write_res
 {
   "success": true,
   "type": "heartbeat_checklist_write_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types navigate_settings serializes to expected JSON 1`] = `
+{
+  "tab": "general",
+  "type": "navigate_settings",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types client_settings_update serializes to expected JSON 1`] = `
+{
+  "key": "activationKey",
+  "type": "client_settings_update",
+  "value": "fn",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types identity_changed serializes to expected JSON 1`] = `
+{
+  "emoji": "",
+  "home": "",
+  "name": "Vellum",
+  "personality": "friendly",
+  "role": "assistant",
+  "type": "identity_changed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types avatar_updated serializes to expected JSON 1`] = `
+{
+  "avatarPath": "/Users/test/.vellum/workspace/data/avatar/custom-avatar.png",
+  "type": "avatar_updated",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types generate_avatar_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "generate_avatar_response",
 }
 `;

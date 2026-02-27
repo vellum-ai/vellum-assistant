@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
+import sharp from 'sharp';
 
 import { getConfig } from '../../config/loader.js';
 import { RiskLevel } from '../../permissions/types.js';
@@ -19,10 +20,26 @@ function getAvatarPath(): string {
   return join(getWorkspaceDir(), 'data', 'avatar', 'custom-avatar.png');
 }
 
+/** Extract SVG content from Claude's response text. */
+function extractSvg(text: string): string | null {
+  // Try to find SVG within code fences first
+  const fenced = text.match(/```(?:svg|xml)?\s*\n([\s\S]*?)```/);
+  if (fenced) {
+    const content = fenced[1].trim();
+    if (content.includes('<svg')) return content;
+  }
+
+  // Try to find raw SVG tags
+  const raw = text.match(/<svg[\s\S]*<\/svg>/);
+  if (raw) return raw[0];
+
+  return null;
+}
+
 export const setAvatarTool: Tool = {
   name: TOOL_NAME,
   description:
-    'Generate a custom avatar image from a text description using DALL-E. ' +
+    'Generate a custom avatar image from a text description. ' +
     'Saves the result as the assistant\'s avatar.',
   category: 'system',
   defaultRiskLevel: RiskLevel.Low,
@@ -58,54 +75,72 @@ export const setAvatarTool: Tool = {
       };
     }
 
-    // Retrieve the OpenAI API key from the daemon config
     const config = getConfig();
-    const apiKey = config.apiKeys.openai;
+    const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
 
     if (!apiKey) {
       return {
         content:
-          'No OpenAI API key configured. Please set your OpenAI API key ' +
-          '(via Settings or the credential_store tool) to use avatar generation.',
+          'No Anthropic API key configured. Please set your Anthropic API key to use avatar generation.',
         isError: true,
       };
     }
 
-    // Wrap the user description with prompt engineering for safe, avatar-appropriate output
-    const prompt =
-      'Cute, friendly, work-safe avatar character illustration. ' +
-      'Round, simple design with soft colors. ' +
-      `${description.trim()}. ` +
-      'White or light background, digital art style.';
-
     try {
-      const client = new OpenAI({ apiKey });
+      const client = new Anthropic({ apiKey });
 
-      log.info({ description: description.trim() }, 'Generating avatar via DALL-E');
+      log.info({ description: description.trim() }, 'Generating SVG avatar via Claude');
 
-      const response = await client.images.generate({
-        model: 'dall-e-3',
-        prompt,
-        n: 1,
-        size: '1024x1024',
-        response_format: 'b64_json',
+      const response = await client.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Generate an SVG avatar based on this description: ${description.trim()}\n\n` +
+              'Requirements:\n' +
+              '- Output ONLY the SVG code, no explanation\n' +
+              '- The SVG must be exactly 512x512 pixels (viewBox="0 0 512 512")\n' +
+              '- Use a cute, friendly, work-safe illustration style\n' +
+              '- Use vibrant but soft colors\n' +
+              '- Keep the design simple and recognizable at small sizes (28px)\n' +
+              '- Use a circular or rounded composition that fills the canvas\n' +
+              '- Add a subtle background color (not white/transparent)\n' +
+              '- Do NOT use external references, fonts, or images\n' +
+              '- Use only basic SVG elements (circle, rect, path, ellipse, polygon, g, defs, linearGradient, radialGradient)',
+          },
+        ],
       });
 
-      const b64Data = response.data[0]?.b64_json;
-      if (!b64Data) {
-        log.error('DALL-E response contained no image data');
+      const textBlock = response.content.find((b) => b.type === 'text');
+      if (!textBlock || textBlock.type !== 'text') {
         return {
-          content: 'Error: the image generation API returned no image data. Please try again.',
+          content: 'Error: Claude returned no text content for the avatar.',
           isError: true,
         };
       }
 
-      // Decode and save the PNG
+      const svgContent = extractSvg(textBlock.text);
+      if (!svgContent) {
+        log.error({ response: textBlock.text.slice(0, 500) }, 'Failed to extract SVG from response');
+        return {
+          content: 'Error: could not extract valid SVG from the generated response. Please try again.',
+          isError: true,
+        };
+      }
+
+      // Convert SVG to PNG at 1024x1024 for high-DPI displays
+      const pngBuffer = await sharp(Buffer.from(svgContent))
+        .resize(1024, 1024)
+        .png()
+        .toBuffer();
+
       const avatarPath = getAvatarPath();
       const avatarDir = dirname(avatarPath);
 
       mkdirSync(avatarDir, { recursive: true });
-      writeFileSync(avatarPath, Buffer.from(b64Data, 'base64'));
+      writeFileSync(avatarPath, pngBuffer);
 
       log.info({ avatarPath }, 'Avatar saved successfully');
 
@@ -118,13 +153,6 @@ export const setAvatarTool: Tool = {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log.error({ error: message }, 'Avatar generation failed');
-
-      if (error instanceof OpenAI.APIError) {
-        return {
-          content: `Avatar generation failed (API error ${error.status}): ${error.message}`,
-          isError: true,
-        };
-      }
 
       return {
         content: `Avatar generation failed: ${message}`,

@@ -332,7 +332,7 @@ function buildInChatConfigurationSection(): string {
     '',
     '### Avatar Customisation',
     '',
-    'You can change your avatar appearance using the `set_avatar` tool. When the user asks to change, update, or customise your avatar, use `set_avatar` with a `description` parameter describing the desired appearance (e.g. "a friendly purple cat with green eyes wearing a tiny hat"). The tool generates an avatar image via DALL-E and updates all connected clients automatically. Requires an OpenAI API key.',
+    'You can change your avatar appearance using the `set_avatar` tool. When the user asks to change, update, or customise your avatar, use `set_avatar` with a `description` parameter describing the desired appearance (e.g. "a friendly purple cat with green eyes wearing a tiny hat"). The tool generates an SVG avatar via Claude and converts it to PNG, then updates all connected clients automatically.',
   ].join('\n');
 }
 

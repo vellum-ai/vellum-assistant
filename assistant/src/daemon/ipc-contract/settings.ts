@@ -9,7 +9,7 @@ export interface VoiceConfigUpdateRequest {
   activationKey: string;
 }
 
-/** Request from the client to generate a custom avatar via DALL-E. */
+/** Request from the client to generate a custom avatar via Claude. */
 export interface GenerateAvatarRequest {
   type: 'generate_avatar';
   /** Text description of the desired avatar appearance. */

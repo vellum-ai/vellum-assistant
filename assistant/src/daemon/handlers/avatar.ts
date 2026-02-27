@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { defineHandlers, type HandlerContext, log } from './shared.js';
 
 /**
- * Handle a client request to generate a custom avatar via DALL-E.
+ * Handle a client request to generate a custom avatar via Claude.
  * Invokes the set_avatar tool directly, sends a response to the requesting
  * client, and broadcasts avatar_updated to all clients on success.
  */
