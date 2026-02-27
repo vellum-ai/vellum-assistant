@@ -29,7 +29,7 @@ import { CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, ensureSkillEntry, type Handl
 // ─── Provenance resolution ──────────────────────────────────────────────────
 
 interface SkillProvenance {
-  kind: 'first-party' | 'third-party';
+  kind: 'first-party' | 'third-party' | 'local';
   provider?: string;
   originId?: string;
   sourceUrl?: string;
@@ -65,16 +65,17 @@ function resolveProvenance(summary: SkillSummary): SkillProvenance {
         sourceUrl: summary.homepage ?? `${CLAWHUB_BASE_URL}/skills/${encodeURIComponent(summary.id)}`,
       };
     }
-    // Default managed skills to first-party (most are installed from Vellum catalog)
-    return { kind: 'first-party', provider: 'Vellum' };
+    // No positive evidence of origin -- could be user-authored or from Vellum catalog.
+    // Default to "local" to avoid mislabeling user-created skills as first-party.
+    return { kind: 'local' };
   }
 
   // Workspace and extra skills are user-provided
   if (summary.source === 'workspace' || summary.source === 'extra') {
-    return { kind: 'third-party', provider: 'local' };
+    return { kind: 'local' };
   }
 
-  return { kind: 'third-party' };
+  return { kind: 'local' };
 }
 
 export function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {

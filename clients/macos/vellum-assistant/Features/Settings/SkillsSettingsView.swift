@@ -473,6 +473,14 @@ private struct SkillRow: View {
                     .background(Color.orange.opacity(0.15))
                     .foregroundStyle(.orange)
                     .clipShape(Capsule())
+            } else if provenance.kind == "local" {
+                Text("Local")
+                    .font(.caption2)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.15))
+                    .foregroundStyle(.secondary)
+                    .clipShape(Capsule())
             }
         }
     }
