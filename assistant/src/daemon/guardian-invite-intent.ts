@@ -30,8 +30,8 @@ const LIST_INVITE_PATTERNS: RegExp[] = [
 ];
 
 const REVOKE_INVITE_PATTERNS: RegExp[] = [
-  /\b(?:revoke|cancel|disable|invalidate|delete|remove)\s+(?:the\s+|an?\s+)?invite\s*(?:link)?\b/i,
-  /\b(?:revoke|cancel|disable|invalidate|delete|remove)\s+(?:the\s+|an?\s+)?(?:telegram\s+)?invite\s*(?:link)?\b/i,
+  /\b(?:revoke|cancel|disable|invalidate|delete|remove)\s+(?:the\s+|my\s+|an?\s+)?invite\s*(?:link)?\b/i,
+  /\b(?:revoke|cancel|disable|invalidate|delete|remove)\s+(?:the\s+|my\s+|an?\s+)?(?:telegram\s+)?invite\s*(?:link)?\b/i,
   /\binvite\s*(?:link)?\s+(?:revoke|cancel|disable|invalidate|delete|remove)\b/i,
 ];
 
