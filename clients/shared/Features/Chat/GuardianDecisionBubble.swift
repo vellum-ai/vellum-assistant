@@ -109,7 +109,7 @@ public struct GuardianDecisionBubble: View {
             Group {
                 switch decision.state {
                 case .resolved(let action):
-                    if action == "deny" {
+                    if action == "deny" || action == "reject" {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(VColor.error)
                     } else {
@@ -149,7 +149,7 @@ public struct GuardianDecisionBubble: View {
 
     @ViewBuilder
     private func actionButton(_ actionOption: GuardianActionOption) -> some View {
-        let isPrimary = actionOption.action == "approve" || actionOption.action == "allow"
+        let isPrimary = actionOption.action.hasPrefix("approve") || actionOption.action == "allow"
         let isDanger = actionOption.action == "deny" || actionOption.action == "reject"
 
         Button {

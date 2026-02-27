@@ -262,6 +262,10 @@ public final class ChatViewModel: ObservableObject {
 
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
+    /// Tracks the action submitted for each guardian decision requestId so the
+    /// response handler can display the correct resolved state (the server does
+    /// not echo back the action in its acknowledgement).
+    private var pendingGuardianActions: [String: String] = [:]
     public var sessionId: String? {
         didSet {
             // If the daemon reconnected before this VM had a session ID, a deferred
@@ -2360,6 +2364,10 @@ public final class ChatViewModel: ObservableObject {
     /// Submit a guardian action decision for a given request.
     /// Marks the prompt as submitting immediately for responsive UI.
     public func submitGuardianDecision(requestId: String, action: String) {
+        // Track the submitted action so the response handler can display the
+        // correct resolved state (the server acknowledgement omits the action).
+        pendingGuardianActions[requestId] = action
+
         // Mark as submitting in the UI
         if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }) {
             messages[idx].guardianDecision?.isSubmitting = true
@@ -2370,6 +2378,7 @@ public final class ChatViewModel: ObservableObject {
             try daemonClient.send(GuardianActionDecisionMessage(requestId: requestId, action: action, conversationId: conversationId))
         } catch {
             log.error("Failed to submit guardian decision: \(error)")
+            pendingGuardianActions.removeValue(forKey: requestId)
             // Revert submitting state on failure
             if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }) {
                 messages[idx].guardianDecision?.isSubmitting = false
@@ -2380,7 +2389,14 @@ public final class ChatViewModel: ObservableObject {
     /// Process the server's response to a guardian actions pending request.
     /// Inserts new prompts, updates existing ones, and marks absent ones as stale.
     func handleGuardianActionsPendingResponse(_ response: GuardianActionsPendingResponseMessage) {
-        let incomingIds = Set(response.prompts.map(\.requestId))
+        // Only process prompts that belong to this conversation
+        guard let myConversationId = sessionId,
+              response.prompts.contains(where: { $0.conversationId == myConversationId }) else {
+            return
+        }
+
+        let relevantPrompts = response.prompts.filter { $0.conversationId == myConversationId }
+        let incomingIds = Set(relevantPrompts.map(\.requestId))
 
         // Mark existing guardian messages not in the response as stale
         for i in messages.indices {
@@ -2394,7 +2410,7 @@ public final class ChatViewModel: ObservableObject {
 
         let existingIds = Set(messages.compactMap { $0.guardianDecision?.requestId })
 
-        for wire in response.prompts {
+        for wire in relevantPrompts {
             if existingIds.contains(wire.requestId) {
                 // Update existing message
                 if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == wire.requestId }) {
@@ -2423,12 +2439,15 @@ public final class ChatViewModel: ObservableObject {
     func handleGuardianActionDecisionResponse(_ response: GuardianActionDecisionResponseMessage) {
         guard let requestId = response.requestId else { return }
 
+        let submittedAction = pendingGuardianActions.removeValue(forKey: requestId)
+
         if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == requestId }) {
             messages[idx].guardianDecision?.isSubmitting = false
             if response.applied {
-                // The decision was applied; the prompt will be removed on next refresh.
-                // Mark resolved with the action from the response.
-                messages[idx].guardianDecision?.state = .resolved(action: response.reason ?? "approved")
+                // Use the locally tracked action since the server acknowledgement
+                // does not echo back the action that was submitted.
+                let resolvedAction = submittedAction ?? response.reason ?? "approved"
+                messages[idx].guardianDecision?.state = .resolved(action: resolvedAction)
             } else {
                 // Stale: someone else already resolved this prompt.
                 messages[idx].guardianDecision?.state = .stale
