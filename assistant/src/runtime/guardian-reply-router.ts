@@ -63,6 +63,7 @@ export interface GuardianReplyContext {
 export type GuardianReplyResultType =
   | 'canonical_decision_applied'
   | 'canonical_decision_stale'
+  | 'code_only_clarification'
   | 'disambiguation_needed'
   | 'nl_keep_pending'
   | 'not_consumed';
@@ -244,11 +245,30 @@ export async function routeGuardianReply(
           consumed: true,
           type: 'canonical_decision_stale',
           requestId: request.id,
+          replyText: failureReplyText('already_resolved', request.requestCode),
         };
       }
 
-      // For request codes, default to approve_once (guardian is answering).
-      // If the remaining text indicates rejection, use reject instead.
+      // Code-only messages (no decision text after the code) are treated as
+      // clarification inquiries — the guardian may be asking "what is this?"
+      // rather than intending to approve. Return helpful context instead of
+      // silently defaulting to approve_once.
+      if (!codeResult.remainingText || codeResult.remainingText.trim().length === 0) {
+        log.info(
+          { event: 'router_code_only_clarification', requestId: request.id, code: request.requestCode },
+          'Code-only message treated as clarification inquiry',
+        );
+        return {
+          decisionApplied: false,
+          consumed: true,
+          type: 'code_only_clarification',
+          requestId: request.id,
+          replyText: composeCodeOnlyClarification(request),
+        };
+      }
+
+      // Remaining text present — infer the decision action from it.
+      // If the text indicates rejection, use reject; otherwise approve_once.
       const action = inferActionFromText(codeResult.remainingText);
 
       return applyDecision(request.id, action, actor, codeResult.remainingText);
@@ -302,16 +322,18 @@ export async function routeGuardianReply(
     const targetId = engineResult.targetRequestId ?? (pendingRequests.length === 1 ? pendingRequests[0].id : undefined);
 
     if (!targetId) {
-      // Multi-pending and engine didn't pick a target — need disambiguation
+      // Multi-pending and engine didn't pick a target — need disambiguation.
+      // Fail-closed: never auto-resolve when the target is ambiguous.
       log.info(
         { event: 'router_nl_disambiguation_needed', pendingCount: pendingRequests.length },
         'NL engine returned a decision but no target for multi-pending requests',
       );
+      const disambiguationReply = composeDisambiguationReply(pendingRequests, engineResult.replyText);
       return {
         decisionApplied: false,
         consumed: true,
         type: 'disambiguation_needed',
-        replyText: engineResult.replyText,
+        replyText: disambiguationReply,
       };
     }
 
@@ -393,6 +415,7 @@ async function applyDecision(
     type: 'canonical_decision_stale',
     requestId,
     canonicalResult,
+    replyText: failureReplyText(canonicalResult.reason),
   };
 }
 
@@ -416,4 +439,89 @@ function inferActionFromText(text: string): ApprovalAction {
   }
 
   return 'approve_once';
+}
+
+// ---------------------------------------------------------------------------
+// Failure reason reply text
+// ---------------------------------------------------------------------------
+
+type CanonicalFailureReason = 'already_resolved' | 'identity_mismatch' | 'invalid_action' | 'expired';
+
+/**
+ * Map a canonical decision failure reason to a distinct, actionable reply
+ * so the guardian understands exactly what happened and what to do next.
+ */
+function failureReplyText(reason: CanonicalFailureReason, requestCode?: string | null): string {
+  switch (reason) {
+    case 'already_resolved':
+      return 'This request has already been resolved.';
+    case 'expired':
+      return 'This request has expired.';
+    case 'identity_mismatch':
+      return "You don't have permission to decide on this request.";
+    case 'invalid_action':
+      return requestCode
+        ? `I found request ${requestCode}, but I need to know your decision. Reply with 'approve' or 'reject' followed by the code.`
+        : "I couldn't determine your intended action. Reply with 'approve' or 'reject' followed by the request code.";
+    default:
+      return "I couldn't process that request. Please try again.";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Code-only clarification
+// ---------------------------------------------------------------------------
+
+/**
+ * Compose a clarification response when a guardian sends only a request
+ * code without any decision text. Provides context about the request and
+ * tells the guardian how to approve or reject it.
+ */
+function composeCodeOnlyClarification(request: CanonicalGuardianRequest): string {
+  const code = request.requestCode ?? 'unknown';
+  const toolLabel = request.toolName ?? 'an action';
+  const lines: string[] = [
+    `I found request ${code} for ${toolLabel}.`,
+  ];
+  if (request.questionText) {
+    lines.push(`Details: ${request.questionText}`);
+  }
+  lines.push(`Reply "approve ${code}" to approve or "reject ${code}" to reject.`);
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Disambiguation reply
+// ---------------------------------------------------------------------------
+
+/**
+ * Compose a disambiguation reply that includes concrete decision examples
+ * using actual request codes from the pending requests. Always includes
+ * explicit instructions so the guardian knows exactly how to proceed.
+ */
+function composeDisambiguationReply(
+  pendingRequests: CanonicalGuardianRequest[],
+  engineReplyText?: string,
+): string {
+  const lines: string[] = [];
+
+  if (engineReplyText) {
+    lines.push(engineReplyText);
+    lines.push('');
+  }
+
+  lines.push(`You have ${pendingRequests.length} pending requests. Please specify which one:`);
+
+  for (const req of pendingRequests) {
+    const toolLabel = req.toolName ?? 'action';
+    const code = req.requestCode ?? req.id.slice(0, 6).toUpperCase();
+    lines.push(`  - ${code}: ${toolLabel}`);
+  }
+
+  // Include a concrete example using the first request's code
+  const exampleCode = pendingRequests[0].requestCode ?? pendingRequests[0].id.slice(0, 6).toUpperCase();
+  lines.push('');
+  lines.push(`Reply "approve ${exampleCode}" to approve a specific request.`);
+
+  return lines.join('\n');
 }
