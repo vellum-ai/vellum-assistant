@@ -52,7 +52,7 @@ export function insertReminder(params: {
   const db = getDb();
   const id = uuid();
   const now = Date.now();
-  const routingIntent = params.routingIntent ?? 'single_channel';
+  const routingIntent = params.routingIntent ?? 'all_channels';
   const routingHints = params.routingHints ?? {};
   const row = {
     id,

@@ -38,7 +38,7 @@ export function executeReminderCreate(input: Record<string, unknown>): ToolExecu
   }
 
   // Validate routing_intent if provided
-  const routingIntent: RoutingIntent = (routingIntentRaw as RoutingIntent) ?? 'single_channel';
+  const routingIntent: RoutingIntent = (routingIntentRaw as RoutingIntent) ?? 'all_channels';
   if (routingIntentRaw !== undefined && !VALID_ROUTING_INTENTS.has(routingIntentRaw)) {
     return {
       content: `Error: routing_intent must be one of: single_channel, multi_channel, all_channels`,
