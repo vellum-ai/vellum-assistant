@@ -29,24 +29,26 @@ Internet
        +-- /webhooks/* --> BLOCKED (404, never forwarded to runtime)
 ```
 
-### Feature Flags API
+### Assistant Feature Flags API
 
-The gateway exposes a REST API for reading and mutating feature flags. Feature flags control which skills are available to the assistant — when a flag is OFF, the corresponding skill is excluded from every exposure surface in the assistant (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for enforcement points).
+The gateway exposes a REST API for reading and mutating assistant feature flags. Assistant feature flags control which skills are available to the assistant — when a flag is OFF, the corresponding skill is excluded from every exposure surface in the assistant (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for the resolver and enforcement points).
 
 **Endpoints:**
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/v1/feature-flags` | List all feature flags from workspace config |
-| PATCH | `/v1/feature-flags/:key` | Set a single feature flag. Body: `{ "enabled": true\|false }` |
+| GET | `/v1/feature-flags` | List all declared assistant feature flags with their effective enabled state |
+| PATCH | `/v1/feature-flags/:key` | Set a single assistant feature flag. Body: `{ "enabled": true\|false }` |
 
-**Storage:** Flags are persisted in `~/.vellum/workspace/config.json` under the `featureFlags` key as a `Record<string, boolean>`. The gateway reads and writes this file directly (atomic temp + rename for writes). The daemon's config watcher hot-reloads changes, so flag mutations take effect on the next session or tool resolution without a restart.
+**Defaults registry:** All declared assistant feature flags and their default values are defined in the shared defaults registry at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`. The gateway loads this registry on startup via `gateway/src/feature-flag-defaults.ts`. The GET endpoint merges persisted overrides with registry defaults to produce the full flag list. The PATCH endpoint validates that the target flag key exists in the registry before accepting a write.
 
-**Flag key format:** Only keys matching `skills.<skillId>.enabled` are accepted for the initial rollout. Other key patterns are rejected with 400.
+**Flag key format:** The canonical key format is `feature_flags.<flagId>.enabled`. Only keys matching this pattern are accepted by the PATCH endpoint; other patterns are rejected with 400. The legacy `skills.<id>.enabled` format is still read from persisted config for backward compatibility, but new writes always use the canonical format and are stored in the `assistantFeatureFlagValues` config section.
+
+**Storage:** Flag overrides are persisted in `~/.vellum/workspace/config.json`. New writes go to the `assistantFeatureFlagValues` section as a `Record<string, boolean>`. The legacy `featureFlags` section (which used `skills.<id>.enabled` keys) is still read for backward compatibility during GET resolution. The gateway writes atomically (temp file + rename). The daemon's config watcher hot-reloads changes, so flag mutations take effect on the next session or tool resolution without a restart.
 
 **Authentication boundary:**
 
-The feature-flags API uses a dedicated token stored at `~/.vellum/feature-flag-token`, separate from the runtime bearer token (`~/.vellum/http-token`). This separation ensures that clients with feature-flag access cannot access runtime endpoints, and vice versa.
+The assistant feature flags API uses a dedicated token stored at `~/.vellum/feature-flag-token`, separate from the runtime bearer token (`~/.vellum/http-token`). This separation ensures that clients with feature-flag access cannot access runtime endpoints, and vice versa.
 
 | Operation | Accepted tokens |
 |-----------|----------------|
@@ -59,9 +61,11 @@ The feature-flag token is auto-generated on first gateway startup if the file do
 
 | File | Purpose |
 |------|---------|
-| `gateway/src/http/routes/feature-flags.ts` | GET and PATCH handlers; config read/write logic |
+| `gateway/src/http/routes/feature-flags.ts` | GET and PATCH handlers; config read/write logic; legacy key mapping |
+| `gateway/src/feature-flag-defaults.ts` | `loadFeatureFlagDefaults()` — loads the shared defaults registry; `isFlagDeclared()` — validates flag keys |
 | `gateway/src/config.ts` | `readOrGenerateFeatureFlagToken()` — token provisioning; `featureFlagToken` config field |
 | `gateway/src/index.ts` | Route registration, auth enforcement (dual-token for GET, flag-token-only for PATCH), token file watcher |
+| `meta/assistant-feature-flags/assistant-feature-flag-defaults.json` | Shared defaults registry (repo root) — all declared flags with default values and descriptions |
 
 ### Channel Binding Lifecycle (Lane Separation)
 
