@@ -29,7 +29,11 @@ function readConfigFile(): ConfigReadResult {
   }
   try {
     const raw = readFileSync(cfgPath, "utf-8");
-    return { ok: true, data: JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, reason: "malformed", detail: "Config file is not a JSON object" };
+    }
+    return { ok: true, data: parsed };
   } catch (err) {
     return { ok: false, reason: "malformed", detail: String(err) };
   }
