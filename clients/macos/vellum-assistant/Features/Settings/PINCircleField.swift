@@ -59,6 +59,9 @@ struct NoFocusRingTextField: NSViewRepresentable {
 struct PINCircleField: View {
     @Binding var text: String
     var count: Int = 6
+    /// Increment this from the parent to force a focus grab without rebuilding
+    /// the view (e.g. after showing an error on the same step).
+    var focusTrigger: Int = 0
 
     @State private var inputField: NSTextField?
 
@@ -85,5 +88,12 @@ struct PINCircleField: View {
         )
         .contentShape(Rectangle())
         .onTapGesture { inputField?.window?.makeFirstResponder(inputField) }
+        .onChange(of: focusTrigger) { _, _ in
+            DispatchQueue.main.async {
+                if let field = inputField {
+                    field.window?.makeFirstResponder(field)
+                }
+            }
+        }
     }
 }
