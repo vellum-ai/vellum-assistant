@@ -1,4 +1,6 @@
+import { consumeGrantForInvocation } from '../approvals/approval-primitive.js';
 import { isToolBlocked } from '../security/parental-control-store.js';
+import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 import { getLogger } from '../util/logger.js';
 import { enforceGuardianOnlyPolicy } from './guardian-control-plane-policy.js';
@@ -137,38 +139,64 @@ export class ToolApprovalHandler {
       return { allowed: false, result: { content: guardianCheck.reason!, isError: true } };
     }
 
-    // Untrusted actors cannot execute host tools or side-effect tools directly.
-    // They must go through guardian approval mediation instead of obtaining
-    // privileged execution in-band.
+    // Untrusted actors cannot execute host tools or side-effect tools directly
+    // unless a valid scoped grant exists for this exact invocation.
+    // Check for a matching grant FIRST; only deny if no grant matches.
     if (
       isUntrustedGuardianActorRole(context.guardianActorRole)
       && requiresGuardianApprovalForActor(name, input, executionTarget)
     ) {
-      const reason = guardianApprovalDeniedMessage(context.guardianActorRole, name);
-      log.warn({
-        toolName: name,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        actorRole: context.guardianActorRole,
-        executionTarget,
-        reason: 'guardian_approval_required',
-      }, 'Guardian approval gate blocked untrusted actor tool invocation');
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: 'permission_denied',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
+      const inputDigest = computeToolApprovalDigest(name, input);
+      const grantResult = consumeGrantForInvocation({
         requestId: context.requestId,
-        riskLevel,
-        decision: 'deny',
-        reason,
-        durationMs,
+        toolName: name,
+        inputDigest,
+        consumingRequestId: context.requestId ?? `preexec-${context.sessionId}-${Date.now()}`,
+        assistantId: context.assistantId ?? 'self',
+        executionChannel: context.executionChannel,
+        conversationId: context.conversationId,
+        callSessionId: context.callSessionId,
+        requesterExternalUserId: context.requesterExternalUserId,
       });
-      return { allowed: false, result: { content: reason, isError: true } };
+
+      if (grantResult.ok) {
+        log.info({
+          toolName: name,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          actorRole: context.guardianActorRole,
+          executionTarget,
+          grantId: grantResult.grant.id,
+        }, 'Scoped grant consumed — allowing untrusted actor tool invocation');
+        // Grant consumed: fall through to remaining gates and normal execution
+      } else {
+        const reason = guardianApprovalDeniedMessage(context.guardianActorRole, name);
+        log.warn({
+          toolName: name,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          actorRole: context.guardianActorRole,
+          executionTarget,
+          reason: 'guardian_approval_required',
+          grantMissReason: grantResult.reason,
+        }, 'Guardian approval gate blocked untrusted actor tool invocation (no matching grant)');
+        const durationMs = Date.now() - startTime;
+        emitLifecycleEvent({
+          type: 'permission_denied',
+          toolName: name,
+          executionTarget,
+          input,
+          workingDir: context.workingDir,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          requestId: context.requestId,
+          riskLevel,
+          decision: 'deny',
+          reason,
+          durationMs,
+        });
+        return { allowed: false, result: { content: reason, isError: true } };
+      }
     }
 
     // Gate tools not active for the current turn
