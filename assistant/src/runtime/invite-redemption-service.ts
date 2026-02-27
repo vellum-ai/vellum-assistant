@@ -7,8 +7,8 @@
  * persisted, or returned in the outcome.
  */
 
-import { findMember } from '../memory/ingress-member-store.js';
-import { findByTokenHash, hashToken, markInviteExpired, redeemInvite as storeRedeemInvite } from '../memory/ingress-invite-store.js';
+import { findMember, upsertMember } from '../memory/ingress-member-store.js';
+import { findByTokenHash, hashToken, markInviteExpired, redeemInvite as storeRedeemInvite, recordInviteUse } from '../memory/ingress-invite-store.js';
 
 // ---------------------------------------------------------------------------
 // Outcome type
@@ -92,6 +92,38 @@ export function redeemInvite(params: {
 
   if (existingMember && existingMember.status === 'active') {
     return { ok: true, type: 'already_member', memberId: existingMember.id };
+  }
+
+  // Inactive member reactivation: when the user already has a member record
+  // in a non-active state (revoked/pending/blocked), reactivate it via
+  // upsertMember and consume an invite use separately. Falling through to
+  // storeRedeemInvite would try to INSERT a new member row, hitting the
+  // unique-key constraint on the members table.
+  if (existingMember) {
+    const reactivated = upsertMember({
+      assistantId: assistantId ?? invite.assistantId,
+      sourceChannel,
+      externalUserId,
+      externalChatId,
+      displayName,
+      username,
+      status: 'active',
+      policy: 'allow',
+      inviteId: invite.id,
+    });
+
+    recordInviteUse({
+      inviteId: invite.id,
+      externalUserId,
+      externalChatId,
+    });
+
+    return {
+      ok: true,
+      type: 'redeemed',
+      memberId: reactivated.id,
+      inviteId: invite.id,
+    };
   }
 
   // Delegate to the store-level redeem which handles token lookup, expiry,
