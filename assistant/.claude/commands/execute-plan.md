@@ -1,1 +1,1 @@
-../../scripts/commands/execute-plan.md
+../../../.claude/commands/execute-plan.md
