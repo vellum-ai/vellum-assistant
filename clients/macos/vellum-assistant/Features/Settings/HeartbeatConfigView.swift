@@ -234,7 +234,11 @@ struct HeartbeatConfigView: View {
                     self.activeHoursEnabled = false
                 }
                 self.nextRunAt = response.nextRunAt
-                self.isApplyingFromServer = false
+                // Defer reset to the next run-loop tick so SwiftUI's onChange
+                // closures fire while the flag is still true.
+                DispatchQueue.main.async {
+                    self.isApplyingFromServer = false
+                }
             }
         }
     }
