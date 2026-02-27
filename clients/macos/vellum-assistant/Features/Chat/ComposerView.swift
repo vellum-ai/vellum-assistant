@@ -265,12 +265,6 @@ struct ComposerView: View {
             if isSending && !hasPendingConfirmation {
                 Button(action: onStop) {
                     ZStack {
-                        Circle()
-                            .fill(VColor.textPrimary.opacity(0.15))
-                            .frame(width: 30, height: 30)
-                            .scaleEffect(isStopPulsing ? 1.35 : 1.0)
-                            .opacity(isStopPulsing ? 0.0 : 0.6)
-                            .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: false), value: isStopPulsing)
                         RoundedRectangle(cornerRadius: 10)
                             .fill(VColor.textPrimary)
                             .frame(width: 30, height: 30)
@@ -278,6 +272,8 @@ struct ComposerView: View {
                             .fill(VColor.surface)
                             .frame(width: 10, height: 10)
                     }
+                    .opacity(isStopPulsing ? 0.5 : 1.0)
+                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isStopPulsing)
                 }
                 .buttonStyle(ComposerActionButtonStyle(
                     isHovered: isStopHovered,
