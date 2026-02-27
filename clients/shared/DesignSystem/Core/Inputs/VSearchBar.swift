@@ -31,7 +31,7 @@ public struct VSearchBar: View {
             }
         }
         .padding(VSpacing.md)
-        .background(Color(hex: 0xE8E6DA))
+        .background(VColor.inputBackground)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 }

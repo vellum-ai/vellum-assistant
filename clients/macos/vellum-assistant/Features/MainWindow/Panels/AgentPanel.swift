@@ -274,39 +274,43 @@ struct AgentPanelContent: View {
         ) < 7 * 86400
 
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.md) {
-                // Tappable area: icon + name + description
-                HStack(spacing: VSpacing.md) {
-                    Image(systemName: skill.isVellum ? "v.square.fill" : "shippingbox.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(skill.isVellum ? VColor.accent : VColor.textMuted)
-                        .frame(width: 24)
+            HStack(alignment: .top, spacing: VSpacing.md) {
+                Image(systemName: skill.isVellum ? "v.square.fill" : "shippingbox.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(skill.isVellum ? VColor.accent : VColor.textMuted)
+                    .frame(width: 24)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: VSpacing.sm) {
-                            Text(skill.name)
-                                .font(VFont.bodyBold)
-                                .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(skill.name)
+                        .font(VFont.bodyBold)
+                        .foregroundColor(VColor.textPrimary)
 
-                            if skill.isVellum {
-                                Text("VELLUM")
-                                    .font(VFont.small)
-                                    .foregroundColor(VColor.accent)
-                            } else if isNew {
-                                Text("NEW")
-                                    .font(VFont.small)
-                                    .foregroundColor(Amber._500)
-                            }
+                    Text(skill.description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .lineLimit(2)
+
+                    // Pill badges row
+                    HStack(spacing: VSpacing.xs) {
+                        if skill.isVellum {
+                            VSkillTypePill(type: .core)
+                        } else if isAlreadyInstalled {
+                            VSkillTypePill(type: .installed)
                         }
 
-                        Text(skill.description)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                            .lineLimit(2)
+                        if isNew {
+                            VSkillTypePill(type: .custom(
+                                label: "New",
+                                icon: "sparkles",
+                                foreground: Amber._500,
+                                background: Amber._500.opacity(0.15)
+                            ))
+                        }
                     }
+                    .padding(.top, VSpacing.xxs)
                 }
 
-                Spacer()
+                Spacer(minLength: VSpacing.lg)
 
                 if isAlreadyInstalled {
                     Text("Installed")
@@ -881,34 +885,28 @@ struct AgentPanelContent: View {
             HStack(alignment: .top, spacing: VSpacing.md) {
                 skillIcon(skill.emoji)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(skill.name)
-                            .font(VFont.bodyBold)
-                            .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(skill.name)
+                        .font(VFont.bodyBold)
+                        .foregroundColor(VColor.textPrimary)
 
-                        // Source badge capsule
-                        Text(sourceLabel(skill.source))
-                            .font(VFont.small)
-                            .foregroundColor(sourceBadgeColor(skill.source))
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule()
-                                    .fill(sourceBadgeColor(skill.source).opacity(0.15))
-                            )
+                    Text(skill.description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .lineLimit(2)
+
+                    // Pill badges row
+                    HStack(spacing: VSpacing.xs) {
+                        VSkillTypePill(source: skill.source)
 
                         // Provenance badge
-                        if let label = provenanceLabel(skill) {
-                            Text(label)
-                                .font(VFont.small)
-                                .foregroundColor(provenanceBadgeColor(skill))
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.vertical, 2)
-                                .background(
-                                    Capsule()
-                                        .fill(provenanceBadgeColor(skill).opacity(0.15))
-                                )
+                        if let provenance = skill.provenance, let label = provenanceLabel(skill) {
+                            VSkillTypePill(type: .custom(
+                                label: label,
+                                icon: provenance.kind == "first-party" ? "checkmark.seal.fill" : "person.fill",
+                                foreground: provenanceBadgeColor(skill),
+                                background: provenanceBadgeColor(skill).opacity(0.15)
+                            ))
                         }
 
                         if skill.updateAvailable {
@@ -917,11 +915,7 @@ struct AgentPanelContent: View {
                                 .foregroundColor(Amber._500)
                         }
                     }
-
-                    Text(skill.description)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .lineLimit(2)
+                    .padding(.top, VSpacing.xxs)
 
                     // Source link for third-party skills
                     if let provenance = skill.provenance,
