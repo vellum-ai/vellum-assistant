@@ -83,7 +83,7 @@ export function redeemInvite(params: {
   // Token is valid — now safe to check existing membership without leaking
   // membership status to callers with bogus tokens.
   const existingMember = findMember({
-    assistantId,
+    assistantId: assistantId ?? invite.assistantId,
     sourceChannel,
     externalUserId,
     externalChatId,
