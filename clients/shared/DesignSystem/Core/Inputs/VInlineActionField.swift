@@ -69,9 +69,7 @@ public struct VInlineActionField: View {
             .onHover { hovering in
                 isHovered = isEmpty ? false : hovering
                 #if os(macOS)
-                if !isEmpty {
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                 #endif
             }
             .padding(.trailing, VSpacing.sm)
