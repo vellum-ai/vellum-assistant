@@ -2,7 +2,10 @@
 set -euo pipefail
 
 # .claude/wait-ci — Wait for CI checks on a PR to complete
-# Polls every 30 seconds. Exits 0 if all pass, 1 if any fail, 2 on timeout.
+# Polls every 30 seconds via GitHub API. Exits 0 if all pass, 1 if any fail, 2 on timeout.
+#
+# Uses `gh api` directly instead of `gh pr checks --json` for compatibility
+# with older gh CLI versions (e.g., 2.32.x) that don't support --json on pr checks.
 #
 # Usage: .claude/wait-ci <PR_NUMBER> [MAX_WAIT_SECONDS]
 #   PR_NUMBER          The PR number to check
@@ -36,19 +39,39 @@ ELAPSED=0
 # give GitHub a grace period to register CI checks after PR creation.
 SEEN_EMPTY=false
 
+# Detect repo from git remote
+REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo "")
+if [[ -z "$REPO" ]]; then
+  echo "Error: could not determine repository" >&2
+  exit 1
+fi
+
 echo "==> Waiting for CI checks on PR #$PR_NUMBER (timeout: ${MAX_WAIT}s)..."
 
 while true; do
-  # Fetch checks using the 'bucket' field (valid in gh 2.72+).
-  # Capture the exit code separately so API/auth/network errors are not masked.
+  # Get the HEAD SHA of the PR
+  HEAD_SHA=""
+  HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid' 2>/dev/null) || true
+
+  if [[ -z "$HEAD_SHA" ]]; then
+    echo "Warning: could not get HEAD SHA for PR #$PR_NUMBER" >&2
+    if [[ "$ELAPSED" -ge "$MAX_WAIT" ]]; then
+      echo "Timeout: could not retrieve PR info after ${MAX_WAIT}s." >&2
+      exit 2
+    fi
+    echo "CI: retrying in ${POLL_INTERVAL}s (${ELAPSED}s/${MAX_WAIT}s)..."
+    sleep "$POLL_INTERVAL"
+    ELAPSED=$((ELAPSED + POLL_INTERVAL))
+    continue
+  fi
+
+  # Fetch check runs via GitHub API (works with all gh versions)
   CHECKS_OUTPUT=""
   CHECKS_RC=0
-  CHECKS_OUTPUT=$(gh pr checks "$PR_NUMBER" --json name,bucket 2>&1) || CHECKS_RC=$?
+  CHECKS_OUTPUT=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" --jq '.check_runs | map({name: .name, status: .status, conclusion: .conclusion})' 2>&1) || CHECKS_RC=$?
 
   if [[ "$CHECKS_RC" -ne 0 ]]; then
-    echo "Warning: gh pr checks failed (exit $CHECKS_RC): $CHECKS_OUTPUT" >&2
-    # Treat transient errors as "pending" — keep polling rather than
-    # silently passing or failing.
+    echo "Warning: gh api check-runs failed (exit $CHECKS_RC): $CHECKS_OUTPUT" >&2
     if [[ "$ELAPSED" -ge "$MAX_WAIT" ]]; then
       echo "Timeout: could not retrieve CI checks after ${MAX_WAIT}s on PR #$PR_NUMBER." >&2
       exit 2
@@ -83,12 +106,13 @@ while true; do
   # Reset the empty-check tracker once we see real checks.
   SEEN_EMPTY=false
 
-  PENDING=$(echo "$CHECKS" | jq '[.[] | select(.bucket == "pending")] | length')
-  FAILED=$(echo "$CHECKS" | jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length')
+  # Count by status: completed checks have a conclusion, others are pending
+  PENDING=$(echo "$CHECKS" | jq '[.[] | select(.status != "completed")] | length')
+  FAILED=$(echo "$CHECKS" | jq '[.[] | select(.status == "completed" and (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out"))] | length')
 
   if [[ "$FAILED" -gt 0 ]]; then
     echo "CI checks failed on PR #$PR_NUMBER:" >&2
-    echo "$CHECKS" | jq -r '.[] | select(.bucket == "fail" or .bucket == "cancel") | "  \(.name): \(.bucket)"' >&2
+    echo "$CHECKS" | jq -r '.[] | select(.status == "completed" and (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")) | "  \(.name): \(.conclusion)"' >&2
     exit 1
   fi
 
@@ -99,7 +123,7 @@ while true; do
 
   if [[ "$ELAPSED" -ge "$MAX_WAIT" ]]; then
     echo "Timeout: CI checks still pending after ${MAX_WAIT}s on PR #$PR_NUMBER." >&2
-    echo "$CHECKS" | jq -r '.[] | select(.bucket == "pending") | "  \(.name): pending"' >&2
+    echo "$CHECKS" | jq -r '.[] | select(.status != "completed") | "  \(.name): \(.status)"' >&2
     exit 2
   fi
 
