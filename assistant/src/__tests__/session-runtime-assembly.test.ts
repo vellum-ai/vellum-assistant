@@ -335,11 +335,6 @@ describe('buildChannelAwarenessSection', () => {
     expect(section).toContain('computer-control permissions on non-dashboard');
   });
 
-  test('includes guardian context contract for channel actors', () => {
-    const section = buildChannelAwarenessSection();
-    expect(section).toContain('<guardian_context>');
-    expect(section).toContain('Never infer guardian status');
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -568,6 +563,39 @@ describe('injectGuardianContext', () => {
     expect(text).toContain('actor_role: guardian');
     expect(text).toContain('source_channel: sms');
     expect(text).toContain('</guardian_context>');
+  });
+
+  test('includes behavioral guidance for non-guardian actors', () => {
+    const ctx: GuardianRuntimeContext = {
+      sourceChannel: 'telegram',
+      actorRole: 'non-guardian',
+      guardianExternalUserId: 'guardian-user-1',
+      guardianChatId: 'chat-1',
+      requesterIdentifier: '@someone',
+      requesterExternalUserId: 'other-user-1',
+      requesterChatId: 'chat-2',
+    };
+
+    const result = injectGuardianContext(baseUserMessage, ctx);
+    const text = (result.content[0] as { type: 'text'; text: string }).text;
+    expect(text).toContain('non-guardian account');
+    expect(text).toContain('Do not explain the verification system');
+  });
+
+  test('omits non-guardian behavioral guidance for guardian actors', () => {
+    const ctx: GuardianRuntimeContext = {
+      sourceChannel: 'telegram',
+      actorRole: 'guardian',
+      guardianExternalUserId: 'guardian-user-1',
+      guardianChatId: 'chat-1',
+      requesterIdentifier: '@guardian',
+      requesterExternalUserId: 'guardian-user-1',
+      requesterChatId: 'chat-1',
+    };
+
+    const result = injectGuardianContext(baseUserMessage, ctx);
+    const text = (result.content[0] as { type: 'text'; text: string }).text;
+    expect(text).not.toContain('non-guardian account');
   });
 });
 
