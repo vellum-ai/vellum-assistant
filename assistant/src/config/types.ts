@@ -43,3 +43,11 @@ export type {
   UiConfig,
   WorkspaceGitConfig,
 } from './schema.js';
+
+/**
+ * Feature flags are a top-level config section (Record<string, boolean>).
+ * Skill feature flags use the key format `skills.<skillId>.enabled`.
+ * Missing key defaults to `true` (enabled); explicit `false` disables everywhere.
+ */
+export type FeatureFlags = Record<string, boolean>;
+

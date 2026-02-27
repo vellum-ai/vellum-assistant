@@ -7,6 +7,7 @@ import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
 import { getConfig } from './loader.js';
+import { isSkillFeatureEnabled } from './skill-state.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 import { resolveUserReference } from './user-reference.js';
 
@@ -721,10 +722,14 @@ function readPromptFile(path: string): string | null {
 
 function appendSkillsCatalog(basePrompt: string): string {
   const skills = loadSkillCatalog();
+  const config = getConfig();
+
+  // Filter out skills whose feature flag is explicitly OFF
+  const flagFiltered = skills.filter(s => isSkillFeatureEnabled(s.id, config));
 
   const sections: string[] = [basePrompt];
 
-  const catalog = formatSkillsCatalog(skills);
+  const catalog = formatSkillsCatalog(flagFiltered);
   if (catalog) sections.push(catalog);
 
   sections.push(buildDynamicSkillWorkflowSection());

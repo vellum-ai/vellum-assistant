@@ -1,3 +1,5 @@
+import { getConfig } from '../../config/loader.js';
+import { isSkillFeatureEnabled } from '../../config/skill-state.js';
 import type { SkillSummary } from '../../config/skills.js';
 import { loadSkillBySelector, loadSkillCatalog } from '../../config/skills.js';
 import { RiskLevel } from '../../permissions/types.js';
@@ -45,6 +47,15 @@ export class SkillLoadTool implements Tool {
     }
 
     const skill = loaded.skill;
+
+    // Feature flag gate: reject loading if the skill's feature flag is OFF
+    const config = getConfig();
+    if (!isSkillFeatureEnabled(skill.id, config)) {
+      return {
+        content: `Error: skill "${skill.id}" is currently unavailable (disabled by feature flag)`,
+        isError: true,
+      };
+    }
 
     // Load catalog for include validation and child metadata output
     let catalogIndex: Map<string, SkillSummary> | undefined;
