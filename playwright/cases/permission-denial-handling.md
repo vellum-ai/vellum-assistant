@@ -1,0 +1,25 @@
+---
+fixture: desktop-app
+---
+
+# Permission Denial Handling
+
+## Goal
+
+Verify that when a user clicks "Don't Allow" on a tool permission prompt, the assistant handles the denial gracefully without crashing or becoming unresponsive.
+
+## Steps
+
+1. Launch the App
+2. Open a chat thread
+3. Send a message that triggers a tool requiring permission, such as "run `ls` in my home directory"
+4. Wait for the tool permission prompt to appear
+5. Click "Don't Allow" to deny the permission
+6. Verify that the assistant acknowledges the denial and continues operating normally
+7. Send a follow-up message like "hello" to confirm the chat is still responsive
+
+## Expected
+
+- The app should not crash or freeze after the permission is denied
+- The assistant should acknowledge that the tool was not allowed and respond gracefully
+- The chat should remain fully functional after the denial
