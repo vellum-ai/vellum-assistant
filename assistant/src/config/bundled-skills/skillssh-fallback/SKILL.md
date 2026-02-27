@@ -23,16 +23,16 @@ When a native capability fails or the user asks for something that could be hand
 
 **IMPORTANT**: All commands MUST be run using the `host_bash` tool (not the sandbox `bash`). The CLI needs access to the host filesystem and bun runtime.
 
-All commands are run from the `assistant/` directory:
+All commands use the `vellum skills` CLI, which is available on PATH:
 
 ```
-host_bash: cd ~/vellum-assistant/assistant && bun run src/skills/skillssh-cli.ts <command> [options]
+host_bash: vellum skills <subcommand> [options]
 ```
 
 ### Search for skills
 
 ```
-host_bash: cd ~/vellum-assistant/assistant && bun run src/skills/skillssh-cli.ts search "<query>" --limit 5 --json
+host_bash: vellum skills search "<query>" --limit 5 --json
 ```
 
 Returns a list of matching skills with their risk levels and audit details.
@@ -40,7 +40,7 @@ Returns a list of matching skills with their risk levels and audit details.
 ### Evaluate a specific skill
 
 ```
-host_bash: cd ~/vellum-assistant/assistant && bun run src/skills/skillssh-cli.ts evaluate <source> <skillId> --json
+host_bash: vellum skills evaluate <source> <skillId> --json
 ```
 
 Fetches the security audit and produces a recommendation. The `source` is the GitHub repo path (e.g. `inference-sh-9/skills`) and `skillId` is the skill name (e.g. `youtube-thumbnail-design`).
@@ -48,7 +48,7 @@ Fetches the security audit and produces a recommendation. The `source` is the Gi
 ### Install a skill
 
 ```
-host_bash: cd ~/vellum-assistant/assistant && bun run src/skills/skillssh-cli.ts install <source> <skillId> --json
+host_bash: vellum skills install <source> <skillId> --json
 ```
 
 Runs the full install flow with security check. Pass `--override` to install despite a `do_not_recommend` security assessment.
@@ -84,13 +84,13 @@ Ask for explicit confirmation before proceeding.
 If the recommendation is `proceed` or `proceed_with_caution` and the user confirms:
 
 ```
-host_bash: cd ~/vellum-assistant/assistant && bun run src/skills/skillssh-cli.ts install <source> <skillId> --json
+host_bash: vellum skills install <source> <skillId> --json
 ```
 
 If the recommendation is `do_not_recommend` and the user explicitly overrides:
 
 ```
-host_bash: cd ~/vellum-assistant/assistant && bun run src/skills/skillssh-cli.ts install <source> <skillId> --override --json
+host_bash: vellum skills install <source> <skillId> --override --json
 ```
 
 ### 5. Load the installed skill
