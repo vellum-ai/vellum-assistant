@@ -104,14 +104,14 @@ Tell the user:
 > 2. Application type: Select **"Web application"** (not Desktop app)
 > 3. Name: **Vellum Assistant**
 > 4. Under **Authorized redirect URIs**, click **Add URI** and enter:
->    `GATEWAY_OAUTH_CALLBACK_URL`
+>    `$GATEWAY_BASE_URL/oauth/callback`
 > 5. Click **Create**
 >
 > A dialog will show your **Client ID** and **Client Secret**. Copy both values — you'll need them in the next step.
 
-(Substitute the actual gateway OAuth callback URL. This is obtained from `getOAuthCallbackUrl(loadConfig())` — the skill should compute and insert this URL.)
+(Use the injected `GATEWAY_BASE_URL` value to build the callback URL shown above.)
 
-**Important:** Channel users must use **"Web application"** credentials (not Desktop app) because the OAuth callback goes through the gateway's public URL, not localhost.
+**Important:** Channel users must use **"Web application"** credentials (not Desktop app) because the OAuth callback goes through the gateway's public URL.
 
 ### Channel Step 6: Store Credentials
 
@@ -314,7 +314,7 @@ Otherwise, work through the consent screen wizard. The wizard has multiple pages
 
 ## Step 6: Create OAuth Credentials and Capture Both Client ID and Secret
 
-**Goal:** A "Desktop app" OAuth client exists, and both its Client ID and Client Secret are stored in the vault.
+**Goal:** A "Web application" OAuth client exists, and both its Client ID and Client Secret are stored in the vault.
 
 ### CRITICAL — Credential Capture Protocol
 
@@ -340,9 +340,9 @@ Navigate to `https://console.cloud.google.com/apis/credentials?project=PROJECT_I
 Find the option to create new credentials (typically a button labeled "Create Credentials" or similar), then select "OAuth client ID" from the menu.
 
 On the creation form:
-- Application type: **Desktop app** (not Web application — Desktop app uses localhost redirects)
+- Application type: **Web application**
 - Name: "Vellum Assistant"
-- Do NOT add any redirect URIs
+- Under **Authorized redirect URIs**, add `$GATEWAY_BASE_URL/oauth/callback`
 
 Submit the form.
 
@@ -393,7 +393,7 @@ action: "oauth2_connect"
 service: "integration:gmail"
 ```
 
-This auto-reads client_id and client_secret from the secure store and auto-fills auth_url, token_url, scopes, and extra_params from well-known config. The OAuth flow uses a localhost callback — no public URL or tunnel is needed.
+This auto-reads client_id and client_secret from the secure store and auto-fills auth_url, token_url, scopes, and extra_params from well-known config. The OAuth flow returns through `$GATEWAY_BASE_URL/oauth/callback`.
 
 **If the user sees a "This app isn't verified" warning:** Tell them this is normal for apps in testing mode. Click "Advanced" then "Go to Vellum Assistant (unsafe)" to proceed.
 
