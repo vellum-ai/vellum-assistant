@@ -896,7 +896,7 @@ struct AgentPanelContent: View {
                         .lineLimit(2)
 
                     VSkillTypePill(source: skill.source)
-                        .padding(.top, VSpacing.xxs)
+                        .padding(.top, VSpacing.sm)
                 }
 
                 Spacer(minLength: VSpacing.lg)
@@ -937,7 +937,7 @@ struct AgentPanelContent: View {
                     }
                 }
             }
-            .padding(.top, VSpacing.sm)
+            .padding(.top, VSpacing.xs)
 
             // Expanded details content
             if isExpanded {
