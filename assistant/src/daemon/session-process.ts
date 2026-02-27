@@ -498,6 +498,7 @@ export async function processMessage(
           if (resolved) {
             tryMintGuardianActionGrant({
               resolvedRequest: resolved,
+              answerText,
               decisionChannel: 'vellum',
             });
           }

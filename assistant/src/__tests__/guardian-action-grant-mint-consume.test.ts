@@ -201,6 +201,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     // Step 3: Mint a scoped grant from the resolved request
     tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
+      answerText: 'Yes, go ahead',
       decisionChannel: 'telegram',
       guardianExternalUserId: 'guardian-user-123',
     });
@@ -269,6 +270,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
 
     tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
+      answerText: 'Yes',
       decisionChannel: 'telegram',
     });
 
@@ -316,6 +318,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
 
     tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
+      answerText: 'Tell them to call back',
       decisionChannel: 'vellum',
     });
 
@@ -351,6 +354,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     // Mint with decisionChannel: 'vellum' (desktop path)
     tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
+      answerText: 'Approved',
       decisionChannel: 'vellum',
     });
 
@@ -365,5 +369,110 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       conversationId: CONVERSATION_ID,
     });
     expect(consumeResult.ok).toBe(true);
+  });
+
+  test('no grant minted when guardian answer is a denial', () => {
+    const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
+
+    const request = createGuardianActionRequest({
+      assistantId: ASSISTANT_ID,
+      kind: 'ask_guardian',
+      sourceChannel: 'voice',
+      sourceConversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      pendingQuestionId: nextPendingQuestionId(),
+      questionText: 'Can I run rm -rf /tmp/test?',
+      expiresAt: Date.now() + 60_000,
+      toolName: TOOL_NAME,
+      inputDigest,
+    });
+
+    // Guardian explicitly denies the action
+    const resolved = resolveGuardianActionRequest(request.id, 'No', 'telegram', 'guardian-user-456');
+    expect(resolved).not.toBeNull();
+
+    tryMintGuardianActionGrant({
+      resolvedRequest: resolved!,
+      answerText: 'No',
+      decisionChannel: 'telegram',
+      guardianExternalUserId: 'guardian-user-456',
+    });
+
+    // No grant should have been created for a denial
+    const db = getDb();
+    const grants = db
+      .select()
+      .from(scopedApprovalGrants)
+      .all();
+    expect(grants.length).toBe(0);
+  });
+
+  test.each(['no', 'reject', 'deny', 'cancel'])('no grant minted for denial keyword: %s', (denialWord) => {
+    const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
+
+    const request = createGuardianActionRequest({
+      assistantId: ASSISTANT_ID,
+      kind: 'ask_guardian',
+      sourceChannel: 'voice',
+      sourceConversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      pendingQuestionId: nextPendingQuestionId(),
+      questionText: 'Permission to execute?',
+      expiresAt: Date.now() + 60_000,
+      toolName: TOOL_NAME,
+      inputDigest,
+    });
+
+    const resolved = resolveGuardianActionRequest(request.id, denialWord, 'telegram');
+    expect(resolved).not.toBeNull();
+
+    tryMintGuardianActionGrant({
+      resolvedRequest: resolved!,
+      answerText: denialWord,
+      decisionChannel: 'telegram',
+    });
+
+    const db = getDb();
+    const grants = db
+      .select()
+      .from(scopedApprovalGrants)
+      .all();
+    expect(grants.length).toBe(0);
+  });
+
+  test('grant IS minted for free-form affirmative answer', () => {
+    const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
+
+    const request = createGuardianActionRequest({
+      assistantId: ASSISTANT_ID,
+      kind: 'ask_guardian',
+      sourceChannel: 'voice',
+      sourceConversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      pendingQuestionId: nextPendingQuestionId(),
+      questionText: 'Can I run the command?',
+      expiresAt: Date.now() + 60_000,
+      toolName: TOOL_NAME,
+      inputDigest,
+    });
+
+    // Free-form affirmative that doesn't match a known phrase exactly
+    const resolved = resolveGuardianActionRequest(request.id, 'Sure, go ahead and run it', 'telegram');
+    expect(resolved).not.toBeNull();
+
+    tryMintGuardianActionGrant({
+      resolvedRequest: resolved!,
+      answerText: 'Sure, go ahead and run it',
+      decisionChannel: 'telegram',
+    });
+
+    // Grant should be minted — free-form answers default to affirmative
+    const db = getDb();
+    const grants = db
+      .select()
+      .from(scopedApprovalGrants)
+      .all();
+    expect(grants.length).toBe(1);
+    expect(grants[0].toolName).toBe(TOOL_NAME);
   });
 });

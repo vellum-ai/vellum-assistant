@@ -10,6 +10,7 @@
 import type { GuardianActionRequest } from '../memory/guardian-action-store.js';
 import { createScopedApprovalGrant } from '../memory/scoped-approval-grants.js';
 import { getLogger } from '../util/logger.js';
+import { parseApprovalDecision } from './channel-approval-parser.js';
 
 const log = getLogger('guardian-action-grant-minter');
 
@@ -22,20 +23,41 @@ export const GUARDIAN_ACTION_GRANT_TTL_MS = 5 * 60 * 1000;
  *
  * Skips silently when:
  *   - The resolved request has no toolName/inputDigest (informational consult).
+ *   - The guardian's answer is classified as a denial (preserves the deny path).
  *
  * Fails silently on error -- grant minting is best-effort and must never
  * block the guardian-action answer flow.
  */
 export function tryMintGuardianActionGrant(params: {
   resolvedRequest: GuardianActionRequest;
+  answerText: string;
   decisionChannel: string;
   guardianExternalUserId?: string;
 }): void {
-  const { resolvedRequest, decisionChannel, guardianExternalUserId } = params;
+  const { resolvedRequest, answerText, decisionChannel, guardianExternalUserId } = params;
 
   // Only mint for requests that carry tool metadata -- informational
   // ASK_GUARDIAN consults without tool context do not produce grants.
   if (!resolvedRequest.toolName || !resolvedRequest.inputDigest) {
+    return;
+  }
+
+  // Gate on affirmative guardian decisions. Use the deterministic approval
+  // parser to detect explicit denials ("no", "reject", "deny", "cancel").
+  // Unrecognized free-form answers are treated as affirmative since the
+  // guardian chose to respond to the call.
+  const decision = parseApprovalDecision(answerText);
+  if (decision?.action === 'reject') {
+    log.info(
+      {
+        event: 'guardian_action_grant_skipped_denial',
+        toolName: resolvedRequest.toolName,
+        requestId: resolvedRequest.id,
+        answerText,
+        decisionChannel,
+      },
+      'Skipped grant minting: guardian answer classified as denial',
+    );
     return;
   }
 

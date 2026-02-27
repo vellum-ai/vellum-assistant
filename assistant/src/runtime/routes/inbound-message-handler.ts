@@ -860,6 +860,7 @@ export async function handleChannelInbound(
               // for subsequent tool confirmations.
               tryMintGuardianActionGrant({
                 resolvedRequest: resolved,
+                answerText,
                 decisionChannel: sourceChannel,
                 guardianExternalUserId: body.senderExternalUserId,
               });
