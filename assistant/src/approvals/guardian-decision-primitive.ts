@@ -406,7 +406,7 @@ export async function applyCanonicalGuardianDecision(
   if (resolver) {
     const resolverResult = await resolver.resolve({
       request: resolved,
-      decision: { action: effectiveAction, userText },
+      decision: { action, userText },
       actor: actorContext,
     });
 
