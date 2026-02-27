@@ -46,6 +46,10 @@ if [[ -z "$REPO" ]]; then
   exit 1
 fi
 
+# Temp file for capturing stderr separately from JSON stdout
+STDERR_FILE=$(mktemp)
+trap 'rm -f "$STDERR_FILE"' EXIT
+
 echo "==> Waiting for CI checks on PR #$PR_NUMBER (timeout: ${MAX_WAIT}s)..."
 
 while true; do
@@ -68,10 +72,11 @@ while true; do
   # Fetch check runs via GitHub API (works with all gh versions)
   CHECKS_OUTPUT=""
   CHECKS_RC=0
-  CHECKS_OUTPUT=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" --jq '.check_runs | map({name: .name, status: .status, conclusion: .conclusion})' 2>&1) || CHECKS_RC=$?
+  CHECKS_OUTPUT=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" --jq '.check_runs | map({name: .name, status: .status, conclusion: .conclusion})' 2>"$STDERR_FILE") || CHECKS_RC=$?
 
   if [[ "$CHECKS_RC" -ne 0 ]]; then
-    echo "Warning: gh api check-runs failed (exit $CHECKS_RC): $CHECKS_OUTPUT" >&2
+    STDERR_CONTENT=$(cat "$STDERR_FILE" 2>/dev/null || true)
+    echo "Warning: gh api check-runs failed (exit $CHECKS_RC): $STDERR_CONTENT" >&2
     if [[ "$ELAPSED" -ge "$MAX_WAIT" ]]; then
       echo "Timeout: could not retrieve CI checks after ${MAX_WAIT}s on PR #$PR_NUMBER." >&2
       exit 2
