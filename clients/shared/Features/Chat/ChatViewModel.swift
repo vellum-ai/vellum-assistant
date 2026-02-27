@@ -1789,6 +1789,29 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Parental Control Permission Requests
+
+    /// Create a parental-control approval request from the child profile.
+    /// Sends `parental_control_approval_create` to the daemon so the parent can
+    /// review and respond in Settings → Parental → Pending Approvals.
+    ///
+    /// - Parameters:
+    ///   - toolName: The name of the blocked tool (e.g. ash\, rowser\).
+    ///   - reason:   A short description of why the child needs this tool.
+    public func requestPermission(toolName: String, reason: String) {
+        guard daemonClient.isConnected else {
+            log.warning("Cannot send approval create: daemon not connected")
+            errorText = "Cannot request permission — not connected."
+            return
+        }
+        do {
+            try daemonClient.send(ParentalControlApprovalCreateRequestMessage(toolName: toolName, reason: reason))
+        } catch {
+            log.error("Failed to send parental control approval create: \(error.localizedDescription)")
+            errorText = "Failed to send permission request."
+        }
+    }
+
     /// Send an add_trust_rule message to persist a trust rule.
     /// Returns `true` if the IPC send succeeded, `false` otherwise.
     public func addTrustRule(toolName: String, pattern: String, scope: String, decision: String) -> Bool {

@@ -55,6 +55,8 @@ struct ChatView: View {
     var onSubagentTap: ((String) -> Void)?
     /// Called to rehydrate truncated message content on demand.
     var onRehydrateMessage: ((UUID) -> Void)?
+    /// Called when the child taps "Request Permission" on a blocked tool call.
+    var onRequestPermission: ((String, String) -> Void)?
     @ObservedObject var subagentDetailStore: SubagentDetailStore
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
@@ -193,6 +195,7 @@ struct ChatView: View {
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             onRehydrateMessage: onRehydrateMessage,
+                            onRequestPermission: onRequestPermission,
                             subagentDetailStore: subagentDetailStore,
                             displayedMessageCount: displayedMessageCount,
                             hasMoreMessages: hasMoreMessages,

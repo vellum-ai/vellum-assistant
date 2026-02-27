@@ -24,6 +24,9 @@ struct MessageListView: View {
     var onSubagentTap: ((String) -> Void)?
     /// Called to rehydrate truncated message content on demand.
     var onRehydrateMessage: ((UUID) -> Void)?
+    /// Called when the child taps "Request Permission" on a parental-blocked tool call.
+    /// Receives `(toolName, reason)` so the view model can send the approval create IPC message.
+    var onRequestPermission: ((String, String) -> Void)?
     @ObservedObject var subagentDetailStore: SubagentDetailStore
 
     // MARK: - Pagination
@@ -210,6 +213,7 @@ struct MessageListView: View {
                                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                                 onReportMessage: onReportMessage,
                                 onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
+                                onRequestPermission: onRequestPermission,
                                 mediaEmbedSettings: mediaEmbedSettings,
                                 resolveHttpPort: resolveHttpPort,
                                 showAvatar: !previousIsAssistant,
