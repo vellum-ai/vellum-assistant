@@ -61,7 +61,7 @@ export async function tryMintGuardianActionGrant(params: {
       const llmResult = await runApprovalConversationTurn(
         {
           toolName: resolvedRequest.toolName,
-          allowedActions: ['approve_once', 'reject'],
+          allowedActions: ['approve_once', 'approve_always', 'reject'],
           role: 'guardian',
           pendingApprovals: [{ requestId: resolvedRequest.id, toolName: resolvedRequest.toolName }],
           userMessage: answerText,

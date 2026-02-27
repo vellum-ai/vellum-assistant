@@ -964,6 +964,16 @@ export async function handleChannelInbound(
 
         // ── PENDING state handler ──
         if (state === 'pending' && request.status === 'pending') {
+          // Mint the grant BEFORE answerCall so the grant exists before the
+          // call controller resumes and the next voice turn tries to consume it.
+          await tryMintGuardianActionGrant({
+            resolvedRequest: request,
+            answerText,
+            decisionChannel: sourceChannel,
+            guardianExternalUserId: body.senderExternalUserId,
+            approvalConversationGenerator,
+          });
+
           const answerResult = await answerCall({ callSessionId: request.callSessionId, answer: answerText, pendingQuestionId: request.pendingQuestionId });
 
           if (!('ok' in answerResult) || !answerResult.ok) {
@@ -985,13 +995,6 @@ export async function handleChannelInbound(
           const resolved = resolveGuardianActionRequest(request.id, answerText, sourceChannel, body.senderExternalUserId);
 
           if (resolved) {
-            await tryMintGuardianActionGrant({
-              resolvedRequest: resolved,
-              answerText,
-              decisionChannel: sourceChannel,
-              guardianExternalUserId: body.senderExternalUserId,
-              approvalConversationGenerator,
-            });
             return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'resolved' });
           } else {
             const freshRequest = getGuardianActionRequest(request.id);
@@ -1097,6 +1100,16 @@ export async function handleChannelInbound(
                   'Superseded remap skipped: sender has no delivery on current pending request',
                 );
               } else {
+                // Mint the grant BEFORE answerCall so the grant exists before the
+                // call controller resumes and the next voice turn tries to consume it.
+                await tryMintGuardianActionGrant({
+                  resolvedRequest: currentPending,
+                  answerText,
+                  decisionChannel: sourceChannel,
+                  guardianExternalUserId: body.senderExternalUserId,
+                  approvalConversationGenerator,
+                });
+
                 const remapResult = await answerCall({
                   callSessionId: currentPending.callSessionId,
                   answer: answerText,
@@ -1104,16 +1117,7 @@ export async function handleChannelInbound(
                 });
 
                 if ('ok' in remapResult && remapResult.ok) {
-                  const resolved = resolveGuardianActionRequest(currentPending.id, answerText, sourceChannel, body.senderExternalUserId);
-                  if (resolved) {
-                    await tryMintGuardianActionGrant({
-                      resolvedRequest: resolved,
-                      answerText,
-                      decisionChannel: sourceChannel,
-                      guardianExternalUserId: body.senderExternalUserId,
-                      approvalConversationGenerator,
-                    });
-                  }
+                  resolveGuardianActionRequest(currentPending.id, answerText, sourceChannel, body.senderExternalUserId);
 
                   const remapText = await composeGuardianActionMessageGenerative(
                     { scenario: 'guardian_superseded_remap', questionText: currentPending.questionText },
