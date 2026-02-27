@@ -8,6 +8,7 @@ import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { setRelayBroadcast } from '../calls/relay-server.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { setVoiceBridgeDeps } from '../calls/voice-session-bridge.js';
+import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
 import {
   getQdrantUrlEnv,
   getRuntimeHttpHost,
@@ -15,7 +16,6 @@ import {
   getRuntimeProxyBearerToken,
   validateEnv,
 } from '../config/env.js';
-import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
 import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
 import { syncUpdateBulletinOnStartup } from '../config/update-bulletin.js';
@@ -24,6 +24,7 @@ import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
 import { closeSentry, initSentry } from '../instrument.js';
 import { initLogfire } from '../logfire.js';
+import { getMcpServerManager } from '../mcp/manager.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { initializeDb } from '../memory/db.js';
@@ -55,7 +56,6 @@ import { createGuardianActionCopyGenerator, createGuardianFollowUpConversationGe
 import { initPairingHandlers } from './handlers/pairing.js';
 import { installCliLaunchers } from './install-cli-launchers.js';
 import type { ServerMessage } from './ipc-protocol.js';
-import { getMcpServerManager } from '../mcp/manager.js';
 import { initializeProvidersAndTools, registerMessagingProviders,registerWatcherProviders } from './providers-setup.js';
 import { seedInterfaceFiles } from './seed-files.js';
 import { DaemonServer } from './server.js';

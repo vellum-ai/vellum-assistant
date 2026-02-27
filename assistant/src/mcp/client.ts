@@ -85,7 +85,7 @@ export class McpClient {
     const isError = result.isError === true;
 
     // Handle structuredContent if present
-    if (result.structuredContent !== undefined && result.structuredContent !== null) {
+    if (result.structuredContent !== undefined) {
       return {
         content: JSON.stringify(result.structuredContent),
         isError,
@@ -96,7 +96,7 @@ export class McpClient {
     const textParts: string[] = [];
     if (Array.isArray(result.content)) {
       for (const block of result.content) {
-        if (typeof block === 'object' && block !== null && 'type' in block) {
+        if (typeof block === 'object' && block !== undefined && 'type' in block) {
           if (block.type === 'text' && 'text' in block) {
             textParts.push(String(block.text));
           } else if (block.type === 'resource' && 'resource' in block) {
