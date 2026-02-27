@@ -32,20 +32,72 @@ struct SettingsParentalTab: View {
     @State private var unlockedPIN: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
-            // Header + enable toggle
-            enableSection
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Parental Controls")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Restrict the assistant's capabilities and content topics. A PIN protects these settings from being changed.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            HStack {
+                Text("Enable Parental Controls")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .padding(.leading, VSpacing.xs)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { isEnabled },
+                    set: { newValue in
+                        if !newValue && isEnabled && hasPIN && !isUnlocked {
+                            showingUnlockSheet = true
+                        } else {
+                            updateEnabled(newValue)
+                        }
+                    }
+                ))
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .accessibilityLabel("Enable Parental Controls")
+                .disabled(isLoading)
+            }
+
+            if let error = errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+                    .textSelection(.enabled)
+            }
+            if let success = successMessage {
+                Text(success)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.success)
+                    .textSelection(.enabled)
+            }
 
             if isEnabled {
                 if isUnlocked || !hasPIN {
-                    pinSection
-                    contentRestrictionsSection
-                    toolCategorySection
+                    Divider().padding(.vertical, VSpacing.xs)
+                    pinContent
+                    Divider().padding(.vertical, VSpacing.xs)
+                    contentRestrictionsContent
+                    Divider().padding(.vertical, VSpacing.xs)
+                    toolCategoryContent
                 } else {
+                    Divider().padding(.vertical, VSpacing.xs)
                     lockedPlaceholder
                 }
             }
         }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
         .onAppear { loadSettings() }
         .sheet(isPresented: $showingPINSheet) {
             PINSheet(
@@ -95,68 +147,12 @@ struct SettingsParentalTab: View {
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Sub-sections (nested inside main card)
 
-    private var enableSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Parental Controls")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            Text("Restrict the assistant's capabilities and content topics. A PIN protects these settings from being changed.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-
-            HStack {
-                Text("Enable Parental Controls")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                if isLoading {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                        .padding(.leading, VSpacing.xs)
-                }
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { isEnabled },
-                    set: { newValue in
-                        // Toggling off a PIN-locked session requires PIN verification
-                        if !newValue && isEnabled && hasPIN && !isUnlocked {
-                            showingUnlockSheet = true
-                        } else {
-                            updateEnabled(newValue)
-                        }
-                    }
-                ))
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .accessibilityLabel("Enable Parental Controls")
-                .disabled(isLoading)
-            }
-
-            if let error = errorMessage {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-                    .textSelection(.enabled)
-            }
-            if let success = successMessage {
-                Text(success)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.success)
-                    .textSelection(.enabled)
-            }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    private var pinSection: some View {
+    private var pinContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("PIN Lock")
-                .font(VFont.sectionTitle)
+                .font(VFont.bodyMedium)
                 .foregroundColor(VColor.textPrimary)
 
             Text(hasPIN
@@ -191,14 +187,12 @@ struct SettingsParentalTab: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
     }
 
-    private var contentRestrictionsSection: some View {
+    private var contentRestrictionsContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Content Restrictions")
-                .font(VFont.sectionTitle)
+                .font(VFont.bodyMedium)
                 .foregroundColor(VColor.textPrimary)
 
             Text("Block responses on these topics.")
@@ -227,14 +221,12 @@ struct SettingsParentalTab: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
     }
 
-    private var toolCategorySection: some View {
+    private var toolCategoryContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Tool Restrictions")
-                .font(VFont.sectionTitle)
+                .font(VFont.bodyMedium)
                 .foregroundColor(VColor.textPrimary)
 
             Text("Prevent the assistant from using these tool categories.")
@@ -269,8 +261,6 @@ struct SettingsParentalTab: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
     }
 
     private var lockedPlaceholder: some View {
@@ -295,9 +285,7 @@ struct SettingsParentalTab: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, VSpacing.xxl)
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
+        .padding(.vertical, VSpacing.lg)
     }
 
     // MARK: - Daemon interactions

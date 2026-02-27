@@ -16,7 +16,7 @@ enum SettingsTab: String {
     static func visibleTabs(isDevMode: Bool) -> [SettingsTab] {
         var tabs: [SettingsTab] = [
             .account, .channels, .modelsAndServices, .voice,
-            .permissions, .automation, .appearance, .parental
+            .permissions, .automation, .appearance
         ]
         if isDevMode {
             tabs.append(.advanced)
@@ -40,6 +40,7 @@ enum SettingsTab: String {
             case "Trust": tab = .permissions
             case "Schedules": tab = .automation
             case "Heartbeat": tab = .automation
+            case "Parental": tab = .permissions
             case "Advanced": tab = .advanced
             default: tab = nil
             }
@@ -243,7 +244,7 @@ struct SettingsPanel: View {
         case .appearance:
             SettingsAppearanceTab(store: store)
         case .parental:
-            SettingsParentalTab(daemonClient: daemonClient)
+            permissionsContent
         case .advanced:
             SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
         }
@@ -784,6 +785,9 @@ struct SettingsPanel: View {
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
+
+            // PARENTAL CONTROLS section
+            SettingsParentalTab(daemonClient: daemonClient)
         }
     }
 
