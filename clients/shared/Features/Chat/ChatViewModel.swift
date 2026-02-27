@@ -866,6 +866,11 @@ public final class ChatViewModel: ObservableObject {
             let keepCount = Self.trimKeepRecent
             if self.messages.count > keepCount {
                 self.messages.removeFirst(self.messages.count - keepCount)
+                // Update cursor to oldest retained message so pagination
+                // doesn't skip the trimmed gap on the next page load.
+                if let oldestRetained = self.messages.first {
+                    self.historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
+                }
                 // displayedMessages is updated automatically via $messages sink.
                 self.displayedMessageCount = Self.messagePageSize
             }
@@ -2080,38 +2085,18 @@ public final class ChatViewModel: ObservableObject {
                         imageData: nil
                     )
                     toolCall.cachedImage = decodedImage
-                    // Defer expensive formatting — store the raw dict for lazy computation
-                    // when the user expands the tool call chip. Cap the raw dict size
-                    // to prevent unbounded memory from large tool inputs (mirrors the
-                    // 10k-char cap applied in formatAllToolInput).
-                    // The size check uses JSONSerialization which is moved off @MainActor:
-                    // we optimistically store inputRawDict and a background task will swap
-                    // to formatted text if the payload exceeds the 10k threshold.
+                    // Cap tool input size to prevent unbounded memory from large history
+                    // restores. Check size synchronously to avoid a race where a deferred
+                    // Task might run before self.messages is populated with these new items.
                     let input = tc.input
-                    toolCall.inputRawDict = input
-                    let toolCallId = toolCall.id
-                    Task.detached(priority: .utility) { [weak self] in
-                        let estimatedSize: Int
-                        if let data = try? JSONSerialization.data(withJSONObject: input.mapValues { $0.value ?? NSNull() }) {
-                            estimatedSize = data.count
-                        } else {
-                            estimatedSize = 0
-                        }
-                        guard estimatedSize > 10_000 else { return }
-                        // Too large — format eagerly (with truncation) rather than
-                        // retaining the full raw dictionary in memory.
+                    let estimatedSize: Int = (try? JSONSerialization.data(withJSONObject: input.mapValues { $0.value ?? NSNull() }))?.count ?? 0
+                    if estimatedSize > 10_000 {
+                        // Too large — format eagerly (with truncation) to free the raw dict.
                         let formatted = ToolCallData.formatAllToolInput(input)
-                        await MainActor.run { [weak self] in
-                            guard let self else { return }
-                            for msgIdx in self.messages.indices {
-                                if let tcIdx = self.messages[msgIdx].toolCalls.firstIndex(where: { $0.id == toolCallId }) {
-                                    self.messages[msgIdx].toolCalls[tcIdx].inputFull = formatted
-                                    self.messages[msgIdx].toolCalls[tcIdx].inputFullLength = formatted.count
-                                    self.messages[msgIdx].toolCalls[tcIdx].inputRawDict = nil
-                                    break
-                                }
-                            }
-                        }
+                        toolCall.inputFull = formatted
+                        toolCall.inputFullLength = formatted.count
+                    } else {
+                        toolCall.inputRawDict = input
                     }
                     return toolCall
                 }
