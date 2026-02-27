@@ -872,13 +872,12 @@ struct MainWindowView: View {
             .animation(VAnimation.fast, value: isHovered)
         }
         .onTapGesture {
-            if case .appEditing(let appId, _) = windowState.selection {
-                windowState.selection = .appEditing(appId: appId, threadId: thread.id)
-                threadManager.selectThread(id: thread.id)
-            } else {
-                windowState.selection = .thread(thread.id)
-                threadManager.selectThread(id: thread.id)
-            }
+            selectThread(thread)
+        }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Thread: \(thread.title)")
+        .accessibilityAction(.default) {
+            selectThread(thread)
         }
         .overlay(alignment: .leading) {
             if isHovered {
@@ -1004,6 +1003,16 @@ struct MainWindowView: View {
             .frame(width: 220, alignment: .leading)
             .background(VColor.surface.opacity(0.9))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
+    }
+
+    private func selectThread(_ thread: ThreadModel) {
+        if case .appEditing(let appId, _) = windowState.selection {
+            windowState.selection = .appEditing(appId: appId, threadId: thread.id)
+            threadManager.selectThread(id: thread.id)
+        } else {
+            windowState.selection = .thread(thread.id)
+            threadManager.selectThread(id: thread.id)
         }
     }
 
