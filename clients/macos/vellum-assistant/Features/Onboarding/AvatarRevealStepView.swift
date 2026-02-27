@@ -215,7 +215,7 @@ struct AvatarRevealStepView: View {
                 if success {
                     // Reload avatar from disk
                     AvatarAppearanceManager.shared.reloadAvatar()
-                    avatarImage = AvatarAppearanceManager.shared.chatAvatarImage
+                    avatarImage = AvatarAppearanceManager.shared.fullAvatarImage
                     generationFailed = false
                 } else {
                     // Use fallback initial-letter avatar

@@ -229,15 +229,34 @@ final class AvatarAppearanceManager {
 
     // MARK: - Image Utilities
 
-    /// Resize an NSImage to the given point size (produces a 1x bitmap; callers rely on
-    /// SwiftUI's `.resizable()` + `.aspectRatio(contentMode: .fill)` for Retina scaling).
+    /// Resize an NSImage to a square of the given point size using aspect-fill:
+    /// scales the source to fully cover the target square, then crops the excess
+    /// so non-square images are centered rather than stretched.
     static func resizedImage(_ source: NSImage, to size: CGFloat) -> NSImage {
         let targetSize = NSSize(width: size, height: size)
+        let srcW = source.size.width
+        let srcH = source.size.height
+
+        // Determine crop rect: scale so the smaller dimension fills `size`,
+        // then center-crop the larger dimension.
+        let cropRect: NSRect
+        if srcW / srcH > 1 {
+            // Wider than tall -- crop horizontal excess
+            let cropW = srcH // square side in source coords
+            let originX = (srcW - cropW) / 2
+            cropRect = NSRect(x: originX, y: 0, width: cropW, height: srcH)
+        } else {
+            // Taller than wide (or square) -- crop vertical excess
+            let cropH = srcW // square side in source coords
+            let originY = (srcH - cropH) / 2
+            cropRect = NSRect(x: 0, y: originY, width: srcW, height: cropH)
+        }
+
         let resized = NSImage(size: targetSize)
         resized.lockFocus()
         source.draw(
             in: NSRect(origin: .zero, size: targetSize),
-            from: NSRect(origin: .zero, size: source.size),
+            from: cropRect,
             operation: .copy,
             fraction: 1.0
         )
