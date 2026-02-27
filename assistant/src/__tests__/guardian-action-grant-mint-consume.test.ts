@@ -54,8 +54,10 @@ import {
 } from '../memory/guardian-action-store.js';
 import { conversations, scopedApprovalGrants } from '../memory/schema.js';
 import {
-  consumeScopedApprovalGrantByToolSignature,
+  _internal,
 } from '../memory/scoped-approval-grants.js';
+
+const { consumeScopedApprovalGrantByToolSignature } = _internal;
 import { tryMintGuardianActionGrant } from '../runtime/guardian-action-grant-minter.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 

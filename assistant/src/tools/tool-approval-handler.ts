@@ -59,10 +59,6 @@ export class ToolApprovalHandler {
     startTime: number,
     emitLifecycleEvent: (event: ToolLifecycleEvent) => void,
   ): PreExecutionGateResult {
-    // Track whether a scoped grant was consumed so the executor can skip
-    // the interactive permission prompt while still running policy gates.
-    let grantConsumed = false;
-
     // Bail out immediately if the session was aborted before this tool started.
     if (context.signal?.aborted) {
       const durationMs = Date.now() - startTime;
@@ -143,15 +139,21 @@ export class ToolApprovalHandler {
       return { allowed: false, result: { content: guardianCheck.reason!, isError: true } };
     }
 
-    // Untrusted actors cannot execute host tools or side-effect tools directly
-    // unless a valid scoped grant exists for this exact invocation.
-    // Check for a matching grant FIRST; only deny if no grant matches.
+    // Determine whether this invocation requires a scoped grant. Capture
+    // the consume params now but defer the actual atomic consumption until
+    // after all downstream policy gates (allowedToolNames, task-run
+    // preflight, tool registry) pass. This prevents wasting a one-time-use
+    // grant when a subsequent gate rejects the invocation.
+    let needsGrantConsumption = false;
+    let deferredConsumeParams: Parameters<typeof consumeGrantForInvocation>[0] | null = null;
+
     if (
       isUntrustedGuardianActorRole(context.guardianActorRole)
       && requiresGuardianApprovalForActor(name, input, executionTarget)
     ) {
       const inputDigest = computeToolApprovalDigest(name, input);
-      const grantResult = consumeGrantForInvocation({
+      needsGrantConsumption = true;
+      deferredConsumeParams = {
         requestId: context.requestId,
         toolName: name,
         inputDigest,
@@ -161,50 +163,7 @@ export class ToolApprovalHandler {
         conversationId: context.conversationId,
         callSessionId: context.callSessionId,
         requesterExternalUserId: context.requesterExternalUserId,
-      });
-
-      if (grantResult.ok) {
-        log.info({
-          toolName: name,
-          sessionId: context.sessionId,
-          conversationId: context.conversationId,
-          actorRole: context.guardianActorRole,
-          executionTarget,
-          grantId: grantResult.grant.id,
-        }, 'Scoped grant consumed — allowing untrusted actor tool invocation');
-
-        // A consumed scoped grant bypasses the interactive permission prompt
-        // (PermissionChecker) in the executor, but policy gates below
-        // (allowedToolNames, task-run preflight) must still run.
-        grantConsumed = true;
-      } else {
-        const reason = guardianApprovalDeniedMessage(context.guardianActorRole, name);
-        log.warn({
-          toolName: name,
-          sessionId: context.sessionId,
-          conversationId: context.conversationId,
-          actorRole: context.guardianActorRole,
-          executionTarget,
-          reason: 'guardian_approval_required',
-          grantMissReason: grantResult.reason,
-        }, 'Guardian approval gate blocked untrusted actor tool invocation (no matching grant)');
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent({
-          type: 'permission_denied',
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
-          sessionId: context.sessionId,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          decision: 'deny',
-          reason,
-          durationMs,
-        });
-        return { allowed: false, result: { content: reason, isError: true } };
-      }
+      };
     }
 
     // Gate tools not active for the current turn
@@ -283,6 +242,55 @@ export class ToolApprovalHandler {
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
-    return { allowed: true, tool, ...(grantConsumed ? { grantConsumed: true } : {}) };
+    // All policy gates passed. Now consume the scoped grant if one is
+    // required. Deferring consumption to this point ensures a downstream
+    // rejection (allowedToolNames, task-run preflight, registry lookup)
+    // does not waste the one-time-use grant.
+    if (needsGrantConsumption && deferredConsumeParams) {
+      const grantResult = consumeGrantForInvocation(deferredConsumeParams);
+
+      if (grantResult.ok) {
+        log.info({
+          toolName: name,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          actorRole: context.guardianActorRole,
+          executionTarget,
+          grantId: grantResult.grant.id,
+        }, 'Scoped grant consumed — allowing untrusted actor tool invocation');
+
+        return { allowed: true, tool, grantConsumed: true };
+      }
+
+      // No matching grant or race condition — deny.
+      const reason = guardianApprovalDeniedMessage(context.guardianActorRole, name);
+      log.warn({
+        toolName: name,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        actorRole: context.guardianActorRole,
+        executionTarget,
+        reason: 'guardian_approval_required',
+        grantMissReason: grantResult.reason,
+      }, 'Guardian approval gate blocked untrusted actor tool invocation (no matching grant)');
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent({
+        type: 'permission_denied',
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel,
+        decision: 'deny',
+        reason,
+        durationMs,
+      });
+      return { allowed: false, result: { content: reason, isError: true } };
+    }
+
+    return { allowed: true, tool };
   }
 }

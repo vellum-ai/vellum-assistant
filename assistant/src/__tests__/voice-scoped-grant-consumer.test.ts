@@ -110,10 +110,12 @@ import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { scopedApprovalGrants } from '../memory/schema.js';
 import {
-  createScopedApprovalGrant,
+  _internal,
   type CreateScopedApprovalGrantParams,
   revokeScopedApprovalGrantsForContext,
 } from '../memory/scoped-approval-grants.js';
+
+const { createScopedApprovalGrant } = _internal;
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 
 initializeDb();

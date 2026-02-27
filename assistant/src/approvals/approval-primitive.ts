@@ -12,13 +12,13 @@
  */
 
 import {
-  createScopedApprovalGrant,
-  consumeScopedApprovalGrantByRequestId,
-  consumeScopedApprovalGrantByToolSignature,
+  _internal,
   type ConsumeByRequestIdResult,
   type ConsumeByToolSignatureResult,
   type ScopedApprovalGrant,
 } from '../memory/scoped-approval-grants.js';
+
+const { createScopedApprovalGrant, consumeScopedApprovalGrantByRequestId, consumeScopedApprovalGrantByToolSignature } = _internal;
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('approval-primitive');
