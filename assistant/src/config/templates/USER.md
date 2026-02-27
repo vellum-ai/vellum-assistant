@@ -17,6 +17,9 @@ _(What do they care about? What projects are they working on? What annoys them? 
 - Preferred name/reference:
 - Goals:
 - Locale:
+- Work role:
+- Hobbies/fun:
+- Daily tools:
 
 ---
 
