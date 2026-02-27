@@ -1,0 +1,1 @@
+../../scripts/commands/check-reviews.md

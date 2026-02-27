@@ -1,0 +1,1 @@
+../../scripts/commands/work.md
