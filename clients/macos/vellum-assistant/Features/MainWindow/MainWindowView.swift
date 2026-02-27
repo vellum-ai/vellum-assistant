@@ -1681,41 +1681,46 @@ private struct ProfileSwitchModal: View {
     private var isChildToParental: Bool { activeProfile == "child" }
 
     var body: some View {
-        VStack(spacing: VSpacing.md) {
-            // Title
-            Text(isChildToParental ? "Switch to Parental Mode" : "Switch to Restricted Mode")
-                .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
+        ZStack {
+            VColor.background.ignoresSafeArea()
+
+            VStack(spacing: VSpacing.md) {
+                // Title
+                Text(isChildToParental ? "Switch to Parental Mode" : "Switch to Restricted Mode")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                // From/to avatar icons
+                HStack(spacing: VSpacing.md) {
+                    profileAvatarColumn(isParental: !isChildToParental)
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                    profileAvatarColumn(isParental: isChildToParental)
+                }
                 .frame(maxWidth: .infinity, alignment: .center)
 
-            // From/to avatar icons
-            HStack(spacing: VSpacing.md) {
-                profileAvatarColumn(isParental: !isChildToParental)
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(VColor.textMuted)
-                profileAvatarColumn(isParental: isChildToParental)
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
+                ZStack {
+                    enterPINContent
+                        .opacity(step == .enterPIN ? 1 : 0)
+                        .allowsHitTesting(step == .enterPIN)
 
-            ZStack {
-                enterPINContent
-                    .opacity(step == .enterPIN ? 1 : 0)
-                    .allowsHitTesting(step == .enterPIN)
-
-                switchingContent
-                    .opacity(step == .switching ? 1 : 0)
-                    .allowsHitTesting(step == .switching)
-                    .transition(.opacity)
+                    switchingContent
+                        .opacity(step == .switching ? 1 : 0)
+                        .allowsHitTesting(step == .switching)
+                        .transition(.opacity)
+                }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
+            .padding(VSpacing.xl)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
-        .padding(VSpacing.xl)
-        .frame(width: 340)
-        .fixedSize(horizontal: true, vertical: true)
-        .background(VColor.background)
+        .frame(width: 360, height: 280)
         .animation(VAnimation.standard, value: step)
     }
+
 
     private var enterPINContent: some View {
         VStack(alignment: .center, spacing: VSpacing.md) {
@@ -1737,16 +1742,18 @@ private struct ProfileSwitchModal: View {
                 Text(" ").font(VFont.caption)
             }
 
-            HStack {
-                VButton(label: "Cancel", style: .secondary) { dismiss() }
+            HStack(spacing: VSpacing.sm) {
                 Spacer()
+                VButton(label: "Cancel", style: .secondary) { dismiss() }
                 VButton(label: "Switch Mode", style: .primary) {
                     performSwitch()
                 }
                 .disabled(isChildToParental && pin.count != 6)
                 .keyboardShortcut(.return, modifiers: [])
+                Spacer()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     private var switchingContent: some View {
