@@ -32,6 +32,8 @@ struct SettingsParentalTab: View {
     // -- Set-PIN-to-enable sheet (shown when enabling parental controls without an existing PIN) --
     @State private var showingSetPINForEnableSheet: Bool = false
     @State private var showingDisableConfirmation: Bool = false
+    // -- Unlock PIN sheet (shown on load when cachedPIN is nil but a PIN is set) --
+    @State private var showingUnlockPINSheet: Bool = false
 
 
     // -- Child: request permission sheet --
@@ -180,6 +182,16 @@ struct SettingsParentalTab: View {
                     }
                 },
                 daemonClient: daemonClient
+            )
+        }
+        .sheet(isPresented: $showingUnlockPINSheet) {
+            UnlockPINView(
+                daemonClient: daemonClient,
+                onUnlock: { verifiedPIN in
+                    settingsStore.cachedPIN = verifiedPIN
+                    showingUnlockPINSheet = false
+                },
+                onDismiss: { showingUnlockPINSheet = false }
             )
         }
     }
@@ -889,6 +901,12 @@ struct SettingsParentalTab: View {
                     hasPIN = r.has_pin
                     contentRestrictions = Set(r.content_restrictions)
                     blockedToolCategories = Set(r.blocked_tool_categories)
+                    // Auto-prompt for PIN unlock when settings are PIN-protected but
+                    // cachedPIN is nil (e.g. app restart while already on parental profile).
+                    if r.enabled && r.has_pin && settingsStore.cachedPIN == nil
+                        && settingsStore.activeProfile == "parental" {
+                        showingUnlockPINSheet = true
+                    }
                     // Also load pending approvals when on the parental profile
                     if settingsStore.activeProfile == "parental" {
                         loadPendingApprovals()
@@ -1792,6 +1810,126 @@ private struct ActivityLogEntryRow: View {
             return display.string(from: date)
         }
         return entry.timestamp
+    }
+}
+
+// MARK: - Unlock PIN View
+
+/// Shown automatically when the parental settings tab loads and the PIN cache is
+/// empty (e.g. app restart while already on the parental profile). The user must
+/// enter their PIN once per session before settings changes are accepted by the daemon.
+@MainActor
+private struct UnlockPINView: View {
+    var daemonClient: DaemonClient?
+    let onUnlock: (String) -> Void
+    let onDismiss: () -> Void
+
+    @State private var pinInput: String = ""
+    @State private var errorMessage: String?
+    @State private var isLoading: Bool = false
+    @State private var focusTrigger: Int = 0
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Content
+            VStack(spacing: VSpacing.md) {
+                VStack(spacing: VSpacing.xs) {
+                    Text("Enter PIN to Make Changes")
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Parental settings are PIN-protected. Enter your PIN once to unlock changes for this session.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+
+                PINCircleField(text: $pinInput, focusTrigger: focusTrigger)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .onChange(of: pinInput) { _, v in
+                        if v.count == 6 { verify() }
+                    }
+
+                if let error = errorMessage {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                        .multilineTextAlignment(.center)
+                } else {
+                    Text(" ").font(VFont.caption)
+                }
+            }
+
+            Spacer().frame(height: VSpacing.xxl)
+
+            if isLoading {
+                ProgressView().scaleEffect(0.8)
+            } else {
+                VButton(label: "Cancel", style: .secondary) { onDismiss() }
+            }
+        }
+        .padding(VSpacing.xl)
+        .frame(width: 320)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(VColor.background)
+    }
+
+    private func verify() {
+        guard !isLoading, pinInput.count == 6 else { return }
+        let enteredPIN = pinInput
+        isLoading = true
+        errorMessage = nil
+        let stream = daemonClient?.subscribe()
+        Task {
+            do {
+                try daemonClient?.sendParentalControlVerifyPin(pin: enteredPIN)
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                    pinInput = ""
+                    errorMessage = error.localizedDescription
+                    focusTrigger += 1
+                }
+                return
+            }
+
+            let response: ParentalControlVerifyPinResponseMessage? = await withTaskGroup(
+                of: ParentalControlVerifyPinResponseMessage?.self
+            ) { group in
+                group.addTask {
+                    guard let stream else { return nil }
+                    for await message in stream {
+                        if case .parentalControlVerifyPinResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            await MainActor.run {
+                isLoading = false
+                if let r = response {
+                    if r.verified {
+                        onUnlock(enteredPIN)
+                    } else {
+                        pinInput = ""
+                        errorMessage = "Incorrect PIN. Try again."
+                        focusTrigger += 1
+                    }
+                } else {
+                    pinInput = ""
+                    errorMessage = "No response from daemon."
+                    focusTrigger += 1
+                }
+            }
+        }
     }
 }
 
