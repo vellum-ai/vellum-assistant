@@ -11,6 +11,7 @@ import { callDoctorDaemon, type ChatLogEntry } from "../lib/doctor-client";
 import { checkHealth } from "../lib/health-check";
 import { statusEmoji, withStatusEmoji } from "../lib/status-emoji";
 import TextInput from "./TextInput";
+import { Tooltip } from "./Tooltip";
 
 export const ANSI = {
   reset: "\x1b[0m",
@@ -682,7 +683,9 @@ function DefaultMainScreen({
       </Box>
       <Text dimColor>{"─".repeat(totalWidth)}</Text>
       <Text> </Text>
-      <Text dimColor> ? for shortcuts</Text>
+      <Tooltip text="Type ? or /help for available commands" delay={1000}>
+        <Text dimColor> ? for shortcuts</Text>
+      </Tooltip>
       <Text> </Text>
     </Box>
   );
@@ -841,7 +844,7 @@ function SelectionWindow({
         );
       })}
       <Text>{"\u2514" + "\u2500".repeat(windowWidth - 2) + "\u2518"}</Text>
-      <Text dimColor>{"  \u2191/\u2193 navigate  Enter select  Esc cancel"}</Text>
+      <Tooltip text="\u2191/\u2193 navigate  Enter select  Esc cancel" delay={1000} />
     </Box>
   );
 }
@@ -901,7 +904,7 @@ function SecretInputWindow({
         {"\u2502"}
       </Text>
       <Text>{"\u2514" + "\u2500".repeat(windowWidth - 2) + "\u2518"}</Text>
-      <Text dimColor>{"  Enter submit  Esc cancel"}</Text>
+      <Tooltip text="Enter submit  Esc cancel" delay={1000} />
     </Box>
   );
 }
@@ -1814,6 +1817,12 @@ function ChatApp({
 
       {!selection && !secretInput ? (
         <Box flexDirection="column">
+          <Tooltip
+            text="Type a message or /help for commands"
+            visible={inputFocused && inputValue.length === 0}
+            position="above"
+            delay={1000}
+          />
           <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
           <Box paddingLeft={1}>
             <Text color="green" bold>
