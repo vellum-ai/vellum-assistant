@@ -111,7 +111,7 @@ Tell the user:
 
 (Substitute the actual gateway OAuth callback URL. This is obtained from `getOAuthCallbackUrl(loadConfig())` — the skill should compute and insert this URL.)
 
-**Important:** Channel users must use **"Web application"** credentials (not Desktop app) because channel OAuth callbacks are routed through the gateway's public URL.
+**Important:** Channel users must use **"Web application"** credentials (not Desktop app) because the OAuth callback goes through the gateway's public URL, not localhost.
 
 ### Channel Step 6: Store Credentials
 
@@ -340,7 +340,7 @@ Navigate to `https://console.cloud.google.com/apis/credentials?project=PROJECT_I
 Find the option to create new credentials (typically a button labeled "Create Credentials" or similar), then select "OAuth client ID" from the menu.
 
 On the creation form:
-- Application type: **Desktop app** (for this macOS flow; do not choose Web application here)
+- Application type: **Desktop app** (not Web application — Desktop app uses localhost redirects)
 - Name: "Vellum Assistant"
 - Do NOT add any redirect URIs
 
@@ -393,7 +393,7 @@ action: "oauth2_connect"
 service: "integration:gmail"
 ```
 
-This auto-reads client_id and client_secret from the secure store and auto-fills auth_url, token_url, scopes, and extra_params from well-known config. OAuth callback transport is handled automatically for this flow.
+This auto-reads client_id and client_secret from the secure store and auto-fills auth_url, token_url, scopes, and extra_params from well-known config. The OAuth flow uses a localhost callback — no public URL or tunnel is needed.
 
 **If the user sees a "This app isn't verified" warning:** Tell them this is normal for apps in testing mode. Click "Advanced" then "Go to Vellum Assistant (unsafe)" to proceed.
 
