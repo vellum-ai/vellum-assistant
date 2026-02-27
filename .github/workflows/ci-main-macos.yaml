@@ -9,7 +9,7 @@ on:
       - '.github/workflows/ci-main-macos.yaml'
 
 jobs:
-  build-check:
+  build:
     name: macOS Build
     runs-on: macos-14
     timeout-minutes: 15
@@ -86,10 +86,6 @@ jobs:
           codesign --verify --deep --strict "dist/Vellum.app"
           echo "Code signature verified"
 
-      - name: Run tests
-        working-directory: clients/macos
-        run: ./build.sh test
-
       - name: Cleanup keychain
         if: always()
         run: |
@@ -130,3 +126,27 @@ jobs:
           fi
 
           echo "Consecutive failures on main: $CONSECUTIVE"
+
+  test:
+    name: macOS Tests
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-
+
+      - name: Run tests
+        working-directory: clients/macos
+        run: ./build.sh test
