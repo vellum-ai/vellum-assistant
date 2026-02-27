@@ -166,7 +166,7 @@ export function createConversation(titleOrOpts?: string | { title?: string; thre
       break;
     } catch (err) {
       const code = (err as { code?: string }).code ?? '';
-      if (attempt < MAX_RETRIES && (code === 'SQLITE_BUSY' || code.startsWith('SQLITE_IOERR'))) {
+      if (attempt < MAX_RETRIES && (code.startsWith('SQLITE_BUSY') || code.startsWith('SQLITE_IOERR'))) {
         log.warn({ attempt, conversationId: id, code }, 'createConversation: transient SQLite error, retrying');
         // Synchronous sleep — createConversation is synchronous and the
         // retry window is short (50-150ms), so Bun.sleepSync is appropriate.
@@ -233,7 +233,8 @@ export async function addMessage(conversationId: string, role: string, content: 
       ? metadata.userMessageChannel
       : null;
   // Wrap insert + updatedAt bump in a transaction so they're atomic.
-  // Retry on SQLITE_BUSY in case busy_timeout is exhausted under heavy contention.
+  // Retry on SQLITE_BUSY* and SQLITE_IOERR* — covers WAL contention variants
+  // (SQLITE_BUSY_SNAPSHOT, SQLITE_BUSY_RECOVERY) and transient disk I/O errors.
   // Timestamp is recomputed each attempt so a late retry doesn't persist a stale updatedAt.
   const MAX_RETRIES = 3;
   let now!: number;
@@ -263,8 +264,9 @@ export async function addMessage(conversationId: string, role: string, content: 
       });
       break;
     } catch (err) {
-      if (attempt < MAX_RETRIES && (err as { code?: string }).code === 'SQLITE_BUSY') {
-        log.warn({ attempt, conversationId }, 'addMessage: SQLITE_BUSY, retrying');
+      const errCode = (err as { code?: string }).code ?? '';
+      if (attempt < MAX_RETRIES && (errCode.startsWith('SQLITE_BUSY') || errCode.startsWith('SQLITE_IOERR'))) {
+        log.warn({ attempt, conversationId, code: errCode }, 'addMessage: transient SQLite error, retrying');
         await Bun.sleep(50 * (attempt + 1));
         continue;
       }
