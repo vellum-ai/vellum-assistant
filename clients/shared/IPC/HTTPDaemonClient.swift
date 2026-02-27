@@ -505,6 +505,13 @@ final class HTTPTransport {
                 }
                 guard (200..<300).contains(http.statusCode) else {
                     log.error("Guardian action decision failed (\(http.statusCode))")
+                    // Emit a synthetic failure response so the UI clears isSubmitting state
+                    onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
+                        applied: false,
+                        reason: "HTTP \(http.statusCode)",
+                        requestId: requestId,
+                        userText: nil
+                    )))
                     return
                 }
             }
@@ -517,6 +524,13 @@ final class HTTPTransport {
             }
         } catch {
             log.error("Guardian action decision error: \(error.localizedDescription)")
+            // Emit a synthetic failure response so the UI clears isSubmitting state
+            onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
+                applied: false,
+                reason: error.localizedDescription,
+                requestId: requestId,
+                userText: nil
+            )))
         }
     }
 

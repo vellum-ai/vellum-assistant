@@ -119,7 +119,7 @@ export function listGuardianDecisionPrompts(params: {
   const approvalRequests = listPendingApprovalRequests({
     conversationId,
     status: 'pending',
-  });
+  }).filter(a => a.expiresAt > Date.now());
 
   for (const approval of approvalRequests) {
     const reqId = approval.requestId ?? approval.id;
