@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { execSync, spawn } from "child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { createConnection } from "net";
@@ -196,6 +196,27 @@ function readWorkspaceIngressPublicBaseUrl(): string | undefined {
   }
 }
 
+/** Use lsof to discover the PID of the process listening on a Unix socket.
+ *  Returns the PID if found, undefined otherwise. */
+function findSocketOwnerPid(socketPath: string): number | undefined {
+  try {
+    const output = execSync(`lsof -U -a -F p -- ${JSON.stringify(socketPath)}`, {
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    // lsof -F p outputs lines like "p1234" — extract the first PID
+    const match = output.match(/^p(\d+)/m);
+    if (match) {
+      const pid = parseInt(match[1], 10);
+      if (!isNaN(pid)) return pid;
+    }
+  } catch {
+    // lsof not available or failed — cannot recover PID
+  }
+  return undefined;
+}
+
 /** Try a TCP connect to the Unix socket. Returns true if the handshake
  *  completes within the timeout — false on connection refused, timeout,
  *  or missing socket file. */
@@ -301,7 +322,15 @@ export async function startLocalDaemon(): Promise<void> {
       // may still be listening on the socket (e.g. if the PID file was
       // overwritten by a crashed restart attempt). Check before deleting.
       if (await isSocketResponsive(socketFile)) {
-        console.log("   Daemon socket is responsive — skipping restart\n");
+        // Restore PID tracking so lifecycle commands (sleep, retire,
+        // stopLocalProcesses) can manage this daemon process.
+        const ownerPid = findSocketOwnerPid(socketFile);
+        if (ownerPid) {
+          writeFileSync(pidFile, String(ownerPid), "utf-8");
+          console.log(`   Daemon socket is responsive (pid ${ownerPid}) — skipping restart\n`);
+        } else {
+          console.log("   Daemon socket is responsive — skipping restart\n");
+        }
         return;
       }
 
