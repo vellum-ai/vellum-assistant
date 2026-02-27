@@ -1,1 +1,1 @@
-../../scripts/commands/check-reviews.md
+../../../.claude/commands/check-reviews.md

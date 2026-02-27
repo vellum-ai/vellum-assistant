@@ -1,1 +1,1 @@
-../../scripts/commands/brainstorm.md
+../../../.claude/commands/brainstorm.md

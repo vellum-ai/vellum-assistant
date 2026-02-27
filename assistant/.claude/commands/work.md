@@ -1,1 +1,1 @@
-../../scripts/commands/work.md
+../../../.claude/commands/work.md

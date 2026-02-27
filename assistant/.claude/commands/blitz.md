@@ -1,1 +1,1 @@
-../../scripts/commands/blitz.md
+../../../.claude/commands/blitz.md
