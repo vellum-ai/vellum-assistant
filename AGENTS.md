@@ -8,7 +8,7 @@ Bun + TypeScript monorepo with multiple packages:
 - `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `clients/` — Client apps (macOS/iOS/etc). See `clients/AGENTS.md` and platform docs like `clients/macos/CLAUDE.md`.
 - `scripts/` — Utility scripts
-- `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`)
+- `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`). Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks; repo-local commands (`update.md`, `release.md`) live here directly.
 
 ## Conventions
 
@@ -51,7 +51,7 @@ When your PR establishes a new mandatory pattern, convention, or architectural c
 
 ## Slash Commands — TLDR
 
-These are the most commonly used slash commands defined in `.claude/commands/`:
+Most commands are shared from the [`claude-skills`](https://github.com/vellum-ai/claude-skills) repo via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/commands/` directly. After cloning, run `path/to/claude-skills/setup` to create the symlinks.
 
 | Command | What it does |
 |---|---|

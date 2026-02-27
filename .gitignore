@@ -29,12 +29,14 @@ dist
 !.claude/commands/
 !.claude/phases/
 !.claude/README.md
-!.claude/worktree
-!.claude/ship
-!.claude/gh-project
-!.claude/gh-review
-!.claude/check-pr-reviews
-!.claude/wait-ci
+
+# Shared claude-skills symlinks (managed by claude-skills/setup)
+# These are gitignored because they're symlinks to the shared repo.
+# Repo-local commands (update.md, release.md) are preserved via negation.
+.claude/commands/*.md
+!.claude/commands/update.md
+!.claude/commands/release.md
+.claude/phases/
 .private/
 temp.sh
 context.md
