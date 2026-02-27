@@ -89,6 +89,7 @@ jobs:
         working-directory: clients/macos
         run: |
           SIGN_IDENTITY="Developer ID Application" \
+          SKIP_CLEAN=1 \
           ./build.sh release
           ls -la "dist/Vellum.app"
 
