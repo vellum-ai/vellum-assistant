@@ -286,7 +286,7 @@ Tell the user:
 
 Wait 60 seconds (`sleep 60`), then automatically invoke `/safe-check-review <plan file>`.
 
-Do NOT continue to the next PR directly — let `/safe-check-review` handle merging and continuing the plan.
+Do NOT continue to the next PR directly — `/safe-check-review` will check for and address review feedback, then prompt the user to run `/resume-plan` when ready to merge.
 
 ## Important
 
