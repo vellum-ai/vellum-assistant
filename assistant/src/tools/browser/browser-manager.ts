@@ -20,6 +20,7 @@ export type DownloadInfo = { path: string; filename: string };
 
 type BrowserContext = {
   newPage(): Promise<Page>;
+  pages?(): Page[];
   close(): Promise<void>;
 };
 
@@ -253,32 +254,11 @@ class BrowserManager {
           }
         }
 
-        // If a client is connected, launch headed Chromium (minimized) so the user
-        // can interact directly when handoff triggers (e.g. CAPTCHAs).
-        // The window stays offscreen until bringToFront() is called during handoff.
-        const hasSender = !!(invokingSessionId && this.sessionSenders.get(invokingSessionId));
-        if (hasSender && this._browserMode === 'headless') {
-          try {
-            const pw2 = await import('playwright');
-            const headedBrowser = await pw2.chromium.launch({
-              channel: 'chrome',
-              headless: false,
-              args: [
-                '--window-position=-32000,-32000',
-                '--window-size=1,1',
-                '--disable-blink-features=AutomationControlled',
-              ],
-            });
-            const ctx = headedBrowser.contexts()[0] || await headedBrowser.newContext();
-            this.cdpBrowser = headedBrowser as unknown as typeof this.cdpBrowser;
-            this._browserLaunched = true;
-            this.setBrowserMode('cdp');
-            await this.initBrowserCdpSession();
-            log.info('Launched headed Chromium (minimized) for interactive handoff support');
-            return ctx as unknown as BrowserContext;
-          } catch (err2) {
-            log.warn({ err: err2 }, 'Headed Chromium launch failed, falling back to headless');
-          }
+        if (invokingSessionId && this.sessionSenders.get(invokingSessionId) && this._browserMode === 'headless') {
+          log.info(
+            { sessionId: invokingSessionId },
+            'CDP unavailable/declined; staying in headless mode (no visible browser window will be auto-launched)',
+          );
         }
       }
 
@@ -380,7 +360,21 @@ class BrowserManager {
     this.snapshotMaps.delete(sessionId);
     await this.stopScreencast(sessionId);
 
-    const page = await context.newPage();
+    let page: Page | undefined;
+
+    // In connectOverCDP mode, Chrome often starts with a pre-opened blank tab.
+    // Reuse that tab first to avoid spawning an extra visible window/tab that
+    // appears unused to the user.
+    if (this._browserMode === 'cdp' && !this._browserLaunched && typeof context.pages === 'function') {
+      const claimedPages = new Set(this.pages.values());
+      const reusable = context.pages().find((p) => !p.isClosed() && !claimedPages.has(p));
+      if (reusable) {
+        page = reusable;
+        log.debug({ sessionId }, 'Reusing existing CDP page instead of creating a new page');
+      }
+    }
+
+    page ??= await context.newPage();
     this.pages.set(sessionId, page);
     this.rawPages.set(sessionId, page);
 
@@ -509,10 +503,9 @@ class BrowserManager {
     this.cdpSessions.set(sessionId, cdp);
     this.screencastCallbacks.set(sessionId, onFrame);
 
-    // Throttle frame delivery to ~4fps max to avoid flooding IPC and the client.
-    // This materially reduces CPU on heavy pages (e.g. cloud consoles) while
-    // still keeping enough visual continuity for guided browser actions.
-    const MIN_FRAME_INTERVAL_MS = 250;
+    // Keep screencast intentionally low-frequency to avoid Chrome renderer /
+    // WindowServer spikes while users type in interactive auth flows.
+    const MIN_FRAME_INTERVAL_MS = 1000;
     let lastFrameTime = 0;
 
     cdp.on('Page.screencastFrame', (params) => {
@@ -527,10 +520,10 @@ class BrowserManager {
 
     await cdp.send('Page.startScreencast', {
       format: 'jpeg',
-      quality: 40,
-      maxWidth: 1024,
-      maxHeight: 768,
-      everyNthFrame: 2,
+      quality: 30,
+      maxWidth: 800,
+      maxHeight: 600,
+      everyNthFrame: 4,
     });
   }
 
