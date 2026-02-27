@@ -300,9 +300,17 @@ struct SettingsPanel: View {
                         }
                     }
 
-                    Text("Get your API key at console.anthropic.com")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                    HStack(spacing: 0) {
+                        Text("Get your API key at ")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Link("console.anthropic.com", destination: URL(string: "https://console.anthropic.com")!)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
+                    }
                 }
 
                 if store.hasKey {
@@ -404,9 +412,17 @@ struct SettingsPanel: View {
                         }
                     }
 
-                    Text("Get your API key at perplexity.ai/settings/api")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                    HStack(spacing: 0) {
+                        Text("Get your API key at ")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Link("perplexity.ai/settings/api", destination: URL(string: "https://perplexity.ai/settings/api")!)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
+                    }
                 }
             }
             .padding(VSpacing.lg)
@@ -452,9 +468,17 @@ struct SettingsPanel: View {
                         }
                     }
 
-                    Text("Get your API key at brave.com/search/api")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                    HStack(spacing: 0) {
+                        Text("Get your API key at ")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Link("brave.com/search/api", destination: URL(string: "https://brave.com/search/api")!)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
+                    }
                 }
             }
             .padding(VSpacing.lg)
@@ -518,9 +542,17 @@ struct SettingsPanel: View {
                         }
                     }
 
-                    Text("Get your API key at aistudio.google.com/apikey")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                    HStack(spacing: 0) {
+                        Text("Get your API key at ")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Link("aistudio.google.com/apikey", destination: URL(string: "https://aistudio.google.com/apikey")!)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
+                    }
                 }
             }
             .padding(VSpacing.lg)
@@ -599,9 +631,17 @@ struct SettingsPanel: View {
                             .foregroundColor(VColor.textPrimary)
 
                         HStack {
-                            Text("Create an app at developer.x.com")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                            HStack(spacing: 0) {
+                                Text("Create an app at ")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                                Link("developer.x.com", destination: URL(string: "https://developer.x.com")!)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.accent)
+                                    .onHover { hovering in
+                                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                    }
+                            }
                             Spacer()
                             VButton(label: "Save", style: .primary) {
                                 store.saveTwitterLocalClient(
