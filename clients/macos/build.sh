@@ -657,7 +657,7 @@ fi
 # of the distributable app and can break outer-bundle codesign verification.
 rm -f "$MACOS_DIR/.qdrant-initialized"
 rm -rf "$MACOS_DIR/snapshots"
-find "$MACOS_DIR" -maxdepth 1 -type f \
+find "$MACOS_DIR" -maxdepth 1 \( -type f -o -type s \) \
     \( -name "*.pid" -o -name "*.sock" -o -name "*.log" \) \
     -delete
 
