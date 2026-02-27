@@ -19,6 +19,7 @@ import { getLogger } from '../util/logger.js';
 import { isLinux,isMacOS } from '../util/platform.js';
 
 const log = getLogger('keychain');
+const execFileAsync = promisify(execFile);
 
 const SERVICE_NAME = 'vellum-assistant';
 
@@ -60,6 +61,29 @@ export function isKeychainAvailable(): boolean {
       // Verify `secret-tool` exists
       deps.execFileSync('which', ['secret-tool'], {
         stdio: ['ignore', 'ignore', 'ignore'],
+        timeout: 5000,
+      });
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** Async version of `isKeychainAvailable` — probes without blocking the event loop. */
+export async function isKeychainAvailableAsync(): Promise<boolean> {
+  try {
+    if (deps.isMacOS()) {
+      await execFileAsync('security', ['list-keychains'], {
+        timeout: 5000,
+      });
+      return true;
+    }
+
+    if (deps.isLinux()) {
+      await execFileAsync('which', ['secret-tool'], {
         timeout: 5000,
       });
       return true;
@@ -260,8 +284,6 @@ function linuxDeleteKey(account: string): boolean {
 // Async variants — non-blocking alternatives to the sync functions above.
 // Preferred for non-startup code paths to avoid blocking the event loop.
 // ---------------------------------------------------------------------------
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Async version of `getKey` — retrieve a secret without blocking the event loop.

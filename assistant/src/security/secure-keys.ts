@@ -30,6 +30,19 @@ function getBackend(): Backend {
   return resolvedBackend;
 }
 
+async function getBackendAsync(): Promise<Backend> {
+  if (resolvedBackend !== undefined) return resolvedBackend;
+
+  if (await keychain.isKeychainAvailableAsync()) {
+    log.debug('Using OS keychain for secure key storage');
+    resolvedBackend = 'keychain';
+  } else {
+    log.debug('OS keychain unavailable, using encrypted file storage');
+    resolvedBackend = 'encrypted';
+  }
+  return resolvedBackend;
+}
+
 /**
  * Try a keychain operation; on failure, permanently downgrade to encrypted
  * backend and retry. This handles systems where the keychain CLI exists
@@ -176,7 +189,7 @@ export function isDowngradedFromKeychain(): boolean {
  * Async version of `getSecureKey` — retrieve a secret without blocking.
  */
 export async function getSecureKeyAsync(account: string): Promise<string | undefined> {
-  const backend = getBackend();
+  const backend = await getBackendAsync();
   if (backend === 'keychain') {
     try {
       return (await keychain.getKeyAsync(account)) ?? undefined;
@@ -205,7 +218,7 @@ export async function getSecureKeyAsync(account: string): Promise<string | undef
  * Async version of `setSecureKey` — store a secret without blocking.
  */
 export async function setSecureKeyAsync(account: string, value: string): Promise<boolean> {
-  const backend = getBackend();
+  const backend = await getBackendAsync();
   if (backend === 'encrypted') return encryptedStore.setKey(account, value);
   if (backend !== 'keychain') return false;
 
@@ -223,7 +236,7 @@ export async function setSecureKeyAsync(account: string, value: string): Promise
  * Async version of `deleteSecureKey` — delete a secret without blocking.
  */
 export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
-  const backend = getBackend();
+  const backend = await getBackendAsync();
   if (backend === 'encrypted') {
     const result = encryptedStore.deleteKey(account);
     if (downgradedFromKeychain) {
