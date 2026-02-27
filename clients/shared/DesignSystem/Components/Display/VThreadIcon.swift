@@ -9,7 +9,10 @@ public struct VThreadIcon: View {
     let title: String
     let size: Size
     var isActive: Bool = false
-    var interactionState: ThreadInteractionState = .idle
+    /// Optional dot color for interaction-state overlay (bottom-right corner).
+    /// Callers map ThreadInteractionState → Color externally to keep the
+    /// design system decoupled from feature types.
+    var dotColor: Color?
 
     public enum Size {
         /// 20pt — for popover list items
@@ -56,16 +59,16 @@ public struct VThreadIcon: View {
 
     // MARK: - Color Palette
 
-    /// Muted, dark-theme-friendly background colors that complement the Moss/Forest palette.
-    private static let backgroundColors: [Color] = [
-        Color(hex: 0x4B6845),  // forest green
-        Color(hex: 0x4A5568),  // slate blue-gray
-        Color(hex: 0x5B4E3A),  // warm brown
-        Color(hex: 0x3D5A5B),  // teal
-        Color(hex: 0x6B4C5A),  // muted mauve
-        Color(hex: 0x4E5D3E),  // olive
-        Color(hex: 0x5A4A6B),  // dusty purple
-        Color(hex: 0x5C6B4A),  // sage
+    /// Muted, dark-theme-friendly hex values that complement the Moss/Forest palette.
+    private static let backgroundHexValues: [UInt] = [
+        0x4B6845, // forest green
+        0x4A5568, // slate blue-gray
+        0x5B4E3A, // warm brown
+        0x3D5A5B, // teal
+        0x6B4C5A, // muted mauve
+        0x4E5D3E, // olive
+        0x5A4A6B, // dusty purple
+        0x5C6B4A, // sage
     ]
 
     // MARK: - Hash
@@ -90,21 +93,8 @@ public struct VThreadIcon: View {
 
     private var backgroundColor: Color {
         let hash = Self.stableHash(title)
-        let index = Int(hash % UInt64(Self.backgroundColors.count))
-        return Self.backgroundColors[index]
-    }
-
-    private var interactionDotColor: Color? {
-        switch interactionState {
-        case .idle:
-            return nil
-        case .processing:
-            return VColor.accent
-        case .waitingForInput:
-            return VColor.warning
-        case .error:
-            return VColor.error
-        }
+        let index = Int(hash % UInt64(Self.backgroundHexValues.count))
+        return Color(hex: Self.backgroundHexValues[index])
     }
 
     // MARK: - Body
@@ -127,9 +117,9 @@ public struct VThreadIcon: View {
             )
 
             // Interaction-state overlay dot
-            if let dotColor = interactionDotColor {
+            if let dot = dotColor {
                 Circle()
-                    .fill(dotColor)
+                    .fill(dot)
                     .frame(width: size.dotSize, height: size.dotSize)
                     .offset(x: size.dotSize * 0.2, y: size.dotSize * 0.2)
             }
@@ -150,9 +140,9 @@ public struct VThreadIcon: View {
             HStack(spacing: VSpacing.sm) {
                 VThreadIcon(title: "Customer support", size: .small)
                 VThreadIcon(title: "Design review", size: .small, isActive: true)
-                VThreadIcon(title: "Bug triage", size: .small, interactionState: .processing)
-                VThreadIcon(title: "Sprint planning", size: .small, interactionState: .waitingForInput)
-                VThreadIcon(title: "Release notes", size: .small, interactionState: .error)
+                VThreadIcon(title: "Bug triage", size: .small, dotColor: VColor.accent)
+                VThreadIcon(title: "Sprint planning", size: .small, dotColor: VColor.warning)
+                VThreadIcon(title: "Release notes", size: .small, dotColor: VColor.error)
             }
 
             Text("Medium (28pt)")
@@ -161,9 +151,9 @@ public struct VThreadIcon: View {
             HStack(spacing: VSpacing.md) {
                 VThreadIcon(title: "Customer support", size: .medium)
                 VThreadIcon(title: "Design review", size: .medium, isActive: true)
-                VThreadIcon(title: "Bug triage", size: .medium, interactionState: .processing)
-                VThreadIcon(title: "Sprint planning", size: .medium, interactionState: .waitingForInput)
-                VThreadIcon(title: "Release notes", size: .medium, interactionState: .error)
+                VThreadIcon(title: "Bug triage", size: .medium, dotColor: VColor.accent)
+                VThreadIcon(title: "Sprint planning", size: .medium, dotColor: VColor.warning)
+                VThreadIcon(title: "Release notes", size: .medium, dotColor: VColor.error)
             }
 
             Text("Deterministic colors")
