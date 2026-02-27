@@ -35,9 +35,12 @@ import {
   createGuardianActionDelivery,
   createGuardianActionRequest,
   expireGuardianActionRequest,
+  getExpiredDeliveriesByConversation,
   getExpiredDeliveriesByDestination,
   getExpiredDeliveryByConversation,
+  getFollowupDeliveriesByConversation,
   getGuardianActionRequest,
+  getPendingDeliveriesByConversation,
   resolveGuardianActionRequest,
   startFollowupFromExpiredRequest,
   updateDeliveryStatus,
@@ -290,5 +293,133 @@ describe('guardian-action-late-reply', () => {
     });
 
     expect(text).toContain('expired');
+  });
+
+  // ── Multiple deliveries in one conversation (disambiguation) ──────
+
+  describe('multi-delivery disambiguation in reused conversations', () => {
+    // Helper to create a pending request with delivery in a shared conversation
+    function createPendingInSharedConv(sourceConvId: string, sharedDeliveryConvId: string) {
+      ensureConversation(sourceConvId);
+      const session = createCallSession({
+        conversationId: sourceConvId,
+        provider: 'twilio',
+        fromNumber: '+15550001111',
+        toNumber: '+15550002222',
+      });
+      const pq = createPendingQuestion(session.id, `Question from ${sourceConvId}`);
+      const request = createGuardianActionRequest({
+        kind: 'ask_guardian',
+        sourceChannel: 'voice',
+        sourceConversationId: sourceConvId,
+        callSessionId: session.id,
+        pendingQuestionId: pq.id,
+        questionText: pq.questionText,
+        expiresAt: Date.now() + 60_000,
+      });
+      const delivery = createGuardianActionDelivery({
+        requestId: request.id,
+        destinationChannel: 'vellum',
+        destinationConversationId: sharedDeliveryConvId,
+      });
+      updateDeliveryStatus(delivery.id, 'sent');
+      return { request, delivery };
+    }
+
+    test('multiple pending deliveries in same conversation are returned by getPendingDeliveriesByConversation', () => {
+      const sharedConv = 'shared-reused-conv-pending';
+      ensureConversation(sharedConv);
+
+      const { request: req1 } = createPendingInSharedConv('src-p1', sharedConv);
+      const { request: req2 } = createPendingInSharedConv('src-p2', sharedConv);
+
+      const deliveries = getPendingDeliveriesByConversation(sharedConv);
+      expect(deliveries).toHaveLength(2);
+
+      const requestIds = deliveries.map((d) => d.requestId);
+      expect(requestIds).toContain(req1.id);
+      expect(requestIds).toContain(req2.id);
+    });
+
+    test('request codes are unique across multiple requests in same conversation', () => {
+      const sharedConv = 'shared-reused-conv-codes';
+      ensureConversation(sharedConv);
+
+      const { request: req1 } = createPendingInSharedConv('src-code1', sharedConv);
+      const { request: req2 } = createPendingInSharedConv('src-code2', sharedConv);
+
+      expect(req1.requestCode).not.toBe(req2.requestCode);
+      expect(req1.requestCode).toHaveLength(6);
+      expect(req2.requestCode).toHaveLength(6);
+    });
+
+    test('multiple expired deliveries in same conversation are returned by getExpiredDeliveriesByConversation', () => {
+      const sharedConv = 'shared-reused-conv-expired';
+      ensureConversation(sharedConv);
+
+      const { request: req1 } = createPendingInSharedConv('src-e1', sharedConv);
+      const { request: req2 } = createPendingInSharedConv('src-e2', sharedConv);
+
+      expireGuardianActionRequest(req1.id, 'sweep_timeout');
+      expireGuardianActionRequest(req2.id, 'sweep_timeout');
+
+      const deliveries = getExpiredDeliveriesByConversation(sharedConv);
+      expect(deliveries).toHaveLength(2);
+
+      const requestIds = deliveries.map((d) => d.requestId);
+      expect(requestIds).toContain(req1.id);
+      expect(requestIds).toContain(req2.id);
+    });
+
+    test('multiple followup deliveries in same conversation are returned by getFollowupDeliveriesByConversation', () => {
+      const sharedConv = 'shared-reused-conv-followup';
+      ensureConversation(sharedConv);
+
+      const { request: req1 } = createPendingInSharedConv('src-fu1', sharedConv);
+      const { request: req2 } = createPendingInSharedConv('src-fu2', sharedConv);
+
+      expireGuardianActionRequest(req1.id, 'sweep_timeout');
+      expireGuardianActionRequest(req2.id, 'sweep_timeout');
+      startFollowupFromExpiredRequest(req1.id, 'late answer 1');
+      startFollowupFromExpiredRequest(req2.id, 'late answer 2');
+
+      const deliveries = getFollowupDeliveriesByConversation(sharedConv);
+      expect(deliveries).toHaveLength(2);
+
+      const requestIds = deliveries.map((d) => d.requestId);
+      expect(requestIds).toContain(req1.id);
+      expect(requestIds).toContain(req2.id);
+    });
+
+    test('resolving one pending request leaves the other still pending in shared conversation', () => {
+      const sharedConv = 'shared-reused-conv-resolve-one';
+      ensureConversation(sharedConv);
+
+      const { request: req1 } = createPendingInSharedConv('src-r1', sharedConv);
+      const { request: req2 } = createPendingInSharedConv('src-r2', sharedConv);
+
+      resolveGuardianActionRequest(req1.id, 'answer to first', 'vellum');
+
+      const remaining = getPendingDeliveriesByConversation(sharedConv);
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].requestId).toBe(req2.id);
+    });
+
+    test('request code prefix matching is case-insensitive', () => {
+      const sharedConv = 'shared-reused-conv-case';
+      ensureConversation(sharedConv);
+
+      const { request: req1 } = createPendingInSharedConv('src-case1', sharedConv);
+      const code = req1.requestCode; // e.g. "A1B2C3"
+
+      // Simulate case-insensitive prefix matching as done in session-process.ts
+      const userInput = `${code.toLowerCase()} the answer is 42`;
+      const matched = userInput.toUpperCase().startsWith(code);
+      expect(matched).toBe(true);
+
+      // After stripping the code prefix, the answer text is extracted
+      const answerText = userInput.slice(code.length).trim();
+      expect(answerText).toBe('the answer is 42');
+    });
   });
 });

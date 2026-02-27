@@ -2312,6 +2312,25 @@ public struct IPCHomeBaseGetResponseHomeBasePreviewMetric: Codable, Sendable {
     }
 }
 
+/// Server push — broadcast when IDENTITY.md changes on disk.
+public struct IPCIdentityChanged: Codable, Sendable {
+    public let type: String
+    public let name: String
+    public let role: String
+    public let personality: String
+    public let emoji: String
+    public let home: String
+
+    public init(type: String, name: String, role: String, personality: String, emoji: String, home: String) {
+        self.type = type
+        self.name = name
+        self.role = role
+        self.personality = personality
+        self.emoji = emoji
+        self.home = home
+    }
+}
+
 public struct IPCIdentityGetRequest: Codable, Sendable {
     public let type: String
 

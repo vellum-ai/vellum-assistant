@@ -90,8 +90,9 @@ export class ConfigWatcher {
   /**
    * Start all file watchers. `onSessionEvict` is called when watched
    * files change and sessions need to be evicted for reload.
+   * `onIdentityChanged` is called when IDENTITY.md changes on disk.
    */
-  start(onSessionEvict: () => void): void {
+  start(onSessionEvict: () => void, onIdentityChanged?: () => void): void {
     const workspaceDir = getWorkspaceDir();
     const protectedDir = join(getRootDir(), 'protected');
 
@@ -106,7 +107,7 @@ export class ConfigWatcher {
         }
       },
       'SOUL.md': () => onSessionEvict(),
-      'IDENTITY.md': () => onSessionEvict(),
+      'IDENTITY.md': () => { onSessionEvict(); onIdentityChanged?.(); },
       'USER.md': () => onSessionEvict(),
       'LOOKS.md': () => onSessionEvict(),
       'UPDATES.md': () => onSessionEvict(),

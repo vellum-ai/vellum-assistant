@@ -257,7 +257,7 @@ private struct NarrationBubble: View {
             state: {
                 let s = OnboardingState()
                 s.currentStep = 4
-                s.assistantName = "Velly"
+                s.assistantName = "Assistant"
                 s.observationDurationMinutes = 1
                 return s
             }(),

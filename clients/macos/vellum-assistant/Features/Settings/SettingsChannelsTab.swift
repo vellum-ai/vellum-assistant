@@ -2,19 +2,16 @@ import Foundation
 import SwiftUI
 import VellumAssistantShared
 
-/// Connect settings tab — centralized Gateway URL, Bearer Token, channel configuration,
+/// Channels settings tab — Gateway URL, Bearer Token, channel configuration,
 /// and QR pairing UI. This is the single source of truth for configuring how devices
 /// and integrations reach this Mac.
 @MainActor
-struct SettingsConnectTab: View {
+struct SettingsChannelsTab: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
-    var authManager: AuthManager
 
     @State private var gatewayUrlText: String = ""
     @FocusState private var isGatewayUrlFocused: Bool
-    @State private var platformUrlText: String = ""
-    @FocusState private var isPlatformUrlFocused: Bool
     @State private var bearerToken: String = ""
     @State private var tokenRevealed: Bool = false
     @State private var tokenCopied: Bool = false
@@ -79,19 +76,14 @@ struct SettingsConnectTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            vellumSection
             gatewaySection
             connectionsSection
         }
         .onAppear {
-            Task { await authManager.checkSession() }
-            store.refreshPlatformConfig()
-            Task { await store.checkVellumPlatform() }
             store.refreshIngressConfig()
             store.refreshAssistantEmail()
             store.refreshApprovedDevices()
             gatewayUrlText = store.ingressPublicBaseUrl
-            platformUrlText = store.platformBaseUrl
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
@@ -107,16 +99,6 @@ struct SettingsConnectTab: View {
         .onChange(of: isGatewayUrlFocused) { _, focused in
             if !focused {
                 gatewayUrlText = store.ingressPublicBaseUrl
-            }
-        }
-        .onChange(of: store.platformBaseUrl) { _, newValue in
-            if !isPlatformUrlFocused {
-                platformUrlText = newValue
-            }
-        }
-        .onChange(of: isPlatformUrlFocused) { _, focused in
-            if !focused {
-                platformUrlText = store.platformBaseUrl
             }
         }
         .onChange(of: store.twilioHasCredentials) { _, hasCredentials in
@@ -146,92 +128,6 @@ struct SettingsConnectTab: View {
                 daemonClient: daemonClient
             )
         }
-    }
-
-    // MARK: - Vellum Section
-
-    private var vellumSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Vellum")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            if authManager.isLoading {
-                channelStatusRow(
-                    label: "Account",
-                    icon: "arrow.triangle.2.circlepath",
-                    iconColor: VColor.textMuted,
-                    value: "Checking..."
-                )
-            } else if let user = authManager.currentUser {
-                channelStatusRow(
-                    label: "Account",
-                    icon: "checkmark.circle.fill",
-                    iconColor: VColor.success,
-                    value: user.email ?? user.display ?? "Signed in",
-                    action: .init(label: "Log Out", style: .danger) {
-                        Task { await authManager.logout() }
-                    }
-                )
-            } else {
-                channelStatusRow(
-                    label: "Account",
-                    icon: "xmark.circle",
-                    iconColor: VColor.textMuted,
-                    value: "Not signed in",
-                    action: .init(
-                        label: authManager.isSubmitting ? "Signing in..." : "Log In",
-                        style: .primary,
-                        disabled: authManager.isSubmitting
-                    ) {
-                        Task { await authManager.startWorkOSLogin() }
-                    }
-                )
-            }
-
-            if let error = authManager.errorMessage {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-            }
-
-            if store.isDevMode {
-                Divider().background(VColor.surfaceBorder)
-
-                Text("Platform URL")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-
-                HStack(spacing: VSpacing.sm) {
-                    TextField("https://platform.vellum.ai", text: $platformUrlText)
-                        .focused($isPlatformUrlFocused)
-                        .vInputStyle()
-                        .font(VFont.mono)
-                        .onSubmit {
-                            store.savePlatformBaseUrl(platformUrlText)
-                            Task { await store.checkVellumPlatform() }
-                        }
-                    VButton(label: "Save", style: .primary) {
-                        store.savePlatformBaseUrl(platformUrlText)
-                        Task { await store.checkVellumPlatform() }
-                    }
-                }
-            }
-
-            Divider().background(VColor.surfaceBorder)
-
-            connectionStatusRow(
-                label: "Platform",
-                status: platformUrlStatusInfo,
-                isRefreshing: store.isCheckingVellumPlatform,
-                lastChecked: store.platformLastChecked
-            ) {
-                Task { await store.checkVellumPlatform() }
-            }
-        }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Gateway Section
@@ -1960,18 +1856,6 @@ struct SettingsConnectTab: View {
             return ConnectionStatusInfo(label: "Running", color: VColor.success, icon: "checkmark.circle.fill")
         } else {
             return ConnectionStatusInfo(label: "Stopped", color: VColor.error, icon: "xmark.circle.fill")
-        }
-    }
-
-    private var platformUrlStatusInfo: ConnectionStatusInfo {
-        guard let reachable = store.vellumPlatformReachable else {
-            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
-        }
-        if reachable {
-            return ConnectionStatusInfo(label: "Reachable", color: VColor.success, icon: "checkmark.circle.fill")
-        } else {
-            let detail = store.vellumPlatformError ?? "Unreachable"
-            return ConnectionStatusInfo(label: detail, color: VColor.error, icon: "xmark.circle.fill")
         }
     }
 

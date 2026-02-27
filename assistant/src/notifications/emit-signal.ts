@@ -205,6 +205,7 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
 
     // Step 2: Evaluate the signal through the decision engine
     const connectedChannels = getConnectedChannels(assistantId);
+
     let decision = await evaluateSignal(signal, connectedChannels);
 
     // Step 2.5: Enforce routing intent policy (fire-time guard)
