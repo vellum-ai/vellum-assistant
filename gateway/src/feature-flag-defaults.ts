@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getLogger } from "./logger.js";
 
@@ -13,19 +13,46 @@ export type FeatureFlagDefaultsRegistry = Record<string, FeatureFlagDefault>;
 
 let cachedRegistry: FeatureFlagDefaultsRegistry | null = null;
 
+const REGISTRY_FILENAME = "assistant-feature-flag-defaults.json";
+const REGISTRY_RELATIVE = join("meta", "assistant-feature-flags", REGISTRY_FILENAME);
+
 /**
  * Resolve the path to the defaults registry JSON file.
  *
  * The file lives at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`
- * relative to the repository root. We derive the repo root from the gateway
- * source directory (gateway/src/) by walking up two levels.
+ * relative to the repository root. We try several candidate locations so the
+ * lookup works both in the monorepo dev layout and in Docker (where only
+ * the gateway directory is copied to `/app`).
+ *
+ * Candidate order:
+ *   1. `FEATURE_FLAG_DEFAULTS_PATH` env var (explicit override)
+ *   2. Monorepo layout: walk up two levels from gateway/src/
+ *   3. Docker / gateway-only layout: adjacent to gateway src (`<root>/meta/...`)
+ *   4. cwd-based fallback
  */
-function getRegistryPath(): string {
-  // __dirname equivalent for ESM: import.meta.dirname (Bun) or derive from import.meta.url
+function getRegistryCandidates(): string[] {
+  const candidates: string[] = [];
+
+  // 1. Explicit env override
+  const envPath = process.env.FEATURE_FLAG_DEFAULTS_PATH?.trim();
+  if (envPath) {
+    candidates.push(envPath);
+  }
+
+  // 2. Monorepo layout: gateway/src -> repo root is ../../
   const srcDir = import.meta.dirname ?? new URL(".", import.meta.url).pathname;
-  // srcDir = <repo>/gateway/src  -> repo root = srcDir/../../
   const repoRoot = join(srcDir, "..", "..");
-  return join(repoRoot, "meta", "assistant-feature-flags", "assistant-feature-flag-defaults.json");
+  candidates.push(join(repoRoot, REGISTRY_RELATIVE));
+
+  // 3. Docker layout: the gateway Dockerfile copies the gateway dir to /app,
+  //    so the meta dir (if mounted or copied) may be under /app/../meta or a
+  //    sibling directory. Also check one level up from srcDir (gateway root).
+  candidates.push(join(srcDir, "..", REGISTRY_RELATIVE));
+
+  // 4. cwd-based fallback
+  candidates.push(join(process.cwd(), REGISTRY_RELATIVE));
+
+  return candidates;
 }
 
 /**
@@ -38,12 +65,24 @@ function getRegistryPath(): string {
 export function loadFeatureFlagDefaults(): FeatureFlagDefaultsRegistry {
   if (cachedRegistry) return cachedRegistry;
 
-  const registryPath = getRegistryPath();
-  let raw: string;
-  try {
-    raw = readFileSync(registryPath, "utf-8");
-  } catch (err) {
-    log.error({ err, path: registryPath }, "Failed to read feature flag defaults registry");
+  const candidates = getRegistryCandidates();
+  let raw: string | undefined;
+  let resolvedPath: string | undefined;
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      try {
+        raw = readFileSync(candidate, "utf-8");
+        resolvedPath = candidate;
+        break;
+      } catch {
+        // File exists but couldn't be read — try next candidate
+      }
+    }
+  }
+
+  if (!raw || !resolvedPath) {
+    log.error({ candidates }, "Failed to read feature flag defaults registry from any candidate path");
     cachedRegistry = {};
     return cachedRegistry;
   }
@@ -52,13 +91,13 @@ export function loadFeatureFlagDefaults(): FeatureFlagDefaultsRegistry {
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    log.error({ err, path: registryPath }, "Feature flag defaults registry is not valid JSON");
+    log.error({ err, path: resolvedPath }, "Feature flag defaults registry is not valid JSON");
     cachedRegistry = {};
     return cachedRegistry;
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    log.error({ path: registryPath }, "Feature flag defaults registry must be a JSON object");
+    log.error({ path: resolvedPath }, "Feature flag defaults registry must be a JSON object");
     cachedRegistry = {};
     return cachedRegistry;
   }
@@ -84,7 +123,7 @@ export function loadFeatureFlagDefaults(): FeatureFlagDefaultsRegistry {
     };
   }
 
-  log.info({ flagCount: Object.keys(registry).length }, "Loaded feature flag defaults registry");
+  log.info({ flagCount: Object.keys(registry).length, path: resolvedPath }, "Loaded feature flag defaults registry");
   cachedRegistry = registry;
   return cachedRegistry;
 }
