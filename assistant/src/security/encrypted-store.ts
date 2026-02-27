@@ -96,13 +96,17 @@ function deriveKey(salt: Buffer): Buffer {
  * Read result: distinguishes "file missing" from "file corrupt/unreadable".
  * - `null`: file does not exist or was corrupt (backed up and removed)
  * - `StoreFile`: successfully parsed
+ * - throws: transient I/O error from readFileSync (EACCES, EMFILE, EIO, etc.)
  */
 function readStore(): StoreFile | null {
   const path = getStorePath();
   if (!pathExists(path)) return null;
 
+  // Read outside the parse try/catch so transient filesystem errors (EACCES,
+  // EMFILE, EIO) propagate to callers instead of triggering corruption recovery.
+  const raw = readFileSync(path, 'utf-8');
+
   try {
-    const raw = readFileSync(path, 'utf-8');
     const parsed = JSON.parse(raw);
     if (parsed.version !== 1 || typeof parsed.salt !== 'string' || typeof parsed.entries !== 'object') {
       throw new Error('Encrypted store has invalid format');
