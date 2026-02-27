@@ -9,9 +9,11 @@
  *   2. `config.featureFlags[legacyKey]`           (legacy backward-compat)
  *   3. defaults registry `defaultEnabled`
  *
- * Only declared flags participate in resolution. Undeclared keys are treated
- * as not part of the assistant feature-flag system and always resolve to
- * enabled (`true`) regardless of persisted config values.
+ * For undeclared keys (not in the defaults registry), persisted config
+ * overrides are still respected — if the user explicitly set a value in
+ * `assistantFeatureFlagValues` or `featureFlags`, that value is honored.
+ * Only when no persisted override exists does an undeclared key default
+ * to enabled (`true`).
  *
  * Key format:
  *   Canonical:  `feature_flags.<id>.enabled`
@@ -97,20 +99,14 @@ function canonicalToLegacyKey(canonicalKey: string): string | undefined {
  * Resolve whether an assistant feature flag is enabled.
  *
  * Resolution order:
- *   0. undeclared key -> `true` (ignored by flag system)
  *   1. `config.assistantFeatureFlagValues[key]`  (explicit new-format override)
  *   2. `config.featureFlags[legacyKey]`           (legacy backward-compat)
- *   3. defaults registry `defaultEnabled`
+ *   3. defaults registry `defaultEnabled`         (for declared keys)
+ *   4. `true`                                     (for undeclared keys with no persisted override)
  */
 export function isAssistantFeatureFlagEnabled(key: string, config: AssistantConfig): boolean {
   const defaults = loadDefaultsRegistry();
   const declared = defaults[key];
-
-  // Ignore persisted values for undeclared keys: only declarative flags
-  // defined in the defaults registry are part of the system.
-  if (!declared) {
-    return true;
-  }
 
   // 1. Check new canonical section
   const newValues = (config as AssistantConfigWithFeatureFlags).assistantFeatureFlagValues;
@@ -129,8 +125,13 @@ export function isAssistantFeatureFlagEnabled(key: string, config: AssistantConf
     }
   }
 
-  // 3. Check defaults registry
-  return declared.defaultEnabled;
+  // 3. For declared keys, use the registry default
+  if (declared) {
+    return declared.defaultEnabled;
+  }
+
+  // 4. Undeclared keys with no persisted override default to enabled
+  return true;
 }
 
 /**

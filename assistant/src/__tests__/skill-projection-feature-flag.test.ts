@@ -349,7 +349,7 @@ describe('projectSkillTools feature flag enforcement', () => {
     ];
     const prevActive = new Map<string, string>();
 
-    // Declared skill is OFF, twitter is undeclared and remains ON.
+    // Declared skill is OFF, twitter is undeclared with no persisted override so remains ON.
     currentConfig = {
       featureFlags: { [DECLARED_LEGACY_KEY]: false },
     };

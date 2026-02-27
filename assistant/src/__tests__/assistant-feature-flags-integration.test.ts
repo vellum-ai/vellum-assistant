@@ -171,8 +171,9 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
     const result = buildSystemPrompt();
 
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
-    // Undeclared skill IDs are intentionally unaffected by assistant feature flags.
-    expect(result).toContain('id="twitter"');
+    // Twitter is undeclared but also has an explicit persisted override (false),
+    // so it should be hidden too.
+    expect(result).not.toContain('id="twitter"');
   });
 
   test('new assistantFeatureFlagValues takes priority over legacy featureFlags', () => {
@@ -190,13 +191,28 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
     expect(result).toContain(`id="${DECLARED_SKILL_ID}"`);
   });
 
-  test('undeclared skill flags are ignored', () => {
+  test('persisted overrides for undeclared flags are respected', () => {
     createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
       featureFlags: { 'skills.browser.enabled': false },
       assistantFeatureFlagValues: { 'feature_flags.browser.enabled': false },
+    };
+
+    const result = buildSystemPrompt();
+
+    // Even though 'browser' is not in the defaults registry, the user
+    // explicitly disabled it — that override must be honored.
+    expect(result).not.toContain('id="browser"');
+  });
+
+  test('undeclared flags with no persisted override default to enabled', () => {
+    createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
+
+    currentConfig = {
+      sandbox: { enabled: false, backend: 'native' },
+      featureFlags: {},
     };
 
     const result = buildSystemPrompt();
@@ -237,12 +253,29 @@ describe('isAssistantFeatureFlagEnabled', () => {
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
-  test('unknown flag defaults to true', () => {
+  test('unknown flag defaults to true when no persisted override', () => {
     const config = {
       featureFlags: {},
     } as any;
 
     expect(isAssistantFeatureFlagEnabled('feature_flags.unknown-skill.enabled', config)).toBe(true);
+  });
+
+  test('undeclared flag respects persisted canonical override', () => {
+    const config = {
+      featureFlags: {},
+      assistantFeatureFlagValues: { 'feature_flags.browser.enabled': false },
+    } as any;
+
+    expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(false);
+  });
+
+  test('undeclared flag respects persisted legacy override', () => {
+    const config = {
+      featureFlags: { 'skills.browser.enabled': false },
+    } as any;
+
+    expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(false);
   });
 });
 
