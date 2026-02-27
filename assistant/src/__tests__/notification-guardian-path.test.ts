@@ -108,8 +108,10 @@ function ensureConversation(id: string): void {
 
 function resetTables(): void {
   const db = getDb();
-  db.run('DELETE FROM guardian_action_deliveries');
-  db.run('DELETE FROM guardian_action_requests');
+  db.run('DELETE FROM canonical_guardian_deliveries');
+  db.run('DELETE FROM canonical_guardian_requests');
+  db.run('DELETE FROM canonical_guardian_deliveries');
+  db.run('DELETE FROM canonical_guardian_requests');
   db.run('DELETE FROM call_pending_questions');
   db.run('DELETE FROM call_events');
   db.run('DELETE FROM call_sessions');
@@ -268,16 +270,15 @@ describe('ASK_GUARDIAN canonical notification path', () => {
 
     const db = getDb();
     const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-    const request = raw.query('SELECT * FROM guardian_action_requests WHERE call_session_id = ?').get(session.id) as
+    const request = raw.query('SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?').get(session.id) as
       | { id: string }
       | undefined;
     const deliveries = raw.query(
-      'SELECT destination_channel, destination_conversation_id, destination_chat_id, destination_external_user_id, status FROM guardian_action_deliveries WHERE request_id = ? ORDER BY destination_channel ASC',
+      'SELECT destination_channel, destination_conversation_id, destination_chat_id, status FROM canonical_guardian_deliveries WHERE request_id = ? ORDER BY destination_channel ASC',
     ).all(request!.id) as Array<{
       destination_channel: string;
       destination_conversation_id: string | null;
       destination_chat_id: string | null;
-      destination_external_user_id: string | null;
       status: string;
     }>;
 
@@ -286,7 +287,6 @@ describe('ASK_GUARDIAN canonical notification path', () => {
     const vellum = deliveries.find((d) => d.destination_channel === 'vellum');
     expect(telegram).toBeDefined();
     expect(telegram!.destination_chat_id).toBe('tg-chat-abc');
-    expect(telegram!.destination_external_user_id).toBe('tg-user-xyz');
     expect(telegram!.status).toBe('sent');
     expect(vellum).toBeDefined();
     expect(vellum!.destination_conversation_id).toBe('conv-guardian-vellum');
@@ -322,16 +322,15 @@ describe('ASK_GUARDIAN canonical notification path', () => {
 
     const db = getDb();
     const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-    const request = raw.query('SELECT * FROM guardian_action_requests WHERE call_session_id = ?').get(session.id) as
+    const request = raw.query('SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?').get(session.id) as
       | { id: string }
       | undefined;
     const vellumDelivery = raw.query(
-      'SELECT status, last_error FROM guardian_action_deliveries WHERE request_id = ? AND destination_channel = ?',
-    ).get(request!.id, 'vellum') as { status: string; last_error: string | null } | undefined;
+      'SELECT status FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?',
+    ).get(request!.id, 'vellum') as { status: string } | undefined;
 
     expect(vellumDelivery).toBeDefined();
     expect(vellumDelivery!.status).toBe('failed');
-    expect(vellumDelivery!.last_error).toContain('No vellum delivery result');
   });
 
   test('context payload includes callSessionId and activeGuardianRequestCount for candidate-affinity', async () => {
@@ -426,11 +425,11 @@ describe('ASK_GUARDIAN canonical notification path', () => {
       pendingQuestion: pq2,
     });
 
-    // Verify: two distinct guardian_action_requests exist
+    // Verify: two distinct canonical_guardian_requests exist
     const db = getDb();
     const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
     const requests = raw.query(
-      'SELECT id, question_text FROM guardian_action_requests WHERE call_session_id = ? ORDER BY created_at ASC',
+      'SELECT id, question_text FROM canonical_guardian_requests WHERE call_session_id = ? ORDER BY created_at ASC',
     ).all(session.id) as Array<{ id: string; question_text: string }>;
     expect(requests).toHaveLength(2);
     expect(requests[0].question_text).toBe('Can they enter through the side gate?');
@@ -438,7 +437,7 @@ describe('ASK_GUARDIAN canonical notification path', () => {
 
     // Verify: each request has its own delivery row pointing to the shared conversation
     const deliveries = raw.query(
-      'SELECT request_id, destination_conversation_id, status FROM guardian_action_deliveries WHERE destination_conversation_id = ? ORDER BY created_at ASC',
+      'SELECT request_id, destination_conversation_id, status FROM canonical_guardian_deliveries WHERE destination_conversation_id = ? ORDER BY created_at ASC',
     ).all(sharedConvId) as Array<{ request_id: string; destination_conversation_id: string; status: string }>;
     expect(deliveries).toHaveLength(2);
     expect(deliveries[0].request_id).toBe(requests[0].id);
@@ -478,16 +477,15 @@ describe('ASK_GUARDIAN canonical notification path', () => {
     // The dispatch should still create a failed fallback delivery row
     const db = getDb();
     const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-    const request = raw.query('SELECT id FROM guardian_action_requests WHERE call_session_id = ?').get(session.id) as
+    const request = raw.query('SELECT id FROM canonical_guardian_requests WHERE call_session_id = ?').get(session.id) as
       | { id: string }
       | undefined;
     expect(request).toBeDefined();
 
     const delivery = raw.query(
-      'SELECT status, last_error FROM guardian_action_deliveries WHERE request_id = ? AND destination_channel = ?',
-    ).get(request!.id, 'vellum') as { status: string; last_error: string | null } | undefined;
+      'SELECT status FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?',
+    ).get(request!.id, 'vellum') as { status: string } | undefined;
     expect(delivery).toBeDefined();
     expect(delivery!.status).toBe('failed');
-    expect(delivery!.last_error).toContain('No vellum delivery result');
   });
 });

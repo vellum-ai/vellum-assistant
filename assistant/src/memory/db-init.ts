@@ -3,6 +3,7 @@ import {
   addCoreColumns,
   createAssistantInboxTables,
   createCallSessionsTables,
+  createCanonicalGuardianTables,
   createChannelGuardianTables,
   createContactsAndTriageTables,
   createConversationAttentionTables,
@@ -144,6 +145,9 @@ export function initializeDb(): void {
 
   // 23. Thread decision audit columns on notification_deliveries
   migrateNotificationDeliveryThreadDecision(database);
+
+  // 24. Canonical guardian requests and deliveries (unified cross-source guardian domain)
+  createCanonicalGuardianTables(database);
 
   validateMigrationState(database);
 }

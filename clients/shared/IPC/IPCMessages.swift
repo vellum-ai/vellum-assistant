@@ -2964,6 +2964,9 @@ public struct GuardianDecisionPromptWire: Decodable, Sendable {
     public let expiresAt: Int
     public let conversationId: String
     public let callSessionId: String?
+    /// Canonical request kind (e.g. "tool_approval", "pending_question").
+    /// Present when the prompt originates from the canonical guardian request store.
+    public let kind: String?
 }
 
 /// Server -> Client: list of pending guardian decision prompts.

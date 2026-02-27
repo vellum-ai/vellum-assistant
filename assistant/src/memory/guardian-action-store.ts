@@ -7,7 +7,7 @@
  * answer resolves the request and all other deliveries are marked answered.
  */
 
-import { and, count, desc, eq, inArray, isNotNull, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getLogger } from '../util/logger.js';
@@ -136,6 +136,12 @@ function generateRequestCode(): string {
 // Guardian Action Requests
 // ---------------------------------------------------------------------------
 
+/**
+ * @internal Test-only helper. Production code should create guardian requests
+ * via `createCanonicalGuardianRequest` in canonical-guardian-store.ts.
+ * This function is retained solely so that existing test fixtures that seed
+ * legacy guardian action rows continue to compile.
+ */
 export function createGuardianActionRequest(params: {
   assistantId?: string;
   kind: string;
@@ -224,65 +230,6 @@ export function getPendingRequestByCallSessionId(callSessionId: string): Guardia
     .orderBy(desc(guardianActionRequests.createdAt))
     .get();
   return row ? rowToRequest(row) : null;
-}
-
-/**
- * Count pending guardian action requests for a given call session.
- * Used as a candidate-affinity hint so the decision engine knows how many
- * active guardian requests already exist for the current call.
- */
-export function countPendingRequestsByCallSessionId(callSessionId: string): number {
-  const db = getDb();
-  const row = db
-    .select({ count: count() })
-    .from(guardianActionRequests)
-    .where(
-      and(
-        eq(guardianActionRequests.callSessionId, callSessionId),
-        eq(guardianActionRequests.status, 'pending'),
-      ),
-    )
-    .get();
-  return row?.count ?? 0;
-}
-
-/**
- * Look up the vellum conversation ID used for the first guardian question
- * delivery in a given call session. Returns the conversation ID when one
- * exists, or null if no vellum delivery has been recorded yet.
- *
- * Used by guardian-dispatch to enforce deterministic thread affinity:
- * all guardian questions within the same call session should route to
- * the same vellum conversation.
- */
-export function getGuardianConversationIdForCallSession(callSessionId: string): string | null {
-  try {
-    const db = getDb();
-    const row = db
-      .select({ conversationId: guardianActionDeliveries.destinationConversationId })
-      .from(guardianActionDeliveries)
-      .innerJoin(
-        guardianActionRequests,
-        eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
-      )
-      .where(
-        and(
-          eq(guardianActionRequests.callSessionId, callSessionId),
-          eq(guardianActionDeliveries.destinationChannel, 'vellum'),
-          isNotNull(guardianActionDeliveries.destinationConversationId),
-        ),
-      )
-      .orderBy(guardianActionDeliveries.createdAt)
-      .limit(1)
-      .get();
-    return row?.conversationId ?? null;
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('no such table')) {
-      log.warn({ err }, 'guardian tables not yet created');
-      return null;
-    }
-    throw err;
-  }
 }
 
 /**

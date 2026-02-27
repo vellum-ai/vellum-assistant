@@ -1,0 +1,544 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+
+const testDir = mkdtempSync(join(tmpdir(), 'canonical-decision-test-'));
+
+mock.module('../util/platform.js', () => ({
+  getDataDir: () => testDir,
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getSocketPath: () => join(testDir, 'test.sock'),
+  getPidPath: () => join(testDir, 'test.pid'),
+  getDbPath: () => join(testDir, 'test.db'),
+  getLogPath: () => join(testDir, 'test.log'),
+  ensureDataDir: () => {},
+  migrateToDataLayout: () => {},
+  migrateToWorkspaceLayout: () => {},
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+  isDebug: () => false,
+  truncateForLog: (value: string) => value,
+}));
+
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import {
+  createCanonicalGuardianRequest,
+  getCanonicalGuardianRequest,
+} from '../memory/canonical-guardian-store.js';
+import {
+  applyCanonicalGuardianDecision,
+  mintCanonicalRequestGrant,
+} from '../approvals/guardian-decision-primitive.js';
+import { getResolver, getRegisteredKinds } from '../approvals/guardian-request-resolvers.js';
+import type { ActorContext } from '../approvals/guardian-request-resolvers.js';
+
+initializeDb();
+
+function resetTables(): void {
+  const db = getDb();
+  db.run('DELETE FROM scoped_approval_grants');
+  db.run('DELETE FROM canonical_guardian_deliveries');
+  db.run('DELETE FROM canonical_guardian_requests');
+}
+
+afterAll(() => {
+  resetDb();
+  try {
+    rmSync(testDir, { recursive: true });
+  } catch {
+    // best-effort cleanup
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
+  return {
+    externalUserId: 'guardian-1',
+    channel: 'telegram',
+    isTrusted: false,
+    ...overrides,
+  };
+}
+
+function trustedActor(overrides: Partial<ActorContext> = {}): ActorContext {
+  return {
+    externalUserId: undefined,
+    channel: 'desktop',
+    isTrusted: true,
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Resolver registry tests
+// ---------------------------------------------------------------------------
+
+describe('guardian-request-resolvers / registry', () => {
+  test('built-in resolvers are registered', () => {
+    const kinds = getRegisteredKinds();
+    expect(kinds).toContain('tool_approval');
+    expect(kinds).toContain('pending_question');
+  });
+
+  test('getResolver returns undefined for unknown kind', () => {
+    expect(getResolver('nonexistent_kind')).toBeUndefined();
+  });
+
+  test('getResolver returns resolver for known kind', () => {
+    const resolver = getResolver('tool_approval');
+    expect(resolver).toBeDefined();
+    expect(resolver!.kind).toBe('tool_approval');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyCanonicalGuardianDecision tests
+// ---------------------------------------------------------------------------
+
+describe('applyCanonicalGuardianDecision', () => {
+  beforeEach(() => resetTables());
+
+  // ── Successful approval ─────────────────────────────────────────────
+
+  test('approves a pending tool_approval request', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      sourceChannel: 'telegram',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      toolName: 'shell',
+      inputDigest: 'sha256:abc',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: guardianActor(),
+    });
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+    expect(result.requestId).toBe(req.id);
+    // Grant is not minted because the tool_approval resolver fails (no pending
+    // interaction registered in the test environment). The decision primitive
+    // correctly skips grant minting when the resolver reports a failure.
+    expect(result.grantMinted).toBe(false);
+    expect(result.resolverFailed).toBe(true);
+
+    // Verify canonical request state
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe('approved');
+    expect(resolved!.decidedByExternalUserId).toBe('guardian-1');
+  });
+
+  test('denies a pending tool_approval request', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      sourceChannel: 'telegram',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      toolName: 'shell',
+      inputDigest: 'sha256:abc',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'reject',
+      actorContext: guardianActor(),
+    });
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+    expect(result.grantMinted).toBe(false);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe('denied');
+  });
+
+  test('approves a pending_question request with answer text', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+      sourceChannel: 'twilio',
+      guardianExternalUserId: 'guardian-1',
+      callSessionId: 'call-1',
+      pendingQuestionId: 'pq-1',
+      questionText: 'What is the gate code?',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: guardianActor(),
+      userText: '1234',
+    });
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe('approved');
+    expect(resolved!.answerText).toBe('1234');
+  });
+
+  // ── Identity mismatch ──────────────────────────────────────────────
+
+  test('rejects decision when actor does not match guardian', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: guardianActor({ externalUserId: 'imposter-99' }),
+    });
+
+    expect(result.applied).toBe(false);
+    if (result.applied) return;
+    expect(result.reason).toBe('identity_mismatch');
+
+    // Request remains pending
+    const unchanged = getCanonicalGuardianRequest(req.id);
+    expect(unchanged!.status).toBe('pending');
+  });
+
+  test('trusted actor bypasses identity check', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'desktop',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      toolName: 'shell',
+      inputDigest: 'sha256:abc',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: trustedActor(),
+    });
+
+    expect(result.applied).toBe(true);
+    // No grant minted because trusted actor has no externalUserId
+    if (!result.applied) return;
+    expect(result.grantMinted).toBe(false);
+  });
+
+  test('allows decision when request has no guardian binding', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      // No guardianExternalUserId — open request
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: guardianActor({ externalUserId: 'anyone' }),
+    });
+
+    expect(result.applied).toBe(true);
+  });
+
+  // ── Stale / already-resolved (race condition) ──────────────────────
+
+  test('second concurrent decision fails (first-writer-wins)', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    // First decision succeeds
+    const first = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: guardianActor(),
+    });
+    expect(first.applied).toBe(true);
+
+    // Second decision fails — request is no longer pending
+    const second = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'reject',
+      actorContext: guardianActor(),
+    });
+    expect(second.applied).toBe(false);
+    if (second.applied) return;
+    expect(second.reason).toBe('already_resolved');
+
+    // First decision stuck
+    const final = getCanonicalGuardianRequest(req.id);
+    expect(final!.status).toBe('approved');
+  });
+
+  // ── Not found ──────────────────────────────────────────────────────
+
+  test('returns not_found for nonexistent request', async () => {
+    const result = await applyCanonicalGuardianDecision({
+      requestId: 'nonexistent-id',
+      action: 'approve_once',
+      actorContext: guardianActor(),
+    });
+
+    expect(result.applied).toBe(false);
+    if (result.applied) return;
+    expect(result.reason).toBe('not_found');
+  });
+
+  // ── Invalid action ─────────────────────────────────────────────────
+
+  test('rejects invalid action', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'bogus_action' as any,
+      actorContext: guardianActor(),
+    });
+
+    expect(result.applied).toBe(false);
+    if (result.applied) return;
+    expect(result.reason).toBe('invalid_action');
+
+    // Request remains pending
+    const unchanged = getCanonicalGuardianRequest(req.id);
+    expect(unchanged!.status).toBe('pending');
+  });
+
+  // ── approve_always downgrade ───────────────────────────────────────
+
+  test('downgrades approve_always to approve_once', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      sourceChannel: 'telegram',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      toolName: 'shell',
+      inputDigest: 'sha256:abc',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_always',
+      actorContext: guardianActor(),
+    });
+
+    // Should succeed — approve_always was silently downgraded to approve_once
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+
+    // The canonical request should be approved (not "always approved")
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe('approved');
+
+    // Grant is not minted because the tool_approval resolver fails (no pending
+    // interaction registered in the test environment). The decision primitive
+    // correctly skips grant minting when the resolver reports a failure.
+    expect(result.grantMinted).toBe(false);
+    expect(result.resolverFailed).toBe(true);
+  });
+
+  // ── Expired request ────────────────────────────────────────────────
+
+  test('rejects decision on expired request', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      expiresAt: new Date(Date.now() - 10_000).toISOString(), // already expired
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: guardianActor(),
+    });
+
+    expect(result.applied).toBe(false);
+    if (result.applied) return;
+    expect(result.reason).toBe('expired');
+  });
+
+  test('allows decision on request with no expiresAt', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      // No expiresAt
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: guardianActor(),
+    });
+
+    expect(result.applied).toBe(true);
+  });
+
+  // ── Resolver dispatch ──────────────────────────────────────────────
+
+  test('dispatches to tool_approval resolver', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      sourceChannel: 'telegram',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      toolName: 'file_read',
+      inputDigest: 'sha256:def',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: guardianActor(),
+    });
+
+    expect(result.applied).toBe(true);
+  });
+
+  test('dispatches to pending_question resolver', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+      sourceChannel: 'twilio',
+      guardianExternalUserId: 'guardian-1',
+      callSessionId: 'call-99',
+      pendingQuestionId: 'pq-99',
+      questionText: 'What is the password?',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: guardianActor(),
+      userText: 'secret123',
+    });
+
+    expect(result.applied).toBe(true);
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.answerText).toBe('secret123');
+  });
+
+  test('succeeds even with no resolver for unknown kind', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'unknown_kind',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    // Should still succeed — CAS resolution happens regardless of resolver
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: guardianActor(),
+    });
+
+    expect(result.applied).toBe(true);
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe('approved');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mintCanonicalRequestGrant tests
+// ---------------------------------------------------------------------------
+
+describe('mintCanonicalRequestGrant', () => {
+  beforeEach(() => resetTables());
+
+  test('mints grant for request with tool metadata', () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      sourceChannel: 'telegram',
+      conversationId: 'conv-1',
+      toolName: 'shell',
+      inputDigest: 'sha256:abc',
+    });
+
+    const result = mintCanonicalRequestGrant({
+      request: req,
+      actorChannel: 'telegram',
+      guardianExternalUserId: 'guardian-1',
+    });
+
+    expect(result.minted).toBe(true);
+  });
+
+  test('skips grant for request without tool metadata', () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+      // No toolName or inputDigest
+    });
+
+    const result = mintCanonicalRequestGrant({
+      request: req,
+      actorChannel: 'telegram',
+      guardianExternalUserId: 'guardian-1',
+    });
+
+    expect(result.minted).toBe(false);
+  });
+
+  test('skips grant when toolName present but inputDigest missing', () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      toolName: 'shell',
+      // No inputDigest
+    });
+
+    const result = mintCanonicalRequestGrant({
+      request: req,
+      actorChannel: 'telegram',
+      guardianExternalUserId: 'guardian-1',
+    });
+
+    expect(result.minted).toBe(false);
+  });
+});

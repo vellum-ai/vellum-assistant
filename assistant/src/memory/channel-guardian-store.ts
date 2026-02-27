@@ -13,6 +13,7 @@
 export {
   type ApprovalRequestStatus,
   countPendingByConversation,
+  // @internal — test-only helpers; production code uses canonical-guardian-store
   createApprovalRequest,
   findPendingAccessRequestForRequester,
   getAllPendingApprovalsByGuardianChat,

@@ -2391,7 +2391,7 @@ public final class ChatViewModel: ObservableObject {
             if let gd = messages[i].guardianDecision,
                case .pending = gd.state,
                !incomingIds.contains(gd.requestId) {
-                messages[i].guardianDecision?.state = .stale
+                messages[i].guardianDecision?.state = .stale()
                 messages[i].guardianDecision?.isSubmitting = false
             }
         }
@@ -2462,7 +2462,10 @@ public final class ChatViewModel: ObservableObject {
                 messages[idx].guardianDecision?.state = .resolved(action: resolvedAction)
             } else {
                 // Stale: someone else already resolved this prompt.
-                messages[idx].guardianDecision?.state = .stale
+                // Surface the server-supplied reason so the user sees context
+                // (e.g. "expired", "stale") instead of a generic message.
+                let staleReason = response.reason ?? response.userText
+                messages[idx].guardianDecision?.state = .stale(reason: staleReason)
             }
         }
 
