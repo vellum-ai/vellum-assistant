@@ -31,6 +31,10 @@ function runMcpAdd(name: string, args: string[]) {
   return runMcp('add', [name, ...args]);
 }
 
+function runMcpRemove(name: string) {
+  return runMcp('remove', [name]);
+}
+
 function writeConfig(config: Record<string, unknown>): void {
   writeFileSync(configPath, JSON.stringify(config), 'utf-8');
 }
@@ -254,5 +258,78 @@ describe('vellum mcp add', () => {
     const servers = (updated.mcp as Record<string, unknown> | undefined)?.servers as Record<string, unknown> | undefined;
     const server = servers?.['default-risk'] as Record<string, unknown>;
     expect(server.defaultRiskLevel).toBe('high');
+  });
+});
+
+describe('vellum mcp remove', () => {
+  beforeAll(() => {
+    testDataDir = join(tmpdir(), `vellum-mcp-remove-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const workspaceDir = join(testDataDir, '.vellum', 'workspace');
+    mkdirSync(workspaceDir, { recursive: true });
+    configPath = join(workspaceDir, 'config.json');
+    writeConfig({});
+  });
+
+  afterAll(() => {
+    rmSync(testDataDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    writeConfig({});
+  });
+
+  test('removes an existing server', () => {
+    writeConfig({
+      mcp: {
+        servers: {
+          'my-server': {
+            transport: { type: 'sse', url: 'https://example.com/sse' },
+            enabled: true,
+            defaultRiskLevel: 'high',
+          },
+        },
+      },
+    });
+
+    const { stdout, exitCode } = runMcpRemove('my-server');
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('Removed MCP server "my-server"');
+
+    const updated = readConfig();
+    const servers = (updated.mcp as Record<string, unknown> | undefined)?.servers as Record<string, unknown> | undefined;
+    expect(servers?.['my-server']).toBeUndefined();
+  });
+
+  test('errors when server does not exist', () => {
+    const { stderr, exitCode } = runMcpRemove('nonexistent');
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('not found');
+  });
+
+  test('preserves other servers when removing one', () => {
+    writeConfig({
+      mcp: {
+        servers: {
+          'keep-me': {
+            transport: { type: 'streamable-http', url: 'https://example.com/keep' },
+            enabled: true,
+            defaultRiskLevel: 'low',
+          },
+          'remove-me': {
+            transport: { type: 'sse', url: 'https://example.com/remove' },
+            enabled: true,
+            defaultRiskLevel: 'high',
+          },
+        },
+      },
+    });
+
+    const { exitCode } = runMcpRemove('remove-me');
+    expect(exitCode).toBe(0);
+
+    const updated = readConfig();
+    const servers = (updated.mcp as Record<string, unknown> | undefined)?.servers as Record<string, unknown> | undefined;
+    expect(servers?.['remove-me']).toBeUndefined();
+    expect(servers?.['keep-me']).toBeDefined();
   });
 });
