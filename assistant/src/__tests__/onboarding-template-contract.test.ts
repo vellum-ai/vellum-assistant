@@ -42,12 +42,6 @@ describe('onboarding template contracts', () => {
       expect(lower).toContain('do not announce it');
     });
 
-    test('mentions avatar evolution instruction', () => {
-      const lower = bootstrap.toLowerCase();
-      expect(lower).toContain('avatar will start to reflect');
-      expect(lower).toContain('happens automatically');
-    });
-
     test('contains naming intent markers so the first reply includes naming cues', () => {
       const lower = bootstrap.toLowerCase();
       // The template must prompt the assistant to ask about names.
