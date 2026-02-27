@@ -8,14 +8,12 @@
  */
 
 import {
+  createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
+  listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
+  updateCanonicalGuardianDelivery,
 } from '../memory/canonical-guardian-store.js';
-import { getActiveBinding } from '../memory/channel-guardian-store.js';
-import {
-  createGuardianActionDelivery,
-  updateDeliveryStatus,
-} from '../memory/guardian-action-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import type { NotificationDeliveryResult } from '../notifications/types.js';
 import { getLogger } from '../util/logger.js';
@@ -42,11 +40,10 @@ export interface GuardianDispatchParams {
 
 function applyDeliveryStatus(deliveryId: string, result: NotificationDeliveryResult): void {
   if (result.status === 'sent') {
-    updateDeliveryStatus(deliveryId, 'sent');
+    updateCanonicalGuardianDelivery(deliveryId, { status: 'sent' });
     return;
   }
-  const errorMessage = result.errorMessage ?? `Notification delivery status: ${result.status}`;
-  updateDeliveryStatus(deliveryId, 'failed', errorMessage);
+  updateCanonicalGuardianDelivery(deliveryId, { status: 'failed' });
 }
 
 /**
@@ -122,11 +119,22 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
     // delivery in this call session. When found, pass it as an affinity hint
     // so the notification pipeline deterministically routes to the same
     // conversation instead of letting the LLM choose a different thread.
-    // Check existing deliveries from the guardian_action_deliveries table.
+    // Find earlier canonical requests for this call session and check their
+    // deliveries for a vellum destination conversation ID.
     let existingGuardianConversationId: string | null = null;
-    // Deliveries are still tracked in guardian_action_deliveries for now.
-    // If there are existing deliveries for this call session, use their
-    // conversation ID for thread affinity.
+    const priorRequests = listCanonicalGuardianRequests({
+      sourceType: 'voice',
+    }).filter(r => r.callSessionId === callSessionId && r.id !== request.id);
+    for (const priorReq of priorRequests) {
+      const deliveries = listCanonicalGuardianDeliveries(priorReq.id);
+      const vellumDelivery = deliveries.find(
+        d => d.destinationChannel === 'vellum' && d.destinationConversationId,
+      );
+      if (vellumDelivery?.destinationConversationId) {
+        existingGuardianConversationId = vellumDelivery.destinationConversationId;
+        break;
+      }
+    }
     const conversationAffinityHint = existingGuardianConversationId
       ? { vellum: existingGuardianConversationId }
       : undefined;
@@ -165,7 +173,7 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
       dedupeKey: `guardian:${request.id}`,
       onThreadCreated: (info) => {
         if (info.sourceEventName !== 'guardian.question' || vellumDeliveryId) return;
-        const delivery = createGuardianActionDelivery({
+        const delivery = createCanonicalGuardianDelivery({
           requestId: request.id,
           destinationChannel: 'vellum',
           destinationConversationId: info.conversationId,
@@ -174,13 +182,10 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
       },
     });
 
-    const telegramBinding = getActiveBinding(assistantId, 'telegram');
-    const smsBinding = getActiveBinding(assistantId, 'sms');
-
     for (const result of signalResult.deliveryResults) {
       if (result.channel === 'vellum') {
         if (!vellumDeliveryId) {
-          const delivery = createGuardianActionDelivery({
+          const delivery = createCanonicalGuardianDelivery({
             requestId: request.id,
             destinationChannel: 'vellum',
             destinationConversationId: result.conversationId,
@@ -195,26 +200,20 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
         continue;
       }
 
-      const binding = result.channel === 'telegram' ? telegramBinding : smsBinding;
-      const delivery = createGuardianActionDelivery({
+      const delivery = createCanonicalGuardianDelivery({
         requestId: request.id,
         destinationChannel: result.channel,
         destinationChatId: result.destination.length > 0 ? result.destination : undefined,
-        destinationExternalUserId: binding?.guardianExternalUserId,
       });
       applyDeliveryStatus(delivery.id, result);
     }
 
     if (!vellumDeliveryId) {
-      const fallback = createGuardianActionDelivery({
+      const fallback = createCanonicalGuardianDelivery({
         requestId: request.id,
         destinationChannel: 'vellum',
       });
-      updateDeliveryStatus(
-        fallback.id,
-        'failed',
-        `No vellum delivery result from notification pipeline (${signalResult.reason})`,
-      );
+      updateCanonicalGuardianDelivery(fallback.id, { status: 'failed' });
       log.warn(
         { requestId: request.id, reason: signalResult.reason },
         'Notification pipeline did not produce a vellum delivery result',

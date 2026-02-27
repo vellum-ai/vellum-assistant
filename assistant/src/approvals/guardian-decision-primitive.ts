@@ -434,9 +434,12 @@ export async function applyCanonicalGuardianDecision(
     );
   }
 
-  // 6. Mint grant if the decision is an approval with tool metadata
+  // 6. Mint grant if the decision is an approval with tool metadata.
+  // Skip when the resolver failed — minting a grant on a failed side effect
+  // would allow the tool to execute without the intended resolver action
+  // (e.g. answerCall) having succeeded.
   let grantMinted = false;
-  if (effectiveAction !== 'reject' && actorContext.externalUserId) {
+  if (effectiveAction !== 'reject' && actorContext.externalUserId && !resolverFailed) {
     const grantResult = mintCanonicalRequestGrant({
       request: resolved,
       actorChannel: actorContext.channel,

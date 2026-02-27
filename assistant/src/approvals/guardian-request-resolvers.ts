@@ -214,8 +214,10 @@ const pendingQuestionResolver: GuardianRequestResolver = {
         },
         'Pending question resolver: answerCall failed',
       );
-      // Even though answerCall failed, continue to resolve the legacy record
-      // so the system stays consistent. The call may have already timed out.
+      // The canonical CAS has already committed so we don't roll back the
+      // resolution, but we signal failure so the decision primitive skips
+      // grant minting and callers see the side-effect failure.
+      return { ok: false, reason: 'answer_call_failed' };
     }
 
     log.info(

@@ -159,6 +159,7 @@ function parseRequestCode(text: string, scopeConversationId?: string): CodeParse
 function findPendingCanonicalRequests(
   actor: ActorContext,
   pendingRequestIds?: string[],
+  conversationId?: string,
 ): CanonicalGuardianRequest[] {
   // When explicit IDs are provided, look them up directly
   if (pendingRequestIds && pendingRequestIds.length > 0) {
@@ -167,12 +168,27 @@ function findPendingCanonicalRequests(
       .filter((r): r is CanonicalGuardianRequest => r !== null && r.status === 'pending');
   }
 
-  // Otherwise, query by guardian identity
+  // Query by guardian identity when available
   if (actor.externalUserId) {
     return listCanonicalGuardianRequests({
       status: 'pending',
       guardianExternalUserId: actor.externalUserId,
     });
+  }
+
+  // For desktop/trusted actors without an externalUserId, query by
+  // conversationId so the NL path can discover pending requests.
+  if (conversationId) {
+    return listCanonicalGuardianRequests({
+      status: 'pending',
+      conversationId,
+    });
+  }
+
+  // Trusted actors without a conversationId: return all pending requests
+  // so desktop sessions can always discover pending guardian work.
+  if (actor.isTrusted) {
+    return listCanonicalGuardianRequests({ status: 'pending' });
   }
 
   return [];
@@ -210,29 +226,22 @@ export async function routeGuardianReply(
   const { messageText, channel, actor, conversationId, callbackData, approvalConversationGenerator } = ctx;
 
   // ── 1. Deterministic callback parsing (button presses) ──
+  // No conversationId scoping here — the guardian's reply comes from a
+  // different conversation than the requester's. Identity validation in
+  // applyCanonicalGuardianDecision is sufficient to prevent unauthorized
+  // cross-user decisions.
   if (callbackData) {
     const parsed = parseCallbackAction(callbackData);
     if (parsed) {
-      // When scoped to a conversation, verify the target request belongs to it
-      // before applying the decision. This prevents button presses in one
-      // session from resolving requests that belong to a different session.
-      if (conversationId) {
-        const targetRequest = getCanonicalGuardianRequest(parsed.requestId);
-        if (targetRequest && targetRequest.conversationId && targetRequest.conversationId !== conversationId) {
-          log.info(
-            { event: 'router_callback_conversation_mismatch', requestId: parsed.requestId, expected: conversationId, actual: targetRequest.conversationId },
-            'Callback target request belongs to a different conversation — ignoring',
-          );
-          return notConsumed();
-        }
-      }
       return applyDecision(parsed.requestId, parsed.action, actor);
     }
   }
 
   // ── 2. Request code parsing (6-char alphanumeric prefix) ──
+  // No conversationId scoping — same rationale as the callback path above.
+  // The guardian's conversation differs from the requester's.
   if (messageText.length > 0) {
-    const codeResult = parseRequestCode(messageText, conversationId);
+    const codeResult = parseRequestCode(messageText);
     if (codeResult) {
       const { request } = codeResult;
 
@@ -305,7 +314,7 @@ export async function routeGuardianReply(
 
   // ── 3. NL classification via the conversational approval engine ──
   if (messageText.length > 0 && approvalConversationGenerator) {
-    const allPendingRequests = findPendingCanonicalRequests(actor, ctx.pendingRequestIds);
+    const allPendingRequests = findPendingCanonicalRequests(actor, ctx.pendingRequestIds, conversationId);
 
     if (allPendingRequests.length === 0) {
       return notConsumed();

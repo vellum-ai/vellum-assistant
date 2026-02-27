@@ -675,7 +675,7 @@ describe('routing invariant: callback buttons route through canonical primitive'
     expect(resolved!.status).toBe('denied');
   });
 
-  test('callback targeting wrong conversation is rejected', async () => {
+  test('callback targeting different conversation is still processed (conversationId scoping removed for cross-channel)', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
@@ -687,15 +687,18 @@ describe('routing invariant: callback buttons route through canonical primitive'
     const result = await routeGuardianReply(replyCtx({
       messageText: '',
       callbackData: `apr:${req.id}:approve_once`,
-      conversationId: 'conv-1', // different conversation
+      conversationId: 'conv-1', // different conversation — no longer rejected
     }));
 
-    // Should NOT be consumed — conversation mismatch
-    expect(result.consumed).toBe(false);
-    expect(result.decisionApplied).toBe(false);
+    // Should be consumed — conversationId scoping was removed because in
+    // cross-channel flows the guardian's conversation differs from the
+    // requester's. Identity validation in the canonical decision primitive
+    // (guardianExternalUserId match) is the correct security boundary.
+    expect(result.consumed).toBe(true);
+    expect(result.decisionApplied).toBe(true);
 
-    // Request remains pending
-    const unchanged = getCanonicalGuardianRequest(req.id);
-    expect(unchanged!.status).toBe('pending');
+    // Request should be approved
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe('approved');
   });
 });
