@@ -8,6 +8,9 @@ import { ensureSkillIcon,loadSkillBySelector, loadSkillCatalog, type SkillSummar
 import { createTimeout,extractText, getConfiguredProvider, userMessage } from '../../providers/provider-send-message.js';
 import { clawhubCheckUpdates, clawhubInspect, clawhubInstall, clawhubSearch, type ClawhubSearchResultItem,clawhubUpdate } from '../../skills/clawhub.js';
 import { createManagedSkill,deleteManagedSkill, removeSkillsIndexEntry, validateManagedSkillId } from '../../skills/managed-store.js';
+import { makeSecurityDecision } from '../../skills/security-decision.js';
+import { skillsshInstall } from '../../skills/skillssh-install.js';
+import { skillsshSearchWithAudit } from '../../skills/skillssh.js';
 import { checkVellumSkill,installFromVellumCatalog, listCatalogEntries } from '../../tools/skills/vellum-catalog.js';
 import { getWorkspaceSkillsDir } from '../../util/platform.js';
 import type {
@@ -253,19 +256,26 @@ export async function handleSkillsInstall(
       }
       skillId = result.skillName ?? msg.slug;
     } else {
-      // Install from clawhub (community)
-      const result = await clawhubInstall(msg.slug, { version: msg.version });
-      if (!result.success) {
-        ctx.send(socket, {
-          type: 'skills_operation_response',
-          operation: 'install',
-          success: false,
-          error: result.error ?? 'Unknown error',
-        });
-        return;
+      // Try clawhub first, then fall back to skills.sh
+      const clawhubResult = await clawhubInstall(msg.slug, { version: msg.version });
+
+      if (clawhubResult.success) {
+        const rawId = clawhubResult.skillName ?? msg.slug;
+        skillId = rawId.includes('/') ? rawId.split('/').pop()! : rawId;
+      } else {
+        // Fallback: search skills.sh by the slug, audit, and install
+        const skillsshResult = await trySkillsShInstall(msg.slug);
+        if (!skillsshResult.success) {
+          ctx.send(socket, {
+            type: 'skills_operation_response',
+            operation: 'install',
+            success: false,
+            error: skillsshResult.error ?? clawhubResult.error ?? 'Unknown error',
+          });
+          return;
+        }
+        skillId = skillsshResult.namespacedId;
       }
-      const rawId = result.skillName ?? msg.slug;
-      skillId = rawId.includes('/') ? rawId.split('/').pop()! : rawId;
     }
 
     // Reload skill catalog so the newly installed skill is picked up
@@ -308,6 +318,31 @@ export async function handleSkillsInstall(
       success: false,
       error: message,
     });
+  }
+}
+
+/**
+ * Attempt to install a skill via skills.sh: search by slug, fetch audit data,
+ * make a security decision, and invoke the installer.
+ */
+async function trySkillsShInstall(slug: string): Promise<{ success: boolean; namespacedId: string; error?: string }> {
+  try {
+    const searchResult = await skillsshSearchWithAudit(slug, { limit: 1 });
+    const match = searchResult.skills[0];
+    if (!match) {
+      return { success: false, namespacedId: '', error: `No skills.sh skill found for "${slug}"` };
+    }
+
+    const decision = makeSecurityDecision(match.audit);
+    const installResult = await skillsshInstall({ candidate: match, securityDecision: decision });
+    return {
+      success: installResult.success,
+      namespacedId: installResult.namespacedId,
+      error: installResult.error,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, namespacedId: '', error: message };
   }
 }
 

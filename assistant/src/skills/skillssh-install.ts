@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { getLogger } from '../util/logger.js';
 import { getWorkspaceSkillsDir } from '../util/platform.js';
 import { validateSlug, verifyAndRecordSkillHash } from './clawhub.js';
+import { upsertSkillsIndexEntry } from './managed-store.js';
 import type { SecurityDecision } from './security-decision.js';
 import type { SkillsShSearchWithAuditItem } from './skillssh.js';
 
@@ -23,6 +24,8 @@ export interface SkillsShInstallOptions {
 export interface SkillsShInstallResult {
   success: boolean;
   skillId: string;
+  /** Source-namespaced ID used for the install directory (e.g. "org--repo--my-skill") */
+  namespacedId: string;
   /** The managed skill directory path */
   installedPath?: string;
   /** Error message if install failed */
@@ -59,6 +62,16 @@ function getManagedSkillsDir(): string {
 // so we use the parent of the managed skills dir as the project root.
 function getSkillsShProjectRoot(): string {
   return dirname(getWorkspaceSkillsDir());
+}
+
+/**
+ * Derive a source-namespaced directory name from source and skillId.
+ * Replaces slashes with double-hyphens so the result is a flat, safe directory name.
+ * Example: source="org/repo", skillId="my-skill" -> "org--repo--my-skill"
+ */
+export function namespacedSkillDir(source: string, skillId: string): string {
+  const sanitized = source.replace(/\//g, '--');
+  return `${sanitized}--${skillId}`;
 }
 
 // ─── Subprocess runner ───────────────────────────────────────────────────────────
@@ -149,15 +162,27 @@ export async function skillsshInstall(
   const { candidate, securityDecision, userOverride } = options;
   const { skillId, source } = candidate;
 
-  // Reject invalid skill IDs before computing install paths — prevents empty
-  // strings, path traversal segments, or other malformed identifiers from
-  // targeting unexpected directories.
+  const nsId = namespacedSkillDir(source, skillId);
+
+  // Reject invalid skill IDs and source identifiers before computing install
+  // paths -- prevents empty strings, path traversal segments, or other malformed
+  // identifiers from targeting unexpected directories.
   if (!validateSlug(skillId)) {
     return {
       success: false,
       skillId,
+      namespacedId: nsId,
       installedVia: 'policy',
       error: `Invalid skill ID: ${skillId}`,
+    };
+  }
+  if (!source || source.includes('..') || /[\\]/.test(source)) {
+    return {
+      success: false,
+      skillId,
+      namespacedId: nsId,
+      installedVia: 'policy',
+      error: `Invalid source: ${source}`,
     };
   }
 
@@ -166,6 +191,7 @@ export async function skillsshInstall(
     return {
       success: false,
       skillId,
+      namespacedId: nsId,
       installedVia: 'policy',
       error:
         `Installation blocked: security assessment is "${securityDecision.recommendation}" ` +
@@ -181,46 +207,66 @@ export async function skillsshInstall(
 
     if (result.exitCode !== 0) {
       const error = result.stderr.trim() || result.stdout.trim() || 'Unknown error';
-      return { success: false, skillId, installedVia, error };
+      return { success: false, skillId, namespacedId: nsId, installedVia, error };
     }
 
-    // `npx skills add` installs into skills/<skillId>/SKILL.md relative to the project root.
-    // The project root is the parent of the managed skills dir, so the installed
-    // path lands inside the managed skills dir.
-    const installedDir = join(getManagedSkillsDir(), skillId);
-    const skillFile = join(installedDir, 'SKILL.md');
+    // `npx skills add` installs into skills/<skillId>/SKILL.md relative to the
+    // project root. We then relocate it to a source-namespaced directory to
+    // prevent ID collisions between different repos publishing the same skillId.
+    const rawInstalledDir = join(getManagedSkillsDir(), skillId);
+    const namespacedDir = join(getManagedSkillsDir(), nsId);
+    const rawSkillFile = join(rawInstalledDir, 'SKILL.md');
 
-    if (!existsSync(skillFile)) {
+    if (!existsSync(rawSkillFile)) {
       return {
         success: false,
         skillId,
+        namespacedId: nsId,
         installedVia,
-        error: `Installation completed but SKILL.md not found at expected path: ${skillFile}`,
+        error: `Installation completed but SKILL.md not found at expected path: ${rawSkillFile}`,
       };
     }
 
-    // Record content integrity hash (trust-on-first-use)
-    verifyAndRecordSkillHash(skillId);
+    // Relocate to namespaced directory when the raw and namespaced paths differ
+    if (rawInstalledDir !== namespacedDir) {
+      mkdirSync(dirname(namespacedDir), { recursive: true });
+      renameSync(rawInstalledDir, namespacedDir);
+    }
 
-    // Store provenance metadata alongside the skill
+    const installedDir = namespacedDir;
+
+    // Write provenance metadata before computing the integrity hash so the
+    // hash is stable on re-install. collectFileContents already excludes
+    // .provenance.json, but writing it first avoids any ordering ambiguity.
     const provenance = buildProvenance(candidate);
     const provenancePath = join(installedDir, '.provenance.json');
     writeFileSync(provenancePath, JSON.stringify(provenance, null, 2) + '\n', 'utf-8');
 
+    // Record content integrity hash (trust-on-first-use)
+    verifyAndRecordSkillHash(nsId);
+
+    // Add to SKILLS.md index so the skill is discoverable
+    try {
+      upsertSkillsIndexEntry(nsId);
+    } catch (err) {
+      log.warn({ err, nsId }, 'Failed to update SKILLS.md index after install');
+    }
+
     log.info(
-      { skillId, source, installedVia, installedDir },
+      { skillId, namespacedId: nsId, source, installedVia, installedDir },
       'skills.sh skill installed successfully',
     );
 
     return {
       success: true,
       skillId,
+      namespacedId: nsId,
       installedPath: installedDir,
       installedVia,
       provenance,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { success: false, skillId, installedVia, error: message };
+    return { success: false, skillId, namespacedId: nsId, installedVia, error: message };
   }
 }
