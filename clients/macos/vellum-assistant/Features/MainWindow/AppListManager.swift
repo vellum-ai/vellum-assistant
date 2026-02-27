@@ -7,6 +7,9 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 final class AppListManager: ObservableObject {
 
+    /// Shared singleton for use in views that don't receive AppListManager via DI.
+    static let shared = AppListManager()
+
     struct AppItem: Identifiable, Codable, Hashable {
         let id: String
         var name: String
