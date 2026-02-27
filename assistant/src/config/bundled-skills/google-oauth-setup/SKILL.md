@@ -94,17 +94,24 @@ Tell the user:
 
 ### Channel Step 5: Create OAuth Credentials (Web Application)
 
+Before sending Step 4 to the user, resolve the concrete callback URL:
+- Read the configured public gateway URL (`ingress.publicBaseUrl`). If it is missing, run the `public-ingress` skill first.
+- Build `oauthCallbackUrl` as `<public gateway URL>/webhooks/oauth/callback`.
+- When you send the instructions below, replace `OAUTH_CALLBACK_URL` with that concrete value. Never send placeholders literally.
+
 Tell the user:
 
 > **Step 4: Create OAuth credentials**
 >
 > Open: `https://console.cloud.google.com/apis/credentials?project=PROJECT_ID`
 >
+> Use this exact redirect URI:
+> `OAUTH_CALLBACK_URL`
+>
 > 1. Click **+ Create Credentials** → **OAuth client ID**
 > 2. Application type: Select **"Web application"** (not Desktop app)
 > 3. Name: **Vellum Assistant**
-> 4. Under **Authorized redirect URIs**, click **Add URI** and enter:
->    `$GATEWAY_BASE_URL/webhooks/oauth/callback`
+> 4. Under **Authorized redirect URIs**, click **Add URI** and paste the redirect URI shown above
 > 5. Click **Create**
 >
 > A dialog will show your **Client ID** and **Client Secret**. Copy both values — you'll need them in the next step.
