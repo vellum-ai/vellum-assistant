@@ -5,14 +5,12 @@
  * submit button decisions without relying on text parsing.
  */
 import {
-  getGuardianActionRequest,
-  getPendingDeliveriesByConversation,
-} from '../../memory/guardian-action-store.js';
-import {
   getPendingApprovalForRequest,
   listPendingApprovalRequests,
 } from '../../memory/channel-guardian-store.js';
 import { applyGuardianDecision } from '../../approvals/guardian-decision-primitive.js';
+import { handleChannelDecision } from '../channel-approvals.js';
+import type { ApprovalAction } from '../channel-approval-types.js';
 import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';
 import { httpError } from '../http-errors.js';
 import * as pendingInteractions from '../pending-interactions.js';
@@ -67,6 +65,11 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
     return httpError('BAD_REQUEST', 'action is required', 400);
   }
 
+  const VALID_ACTIONS = new Set<string>(['approve_once', 'approve_always', 'reject']);
+  if (!VALID_ACTIONS.has(action)) {
+    return httpError('BAD_REQUEST', `Invalid action: ${action}. Must be one of: approve_once, approve_always, reject`, 400);
+  }
+
   // Try the channel guardian approval store first (tool approval prompts)
   const approval = getPendingApprovalForRequest(requestId);
   if (approval) {
@@ -79,16 +82,15 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
     return Response.json(result);
   }
 
-  // Fall back to the pending interactions tracker (direct confirmation requests)
+  // Fall back to the pending interactions tracker (direct confirmation requests).
+  // Route through handleChannelDecision so approve_always properly persists trust rules.
   const interaction = pendingInteractions.get(requestId);
   if (interaction) {
-    const decision = action === 'reject' ? 'deny' : 'allow';
-    const resolved = pendingInteractions.resolve(requestId);
-    if (!resolved) {
-      return Response.json({ applied: false, reason: 'stale' });
-    }
-    resolved.session.handleConfirmationResponse(requestId, decision);
-    return Response.json({ applied: true, requestId });
+    const result = handleChannelDecision(
+      interaction.conversationId,
+      { action: action as ApprovalAction, source: 'plain_text', requestId },
+    );
+    return Response.json(result);
   }
 
   return httpError('NOT_FOUND', 'No pending guardian action found for this requestId', 404);
@@ -136,27 +138,10 @@ export function listGuardianDecisionPrompts(params: {
     });
   }
 
-  // 2. Guardian action requests (voice call guardian questions delivered to this conversation)
-  const actionDeliveries = getPendingDeliveriesByConversation(conversationId);
-  for (const delivery of actionDeliveries) {
-    const actionReq = getGuardianActionRequest(delivery.requestId);
-    if (!actionReq || actionReq.status !== 'pending') continue;
-
-    prompts.push({
-      requestId: actionReq.id,
-      requestCode: actionReq.requestCode,
-      state: 'pending',
-      questionText: actionReq.questionText,
-      toolName: actionReq.toolName,
-      actions: [
-        { action: 'approve_once', label: 'Approve' },
-        { action: 'reject', label: 'Reject' },
-      ],
-      expiresAt: actionReq.expiresAt,
-      conversationId,
-      callSessionId: actionReq.callSessionId,
-    });
-  }
+  // 2. Guardian action requests (voice call guardian questions) are intentionally
+  // excluded here — resolving them requires the answerCall + resolveGuardianActionRequest
+  // flow which is handled by the conversational session-process path, not by the
+  // deterministic button decision endpoint.
 
   // 3. Pending confirmation interactions (direct tool approval prompts)
   const interactions = pendingInteractions.getByConversation(conversationId);

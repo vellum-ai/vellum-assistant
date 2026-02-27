@@ -2,8 +2,12 @@ import type { GuardianActionDecision, GuardianActionsPendingRequest } from '../i
 import { listGuardianDecisionPrompts } from '../../runtime/routes/guardian-action-routes.js';
 import { getPendingApprovalForRequest } from '../../memory/channel-guardian-store.js';
 import { applyGuardianDecision } from '../../approvals/guardian-decision-primitive.js';
+import { handleChannelDecision } from '../../runtime/channel-approvals.js';
+import type { ApprovalAction } from '../../runtime/channel-approval-types.js';
 import * as pendingInteractions from '../../runtime/pending-interactions.js';
 import { defineHandlers, log } from './shared.js';
+
+const VALID_ACTIONS = new Set<string>(['approve_once', 'approve_always', 'reject']);
 
 export const guardianActionsHandlers = defineHandlers({
   guardian_actions_pending_request: (msg: GuardianActionsPendingRequest, socket, ctx) => {
@@ -12,6 +16,17 @@ export const guardianActionsHandlers = defineHandlers({
   },
 
   guardian_action_decision: (msg: GuardianActionDecision, socket, ctx) => {
+    // Validate the action is one of the known actions
+    if (!VALID_ACTIONS.has(msg.action)) {
+      log.warn({ requestId: msg.requestId, action: msg.action }, 'Invalid guardian action');
+      ctx.send(socket, {
+        type: 'guardian_action_decision_response',
+        applied: false,
+        reason: 'invalid_action',
+      });
+      return;
+    }
+
     // Try the channel guardian approval store first (tool approval prompts)
     const approval = getPendingApprovalForRequest(msg.requestId);
     if (approval) {
@@ -30,24 +45,18 @@ export const guardianActionsHandlers = defineHandlers({
       return;
     }
 
-    // Fall back to the pending interactions tracker (direct confirmation requests)
+    // Fall back to the pending interactions tracker (direct confirmation requests).
+    // Route through handleChannelDecision so approve_always properly persists trust rules.
     const interaction = pendingInteractions.get(msg.requestId);
     if (interaction) {
-      const decision = msg.action === 'reject' ? 'deny' : 'allow';
-      const resolved = pendingInteractions.resolve(msg.requestId);
-      if (!resolved) {
-        ctx.send(socket, {
-          type: 'guardian_action_decision_response',
-          applied: false,
-          reason: 'stale',
-        });
-        return;
-      }
-      resolved.session.handleConfirmationResponse(msg.requestId, decision);
+      const result = handleChannelDecision(
+        interaction.conversationId,
+        { action: msg.action as ApprovalAction, source: 'plain_text', requestId: msg.requestId },
+      );
       ctx.send(socket, {
         type: 'guardian_action_decision_response',
-        applied: true,
-        requestId: msg.requestId,
+        applied: result.applied,
+        requestId: result.requestId,
       });
       return;
     }
