@@ -51,6 +51,13 @@ export class McpServerManager {
       } catch (err) {
         console.error(`[MCP] Failed to connect to server "${serverId}":`, err);
         log.error({ err, serverId }, 'Failed to connect to MCP server');
+        // Clean up any partially-connected client
+        const staleClient = this.clients.get(serverId);
+        if (staleClient) {
+          try { await staleClient.disconnect(); } catch { /* ignore */ }
+          this.clients.delete(serverId);
+          this.serverConfigs.delete(serverId);
+        }
       }
     }
 

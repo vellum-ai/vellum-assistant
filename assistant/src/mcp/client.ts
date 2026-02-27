@@ -40,12 +40,19 @@ export class McpClient {
 
     console.log(`[MCP] Connecting to server "${this.serverId}"...`);
     this.transport = this.createTransport(transportConfig);
-    await Promise.race([
-      this.client.connect(this.transport),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`MCP server "${this.serverId}" connection timed out after ${CONNECT_TIMEOUT_MS}ms`)), CONNECT_TIMEOUT_MS),
-      ),
-    ]);
+    try {
+      await Promise.race([
+        this.client.connect(this.transport),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`MCP server "${this.serverId}" connection timed out after ${CONNECT_TIMEOUT_MS}ms`)), CONNECT_TIMEOUT_MS),
+        ),
+      ]);
+    } catch (err) {
+      // Clean up the transport on failure (e.g., kill spawned stdio process)
+      try { await this.client.close(); } catch { /* ignore cleanup errors */ }
+      this.transport = undefined;
+      throw err;
+    }
     this.connected = true;
     console.log(`[MCP] Server "${this.serverId}" connected successfully`);
     log.info({ serverId: this.serverId }, 'MCP client connected');
