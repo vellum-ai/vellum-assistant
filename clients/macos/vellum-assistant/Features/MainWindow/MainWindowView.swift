@@ -731,7 +731,7 @@ struct MainWindowView: View {
                         HStack(spacing: VSpacing.xs) {
                             Image(systemName: "lock.shield")
                                 .foregroundColor(VColor.warning)
-                            Text("Child Mode")
+                            Text("Restricted Mode")
                                 .font(VFont.captionMedium)
                                 .foregroundColor(VColor.warning)
                         }
@@ -739,7 +739,7 @@ struct MainWindowView: View {
                         .padding(.vertical, VSpacing.xs)
                         .background(VColor.warning.opacity(0.1))
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        .accessibilityLabel("Child Mode active")
+                        .accessibilityLabel("Restricted Mode active")
                     }
                     if windowState.isShowingChat || isChatBubbleActive {
                         // Copy Thread button — only visible when there's content to copy
@@ -1551,7 +1551,7 @@ private struct ProfileSwitcherSidebarRow: View {
     private var isParental: Bool { activeProfile == "parental" }
     private var avatarIcon: String { isParental ? "crown.fill" : "figure.child" }
     private var avatarColor: Color { adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400) }
-    private var profileLabel: String { isParental ? "Parental Mode" : "Child Mode" }
+    private var profileLabel: String { isParental ? "Parental Mode" : "Restricted Mode" }
 
     var body: some View {
         Button(action: onSwitch) {
@@ -1559,14 +1559,14 @@ private struct ProfileSwitcherSidebarRow: View {
                 // When collapsed and hovered, show the swap icon instead of avatar
                 if !isExpanded && isHovered {
                     Image(systemName: "arrow.left.arrow.right")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: isExpanded ? 13 : 11, weight: isExpanded ? .medium : .regular))
                         .foregroundColor(avatarColor)
-                        .frame(width: 18)
+                        .frame(width: 16, height: 16)
                 } else {
                     Image(systemName: avatarIcon)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: isExpanded ? 13 : 11, weight: isExpanded ? .medium : .regular))
                         .foregroundColor(avatarColor)
-                        .frame(width: 18)
+                        .frame(width: 16, height: 16)
                 }
                 if isExpanded {
                     Text(profileLabel)
@@ -1588,7 +1588,7 @@ private struct ProfileSwitcherSidebarRow: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, isExpanded ? VSpacing.sm : VSpacing.xs)
-        .padding(.bottom, VSpacing.sm)
+        .padding(.bottom, isExpanded ? VSpacing.sm : 0)
         .help(isExpanded ? "Switch profile" : "\(profileLabel) — tap to switch")
         .onHover { hovering in
             isHovered = hovering
@@ -1683,7 +1683,7 @@ private struct ProfileSwitchModal: View {
     var body: some View {
         VStack(spacing: VSpacing.xl) {
             // Title
-            Text(isChildToParental ? "Switch to Parental Mode" : "Switch to Child Mode")
+            Text(isChildToParental ? "Switch to Parental Mode" : "Switch to Restricted Mode")
                 .font(VFont.headline)
                 .foregroundColor(VColor.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -1767,7 +1767,7 @@ private struct ProfileSwitchModal: View {
                 .font(.system(size: 30, weight: .medium))
                 .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
                 .frame(width: 36, height: 36)
-            Text(isParental ? "Parental Mode" : "Child Mode")
+            Text(isParental ? "Parental Mode" : "Restricted Mode")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
         }
@@ -1786,6 +1786,7 @@ private struct ProfileSwitchModal: View {
                 onSuccess()
             } else {
                 errorMessage = settingsStore.profileSwitchError
+                pin = ""
                 withAnimation(VAnimation.standard) {
                     step = .enterPIN
                 }
