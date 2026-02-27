@@ -975,12 +975,27 @@ describe('call-controller', () => {
   });
 
   test('handleUserInstruction: queues when processing, but triggers when idle', async () => {
-    // Start a slow turn to put controller in processing/speaking state
-    mockStartVoiceTurn.mockImplementation(async (opts: { onTextDelta: (t: string) => void; onComplete: () => void }) => {
-      await new Promise((r) => setTimeout(r, 100));
-      opts.onTextDelta('Response.');
+    // Track content passed to each voice turn invocation
+    const turnContents: string[] = [];
+    let turnCount = 0;
+
+    // Start a slow turn to put controller in processing/speaking state.
+    // After the first turn completes, the mock switches to a fast handler
+    // that captures content so we can verify the flushed instruction.
+    mockStartVoiceTurn.mockImplementation(async (opts: { content: string; onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      turnCount++;
+      if (turnCount === 1) {
+        // First turn: slow, simulates processing state
+        await new Promise((r) => setTimeout(r, 100));
+        opts.onTextDelta('Response.');
+        opts.onComplete();
+        return { turnId: 'run-1', abort: () => {} };
+      }
+      // Subsequent turns: capture content and complete immediately
+      turnContents.push(opts.content);
+      opts.onTextDelta('Noted.');
       opts.onComplete();
-      return { turnId: 'run-1', abort: () => {} };
+      return { turnId: `run-${turnCount}`, abort: () => {} };
     });
 
     const { session, controller } = setupController();
@@ -995,8 +1010,18 @@ describe('call-controller', () => {
     const instructionEvents = events.filter((e) => e.eventType === 'user_instruction_relayed');
     expect(instructionEvents.length).toBe(1);
 
-    // Wait for the turn to finish (instructions flushed at turn boundary)
+    // Wait for the first turn to finish (instructions flushed at turn boundary)
     await turnPromise;
+
+    // Allow the fire-and-forget flush turn to execute
+    await new Promise((r) => setTimeout(r, 50));
+
+    // The queued instruction should have been flushed into a new turn
+    expect(turnContents.length).toBeGreaterThanOrEqual(1);
+    expect(turnContents.some((c) => c.includes('[USER_INSTRUCTION: Suggest morning slots]'))).toBe(true);
+
+    // Controller should return to idle after the flush turn completes
+    expect(controller.getState()).toBe('idle');
 
     controller.destroy();
   });
