@@ -86,16 +86,24 @@ Tell the user: "Permissions configured! Now let's set up the redirect URL and ge
 
 Navigate to the "OAuth & Permissions" page if not already there.
 
-The redirect URL uses a localhost callback — no public URL or tunnel is needed.
+Before entering the redirect URL, resolve the exact value from the well-known OAuth config:
+
+```
+credential_store describe:
+  service: "integration:slack"
+```
+
+Read the `redirectUri` field from that response and use it exactly as shown.
 
 In the "Redirect URLs" section:
-1. Click "Add New Redirect URL"
-2. Enter `http://127.0.0.1:17322/oauth/callback`
-3. Click "Add" then "Save URLs"
+1. If `redirectUri` says "automatic", skip adding a redirect URL for this provider.
+2. If `redirectUri` mentions "not currently configured" / `GATEWAY_BASE_URL` / `INGRESS_PUBLIC_BASE_URL`, stop and ask the user to configure public ingress first.
+3. Otherwise, click "Add New Redirect URL" and enter the `redirectUri` value exactly as returned.
+4. Click "Add" then "Save URLs"
 
 Take a `browser_snapshot` to confirm.
 
-Tell the user: "Redirect URL configured. This uses a local callback so no tunnel or public URL is needed."
+Tell the user: "Redirect URL configured using the redirect URI from Vellum's Slack OAuth profile."
 
 ## Step 5: Extract Client ID and Client Secret
 
@@ -137,7 +145,7 @@ Once connected, tell the user:
 Summarize what was accomplished:
 - Created a Slack App called "Vellum Assistant"
 - Configured User Token Scopes for reading, writing, and searching
-- Set up the OAuth redirect URL (localhost callback — no tunnel needed)
+- Set up the OAuth redirect URL from the Slack OAuth profile
 - Connected your Slack workspace
 
 ## Error Handling

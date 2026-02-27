@@ -124,7 +124,7 @@ Tell the user: "Consent screen is configured! Almost there — just need to crea
 
 > **Create OAuth Credentials**
 >
-> I'm about to create OAuth Desktop Application credentials for Vellum Assistant. This generates a client ID that Vellum uses to initiate the authorization flow. No redirect URIs are needed — desktop apps use a secure localhost callback automatically.
+> I'm about to create OAuth Desktop Application credentials for Vellum Assistant. This generates a client ID and secret that Vellum uses to initiate the authorization flow.
 
 Wait for the user to approve. If they decline, explain that credentials are the final step needed and offer to try again or cancel.
 
@@ -136,7 +136,7 @@ Take a `browser_snapshot` and fill in:
 1. **Application type:** Select **"Desktop app"** from the dropdown
 2. **Name:** "Vellum Assistant"
 
-**Do NOT add any redirect URIs** — Desktop app credentials handle localhost redirects automatically.
+**Do NOT add any redirect URIs** for the desktop app flow.
 
 Use `browser_click` on the "Create" button.
 
@@ -177,7 +177,7 @@ action: "oauth2_connect"
 service: "integration:gmail"
 ```
 
-This auto-reads client_id/client_secret from the secure store and auto-fills endpoints, scopes, and params from well-known config. The OAuth flow uses a localhost callback — no public URL or tunnel is needed.
+This auto-reads client_id/client_secret from the secure store and auto-fills endpoints, scopes, and params from well-known config.
 
 Wait for the flow to complete.
 
