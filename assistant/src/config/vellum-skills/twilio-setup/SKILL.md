@@ -228,10 +228,10 @@ To re-check guardian status later, query the channel(s) that were verified:
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
 # Check SMS guardian status
-curl -s http://localhost:7830/v1/integrations/guardian/status?channel=sms \
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=sms" \
   -H "Authorization: Bearer $TOKEN"
 # Check voice guardian status
-curl -s http://localhost:7830/v1/integrations/guardian/status?channel=voice \
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=voice" \
   -H "Authorization: Bearer $TOKEN"
 ```
 

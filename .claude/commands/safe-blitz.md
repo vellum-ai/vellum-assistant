@@ -106,7 +106,7 @@ Read AGENTS.md in the repo root for project conventions and structure.
 ## Repo-specific gotchas
 - `gh pr view` does NOT support a `merged` --json field. Use `state` and `mergedAt`: `gh pr view <N> --json state,mergedAt,title,url`
 - This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
-- Do NOT wait for CI checks to pass before merging. Merge immediately.
+- Wait for CI checks to pass before merging. Use `.claude/wait-ci <PR_NUMBER>` before `gh pr merge`. The `.claude/ship --merge` flag does this automatically.
 - `tail` and `head` may not be available in the shell. Don't pipe to them.
 
 ## Your worktree
@@ -152,7 +152,7 @@ Read AGENTS.md in the repo root for project conventions and structure.
 ## Repo-specific gotchas
 - `gh pr view` does NOT support a `merged` --json field. Use `state` and `mergedAt`: `gh pr view <N> --json state,mergedAt,title,url`
 - This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
-- Do NOT wait for CI checks to pass before merging. Merge immediately.
+- Wait for CI checks to pass before merging. Use `.claude/wait-ci <PR_NUMBER>` before `gh pr merge`. The `.claude/ship --merge` flag does this automatically.
 - `tail` and `head` may not be available in the shell. Don't pipe to them.
 
 ## Your worktree
@@ -453,10 +453,11 @@ After the feature branch has been updated with main, the milestone branch may no
    git fetch origin <milestone-pr-branch>
    ```
 
-**Step 4: Merge the milestone PR into the feature branch.**
+**Step 4: Wait for CI and merge the milestone PR into the feature branch.**
 
-1. Merge the milestone PR:
+1. Wait for CI checks to pass, then merge the milestone PR:
    ```bash
+   .claude/wait-ci <milestone-pr-number>
    gh pr merge <milestone-pr-number> --squash
    ```
 2. Fetch the updated feature branch:
@@ -645,7 +646,7 @@ Read AGENTS.md in the repo root for project conventions and structure.
 ## Repo-specific gotchas
 - `gh pr view` does NOT support a `merged` --json field. Use `state` and `mergedAt`: `gh pr view <N> --json state,mergedAt,title,url`
 - This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
-- Do NOT wait for CI checks to pass before merging. Merge immediately.
+- Wait for CI checks to pass before merging. Use `.claude/wait-ci <PR_NUMBER>` before `gh pr merge`. The `.claude/ship --merge` flag does this automatically.
 - `tail` and `head` may not be available in the shell. Don't pipe to them.
 
 ## Your worktree
@@ -742,8 +743,9 @@ gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json |
 
    Pause and ask: **"All milestones complete, Codex review approved, and CI is stable. Ready to merge the final PR into main?"**
 
-   - If the user confirms, merge the final PR:
+   - If the user confirms, wait for CI and merge the final PR:
      ```bash
+     .claude/wait-ci <final-pr-number>
      gh pr merge <final-pr-number> --squash
      ```
      Then update the project issue status to "Done" and close it:

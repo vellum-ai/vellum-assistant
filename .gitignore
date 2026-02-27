@@ -34,6 +34,7 @@ dist
 !.claude/gh-project
 !.claude/gh-review
 !.claude/check-pr-reviews
+!.claude/wait-ci
 .private/
 temp.sh
 context.md

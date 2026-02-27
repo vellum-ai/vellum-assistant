@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
-import { randomBytes, randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
+import { hostname, userInfo } from "os";
 import { basename } from "path";
 import qrcode from "qrcode-terminal";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
@@ -1322,9 +1323,11 @@ function ChatApp({
             throw new Error(`HTTP ${registerRes.status}: ${body || registerRes.statusText}`);
           }
 
+          const hostId = createHash("sha256").update(hostname() + userInfo().username).digest("hex");
           const payload = JSON.stringify({
             type: "vellum-daemon",
             v: 4,
+            id: hostId,
             g: gatewayUrl,
             pairingRequestId,
             pairingSecret,

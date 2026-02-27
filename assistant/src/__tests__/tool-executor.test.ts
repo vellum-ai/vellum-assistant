@@ -1844,7 +1844,7 @@ describe('buildSanitizedEnv — baseline: credential exclusion', () => {
       'PATH', 'HOME', 'TERM', 'LANG', 'EDITOR', 'SHELL', 'USER',
       'TMPDIR', 'LC_ALL', 'LC_CTYPE', 'XDG_RUNTIME_DIR', 'DISPLAY',
       'COLORTERM', 'TERM_PROGRAM', 'SSH_AUTH_SOCK', 'SSH_AGENT_PID',
-      'GPG_TTY', 'GNUPGHOME',
+      'GPG_TTY', 'GNUPGHOME', 'INTERNAL_GATEWAY_BASE_URL', 'GATEWAY_BASE_URL',
     ];
 
     const env = buildSanitizedEnv();

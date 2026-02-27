@@ -8,7 +8,6 @@ const SETTINGS_TABS = [
   'Trust',
   'Model',
   'Scheduling',
-  'Parental',
 ] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];

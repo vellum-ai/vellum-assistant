@@ -42,11 +42,31 @@ interface MemoryInfo {
   maxMb: number;
 }
 
+// Read the container memory limit from cgroups if available, falling back to host total.
+// cgroups v2: /sys/fs/cgroup/memory.max (returns "max" when unlimited)
+// cgroups v1: /sys/fs/cgroup/memory/memory.limit_in_bytes (large sentinel when unlimited)
+function getContainerMemoryLimitBytes(): number | null {
+  try {
+    const v2 = readFileSync('/sys/fs/cgroup/memory.max', 'utf-8').trim();
+    if (v2 !== 'max') {
+      const bytes = parseInt(v2, 10);
+      if (!isNaN(bytes) && bytes > 0) return bytes;
+    }
+  } catch { /* not available */ }
+  try {
+    const v1 = readFileSync('/sys/fs/cgroup/memory/memory.limit_in_bytes', 'utf-8').trim();
+    const bytes = parseInt(v1, 10);
+    // cgroups v1 uses a near-INT64_MAX sentinel when no limit is set
+    if (!isNaN(bytes) && bytes > 0 && bytes < totalmem() * 1.5) return bytes;
+  } catch { /* not available */ }
+  return null;
+}
+
 function getMemoryInfo(): MemoryInfo {
   const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
   return {
     currentMb: bytesToMb(process.memoryUsage().rss),
-    maxMb: bytesToMb(totalmem()),
+    maxMb: bytesToMb(getContainerMemoryLimitBytes() ?? totalmem()),
   };
 }
 
@@ -55,17 +75,35 @@ interface CpuInfo {
   maxCores: number;
 }
 
+// Track CPU usage over a rolling window so /healthz reports near-real-time
+// utilization instead of a lifetime average (total CPU time / total uptime).
+const CPU_SAMPLE_INTERVAL_MS = 5_000;
+let _lastCpuUsage: NodeJS.CpuUsage = process.cpuUsage();
+let _lastCpuTime: number = Date.now();
+let _cachedCpuPercent = 0;
+
+// Kick off the background sampler. unref() so it never prevents process exit.
+setInterval(() => {
+  const now = Date.now();
+  const newUsage = process.cpuUsage();
+  const elapsedMs = now - _lastCpuTime;
+  if (elapsedMs > 0) {
+    const deltaCpuUs =
+      (newUsage.user - _lastCpuUsage.user) +
+      (newUsage.system - _lastCpuUsage.system);
+    const deltaCpuMs = deltaCpuUs / 1000;
+    const numCores = cpus().length;
+    _cachedCpuPercent =
+      Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
+  }
+  _lastCpuUsage = newUsage;
+  _lastCpuTime = now;
+}, CPU_SAMPLE_INTERVAL_MS).unref();
+
 function getCpuInfo(): CpuInfo {
-  const usage = process.cpuUsage();
-  const uptimeMs = process.uptime() * 1000;
-  const cpuMs = (usage.user + usage.system) / 1000;
-  const numCores = cpus().length;
-  const currentPercent = uptimeMs > 0
-    ? Math.round((cpuMs / (uptimeMs * numCores)) * 10000) / 100
-    : 0;
   return {
-    currentPercent,
-    maxCores: numCores,
+    currentPercent: _cachedCpuPercent,
+    maxCores: cpus().length,
   };
 }
 

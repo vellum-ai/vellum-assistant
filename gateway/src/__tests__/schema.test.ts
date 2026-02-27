@@ -158,7 +158,7 @@ describe("buildSchema()", () => {
     expect(telegramDeliver.anyOf).toContainEqual({ required: ["chatAction"] });
   });
 
-  test("ingress member block request body is required", () => {
+  test("ingress member block request body is optional", () => {
     const schema = buildSchema() as {
       paths: Record<string, {
         post?: {
@@ -171,6 +171,6 @@ describe("buildSchema()", () => {
 
     const ingressMemberBlockPost = schema.paths["/v1/ingress/members/{memberId}/block"]?.post;
     expect(ingressMemberBlockPost).toBeDefined();
-    expect(ingressMemberBlockPost?.requestBody?.required).toBe(true);
+    expect(ingressMemberBlockPost?.requestBody?.required).toBe(false);
   });
 });

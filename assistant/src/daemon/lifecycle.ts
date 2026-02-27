@@ -8,6 +8,7 @@ import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { setRelayBroadcast } from '../calls/relay-server.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { setVoiceBridgeDeps } from '../calls/voice-session-bridge.js';
+import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
 import {
   getQdrantUrlEnv,
   getRuntimeHttpHost,
@@ -21,8 +22,9 @@ import { syncUpdateBulletinOnStartup } from '../config/update-bulletin.js';
 import { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
-import { initSentry } from '../instrument.js';
+import { closeSentry, initSentry } from '../instrument.js';
 import { initLogfire } from '../logfire.js';
+import { getMcpServerManager } from '../mcp/manager.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { initializeDb } from '../memory/db.js';
@@ -95,7 +97,11 @@ export async function runDaemon(): Promise<void> {
   let socketCreated = false;
 
   try {
+    // Initialize crash reporting eagerly so early startup failures are
+    // captured. After config loads we check the opt-out flag and call
+    // closeSentry() if the user has disabled it.
     initSentry();
+
     await initLogfire();
 
     // Migration order matters: first move legacy flat files into the data dir
@@ -170,6 +176,13 @@ export async function runDaemon(): Promise<void> {
 
     if (config.logFile.dir) {
       initLogger({ dir: config.logFile.dir, retentionDays: config.logFile.retentionDays });
+    }
+
+    // If the user has opted out of crash reporting, stop Sentry from capturing
+    // future events. Early-startup crashes before this point are still captured.
+    const collectUsageData = isAssistantFeatureFlagEnabled('feature_flags.collect-usage-data.enabled', config);
+    if (!collectUsageData) {
+      await closeSentry();
     }
 
     await initializeProvidersAndTools(config);
@@ -398,6 +411,12 @@ export async function runDaemon(): Promise<void> {
     server.setHeartbeatService(heartbeat);
     log.info({ enabled: heartbeatConfig.enabled, intervalMs: heartbeatConfig.intervalMs }, 'Heartbeat service configured');
 
+    // Retrieve the MCP manager if MCP servers were configured.
+    // The manager is a singleton created during initializeProvidersAndTools().
+    const mcpManager = config.mcp?.servers && Object.keys(config.mcp.servers).length > 0
+      ? getMcpServerManager()
+      : null;
+
     installShutdownHandlers({
       server,
       workspaceHeartbeat,
@@ -407,6 +426,7 @@ export async function runDaemon(): Promise<void> {
       scheduler,
       memoryWorker,
       qdrantManager,
+      mcpManager,
       cleanupPidFile,
     });
   } catch (err) {

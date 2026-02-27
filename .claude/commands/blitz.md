@@ -117,7 +117,7 @@ Read AGENTS.md in the repo root for project conventions and structure.
 ## Repo-specific gotchas
 - `gh pr view` does NOT support a `merged` --json field. Use `state` and `mergedAt`: `gh pr view <N> --json state,mergedAt,title,url`
 - This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
-- Do NOT wait for CI checks to pass before merging. Merge immediately.
+- Wait for CI checks to pass before merging. Use `.claude/wait-ci <PR_NUMBER>` before `gh pr merge`. The `.claude/ship --merge` flag does this automatically.
 - `tail` and `head` may not be available in the shell. Don't pipe to them.
 
 ## Your worktree
@@ -235,9 +235,12 @@ Wait for fresh reviews: Poll for **new** reviews posted after `last_fix_push_tim
   - If aggregate status is `pending`, continue polling.
 - If **5 minutes** pass with no new reviews, ensure the PR is tracked in `.private/UNREVIEWED_PRS.md` (add it if not already present), then proceed to Step 6. Log: `"No new reviews within 5 minutes after fixes pushed. Proceeding to merge (PR tracked in UNREVIEWED_PRS.md)."`
 
-#### Step 6: Merge to main
+#### Step 6: Wait for CI and merge to main
+
+Wait for CI checks to pass before merging:
 
 ```bash
+.claude/wait-ci <pr-number>
 gh pr merge <pr-number> --squash
 ```
 

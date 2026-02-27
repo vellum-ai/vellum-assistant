@@ -89,6 +89,66 @@ function formatDuration(ms: number): string {
   return `${mins}m ${remSecs}s`;
 }
 
+// ── HTML Report ─────────────────────────────────────────────────────
+
+interface TestReport {
+  timestamp: string;
+  summary: { passed: number; failed: number; totalDurationMs: number };
+  tests: { name: string; passed: boolean; message: string; durationMs: number; duration: string }[];
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function generateHtmlReport(report: TestReport): string {
+  const testRows = report.tests
+    .map((t) => {
+      const icon = t.passed ? "✅" : "❌";
+      const encodedName = encodeURIComponent(t.name);
+      const screenshotLink = `agent-screenshots/${encodedName}/`;
+      const videoLink = `agent-videos/${encodedName}/screen-recording.mov`;
+      return `<tr>
+        <td>${icon} ${escapeHtml(t.name)}</td>
+        <td>${t.passed ? "passed" : "failed"}</td>
+        <td>${t.duration}</td>
+        <td>${t.passed ? "" : escapeHtml(t.message)}</td>
+        <td><a href="${screenshotLink}">screenshots</a> · <a href="${videoLink}">video</a> · <a href="agent-logs/${encodedName}.log">trace</a></td>
+      </tr>`;
+    })
+    .join("\n");
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Agent Test Report</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+    h1 { margin-bottom: 4px; }
+    .summary { color: #666; margin-bottom: 24px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #eee; }
+    th { background: #f5f5f5; }
+    a { color: #0366d6; }
+  </style>
+</head>
+<body>
+  <h1>Agent Test Report</h1>
+  <p class="summary">${report.summary.passed} passed, ${report.summary.failed} failed — ${formatDuration(report.summary.totalDurationMs)} total — ${report.timestamp}</p>
+  <table>
+    <tr><th>Test</th><th>Status</th><th>Duration</th><th>Details</th><th>Artifacts</th></tr>
+    ${testRows}
+  </table>
+</body>
+</html>`;
+}
+
 // ── Runner ──────────────────────────────────────────────────────────
 
 /**
@@ -98,7 +158,9 @@ function formatDuration(ms: number): string {
 function startScreenRecording(videoPath: string): ChildProcess | undefined {
   try {
     mkdirSync(path.dirname(videoPath), { recursive: true });
-    const proc = spawn("screencapture", ["-v", "-x", videoPath], {
+    // Use -V 600 (10 min max) so screencapture starts recording immediately
+    // instead of opening an interactive session. We stop it early with SIGINT.
+    const proc = spawn("screencapture", ["-V", "600", "-x", videoPath], {
       stdio: "ignore",
       detached: true,
     });
@@ -151,6 +213,7 @@ async function runTestCase(
     page = await context.newPage();
 
     const screenshotDir = path.resolve(__dirname, "../test-results/agent-screenshots", testCase.name);
+    const traceLogPath = path.resolve(__dirname, "../test-results/agent-logs", `${testCase.name}.log`);
 
     // Start macOS screen recording (captures the actual desktop, not the browser tab)
     const videoDir = path.resolve(__dirname, "../test-results/agent-videos", testCase.name);
@@ -162,6 +225,7 @@ async function runTestCase(
       testContent,
       page,
       screenshotDir,
+      traceLogPath,
       verbose,
     });
 
@@ -257,6 +321,7 @@ async function main(): Promise<void> {
     })),
   };
   writeFileSync(path.join(reportDir, "test-report.json"), JSON.stringify(report, null, 2));
+  writeFileSync(path.join(reportDir, "index.html"), generateHtmlReport(report));
 
   if (failed > 0) {
     process.exit(1);

@@ -12,6 +12,7 @@ struct SettingsAccountTab: View {
 
     // -- Account / Vellum section state --
     @State private var platformUrlText: String = ""
+    @State private var isPlatformUrlFocused: Bool = false
 
     // -- Assistant Info state (from SettingsAdvancedTab) --
     @State private var showingRetireConfirmation: Bool = false
@@ -58,7 +59,14 @@ struct SettingsAccountTab: View {
             Task { await loadHatchFlag() }
         }
         .onChange(of: store.platformBaseUrl) { _, newValue in
-            platformUrlText = newValue
+            if !isPlatformUrlFocused {
+                platformUrlText = newValue
+            }
+        }
+        .onChange(of: isPlatformUrlFocused) { _, focused in
+            if !focused {
+                platformUrlText = store.platformBaseUrl
+            }
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -109,7 +117,7 @@ struct SettingsAccountTab: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
 
-                VInlineActionField(text: $platformUrlText, placeholder: "https://platform.vellum.ai") {
+                VInlineActionField(text: $platformUrlText, placeholder: "https://platform.vellum.ai", isFocused: $isPlatformUrlFocused) {
                     store.savePlatformBaseUrl(platformUrlText)
                     Task { await store.checkVellumPlatform() }
                 }

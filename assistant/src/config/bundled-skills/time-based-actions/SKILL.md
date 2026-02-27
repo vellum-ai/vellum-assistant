@@ -61,23 +61,24 @@ Phrases like "at the 45 minute mark", "at the top of the hour", "on the half-hou
 
 **Resolution rules (in priority order):**
 
-1. **Clock-position expressions** — map directly to a wall-clock time:
+1. **Session-anchored expressions** — if the user mentioned a start time earlier in conversation ("I got here at 9", "meeting started at 2:10"), interpret offset-style phrases ("the 45 minute mark", "20 minutes in", "when I hit an hour") as `start_time + offset`. This takes precedence because the conversational anchor overrides any wall-clock interpretation.
+
+2. **Clock-position expressions** — when no start time is in context, map directly to a wall-clock time:
    - "top of the hour" / "on the hour" → next :00 (e.g. 10:00 AM)
    - "the X minute mark" / "at :XX" → current hour's :XX; if already past, advance one hour
    - "the half-hour mark" / "half past" → nearest upcoming :30
    - "noon" / "midnight" → 12:00 PM or 12:00 AM today; if past, tomorrow
    - "quarter past" / "quarter to" → :15 or :45 of current or next hour
 
-2. **Session-anchored expressions** — if the user mentioned a start time earlier in conversation ("I got here at 9", "meeting started at 2pm"), compute `start_time + offset`.
-
 3. **Ask only if truly ambiguous** — if neither rule 1 nor rule 2 resolves, ask: "Do you mean [clock time] or [X minutes from now]?" Never silently default to "from now."
 
 **Examples:**
-- "at the 45 min mark" (now: 9:39) → 9:45 AM
-- "at the 45 min mark" (now: 9:50) → 10:45 AM
+- "meeting started at 2:10, remind me at the 45 minute mark" → 2:55 PM (start + 45 min)
+- "20 minutes in, I started at 2pm" → 2:20 PM (start + 20 min)
+- "at the 45 min mark" (no start time, now: 9:39) → 9:45 AM (wall-clock)
+- "at the 45 min mark" (no start time, now: 9:50) → 10:45 AM (wall-clock, next hour)
 - "top of the hour" (now: 9:39) → 10:00 AM
 - "at noon" → 12:00 PM today
-- "20 minutes in, I started at 2pm" → 2:20 PM
 - "at the hour mark" with no start time → ask for clarification
 
 ## "Remind me to X" Disambiguation

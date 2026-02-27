@@ -170,10 +170,12 @@ export interface Tool {
   defaultRiskLevel: RiskLevel;
   /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
   executionMode?: 'local' | 'proxy';
-  /** Whether this tool is a core built-in or provided by a skill. */
-  origin?: 'core' | 'skill';
+  /** Whether this tool is a core built-in, provided by a skill, or from an MCP server. */
+  origin?: 'core' | 'skill' | 'mcp';
   /** If origin is 'skill', the ID of the owning skill. */
   ownerSkillId?: string;
+  /** If origin is 'mcp', the ID of the owning MCP server. */
+  ownerMcpServerId?: string;
   /** Content-hash of the owning skill's source at registration time. */
   ownerSkillVersionHash?: string;
   /** Whether the owning skill is bundled with the daemon (trusted first-party). */

@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/node';
 
 import type { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import type { HookManager } from '../hooks/manager.js';
+import type { McpServerManager } from '../mcp/manager.js';
 import { getSqlite, resetDb } from '../memory/db.js';
 import type { QdrantManager } from '../memory/qdrant-manager.js';
 import type { RuntimeHttpServer } from '../runtime/http-server.js';
@@ -22,6 +23,7 @@ export interface ShutdownDeps {
   scheduler: { stop(): void };
   memoryWorker: { stop(): void };
   qdrantManager: QdrantManager;
+  mcpManager: McpServerManager | null;
   cleanupPidFile: () => void;
 }
 
@@ -86,6 +88,15 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     await browserManager.closeAllPages();
     deps.scheduler.stop();
     deps.memoryWorker.stop();
+
+    if (deps.mcpManager) {
+      try {
+        await deps.mcpManager.stop();
+      } catch (err) {
+        log.warn({ err }, 'MCP server manager shutdown failed (non-fatal)');
+      }
+    }
+
     await deps.qdrantManager.stop();
 
     // Checkpoint WAL and close SQLite so no writes are lost on exit.

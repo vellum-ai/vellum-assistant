@@ -2335,10 +2335,6 @@ public enum ServerMessage: Decodable, Sendable {
     case workspaceFileReadResponse(WorkspaceFileReadResponseMessage)
     case identityGetResponse(IdentityGetResponseMessage)
     case channelReadinessResponse(IPCChannelReadinessResponse)
-    case parentalControlGetResponse(ParentalControlGetResponseMessage)
-    case parentalControlVerifyPinResponse(ParentalControlVerifyPinResponseMessage)
-    case parentalControlSetPinResponse(ParentalControlSetPinResponseMessage)
-    case parentalControlUpdateResponse(ParentalControlUpdateResponseMessage)
     case conversationSearchResponse(ConversationSearchResponseMessage)
     case pairingApprovalRequest(PairingApprovalRequestMessage)
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
@@ -2738,18 +2734,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "channel_readiness_response":
             let message = try IPCChannelReadinessResponse(from: decoder)
             self = .channelReadinessResponse(message)
-        case "parental_control_get_response":
-            let message = try ParentalControlGetResponseMessage(from: decoder)
-            self = .parentalControlGetResponse(message)
-        case "parental_control_verify_pin_response":
-            let message = try ParentalControlVerifyPinResponseMessage(from: decoder)
-            self = .parentalControlVerifyPinResponse(message)
-        case "parental_control_set_pin_response":
-            let message = try ParentalControlSetPinResponseMessage(from: decoder)
-            self = .parentalControlSetPinResponse(message)
-        case "parental_control_update_response":
-            let message = try ParentalControlUpdateResponseMessage(from: decoder)
-            self = .parentalControlUpdateResponse(message)
         case "conversation_search_response":
             let message = try ConversationSearchResponseMessage(from: decoder)
             self = .conversationSearchResponse(message)
@@ -2855,73 +2839,6 @@ public struct BrowserCDPResponseMessage: Encodable, Sendable {
 // MARK: - App Files Changed
 
 public typealias AppFilesChangedMessage = IPCAppFilesChanged
-
-// MARK: - Parental Control Messages
-
-/// Fetch current parental control settings and PIN status.
-/// Backed by generated `IPCParentalControlGetRequest`.
-public typealias ParentalControlGetRequestMessage = IPCParentalControlGetRequest
-
-extension IPCParentalControlGetRequest {
-    public init() {
-        self.init(type: "parental_control_get")
-    }
-}
-
-/// Parental control settings + PIN status response.
-/// Backed by generated `IPCParentalControlGetResponse`.
-public typealias ParentalControlGetResponseMessage = IPCParentalControlGetResponse
-
-/// Verify a PIN attempt without changing state.
-/// Backed by generated `IPCParentalControlVerifyPinRequest`.
-public typealias ParentalControlVerifyPinRequestMessage = IPCParentalControlVerifyPinRequest
-
-extension IPCParentalControlVerifyPinRequest {
-    public init(pin: String) {
-        self.init(type: "parental_control_verify_pin", pin: pin)
-    }
-}
-
-/// Result of a PIN verification attempt.
-/// Backed by generated `IPCParentalControlVerifyPinResponse`.
-public typealias ParentalControlVerifyPinResponseMessage = IPCParentalControlVerifyPinResponse
-
-/// Set, change, or clear the parental control PIN.
-/// Backed by generated `IPCParentalControlSetPinRequest`.
-public typealias ParentalControlSetPinRequestMessage = IPCParentalControlSetPinRequest
-
-extension IPCParentalControlSetPinRequest {
-    /// Set a PIN for the first time.
-    public static func set(newPin: String) -> Self {
-        Self(type: "parental_control_set_pin", new_pin: newPin)
-    }
-    /// Change an existing PIN.
-    public static func change(currentPin: String, newPin: String) -> Self {
-        Self(type: "parental_control_set_pin", current_pin: currentPin, new_pin: newPin)
-    }
-    /// Clear the PIN.
-    public static func clear(currentPin: String) -> Self {
-        Self(type: "parental_control_set_pin", current_pin: currentPin, clear: true)
-    }
-}
-
-/// Result of a set/change/clear PIN operation.
-/// Backed by generated `IPCParentalControlSetPinResponse`.
-public typealias ParentalControlSetPinResponseMessage = IPCParentalControlSetPinResponse
-
-/// Update parental control settings (enable/disable mode, content restrictions, tool blocks).
-/// Backed by generated `IPCParentalControlUpdateRequest`.
-public typealias ParentalControlUpdateRequestMessage = IPCParentalControlUpdateRequest
-
-extension IPCParentalControlUpdateRequest {
-    public init(pin: String? = nil, enabled: Bool? = nil, contentRestrictions: [String]? = nil, blockedToolCategories: [String]? = nil) {
-        self.init(type: "parental_control_update", pin: pin, enabled: enabled, content_restrictions: contentRestrictions, blocked_tool_categories: blockedToolCategories)
-    }
-}
-
-/// Result of a parental control settings update.
-/// Backed by generated `IPCParentalControlUpdateResponse`.
-public typealias ParentalControlUpdateResponseMessage = IPCParentalControlUpdateResponse
 
 // MARK: - Layout Config Wire Types
 // Defined here temporarily; canonical home is LayoutConfig.swift (M1 / #2973)

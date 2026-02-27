@@ -1,4 +1,3 @@
-import AppKit
 import VellumAssistantShared
 import SwiftUI
 
@@ -6,7 +5,7 @@ import SwiftUI
 struct HatchingStepView: View {
     @Bindable var state: OnboardingState
 
-    @State private var assistantCli = AssistantCli()
+    @State private var cliLauncher = AssistantCli()
     @State private var showContent = false
     @State private var eggWobble = false
     @State private var eggCracked = false
@@ -30,10 +29,6 @@ struct HatchingStepView: View {
             statusText
 
             logOutput
-
-            if state.hatchFailed {
-                restartButton
-            }
 
             Spacer()
         }
@@ -125,108 +120,44 @@ struct HatchingStepView: View {
 
     // MARK: - Log Output
 
-    @State private var showCopiedFeedback = false
-
     private var logOutput: some View {
         VStack(spacing: VSpacing.xs) {
-            ZStack(alignment: .topTrailing) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(Array(state.hatchLogLines.enumerated()), id: \.offset) { index, line in
-                                Text(line)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundColor(VColor.textMuted)
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .id(index)
-                            }
-                        }
-                        .padding(VSpacing.sm)
-                    }
-                    .frame(maxWidth: 380, maxHeight: 140)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(adaptiveColor(
-                                light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)),
-                                dark: VColor.surface.opacity(0.3)
-                            ))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                    )
-                    .onChange(of: state.hatchLogLines.count) { _, _ in
-                        if let last = state.hatchLogLines.indices.last {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                proxy.scrollTo(last, anchor: .bottom)
-                            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(state.hatchLogLines.enumerated()), id: \.offset) { index, line in
+                            Text(line)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(VColor.textMuted)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id(index)
                         }
                     }
+                    .padding(VSpacing.sm)
                 }
-
-                if !state.hatchLogLines.isEmpty {
-                    Button(action: {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(
-                            state.hatchLogLines.joined(separator: "\n"),
-                            forType: .string
-                        )
-                        showCopiedFeedback = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            showCopiedFeedback = false
+                .frame(maxWidth: 380, maxHeight: 140)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(adaptiveColor(
+                            light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)),
+                            dark: VColor.surface.opacity(0.3)
+                        ))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                )
+                .onChange(of: state.hatchLogLines.count) { _, _ in
+                    if let last = state.hatchLogLines.indices.last {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(last, anchor: .bottom)
                         }
-                    }) {
-                        Image(systemName: showCopiedFeedback ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 10))
-                            .foregroundColor(VColor.textMuted)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(6)
-                    .onHover { hovering in
-                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
                 }
             }
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.top, VSpacing.md)
-    }
-
-    // MARK: - Restart Button
-
-    private var restartButton: some View {
-        Button(action: { restartSetup() }) {
-            Text("Start over")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(VColor.textPrimary)
-                .frame(maxWidth: 380)
-                .padding(.vertical, VSpacing.lg)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.xxl)
-        .onHover { hovering in
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
-    }
-
-    private func restartSetup() {
-        state.isHatching = false
-        state.hatchFailed = false
-        state.hatchCompleted = false
-        state.hatchLogLines = []
-        hatchStarted = false
-        eggCracked = false
-        eggHatched = false
-        withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
-            state.currentStep = 0
-        }
     }
 
     // MARK: - Wobble
@@ -249,9 +180,7 @@ struct HatchingStepView: View {
 
     private func startHatching() {
         let apiKey = APIKeyManager.getKey() ?? ""
-        let selectedModel = state.selectedModel
 
-        let isCustom = state.cloudProvider == "customHardware"
         let config = AssistantCli.RemoteHatchConfig(
             remote: state.cloudProvider,
             gcpProjectId: state.gcpProjectId,
@@ -263,11 +192,10 @@ struct HatchingStepView: View {
             sshPrivateKey: state.sshPrivateKey,
             anthropicApiKey: apiKey
         )
-        let qrData = state.customQRCodeImageData
 
-        Task.detached { [config, selectedModel, isCustom, qrData] in
+        Task.detached { [config] in
             do {
-                let outputHandler: @Sendable (String) -> Void = { line in
+                try await cliLauncher.runRemoteHatch(config: config) { line in
                     Task { @MainActor in
                         state.hatchLogLines.append(line)
                         if !eggCracked && state.hatchLogLines.count > 3 {
@@ -277,44 +205,6 @@ struct HatchingStepView: View {
                         }
                     }
                 }
-
-                if isCustom {
-                    try await assistantCli.runPair(qrCodeImageData: qrData, onOutput: outputHandler)
-                } else {
-                    try await assistantCli.runRemoteHatch(config: config, onOutput: outputHandler)
-                }
-
-                if let json = LockfilePaths.read(),
-                   let assistants = json["assistants"] as? [[String: Any]] {
-                    let isoFormatter = ISO8601DateFormatter()
-                    isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                    let sorted = assistants.sorted { a, b in
-                        let dateA = (a["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
-                        let dateB = (b["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
-                        return dateA > dateB
-                    }
-                    if let latest = sorted.first,
-                       let assistantId = latest["assistantId"] as? String {
-                        UserDefaults.standard.set(assistantId, forKey: "connectedAssistantId")
-
-                        var homeConfig: [String: Any] = [:]
-                        if let cloud = latest["cloud"] as? String { homeConfig["cloud"] = cloud }
-                        if let runtimeUrl = latest["runtimeUrl"] as? String { homeConfig["runtimeUrl"] = runtimeUrl }
-                        if let project = latest["project"] as? String { homeConfig["project"] = project }
-                        if let region = latest["region"] as? String { homeConfig["region"] = region }
-                        if let zone = latest["zone"] as? String { homeConfig["zone"] = zone }
-                        if let instanceId = latest["instanceId"] as? String { homeConfig["instanceId"] = instanceId }
-
-                        let existing = WorkspaceConfigIO.read()
-                        var assistantConfig = existing["assistant"] as? [String: Any] ?? [:]
-                        assistantConfig["id"] = assistantId
-                        assistantConfig["home"] = homeConfig
-                        try? WorkspaceConfigIO.merge(["assistant": assistantConfig])
-                    }
-                }
-
-                try? WorkspaceConfigIO.merge(["model": selectedModel])
-
                 await MainActor.run {
                     state.hatchCompleted = true
                 }

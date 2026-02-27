@@ -537,4 +537,76 @@ describe('approval-primitive / consumeGrantForInvocation retry', () => {
     expect(elapsed).toBeGreaterThanOrEqual(450);
     expect(elapsed).toBeLessThan(1_500);
   });
+
+  test('returns aborted when signal fires during retry polling', async () => {
+    const digest = computeToolApprovalDigest('shell', { command: 'aborted' });
+    const controller = new AbortController();
+
+    // Abort after 200ms — well before the 2s max wait
+    setTimeout(() => controller.abort(), 200);
+
+    const start = Date.now();
+    const result = await consumeGrantForInvocation(
+      {
+        toolName: 'shell',
+        inputDigest: digest,
+        consumingRequestId: 'consumer-aborted',
+        assistantId: 'self',
+      },
+      { maxWaitMs: 2_000, intervalMs: 50, signal: controller.signal },
+    );
+    const elapsed = Date.now() - start;
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('aborted');
+    // Should have exited shortly after the abort (200ms), not waited the full 2s
+    expect(elapsed).toBeLessThan(1_000);
+  });
+
+  test('returns aborted immediately when signal is already aborted', async () => {
+    const digest = computeToolApprovalDigest('shell', { command: 'pre-aborted' });
+    const controller = new AbortController();
+    controller.abort();
+
+    const start = Date.now();
+    const result = await consumeGrantForInvocation(
+      {
+        toolName: 'shell',
+        inputDigest: digest,
+        consumingRequestId: 'consumer-pre-aborted',
+        assistantId: 'self',
+      },
+      { maxWaitMs: 2_000, intervalMs: 50, signal: controller.signal },
+    );
+    const elapsed = Date.now() - start;
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('aborted');
+    // Should return nearly instantly since signal was already aborted
+    expect(elapsed).toBeLessThan(200);
+  });
+
+  test('skips retry entirely when maxWaitMs is 0', async () => {
+    const digest = computeToolApprovalDigest('shell', { command: 'no-retry' });
+
+    const start = Date.now();
+    const result = await consumeGrantForInvocation(
+      {
+        toolName: 'shell',
+        inputDigest: digest,
+        consumingRequestId: 'consumer-no-retry',
+        assistantId: 'self',
+      },
+      { maxWaitMs: 0 },
+    );
+    const elapsed = Date.now() - start;
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('no_match');
+    // Should return nearly instantly — no retry loop
+    expect(elapsed).toBeLessThan(100);
+  });
 });

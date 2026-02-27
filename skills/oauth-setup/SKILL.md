@@ -97,9 +97,9 @@ Take a `browser_screenshot` after adding all scopes.
 ### Step 7: Set redirect URL
 
 Check the `redirectUri` from the config:
-- If it starts with `http://127.0.0.1:` — tell the user "This uses a local callback, no public URL needed" and enter the URL in the redirect URL field.
-- If it mentions "not currently configured" or "INGRESS_PUBLIC_BASE_URL" — the user needs a public URL configured. Check if one is set; if not, load the `public-ingress` skill first.
+- If it mentions "not currently configured", `GATEWAY_BASE_URL`, or `INGRESS_PUBLIC_BASE_URL` — the user needs a public gateway URL configured. Check if one is set; if not, load the `public-ingress` skill first.
 - If it says "automatic" — skip this step entirely (no redirect URI needed).
+- Otherwise, enter the `redirectUri` exactly as provided.
 
 Take a `browser_snapshot` to confirm.
 

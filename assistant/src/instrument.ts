@@ -32,7 +32,12 @@ function redactObject(obj: unknown): unknown {
   return obj;
 }
 
-/** Call after dotenv has loaded so SENTRY_DSN is available. */
+/**
+ * Call after dotenv has loaded so SENTRY_DSN is available.
+ * Always initializes Sentry to capture early startup crashes. If the user
+ * later opts out via the "collect-usage-data" feature flag, call closeSentry()
+ * after config is loaded to stop future event capturing.
+ */
 export function initSentry(): void {
   Sentry.init({
     dsn: getSentryDsn(),
@@ -59,4 +64,13 @@ export function initSentry(): void {
       return event;
     },
   });
+}
+
+/**
+ * Stop capturing future Sentry events. Called after config loads when the
+ * user has opted out of crash reporting so that early-startup crashes are
+ * still captured but subsequent events are suppressed.
+ */
+export async function closeSentry(): Promise<void> {
+  await Sentry.close();
 }

@@ -46,7 +46,6 @@ struct APIKeyStepView: View {
         Text(userHostedEnabled ? "Setup" : "Add your API key")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
-            .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
@@ -56,7 +55,6 @@ struct APIKeyStepView: View {
              : "Enter your Anthropic API key to get started.")
             .font(.system(size: 16))
             .foregroundColor(VColor.textSecondary)
-            .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
 
@@ -164,7 +162,6 @@ struct APIKeyStepView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 20)
                     .padding(.vertical, VSpacing.lg)
-                    .textSelection(.enabled)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
                             .stroke(VColor.surfaceBorder, lineWidth: 1)
@@ -280,11 +277,36 @@ struct APIKeyStepView: View {
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed)
 
+            saveModelToConfig("claude-opus-4-6")
             if userHostedEnabled && hostingMode != .local {
                 state.advance()
-            } else {
+            } else if userHostedEnabled {
                 state.isHatching = true
+            } else {
+                state.advance()
             }
+    }
+
+    private func saveModelToConfig(_ model: String) {
+        let configURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vellum/workspace/config.json")
+
+        let dirURL = configURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+
+        do {
+            let data = try Data(contentsOf: configURL)
+            if var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                json["model"] = model
+                let updated = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+                try updated.write(to: configURL)
+            }
+        } catch {
+            let json: [String: Any] = ["model": model]
+            if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
+                try? data.write(to: configURL)
+            }
+        }
     }
 
     private func loadHostingModeFromDefaults() -> HostingMode? {

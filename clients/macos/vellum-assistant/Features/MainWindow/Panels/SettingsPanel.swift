@@ -9,14 +9,14 @@ enum SettingsTab: String {
     case permissions = "Permissions"
     case automation = "Automation"
     case appearance = "Appearance"
-    case parental = "Parental"
+    case privacy = "Privacy"
     case advanced = "Advanced"
 
     /// Tabs shown in the sidebar. Advanced is only visible in dev mode.
     static func visibleTabs(isDevMode: Bool) -> [SettingsTab] {
         var tabs: [SettingsTab] = [
             .account, .channels, .modelsAndServices, .voice,
-            .automation, .appearance, .permissions
+            .automation, .appearance, .permissions, .privacy
         ]
         if isDevMode {
             tabs.append(.advanced)
@@ -40,7 +40,6 @@ enum SettingsTab: String {
             case "Trust": tab = .permissions
             case "Schedules": tab = .automation
             case "Heartbeat": tab = .automation
-            case "Parental": tab = .permissions
             case "Advanced": tab = .advanced
             default: tab = nil
             }
@@ -254,8 +253,8 @@ struct SettingsPanel: View {
             SettingsAutomationTab(daemonClient: daemonClient, showingReminders: $showingReminders, showingScheduledTasks: $showingScheduledTasks, showingHeartbeatConfig: $showingHeartbeatConfig)
         case .appearance:
             SettingsAppearanceTab(store: store)
-        case .parental:
-            permissionsContent
+        case .privacy:
+            SettingsPrivacyTab(daemonClient: daemonClient)
         case .advanced:
             if store.isDevMode {
                 SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
@@ -821,8 +820,6 @@ struct SettingsPanel: View {
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
 
-            // PARENTAL CONTROLS section
-            SettingsParentalTab(daemonClient: daemonClient)
         }
     }
 

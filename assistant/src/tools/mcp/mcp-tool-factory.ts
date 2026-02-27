@@ -1,0 +1,100 @@
+import type { McpServerConfig } from '../../config/mcp-schema.js';
+import type { McpServerManager } from '../../mcp/manager.js';
+import { RiskLevel } from '../../permissions/types.js';
+import type { ToolDefinition } from '../../providers/types.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+
+const riskMap: Record<string, RiskLevel> = {
+  low: RiskLevel.Low,
+  medium: RiskLevel.Medium,
+  high: RiskLevel.High,
+};
+
+/**
+ * Create a namespaced tool name to prevent collisions across MCP servers
+ * and with core/skill tools.
+ */
+export function mcpToolName(serverId: string, toolName: string): string {
+  return `mcp__${serverId}__${toolName}`;
+}
+
+/**
+ * Parse a namespaced MCP tool name back into serverId and original tool name.
+ * Returns null if the name doesn't match the MCP naming convention.
+ */
+export function parseMcpToolName(name: string): { serverId: string; toolName: string } | null {
+  if (!name.startsWith('mcp__')) return null;
+  const prefixRemoved = name.slice(5); // remove 'mcp__'
+  const firstSep = prefixRemoved.indexOf('__');
+  if (firstSep === -1) return null;
+  return {
+    serverId: prefixRemoved.slice(0, firstSep),
+    toolName: prefixRemoved.slice(firstSep + 2),
+  };
+}
+
+export interface McpToolMetadata {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+/**
+ * Create a Tool object from MCP tool metadata.
+ * The tool delegates execution to the McpServerManager.
+ */
+export function createMcpTool(
+  metadata: McpToolMetadata,
+  serverId: string,
+  serverConfig: McpServerConfig,
+  manager: McpServerManager,
+): Tool {
+  const namespacedName = mcpToolName(serverId, metadata.name);
+  const riskLevel = riskMap[serverConfig.defaultRiskLevel] ?? RiskLevel.High;
+
+  return {
+    name: namespacedName,
+    description: metadata.description,
+    category: 'mcp',
+    defaultRiskLevel: riskLevel,
+    origin: 'mcp',
+    ownerMcpServerId: serverId,
+    executionTarget: 'host',
+
+    getDefinition(): ToolDefinition {
+      return {
+        name: namespacedName,
+        description: metadata.description,
+        input_schema: metadata.inputSchema as ToolDefinition['input_schema'],
+      };
+    },
+
+    async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+      try {
+        const result = await manager.callTool(serverId, metadata.name, input);
+        return {
+          content: result.content,
+          isError: result.isError,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: `MCP tool execution failed: ${message}`,
+          isError: true,
+        };
+      }
+    },
+  };
+}
+
+/**
+ * Create Tool objects from all tools provided by an MCP server.
+ */
+export function createMcpToolsFromServer(
+  tools: McpToolMetadata[],
+  serverId: string,
+  serverConfig: McpServerConfig,
+  manager: McpServerManager,
+): Tool[] {
+  return tools.map((tool) => createMcpTool(tool, serverId, serverConfig, manager));
+}

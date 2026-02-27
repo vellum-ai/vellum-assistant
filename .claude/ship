@@ -121,6 +121,10 @@ fi
 
 # Merge
 if $MERGE; then
+  # Wait for CI checks to pass before merging
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  "$SCRIPT_DIR/wait-ci" "$PR_NUMBER"
+
   echo "==> Merging PR #$PR_NUMBER (squash)..."
   gh pr merge "$PR_NUMBER" --squash
   echo "Merged."

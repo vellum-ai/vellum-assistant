@@ -30,7 +30,7 @@ final class OnboardingState {
     private static let currentFlowVersion = 8
 
     var currentStep: Int = 0
-    var assistantName: String = ""
+    var assistantName: String = "Velly"
     var chosenKey: ActivationKey = .fn
     var speechGranted: Bool = false
     var accessibilityGranted: Bool = false
@@ -58,8 +58,6 @@ final class OnboardingState {
     var hatchLogLines: [String] = []
     var hatchCompleted: Bool = false
     var hatchFailed: Bool = false
-    var showAvatarReveal: Bool = false
-    var avatarRevealCompleted: Bool = false
 
     // First-meeting-specific state
     var firstMeetingCrackProgress: CGFloat = 0.0
@@ -115,7 +113,7 @@ final class OnboardingState {
             } else {
                 currentStep = saved
             }
-            assistantName = UserDefaults.standard.string(forKey: "onboarding.name") ?? ""
+            assistantName = UserDefaults.standard.string(forKey: "onboarding.name") ?? "Velly"
             if let raw = UserDefaults.standard.string(forKey: "onboarding.key"),
                let key = ActivationKey(rawValue: raw) {
                 chosenKey = key
@@ -167,7 +165,7 @@ final class OnboardingState {
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider", "connectedAssistantId"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }

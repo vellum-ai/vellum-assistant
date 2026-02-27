@@ -1015,43 +1015,6 @@ exports[`IPC message snapshots ClientMessage types dictation_request serializes 
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types parental_control_get serializes to expected JSON 1`] = `
-{
-  "type": "parental_control_get",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types parental_control_verify_pin serializes to expected JSON 1`] = `
-{
-  "pin": "123456",
-  "type": "parental_control_verify_pin",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types parental_control_set_pin serializes to expected JSON 1`] = `
-{
-  "current_pin": "123456",
-  "new_pin": "654321",
-  "type": "parental_control_set_pin",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types parental_control_update serializes to expected JSON 1`] = `
-{
-  "blocked_tool_categories": [
-    "shell",
-    "network",
-  ],
-  "content_restrictions": [
-    "violence",
-    "adult_content",
-  ],
-  "enabled": true,
-  "pin": "123456",
-  "type": "parental_control_update",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types ingress_invite serializes to expected JSON 1`] = `
 {
   "action": "create",
@@ -2941,53 +2904,6 @@ exports[`IPC message snapshots ServerMessage types dictation_response serializes
   "mode": "dictation",
   "text": "Hello world",
   "type": "dictation_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types parental_control_get_response serializes to expected JSON 1`] = `
-{
-  "blocked_tool_categories": [
-    "shell",
-    "network",
-  ],
-  "content_restrictions": [
-    "violence",
-    "adult_content",
-  ],
-  "enabled": true,
-  "has_pin": true,
-  "type": "parental_control_get_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types parental_control_verify_pin_response serializes to expected JSON 1`] = `
-{
-  "type": "parental_control_verify_pin_response",
-  "verified": true,
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types parental_control_set_pin_response serializes to expected JSON 1`] = `
-{
-  "success": true,
-  "type": "parental_control_set_pin_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types parental_control_update_response serializes to expected JSON 1`] = `
-{
-  "blocked_tool_categories": [
-    "shell",
-    "network",
-  ],
-  "content_restrictions": [
-    "violence",
-    "adult_content",
-  ],
-  "enabled": true,
-  "has_pin": true,
-  "success": true,
-  "type": "parental_control_update_response",
 }
 `;
 

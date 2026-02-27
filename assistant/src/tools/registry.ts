@@ -121,7 +121,7 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
   for (const tool of newTools) {
     const existing = tools.get(tool.name);
     if (existing) {
-      const existingIsCore = existing.origin !== 'skill';
+      const existingIsCore = existing.origin === 'core' || !existing.origin;
       if (existingIsCore) {
         log.warn(
           { toolName: tool.name, skillId: tool.ownerSkillId },
@@ -174,6 +174,69 @@ export function unregisterSkillTools(skillId: string): void {
       log.info({ name, skillId }, 'Skill tool unregistered');
     }
   }
+}
+
+/**
+ * Register multiple MCP-origin tools at once.
+ * Skips any tool whose name collides with a core tool (logs a warning).
+ * Throws if a tool name collides with a tool owned by a different MCP server.
+ */
+export function registerMcpTools(newTools: Tool[]): Tool[] {
+  const accepted: Tool[] = [];
+  for (const tool of newTools) {
+    const existing = tools.get(tool.name);
+    if (existing) {
+      const existingIsCore = existing.origin === 'core' || !existing.origin;
+      if (existingIsCore) {
+        log.warn(
+          { toolName: tool.name, serverId: tool.ownerMcpServerId },
+          `MCP server "${tool.ownerMcpServerId}" tried to register tool "${tool.name}" which conflicts with a core tool. Skipping.`,
+        );
+        continue;
+      }
+      if (existing.origin === 'skill') {
+        log.warn(
+          { toolName: tool.name, serverId: tool.ownerMcpServerId, skillId: existing.ownerSkillId },
+          `MCP server "${tool.ownerMcpServerId}" tried to register tool "${tool.name}" which conflicts with skill tool from "${existing.ownerSkillId}". Skipping.`,
+        );
+        continue;
+      }
+      if (existing.origin === 'mcp' && existing.ownerMcpServerId !== tool.ownerMcpServerId) {
+        throw new Error(
+          `MCP tool "${tool.name}" is already registered by MCP server "${existing.ownerMcpServerId}"`,
+        );
+      }
+    }
+    accepted.push(tool);
+  }
+
+  for (const tool of accepted) {
+    tools.set(tool.name, tool);
+    log.info({ name: tool.name, ownerMcpServerId: tool.ownerMcpServerId }, 'MCP tool registered');
+  }
+
+  return accepted;
+}
+
+/**
+ * Unregister all tools belonging to a specific MCP server.
+ */
+export function unregisterMcpTools(serverId: string): void {
+  for (const [name, tool] of tools) {
+    if (tool.origin === 'mcp' && tool.ownerMcpServerId === serverId) {
+      tools.delete(name);
+      log.info({ name, serverId }, 'MCP tool unregistered');
+    }
+  }
+}
+
+/**
+ * Return the names of all currently registered MCP-origin tools.
+ */
+export function getMcpToolNames(): string[] {
+  return Array.from(tools.values())
+    .filter((t) => t.origin === 'mcp')
+    .map((t) => t.name);
 }
 
 /**

@@ -7,7 +7,7 @@ If `$ARGUMENTS` is empty, stop and tell the user to provide a description of wha
 ## Repo-specific gotchas
 
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
-- **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
+- **CI**: Wait for CI checks to pass before merging. `.claude/ship --merge` does this automatically via `.claude/wait-ci`.
 
 ## Steps
 

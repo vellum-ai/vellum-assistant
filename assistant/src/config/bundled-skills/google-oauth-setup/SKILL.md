@@ -94,24 +94,29 @@ Tell the user:
 
 ### Channel Step 5: Create OAuth Credentials (Web Application)
 
+Before sending Step 4 to the user, resolve the concrete callback URL:
+- Read the configured public gateway URL (`ingress.publicBaseUrl`). If it is missing, run the `public-ingress` skill first.
+- Build `oauthCallbackUrl` as `<public gateway URL>/webhooks/oauth/callback`.
+- When you send the instructions below, replace `OAUTH_CALLBACK_URL` with that concrete value. Never send placeholders literally.
+
 Tell the user:
 
 > **Step 4: Create OAuth credentials**
 >
 > Open: `https://console.cloud.google.com/apis/credentials?project=PROJECT_ID`
 >
+> Use this exact redirect URI:
+> `OAUTH_CALLBACK_URL`
+>
 > 1. Click **+ Create Credentials** → **OAuth client ID**
 > 2. Application type: Select **"Web application"** (not Desktop app)
 > 3. Name: **Vellum Assistant**
-> 4. Under **Authorized redirect URIs**, click **Add URI** and enter:
->    `GATEWAY_OAUTH_CALLBACK_URL`
+> 4. Under **Authorized redirect URIs**, click **Add URI** and paste the redirect URI shown above
 > 5. Click **Create**
 >
 > A dialog will show your **Client ID** and **Client Secret**. Copy both values — you'll need them in the next step.
 
-(Substitute the actual gateway OAuth callback URL. This is obtained from `getOAuthCallbackUrl(loadConfig())` — the skill should compute and insert this URL.)
-
-**Important:** Channel users must use **"Web application"** credentials (not Desktop app) because the OAuth callback goes through the gateway's public URL, not localhost.
+**Important:** Channel users must use **"Web application"** credentials (not Desktop app) because the OAuth callback goes through the gateway URL.
 
 ### Channel Step 6: Store Credentials
 
@@ -340,9 +345,9 @@ Navigate to `https://console.cloud.google.com/apis/credentials?project=PROJECT_I
 Find the option to create new credentials (typically a button labeled "Create Credentials" or similar), then select "OAuth client ID" from the menu.
 
 On the creation form:
-- Application type: **Desktop app** (not Web application — Desktop app uses localhost redirects)
+- Application type: **Desktop app**
 - Name: "Vellum Assistant"
-- Do NOT add any redirect URIs
+- Do NOT add any redirect URIs for the desktop app flow
 
 Submit the form.
 
@@ -393,7 +398,7 @@ action: "oauth2_connect"
 service: "integration:gmail"
 ```
 
-This auto-reads client_id and client_secret from the secure store and auto-fills auth_url, token_url, scopes, and extra_params from well-known config. The OAuth flow uses a localhost callback — no public URL or tunnel is needed.
+This auto-reads client_id and client_secret from the secure store and auto-fills auth_url, token_url, scopes, and extra_params from well-known config.
 
 **If the user sees a "This app isn't verified" warning:** Tell them this is normal for apps in testing mode. Click "Advanced" then "Go to Vellum Assistant (unsafe)" to proceed.
 

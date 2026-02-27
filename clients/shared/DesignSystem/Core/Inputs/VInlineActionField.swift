@@ -12,52 +12,68 @@ import AppKit
 ///     store.saveKey(apiKey)
 /// }
 /// ```
+///
+/// Pass `allowEmpty: true` when saving an empty value is a valid action (e.g., clearing a URL).
+/// Pass `isFocused:` to observe focus state and guard against async overwrites of in-progress edits.
 public struct VInlineActionField: View {
     @Binding public var text: String
     public let placeholder: String
     public var actionLabel: String
     public var isSecure: Bool
+    public var allowEmpty: Bool
     public let action: () -> Void
 
+    /// Optional binding so parents can observe whether the field is focused.
+    private var externalFocused: Binding<Bool>?
+
+    @FocusState private var fieldFocused: Bool
     @State private var isHovered = false
+    #if os(macOS)
+    @State private var cursorPushed = false
+    #endif
 
     public init(
         text: Binding<String>,
         placeholder: String,
         actionLabel: String = "Save",
         isSecure: Bool = false,
+        allowEmpty: Bool = false,
+        isFocused: Binding<Bool>? = nil,
         action: @escaping () -> Void
     ) {
         self._text = text
         self.placeholder = placeholder
         self.actionLabel = actionLabel
         self.isSecure = isSecure
+        self.allowEmpty = allowEmpty
+        self.externalFocused = isFocused
         self.action = action
     }
 
-    private var isEmpty: Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var isActionDisabled: Bool {
+        !allowEmpty && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     public var body: some View {
         HStack(spacing: 0) {
             inputField
+                .focused($fieldFocused)
                 .padding(.leading, VSpacing.md)
                 .padding(.vertical, VSpacing.md)
                 .onSubmit {
-                    if !isEmpty { action() }
+                    if !isActionDisabled { action() }
                 }
 
             Button {
-                if !isEmpty { action() }
+                if !isActionDisabled { action() }
             } label: {
                 Text(actionLabel)
                     .font(VFont.captionMedium)
-                    .foregroundColor(isEmpty ? VColor.textMuted : .white)
+                    .foregroundColor(isActionDisabled ? VColor.textMuted : .white)
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.buttonV)
                     .background(
-                        isEmpty
+                        isActionDisabled
                             ? VColor.surfaceBorder.opacity(0.5)
                             : (isHovered ? VColor.buttonPrimaryHover : VColor.buttonPrimary)
                     )
@@ -65,15 +81,31 @@ public struct VInlineActionField: View {
                     .animation(VAnimation.fast, value: isHovered)
             }
             .buttonStyle(.plain)
-            .disabled(isEmpty)
+            .disabled(isActionDisabled)
             .onHover { hovering in
-                isHovered = isEmpty ? false : hovering
+                isHovered = isActionDisabled ? false : hovering
                 #if os(macOS)
-                if !isEmpty {
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                if hovering && !isActionDisabled {
+                    if !cursorPushed {
+                        NSCursor.pointingHand.push()
+                        cursorPushed = true
+                    }
+                } else {
+                    if cursorPushed {
+                        NSCursor.pop()
+                        cursorPushed = false
+                    }
                 }
                 #endif
             }
+            #if os(macOS)
+            .onDisappear {
+                if cursorPushed {
+                    NSCursor.pop()
+                    cursorPushed = false
+                }
+            }
+            #endif
             .padding(.trailing, VSpacing.sm)
         }
         .background(VColor.inputBackground)
@@ -82,6 +114,9 @@ public struct VInlineActionField: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
         )
+        .onChange(of: fieldFocused) { _, focused in
+            externalFocused?.wrappedValue = focused
+        }
     }
 
     @ViewBuilder

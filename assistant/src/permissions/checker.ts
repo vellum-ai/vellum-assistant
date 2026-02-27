@@ -398,10 +398,10 @@ async function classifyRiskUncached(toolName: string, input: Record<string, unkn
       if (HIGH_RISK_PROGRAMS.has(prog)) return RiskLevel.High;
 
       if (prog === 'rm') {
-        // `rm` of known safe workspace files (no flags, bare filename) is
-        // Medium rather than High so scope-limited allow rules can approve
-        // it without needing allowHighRisk, which would bypass path checks.
-        if (isRmOfKnownSafeFile(seg.args)) {
+        // Only downgrade rm of known safe workspace files for sandboxed bash.
+        // host_bash has a global allow rule that would auto-approve Medium-risk
+        // commands, so rm on the host must always require explicit approval.
+        if (toolName === 'bash' && isRmOfKnownSafeFile(seg.args)) {
           maxRisk = RiskLevel.Medium;
           continue;
         }

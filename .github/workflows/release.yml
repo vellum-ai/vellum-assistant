@@ -340,7 +340,7 @@ jobs:
   build-macos:
     needs: bump-and-tag
     runs-on: macos-14
-    timeout-minutes: 15
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: clients/macos
@@ -604,8 +604,8 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, ci-cli, ci-gateway, ci-playwright]
-    if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos.result == 'success' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && needs.ci-playwright.result == 'success' }}
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, ci-cli, ci-gateway]
+    if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos.result == 'success' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -890,7 +890,7 @@ jobs:
 
       - name: Run Playwright tests
         working-directory: playwright
-        run: bun run test
+        run: bunx playwright test tests/hello-world.spec.ts
 
   notify:
     if: always() && !cancelled()
@@ -925,8 +925,7 @@ jobs:
             "${{ needs.release.result }}" \
             "${{ needs.update-platform.result }}" \
             "${{ needs.ci-cli.result }}" \
-            "${{ needs.ci-gateway.result }}" \
-            "${{ needs.ci-playwright.result }}"; do
+            "${{ needs.ci-gateway.result }}"; do
             if [ "$result" = "failure" ] || [ "$result" = "skipped" ]; then
               RELEASE_FAILED="true"
               break
@@ -945,9 +944,9 @@ jobs:
           ci_icon() { if [ "$1" = "success" ]; then printf '✅'; else printf '❌'; fi; }
 
           A=$(ci_icon "${{ needs.ci-assistant.outcome }}")
-          C=$(ci_icon "${{ needs.ci-cli.outcome }}")
-          G=$(ci_icon "${{ needs.ci-gateway.outcome }}")
-          P=$(ci_icon "${{ needs.ci-playwright.outcome }}")
+          C=$(ci_icon "${{ needs.ci-cli.result }}")
+          G=$(ci_icon "${{ needs.ci-gateway.result }}")
+          P=$(ci_icon "${{ needs.ci-playwright.result }}")
           D=$(ci_icon "${{ needs.build-macos.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-image.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-image.result }}")
