@@ -594,15 +594,9 @@ struct MainWindowView: View {
                 if let surface = windowState.activeDynamicParsedSurface,
                    case .dynamicPage(let dpData) = surface.data,
                    let appId = dpData.appId {
-                    // Auto-dock chat alongside the app so the user can
-                    // keep chatting while viewing the surface.
-                    let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
-                    if let threadId {
-                        threadManager.selectThread(id: threadId)
-                        windowState.setAppEditing(appId: appId, threadId: threadId)
-                    } else {
-                        windowState.selection = .app(appId)
-                    }
+                    // Open in view-only mode; user can enter edit mode
+                    // via the Edit button in the toolbar.
+                    windowState.selection = .app(appId)
                 } else {
                     windowState.selection = .app(msg.surfaceId)
                 }
@@ -939,7 +933,6 @@ struct MainWindowView: View {
     @ViewBuilder
     private func sidebarPinnedAppRow(_ app: AppListManager.AppItem) -> some View {
         Button(action: {
-            windowState.selection = .app(app.id)
             openAppInWorkspace(app: app)
         }) {
             HStack(spacing: VSpacing.sm) {
@@ -1001,7 +994,6 @@ struct MainWindowView: View {
     @ViewBuilder
     private func sidebarPinnedAppIcon(_ app: AppListManager.AppItem) -> some View {
         Button(action: {
-            windowState.selection = .app(app.id)
             openAppInWorkspace(app: app)
         }) {
             Image(systemName: app.sfSymbol ?? "square.grid.2x2")
@@ -1244,8 +1236,6 @@ struct MainWindowView: View {
     @ViewBuilder
     private func sidebarAppItem(_ app: AppListManager.AppItem) -> some View {
         Button(action: {
-            // Clicking a different app exits edit mode; same app stays in .app mode
-            windowState.selection = .app(app.id)
             openAppInWorkspace(app: app)
         }) {
             HStack(spacing: VSpacing.sm) {
