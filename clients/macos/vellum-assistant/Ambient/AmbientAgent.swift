@@ -60,7 +60,13 @@ public final class AmbientAgent: ObservableObject {
                     Task { @MainActor in
                         // Skip the invitation cycle when the app is not in the
                         // foreground — no point running analysis nobody will see.
-                        guard self?.isAppActive == true else { return }
+                        // Reset the flag so evaluate() can re-trigger when the
+                        // app becomes active again (removeDuplicates won't re-fire
+                        // the same `true` value otherwise).
+                        guard self?.isAppActive == true else {
+                            self?.rideShotgunTrigger.shouldShowInvitation = false
+                            return
+                        }
                         await self?.showInvitation()
                     }
                 }
