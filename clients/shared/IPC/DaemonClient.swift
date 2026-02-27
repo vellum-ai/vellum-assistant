@@ -1536,18 +1536,26 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Toggle a feature flag via the gateway's PATCH /v1/feature-flags/:flagKey endpoint.
     /// Uses the dedicated feature-flag token (not the runtime bearer token) for auth.
     ///
-    /// On macOS, always calls the local gateway directly (port 7830) because
-    /// `httpTransport` may point at the runtime HTTP server (port 7821) when
-    /// `localHttpEnabled` is active — the runtime doesn't serve feature-flag routes.
-    /// On iOS, delegates to `httpTransport` which targets the remote gateway.
+    /// On macOS in remote mode (`httpTransport` is set), delegates to `httpTransport`
+    /// which targets the remote gateway. In local mode (`httpTransport` is nil), calls
+    /// the local gateway directly (port 7830) because the runtime HTTP server doesn't
+    /// serve feature-flag routes.
+    /// On iOS, always delegates to `httpTransport` which targets the remote gateway.
     public func setFeatureFlag(key: String, enabled: Bool) async throws {
         guard let token = config.featureFlagToken, !token.isEmpty else {
             throw FeatureFlagError.missingToken
         }
 
         #if os(macOS)
-        // Always call the gateway directly on macOS. httpTransport may target the
-        // runtime (localHttpEnabled), which doesn't have the feature-flag route.
+        // Remote mode: httpTransport targets the remote gateway, which serves
+        // feature-flag routes. Use it directly instead of hitting localhost.
+        if let httpTransport = self.httpTransport {
+            try await httpTransport.setFeatureFlag(key: key, enabled: enabled, featureFlagToken: token)
+            return
+        }
+
+        // Local mode: call the gateway directly. The runtime HTTP server
+        // (localHttpEnabled) doesn't have the feature-flag route.
         let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
             .flatMap(Int.init) ?? 7830
         let baseURL = "http://127.0.0.1:\(gatewayPort)"

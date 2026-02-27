@@ -474,11 +474,9 @@ struct QRPairingSheet: View {
         }
         if let ffToken = featureFlagToken, !ffToken.isEmpty {
             _ = APIKeyManager.shared.setAPIKey(ffToken, provider: "feature-flag-token")
-        } else {
-            // Clear any stale token from a previous pairing so we don't
-            // authenticate with an invalid credential on re-pair.
-            _ = APIKeyManager.shared.deleteAPIKey(provider: "feature-flag-token")
         }
+        // Don't delete on absence — the server may not send featureFlagToken yet,
+        // so a missing field shouldn't wipe a previously stored token.
 
         // Generate conversation key if missing
         if UserDefaults.standard.string(forKey: UserDefaultsKeys.conversationKey)?.isEmpty != false {
