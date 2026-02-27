@@ -19,9 +19,37 @@ import { repairHistory } from './history-repair.js';
 import type { SurfaceData,SurfaceType, UsageStats } from './ipc-protocol.js';
 import { unregisterCallNotifiers,unregisterWatchNotifiers } from './session-notifiers.js';
 import type { MessageQueue } from './session-queue-manager.js';
+import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
 import { resetSkillToolProjection } from './session-skill-tools.js';
 
 const log = getLogger('session-lifecycle');
+
+type GuardianActorRole = GuardianRuntimeContext['actorRole'];
+
+function parseProvenanceActorRole(metadata: string | null): GuardianActorRole | undefined {
+  if (!metadata) return undefined;
+  try {
+    const parsed = JSON.parse(metadata) as { provenanceActorRole?: unknown };
+    const role = parsed?.provenanceActorRole;
+    if (role === 'guardian' || role === 'non-guardian' || role === 'unverified_channel') {
+      return role;
+    }
+  } catch {
+    // Ignore malformed metadata and treat as unknown provenance.
+  }
+  return undefined;
+}
+
+function isUntrustedActorRole(role: GuardianActorRole | undefined): boolean {
+  return role === 'non-guardian' || role === 'unverified_channel';
+}
+
+function filterMessagesForUntrustedActor(messages: conversationStore.MessageRow[]): conversationStore.MessageRow[] {
+  return messages.filter((m) => {
+    const provenanceRole = parseProvenanceActorRole(m.metadata);
+    return provenanceRole === 'non-guardian' || provenanceRole === 'unverified_channel';
+  });
+}
 
 // ── Context Interfaces ───────────────────────────────────────────────
 
@@ -31,6 +59,8 @@ export interface LoadFromDbContext {
   usageStats: UsageStats;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  guardianContext?: { actorRole: GuardianActorRole };
+  loadedHistoryActorRole?: GuardianActorRole;
 }
 
 export interface AbortContext {
@@ -59,15 +89,28 @@ export interface DisposeContext extends AbortContext {
 // ── loadFromDb ───────────────────────────────────────────────────────
 
 export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
-  const dbMessages = conversationStore.getMessages(ctx.conversationId);
+  const actorRole = ctx.guardianContext?.actorRole;
+  const allDbMessages = conversationStore.getMessages(ctx.conversationId);
+  const dbMessages = isUntrustedActorRole(actorRole)
+    ? filterMessagesForUntrustedActor(allDbMessages)
+    : allDbMessages;
 
   const conv = conversationStore.getConversation(ctx.conversationId);
-  const contextSummary = conv?.contextSummary?.trim() || null;
-  ctx.contextCompactedMessageCount = Math.max(
-    0,
-    Math.min(conv?.contextCompactedMessageCount ?? 0, dbMessages.length),
-  );
-  ctx.contextCompactedAt = conv?.contextCompactedAt ?? null;
+  const contextSummary = !isUntrustedActorRole(actorRole)
+    ? conv?.contextSummary?.trim() || null
+    : null;
+  if (isUntrustedActorRole(actorRole)) {
+    // Compacted summaries may include trusted/guardian-only details, so we
+    // disable summary-based context for untrusted actor views.
+    ctx.contextCompactedMessageCount = 0;
+    ctx.contextCompactedAt = null;
+  } else {
+    ctx.contextCompactedMessageCount = Math.max(
+      0,
+      Math.min(conv?.contextCompactedMessageCount ?? 0, dbMessages.length),
+    );
+    ctx.contextCompactedAt = conv?.contextCompactedAt ?? null;
+  }
 
   const parsedMessages: Message[] = dbMessages
     .slice(ctx.contextCompactedMessageCount)
@@ -101,6 +144,8 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
       estimatedCost: conv.totalEstimatedCost,
     };
   }
+
+  ctx.loadedHistoryActorRole = actorRole;
 
   log.info({ conversationId: ctx.conversationId, count: ctx.messages.length }, 'Loaded messages from DB');
 }

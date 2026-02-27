@@ -795,6 +795,7 @@ export class DaemonServer {
     const resolvedInterface = resolveTurnInterface(sourceInterface);
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
+    await session.ensureActorScopedHistory();
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel, sourceInterface));
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
