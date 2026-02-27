@@ -457,6 +457,18 @@ extension AppDelegate {
         rideShotgunItem.submenu = rideShotgunSubmenu
         menu.addItem(rideShotgunItem)
 
+        // Live Listen
+        let isListening = mainWindow?.liveTranscriptManager.isListening ?? false
+        let liveListenItem = NSMenuItem(
+            title: isListening ? "Stop Live Listen" : "Live Listen",
+            action: #selector(toggleLiveListen),
+            keyEquivalent: ""
+        )
+        liveListenItem.target = self
+        liveListenItem.state = isListening ? .on : .off
+        liveListenItem.image = NSImage(systemSymbolName: "ear", accessibilityDescription: nil)
+        menu.addItem(liveListenItem)
+
         menu.addItem(NSMenuItem.separator())
 
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
@@ -595,6 +607,10 @@ extension AppDelegate {
 
     @objc func stopRideShotgun() {
         ambientAgent.stopRideShotgunEarly()
+    }
+
+    @objc func toggleLiveListen() {
+        mainWindow?.liveTranscriptManager.toggleListening()
     }
 
     @objc func openAppById(_ sender: NSMenuItem) {
