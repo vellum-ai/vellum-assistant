@@ -312,11 +312,24 @@ extension AppDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
+        // Determine whether Restricted Mode (child profile) is active.
+        let store = services.settingsStore
+        let isChildProfile = store.isParentalEnabled && store.activeProfile == "child"
+
         let status = currentAssistantStatus
         let statusItem = NSMenuItem(title: status.menuTitle, action: nil, keyEquivalent: "")
         statusItem.isEnabled = false
         statusItem.image = status.statusIcon
         menu.addItem(statusItem)
+
+        // Show a non-interactive "Restricted Mode" badge when the child profile
+        // is active so the user can see why options are limited.
+        if isChildProfile {
+            let restrictedItem = NSMenuItem(title: "Restricted Mode", action: nil, keyEquivalent: "")
+            restrictedItem.isEnabled = false
+            restrictedItem.image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: nil)
+            menu.addItem(restrictedItem)
+        }
 
         menu.addItem(NSMenuItem.separator())
 
@@ -325,137 +338,141 @@ extension AppDelegate {
         currentThreadItem.image = NSImage(systemSymbolName: "message", accessibilityDescription: nil)
         menu.addItem(currentThreadItem)
 
-        let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
-        newChatItem.target = self
-        newChatItem.image = NSImage(systemSymbolName: "plus.message", accessibilityDescription: nil)
-        menu.addItem(newChatItem)
+        if !isChildProfile {
+            let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
+            newChatItem.target = self
+            newChatItem.image = NSImage(systemSymbolName: "plus.message", accessibilityDescription: nil)
+            menu.addItem(newChatItem)
 
-        // My Apps submenu
-        let myAppsItem = NSMenuItem(title: "My Apps", action: nil, keyEquivalent: "")
-        myAppsItem.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
-        let appsSubmenu = NSMenu(title: "My Apps")
+            // My Apps submenu
+            let myAppsItem = NSMenuItem(title: "My Apps", action: nil, keyEquivalent: "")
+            myAppsItem.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
+            let appsSubmenu = NSMenu(title: "My Apps")
 
-        let recentApps = Array(cachedApps.sorted { $0.createdAt > $1.createdAt }.prefix(5))
-        for app in recentApps {
-            let emoji = app.icon ?? "\u{1F4F1}"
-            let item = NSMenuItem(title: "\(emoji) \(app.name)", action: #selector(openAppById(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = ["id": app.id, "name": app.name, "icon": app.icon ?? ""]
-            appsSubmenu.addItem(item)
+            let recentApps = Array(cachedApps.sorted { $0.createdAt > $1.createdAt }.prefix(5))
+            for app in recentApps {
+                let emoji = app.icon ?? "\u{1F4F1}"
+                let item = NSMenuItem(title: "\(emoji) \(app.name)", action: #selector(openAppById(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = ["id": app.id, "name": app.name, "icon": app.icon ?? ""]
+                appsSubmenu.addItem(item)
+            }
+
+            if !recentApps.isEmpty {
+                appsSubmenu.addItem(NSMenuItem.separator())
+            }
+
+            let manageAppsItem = NSMenuItem(title: "Manage Apps...", action: #selector(openAppCollection), keyEquivalent: "")
+            manageAppsItem.target = self
+            appsSubmenu.addItem(manageAppsItem)
+
+            myAppsItem.submenu = appsSubmenu
+            menu.addItem(myAppsItem)
+
+            // Skills submenu
+            let skillsItem = NSMenuItem(title: "Skills", action: nil, keyEquivalent: "")
+            skillsItem.image = NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil)
+            let skillsSubmenu = NSMenu(title: "Skills")
+
+            let enabledSkills = cachedSkills.filter { $0.state == "enabled" }
+            let disabledSkills = cachedSkills.filter { $0.state != "enabled" }
+
+            for skill in enabledSkills {
+                let emoji = skill.emoji ?? "\u{1F527}"
+                let item = NSMenuItem(title: "\(emoji) \(skill.name)", action: #selector(toggleSkill(_:)), keyEquivalent: "")
+                item.target = self
+                item.state = .on
+                item.representedObject = skill.name
+                skillsSubmenu.addItem(item)
+            }
+
+            for skill in disabledSkills {
+                let emoji = skill.emoji ?? "\u{1F527}"
+                let item = NSMenuItem(title: "\(emoji) \(skill.name)", action: #selector(toggleSkill(_:)), keyEquivalent: "")
+                item.target = self
+                item.state = .off
+                item.representedObject = skill.name
+                skillsSubmenu.addItem(item)
+            }
+
+            if !cachedSkills.isEmpty {
+                skillsSubmenu.addItem(NSMenuItem.separator())
+            }
+
+            let manageSkillsItem = NSMenuItem(title: "Manage Skills...", action: #selector(showSettingsWindow(_:)), keyEquivalent: "")
+            manageSkillsItem.target = self
+            skillsSubmenu.addItem(manageSkillsItem)
+
+            skillsItem.submenu = skillsSubmenu
+            menu.addItem(skillsItem)
+
+            menu.addItem(NSMenuItem.separator())
+
+            let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
+            settingsItem.target = self
+            settingsItem.image = NSImage(systemSymbolName: "gear", accessibilityDescription: nil)
+            menu.addItem(settingsItem)
+
+            menu.addItem(NSMenuItem.separator())
+
+            // Ride Shotgun submenu
+            let rideShotgunItem = NSMenuItem(title: "Ride Shotgun", action: nil, keyEquivalent: "")
+            rideShotgunItem.image = NSImage(systemSymbolName: "binoculars", accessibilityDescription: nil)
+            let rideShotgunSubmenu = NSMenu(title: "Ride Shotgun")
+
+            let observeItem = NSMenuItem(title: "Observe (3 min)", action: #selector(startRideShotgunObserve), keyEquivalent: "")
+            observeItem.target = self
+            observeItem.isEnabled = ambientAgent.currentSession == nil
+            rideShotgunSubmenu.addItem(observeItem)
+
+            let learnItem = NSMenuItem(title: "Learn (5 min)", action: #selector(startRideShotgunLearn), keyEquivalent: "")
+            learnItem.target = self
+            learnItem.isEnabled = ambientAgent.currentSession == nil
+            rideShotgunSubmenu.addItem(learnItem)
+
+            if ambientAgent.currentSession != nil {
+                rideShotgunSubmenu.addItem(NSMenuItem.separator())
+                let stopItem = NSMenuItem(title: "Stop & Save", action: #selector(stopRideShotgun), keyEquivalent: "")
+                stopItem.target = self
+                rideShotgunSubmenu.addItem(stopItem)
+            }
+
+            rideShotgunItem.submenu = rideShotgunSubmenu
+            menu.addItem(rideShotgunItem)
+
+            menu.addItem(NSMenuItem.separator())
+
+            let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
+            updateItem.target = self
+            updateItem.isEnabled = updateManager.canCheckForUpdates
+            updateItem.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+            menu.addItem(updateItem)
+
+            let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
+            onboardingItem.target = self
+            menu.addItem(onboardingItem)
+
+            #if DEBUG
+            menu.addItem(NSMenuItem.separator())
+            let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
+            galleryItem.target = self
+            menu.addItem(galleryItem)
+            #endif
+
+            let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
+            restartItem.target = self
+            restartItem.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+            menu.addItem(restartItem)
+
+            menu.addItem(NSMenuItem.separator())
+
+            let logoutItem = NSMenuItem(title: "Sign Out", action: #selector(performLogout), keyEquivalent: "")
+            logoutItem.target = self
+            logoutItem.image = NSImage(systemSymbolName: "rectangle.portrait.and.arrow.right", accessibilityDescription: nil)
+            menu.addItem(logoutItem)
         }
-
-        if !recentApps.isEmpty {
-            appsSubmenu.addItem(NSMenuItem.separator())
-        }
-
-        let manageAppsItem = NSMenuItem(title: "Manage Apps...", action: #selector(openAppCollection), keyEquivalent: "")
-        manageAppsItem.target = self
-        appsSubmenu.addItem(manageAppsItem)
-
-        myAppsItem.submenu = appsSubmenu
-        menu.addItem(myAppsItem)
-
-        // Skills submenu
-        let skillsItem = NSMenuItem(title: "Skills", action: nil, keyEquivalent: "")
-        skillsItem.image = NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil)
-        let skillsSubmenu = NSMenu(title: "Skills")
-
-        let enabledSkills = cachedSkills.filter { $0.state == "enabled" }
-        let disabledSkills = cachedSkills.filter { $0.state != "enabled" }
-
-        for skill in enabledSkills {
-            let emoji = skill.emoji ?? "\u{1F527}"
-            let item = NSMenuItem(title: "\(emoji) \(skill.name)", action: #selector(toggleSkill(_:)), keyEquivalent: "")
-            item.target = self
-            item.state = .on
-            item.representedObject = skill.name
-            skillsSubmenu.addItem(item)
-        }
-
-        for skill in disabledSkills {
-            let emoji = skill.emoji ?? "\u{1F527}"
-            let item = NSMenuItem(title: "\(emoji) \(skill.name)", action: #selector(toggleSkill(_:)), keyEquivalent: "")
-            item.target = self
-            item.state = .off
-            item.representedObject = skill.name
-            skillsSubmenu.addItem(item)
-        }
-
-        if !cachedSkills.isEmpty {
-            skillsSubmenu.addItem(NSMenuItem.separator())
-        }
-
-        let manageSkillsItem = NSMenuItem(title: "Manage Skills...", action: #selector(showSettingsWindow(_:)), keyEquivalent: "")
-        manageSkillsItem.target = self
-        skillsSubmenu.addItem(manageSkillsItem)
-
-        skillsItem.submenu = skillsSubmenu
-        menu.addItem(skillsItem)
 
         menu.addItem(NSMenuItem.separator())
-
-        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
-        settingsItem.target = self
-        settingsItem.image = NSImage(systemSymbolName: "gear", accessibilityDescription: nil)
-        menu.addItem(settingsItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Ride Shotgun submenu
-        let rideShotgunItem = NSMenuItem(title: "Ride Shotgun", action: nil, keyEquivalent: "")
-        rideShotgunItem.image = NSImage(systemSymbolName: "binoculars", accessibilityDescription: nil)
-        let rideShotgunSubmenu = NSMenu(title: "Ride Shotgun")
-
-        let observeItem = NSMenuItem(title: "Observe (3 min)", action: #selector(startRideShotgunObserve), keyEquivalent: "")
-        observeItem.target = self
-        observeItem.isEnabled = ambientAgent.currentSession == nil
-        rideShotgunSubmenu.addItem(observeItem)
-
-        let learnItem = NSMenuItem(title: "Learn (5 min)", action: #selector(startRideShotgunLearn), keyEquivalent: "")
-        learnItem.target = self
-        learnItem.isEnabled = ambientAgent.currentSession == nil
-        rideShotgunSubmenu.addItem(learnItem)
-
-        if ambientAgent.currentSession != nil {
-            rideShotgunSubmenu.addItem(NSMenuItem.separator())
-            let stopItem = NSMenuItem(title: "Stop & Save", action: #selector(stopRideShotgun), keyEquivalent: "")
-            stopItem.target = self
-            rideShotgunSubmenu.addItem(stopItem)
-        }
-
-        rideShotgunItem.submenu = rideShotgunSubmenu
-        menu.addItem(rideShotgunItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
-        updateItem.target = self
-        updateItem.isEnabled = updateManager.canCheckForUpdates
-        updateItem.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
-        menu.addItem(updateItem)
-
-        let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
-        onboardingItem.target = self
-        menu.addItem(onboardingItem)
-
-        #if DEBUG
-        menu.addItem(NSMenuItem.separator())
-        let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
-        galleryItem.target = self
-        menu.addItem(galleryItem)
-        #endif
-
-        let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
-        restartItem.target = self
-        restartItem.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
-        menu.addItem(restartItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let logoutItem = NSMenuItem(title: "Sign Out", action: #selector(performLogout), keyEquivalent: "")
-        logoutItem.target = self
-        logoutItem.image = NSImage(systemSymbolName: "rectangle.portrait.and.arrow.right", accessibilityDescription: nil)
-        menu.addItem(logoutItem)
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)

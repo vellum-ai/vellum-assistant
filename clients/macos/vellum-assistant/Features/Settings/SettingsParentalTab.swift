@@ -273,10 +273,11 @@ struct SettingsParentalTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                AllNoneToggle(
-                    onAll: { updateContentRestrictions(ContentTopic.allCases.map { $0.rawValue }) },
-                    onNone: { updateContentRestrictions([]) },
-                    isLoading: isLoading
+                smartToggleButton(
+                    enabledCount: contentRestrictions.count,
+                    totalCount: ContentTopic.allCases.count,
+                    onEnable: { updateContentRestrictions(ContentTopic.allCases.map { $0.rawValue }) },
+                    onDisable: { updateContentRestrictions([]) }
                 )
             }
 
@@ -323,10 +324,11 @@ struct SettingsParentalTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                AllNoneToggle(
-                    onAll: { updateToolCategories(ToolCategory.allCases.map { $0.rawValue }) },
-                    onNone: { updateToolCategories([]) },
-                    isLoading: isLoading
+                smartToggleButton(
+                    enabledCount: blockedToolCategories.count,
+                    totalCount: ToolCategory.allCases.count,
+                    onEnable: { updateToolCategories(ToolCategory.allCases.map { $0.rawValue }) },
+                    onDisable: { updateToolCategories([]) }
                 )
             }
 
@@ -375,17 +377,18 @@ struct SettingsParentalTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                AllNoneToggle(
-                    onAll: {
+                smartToggleButton(
+                    enabledCount: allowedApps.count,
+                    totalCount: AppListManager.shared.apps.count,
+                    onEnable: {
                         let allIds = AppListManager.shared.apps.map { $0.id }
                         allowedApps = allIds
                         updateAllowlist(apps: allIds, widgets: nil)
                     },
-                    onNone: {
+                    onDisable: {
                         allowedApps = []
                         updateAllowlist(apps: [], widgets: nil)
-                    },
-                    isLoading: isLoading
+                    }
                 )
             }
 
@@ -506,19 +509,22 @@ struct SettingsParentalTab: View {
                 Spacer()
                 let integrations = configuredIntegrations
                 if !integrations.isEmpty {
-                    AllNoneToggle(
-                        onAll: {
+                    let allowedCount = settingsStore.allowedIntegrations
+                        .filter { integrations.map { $0.id }.contains($0) }.count
+                    smartToggleButton(
+                        enabledCount: allowedCount,
+                        totalCount: integrations.count,
+                        onEnable: {
                             let pin = settingsStore.cachedPIN ?? ""
                             let allIds = integrations.map { $0.id }
                             settingsStore.allowedIntegrations = allIds
                             settingsStore.updateAllowedIntegrations(pin: pin, integrations: allIds)
                         },
-                        onNone: {
+                        onDisable: {
                             let pin = settingsStore.cachedPIN ?? ""
                             settingsStore.allowedIntegrations = []
                             settingsStore.updateAllowedIntegrations(pin: pin, integrations: [])
-                        },
-                        isLoading: isLoading
+                        }
                     )
                 }
             }
@@ -588,13 +594,9 @@ struct SettingsParentalTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                Button { exportActivityLog() } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                        .font(VFont.captionMedium)
+                VButton(label: "Export", leftIcon: "square.and.arrow.up", style: .tertiary, size: .small) {
+                    exportActivityLog()
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityLabel("Export activity log as CSV")
                 .disabled(settingsStore.activityLog.isEmpty)
                 VButton(label: "Clear Log", style: .danger) {
                     settingsStore.clearActivityLogEntries(pin: settingsStore.cachedPIN)
@@ -698,13 +700,9 @@ struct SettingsParentalTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                Button {
+                VIconButton(label: "Refresh pending approvals", icon: "arrow.clockwise", iconOnly: true) {
                     loadPendingApprovals()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(.plain)
-                .foregroundColor(VColor.accent)
                 .accessibilityLabel("Refresh pending approvals")
             }
 
@@ -1150,52 +1148,40 @@ struct SettingsParentalTab: View {
     }
 }
 
-// MARK: - All/None Toggle
+// MARK: - Smart Enable/Disable All Button
 
-private struct AllNoneToggle: View {
-    let onAll: () -> Void
-    let onNone: () -> Void
-    var isLoading: Bool = false
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Button("All", action: onAll)
-                .buttonStyle(.plain)
-                .font(VFont.captionMedium)
-                .foregroundColor(VColor.accent)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
-                .background(VColor.surface)
-                .clipShape(UnevenRoundedRectangle(
-                    topLeadingRadius: VRadius.sm,
-                    bottomLeadingRadius: VRadius.sm,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 0
-                ))
-
-            Divider()
-                .frame(height: 14)
-
-            Button("None", action: onNone)
-                .buttonStyle(.plain)
-                .font(VFont.captionMedium)
-                .foregroundColor(VColor.textMuted)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
-                .background(VColor.surface)
-                .clipShape(UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: VRadius.sm,
-                    topTrailingRadius: VRadius.sm
-                ))
+extension SettingsParentalTab {
+    /// A single smart button that adapts its label and style based on how many
+    /// items are currently enabled relative to the total.
+    ///
+    /// - All enabled  → tertiary "Disable All"
+    /// - All disabled → primary  "Enable All"
+    /// - Partial      → secondary "Enable All"
+    @ViewBuilder
+    func smartToggleButton(
+        enabledCount: Int,
+        totalCount: Int,
+        onEnable: @escaping () -> Void,
+        onDisable: @escaping () -> Void
+    ) -> some View {
+        if totalCount == 0 {
+            EmptyView()
+        } else if enabledCount >= totalCount {
+            VButton(label: "Disable All", style: .tertiary, size: .small) {
+                onDisable()
+            }
+            .disabled(isLoading)
+        } else if enabledCount == 0 {
+            VButton(label: "Enable All", style: .primary, size: .small) {
+                onEnable()
+            }
+            .disabled(isLoading)
+        } else {
+            VButton(label: "Enable All", style: .secondary, size: .small) {
+                onEnable()
+            }
+            .disabled(isLoading)
         }
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.sm)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
-        .disabled(isLoading)
-        .accessibilityElement(children: .contain)
     }
 }
 
@@ -1230,6 +1216,9 @@ private struct PINSheet: View {
     @State private var storedNew: String = ""
     @State private var isLoading: Bool = false
     @State private var errorMessage: String?
+    /// Incrementing this triggers PINCircleField to re-grab keyboard focus
+    /// without a step transition (i.e. after an inline error on the same step).
+    @State private var pinFocusTrigger: Int = 0
 
     @Environment(\.dismiss) private var dismiss
 
@@ -1271,7 +1260,7 @@ private struct PINSheet: View {
             // (triggering auto-focus) whenever the step changes. `pinInput` is
             // always reset to "" before the step is changed, so a stale
             // onChange callback from the previous step can never fire advance().
-            PINCircleField(text: $pinInput)
+            PINCircleField(text: $pinInput, focusTrigger: pinFocusTrigger)
                 .id(step)
                 .onChange(of: pinInput) { _, v in
                     if v.count == 6 { advance() }
@@ -1396,10 +1385,12 @@ private struct PINSheet: View {
                     } else {
                         errorMessage = "Incorrect passcode. Try again."
                         pinInput = ""
+                        pinFocusTrigger += 1
                     }
                 } else {
                     errorMessage = "No response from daemon."
                     pinInput = ""
+                    pinFocusTrigger += 1
                 }
             }
         }
