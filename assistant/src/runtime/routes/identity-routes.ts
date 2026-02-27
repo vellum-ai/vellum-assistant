@@ -3,6 +3,7 @@
  */
 
 import { existsSync, readFileSync, statfsSync,statSync } from 'node:fs';
+import { cpus, totalmem } from 'node:os';
 import { dirname,join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,6 +37,38 @@ function getDiskSpaceInfo(): DiskSpaceInfo | null {
   }
 }
 
+interface MemoryInfo {
+  currentMb: number;
+  maxMb: number;
+}
+
+function getMemoryInfo(): MemoryInfo {
+  const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
+  return {
+    currentMb: bytesToMb(process.memoryUsage().rss),
+    maxMb: bytesToMb(totalmem()),
+  };
+}
+
+interface CpuInfo {
+  currentPercent: number;
+  maxCores: number;
+}
+
+function getCpuInfo(): CpuInfo {
+  const usage = process.cpuUsage();
+  const uptimeMs = process.uptime() * 1000;
+  const cpuMs = (usage.user + usage.system) / 1000;
+  const numCores = cpus().length;
+  const currentPercent = uptimeMs > 0
+    ? Math.round((cpuMs / (uptimeMs * numCores)) * 10000) / 100
+    : 0;
+  return {
+    currentPercent,
+    maxCores: numCores,
+  };
+}
+
 function getPackageVersion(): string | undefined {
   try {
     const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../../package.json');
@@ -52,6 +85,8 @@ export function handleHealth(): Response {
     timestamp: new Date().toISOString(),
     version: getPackageVersion(),
     disk: getDiskSpaceInfo(),
+    memory: getMemoryInfo(),
+    cpu: getCpuInfo(),
   });
 }
 
