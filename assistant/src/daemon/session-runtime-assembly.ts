@@ -547,6 +547,32 @@ export function stripWorkspaceTopLevelContext(messages: Message[]): Message[] {
 }
 
 /**
+ * Prepend live transcript context to a user message so the model
+ * knows what the user is hearing from system audio.
+ */
+export function injectLiveTranscriptContext(message: Message, transcriptText: string): Message {
+  const block = [
+    '<live_audio_transcript>',
+    'The user is listening to system audio. Here is a rolling transcript of what they are hearing:',
+    '',
+    transcriptText,
+    '</live_audio_transcript>',
+  ].join('\n');
+  return {
+    ...message,
+    content: [
+      { type: 'text', text: block },
+      ...message.content,
+    ],
+  };
+}
+
+/** Strip `<live_audio_transcript>` blocks injected by `injectLiveTranscriptContext`. */
+export function stripLiveTranscriptContext(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, ['<live_audio_transcript>']);
+}
+
+/**
  * Prepend temporal context to a user message so the model has
  * authoritative date/time grounding each turn.
  */
@@ -647,6 +673,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   '<channel_turn_context>',
   '<guardian_context>',
   '<interface_turn_context>',
+  '<live_audio_transcript>',
   '<voice_call_control>',
   '<workspace_top_level>',
   TEMPORAL_INJECTED_PREFIX,
@@ -695,6 +722,7 @@ export function applyRuntimeInjections(
     guardianContext?: GuardianRuntimeContext | null;
     temporalContext?: string | null;
     voiceCallControlPrompt?: string | null;
+    liveTranscriptText?: string | null;
     isNonInteractive?: boolean;
   },
 ): Message[] {
@@ -794,6 +822,18 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectGuardianContext(userTail, options.guardianContext),
+      ];
+    }
+  }
+
+  // Live transcript context is injected before temporal context so
+  // it appears after temporal context in the final message content.
+  if (options.liveTranscriptText) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === 'user') {
+      result = [
+        ...result.slice(0, -1),
+        injectLiveTranscriptContext(userTail, options.liveTranscriptText),
       ];
     }
   }

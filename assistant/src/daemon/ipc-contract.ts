@@ -20,6 +20,7 @@ export * from './ipc-contract/diagnostics.js';
 export * from './ipc-contract/documents.js';
 export * from './ipc-contract/inbox.js';
 export * from './ipc-contract/integrations.js';
+export * from './ipc-contract/live-transcript.js';
 export * from './ipc-contract/memory.js';
 export * from './ipc-contract/messages.js';
 export * from './ipc-contract/notifications.js';
@@ -44,6 +45,7 @@ import type { _DiagnosticsClientMessages, _DiagnosticsServerMessages } from './i
 import type { _DocumentsClientMessages, _DocumentsServerMessages } from './ipc-contract/documents.js';
 import type { _InboxClientMessages, _InboxServerMessages } from './ipc-contract/inbox.js';
 import type { _IntegrationsClientMessages, _IntegrationsServerMessages } from './ipc-contract/integrations.js';
+import type { _LiveTranscriptClientMessages } from './ipc-contract/live-transcript.js';
 import type { _MemoryServerMessages } from './ipc-contract/memory.js';
 import type { _MessagesClientMessages, _MessagesServerMessages } from './ipc-contract/messages.js';
 import type { _NotificationsClientMessages, _NotificationsServerMessages } from './ipc-contract/notifications.js';
@@ -78,6 +80,7 @@ export type ClientMessage =
   | _TrustClientMessages
   | _AppsClientMessages
   | _IntegrationsClientMessages
+  | _LiveTranscriptClientMessages
   | _ComputerUseClientMessages
   | _WorkItemsClientMessages
   | _BrowserClientMessages
