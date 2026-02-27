@@ -1,6 +1,9 @@
+import { randomBytes, randomUUID } from "crypto";
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync } from "fs";
 import { homedir, userInfo } from "os";
 import { join } from "path";
+
+import qrcode from "qrcode-terminal";
 
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
 import cliPkg from "../../package.json";
@@ -478,6 +481,47 @@ function installCLISymlink(): void {
   console.log(`   ⚠ Could not create symlink for vellum CLI (tried ${preferredPath} and ${fallbackPath})`);
 }
 
+async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | undefined): Promise<void> {
+  try {
+    const pairingRequestId = randomUUID();
+    const pairingSecret = randomBytes(32).toString("hex");
+
+    const registerRes = await fetch(`${runtimeUrl}/v1/pairing/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      },
+      body: JSON.stringify({ pairingRequestId, pairingSecret, gatewayUrl: runtimeUrl }),
+    });
+
+    if (!registerRes.ok) {
+      return;
+    }
+
+    const payload = JSON.stringify({
+      type: "vellum-daemon",
+      v: 4,
+      g: runtimeUrl,
+      pairingRequestId,
+      pairingSecret,
+    });
+
+    const qrString = await new Promise<string>((resolve) => {
+      qrcode.generate(payload, { small: true }, (code: string) => {
+        resolve(code);
+      });
+    });
+
+    console.log("Scan this QR code with the Vellum iOS app to pair:\n");
+    console.log(qrString);
+    console.log("This pairing request expires in 5 minutes.");
+    console.log("Run `vellum pair` to generate a new one.\n");
+  } catch {
+    // Non-fatal — pairing is optional
+  }
+}
+
 async function hatchLocal(species: Species, name: string | null, daemonOnly: boolean = false): Promise<void> {
   const instanceName =
     name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
@@ -549,6 +593,9 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
     console.log(`  Name: ${instanceName}`);
     console.log(`  Runtime: ${runtimeUrl}`);
     console.log("");
+
+    // Generate and display pairing QR code
+    await displayPairingQRCode(runtimeUrl, bearerToken);
   }
 }
 
