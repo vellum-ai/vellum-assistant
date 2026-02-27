@@ -1608,14 +1608,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return readHttpToken()
     }
 
-    /// Resolve the auth token for feature flag requests.
-    /// Prefers the dedicated feature-flag token, falling back to the runtime bearer token
-    /// for clients that only have it (e.g. older pairings).
+    /// Resolve an auth token for feature-flag requests.
+    /// Prefers the dedicated feature-flag token; falls back to the runtime bearer
+    /// token so that remote setups without `~/.vellum/feature-flag-token` still work.
     private func resolveFeatureFlagAuthToken() -> String? {
-        if let ffToken = config.featureFlagToken, !ffToken.isEmpty {
-            return ffToken
-        }
-        return resolveRuntimeBearerToken()
+        if let ff = config.featureFlagToken, !ff.isEmpty { return ff }
+        // Fall back to runtime bearer token
+        if let httpTransport { return httpTransport.bearerToken }
+        #if os(macOS)
+        return readHttpToken()
+        #else
+        return nil
+        #endif
     }
 
     /// Fetch all assistant feature flags from the gateway's `GET /v1/feature-flags` endpoint.
@@ -1624,15 +1628,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Routing logic mirrors `setFeatureFlag`: remote mode delegates to `httpTransport`,
     /// local mode calls the gateway directly on port 7830.
     public func fetchAssistantFeatureFlags() async throws -> [AssistantFeatureFlagEntry] {
-        let token: String
-        if let ffToken = config.featureFlagToken, !ffToken.isEmpty {
-            token = ffToken
-        } else if let runtimeToken = resolveRuntimeBearerToken(), !runtimeToken.isEmpty {
-            // The gateway GET /v1/feature-flags accepts either the feature-flag
-            // token or the runtime bearer token, so fall back to the runtime
-            // token for clients that only have it (e.g. older pairings).
-            token = runtimeToken
-        } else {
+        guard let token = resolveFeatureFlagAuthToken() else {
             throw FeatureFlagError.missingToken
         }
 
@@ -1670,9 +1666,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Fetch all assistant feature flags from the gateway's GET /v1/feature-flags endpoint.
-    /// Uses the dedicated feature-flag token (not the runtime bearer token) for auth.
+    /// Authenticates with the feature-flag token when available, otherwise falls back
+    /// to the runtime bearer token (the gateway accepts both).
     public func getFeatureFlags() async throws -> [AssistantFeatureFlag] {
-        guard let token = config.featureFlagToken, !token.isEmpty else {
+        guard let token = resolveFeatureFlagAuthToken() else {
             throw FeatureFlagError.missingToken
         }
 
@@ -1711,7 +1708,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Toggle a feature flag via the gateway's PATCH /v1/feature-flags/:flagKey endpoint.
-    /// Uses the dedicated feature-flag token (not the runtime bearer token) for auth.
+    /// Authenticates with the feature-flag token when available, otherwise falls back
+    /// to the runtime bearer token (the gateway accepts both).
     ///
     /// On macOS: if `httpTransport` targets a **remote** gateway (non-localhost baseURL),
     /// delegates to it. Otherwise (socket transport or local HTTP via `localHttpEnabled`),
@@ -1719,7 +1717,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// doesn't serve feature-flag routes.
     /// On iOS, always delegates to `httpTransport` which targets the remote gateway.
     public func setFeatureFlag(key: String, enabled: Bool) async throws {
-        guard let token = config.featureFlagToken, !token.isEmpty else {
+        guard let token = resolveFeatureFlagAuthToken() else {
             throw FeatureFlagError.missingToken
         }
 
