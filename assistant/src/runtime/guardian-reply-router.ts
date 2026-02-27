@@ -254,6 +254,33 @@ export async function routeGuardianReply(
       // rather than intending to approve. Return helpful context instead of
       // silently defaulting to approve_once.
       if (!codeResult.remainingText || codeResult.remainingText.trim().length === 0) {
+        // Identity check: only expose request details to the assigned guardian
+        // or trusted (desktop) actors. Mirrors the identity check in
+        // applyCanonicalGuardianDecision to prevent leaking request details
+        // (toolName, questionText) to unauthorized senders.
+        if (
+          request.guardianExternalUserId &&
+          !actor.isTrusted &&
+          actor.externalUserId !== request.guardianExternalUserId
+        ) {
+          log.warn(
+            {
+              event: 'router_code_only_identity_mismatch',
+              requestId: request.id,
+              expectedGuardian: request.guardianExternalUserId,
+              actualActor: actor.externalUserId,
+            },
+            'Code-only clarification blocked: actor identity does not match expected guardian',
+          );
+          return {
+            decisionApplied: false,
+            consumed: true,
+            type: 'code_only_clarification',
+            requestId: request.id,
+            replyText: 'Request not found.',
+          };
+        }
+
         log.info(
           { event: 'router_code_only_clarification', requestId: request.id, code: request.requestCode },
           'Code-only message treated as clarification inquiry',
@@ -461,8 +488,8 @@ function failureReplyText(reason: CanonicalFailureReason, requestCode?: string |
       return "You don't have permission to decide on this request.";
     case 'invalid_action':
       return requestCode
-        ? `I found request ${requestCode}, but I need to know your decision. Reply with 'approve' or 'reject' followed by the code.`
-        : "I couldn't determine your intended action. Reply with 'approve' or 'reject' followed by the request code.";
+        ? `I found request ${requestCode}, but I need to know your decision. Reply "${requestCode} approve" or "${requestCode} reject".`
+        : "I couldn't determine your intended action. Reply with the request code followed by 'approve' or 'reject' (e.g., \"ABC123 approve\").";
     default:
       return "I couldn't process that request. Please try again.";
   }
@@ -486,7 +513,7 @@ function composeCodeOnlyClarification(request: CanonicalGuardianRequest): string
   if (request.questionText) {
     lines.push(`Details: ${request.questionText}`);
   }
-  lines.push(`Reply "approve ${code}" to approve or "reject ${code}" to reject.`);
+  lines.push(`Reply "${code} approve" to approve or "${code} reject" to reject.`);
   return lines.join('\n');
 }
 
@@ -521,7 +548,7 @@ function composeDisambiguationReply(
   // Include a concrete example using the first request's code
   const exampleCode = pendingRequests[0].requestCode ?? pendingRequests[0].id.slice(0, 6).toUpperCase();
   lines.push('');
-  lines.push(`Reply "approve ${exampleCode}" to approve a specific request.`);
+  lines.push(`Reply "${exampleCode} approve" to approve a specific request.`);
 
   return lines.join('\n');
 }
