@@ -12,6 +12,7 @@
 
 import type { ChannelId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
+import { getVoiceScopedGrantConsumerEnabled } from '../config/env-registry.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
@@ -345,6 +346,22 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
       if (autoDeny) {
         // Before auto-denying, check if a guardian from another channel
         // has pre-approved this exact tool invocation via a scoped grant.
+        // Feature flag: skip the grant check when the voice consumer is disabled.
+        if (!getVoiceScopedGrantConsumerEnabled()) {
+          log.info(
+            { turnId, toolName: msg.toolName },
+            'Voice scoped grant consumer disabled — skipping grant check',
+          );
+          session.handleConfirmationResponse(
+            msg.requestId,
+            'deny',
+            undefined,
+            undefined,
+            `Permission denied for "${msg.toolName}": this voice call does not have interactive approval capabilities. Side-effect tools are not available for non-guardian voice callers. In your next assistant reply, explain briefly that this action requires guardian-level access and cannot be performed during this call.`,
+          );
+          publishToHub(msg);
+          return;
+        }
         const inputDigest = computeToolApprovalDigest(msg.toolName, msg.input);
         const consumeResult = consumeScopedApprovalGrantByToolSignature({
           toolName: msg.toolName,

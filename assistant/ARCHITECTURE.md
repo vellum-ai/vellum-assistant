@@ -22,6 +22,10 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
+### Channel-Agnostic Scoped Approval Grants
+
+Scoped approval grants allow a guardian's approval decision on one channel (e.g., Telegram) to authorize a tool execution on a different channel (e.g., voice). Two scope modes exist: `request_id` (bound to a specific pending request) and `tool_signature` (bound to `toolName` + canonical `inputDigest`). Grants are one-time-use, exact-match, fail-closed, and TTL-bound. Full architecture details (lifecycle flow, security invariants, feature flags, key files) live in [`docs/architecture/security.md`](docs/architecture/security.md#channel-agnostic-scoped-approval-grants).
+
 ### Outbound Guardian Verification (HTTP Endpoints)
 
 Guardian verification can be initiated through the runtime HTTP API as an alternative to the legacy IPC-only flow. This enables chat-first verification where the assistant guides the user through guardian setup via normal conversation.
