@@ -7,6 +7,7 @@
  * 3. Records guardian_action_delivery rows from pipeline delivery results
  */
 
+import { createCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import {
   countPendingRequestsByCallSessionId,
@@ -108,6 +109,26 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
       { requestId: request.id, requestCode: request.requestCode, callSessionId },
       'Created guardian action request',
     );
+
+    // Dual-write: create the canonical guardian request alongside the legacy
+    // action request so the canonical decision pipeline can resolve it.
+    try {
+      createCanonicalGuardianRequest({
+        kind: 'pending_question',
+        sourceType: 'voice',
+        sourceChannel: 'voice',
+        conversationId,
+        callSessionId,
+        pendingQuestionId: pendingQuestion.id,
+        questionText: pendingQuestion.questionText,
+        toolName,
+        inputDigest,
+        requestCode: request.requestCode,
+        expiresAt: new Date(expiresAt).toISOString(),
+      });
+    } catch (err) {
+      log.warn({ err, requestId: request.id }, 'Failed to create canonical guardian request for voice dispatch');
+    }
 
     // Count how many guardian requests are already pending for this call.
     // This count is a candidate-affinity hint: the decision engine uses it

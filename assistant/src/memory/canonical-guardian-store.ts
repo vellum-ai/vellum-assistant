@@ -61,9 +61,45 @@ export interface CanonicalGuardianDelivery {
 // Request code generation
 // ---------------------------------------------------------------------------
 
-/** Generate a short human-readable request code (6 hex chars, uppercase). */
+/**
+ * Generate a short human-readable request code (6 hex chars, uppercase).
+ *
+ * Checks for collisions against existing PENDING canonical requests and
+ * retries up to 5 times to avoid code reuse among active requests.
+ */
 export function generateCanonicalRequestCode(): string {
+  const MAX_RETRIES = 5;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const code = uuid().replace(/-/g, '').slice(0, 6).toUpperCase();
+    // Only check for collisions among pending requests — resolved requests
+    // with the same code are harmless since getCanonicalGuardianRequestByCode
+    // already filters by status='pending'.
+    const existing = getCanonicalGuardianRequestByCodeInternal(code);
+    if (!existing) return code;
+  }
+  // Last resort: return the code even if it collides (extremely unlikely
+  // with 16^6 = ~16.7M possible codes).
   return uuid().replace(/-/g, '').slice(0, 6).toUpperCase();
+}
+
+/**
+ * Internal code lookup used by the collision checker. Avoids circular
+ * dependency with the public getCanonicalGuardianRequestByCode by
+ * inlining the same query logic.
+ */
+function getCanonicalGuardianRequestByCodeInternal(code: string): boolean {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(canonicalGuardianRequests)
+    .where(
+      and(
+        eq(canonicalGuardianRequests.requestCode, code),
+        eq(canonicalGuardianRequests.status, 'pending'),
+      ),
+    )
+    .get();
+  return !!row;
 }
 
 // ---------------------------------------------------------------------------

@@ -349,6 +349,24 @@ export async function routeGuardianReply(
     );
 
     if (engineResult.disposition === 'keep_pending') {
+      // When the engine returns keep_pending with multiple pending requests,
+      // this likely means the NL classification understood a decision intent
+      // but runApprovalConversationTurn fail-closed because no targetRequestId
+      // was provided. In this case, produce a disambiguation reply instead of
+      // a generic "I couldn't process that" message.
+      if (pendingRequests.length > 1) {
+        log.info(
+          { event: 'router_nl_disambiguation_needed', pendingCount: pendingRequests.length },
+          'Engine returned keep_pending with multiple pending requests — producing disambiguation',
+        );
+        const disambiguationReply = composeDisambiguationReply(pendingRequests, undefined);
+        return {
+          decisionApplied: false,
+          consumed: true,
+          type: 'disambiguation_needed',
+          replyText: disambiguationReply,
+        };
+      }
       return {
         decisionApplied: false,
         replyText: engineResult.replyText,

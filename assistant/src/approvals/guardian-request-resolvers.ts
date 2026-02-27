@@ -11,9 +11,16 @@
  * touching the core decision primitive.
  */
 
+import { answerCall } from '../calls/call-domain.js';
 import type { CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
-import type { ApprovalAction, ApprovalDecisionResult } from '../runtime/channel-approval-types.js';
-import { handleChannelDecision } from '../runtime/channel-approvals.js';
+import {
+  getByPendingQuestionId,
+  resolveGuardianActionRequest,
+} from '../memory/guardian-action-store.js';
+import type { ApprovalAction } from '../runtime/channel-approval-types.js';
+import * as pendingInteractions from '../runtime/pending-interactions.js';
+import { addRule } from '../permissions/trust-store.js';
+import { getTool } from '../tools/registry.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('guardian-request-resolvers');
@@ -88,27 +95,59 @@ const pendingInteractionResolver: GuardianRequestResolver = {
       return { ok: false, reason: 'tool_approval request missing conversationId' };
     }
 
-    // Actually resolve the pending interaction so the tool call gets unblocked.
-    const channelDecision: ApprovalDecisionResult = {
-      action: decision.action,
-      source: 'plain_text',
-      requestId: request.id,
-    };
-    const channelResult = handleChannelDecision(request.conversationId, channelDecision);
-
-    if (!channelResult.applied) {
+    // Look up the pending interaction directly by requestId.
+    const interaction = pendingInteractions.get(request.id);
+    if (!interaction) {
       // The pending interaction was already consumed (stale) or not found.
       // The canonical CAS already committed, so this is not an error — just
-      // means the interaction was resolved by another path (e.g. legacy).
+      // means the interaction was resolved by another path (e.g. timeout).
       log.warn(
         {
-          event: 'resolver_tool_approval_channel_stale',
+          event: 'resolver_tool_approval_stale',
           requestId: request.id,
           conversationId: request.conversationId,
         },
-        'Tool approval resolver: handleChannelDecision returned applied:false (interaction already consumed)',
+        'Tool approval resolver: pending interaction not found (already consumed or timed out)',
       );
+      return { ok: false, reason: 'pending_interaction_not_found' };
     }
+
+    // Handle approve_always: persist a trust rule when the confirmation
+    // explicitly allows persistence and provides explicit options.
+    if (decision.action === 'approve_always' || decision.action === 'approve_once') {
+      const details = interaction.confirmationDetails;
+      if (
+        decision.action === 'approve_always' &&
+        details &&
+        details.persistentDecisionsAllowed !== false &&
+        details.allowlistOptions?.length &&
+        details.scopeOptions?.length
+      ) {
+        const pattern = details.allowlistOptions[0].pattern;
+        const scope = details.scopeOptions[0].scope;
+        const tool = getTool(details.toolName);
+        const executionTarget = tool?.origin === 'skill' ? details.executionTarget : undefined;
+        addRule(details.toolName, pattern, scope, 'allow', 100, { executionTarget });
+      }
+    }
+
+    // Resolve the interaction: remove from tracker and get the session.
+    const resolved = pendingInteractions.resolve(request.id);
+    if (!resolved) {
+      // Race condition: interaction was consumed between get() and resolve().
+      log.warn(
+        {
+          event: 'resolver_tool_approval_resolve_race',
+          requestId: request.id,
+        },
+        'Tool approval resolver: pending interaction consumed between lookup and resolve',
+      );
+      return { ok: false, reason: 'pending_interaction_race' };
+    }
+
+    // Map action to the permission system's UserDecision type and notify session.
+    const userDecision = decision.action === 'reject' ? 'deny' as const : 'allow' as const;
+    resolved.session.handleConfirmationResponse(request.id, userDecision);
 
     log.info(
       {
@@ -117,9 +156,8 @@ const pendingInteractionResolver: GuardianRequestResolver = {
         action: decision.action,
         conversationId: request.conversationId,
         toolName: request.toolName,
-        channelApplied: channelResult.applied,
       },
-      'Tool approval resolver: canonical decision applied',
+      'Tool approval resolver: pending interaction resolved',
     );
 
     return { ok: true, applied: true };
@@ -141,7 +179,7 @@ const pendingQuestionResolver: GuardianRequestResolver = {
   kind: 'pending_question',
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
-    const { request, decision } = ctx;
+    const { request, decision, actor } = ctx;
 
     if (!request.callSessionId) {
       return { ok: false, reason: 'pending_question request missing callSessionId' };
@@ -151,6 +189,46 @@ const pendingQuestionResolver: GuardianRequestResolver = {
       return { ok: false, reason: 'pending_question request missing pendingQuestionId' };
     }
 
+    // Derive the answer text from the decision. For approve actions, use the
+    // guardian's text if present; otherwise use a default affirmative answer.
+    // For reject, use the text or a default denial.
+    const answerText = decision.userText
+      ?? (decision.action === 'reject' ? 'No' : 'Yes');
+
+    // 1. Deliver the answer to the voice call session.
+    const answerResult = await answerCall({
+      callSessionId: request.callSessionId,
+      answer: answerText,
+      pendingQuestionId: request.pendingQuestionId,
+    });
+
+    if (!('ok' in answerResult) || !answerResult.ok) {
+      const errorMsg = 'error' in answerResult ? answerResult.error : 'Unknown error';
+      log.warn(
+        {
+          event: 'resolver_pending_question_answer_failed',
+          requestId: request.id,
+          callSessionId: request.callSessionId,
+          error: errorMsg,
+        },
+        'Pending question resolver: answerCall failed',
+      );
+      // Even though answerCall failed, continue to resolve the legacy record
+      // so the system stays consistent. The call may have already timed out.
+    }
+
+    // 2. Resolve the legacy guardian action request (if it exists).
+    // Look up by pendingQuestionId to find the matching legacy record.
+    const legacyRequest = getByPendingQuestionId(request.pendingQuestionId);
+    if (legacyRequest) {
+      resolveGuardianActionRequest(
+        legacyRequest.id,
+        answerText,
+        actor.channel,
+        actor.externalUserId,
+      );
+    }
+
     log.info(
       {
         event: 'resolver_pending_question_applied',
@@ -158,7 +236,9 @@ const pendingQuestionResolver: GuardianRequestResolver = {
         action: decision.action,
         callSessionId: request.callSessionId,
         pendingQuestionId: request.pendingQuestionId,
-        answerText: decision.userText ?? null,
+        answerText,
+        answerCallOk: 'ok' in (answerResult as any) ? (answerResult as any).ok : false,
+        legacyResolved: !!legacyRequest,
       },
       'Pending question resolver: canonical decision applied',
     );

@@ -19,6 +19,7 @@ import {
   createApprovalRequest,
   findPendingAccessRequestForRequester,
 } from '../../memory/channel-guardian-store.js';
+import { createCanonicalGuardianRequest } from '../../memory/canonical-guardian-store.js';
 import { recordConversationSeenSignal } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
@@ -615,6 +616,24 @@ export async function handleChannelInbound(
       reason: 'Ingress policy requires guardian approval',
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
+
+    // Dual-write: create the canonical guardian request alongside the legacy
+    // approval request so the canonical decision pipeline can resolve it.
+    try {
+      createCanonicalGuardianRequest({
+        kind: 'tool_approval',
+        sourceType: 'channel',
+        sourceChannel,
+        conversationId: result.conversationId,
+        requesterExternalUserId: body.senderExternalUserId ?? undefined,
+        guardianExternalUserId: binding.guardianExternalUserId,
+        toolName: 'ingress_message',
+        questionText: 'Ingress policy requires guardian approval',
+        expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
+      });
+    } catch (err) {
+      log.warn({ err }, 'Failed to create canonical guardian request for ingress escalation');
+    }
 
     // Emit notification signal through the unified pipeline (fire-and-forget).
     // This lets the decision engine route escalation alerts to all configured
@@ -1667,6 +1686,25 @@ function notifyGuardianOfAccessRequest(params: {
     reason: `${senderIdentifier} is requesting access to the assistant`,
     expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
   });
+
+  // Dual-write: create the canonical guardian request alongside the legacy
+  // approval request so the canonical decision pipeline can resolve it.
+  try {
+    createCanonicalGuardianRequest({
+      id: requestId,
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      sourceChannel,
+      conversationId: `access-req-${sourceChannel}-${senderExternalUserId}`,
+      requesterExternalUserId: senderExternalUserId,
+      guardianExternalUserId: binding.guardianExternalUserId,
+      toolName: 'ingress_access_request',
+      questionText: `${senderIdentifier} is requesting access to the assistant`,
+      expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
+    });
+  } catch (err) {
+    log.warn({ err }, 'Failed to create canonical guardian request for access request');
+  }
 
   void emitNotificationSignal({
     sourceEventName: 'ingress.access_request',

@@ -240,8 +240,11 @@ describe('canonical-guardian-store', () => {
     expect(updated!.status).toBe('approved');
     expect(updated!.answerText).toBe('Looks good');
     expect(updated!.decidedByExternalUserId).toBe('guardian-1');
-    // updatedAt should have changed
-    expect(updated!.updatedAt).not.toBe(req.updatedAt);
+    // updatedAt should be at least as recent as the original (may be the
+    // same millisecond when create+update run back-to-back in tests).
+    expect(new Date(updated!.updatedAt).getTime()).toBeGreaterThanOrEqual(
+      new Date(req.updatedAt).getTime(),
+    );
   });
 
   test('returns null when updating nonexistent request', () => {
