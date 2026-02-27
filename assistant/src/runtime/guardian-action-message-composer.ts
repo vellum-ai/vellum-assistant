@@ -31,6 +31,7 @@ export type GuardianActionMessageScenario =
   | 'guardian_stale_answered'
   | 'guardian_stale_expired'
   | 'guardian_stale_followup'
+  | 'guardian_superseded_remap'
   | 'outbound_message_copy'
   | 'followup_message_sent'
   | 'followup_call_started'
@@ -199,6 +200,11 @@ export function getGuardianActionFallbackMessage(context: GuardianActionMessageC
 
     case 'guardian_stale_followup':
       return 'It looks like this follow-up has already been handled. No further action is needed.';
+
+    case 'guardian_superseded_remap':
+      return context.questionText
+        ? `Got it! Your answer has been applied to the current active request: "${context.questionText}"`
+        : 'Got it! Your answer has been applied to the current active request on the call.';
 
     case 'outbound_message_copy':
       // This SMS is sent TO the original caller relaying the guardian's answer.

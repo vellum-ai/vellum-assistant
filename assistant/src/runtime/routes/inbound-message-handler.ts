@@ -4,6 +4,8 @@
  * verification, guardian action answers, and approval interception.
  */
 import { answerCall } from '../../calls/call-domain.js';
+import { isTerminalState } from '../../calls/call-state-machine.js';
+import { getCallSession } from '../../calls/call-store.js';
 import type { ChannelId, InterfaceId } from '../../channels/types.js';
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
@@ -23,6 +25,7 @@ import {
   getFollowupDeliveriesByDestination,
   getGuardianActionRequest,
   getPendingDeliveriesByDestination,
+  getPendingRequestByCallSessionId,
   progressFollowupState,
   resolveGuardianActionRequest,
   startFollowupFromExpiredRequest,
@@ -1039,6 +1042,82 @@ export async function handleChannelInbound(
           const expiredRequest = getGuardianActionRequest(matchedExpired.requestId);
 
           if (expiredRequest && expiredRequest.status === 'expired' && expiredRequest.followupState === 'none') {
+            // ── Superseded remap: if the request was superseded (not timed out
+            // or disconnected), check whether the call is still active with a
+            // current pending request. If so, remap the late approval to the
+            // current request instead of entering the callback/message follow-up.
+            if (expiredRequest.expiredReason === 'superseded') {
+              const callSession = getCallSession(expiredRequest.callSessionId);
+              const callStillActive = callSession && !isTerminalState(callSession.status);
+              const currentPending = callStillActive
+                ? getPendingRequestByCallSessionId(expiredRequest.callSessionId)
+                : null;
+
+              if (callStillActive && currentPending) {
+                // Remap: deliver the answer to the call targeting the current
+                // pending question, then resolve the current request and mint a grant.
+                const remapResult = await answerCall({
+                  callSessionId: currentPending.callSessionId,
+                  answer: expiredAnswerText,
+                  pendingQuestionId: currentPending.pendingQuestionId,
+                });
+
+                if ('ok' in remapResult && remapResult.ok) {
+                  const resolved = resolveGuardianActionRequest(
+                    currentPending.id,
+                    expiredAnswerText,
+                    sourceChannel,
+                    body.senderExternalUserId,
+                  );
+
+                  if (resolved) {
+                    tryMintGuardianActionGrant({
+                      resolvedRequest: resolved,
+                      answerText: expiredAnswerText,
+                      decisionChannel: sourceChannel,
+                      guardianExternalUserId: body.senderExternalUserId,
+                    });
+                  }
+
+                  const remapText = await composeGuardianActionMessageGenerative(
+                    {
+                      scenario: 'guardian_superseded_remap',
+                      questionText: currentPending.questionText,
+                    },
+                    {},
+                    guardianActionCopyGenerator,
+                  );
+                  try {
+                    await deliverChannelReply(replyCallbackUrl, {
+                      chatId: externalChatId,
+                      text: remapText,
+                      assistantId,
+                    }, bearerToken);
+                  } catch (err) {
+                    log.error({ err, externalChatId }, 'Failed to deliver superseded remap confirmation');
+                  }
+
+                  log.info(
+                    { supersededRequestId: expiredRequest.id, remappedToRequestId: currentPending.id },
+                    'Late approval for superseded request remapped to current pending request',
+                  );
+
+                  return Response.json({
+                    accepted: true,
+                    duplicate: false,
+                    eventId: result.eventId,
+                    guardianAnswer: 'superseded_remapped',
+                  });
+                }
+                // answerCall failed — fall through to the normal follow-up path
+                log.warn(
+                  { callSessionId: currentPending.callSessionId, error: 'error' in remapResult ? remapResult.error : 'unknown' },
+                  'Superseded remap answerCall failed, falling through to follow-up',
+                );
+              }
+              // Call not active or no pending request — fall through to follow-up
+            }
+
             const followupResult = startFollowupFromExpiredRequest(expiredRequest.id, expiredAnswerText);
             if (followupResult) {
               const followupText = await composeGuardianActionMessageGenerative(

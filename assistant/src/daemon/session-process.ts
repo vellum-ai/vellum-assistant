@@ -8,6 +8,8 @@
 
 import { createAssistantMessage,createUserMessage } from '../agent/message-types.js';
 import { answerCall } from '../calls/call-domain.js';
+import { isTerminalState } from '../calls/call-state-machine.js';
+import { getCallSession } from '../calls/call-store.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
@@ -19,6 +21,7 @@ import {
   getFollowupDeliveriesByConversation,
   getGuardianActionRequest,
   getPendingDeliveriesByConversation,
+  getPendingRequestByCallSessionId,
   progressFollowupState,
   resolveGuardianActionRequest,
   startFollowupFromExpiredRequest,
@@ -642,6 +645,70 @@ export async function processMessage(
           guardianChannelMeta,
         );
         session.messages.push(userMsg);
+
+        // ── Superseded remap: if the request was superseded (not timed out
+        // or disconnected), check whether the call is still active with a
+        // current pending request. If so, remap the late approval to the
+        // current request instead of entering the callback/message follow-up.
+        if (expiredRequest.expiredReason === 'superseded') {
+          const callSession = getCallSession(expiredRequest.callSessionId);
+          const callStillActive = callSession && !isTerminalState(callSession.status);
+          const currentPending = callStillActive
+            ? getPendingRequestByCallSessionId(expiredRequest.callSessionId)
+            : null;
+
+          if (callStillActive && currentPending) {
+            const remapResult = await answerCall({
+              callSessionId: currentPending.callSessionId,
+              answer: expiredAnswerText,
+              pendingQuestionId: currentPending.pendingQuestionId,
+            });
+
+            if ('ok' in remapResult && remapResult.ok) {
+              const resolved = resolveGuardianActionRequest(currentPending.id, expiredAnswerText, 'vellum');
+
+              if (resolved) {
+                tryMintGuardianActionGrant({
+                  resolvedRequest: resolved,
+                  answerText: expiredAnswerText,
+                  decisionChannel: 'vellum',
+                });
+              }
+
+              const remapText = await composeGuardianActionMessageGenerative(
+                {
+                  scenario: 'guardian_superseded_remap',
+                  questionText: currentPending.questionText,
+                },
+                {},
+                _guardianActionCopyGenerator,
+              );
+              const remapMsg = createAssistantMessage(remapText);
+              await conversationStore.addMessage(
+                session.conversationId,
+                'assistant',
+                JSON.stringify(remapMsg.content),
+                guardianChannelMeta,
+              );
+              session.messages.push(remapMsg);
+              onEvent({ type: 'assistant_text_delta', text: remapText });
+              onEvent({ type: 'message_complete', sessionId: session.conversationId });
+
+              log.info(
+                { supersededRequestId: expiredRequest.id, remappedToRequestId: currentPending.id },
+                'Late approval for superseded request remapped to current pending request',
+              );
+
+              return persisted.id;
+            }
+            // answerCall failed — fall through to the normal follow-up path
+            log.warn(
+              { callSessionId: currentPending.callSessionId, error: 'error' in remapResult ? remapResult.error : 'unknown' },
+              'Superseded remap answerCall failed, falling through to follow-up',
+            );
+          }
+          // Call not active or no pending request — fall through to follow-up
+        }
 
         const followupResult = startFollowupFromExpiredRequest(expiredRequest.id, expiredAnswerText);
         if (followupResult) {
