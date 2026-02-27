@@ -266,7 +266,7 @@ Write `.private/safe-plan-state/<plan-slug>.md` with this format:
 - **Review cycles completed**: <cycle-counter>/3
 ```
 
-### 8. Notify the user and stop
+### 8. Notify the user and auto-initiate review check
 
 Tell the user:
 
@@ -279,8 +279,14 @@ Tell the user:
 >
 > **Next steps:**
 > - `/resume-plan <plan file>` — merge this PR and continue to the next one
+>
+> Waiting 60 seconds, then automatically running `/safe-check-review <plan file>`...
+> To skip the wait and check reviews immediately, send any message now.
+> To skip and resume the plan directly without checking reviews, run `/resume-plan <plan file>`.
 
-Then **stop**. Do NOT continue to the next PR.
+Wait 60 seconds (`sleep 60`), then automatically invoke `/safe-check-review <plan file>`.
+
+Do NOT continue to the next PR directly — let `/safe-check-review` handle merging and continuing the plan.
 
 ## Important
 
