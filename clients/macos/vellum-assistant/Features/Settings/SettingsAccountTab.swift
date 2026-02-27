@@ -12,7 +12,6 @@ struct SettingsAccountTab: View {
 
     // -- Account / Vellum section state --
     @State private var platformUrlText: String = ""
-    @FocusState private var isPlatformUrlFocused: Bool
 
     // -- Assistant Info state (from SettingsAdvancedTab) --
     @State private var showingRetireConfirmation: Bool = false
@@ -59,14 +58,7 @@ struct SettingsAccountTab: View {
             Task { await loadHatchFlag() }
         }
         .onChange(of: store.platformBaseUrl) { _, newValue in
-            if !isPlatformUrlFocused {
-                platformUrlText = newValue
-            }
-        }
-        .onChange(of: isPlatformUrlFocused) { _, focused in
-            if !focused {
-                platformUrlText = store.platformBaseUrl
-            }
+            platformUrlText = newValue
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -117,19 +109,9 @@ struct SettingsAccountTab: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
 
-                HStack(spacing: VSpacing.sm) {
-                    TextField("https://platform.vellum.ai", text: $platformUrlText)
-                        .focused($isPlatformUrlFocused)
-                        .vInputStyle()
-                        .font(VFont.mono)
-                        .onSubmit {
-                            store.savePlatformBaseUrl(platformUrlText)
-                            Task { await store.checkVellumPlatform() }
-                        }
-                    VButton(label: "Save", style: .primary) {
-                        store.savePlatformBaseUrl(platformUrlText)
-                        Task { await store.checkVellumPlatform() }
-                    }
+                VInlineActionField(text: $platformUrlText, placeholder: "https://platform.vellum.ai") {
+                    store.savePlatformBaseUrl(platformUrlText)
+                    Task { await store.checkVellumPlatform() }
                 }
             }
 

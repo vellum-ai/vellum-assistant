@@ -10,7 +10,6 @@ struct GatewaySettingsCard: View {
     var daemonClient: DaemonClient?
 
     @State private var gatewayUrlText: String = ""
-    @FocusState private var isGatewayUrlFocused: Bool
     @State private var gatewayTargetCopied: Bool = false
 
     var body: some View {
@@ -28,14 +27,7 @@ struct GatewaySettingsCard: View {
             gatewayUrlText = store.ingressPublicBaseUrl
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
-            if !isGatewayUrlFocused {
-                gatewayUrlText = newValue
-            }
-        }
-        .onChange(of: isGatewayUrlFocused) { _, focused in
-            if !focused {
-                gatewayUrlText = store.ingressPublicBaseUrl
-            }
+            gatewayUrlText = newValue
         }
         .onChange(of: store.ingressConfigLoaded) { _, loaded in
             guard loaded else { return }
@@ -113,16 +105,8 @@ struct GatewaySettingsCard: View {
                     .foregroundColor(VColor.textSecondary)
             }
 
-            HStack(spacing: VSpacing.sm) {
-                TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                    .focused($isGatewayUrlFocused)
-                    .vInputStyle()
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-
-                VButton(label: "Save", style: .primary) {
-                    store.saveIngressPublicBaseUrl(gatewayUrlText)
-                }
+            VInlineActionField(text: $gatewayUrlText, placeholder: "https://your-tunnel.example.com") {
+                store.saveIngressPublicBaseUrl(gatewayUrlText)
             }
 
             // Tunnel connection status (checks public URL)

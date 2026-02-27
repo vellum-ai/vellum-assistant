@@ -191,19 +191,14 @@ struct SettingsAppearanceTab: View {
                         .font(VFont.bodyBold)
                         .foregroundColor(VColor.textSecondary)
 
-                    HStack(spacing: VSpacing.sm) {
-                        TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
-                            .vInputStyle()
-
-                        VButton(label: "Add", style: .primary) {
-                            let domain = newAllowlistDomain
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !domain.isEmpty else { return }
-                            var domains = store.mediaEmbedVideoAllowlistDomains
-                            domains.append(domain)
-                            store.setMediaEmbedVideoAllowlistDomains(domains)
-                            newAllowlistDomain = ""
-                        }
+                    VInlineActionField(text: $newAllowlistDomain, placeholder: "Add domain (e.g. example.com)", actionLabel: "Add") {
+                        let domain = newAllowlistDomain
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !domain.isEmpty else { return }
+                        var domains = store.mediaEmbedVideoAllowlistDomains
+                        domains.append(domain)
+                        store.setMediaEmbedVideoAllowlistDomains(domains)
+                        newAllowlistDomain = ""
                     }
 
                     ForEach(store.mediaEmbedVideoAllowlistDomains, id: \.self) { domain in
