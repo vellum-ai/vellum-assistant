@@ -35,7 +35,7 @@ beforeAll(async () => {
   // Write a minimal config.json so the feature-flags handler can read it
   writeFileSync(
     join(vellumDir, "workspace", "config.json"),
-    JSON.stringify({ featureFlags: { "skills.test-skill.enabled": true } }),
+    JSON.stringify({ assistantFeatureFlagValues: { "feature_flags.browser.enabled": true } }),
   );
 
   // Set environment so loadConfig picks up our temp directory
@@ -160,7 +160,7 @@ afterAll(() => {
 
 describe("PATCH /v1/feature-flags/:key auth", () => {
   test("rejects request with runtime bearer token (403)", async () => {
-    const res = await fetch(`${baseUrl}/v1/feature-flags/skills.my-skill.enabled`, {
+    const res = await fetch(`${baseUrl}/v1/feature-flags/feature_flags.browser.enabled`, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${RUNTIME_TOKEN}`,
@@ -174,7 +174,7 @@ describe("PATCH /v1/feature-flags/:key auth", () => {
   });
 
   test("succeeds with feature-flag client token", async () => {
-    const res = await fetch(`${baseUrl}/v1/feature-flags/skills.my-skill.enabled`, {
+    const res = await fetch(`${baseUrl}/v1/feature-flags/feature_flags.browser.enabled`, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${FEATURE_FLAG_TOKEN}`,
@@ -184,12 +184,12 @@ describe("PATCH /v1/feature-flags/:key auth", () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.key).toBe("skills.my-skill.enabled");
+    expect(body.key).toBe("feature_flags.browser.enabled");
     expect(body.enabled).toBe(true);
   });
 
   test("rejects request with no token (401)", async () => {
-    const res = await fetch(`${baseUrl}/v1/feature-flags/skills.my-skill.enabled`, {
+    const res = await fetch(`${baseUrl}/v1/feature-flags/feature_flags.browser.enabled`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -200,7 +200,7 @@ describe("PATCH /v1/feature-flags/:key auth", () => {
   });
 
   test("rejects request with wrong token (401)", async () => {
-    const res = await fetch(`${baseUrl}/v1/feature-flags/skills.my-skill.enabled`, {
+    const res = await fetch(`${baseUrl}/v1/feature-flags/feature_flags.browser.enabled`, {
       method: "PATCH",
       headers: {
         Authorization: "Bearer totally-wrong-token",
