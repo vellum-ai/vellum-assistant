@@ -179,7 +179,7 @@ export async function handleCancelCall(req: Request, callSessionId: string): Pro
  * Body: { answer: string }
  */
 export async function handleAnswerCall(req: Request, callSessionId: string): Promise<Response> {
-  let body: { answer?: string };
+  let body: { answer?: string; pendingQuestionId?: string };
   try {
     body = await req.json() as typeof body;
   } catch {
@@ -193,6 +193,7 @@ export async function handleAnswerCall(req: Request, callSessionId: string): Pro
   const result = await answerCall({
     callSessionId,
     answer: body.answer ?? '',
+    pendingQuestionId: typeof body.pendingQuestionId === 'string' ? body.pendingQuestionId : undefined,
   });
 
   if (!result.ok) {
