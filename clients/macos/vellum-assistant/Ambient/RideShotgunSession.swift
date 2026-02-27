@@ -153,23 +153,31 @@ public final class RideShotgunSession: ObservableObject {
 
         log.info("Watch session started: watchId=\(message.watchId)")
 
-        // Observe WatchSession published properties via AsyncStream so the task
+        // Mirror frequently-updating scalar properties directly via Combine so the
+        // UI reflects changes as they happen (not only on state transitions).
+        session.$elapsedSeconds
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in self?.elapsedSeconds = value }
+            .store(in: &watchSessionStateBag)
+        session.$captureCount
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in self?.captureCount = value }
+            .store(in: &watchSessionStateBag)
+        session.$currentApp
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in self?.currentApp = value }
+            .store(in: &watchSessionStateBag)
+
+        // Use AsyncStream only for terminal-state detection so the observer task
         // sleeps between real state changes instead of spinning at 0.5s intervals.
         let stateStream = AsyncStream<WatchSession.State> { continuation in
             session.$state
                 .sink { continuation.yield($0) }
                 .store(in: &watchSessionStateBag)
         }
-        watchSessionObserver = Task { [weak self, weak session] in
-            guard let session else { return }
+        watchSessionObserver = Task { [weak self] in
             for await watchState in stateStream {
                 guard let self, !Task.isCancelled else { return }
-                // Mirror scalar properties on every state change
-                self.elapsedSeconds = session.elapsedSeconds
-                self.captureCount = session.captureCount
-                self.currentApp = session.currentApp
-
-                // When WatchSession completes, transition to summarizing
                 if watchState == .complete && self.state == .capturing {
                     self.state = .summarizing
                     log.info("Capture complete, waiting for summary...")
