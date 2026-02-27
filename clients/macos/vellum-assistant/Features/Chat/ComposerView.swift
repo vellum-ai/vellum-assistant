@@ -272,7 +272,7 @@ struct ComposerView: View {
                             .frame(width: 10, height: 10)
                     }
                 }
-                .buttonStyle(ComposerActionButtonStyle(
+                .buttonStyle(VIconButtonStyle(
                     isHovered: isStopHovered,
                     isFocused: focusedComposerAction == .stop,
                     size: composerActionButtonSize
@@ -292,7 +292,7 @@ struct ComposerView: View {
                         .font(.system(size: composerActionIconSize, weight: .regular))
                         .foregroundColor(adaptiveColor(light: Forest._500, dark: Moss._400))
                 }
-                .buttonStyle(ComposerActionButtonStyle(
+                .buttonStyle(VIconButtonStyle(
                     isHovered: isAttachmentHovered,
                     isFocused: focusedComposerAction == .attachment,
                     size: composerActionButtonSize
@@ -323,7 +323,7 @@ struct ComposerView: View {
                                 .foregroundColor(.white)
                         }
                     }
-                    .buttonStyle(ComposerActionButtonStyle(
+                    .buttonStyle(VIconButtonStyle(
                         isHovered: isSendHovered,
                         isFocused: focusedComposerAction == .send,
                         size: composerActionButtonSize
@@ -344,7 +344,7 @@ struct ComposerView: View {
                         iconSize: composerActionIconSize,
                         action: { onMicrophoneToggle(); focusedComposerAction = nil }
                     )
-                        .buttonStyle(ComposerActionButtonStyle(
+                        .buttonStyle(VIconButtonStyle(
                             isHovered: isMicrophoneHovered,
                             isFocused: focusedComposerAction == .microphone,
                             size: composerActionButtonSize
@@ -1054,44 +1054,6 @@ private struct MicrophoneButton: View {
         .onAppear {
             isPulsing = isRecording
         }
-    }
-}
-
-private struct ComposerActionButtonStyle: ButtonStyle {
-    let isHovered: Bool
-    let isFocused: Bool
-    let size: CGFloat
-
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        let isInteractive = isEnabled && (isHovered || configuration.isPressed || isFocused)
-        let backgroundOpacity: Double = {
-            if !isInteractive { return 0 }
-            return configuration.isPressed ? 0.5 : 0.28
-        }()
-
-        return configuration.label
-            .frame(width: size, height: size)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surfaceBorder.opacity(backgroundOpacity))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(
-                        isEnabled && isFocused
-                            ? VColor.accent.opacity(0.72)
-                            : VColor.surfaceBorder.opacity(isEnabled && isHovered ? 0.5 : 0),
-                        lineWidth: isEnabled && isFocused ? 1.25 : 1
-                    )
-            )
-            .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .focusEffectDisabled()
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(VAnimation.fast, value: configuration.isPressed)
-            .animation(VAnimation.fast, value: isHovered)
-            .animation(VAnimation.fast, value: isFocused)
     }
 }
 
