@@ -38,6 +38,7 @@ public struct VButton: View {
                 }
                 Text(label)
                     .font(labelFont)
+                    .fontWeight(style == .ghost ? .medium : .regular)
                 if isFullWidth && (leftIcon != nil || rightIcon != nil) {
                     Spacer(minLength: 0)
                 }
@@ -169,7 +170,7 @@ private struct VButtonStyle: ButtonStyle {
         case .tertiary: return VColor.buttonSecondaryText
         case .secondary: return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
         case .danger: return .white
-        case .ghost: return VColor.textMuted
+        case .ghost: return Color(hex: 0x516748)
         }
     }
 

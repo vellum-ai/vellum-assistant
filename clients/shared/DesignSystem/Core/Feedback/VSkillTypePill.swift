@@ -21,7 +21,7 @@ public struct VSkillTypePill: View {
 
         var icon: String {
             switch self {
-            case .core: return "building.2.fill"
+            case .core: return "shippingbox.fill"
             case .installed: return "checkmark.circle.fill"
             case .created: return "sparkles"
             case .extra: return "puzzlepiece.fill"
@@ -31,7 +31,7 @@ public struct VSkillTypePill: View {
 
         var foregroundColor: Color {
             switch self {
-            case .core: return Color(hex: 0x4A4A3E)
+            case .core: return Color(hex: 0x2A2A28)
             case .installed: return Color(hex: 0x3A6B3A)
             case .created: return Color(hex: 0x3A4A6B)
             case .extra: return Color(hex: 0x6B6B5E)
@@ -41,7 +41,7 @@ public struct VSkillTypePill: View {
 
         var backgroundColor: Color {
             switch self {
-            case .core: return Color(hex: 0xDDDBCE)
+            case .core: return Color(hex: 0xE8E6DA)
             case .installed: return Color(hex: 0xD4E8D4)
             case .created: return Color(hex: 0xD4DCE8)
             case .extra: return Color(hex: 0xDDDBCE)
@@ -88,7 +88,7 @@ public struct VSkillTypePill: View {
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
         .background(
-            Capsule()
+            RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(type.backgroundColor)
         )
     }
