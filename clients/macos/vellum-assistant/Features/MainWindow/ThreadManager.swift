@@ -446,8 +446,15 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         var nextPinnedOrder = max(existingMax, batchMax) + 1
 
         for session in recentSessions {
-            // Skip sessions that already have a thread
-            guard !threads.contains(where: { $0.sessionId == session.id }) else { continue }
+            // If a local thread already exists, merge server pin/order metadata.
+            if let existingIdx = threads.firstIndex(where: { $0.sessionId == session.id }) {
+                let isPinned = session.isPinned ?? false
+                threads[existingIdx].isPinned = isPinned
+                threads[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil
+                threads[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
+                if isPinned && session.displayOrder == nil { nextPinnedOrder += 1 }
+                continue
+            }
 
             let isPinned = session.isPinned ?? false
             let effectiveCreatedAt = session.createdAt ?? session.updatedAt

@@ -190,11 +190,17 @@ final class ThreadSessionRestorer {
             .max() ?? -1
         var pinnedCount = maxPersistedPinnedOrder + 1
         for session in recentSessions {
-            // Skip sessions that already have a local thread (e.g. created by
-            // createNotificationThread before the session list response arrived).
-            // Without this, the same conversation can appear twice when
-            // defaultThreadIsEmpty is false and the existing threads are appended.
-            guard !delegate.threads.contains(where: { $0.sessionId == session.id }) else { continue }
+            // If a local thread already exists (e.g. created by
+            // createNotificationThread before the session list response arrived),
+            // merge server pin/order metadata into it instead of creating a duplicate.
+            if let existingIdx = delegate.threads.firstIndex(where: { $0.sessionId == session.id }) {
+                let isPinned = session.isPinned ?? false
+                delegate.threads[existingIdx].isPinned = isPinned
+                delegate.threads[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil
+                delegate.threads[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
+                if isPinned && session.displayOrder == nil { pinnedCount += 1 }
+                continue
+            }
 
             let kind: ThreadKind = session.threadType == "private" ? .private : .standard
 
