@@ -1556,12 +1556,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public struct AssistantFeatureFlag: Decodable, Identifiable {
         public let key: String
         public let enabled: Bool
-        public let defaultEnabled: Bool
+        public let defaultEnabled: Bool?
         public let description: String?
 
         public var id: String { key }
 
-        public init(key: String, enabled: Bool, defaultEnabled: Bool, description: String?) {
+        public init(key: String, enabled: Bool, defaultEnabled: Bool? = true, description: String? = nil) {
             self.key = key
             self.enabled = enabled
             self.defaultEnabled = defaultEnabled
