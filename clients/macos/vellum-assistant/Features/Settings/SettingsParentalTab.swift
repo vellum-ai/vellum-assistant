@@ -275,7 +275,7 @@ struct SettingsParentalTab: View {
                             showingPINSheet = true
                         }
                     } else {
-                        VButton(label: "Set PIN", style: .primary) {
+                        VButton(label: "Set PIN", style: .secondary) {
                             errorMessage = nil
                             successMessage = nil
                             pinSheetMode = .set
@@ -721,7 +721,7 @@ struct SettingsParentalTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                VButton(label: "Refresh", leftIcon: "arrow.clockwise", style: .primary, size: .small) {
+                VButton(label: "Refresh", leftIcon: "arrow.clockwise", style: .secondary, size: .small) {
                     loadPendingApprovals()
                 }
             }
@@ -759,7 +759,7 @@ struct SettingsParentalTab: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
             HStack(spacing: VSpacing.sm) {
-                VButton(label: "Approve Always", style: .primary) {
+                VButton(label: "Approve Always", style: .secondary) {
                     respondToRequest(request, decision: "approve_always")
                 }
                 VButton(label: "Approve Once", style: .secondary) {
@@ -1198,7 +1198,7 @@ extension SettingsParentalTab {
                 onDisable()
             }
         } else if enabledCount == 0 {
-            VButton(label: "Enable All", style: .primary, size: .small) {
+            VButton(label: "Enable All", style: .secondary, size: .small) {
                 onEnable()
             }
         } else {
@@ -1677,7 +1677,7 @@ private struct RequestPermissionSheet: View {
                 VButton(label: "Cancel", style: .secondary) {
                     onDismiss()
                 }
-                VButton(label: "Send Request", style: .primary) {
+                VButton(label: "Send Request", style: .secondary) {
                     onSend()
                 }
                 .disabled(toolName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
