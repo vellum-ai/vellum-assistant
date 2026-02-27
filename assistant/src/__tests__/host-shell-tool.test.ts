@@ -424,6 +424,24 @@ describe('host_bash — environment setup', () => {
     expect(result.content).toContain('HOME=');
     expect(result.content.trim()).not.toBe('HOME=');
   });
+
+  test('injects GATEWAY_BASE_URL for host_bash commands', async () => {
+    const originalGatewayBase = process.env.GATEWAY_INTERNAL_BASE_URL;
+    process.env.GATEWAY_INTERNAL_BASE_URL = 'http://gateway.internal:9000/';
+    try {
+      const result = await hostShellTool.execute({
+        command: 'echo "$GATEWAY_BASE_URL"',
+      }, makeContext());
+      expect(result.isError).toBe(false);
+      expect(result.content.trim()).toBe('http://gateway.internal:9000');
+    } finally {
+      if (originalGatewayBase === undefined) {
+        delete process.env.GATEWAY_INTERNAL_BASE_URL;
+      } else {
+        process.env.GATEWAY_INTERNAL_BASE_URL = originalGatewayBase;
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ You are helping your user manage trusted contacts and invite links for the Vellu
 
 ## Prerequisites
 
-- Set `GATEWAY_BASE_URL` to the configured gateway URL from Settings "Local Gateway Target" before running API calls in this skill.
+- Use the injected `GATEWAY_BASE_URL` for gateway API calls in this skill. Do not hardcode hosts or ports.
 - Use gateway control-plane routes only: this skill calls `/v1/ingress/*` and `/v1/integrations/telegram/config` on the gateway, never the daemon runtime port directly.
 - The bearer token is stored at `~/.vellum/http-token`. Read it with: `TOKEN=$(cat ~/.vellum/http-token)`.
 

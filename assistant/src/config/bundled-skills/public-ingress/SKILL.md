@@ -24,7 +24,7 @@ First, check whether ingress is already configured:
 vellum config get ingress.publicBaseUrl
 ```
 
-Also determine the local gateway target and set `GATEWAY_BASE_URL` from Settings "Local Gateway Target" before proceeding.
+Use the injected `GATEWAY_BASE_URL` as the local gateway target before proceeding.
 
 If `ingress.publicBaseUrl` is already set and the tunnel is running (check via `curl -s http://127.0.0.1:4040/api/tunnels`), tell the user the current status and ask if they want to reconfigure or if this is sufficient.
 

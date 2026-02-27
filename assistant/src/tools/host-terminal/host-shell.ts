@@ -9,38 +9,13 @@ import type { ToolDefinition } from '../../providers/types.js';
 import { redactSecrets } from '../../security/secret-scanner.js';
 import { getLogger } from '../../util/logger.js';
 import { formatShellOutput } from '../shared/shell-output.js';
+import { buildSanitizedEnv } from '../terminal/safe-env.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 const log = getLogger('host-shell-tool');
 
-const SAFE_ENV_VARS = [
-  'PATH',
-  'HOME',
-  'TERM',
-  'LANG',
-  'EDITOR',
-  'SHELL',
-  'USER',
-  'TMPDIR',
-  'LC_ALL',
-  'LC_CTYPE',
-  'XDG_RUNTIME_DIR',
-  'DISPLAY',
-  'COLORTERM',
-  'TERM_PROGRAM',
-  'SSH_AUTH_SOCK',
-  'SSH_AGENT_PID',
-  'GPG_TTY',
-  'GNUPGHOME',
-] as const;
-
-function buildSanitizedEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of SAFE_ENV_VARS) {
-    if (process.env[key] != null) {
-      env[key] = process.env[key]!;
-    }
-  }
+function buildHostShellEnv(): Record<string, string> {
+  const env = buildSanitizedEnv();
   // Ensure ~/.local/bin and ~/.bun/bin are in PATH so `vellum` and `bun` are
   // always reachable, even when the daemon is launched from a macOS app
   // bundle that inherits a minimal PATH.
@@ -125,7 +100,7 @@ class HostShellTool implements Tool {
 
       const child = spawn('bash', ['-c', '--', command], {
         cwd: workingDir,
-        env: buildSanitizedEnv(),
+        env: buildHostShellEnv(),
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 

@@ -446,6 +446,13 @@ describe('buildSanitizedEnv', () => {
     expect(env.LC_CTYPE).toBe('UTF-8');
   });
 
+  test('injects GATEWAY_BASE_URL from gateway config', () => {
+    process.env.GATEWAY_INTERNAL_BASE_URL = 'http://gateway.internal:9000/';
+    const env = buildSanitizedEnv();
+    expect(env.GATEWAY_BASE_URL).toBe('http://gateway.internal:9000');
+    delete process.env.GATEWAY_INTERNAL_BASE_URL;
+  });
+
   test('result is a plain object with no prototype-inherited secrets', () => {
     const env = buildSanitizedEnv();
     const keys = Object.keys(env);
@@ -453,6 +460,7 @@ describe('buildSanitizedEnv', () => {
       'PATH', 'HOME', 'TERM', 'LANG', 'EDITOR', 'SHELL', 'USER', 'TMPDIR',
       'LC_ALL', 'LC_CTYPE', 'XDG_RUNTIME_DIR', 'DISPLAY', 'COLORTERM',
       'TERM_PROGRAM', 'SSH_AUTH_SOCK', 'SSH_AGENT_PID', 'GPG_TTY', 'GNUPGHOME',
+      'GATEWAY_BASE_URL',
     ];
     for (const key of keys) {
       expect(safeKeys).toContain(key);
@@ -684,4 +692,3 @@ describe('formatShellOutput', () => {
     expect(result.content.length).toBeLessThan(60_000);
   });
 });
-

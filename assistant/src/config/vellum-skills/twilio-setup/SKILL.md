@@ -224,7 +224,7 @@ After the guardian-verify-setup skill completes verification for a channel, load
 
 **Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
 
-Use `GATEWAY_BASE_URL` set to the configured gateway URL from Settings "Local Gateway Target" when running the status checks below.
+Use the injected `GATEWAY_BASE_URL` when running the status checks below.
 
 To re-check guardian status later, query the channel(s) that were verified:
 ```bash

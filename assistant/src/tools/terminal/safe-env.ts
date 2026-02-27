@@ -5,6 +5,8 @@
  *
  * Shared by the sandbox bash tool and skill sandbox runner.
  */
+import { getGatewayInternalBaseUrl } from '../../config/env.js';
+
 const SAFE_ENV_VARS = [
   'PATH',
   'HOME',
@@ -33,5 +35,8 @@ export function buildSanitizedEnv(): Record<string, string> {
       env[key] = process.env[key]!;
     }
   }
+  // Provide skills and shell tools a stable gateway API base without relying
+  // on per-command exports in ephemeral shell sessions.
+  env.GATEWAY_BASE_URL = getGatewayInternalBaseUrl();
   return env;
 }
