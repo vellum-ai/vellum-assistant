@@ -92,6 +92,7 @@ function startScreenRecording(videoPath: string): ChildProcess | undefined {
       stdio: "ignore",
       detached: true,
     });
+    proc.on("error", () => {}); // ignore spawn failures (e.g., not on macOS)
     proc.unref();
     return proc;
   } catch {
