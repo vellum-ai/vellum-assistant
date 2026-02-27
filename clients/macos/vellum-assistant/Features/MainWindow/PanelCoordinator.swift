@@ -482,9 +482,6 @@ extension MainWindowView {
                     }
                 }
                 .animation(VAnimation.fast, value: conversationZoomManager.showZoomIndicator)
-                .overlay(alignment: .bottomTrailing) {
-                    DemoOverlayView()
-                }
             }
         }
     }
