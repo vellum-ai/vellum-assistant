@@ -21,6 +21,7 @@ struct ChatEmptyStateView: View {
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
+    let onFileDrop: ([URL]) -> Void
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
     @Binding var editorContentHeight: CGFloat
@@ -113,6 +114,7 @@ struct ChatEmptyStateView: View {
                     onAttach: onAttach,
                     onRemoveAttachment: onRemoveAttachment,
                     onPaste: onPaste,
+                    onFileDrop: onFileDrop,
                     onMicrophoneToggle: onMicrophoneToggle,
                     placeholderText: placeholder,
                     editorContentHeight: $editorContentHeight,
@@ -158,6 +160,7 @@ struct ChatTemporaryChatEmptyStateView: View {
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
+    let onFileDrop: ([URL]) -> Void
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
     @Binding var editorContentHeight: CGFloat
@@ -218,6 +221,7 @@ struct ChatTemporaryChatEmptyStateView: View {
                     onAttach: onAttach,
                     onRemoveAttachment: onRemoveAttachment,
                     onPaste: onPaste,
+                    onFileDrop: onFileDrop,
                     onMicrophoneToggle: onMicrophoneToggle,
                     placeholderText: "Ask anything...",
                     editorContentHeight: $editorContentHeight,
