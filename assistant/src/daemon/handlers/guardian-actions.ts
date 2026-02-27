@@ -23,6 +23,7 @@ export const guardianActionsHandlers = defineHandlers({
         type: 'guardian_action_decision_response',
         applied: false,
         reason: 'invalid_action',
+        requestId: msg.requestId,
       });
       return;
     }
@@ -66,6 +67,7 @@ export const guardianActionsHandlers = defineHandlers({
       type: 'guardian_action_decision_response',
       applied: false,
       reason: 'not_found',
+      requestId: msg.requestId,
     });
   },
 });
