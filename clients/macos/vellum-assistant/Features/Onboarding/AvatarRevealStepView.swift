@@ -147,8 +147,25 @@ struct AvatarRevealStepView: View {
 
     // MARK: - Avatar Generation
 
+    /// Maximum time to wait for the daemon connection to become available
+    /// before giving up on avatar generation. During first-launch onboarding
+    /// the daemon client isn't connected yet (setupDaemonClient runs after
+    /// onboarding completes), so we need to establish the connection here.
+    private let connectionTimeout: UInt64 = 10_000_000_000
+
     private func startAvatarGeneration() {
         generationTask = Task {
+            // During onboarding the daemon client may not be connected yet.
+            // Attempt to connect before sending the generate_avatar request.
+            if let client = daemonClient as? DaemonClient, !client.isConnected {
+                let connected = await ensureDaemonConnected(client: client)
+                if !connected {
+                    // Connection failed — skip straight to fallback avatar.
+                }
+            }
+
+            if Task.isCancelled { return }
+
             let description = "A cute, friendly, work-safe avatar character for an AI assistant named \(assistantName). The style should be warm, approachable, and professional."
 
             // Set up a response listener before sending the request
@@ -226,6 +243,27 @@ struct AvatarRevealStepView: View {
                     showButton = true
                 }
             }
+        }
+    }
+
+    /// Tries to establish a daemon connection with a timeout.
+    /// Returns `true` if the connection succeeds within the deadline.
+    private func ensureDaemonConnected(client: DaemonClient) async -> Bool {
+        let connectTask = Task {
+            try await client.connect()
+        }
+        let timeoutTask = Task {
+            try await Task.sleep(nanoseconds: connectionTimeout)
+            connectTask.cancel()
+        }
+
+        do {
+            try await connectTask.value
+            timeoutTask.cancel()
+            return true
+        } catch {
+            timeoutTask.cancel()
+            return false
         }
     }
 }
