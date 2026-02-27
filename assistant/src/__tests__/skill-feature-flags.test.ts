@@ -232,7 +232,7 @@ describe('resolveSkillStates with feature flags', () => {
     expect(resolved.length).toBe(0);
   });
 
-  test('multiple skills with mixed flags', () => {
+  test('multiple skills with mixed flags — persisted overrides respected for undeclared skills', () => {
     const catalog = [
       makeSkill(DECLARED_SKILL_ID),
       makeSkill('twitter'),
@@ -248,7 +248,9 @@ describe('resolveSkillStates with feature flags', () => {
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
 
-    expect(ids).toEqual(['twitter', 'deploy']);
+    // Both declared (hatch-new-assistant) and undeclared (deploy) skills with
+    // persisted false overrides are filtered out; only twitter remains.
+    expect(ids).toEqual(['twitter']);
   });
 
   test('skill-to-flag override applies to skill state resolution', () => {
