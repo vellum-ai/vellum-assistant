@@ -33,12 +33,16 @@ struct IdentityPanel: View {
 
                     // Card wrapping avatar + ID fields
                     VStack(spacing: 0) {
-                        // Avatar image or initial-letter fallback
-                        Image(nsImage: appearance.chatAvatarImage)
+                        // Avatar image or initial-letter fallback (full-size for identity display)
+                        Image(nsImage: appearance.fullAvatarImage)
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .frame(width: 80, height: 80)
+                            .frame(width: 120, height: 120)
                             .clipShape(Circle())
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
+                            )
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, VSpacing.lg)
 
