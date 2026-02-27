@@ -43,16 +43,6 @@ function resolveProvenance(summary: SkillSummary): SkillProvenance {
     return { kind: 'first-party', provider: 'Vellum' };
   }
 
-  // Clawhub-sourced skills are third-party community skills
-  if (summary.source === 'clawhub') {
-    return {
-      kind: 'third-party',
-      provider: 'skills.sh',
-      originId: summary.id,
-      sourceUrl: `${CLAWHUB_BASE_URL}/skills/${encodeURIComponent(summary.id)}`,
-    };
-  }
-
   // Managed skills could be either first-party (installed from Vellum catalog)
   // or third-party (installed from clawhub). The homepage field serves as a
   // heuristic: Vellum catalog skills don't typically have a clawhub homepage.
@@ -89,7 +79,7 @@ export function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void 
     description: r.summary.description,
     emoji: r.summary.emoji,
     homepage: r.summary.homepage,
-    source: r.summary.source as 'bundled' | 'managed' | 'workspace' | 'clawhub' | 'extra',
+    source: r.summary.source,
     state: (r.state === 'degraded' ? 'enabled' : r.state) as 'enabled' | 'disabled' | 'available',
     degraded: r.degraded,
     missingRequirements: r.missingRequirements,
