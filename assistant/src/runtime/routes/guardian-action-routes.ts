@@ -4,11 +4,18 @@
  * These endpoints let desktop clients fetch pending guardian prompts and
  * submit button decisions without relying on text parsing.
  */
-import { applyGuardianDecision } from '../../approvals/guardian-decision-primitive.js';
+import {
+  applyCanonicalGuardianDecision,
+  applyGuardianDecision,
+} from '../../approvals/guardian-decision-primitive.js';
 import {
   getPendingApprovalForRequest,
   listPendingApprovalRequests,
 } from '../../memory/channel-guardian-store.js';
+import {
+  listCanonicalGuardianRequests,
+  type CanonicalGuardianRequest,
+} from '../../memory/canonical-guardian-store.js';
 import type { ApprovalAction } from '../channel-approval-types.js';
 import { handleChannelDecision } from '../channel-approvals.js';
 import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';
@@ -72,7 +79,40 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
     return httpError('BAD_REQUEST', `Invalid action: ${action}. Must be one of: approve_once, approve_always, reject`, 400);
   }
 
-  // Try the channel guardian approval store first (tool approval prompts)
+  // ── Canonical-first: try the unified canonical guardian decision primitive ──
+  // This is the future single write path. When the canonical request exists,
+  // it handles CAS resolution, resolver dispatch, and grant minting.
+  const canonicalResult = await applyCanonicalGuardianDecision({
+    requestId,
+    action: action as ApprovalAction,
+    actorContext: {
+      externalUserId: undefined,
+      channel: 'vellum',
+      isTrusted: true,
+    },
+    userText: undefined,
+  });
+
+  if (canonicalResult.applied) {
+    return Response.json({
+      applied: true,
+      requestId: canonicalResult.requestId,
+    });
+  }
+
+  // If the canonical request was found but couldn't be applied (stale, expired, etc.),
+  // return the reason rather than falling through to legacy.
+  if (canonicalResult.applied === false && canonicalResult.reason !== 'not_found') {
+    return Response.json({
+      applied: false,
+      reason: canonicalResult.reason,
+      requestId,
+    });
+  }
+
+  // ── Legacy fallback: canonical request not found, try legacy stores ──
+
+  // Try the channel guardian approval store (tool approval prompts)
   const approval = getPendingApprovalForRequest(requestId);
   if (approval) {
     // Enforce conversationId scoping: reject decisions that target the wrong conversation.
@@ -151,7 +191,27 @@ export function listGuardianDecisionPrompts(params: {
   const { conversationId } = params;
   const prompts: GuardianDecisionPrompt[] = [];
 
-  // 1. Channel guardian approval requests (tool approvals routed to guardians)
+  // Track IDs we've already added so we don't produce duplicates when the
+  // same request appears in both canonical and legacy stores during dual-read.
+  const seenRequestIds = new Set<string>();
+
+  // 1. Canonical guardian requests — the unified cross-source domain.
+  // Includes all request types (tool_approval, pending_question, etc.).
+  const canonicalRequests = listCanonicalGuardianRequests({
+    conversationId,
+    status: 'pending',
+  });
+
+  for (const req of canonicalRequests) {
+    // Skip expired canonical requests
+    if (req.expiresAt && new Date(req.expiresAt).getTime() < Date.now()) continue;
+
+    const prompt = mapCanonicalRequestToPrompt(req, conversationId);
+    prompts.push(prompt);
+    seenRequestIds.add(req.id);
+  }
+
+  // 2. Legacy: channel guardian approval requests (tool approvals routed to guardians)
   const approvalRequests = listPendingApprovalRequests({
     conversationId,
     status: 'pending',
@@ -159,6 +219,8 @@ export function listGuardianDecisionPrompts(params: {
 
   for (const approval of approvalRequests) {
     const reqId = approval.requestId!;
+    if (seenRequestIds.has(reqId)) continue;
+
     prompts.push({
       requestId: reqId,
       requestCode: reqId.slice(0, 6).toUpperCase(),
@@ -170,21 +232,14 @@ export function listGuardianDecisionPrompts(params: {
       conversationId: approval.conversationId,
       callSessionId: null,
     });
+    seenRequestIds.add(reqId);
   }
 
-  // 2. Guardian action requests (voice call guardian questions) are intentionally
-  // excluded here — resolving them requires the answerCall + resolveGuardianActionRequest
-  // flow which is handled by the conversational session-process path, not by the
-  // deterministic button decision endpoint.
-  // TODO: Surface voice guardian-action requests as read-only informational prompts
-  // so desktop clients can see them even though they can't be resolved via buttons.
-
-  // 3. Pending confirmation interactions (direct tool approval prompts)
+  // 3. Legacy: pending confirmation interactions (direct tool approval prompts)
   const interactions = pendingInteractions.getByConversation(conversationId);
   for (const interaction of interactions) {
     if (interaction.kind !== 'confirmation' || !interaction.confirmationDetails) continue;
-    // Skip if already covered by a channel guardian approval above
-    if (prompts.some(p => p.requestId === interaction.requestId)) continue;
+    if (seenRequestIds.has(interaction.requestId)) continue;
 
     const details = interaction.confirmationDetails;
     prompts.push({
@@ -200,7 +255,49 @@ export function listGuardianDecisionPrompts(params: {
       conversationId,
       callSessionId: null,
     });
+    seenRequestIds.add(interaction.requestId);
   }
 
   return prompts;
+}
+
+// ---------------------------------------------------------------------------
+// Canonical request -> prompt mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a canonical guardian request to the client-facing prompt format.
+ *
+ * Generates an appropriate questionText based on the request kind, and
+ * determines which actions are available. Pending questions surface as
+ * informational prompts since they may require text input rather than
+ * simple approve/reject buttons.
+ */
+function mapCanonicalRequestToPrompt(
+  req: CanonicalGuardianRequest,
+  conversationId: string,
+): GuardianDecisionPrompt {
+  const questionText = req.questionText
+    ?? (req.toolName ? `Approve tool: ${req.toolName}` : `Guardian request: ${req.kind}`);
+
+  // pending_question requests are typically voice-originated and need
+  // approve/reject only (no approve_always — guardian-on-behalf invariant).
+  const actions = buildDecisionActions({ forGuardianOnBehalf: true });
+
+  const expiresAt = req.expiresAt
+    ? new Date(req.expiresAt).getTime()
+    : Date.now() + 300_000;
+
+  return {
+    requestId: req.id,
+    requestCode: req.requestCode ?? req.id.slice(0, 6).toUpperCase(),
+    state: 'pending',
+    questionText,
+    toolName: req.toolName ?? null,
+    actions,
+    expiresAt,
+    conversationId: req.conversationId ?? conversationId,
+    callSessionId: req.callSessionId ?? null,
+    kind: req.kind,
+  };
 }

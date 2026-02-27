@@ -31,6 +31,12 @@ export interface GuardianActionsPendingResponse {
     expiresAt: number;
     conversationId: string;
     callSessionId: string | null;
+    /**
+     * Canonical request kind (e.g. 'tool_approval', 'pending_question').
+     * Present when the prompt originates from the canonical guardian request
+     * store. Absent for legacy-only prompts.
+     */
+    kind?: string;
   }>;
 }
 
