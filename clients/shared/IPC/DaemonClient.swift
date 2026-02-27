@@ -145,6 +145,11 @@ public protocol DaemonClientProtocol {
 extension Notification.Name {
     /// Posted by `DaemonClient` on the main actor immediately after `isConnected` transitions to `true`.
     public static let daemonDidReconnect = Notification.Name("daemonDidReconnect")
+
+    /// Posted when a connection attempt fails because the daemon socket does not exist (ENOENT).
+    /// The health monitor observes this to trigger an immediate restart instead of waiting
+    /// for the next periodic health check.
+    public static let daemonSocketNotFound = Notification.Name("daemonSocketNotFound")
 }
 
 /// Platform-agnostic client for communicating with the Vellum daemon.
