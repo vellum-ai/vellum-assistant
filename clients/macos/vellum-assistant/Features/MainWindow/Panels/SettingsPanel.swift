@@ -288,19 +288,21 @@ struct SettingsPanel: View {
                         VInfoTooltip("Get your API key at console.anthropic.com")
                     }
 
-                    SecureField("This is your private generated key", text: $apiKeyText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                    HStack(spacing: VSpacing.sm) {
+                        SecureField("This is your private generated key", text: $apiKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+
+                        VButton(label: "Save", style: .primary) {
+                            store.saveAPIKey(apiKeyText)
+                            apiKeyText = ""
+                        }
+                    }
 
                     Text("Get your API key at console.anthropic.com")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
-
-                    VButton(label: "Save", style: .primary) {
-                        store.saveAPIKey(apiKeyText)
-                        apiKeyText = ""
-                    }
                 }
 
                 if store.hasKey {
@@ -390,19 +392,21 @@ struct SettingsPanel: View {
                         VInfoTooltip("Get your API key at perplexity.ai/settings/api")
                     }
 
-                    SecureField("Your Perplexity API key", text: $perplexityKeyText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                    HStack(spacing: VSpacing.sm) {
+                        SecureField("Your Perplexity API key", text: $perplexityKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+
+                        VButton(label: "Save", style: .primary) {
+                            store.savePerplexityKey(perplexityKeyText)
+                            perplexityKeyText = ""
+                        }
+                    }
 
                     Text("Get your API key at perplexity.ai/settings/api")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
-
-                    VButton(label: "Save", style: .primary) {
-                        store.savePerplexityKey(perplexityKeyText)
-                        perplexityKeyText = ""
-                    }
                 }
             }
             .padding(VSpacing.lg)
@@ -436,19 +440,21 @@ struct SettingsPanel: View {
                         VInfoTooltip("Get your API key at brave.com/search/api")
                     }
 
-                    SecureField("Your Brave Search API key", text: $braveKeyText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                    HStack(spacing: VSpacing.sm) {
+                        SecureField("Your Brave Search API key", text: $braveKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+
+                        VButton(label: "Save", style: .primary) {
+                            store.saveBraveKey(braveKeyText)
+                            braveKeyText = ""
+                        }
+                    }
 
                     Text("Get your API key at brave.com/search/api")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
-
-                    VButton(label: "Save", style: .primary) {
-                        store.saveBraveKey(braveKeyText)
-                        braveKeyText = ""
-                    }
                 }
             }
             .padding(VSpacing.lg)
@@ -500,19 +506,21 @@ struct SettingsPanel: View {
                         VInfoTooltip("Get your API key at aistudio.google.com/apikey")
                     }
 
-                    SecureField("Your Gemini API key", text: $imageGenKeyText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                    HStack(spacing: VSpacing.sm) {
+                        SecureField("Your Gemini API key", text: $imageGenKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+
+                        VButton(label: "Save", style: .primary) {
+                            store.saveImageGenKey(imageGenKeyText)
+                            imageGenKeyText = ""
+                        }
+                    }
 
                     Text("Get your API key at aistudio.google.com/apikey")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
-
-                    VButton(label: "Save", style: .primary) {
-                        store.saveImageGenKey(imageGenKeyText)
-                        imageGenKeyText = ""
-                    }
                 }
             }
             .padding(VSpacing.lg)
