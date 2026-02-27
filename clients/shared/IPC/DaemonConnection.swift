@@ -50,20 +50,30 @@ extension DaemonClient {
                 guard let v = ProcessInfo.processInfo.environment["VELLUM_DAEMON_SOCKET"] else { return false }
                 return !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }()
-            if !isCustomSocket, FileManager.default.fileExists(atPath: path), !Self.isDaemonProcessAlive() {
-                log.warning("Stale daemon socket detected — PID is dead, removing socket at \(path, privacy: .public)")
-                // Only remove the path if it is actually a Unix socket, not a regular file.
-                var isSocket = false
-                if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-                   let fileType = attrs[.type] as? FileAttributeType,
-                   fileType == .typeSocket {
-                    isSocket = true
+            if !isCustomSocket {
+                if FileManager.default.fileExists(atPath: path) {
+                    if !Self.isDaemonProcessAlive() {
+                        log.warning("Stale daemon socket detected — PID is dead, removing socket at \(path, privacy: .public)")
+                        // Only remove the path if it is actually a Unix socket, not a regular file.
+                        var isSocket = false
+                        if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                           let fileType = attrs[.type] as? FileAttributeType,
+                           fileType == .typeSocket {
+                            isSocket = true
+                        }
+                        if isSocket {
+                            try? FileManager.default.removeItem(atPath: path)
+                        }
+                        isConnecting = false
+                        throw NWError.posix(.ECONNREFUSED)
+                    }
+                } else {
+                    // Socket file doesn't exist — fail fast with ENOENT instead of
+                    // letting NWConnection hang until the connect timeout (ETIMEDOUT).
+                    log.warning("Daemon socket not found at \(path, privacy: .public)")
+                    isConnecting = false
+                    throw NWError.posix(.ENOENT)
                 }
-                if isSocket {
-                    try? FileManager.default.removeItem(atPath: path)
-                }
-                isConnecting = false
-                throw NWError.posix(.ECONNREFUSED)
             }
 
             log.info("Connecting to daemon socket at \(path, privacy: .public)")
