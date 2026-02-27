@@ -167,6 +167,90 @@ export function isDowngradedFromKeychain(): boolean {
   return downgradedFromKeychain;
 }
 
+// ---------------------------------------------------------------------------
+// Async variants — non-blocking alternatives that avoid blocking the event
+// loop during keychain operations. Preferred for non-startup code paths.
+// ---------------------------------------------------------------------------
+
+/**
+ * Async version of `getSecureKey` — retrieve a secret without blocking.
+ */
+export async function getSecureKeyAsync(account: string): Promise<string | undefined> {
+  const backend = getBackend();
+  if (backend === 'keychain') {
+    try {
+      return (await keychain.getKeyAsync(account)) ?? undefined;
+    } catch {
+      log.warn('Keychain read failed at runtime, falling back to encrypted file storage');
+      resolvedBackend = 'encrypted';
+      downgradedFromKeychain = true;
+      return encryptedStore.getKey(account);
+    }
+  }
+  if (backend === 'encrypted') {
+    const value = encryptedStore.getKey(account);
+    if (value === undefined && downgradedFromKeychain) {
+      try {
+        return (await keychain.getKeyAsync(account)) ?? undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    return value;
+  }
+  return undefined;
+}
+
+/**
+ * Async version of `setSecureKey` — store a secret without blocking.
+ */
+export async function setSecureKeyAsync(account: string, value: string): Promise<boolean> {
+  const backend = getBackend();
+  if (backend === 'encrypted') return encryptedStore.setKey(account, value);
+  if (backend !== 'keychain') return false;
+
+  const result = await keychain.setKeyAsync(account, value);
+  if (result === false) {
+    log.warn('Keychain operation failed at runtime, falling back to encrypted file storage');
+    resolvedBackend = 'encrypted';
+    downgradedFromKeychain = true;
+    return encryptedStore.setKey(account, value);
+  }
+  return result;
+}
+
+/**
+ * Async version of `deleteSecureKey` — delete a secret without blocking.
+ */
+export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
+  const backend = getBackend();
+  if (backend === 'encrypted') {
+    const result = encryptedStore.deleteKey(account);
+    if (downgradedFromKeychain) {
+      await keychain.deleteKeyAsync(account); // best-effort
+    }
+    return result;
+  }
+  if (backend !== 'keychain') return false;
+
+  try {
+    if ((await keychain.getKeyAsync(account)) == null) {
+      return false;
+    }
+  } catch {
+    // fall through
+  }
+
+  const result = await keychain.deleteKeyAsync(account);
+  if (result === false) {
+    log.warn('Keychain operation failed at runtime, falling back to encrypted file storage');
+    resolvedBackend = 'encrypted';
+    downgradedFromKeychain = true;
+    return encryptedStore.deleteKey(account);
+  }
+  return result;
+}
+
 /** @internal Test-only: reset the cached backend so it's re-evaluated. */
 export function _resetBackend(): void {
   resolvedBackend = undefined;
