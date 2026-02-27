@@ -86,10 +86,23 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Cached set of thread IDs whose ChatViewModel indicates active processing.
     @Published private(set) var busyThreadIds: Set<UUID> = []
 
-    /// Threads that are not archived — used by the UI to populate the sidebar.
+    /// The currently active profile. Set by MainWindowView to mirror SettingsStore.activeProfile.
+    /// Used to filter threads so parental threads are hidden in child mode and vice versa.
+    @Published var activeProfile: String = "parental"
+
+    /// UserDefaults key for the sessionId → profile mapping.
+    private let sessionProfilesKey = "threadSessionProfiles"
+
+    /// Persistent mapping from daemon sessionId to the profile under which the thread was created.
+    private var sessionProfiles: [String: String] {
+        get { (UserDefaults.standard.dictionary(forKey: sessionProfilesKey) as? [String: String]) ?? [:] }
+        set { UserDefaults.standard.setValue(newValue, forKey: sessionProfilesKey) }
+    }
+
+    /// Threads that are not archived and belong to the active profile — populates the sidebar.
     /// Sorted: pinned first (by pinnedOrder ascending), then unpinned by lastInteractedAt descending.
     var visibleThreads: [ThreadModel] {
-        threads.filter { !$0.isArchived && $0.kind != .private }.sorted { a, b in
+        threads.filter { !$0.isArchived && $0.kind != .private && $0.profile == activeProfile }.sorted { a, b in
             if a.isPinned && b.isPinned {
                 return (a.pinnedOrder ?? 0) < (b.pinnedOrder ?? 0)
             }
@@ -102,7 +115,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Count of visible (non-archived, non-private) threads with unseen assistant messages.
     /// Used by AppDelegate to drive the dock badge.
     var unseenVisibleConversationCount: Int {
-        threads.filter { !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage }.count
+        threads.filter { !$0.isArchived && $0.kind != .private && $0.profile == activeProfile && $0.hasUnseenLatestAssistantMessage }.count
     }
 
     var archivedThreads: [ThreadModel] {
@@ -148,7 +161,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             }
         }
 
-        let thread = ThreadModel()
+        let thread = ThreadModel(profile: activeProfile)
         let viewModel = makeViewModel()
         viewModel.isHistoryLoaded = true  // No session yet — nothing to load
         let threadId = thread.id
@@ -760,6 +773,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
               let index = threads.firstIndex(where: { $0.id == threadId }),
               threads[index].sessionId == nil else { return }
         threads[index].sessionId = sessionId
+        // Persist the profile for this session so it survives restarts.
+        var profiles = sessionProfiles
+        profiles[sessionId] = threads[index].profile
+        sessionProfiles = profiles
         // If the thread was archived before the session ID arrived,
         // persist the archive state now that we have a session ID and
         // release the view model that was kept alive for this callback.

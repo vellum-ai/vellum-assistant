@@ -1088,9 +1088,13 @@ private struct PINSheet: View {
     }
 
     @State private var step: Step = .enterCurrent
-    @State private var currentPIN: String = ""
-    @State private var newPIN: String = ""
-    @State private var confirmPIN: String = ""
+    /// The single active input field — reset to "" on every step transition so
+    /// `.id(step)` always recreates `PINCircleField` with a clean, focused field.
+    @State private var pinInput: String = ""
+    /// Captured after the user leaves `.enterCurrent`. Passed to the IPC call.
+    @State private var storedCurrent: String = ""
+    /// Captured after the user leaves `.enterNew`. Compared against in `.confirmNew`.
+    @State private var storedNew: String = ""
     @State private var isLoading: Bool = false
     @State private var errorMessage: String?
 
@@ -1115,14 +1119,6 @@ private struct PINSheet: View {
         }
     }
 
-    private var activeBinding: Binding<String> {
-        switch step {
-        case .enterCurrent: return $currentPIN
-        case .enterNew:     return $newPIN
-        case .confirmNew:   return $confirmPIN
-        }
-    }
-
     var body: some View {
         VStack(spacing: VSpacing.xl) {
             // Header
@@ -1138,12 +1134,15 @@ private struct PINSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .center)
 
-            // PIN circles — recreated (and auto-focused) on each step change
-            PINCircleField(text: activeBinding)
+            // Single input field — `.id(step)` tears it down and rebuilds it
+            // (triggering auto-focus) whenever the step changes. `pinInput` is
+            // always reset to "" before the step is changed, so a stale
+            // onChange callback from the previous step can never fire advance().
+            PINCircleField(text: $pinInput)
                 .id(step)
-                .onChange(of: currentPIN) { _, v in if step == .enterCurrent && v.count == 6 { advance() } }
-                .onChange(of: newPIN)     { _, v in if step == .enterNew     && v.count == 6 { advance() } }
-                .onChange(of: confirmPIN) { _, v in if step == .confirmNew   && v.count == 6 { advance() } }
+                .onChange(of: pinInput) { _, v in
+                    if v.count == 6 { advance() }
+                }
 
             // Error / placeholder to keep height stable
             if let error = errorMessage {
@@ -1167,41 +1166,49 @@ private struct PINSheet: View {
         .background(VColor.background)
         .onAppear {
             step = (mode == .set) ? .enterNew : .enterCurrent
+            pinInput = ""
         }
     }
 
     private func advance() {
+        // Double-fire guard: `isLoading` covers the submit path; the `.count == 6`
+        // check below covers step-transition paths (isLoading is never set there).
         guard !isLoading else { return }
+        guard pinInput.count == 6 else { return }
         errorMessage = nil
         switch mode {
         case .set:
             if step == .enterNew {
-                confirmPIN = ""
+                storedNew = pinInput
+                pinInput = ""
                 withAnimation(VAnimation.standard) { step = .confirmNew }
             } else if step == .confirmNew {
-                if confirmPIN == newPIN { submit() }
+                if pinInput == storedNew { submit() }
                 else { mismatch() }
             }
         case .change:
             if step == .enterCurrent {
-                newPIN = ""
+                storedCurrent = pinInput
+                pinInput = ""
                 withAnimation(VAnimation.standard) { step = .enterNew }
             } else if step == .enterNew {
-                confirmPIN = ""
+                storedNew = pinInput
+                pinInput = ""
                 withAnimation(VAnimation.standard) { step = .confirmNew }
             } else if step == .confirmNew {
-                if confirmPIN == newPIN { submit() }
+                if pinInput == storedNew { submit() }
                 else { mismatch() }
             }
         case .clear:
+            storedCurrent = pinInput
             submit()
         }
     }
 
     private func mismatch() {
         errorMessage = "Passcodes don't match. Try again."
-        newPIN = ""
-        confirmPIN = ""
+        storedNew = ""
+        pinInput = ""
         withAnimation(VAnimation.standard) { step = .enterNew }
     }
 
@@ -1211,9 +1218,9 @@ private struct PINSheet: View {
         Task {
             do {
                 switch mode {
-                case .set:    try daemonClient?.sendParentalControlSetPin(newPin: newPIN)
-                case .change: try daemonClient?.sendParentalControlChangePin(currentPin: currentPIN, newPin: newPIN)
-                case .clear:  try daemonClient?.sendParentalControlClearPin(currentPin: currentPIN)
+                case .set:    try daemonClient?.sendParentalControlSetPin(newPin: storedNew)
+                case .change: try daemonClient?.sendParentalControlChangePin(currentPin: storedCurrent, newPin: storedNew)
+                case .clear:  try daemonClient?.sendParentalControlClearPin(currentPin: storedCurrent)
                 }
             } catch {
                 await MainActor.run {
@@ -1246,11 +1253,11 @@ private struct PINSheet: View {
                     if r.success {
                         onComplete(.success(mode))
                     } else {
-                        // Wrong current passcode — restart from step 1
+                        // Wrong passcode — restart from step 1
                         errorMessage = r.error ?? "Operation failed."
-                        currentPIN = ""
-                        newPIN = ""
-                        confirmPIN = ""
+                        storedCurrent = ""
+                        storedNew = ""
+                        pinInput = ""
                         withAnimation(VAnimation.standard) {
                             step = (mode == .set) ? .enterNew : .enterCurrent
                         }
@@ -1281,8 +1288,8 @@ private struct SetPINForEnableSheet: View {
     private enum Step: Hashable { case enterNew, confirmNew }
 
     @State private var step: Step = .enterNew
-    @State private var pin: String = ""
-    @State private var confirmPIN: String = ""
+    @State private var pinInput: String = ""
+    @State private var storedNew: String = ""
     @State private var isLoading: Bool = false
     @State private var errorMessage: String?
 
@@ -1308,10 +1315,11 @@ private struct SetPINForEnableSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .center)
 
-            PINCircleField(text: step == .enterNew ? $pin : $confirmPIN)
+            PINCircleField(text: $pinInput)
                 .id(step)
-                .onChange(of: pin)       { _, v in if step == .enterNew   && v.count == 6 { advance() } }
-                .onChange(of: confirmPIN) { _, v in if step == .confirmNew && v.count == 6 { advance() } }
+                .onChange(of: pinInput) { _, v in
+                    if v.count == 6 { advance() }
+                }
 
             if let error = errorMessage {
                 Text(error)
@@ -1334,15 +1342,18 @@ private struct SetPINForEnableSheet: View {
     }
 
     private func advance() {
+        guard !isLoading else { return }
+        guard pinInput.count == 6 else { return }
         errorMessage = nil
         if step == .enterNew {
-            confirmPIN = ""
+            storedNew = pinInput
+            pinInput = ""
             withAnimation(VAnimation.standard) { step = .confirmNew }
         } else {
-            guard confirmPIN == pin else {
+            guard pinInput == storedNew else {
                 errorMessage = "Passcodes don't match. Try again."
-                pin = ""
-                confirmPIN = ""
+                storedNew = ""
+                pinInput = ""
                 withAnimation(VAnimation.standard) { step = .enterNew }
                 return
             }
@@ -1355,7 +1366,7 @@ private struct SetPINForEnableSheet: View {
         let stream = daemonClient?.subscribe()
         Task {
             do {
-                try daemonClient?.sendParentalControlSetPin(newPin: pin)
+                try daemonClient?.sendParentalControlSetPin(newPin: storedNew)
             } catch {
                 await MainActor.run {
                     isLoading = false
@@ -1385,11 +1396,11 @@ private struct SetPINForEnableSheet: View {
                 isLoading = false
                 if let r = response {
                     if r.success {
-                        onComplete(.success(pin: pin))
+                        onComplete(.success(pin: storedNew))
                     } else {
                         errorMessage = r.error ?? "Failed to set passcode."
-                        pin = ""
-                        confirmPIN = ""
+                        storedNew = ""
+                        pinInput = ""
                         withAnimation(VAnimation.standard) { step = .enterNew }
                     }
                 } else {

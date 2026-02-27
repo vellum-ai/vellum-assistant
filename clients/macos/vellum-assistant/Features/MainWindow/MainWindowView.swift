@@ -535,159 +535,10 @@ struct MainWindowView: View {
             }
     }
 
-    /// Core layout extracted to break up type-checker complexity.
-    private var coreLayoutView: some View {
+    /// Visual scaffold: geometry + static overlays, extracted to avoid type-checker complexity.
+    private var coreScaffold: some View {
         GeometryReader { geometry in
-            Group {
-                VStack(spacing: 0) {
-                    // Top bar (always visible, above sidebar)
-                    HStack(spacing: VSpacing.sm) {
-                        VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarExpanded, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
-                            withAnimation(VAnimation.panel) {
-                                sidebarExpanded.toggle()
-                            }
-                        }
-                        if isChatBubbleVisible {
-                            ChatBubbleToggle(
-                                isActive: isChatBubbleActive,
-                                tooltip: isChatBubbleActive ? "Hide chat" : "Show chat",
-                                onToggle: { toggleChatBubble() }
-                            )
-                        }
-                        Spacer()
-                        // Child Mode indicator — visible whenever parental controls are
-                        // active and the active profile is "child", so the restricted user
-                        // always has a clear visual cue about which mode they're in.
-                        if settingsStore.isParentalEnabled && settingsStore.activeProfile == "child" {
-                            HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "lock.shield")
-                                    .foregroundColor(VColor.warning)
-                                Text("Child Mode")
-                                    .font(VFont.captionMedium)
-                                    .foregroundColor(VColor.warning)
-                            }
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
-                            .background(VColor.warning.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .accessibilityLabel("Child Mode active")
-                        }
-                        if windowState.isShowingChat || isChatBubbleActive {
-                            // Copy Thread button — only visible when there's content to copy
-                            if threadManager.activeViewModel?.messages.contains(where: {
-                                !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            }) == true {
-                                VIconButton(
-                                    label: "Copy thread",
-                                    icon: copyThread.showConfirmation ? "checkmark" : "list.clipboard",
-                                    isActive: copyThread.showConfirmation,
-                                    iconOnly: true,
-                                    tooltip: copyThread.showConfirmation ? "Copied!" : "Copy thread"
-                                ) {
-                                    let messages = threadManager.activeViewModel?.messages ?? []
-                                    let title = threadManager.activeThread?.title
-                                    let names = resolveParticipantNames()
-                                    let markdown = ChatTranscriptFormatter.threadMarkdown(
-                                        messages: messages,
-                                        threadTitle: title,
-                                        participantNames: names
-                                    )
-                                    guard !markdown.isEmpty else { return }
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(markdown, forType: .string)
-                                    copyThread.cancel()
-                                    copyThread.showConfirmation = true
-                                    let timer = DispatchWorkItem { [copyThread] in copyThread.showConfirmation = false }
-                                    copyThread.confirmationTimer = timer
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
-                                }
-                            }
-
-                            // Voice mode toggle
-                            VIconButton(
-                                label: "Voice Mode",
-                                icon: voiceModeManager.state != .off ? "waveform.circle.fill" : "waveform.circle",
-                                isActive: voiceModeManager.state != .off,
-                                iconOnly: true,
-                                tooltip: voiceModeManager.state != .off ? "Exit voice mode" : "Voice mode"
-                            ) {
-                                toggleVoiceMode()
-                            }
-
-                            // Temporary chat toggle — always visible on private threads (so users can exit temp chat),
-                            // only visible on normal threads when no messages exist yet
-                            if threadManager.activeThread?.kind == .private || threadManager.activeViewModel?.messages.contains(where: {
-                                !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            }) != true {
-                                TemporaryChatToggle(
-                                    isActive: threadManager.activeThread?.kind == .private,
-                                    tooltip: threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat",
-                                    onToggle: { toggleTemporaryChat() }
-                                )
-                            }
-                        }
-                    }
-                    .padding(.leading, trafficLightPadding)
-                    .padding(.trailing, VSpacing.lg)
-                    .frame(height: 36)
-                    .background(adaptiveColor(light: Moss._50, dark: Moss._950))
-
-                    // Main container: sidebar + content with uniform padding
-                    HStack(spacing: 16) {
-                        sidebarView
-
-                        chatContentView(geometry: geometry)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                    }
-                    .padding(16)
-                    .animation(VAnimation.panel, value: sidebarExpanded)
-                }
-                .overlay {
-                    // Click-outside-to-dismiss background for control center drawer
-                    // Must mirror the same condition as the drawer itself: hidden in child profile
-                    let isChildProfile = settingsStore.isParentalEnabled && settingsStore.activeProfile == "child"
-                    if sidebar.showControlCenterDrawer && !isChildProfile {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                                    sidebar.showControlCenterDrawer = false
-                                }
-                            }
-                    }
-                }
-                .overlay(alignment: .bottomLeading) {
-                    // Control center drawer — never shown for child profile
-                    let isChildProfile = settingsStore.isParentalEnabled && settingsStore.activeProfile == "child"
-                    if sidebar.showControlCenterDrawer && !isChildProfile {
-                        let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
-                        let drawerX = sidebarExpanded
-                            ? 16 + VSpacing.sm
-                            : 16 + sidebarCollapsedWidth - VSpacing.xs
-                        DrawerMenuView(
-                            onSettings: {
-                                sidebar.showControlCenterDrawer = false
-                                windowState.selection = .panel(.settings)
-                            },
-                            onDebug: {
-                                sidebar.showControlCenterDrawer = false
-                                windowState.selection = .panel(.debug)
-                            }
-                        )
-                        .frame(width: drawerWidth)
-                        .offset(x: drawerX, y: -28)
-                        .zIndex(10)
-                        .transition(.opacity)
-                    }
-                }
-            }
-            .ignoresSafeArea(edges: .top)
-            .background(VColor.background.ignoresSafeArea())
-            .frame(width: geometry.size.width / zoomManager.zoomLevel,
-                   height: geometry.size.height / zoomManager.zoomLevel)
-            .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
-            .frame(width: geometry.size.width, height: geometry.size.height,
-                   alignment: .topLeading)
+            coreGeometryContent(geometry: geometry)
         }
         .frame(minWidth: 800, minHeight: 600)
         .overlay(alignment: .top) {
@@ -715,6 +566,11 @@ struct MainWindowView: View {
         .overlay {
             JITPermissionView(manager: jitPermissionManager)
         }
+    }
+
+    /// Core layout: scaffold + event handlers.
+    private var coreLayoutView: some View {
+        coreScaffold
         .onAppear {
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             selectedThreadId = threadManager.activeThreadId
@@ -846,6 +702,161 @@ struct MainWindowView: View {
                 sidebar.threadPendingDeletion = nil
             }
         }
+    }
+
+    /// Extracted from `coreLayoutView` to avoid type-checker complexity timeout.
+    @ViewBuilder
+    private func coreGeometryContent(geometry: GeometryProxy) -> some View {
+        Group {
+            VStack(spacing: 0) {
+                // Top bar (always visible, above sidebar)
+                HStack(spacing: VSpacing.sm) {
+                    VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarExpanded, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                        withAnimation(VAnimation.panel) {
+                            sidebarExpanded.toggle()
+                        }
+                    }
+                    if isChatBubbleVisible {
+                        ChatBubbleToggle(
+                            isActive: isChatBubbleActive,
+                            tooltip: isChatBubbleActive ? "Hide chat" : "Show chat",
+                            onToggle: { toggleChatBubble() }
+                        )
+                    }
+                    Spacer()
+                    // Child Mode indicator — visible whenever parental controls are
+                    // active and the active profile is "child", so the restricted user
+                    // always has a clear visual cue about which mode they're in.
+                    if settingsStore.isParentalEnabled && settingsStore.activeProfile == "child" {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "lock.shield")
+                                .foregroundColor(VColor.warning)
+                            Text("Child Mode")
+                                .font(VFont.captionMedium)
+                                .foregroundColor(VColor.warning)
+                        }
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(VColor.warning.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .accessibilityLabel("Child Mode active")
+                    }
+                    if windowState.isShowingChat || isChatBubbleActive {
+                        // Copy Thread button — only visible when there's content to copy
+                        if threadManager.activeViewModel?.messages.contains(where: {
+                            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        }) == true {
+                            VIconButton(
+                                label: "Copy thread",
+                                icon: copyThread.showConfirmation ? "checkmark" : "list.clipboard",
+                                isActive: copyThread.showConfirmation,
+                                iconOnly: true,
+                                tooltip: copyThread.showConfirmation ? "Copied!" : "Copy thread"
+                            ) {
+                                let messages = threadManager.activeViewModel?.messages ?? []
+                                let title = threadManager.activeThread?.title
+                                let names = resolveParticipantNames()
+                                let markdown = ChatTranscriptFormatter.threadMarkdown(
+                                    messages: messages,
+                                    threadTitle: title,
+                                    participantNames: names
+                                )
+                                guard !markdown.isEmpty else { return }
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(markdown, forType: .string)
+                                copyThread.cancel()
+                                copyThread.showConfirmation = true
+                                let timer = DispatchWorkItem { [copyThread] in copyThread.showConfirmation = false }
+                                copyThread.confirmationTimer = timer
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+                            }
+                        }
+
+                        // Voice mode toggle
+                        VIconButton(
+                            label: "Voice Mode",
+                            icon: voiceModeManager.state != .off ? "waveform.circle.fill" : "waveform.circle",
+                            isActive: voiceModeManager.state != .off,
+                            iconOnly: true,
+                            tooltip: voiceModeManager.state != .off ? "Exit voice mode" : "Voice mode"
+                        ) {
+                            toggleVoiceMode()
+                        }
+
+                        // Temporary chat toggle — always visible on private threads (so users can exit temp chat),
+                        // only visible on normal threads when no messages exist yet
+                        if threadManager.activeThread?.kind == .private || threadManager.activeViewModel?.messages.contains(where: {
+                            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        }) != true {
+                            TemporaryChatToggle(
+                                isActive: threadManager.activeThread?.kind == .private,
+                                tooltip: threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat",
+                                onToggle: { toggleTemporaryChat() }
+                            )
+                        }
+                    }
+                }
+                .padding(.leading, trafficLightPadding)
+                .padding(.trailing, VSpacing.lg)
+                .frame(height: 36)
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+
+                // Main container: sidebar + content with uniform padding
+                HStack(spacing: 16) {
+                    sidebarView
+
+                    chatContentView(geometry: geometry)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                }
+                .padding(16)
+                .animation(VAnimation.panel, value: sidebarExpanded)
+            }
+            .overlay {
+                // Click-outside-to-dismiss background for control center drawer
+                // Must mirror the same condition as the drawer itself: hidden in child profile
+                let isChildProfile = settingsStore.isParentalEnabled && settingsStore.activeProfile == "child"
+                if sidebar.showControlCenterDrawer && !isChildProfile {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                                sidebar.showControlCenterDrawer = false
+                            }
+                        }
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                // Control center drawer — never shown for child profile
+                let isChildProfile = settingsStore.isParentalEnabled && settingsStore.activeProfile == "child"
+                if sidebar.showControlCenterDrawer && !isChildProfile {
+                    let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
+                    let drawerX = sidebarExpanded
+                        ? 16 + VSpacing.sm
+                        : 16 + sidebarCollapsedWidth - VSpacing.xs
+                    DrawerMenuView(
+                        onSettings: {
+                            sidebar.showControlCenterDrawer = false
+                            windowState.selection = .panel(.settings)
+                        },
+                        onDebug: {
+                            sidebar.showControlCenterDrawer = false
+                            windowState.selection = .panel(.debug)
+                        }
+                    )
+                    .frame(width: drawerWidth)
+                    .offset(x: drawerX, y: -28)
+                    .zIndex(10)
+                    .transition(.opacity)
+                }
+            }
+        }
+        .ignoresSafeArea(edges: .top)
+        .background(VColor.background.ignoresSafeArea())
+        .frame(width: geometry.size.width / zoomManager.zoomLevel,
+               height: geometry.size.height / zoomManager.zoomLevel)
+        .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
+        .frame(width: geometry.size.width, height: geometry.size.height,
+               alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -1814,6 +1825,7 @@ private struct ProfileSwitchModal: View {
     }
 
     private func performSwitch() {
+        guard step != .switching else { return }
         let targetProfile = isChildToParental ? "parental" : "child"
         let switchPIN: String? = isChildToParental ? pin : nil
         withAnimation(VAnimation.standard) { step = .switching }
