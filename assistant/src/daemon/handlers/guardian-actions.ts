@@ -32,6 +32,18 @@ export const guardianActionsHandlers = defineHandlers({
     // Try the channel guardian approval store first (tool approval prompts)
     const approval = getPendingApprovalForRequest(msg.requestId);
     if (approval) {
+      // Enforce conversationId scoping when provided.
+      if (msg.conversationId && msg.conversationId !== approval.conversationId) {
+        log.warn({ requestId: msg.requestId, expected: approval.conversationId, got: msg.conversationId }, 'conversationId mismatch');
+        ctx.send(socket, {
+          type: 'guardian_action_decision_response',
+          applied: false,
+          reason: 'conversation_mismatch',
+          requestId: msg.requestId,
+        });
+        return;
+      }
+
       // Access request approvals need a separate decision path — they don't have
       // pending interactions and use verification sessions instead.
       if (approval.toolName === 'ingress_access_request') {
@@ -53,7 +65,7 @@ export const guardianActionsHandlers = defineHandlers({
       const result = applyGuardianDecision({
         approval,
         decision: { action: msg.action as 'approve_once' | 'approve_always' | 'reject', source: 'plain_text', requestId: msg.requestId },
-        actorExternalUserId: approval.guardianExternalUserId ?? undefined,
+        actorExternalUserId: undefined,
         actorChannel: 'vellum',
       });
       ctx.send(socket, {
@@ -69,6 +81,18 @@ export const guardianActionsHandlers = defineHandlers({
     // Route through handleChannelDecision so approve_always properly persists trust rules.
     const interaction = pendingInteractions.get(msg.requestId);
     if (interaction) {
+      // Enforce conversationId scoping when provided.
+      if (msg.conversationId && msg.conversationId !== interaction.conversationId) {
+        log.warn({ requestId: msg.requestId, expected: interaction.conversationId, got: msg.conversationId }, 'conversationId mismatch');
+        ctx.send(socket, {
+          type: 'guardian_action_decision_response',
+          applied: false,
+          reason: 'conversation_mismatch',
+          requestId: msg.requestId,
+        });
+        return;
+      }
+
       const result = handleChannelDecision(
         interaction.conversationId,
         { action: msg.action as ApprovalAction, source: 'plain_text', requestId: msg.requestId },

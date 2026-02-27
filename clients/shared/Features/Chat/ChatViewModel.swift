@@ -2416,8 +2416,14 @@ public final class ChatViewModel: ObservableObject {
         }
 
         let existingIds = Set(messages.compactMap { $0.guardianDecision?.requestId })
+        // Also track confirmation bubbles to avoid creating duplicate guardian
+        // decision cards for the same requestId that already has a confirmation UI.
+        let existingConfirmationIds = Set(messages.compactMap { $0.confirmation?.requestId })
 
         for wire in relevantPrompts {
+            if existingConfirmationIds.contains(wire.requestId) {
+                continue
+            }
             if existingIds.contains(wire.requestId) {
                 // Update existing message
                 if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == wire.requestId }) {

@@ -75,6 +75,11 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
   // Try the channel guardian approval store first (tool approval prompts)
   const approval = getPendingApprovalForRequest(requestId);
   if (approval) {
+    // Enforce conversationId scoping: reject decisions that target the wrong conversation.
+    if (conversationId && conversationId !== approval.conversationId) {
+      return httpError('BAD_REQUEST', 'conversationId does not match the approval', 400);
+    }
+
     // Access request approvals need a separate decision path — they don't have
     // pending interactions and use verification sessions instead.
     if (approval.toolName === 'ingress_access_request') {
@@ -92,10 +97,14 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
       });
     }
 
+    // Note: actorExternalUserId is left undefined because the desktop endpoint
+    // does not authenticate caller identity. This means scoped grant minting is
+    // skipped for button-based decisions — an acceptable trade-off to avoid
+    // falsifying audit records with an unverified guardian identity.
     const result = applyGuardianDecision({
       approval,
       decision: { action: action as 'approve_once' | 'approve_always' | 'reject', source: 'plain_text', requestId },
-      actorExternalUserId: approval.guardianExternalUserId ?? undefined,
+      actorExternalUserId: undefined,
       actorChannel: 'vellum',
     });
     return Response.json({ ...result, requestId: result.requestId ?? requestId });
@@ -105,6 +114,11 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
   // Route through handleChannelDecision so approve_always properly persists trust rules.
   const interaction = pendingInteractions.get(requestId);
   if (interaction) {
+    // Enforce conversationId scoping for interactions too.
+    if (conversationId && conversationId !== interaction.conversationId) {
+      return httpError('BAD_REQUEST', 'conversationId does not match the interaction', 400);
+    }
+
     const result = handleChannelDecision(
       interaction.conversationId,
       { action: action as ApprovalAction, source: 'plain_text', requestId },
