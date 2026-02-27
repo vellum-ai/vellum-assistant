@@ -65,6 +65,7 @@ struct SettingsPanel: View {
     @State private var showingTrustRules = false
     @State private var showingReminders = false
     @State private var showingScheduledTasks = false
+    @State private var showingHeartbeatConfig = false
     @State private var twitterClientId: String = ""
     @State private var twitterClientSecret: String = ""
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
@@ -207,6 +208,11 @@ struct SettingsPanel: View {
                 ScheduledTasksView(daemonClient: daemonClient)
             }
         }
+        .sheet(isPresented: $showingHeartbeatConfig) {
+            if let daemonClient {
+                HeartbeatConfigView(daemonClient: daemonClient)
+            }
+        }
     }
 
     // MARK: - Nav Sidebar
@@ -239,7 +245,7 @@ struct SettingsPanel: View {
         case .permissions:
             permissionsContent
         case .automation:
-            SettingsAutomationTab(daemonClient: daemonClient, showingReminders: $showingReminders, showingScheduledTasks: $showingScheduledTasks)
+            SettingsAutomationTab(daemonClient: daemonClient, showingReminders: $showingReminders, showingScheduledTasks: $showingScheduledTasks, showingHeartbeatConfig: $showingHeartbeatConfig)
         case .appearance:
             SettingsAppearanceTab(store: store)
         case .parental:
