@@ -35,6 +35,7 @@ struct ChatBubble: View {
     /// manager publishes any change (the "thundering herd" problem).
     var activeSurfaceId: String?
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.conversationZoomScale) var conversationZoomScale
 
     var isUser: Bool { message.role == .user }
@@ -216,7 +217,7 @@ struct ChatBubble: View {
                             .opacity(isPulsing ? 0.4 : 1.0)
                             .offset(x: -(28 + VSpacing.sm), y: 2)
                             .onChange(of: isLatestAssistantMessage && message.isStreaming) { _, shouldPulse in
-                                if shouldPulse {
+                                if shouldPulse && !reduceMotion {
                                     withAnimation(VAnimation.pulse) {
                                         isPulsing = true
                                     }
@@ -226,8 +227,15 @@ struct ChatBubble: View {
                                     }
                                 }
                             }
+                            .onChange(of: reduceMotion) { _, isReduced in
+                                if isReduced && isPulsing {
+                                    withAnimation(VAnimation.fast) {
+                                        isPulsing = false
+                                    }
+                                }
+                            }
                             .onAppear {
-                                if isLatestAssistantMessage && message.isStreaming {
+                                if isLatestAssistantMessage && message.isStreaming && !reduceMotion {
                                     withAnimation(VAnimation.pulse) {
                                         isPulsing = true
                                     }
