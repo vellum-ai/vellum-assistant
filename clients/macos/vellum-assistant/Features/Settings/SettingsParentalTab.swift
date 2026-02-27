@@ -1293,14 +1293,12 @@ private struct PINSheet: View {
                     if v.count == 6 && step != .enterCurrent { advance() }
                 }
 
-            // Error / placeholder to keep height stable
+            // Error — only shown when present; no placeholder so spacing stays equal
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
                     .multilineTextAlignment(.center)
-            } else {
-                Text(" ").font(VFont.caption)
             }
 
             // Footer
@@ -1556,8 +1554,6 @@ private struct SetPINForEnableSheet: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
                     .multilineTextAlignment(.center)
-            } else {
-                Text(" ").font(VFont.caption)
             }
 
             if isLoading {
@@ -1858,8 +1854,6 @@ private struct UnlockPINView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
                     .multilineTextAlignment(.center)
-            } else {
-                Text(" ").font(VFont.caption)
             }
 
             if isLoading {
