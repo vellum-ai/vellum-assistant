@@ -292,9 +292,6 @@ struct ComposerView: View {
                         state: $isStopHovered
                     )
                 }
-                .onChange(of: isSending) {
-                    isStopPulsing = isSending && !hasPendingConfirmation
-                }
                 .onAppear {
                     isStopPulsing = isSending && !hasPendingConfirmation
                 }
@@ -378,6 +375,9 @@ struct ComposerView: View {
         }
         .padding(.trailing, -(VSpacing.lg - VSpacing.sm))
         .animation(VAnimation.spring, value: canSend)
+        .onChange(of: isSending) {
+            isStopPulsing = isSending && !hasPendingConfirmation
+        }
     }
 
     private func handleComposerButtonHover(
