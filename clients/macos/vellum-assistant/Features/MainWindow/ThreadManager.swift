@@ -550,6 +550,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 threads[idx].pinnedOrder = order
             }
         }
+        sendReorderThreads()
     }
 
     func updateLastInteracted(threadId: UUID) {
