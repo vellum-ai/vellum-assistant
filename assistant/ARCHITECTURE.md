@@ -62,6 +62,41 @@ All guardian approval decisions — regardless of how they arrive — route thro
 | `src/daemon/ipc-contract/guardian-actions.ts` | IPC message type definitions for guardian action requests/responses |
 | `src/runtime/channel-approval-types.ts` | Channel-facing approval action types and `toApprovalActionOptions` bridge |
 
+### Canonical Guardian Request System
+
+The canonical guardian request system provides a channel-agnostic, unified domain for all guardian approval and question flows. It replaces the fragmented per-channel storage with a single source of truth that works identically for voice calls, Telegram/SMS/WhatsApp, and desktop UI.
+
+**Architecture layers:**
+
+1. **Canonical domain (single source of truth):** All guardian requests — tool approvals, pending questions, access requests — are persisted in the `canonical_guardian_requests` table (`src/memory/canonical-guardian-store.js`). Each request has a unique ID, a short human-readable request code, and a status that follows a CAS (compare-and-swap) lifecycle: `pending` -> `approved` | `denied` | `expired` | `cancelled`. Deliveries (notifications sent to guardians) are tracked in `canonical_guardian_deliveries`.
+
+2. **Unified apply primitive (single write path):** `applyCanonicalGuardianDecision()` in `src/approvals/guardian-decision-primitive.ts` is the single write path for all guardian decisions. It enforces identity validation, expiry checks, CAS resolution, `approve_always` downgrade (guardian-on-behalf invariant), kind-specific resolver dispatch via the resolver registry, and scoped grant minting. All callers — HTTP API, IPC handlers, inbound channel router, desktop session — route decisions through this function.
+
+3. **Shared reply router (priority-ordered routing):** `routeGuardianReply()` in `src/runtime/guardian-reply-router.ts` provides a single entry point for all inbound guardian reply processing across channels. It routes through a priority-ordered pipeline: (a) deterministic callback parsing (button presses with `apr:<requestId>:<action>`), (b) request code parsing (6-char alphanumeric prefix), (c) NL classification via the conversational approval engine. All decisions flow through `applyCanonicalGuardianDecision`.
+
+4. **Deterministic API (prompt listing and decision endpoints):** Desktop clients and API consumers use `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` (HTTP) or the equivalent IPC messages. These endpoints surface canonical requests alongside legacy pending interactions and channel approval records, with deduplication to avoid double-rendering.
+
+5. **Dual-mode (deterministic + conversational):** Guardians can respond via structured button UIs (deterministic path) or free-text conversation (NL path). Both paths converge on the same canonical primitive. Code-only messages (just a request code without decision text) return clarification instead of auto-approving. Disambiguation with multiple pending requests stays fail-closed — no auto-resolve when the target is ambiguous.
+
+**Resolver registry:** Kind-specific resolvers (`src/approvals/guardian-request-resolvers.ts`) handle side effects after CAS resolution. Built-in resolvers: `tool_approval` (channel/desktop approval path) and `pending_question` (voice call question path). New request kinds register resolvers without touching the core primitive.
+
+**Expiry sweeps:** Three complementary sweeps run on 60-second intervals to clean up stale requests:
+- `src/calls/guardian-action-sweep.ts` — voice call guardian action requests
+- `src/runtime/routes/guardian-expiry-sweep.ts` — channel guardian approval requests
+- `src/runtime/routes/canonical-guardian-expiry-sweep.ts` — canonical guardian requests (CAS-safe)
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/memory/canonical-guardian-store.ts` | Canonical request and delivery persistence (CRUD, CAS resolve, list with filters) |
+| `src/approvals/guardian-decision-primitive.ts` | Unified decision primitive: `applyCanonicalGuardianDecision` (canonical) and `applyGuardianDecision` (legacy) |
+| `src/approvals/guardian-request-resolvers.ts` | Resolver registry: kind-specific side-effect dispatch after CAS resolution |
+| `src/runtime/guardian-reply-router.ts` | Shared inbound router: callback -> code -> NL classification pipeline |
+| `src/runtime/routes/guardian-action-routes.ts` | HTTP endpoints for prompt listing and decision submission |
+| `src/daemon/handlers/guardian-actions.ts` | IPC handlers for desktop socket clients |
+| `src/runtime/routes/canonical-guardian-expiry-sweep.ts` | Canonical request expiry sweep |
+
 ### Outbound Guardian Verification (HTTP Endpoints)
 
 Guardian verification can be initiated through gateway HTTP endpoints (which forward to runtime handlers) as an alternative to the legacy IPC-only flow. This enables chat-first verification where the assistant guides the user through guardian setup via normal conversation.

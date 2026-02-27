@@ -17,6 +17,10 @@ import {
   startGuardianActionSweep,
   stopGuardianActionSweep,
 } from '../calls/guardian-action-sweep.js';
+import {
+  startCanonicalGuardianExpirySweep,
+  stopCanonicalGuardianExpirySweep,
+} from './routes/canonical-guardian-expiry-sweep.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
 import { activeRelayConnections,RelayConnection } from '../calls/relay-server.js';
 import {
@@ -340,6 +344,9 @@ export class RuntimeHttpServer {
     startGuardianActionSweep(getGatewayInternalBaseUrl(), this.bearerToken, this.guardianActionCopyGenerator);
     log.info('Guardian action expiry sweep started');
 
+    startCanonicalGuardianExpirySweep();
+    log.info('Canonical guardian request expiry sweep started');
+
     log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
     if (!isLoopbackHost(this.hostname)) {
       log.warn('RUNTIME_HTTP_HOST is not bound to loopback. This may expose the runtime to direct public access.');
@@ -360,6 +367,7 @@ export class RuntimeHttpServer {
     this.pairingStore.stop();
     stopGuardianExpirySweep();
     stopGuardianActionSweep();
+    stopCanonicalGuardianExpirySweep();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;
