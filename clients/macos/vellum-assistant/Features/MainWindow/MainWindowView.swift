@@ -1556,10 +1556,18 @@ private struct ProfileSwitcherSidebarRow: View {
     var body: some View {
         Button(action: onSwitch) {
             HStack(spacing: isExpanded ? VSpacing.sm : 0) {
-                Image(systemName: avatarIcon)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(avatarColor)
-                    .frame(width: 18)
+                // When collapsed and hovered, show the swap icon instead of avatar
+                if !isExpanded && isHovered {
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(avatarColor)
+                        .frame(width: 18)
+                } else {
+                    Image(systemName: avatarIcon)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(avatarColor)
+                        .frame(width: 18)
+                }
                 if isExpanded {
                     Text(profileLabel)
                         .font(VFont.bodyMedium)
@@ -1649,7 +1657,6 @@ private struct DrawerMenuItem: View {
 // MARK: - Profile Switch Modal
 
 private enum SwitchStep: Equatable {
-    case overview
     case enterPIN
     case switching
 }
@@ -1657,7 +1664,7 @@ private enum SwitchStep: Equatable {
 
 /// Sheet shown when switching between parental and child profiles.
 /// Handles both directions: parental→child (no PIN) and child→parental (PIN required).
-/// Animates between an overview step and a PIN entry step for the child→parental flow.
+/// Opens directly to action — no overview step.
 @MainActor
 private struct ProfileSwitchModal: View {
     let activeProfile: String
@@ -1665,7 +1672,7 @@ private struct ProfileSwitchModal: View {
     var daemonClient: DaemonClient?
     let onSuccess: () -> Void
 
-    @State private var step: SwitchStep = .overview
+    @State private var step: SwitchStep = .enterPIN
     @State private var pin: String = ""
     @State private var errorMessage: String?
 
@@ -1675,7 +1682,13 @@ private struct ProfileSwitchModal: View {
 
     var body: some View {
         VStack(spacing: VSpacing.xl) {
-            // Profile transition header
+            // Title
+            Text(isChildToParental ? "Switch to Parental Mode" : "Switch to Child Mode")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            // From/to avatar icons
             HStack(spacing: VSpacing.md) {
                 profileAvatarColumn(isParental: !isChildToParental)
                 Image(systemName: "arrow.right")
@@ -1685,23 +1698,10 @@ private struct ProfileSwitchModal: View {
             }
             .frame(maxWidth: .infinity, alignment: .center)
 
-            // Fixed-height content area so the modal doesn't resize between steps
             ZStack {
-                overviewContent
-                    .opacity(step == .overview ? 1 : 0)
-                    .allowsHitTesting(step == .overview)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .leading).combined(with: .opacity),
-                        removal: .move(edge: .leading).combined(with: .opacity)
-                    ))
-
-                pinContent
+                enterPINContent
                     .opacity(step == .enterPIN ? 1 : 0)
                     .allowsHitTesting(step == .enterPIN)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .move(edge: .trailing).combined(with: .opacity)
-                    ))
 
                 switchingContent
                     .opacity(step == .switching ? 1 : 0)
@@ -1717,85 +1717,34 @@ private struct ProfileSwitchModal: View {
         .animation(VAnimation.standard, value: step)
     }
 
-    private var overviewContent: some View {
+    private var enterPINContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text(isChildToParental ? "Switch to Parental Profile" : "Switch to Child Profile")
-                .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
-
-            Text(isChildToParental
-                ? "You'll need to enter your 6-digit PIN to switch to the Parental profile."
-                : "Switch to the restricted Child profile.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // Placeholder to match PIN entry height (circles + padding)
-            Color.clear.frame(height: 18 + VSpacing.xs * 2)
+            if isChildToParental {
+                PINCircleField(text: $pin)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, VSpacing.xs)
+                    .onChange(of: pin) { _, newValue in
+                        if newValue.count == 6 { performSwitch() }
+                    }
+            }
 
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
+                    .frame(maxWidth: .infinity, alignment: .center)
             } else {
-                // Reserve space for error message to match PIN step height
                 Text(" ").font(VFont.caption)
             }
 
             HStack {
                 VButton(label: "Cancel", style: .secondary) { dismiss() }
                 Spacer()
-                VButton(label: isChildToParental ? "Enter PIN" : "Switch", style: .primary) {
-                    if isChildToParental {
-                        withAnimation(VAnimation.standard) { step = .enterPIN }
-                    } else {
-                        performSwitch()
-                    }
-                }
-            }
-        }
-    }
-
-    private var pinContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Enter PIN")
-                .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
-
-            Text("Enter your 6-digit PIN to switch to the Parental profile.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            PINCircleField(text: $pin)
-                .padding(.vertical, VSpacing.xs)
-                .onChange(of: pin) { _, newValue in
-                    // Auto-submit when all 6 digits are entered
-                    if newValue.count == 6 { performSwitch() }
-                }
-
-            if let error = errorMessage {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-            } else {
-                // Reserve space for error message to avoid height jump
-                Text(" ").font(VFont.caption)
-            }
-
-            HStack {
-                VButton(label: "Back", style: .secondary) {
-                    withAnimation(VAnimation.standard) {
-                        step = .overview
-                        pin = ""
-                        errorMessage = nil
-                    }
-                }
-                Spacer()
                 VButton(label: "Switch Profile", style: .primary) {
                     performSwitch()
                 }
-                .disabled(pin.count != 6)
+                .disabled(isChildToParental && pin.count != 6)
+                .keyboardShortcut(.return, modifiers: [])
             }
         }
     }
@@ -1838,7 +1787,7 @@ private struct ProfileSwitchModal: View {
             } else {
                 errorMessage = settingsStore.profileSwitchError
                 withAnimation(VAnimation.standard) {
-                    step = isChildToParental ? .enterPIN : .overview
+                    step = .enterPIN
                 }
             }
         }
