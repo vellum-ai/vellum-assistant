@@ -4,16 +4,16 @@
  * 1. Key format: all feature flag keys used in production code must follow the
  *    canonical `feature_flags.<flag_id>.enabled` format. Any remaining
  *    `skills.<id>.enabled` usage outside of migration/backward-compat code is
- *    flagged.
+ *    flagged — including template literal forms like `skills.${skillId}.enabled`.
  *
- * 2. Declaration coverage: every flag key used in `isAssistantFeatureFlagEnabled`
- *    or `isAssistantSkillEnabled` calls must be declared in the defaults registry
+ * 2. Declaration coverage: every bundled skill and vellum skill must have a
+ *    corresponding `feature_flags.<id>.enabled` entry in the defaults registry
  *    at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`.
- *    This prevents drift between code and registry.
+ *    This prevents drift between registered skills and the feature flag registry.
  */
 
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
@@ -63,12 +63,15 @@ describe('assistant feature flag key format guard', () => {
   test('no production TypeScript files use skills.<id>.enabled outside allowlist', () => {
     const repoRoot = getRepoRoot();
 
-    // Search for string literals containing `skills.*.enabled` in .ts files
-    // under assistant/src/ (excluding test files and allowlisted paths)
+    // Search for string literals and template literals containing
+    // `skills.<id>.enabled` or `skills.${...}.enabled` in .ts files
+    // under assistant/src/ (excluding test files and allowlisted paths).
+    // The pattern catches both literal keys (e.g., `skills.foo.enabled`) and
+    // template literal forms (e.g., `skills.${skillId}.enabled`).
     let grepOutput = '';
     try {
       grepOutput = execSync(
-        `git grep -lE "skills\\.[a-z0-9_-]+\\.enabled" -- 'assistant/src/**/*.ts'`,
+        `git grep -lE "skills\\.[a-z0-9_-]+\\.enabled|skills\\.\\$\\{" -- 'assistant/src/**/*.ts'`,
         { encoding: 'utf-8', cwd: repoRoot },
       ).trim();
     } catch (err) {
@@ -109,7 +112,7 @@ describe('assistant feature flag key format guard', () => {
 // ---------------------------------------------------------------------------
 
 describe('assistant feature flag declaration coverage guard', () => {
-  test('all flag keys referenced in isAssistantFeatureFlagEnabled/isAssistantSkillEnabled calls are declared in the defaults registry', () => {
+  test('all bundled and vellum skill IDs have a corresponding entry in the defaults registry', () => {
     const repoRoot = getRepoRoot();
 
     // Load the defaults registry
@@ -119,32 +122,65 @@ describe('assistant feature flag declaration coverage guard', () => {
     );
     const declaredKeys = new Set(Object.keys(registry));
 
-    // Collect skill IDs from isAssistantSkillEnabled calls in production code.
-    // We use git grep with -P (perl regex) for reliable parenthesis handling.
-    const usedKeys = new Set<string>();
+    // Collect all skill IDs from bundled skills and vellum skills.
+    // The runtime passes these IDs dynamically to isAssistantSkillEnabled,
+    // so rather than trying to parse variable names from call sites, we
+    // enumerate the skill directories directly.
+    const allSkillIds = new Set<string>();
 
-    // Extract skill IDs from isAssistantSkillEnabled('<skillId>', ...) in non-test files
-    let skillLines = '';
-    try {
-      skillLines = execSync(
-        `git grep -n "isAssistantSkillEnabled" -- 'assistant/src/**/*.ts' ':!assistant/src/__tests__/**'`,
-        { encoding: 'utf-8', cwd: repoRoot },
-      ).trim();
-    } catch (err) {
-      if ((err as { status?: number }).status !== 1) throw err;
-    }
-
-    if (skillLines) {
-      for (const line of skillLines.split('\n')) {
-        // Match isAssistantSkillEnabled('skillId' or "skillId"
-        const match = line.match(/isAssistantSkillEnabled\(\s*['"]([a-z0-9_-]+)['"]/);
-        if (match) {
-          usedKeys.add(`feature_flags.${match[1]}.enabled`);
-        }
+    // 1. Bundled skills: each subdirectory in bundled-skills/ is a skill ID
+    const bundledSkillsDir = join(repoRoot, 'assistant', 'src', 'config', 'bundled-skills');
+    const bundledEntries = readdirSync(bundledSkillsDir);
+    for (const entry of bundledEntries) {
+      const fullPath = join(bundledSkillsDir, entry);
+      if (statSync(fullPath).isDirectory()) {
+        allSkillIds.add(entry);
       }
     }
 
+    // 2. Vellum skills: read IDs from the catalog.json manifest
+    const catalogPath = join(repoRoot, 'assistant', 'src', 'config', 'vellum-skills', 'catalog.json');
+    const catalog = JSON.parse(readFileSync(catalogPath, 'utf-8'));
+    for (const skill of catalog.skills) {
+      allSkillIds.add(skill.id);
+    }
+
+    // Verify that each skill ID has a corresponding feature flag entry
+    const undeclared: string[] = [];
+    for (const skillId of allSkillIds) {
+      const key = `feature_flags.${skillId}.enabled`;
+      if (!declaredKeys.has(key)) {
+        undeclared.push(key);
+      }
+    }
+
+    if (undeclared.length > 0) {
+      const message = [
+        'Found skill IDs without a corresponding entry in the feature flag defaults registry.',
+        `Registry: meta/assistant-feature-flags/assistant-feature-flag-defaults.json`,
+        '',
+        'Missing entries:',
+        ...undeclared.sort().map((k) => `  - ${k}`),
+        '',
+        'To fix: add the missing key(s) to the defaults registry with a defaultEnabled value and description.',
+      ].join('\n');
+
+      expect(undeclared, message).toEqual([]);
+    }
+  });
+
+  test('all literal flag keys in isAssistantFeatureFlagEnabled calls are declared in the defaults registry', () => {
+    const repoRoot = getRepoRoot();
+
+    // Load the defaults registry
+    const registryPath = join(repoRoot, 'meta', 'assistant-feature-flags', 'assistant-feature-flag-defaults.json');
+    const registry: Record<string, unknown> = JSON.parse(
+      readFileSync(registryPath, 'utf-8'),
+    );
+    const declaredKeys = new Set(Object.keys(registry));
+
     // Extract full keys from isAssistantFeatureFlagEnabled('<key>', ...) in non-test files
+    const usedKeys = new Set<string>();
     let flagLines = '';
     try {
       flagLines = execSync(
@@ -164,11 +200,6 @@ describe('assistant feature flag declaration coverage guard', () => {
         }
       }
     }
-
-    // Filter out the function definitions themselves (export function ...) and
-    // the generic delegation in assistant-feature-flags.ts that uses a
-    // template expression rather than a literal key
-    // e.g. `isAssistantFeatureFlagEnabled(\`feature_flags.${skillId}.enabled\`, config)`
 
     // Check that all used keys are declared in the registry
     const undeclared: string[] = [];
