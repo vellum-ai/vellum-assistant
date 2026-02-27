@@ -38,11 +38,25 @@ Register this blitz run in `.private/ACTIVE_BLITZ.md` so that standalone `/check
 
 Read and follow `.claude/phases/plan-and-spec.md`. For blitz mode, remove the `<EXTRA_EPIC_FIELDS>` placeholder entirely (no feature branch field).
 
+**Update the blitz heartbeat** after planning completes to prevent the entry from going stale during long-running phases:
+```bash
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
+echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
+mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+```
+
 ## Phase 3: Populate TODO.md
 
 Read and follow `.claude/phases/populate-todo.md`.
 
 ## Phase 4: Swarm
+
+**Update the blitz heartbeat** before starting the swarm:
+```bash
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
+echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
+mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+```
 
 Read and follow the instructions in `.claude/commands/swarm.md` with these modifications:
 
@@ -65,6 +79,13 @@ gh issue close <issue-number>
 ## Phase 4.5: Review and Merge
 
 **This phase only runs when `--skip-reviews` is NOT set (the default).**
+
+**Update the blitz heartbeat** before starting the review-and-merge phase:
+```bash
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
+echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
+mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+```
 
 After the swarm phase completes, all milestone PRs are open but unmerged. This phase runs a per-PR feedback loop on each one — addressing review feedback by pushing fixes directly to the PR branch — before merging to main.
 
