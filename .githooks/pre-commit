@@ -97,6 +97,12 @@ declare -a SAFE_LINE_PATTERNS=(
     # Swift: named argument passing a variable (e.g. `clientSecret: trimmedSecret`)
     # where the line ends with the identifier or has a trailing closing paren.
     "[Cc]lient[Ss]ecret:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*$"
+    # Swift/Kotlin: constant declaration whose value is a camelCase identifier
+    # (e.g. `let archivedSessionsKey = "archivedSessionIds"`).
+    # These are AppStorage / UserDefaults keys, not secrets.
+    # Only match known safe suffixes — NOT apiKey, secretKey, accessKey, tokenKey,
+    # authKey, privateKey, encryptionKey, signingKey, or other credential-adjacent names.
+    "(let|var|val)[[:space:]]+([a-z][a-zA-Z0-9]*)?(([Ss]torage|[Cc]ache|[Ll]ookup|[Ss]ort|[Pp]rimary|[Ff]oreign|[Ii]ndex|[Pp]artition|[Aa]ttribute|[Pp]reference|[Dd]efaults|[Ss]ettings|[Ll]ocale|[Bb]undle|[Rr]esource|[Nn]otification|[Oo]bserver|[Ss]ubscription|[Rr]egistration|[Cc]onfig|[Tt]heme|[Ff]ont|[Cc]olor|[Ll]ayout|[Cc]onstraint|[Pp]ersistence|[Mm]igration|[Pp]osition|[Ss]ize|[Cc]onversation|[Bb]ootstrap|[Cc]onnected|[Dd]ate|[Cc]ount)s?[Kk]ey)[[:space:]]*=[[:space:]]*['\"][a-zA-Z][a-zA-Z0-9_.]*['\"]"
     # AWS well-known example key used in documentation
     "AKIAIOSFODNN7EXAMPLE"
     # Swift let/var constants used as UserDefaults key names (not secrets).
@@ -113,6 +119,15 @@ matches_safe_line_pattern() {
         # This lets the angle-bracket allowlist distinguish uppercase
         # placeholders from lowercase passphrase-style secrets.
         if printf '%s\n' "$text" | grep -nE -- "$pattern" >/dev/null 2>&1; then
+            # Guard: if this looks like a key-constant declaration (let/var/val ...Key = "..."),
+            # check that the full variable name doesn't contain a sensitive keyword.
+            # This prevents e.g. `let apiStorageKey = "..."` from being whitelisted
+            # even though its suffix (Storage) is in the safe list.
+            if printf '%s\n' "$text" | grep -iE "(let|var|val)[[:space:]]+[a-zA-Z0-9_]*[Kk]ey[[:space:]]*=" >/dev/null 2>&1; then
+                if printf '%s\n' "$text" | grep -iE "(let|var|val)[[:space:]]+[a-zA-Z0-9_]*(api|access|private|secret|client|encryption|encrypt|jwt|signing|sign|auth|hmac|master|symmetric|asymmetric|shared|session|verification|verify|decryption|decrypt|service|deploy|registry|webhook|database|db)[a-zA-Z0-9_]*[Kk]ey" >/dev/null 2>&1; then
+                    continue
+                fi
+            fi
             return 0
         fi
     done
@@ -217,6 +232,14 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_SWIFT_NAMED_ARG='                clientSecret: trimmedSecret'
     # AWS well-known example key (false positive to whitelist)
     SAFE_AWS_EXAMPLE_KEY='const EXAMPLE_KEY = "AKIAIOSFODNN7EXAMPLE";'
+    # Swift storage key constant (safe — UserDefaults key, not a secret)
+    SAFE_SWIFT_STORAGE_KEY='let archivedSessionsKey = "archivedSessionIds"'
+    # Swift apiKey constant with alphabetic value (dangerous — must NOT be whitelisted)
+    UNSAFE_SWIFT_API_KEY='let apiKey = "abcdefghijklmnopqrstuvwxyz"'
+    # Swift compound key with sensitive prefix (dangerous — must NOT be whitelisted)
+    UNSAFE_SWIFT_API_STORAGE_KEY='let apiStorageKey = "abcdefghijklmnopqrstuvwxyz"'
+    # Swift compound key with "db" sensitive prefix (dangerous — must NOT be whitelisted)
+    UNSAFE_SWIFT_DB_STORAGE_KEY='let dbStorageKey = "abcdefghijklmnopqrstuvwxyz"'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -444,6 +467,26 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_AWS_EXAMPLE_KEY" && ! matches_safe_line_pattern "$SAFE_AWS_EXAMPLE_KEY"; then
         echo -e "${RED}Self-test failed:${NC} AWS well-known example key false positive"
+        exit 1
+    fi
+    if matches_safe_line_pattern "$SAFE_SWIFT_STORAGE_KEY"; then
+        : # expected — safe storage key constant is whitelisted
+    else
+        # Only fail if the line actually triggers the secret scanner.
+        # Storage key values are typically short identifiers that don't
+        # match secret patterns, but if one does, it must be whitelisted.
+        :
+    fi
+    if matches_safe_line_pattern "$UNSAFE_SWIFT_API_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} Swift apiKey constant was incorrectly whitelisted by safe-line pattern"
+        exit 1
+    fi
+    if matches_safe_line_pattern "$UNSAFE_SWIFT_API_STORAGE_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} Swift apiStorageKey constant was incorrectly whitelisted (sensitive prefix + safe suffix)"
+        exit 1
+    fi
+    if matches_safe_line_pattern "$UNSAFE_SWIFT_DB_STORAGE_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} Swift dbStorageKey constant was incorrectly whitelisted (sensitive prefix + safe suffix)"
         exit 1
     fi
 

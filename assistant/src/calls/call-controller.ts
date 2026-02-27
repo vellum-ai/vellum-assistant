@@ -16,6 +16,8 @@ import {
   getPendingRequestByCallSessionId,
   markTimedOutWithReason,
 } from '../memory/guardian-action-store.js';
+import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
+import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getLogger } from '../util/logger.js';
 import { readHttpToken } from '../util/platform.js';
 import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
@@ -436,6 +438,21 @@ export class CallController {
     this.abortCurrentTurn();
     this.currentTurnPromise = null;
     unregisterCallController(this.callSessionId);
+
+    // Revoke any scoped approval grants bound to this call session.
+    // Revoke by both callSessionId and conversationId because the
+    // guardian-approval-interception minting path sets callSessionId: null
+    // but always sets conversationId.
+    try {
+      let revoked = revokeScopedApprovalGrantsForContext({ callSessionId: this.callSessionId });
+      revoked += revokeScopedApprovalGrantsForContext({ conversationId: this.conversationId });
+      if (revoked > 0) {
+        log.info({ callSessionId: this.callSessionId, conversationId: this.conversationId, revokedCount: revoked }, 'Revoked scoped grants on call end');
+      }
+    } catch (err) {
+      log.warn({ err, callSessionId: this.callSessionId }, 'Failed to revoke scoped grants on call end');
+    }
+
     log.info({ callSessionId: this.callSessionId }, 'CallController destroyed');
   }
 
@@ -574,6 +591,7 @@ export class CallController {
         // Start the voice turn through the session bridge
         startVoiceTurn({
           conversationId: this.conversationId,
+          callSessionId: this.callSessionId,
           content,
           assistantId: this.assistantId,
           guardianContext: this.guardianContext ?? undefined,
@@ -635,23 +653,24 @@ export class CallController {
       // `}]` inside JSON string values does not truncate the payload or
       // leak partial JSON into TTS output.
       const approvalMatch = extractBalancedJson(responseText);
-      let approvalQuestion: string | null = null;
+      let toolApprovalMeta: { question: string; toolName: string; inputDigest: string } | null = null;
       if (approvalMatch) {
         try {
-          const parsed = JSON.parse(approvalMatch.json) as { question?: string };
-          if (parsed.question) {
-            approvalQuestion = parsed.question;
+          const parsed = JSON.parse(approvalMatch.json) as { question?: string; toolName?: string; input?: Record<string, unknown> };
+          if (parsed.question && parsed.toolName && parsed.input) {
+            const digest = computeToolApprovalDigest(parsed.toolName, parsed.input);
+            toolApprovalMeta = { question: parsed.question, toolName: parsed.toolName, inputDigest: digest };
           }
         } catch {
           log.warn({ callSessionId: this.callSessionId }, 'Failed to parse ASK_GUARDIAN_APPROVAL JSON payload');
         }
       }
 
-      const askMatch = approvalQuestion
+      const askMatch = toolApprovalMeta
         ? null // structured approval takes precedence
         : responseText.match(ASK_GUARDIAN_CAPTURE_REGEX);
 
-      const questionText = approvalQuestion ?? (askMatch ? askMatch[1] : null);
+      const questionText = toolApprovalMeta?.question ?? (askMatch ? askMatch[1] : null);
 
       if (questionText) {
         if (this.isCallerGuardian()) {
@@ -690,6 +709,8 @@ export class CallController {
               conversationId: session.conversationId,
               assistantId: this.assistantId,
               pendingQuestion,
+              toolName: toolApprovalMeta?.toolName,
+              inputDigest: toolApprovalMeta?.inputDigest,
             });
           }
 

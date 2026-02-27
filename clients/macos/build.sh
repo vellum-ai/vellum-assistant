@@ -183,7 +183,7 @@ build_binaries() {
     # so the externalized import('@huggingface/transformers') resolves at runtime
     mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface"
     cp -R "$ASSISTANT_SRC_DIR/node_modules/@huggingface/transformers" "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers"
-    # Strip non-runtime files (source, types, sourcemaps, web/browser bundles, WASM)
+    # Strip non-runtime files (source, types, sourcemaps, web/browser bundles, WASM, model cache)
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/src"
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/types"
     rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/@huggingface/transformers/README.md"
@@ -200,6 +200,11 @@ build_binaries() {
     for img_pkg in "$ASSISTANT_SRC_DIR/node_modules/@img/"*; do
         [ -d "$img_pkg" ] && cp -R "$img_pkg" "$SCRIPT_DIR/daemon-bin/node_modules/@img/"
     done
+    # Strip dirs that codesign misinterprets as bundles (recursive across
+    # all staged node_modules to catch nested copies like sharp/sharp/ and
+    # transformers/transformers/.cache)
+    find "$SCRIPT_DIR/daemon-bin/node_modules" -type d -name "glib-2.0" -exec rm -rf {} + 2>/dev/null || true
+    find "$SCRIPT_DIR/daemon-bin/node_modules" -type d -name ".cache" -exec rm -rf {} + 2>/dev/null || true
     # Stage sharp's JS dependencies
     for dep in detect-libc semver; do
         if [ -d "$ASSISTANT_SRC_DIR/node_modules/$dep" ]; then
@@ -329,6 +334,8 @@ if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     elif [ "$ASSISTANT_SRC_DIR/package.json" -nt "$SCRIPT_DIR/daemon-bin/vellum-daemon" ] || \
          [ "$ASSISTANT_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
         DAEMON_BIN_NEEDS_BUILD=true
+    elif [ "$SCRIPT_DIR/build.sh" -nt "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
+        DAEMON_BIN_NEEDS_BUILD=true
     fi
 fi
 if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
@@ -379,6 +386,10 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     for img_pkg in "$ASSISTANT_SRC_DIR/node_modules/@img/"*; do
         [ -d "$img_pkg" ] && cp -R "$img_pkg" "$SCRIPT_DIR/daemon-bin/node_modules/@img/"
     done
+    # Strip dirs that codesign misinterprets as bundles (recursive across
+    # all staged node_modules to catch nested copies)
+    find "$SCRIPT_DIR/daemon-bin/node_modules" -type d -name "glib-2.0" -exec rm -rf {} + 2>/dev/null || true
+    find "$SCRIPT_DIR/daemon-bin/node_modules" -type d -name ".cache" -exec rm -rf {} + 2>/dev/null || true
     for dep in detect-libc semver; do
         if [ -d "$ASSISTANT_SRC_DIR/node_modules/$dep" ]; then
             cp -R "$ASSISTANT_SRC_DIR/node_modules/$dep" "$SCRIPT_DIR/daemon-bin/node_modules/$dep"

@@ -191,6 +191,7 @@ describe("createBrowserRelayWebsocketHandler", () => {
     expect(fakeServer.upgrade).not.toHaveBeenCalled();
   });
 
+
   test("allows non-loopback host when peer is private network", () => {
     const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
     const handler = createBrowserRelayWebsocketHandler(config);

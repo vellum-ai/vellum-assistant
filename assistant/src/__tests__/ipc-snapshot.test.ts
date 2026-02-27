@@ -1081,6 +1081,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         degraded: false,
         updateAvailable: false,
         userInvocable: true,
+        provenance: { kind: 'first-party', provider: 'Vellum' },
       },
     ],
   },

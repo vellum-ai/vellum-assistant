@@ -13,6 +13,7 @@ import {
   createMediaAssetsTables,
   createMessagesFts,
   createNotificationTables,
+  createScopedApprovalGrantsTable,
   createSequenceTables,
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
@@ -21,6 +22,7 @@ import {
   migrateConversationsThreadTypeIndex,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
+  migrateGuardianActionToolMetadata,
   migrateGuardianBootstrapToken,
   migrateGuardianDeliveryConversationIndex,
   migrateGuardianVerificationPurpose,
@@ -102,6 +104,9 @@ export function initializeDb(): void {
   // 14c. Guardian action follow-up lifecycle columns (timeout reason, late answers)
   migrateGuardianActionFollowup(database);
 
+  // 14c2. Guardian action tool-approval metadata columns (tool_name, input_digest)
+  migrateGuardianActionToolMetadata(database);
+
   // 14d. Index on conversations.thread_type for frequent WHERE filters
   migrateConversationsThreadTypeIndex(database);
 
@@ -130,7 +135,10 @@ export function initializeDb(): void {
   // 21. Rebuild tables to add ON DELETE CASCADE to FK constraints
   migrateFkCascadeRebuilds(database);
 
-  // 22. Thread decision audit columns on notification_deliveries
+  // 22. Scoped approval grants (channel-agnostic one-time-use grants)
+  createScopedApprovalGrantsTable(database);
+
+  // 23. Thread decision audit columns on notification_deliveries
   migrateNotificationDeliveryThreadDecision(database);
 
   validateMigrationState(database);

@@ -258,9 +258,25 @@ struct IdentityView: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(skill.name)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                    HStack(spacing: 4) {
+                        Text(skill.name)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+
+                        if let provenance = skill.provenance {
+                            let label = provenance.kind == "first-party" ? (provenance.provider ?? "Vellum") : provenance.kind == "local" ? "Local" : (provenance.provider ?? "Third-party")
+                            let badgeColor: Color = provenance.kind == "first-party" ? .blue : provenance.kind == "local" ? .secondary : .orange
+                            Text(label)
+                                .font(.caption2)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(
+                                    Capsule()
+                                        .fill(badgeColor.opacity(0.15))
+                                )
+                                .foregroundColor(badgeColor)
+                        }
+                    }
 
                     if !skill.description.isEmpty {
                         Text(skill.description)

@@ -354,6 +354,66 @@ describe('Permission Checker', () => {
       test('env injection is high risk', async () => {
         expect(await classifyRisk('bash', { command: 'LD_PRELOAD=evil.so cmd' })).toBe(RiskLevel.High);
       });
+
+      test('wrapped rm via env is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'env rm -rf /tmp/x' })).toBe(RiskLevel.High);
+      });
+
+      test('wrapped rm via time is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'time rm file.txt' })).toBe(RiskLevel.High);
+      });
+
+      test('wrapped kill via env is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'env kill -9 1234' })).toBe(RiskLevel.High);
+      });
+
+      test('wrapped sudo via env is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'env sudo apt-get install foo' })).toBe(RiskLevel.High);
+      });
+
+      test('wrapped reboot via nice is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'nice reboot' })).toBe(RiskLevel.High);
+      });
+
+      test('wrapped pkill via nohup is high risk', async () => {
+        expect(await classifyRisk('bash', { command: 'nohup pkill node' })).toBe(RiskLevel.High);
+      });
+
+      test('command -v is low risk (read-only lookup)', async () => {
+        expect(await classifyRisk('bash', { command: 'command -v rm' })).toBe(RiskLevel.Low);
+      });
+
+      test('command -V is low risk (read-only lookup)', async () => {
+        expect(await classifyRisk('bash', { command: 'command -V sudo' })).toBe(RiskLevel.Low);
+      });
+
+      test('command without -v/-V flag escalates wrapped program', async () => {
+        expect(await classifyRisk('bash', { command: 'command rm file.txt' })).toBe(RiskLevel.High);
+      });
+
+      test('rm BOOTSTRAP.md (bare safe file) is medium risk', async () => {
+        expect(await classifyRisk('bash', { command: 'rm BOOTSTRAP.md' })).toBe(RiskLevel.Medium);
+      });
+
+      test('rm UPDATES.md (bare safe file) is medium risk', async () => {
+        expect(await classifyRisk('bash', { command: 'rm UPDATES.md' })).toBe(RiskLevel.Medium);
+      });
+
+      test('rm -rf BOOTSTRAP.md is still high risk (flags present)', async () => {
+        expect(await classifyRisk('bash', { command: 'rm -rf BOOTSTRAP.md' })).toBe(RiskLevel.High);
+      });
+
+      test('rm /path/to/BOOTSTRAP.md is still high risk (path separator)', async () => {
+        expect(await classifyRisk('bash', { command: 'rm /path/to/BOOTSTRAP.md' })).toBe(RiskLevel.High);
+      });
+
+      test('rm BOOTSTRAP.md other.txt is still high risk (multiple targets)', async () => {
+        expect(await classifyRisk('bash', { command: 'rm BOOTSTRAP.md other.txt' })).toBe(RiskLevel.High);
+      });
+
+      test('rm somefile.md is still high risk (not a known safe file)', async () => {
+        expect(await classifyRisk('bash', { command: 'rm somefile.md' })).toBe(RiskLevel.High);
+      });
     });
 
     // unknown tool

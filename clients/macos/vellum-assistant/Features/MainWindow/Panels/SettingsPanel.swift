@@ -16,7 +16,7 @@ enum SettingsTab: String {
     static func visibleTabs(isDevMode: Bool) -> [SettingsTab] {
         var tabs: [SettingsTab] = [
             .account, .channels, .modelsAndServices, .voice,
-            .permissions, .automation, .appearance, .parental
+            .automation, .appearance, .permissions
         ]
         if isDevMode {
             tabs.append(.advanced)
@@ -40,6 +40,7 @@ enum SettingsTab: String {
             case "Trust": tab = .permissions
             case "Schedules": tab = .automation
             case "Heartbeat": tab = .automation
+            case "Parental": tab = .permissions
             case "Advanced": tab = .advanced
             default: tab = nil
             }
@@ -65,6 +66,7 @@ struct SettingsPanel: View {
     @State private var showingTrustRules = false
     @State private var showingReminders = false
     @State private var showingScheduledTasks = false
+    @State private var showingHeartbeatConfig = false
     @State private var twitterClientId: String = ""
     @State private var twitterClientSecret: String = ""
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
@@ -104,7 +106,7 @@ struct SettingsPanel: View {
             HStack(spacing: 0) {
                 // Left: nav sidebar
                 settingsNav
-                    .frame(width: 160)
+                    .frame(width: 200)
 
                 Divider()
 
@@ -207,6 +209,11 @@ struct SettingsPanel: View {
                 ScheduledTasksView(daemonClient: daemonClient)
             }
         }
+        .sheet(isPresented: $showingHeartbeatConfig) {
+            if let daemonClient {
+                HeartbeatConfigView(daemonClient: daemonClient)
+            }
+        }
     }
 
     // MARK: - Nav Sidebar
@@ -239,11 +246,11 @@ struct SettingsPanel: View {
         case .permissions:
             permissionsContent
         case .automation:
-            SettingsAutomationTab(daemonClient: daemonClient, showingReminders: $showingReminders, showingScheduledTasks: $showingScheduledTasks)
+            SettingsAutomationTab(daemonClient: daemonClient, showingReminders: $showingReminders, showingScheduledTasks: $showingScheduledTasks, showingHeartbeatConfig: $showingHeartbeatConfig)
         case .appearance:
             SettingsAppearanceTab(store: store)
         case .parental:
-            SettingsParentalTab(daemonClient: daemonClient)
+            permissionsContent
         case .advanced:
             SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
         }
@@ -674,7 +681,7 @@ struct SettingsPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             // PERMISSIONS section (OS permissions)
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Permissions")
+                Text("macOS System Permissions")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
@@ -784,6 +791,9 @@ struct SettingsPanel: View {
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
+
+            // PARENTAL CONTROLS section
+            SettingsParentalTab(daemonClient: daemonClient)
         }
     }
 
@@ -1004,6 +1014,8 @@ private struct SettingsNavRow: View {
     var body: some View {
         Button(action: action) {
             Text(tab.rawValue)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .font(isSelected ? VFont.bodyMedium : VFont.body)
                 .foregroundColor(isSelected ? VColor.textPrimary : VColor.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1014,6 +1026,7 @@ private struct SettingsNavRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(tab.rawValue)
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }

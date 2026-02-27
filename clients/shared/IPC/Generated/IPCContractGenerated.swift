@@ -4368,8 +4368,9 @@ public struct IPCSkillsListResponseSkill: Codable, Sendable {
     public let updateAvailable: Bool
     public let userInvocable: Bool
     public let clawhub: IPCSkillsListResponseSkillClawhub?
+    public let provenance: IPCSkillsListResponseSkillProvenance?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements? = nil, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements? = nil, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub? = nil, provenance: IPCSkillsListResponseSkillProvenance? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4384,6 +4385,7 @@ public struct IPCSkillsListResponseSkill: Codable, Sendable {
         self.updateAvailable = updateAvailable
         self.userInvocable = userInvocable
         self.clawhub = clawhub
+        self.provenance = provenance
     }
 }
 
@@ -4412,6 +4414,20 @@ public struct IPCSkillsListResponseSkillMissingRequirements: Codable, Sendable {
         self.bins = bins
         self.env = env
         self.permissions = permissions
+    }
+}
+
+public struct IPCSkillsListResponseSkillProvenance: Codable, Sendable {
+    public let kind: String
+    public let provider: String?
+    public let originId: String?
+    public let sourceUrl: String?
+
+    public init(kind: String, provider: String? = nil, originId: String? = nil, sourceUrl: String? = nil) {
+        self.kind = kind
+        self.provider = provider
+        self.originId = originId
+        self.sourceUrl = sourceUrl
     }
 }
 

@@ -162,6 +162,20 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceOutboundSendCount: Int = 0
     @Published var voiceOutboundCode: String?
 
+    // MARK: - Approved Ingress Members (Telegram)
+
+    struct ApprovedMember: Identifiable, Equatable {
+        let id: String
+        let displayName: String?
+        let username: String?
+        let externalUserId: String?
+    }
+
+    @Published var telegramApprovedMembers: [ApprovedMember] = []
+    @Published var telegramApprovedMembersLoading: Bool = false
+    @Published var telegramApprovedMembersError: String?
+    @Published var telegramRevokingMemberIds: Set<String> = []
+
     // MARK: - Slack Channel Integration State
 
     @Published var slackChannelHasBotToken: Bool = false
@@ -1276,6 +1290,80 @@ public final class SettingsStore: ObservableObject {
             try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel, assistantId: guardianAssistantScope)
         } catch {
             log.error("Failed to revoke \(channel) guardian: \(error)")
+        }
+    }
+
+    // MARK: - Approved Ingress Members Actions
+
+    func refreshTelegramApprovedMembers() {
+        guard let http = resolveRuntimeHTTP() else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/ingress/members?sourceChannel=telegram&status=active") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+        telegramApprovedMembersLoading = true
+        telegramApprovedMembersError = nil
+        Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                self.telegramApprovedMembersLoading = false
+                guard let httpResp = response as? HTTPURLResponse else { return }
+                if httpResp.statusCode == 200 {
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let members = json["members"] as? [[String: Any]] {
+                        let guardianId = self.telegramGuardianIdentity
+                        self.telegramApprovedMembers = members.compactMap { m in
+                            guard let id = m["id"] as? String else { return nil }
+                            let externalUserId = m["externalUserId"] as? String
+                            // Skip the guardian — they're already shown in the Guardian Verification row
+                            if let guardianId, let externalUserId, externalUserId == guardianId {
+                                return nil
+                            }
+                            return ApprovedMember(
+                                id: id,
+                                displayName: m["displayName"] as? String,
+                                username: m["username"] as? String,
+                                externalUserId: externalUserId
+                            )
+                        }
+                        self.telegramApprovedMembersError = nil
+                    }
+                } else {
+                    self.telegramApprovedMembersError = "Failed to load (HTTP \(httpResp.statusCode))"
+                }
+            } catch {
+                self.telegramApprovedMembersLoading = false
+                self.telegramApprovedMembersError = "Failed to load: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func revokeTelegramApprovedMember(memberId: String) {
+        guard let http = resolveRuntimeHTTP() else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/ingress/members/\(memberId)") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+        telegramRevokingMemberIds.insert(memberId)
+        let removed = telegramApprovedMembers.filter { $0.id == memberId }
+        telegramApprovedMembers.removeAll { $0.id == memberId }
+        Task {
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                self.telegramRevokingMemberIds.remove(memberId)
+                guard let httpResp = response as? HTTPURLResponse else { return }
+                if !(200..<300).contains(httpResp.statusCode) {
+                    // Rollback on failure
+                    self.telegramApprovedMembers.append(contentsOf: removed)
+                    self.telegramApprovedMembersError = "Failed to revoke (HTTP \(httpResp.statusCode))"
+                }
+            } catch {
+                self.telegramRevokingMemberIds.remove(memberId)
+                self.telegramApprovedMembers.append(contentsOf: removed)
+                self.telegramApprovedMembersError = "Failed to revoke: \(error.localizedDescription)"
+            }
         }
     }
 

@@ -175,6 +175,24 @@ describe('composeThreadSeed', () => {
       expect(seed).toContain('Action required');
     });
 
+    test('does not duplicate "Action required" when copy already includes it', () => {
+      const signal = makeSignal({
+        attentionHints: {
+          requiresAction: true,
+          urgency: 'high',
+          isAsyncBackground: false,
+          visibleInSourceNow: false,
+        },
+      });
+      const copy = makeCopy({
+        title: 'Guardian Question',
+        body: 'Action required: What is the gate code?',
+      });
+      const seed = composeThreadSeed(signal, 'vellum' as NotificationChannel, copy);
+      const markerCount = (seed.match(/action required/gi) ?? []).length;
+      expect(markerCount).toBe(1);
+    });
+
     test('omits "Notification" generic title', () => {
       const signal = makeSignal();
       const copy = makeCopy({ title: 'Notification', body: 'Something new.' });

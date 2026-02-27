@@ -28,6 +28,7 @@ import { createPreference } from '../notifications/preferences-store.js';
 import type { Message } from '../providers/types.js';
 import { processGuardianFollowUpTurn } from '../runtime/guardian-action-conversation-turn.js';
 import { executeFollowupAction } from '../runtime/guardian-action-followup-executor.js';
+import { tryMintGuardianActionGrant } from '../runtime/guardian-action-grant-minter.js';
 import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
 import type { GuardianActionCopyGenerator, GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
 import { getLogger } from '../util/logger.js';
@@ -491,6 +492,17 @@ export async function processMessage(
 
         if ('ok' in answerResult && answerResult.ok) {
           const resolved = resolveGuardianActionRequest(guardianRequest.id, answerText, 'vellum');
+
+          // Mint a scoped grant so the voice call can consume it
+          // for subsequent tool confirmations.
+          if (resolved) {
+            tryMintGuardianActionGrant({
+              resolvedRequest: resolved,
+              answerText,
+              decisionChannel: 'vellum',
+            });
+          }
+
           const replyText = resolved
             ? 'Your answer has been relayed to the call.'
             : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_answered' }, {}, _guardianActionCopyGenerator);
