@@ -85,7 +85,7 @@ Initialize the **cycle counter** to the value read from the state file in Step 1
 
 Derive an aggregate status from the per-reviewer statuses as follows (higher entries take priority):
 - **changes_requested**: Any reviewer (bot or human) has `changes_requested` OR CI is failing.
-- **pending**: Any reviewer is `pending` (and none has `changes_requested`).
+- **pending**: Any reviewer is `pending` OR CI is still running (and none has `changes_requested`).
 - **rate_limited**: Any reviewer is `rate_limited` (and none has `changes_requested` or `pending`).
 - **approved**: All reviewers have approved (or `skipped` for Devin) and CI is passing.
 
@@ -163,8 +163,8 @@ The `check-pr-reviews` script reports **cumulative** review status — it counts
      A reviewer bot counts as "responded" if its login appears in any of the four queries above. Collect all unique responding logins into `responded_bot_logins`, and also compute `all_responded_bots` (the count).
    - If `all_responded_bots` is **>= 1** (at least one reviewer bot has posted new activity after `last_fix_push_time`), re-fetch full review data using the Step 2 queries (reviews and comments, PR description reactions, review threads with resolution status, and CI status) and re-determine aggregate status using the full Step 3 logic (which includes CI state and human reviewer unresolved threads). **Important:** when the aggregate status would be `changes_requested`, verify that the reviewer with `changes_requested` is in `responded_bot_logins` — if it is a bot that has not yet responded to the new commit, treat the status as `pending` instead and continue polling. Human `changes_requested` (unresolved threads from human reviewers) always counts as actionable regardless of `responded_bot_logins`.
      - If aggregate status is `approved` → proceed to Step 6.
-     - If aggregate status is `changes_requested` **and (the reviewer with `changes_requested` is a human, or the bot with `changes_requested` is in `responded_bot_logins`)** → return to step 1 of this loop (cycle limit check).
-     - Otherwise (`pending`, `rate_limited`, or `changes_requested` from a non-responding bot) → continue polling.
+     - If aggregate status is `changes_requested` **and (CI is failing, or the reviewer with `changes_requested` is a human, or the bot with `changes_requested` is in `responded_bot_logins`)** → return to step 1 of this loop (cycle limit check).
+     - Otherwise (`pending`, `rate_limited`, or `changes_requested` solely from a non-responding bot) → continue polling.
    - If `all_responded_bots` is **< 1**, **continue polling** — do not exit the loop. Re-fetching cumulative review data is unreliable for bot approval checks until at least one bot has posted new activity after the fix push; however, also re-check CI status and human reviewer threads on each poll since those can change independently of bot activity. Specifically: re-run the CI check (`gh pr checks <number>`) and the review-threads GraphQL query. If CI is failing OR any human reviewer has new unresolved threads posted after `last_fix_push_time`, treat this as `changes_requested` and return to step 1 of this loop (cycle limit check) — no need to wait for bot activity in that case.
    - If **10 minutes** pass without any reviewer bot posting new activity → log `"Timed out after 10 minutes waiting for reviewer responses on PR #<number>."` and proceed to Step 6.
 
