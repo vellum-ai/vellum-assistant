@@ -2717,6 +2717,42 @@ public struct IPCListSurfaceData: Codable, Sendable {
     }
 }
 
+/// Signals that live audio listening has begun.
+public struct IPCLiveTranscriptStart: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+/// Signals that live audio listening has stopped.
+public struct IPCLiveTranscriptStop: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+/// A transcript update from the client's live audio capture.
+public struct IPCLiveTranscriptUpdate: Codable, Sendable {
+    public let type: String
+    /// The transcribed text segment.
+    public let text: String
+    /// Unix timestamp (ms) when the segment was captured.
+    public let timestamp: Double
+    /// Whether this is a finalized segment (vs. a partial/interim result).
+    public let isFinal: Bool
+
+    public init(type: String, text: String, timestamp: Double, isFinal: Bool) {
+        self.type = type
+        self.text = text
+        self.timestamp = timestamp
+        self.isFinal = isFinal
+    }
+}
+
 public struct IPCMemoryRecalled: Codable, Sendable {
     public let type: String
     public let provider: String
