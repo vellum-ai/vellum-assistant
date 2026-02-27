@@ -40,9 +40,9 @@ Read and follow `.claude/phases/plan-and-spec.md`. For blitz mode, remove the `<
 
 **Update the blitz heartbeat** after planning completes to prevent the entry from going stale during long-running phases:
 ```bash
-grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
-echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
-mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp.<namespace> 2>/dev/null || true
+echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp.<namespace>
+mv .private/ACTIVE_BLITZ.md.tmp.<namespace> .private/ACTIVE_BLITZ.md
 ```
 
 ## Phase 3: Populate TODO.md
@@ -53,9 +53,9 @@ Read and follow `.claude/phases/populate-todo.md`.
 
 **Update the blitz heartbeat** before starting the swarm:
 ```bash
-grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
-echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
-mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp.<namespace> 2>/dev/null || true
+echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp.<namespace>
+mv .private/ACTIVE_BLITZ.md.tmp.<namespace> .private/ACTIVE_BLITZ.md
 ```
 
 Read and follow the instructions in `.claude/commands/swarm.md` with these modifications:
@@ -82,9 +82,9 @@ gh issue close <issue-number>
 
 **Update the blitz heartbeat** before starting the review-and-merge phase:
 ```bash
-grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
-echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
-mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp.<namespace> 2>/dev/null || true
+echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp.<namespace>
+mv .private/ACTIVE_BLITZ.md.tmp.<namespace> .private/ACTIVE_BLITZ.md
 ```
 
 After the swarm phase completes, all milestone PRs are open but unmerged. This phase runs a per-PR feedback loop on each one — addressing review feedback by pushing fixes directly to the PR branch — before merging to main.
@@ -288,9 +288,9 @@ After all PRs are merged, proceed to Phase 5.
 **Update the blitz heartbeat** at the start of each sweep loop iteration to prevent the entry from going stale. Replace the line starting with `<namespace> ` in `.private/ACTIVE_BLITZ.md` with a fresh timestamp:
 ```bash
 # Read, filter out old entry, append fresh entry
-grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
-echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
-mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp.<namespace> 2>/dev/null || true
+echo "<namespace> blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp.<namespace>
+mv .private/ACTIVE_BLITZ.md.tmp.<namespace> .private/ACTIVE_BLITZ.md
 ```
 
 Read and follow `.claude/phases/sweep.md`. When it says "back to the Swarm phase", return to Phase 4 above (with the same `--skip-reviews` behavior). When it says "final phase", proceed to Phase 6.
@@ -307,8 +307,8 @@ This phase runs a recursive loop: check reviews → swarm to address feedback �
 
 Remove this blitz's entry from `.private/ACTIVE_BLITZ.md`:
 ```bash
-grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
-mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp.<namespace> 2>/dev/null || true
+mv .private/ACTIVE_BLITZ.md.tmp.<namespace> .private/ACTIVE_BLITZ.md
 ```
 If the file is now empty (only blank lines), delete it: `rm -f .private/ACTIVE_BLITZ.md`
 
