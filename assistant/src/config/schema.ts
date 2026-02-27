@@ -117,12 +117,18 @@ export {
   SandboxConfigSchema,
 } from './sandbox-schema.js';
 export type {
+  RemotePolicyConfig,
+  RemoteProviderConfig,
+  RemoteProvidersConfig,
   SkillEntryConfig,
   SkillsConfig,
   SkillsInstallConfig,
   SkillsLoadConfig,
 } from './skills-schema.js';
 export {
+  RemotePolicyConfigSchema,
+  RemoteProviderConfigSchema,
+  RemoteProvidersConfigSchema,
   SkillEntryConfigSchema,
   SkillsConfigSchema,
   SkillsInstallConfigSchema,
