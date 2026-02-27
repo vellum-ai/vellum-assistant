@@ -6,24 +6,31 @@ import { join } from 'node:path';
 import { ToolError } from '../../../util/errors.js';
 import { getLogger } from '../../../util/logger.js';
 import { isLinux,isMacOS } from '../../../util/platform.js';
-import type { SandboxBackend, SandboxResult } from './types.js';
+import type { SandboxBackend, SandboxResult, WrapOptions } from './types.js';
 
 const log = getLogger('sandbox');
 
 const HASH_DISPLAY_LENGTH = 12;
 
 /**
- * macOS sandbox-exec profile that restricts shell commands:
+ * Build a macOS sandbox-exec SBPL profile.
+ *
+ * The profile restricts shell commands:
  * - Denies all by default
  * - Allows read access to most of the filesystem (needed for toolchains)
  * - Allows write access only to the working directory and temp dirs
- * - Blocks outbound network access
+ * - Blocks outbound network access (unless proxied)
  * - Blocks process debugging (ptrace)
  *
- * The WORKING_DIR placeholder is replaced at runtime with the actual
- * working directory path.
+ * When `allowNetwork` is true the `(deny network*)` rule is replaced with
+ * `(allow network*)` so the process can reach the local credential proxy.
  */
-const SANDBOX_PROFILE = `
+function buildSandboxProfile(allowNetwork: boolean): string {
+  const networkRule = allowNetwork
+    ? ';; Allow network access (proxied mode — needed to reach the credential proxy)\n(allow network*)'
+    : ';; Block network access\n(deny network*)';
+
+  return `
 (version 1)
 (deny default)
 
@@ -54,12 +61,12 @@ const SANDBOX_PROFILE = `
 ;; Allow IOKit (needed for some system calls)
 (allow iokit-open)
 
-;; Block network access
-(deny network*)
+${networkRule}
 
 ;; Block process debugging
 (deny process-info-pidinfo (target others))
 `.trim();
+}
 
 /**
  * Escape a path for safe embedding inside an SBPL quoted string.
@@ -83,15 +90,18 @@ function escapeSBPL(path: string): string {
  * a hash of the path) to avoid race conditions when concurrent commands
  * use different working directories.
  */
-function getProfilePath(workingDir: string): string {
+function getProfilePath(workingDir: string, allowNetwork: boolean): string {
   const dir = join(process.env.HOME ?? '/tmp', '.vellum');
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  const hash = createHash('sha256').update(workingDir).digest('hex').slice(0, HASH_DISPLAY_LENGTH);
+  // Include the network flag in the hash so proxied and non-proxied profiles
+  // for the same directory don't collide.
+  const hashInput = allowNetwork ? `${workingDir}:proxied` : workingDir;
+  const hash = createHash('sha256').update(hashInput).digest('hex').slice(0, HASH_DISPLAY_LENGTH);
   const path = join(dir, `sandbox-profile-${hash}.sb`);
 
-  const profile = SANDBOX_PROFILE.replace(/__WORKING_DIR__/g, () => escapeSBPL(workingDir));
+  const profile = buildSandboxProfile(allowNetwork).replace(/__WORKING_DIR__/g, () => escapeSBPL(workingDir));
   writeFileSync(path, profile + '\n');
   return path;
 }
@@ -137,20 +147,29 @@ function isBwrapAvailable(): boolean {
  * - Network access blocked (--unshare-net)
  * - PID namespace isolated (--unshare-pid)
  */
-function buildBwrapArgs(workingDir: string, command: string): string[] {
-  return [
+function buildBwrapArgs(workingDir: string, command: string, allowNetwork: boolean): string[] {
+  const args = [
     // Filesystem: read-only root, writable working dir and temp
     '--ro-bind', '/', '/',
     '--bind', workingDir, workingDir,
     '--bind', '/tmp', '/tmp',
     '--dev', '/dev',
     '--proc', '/proc',
-    // Isolation
-    '--unshare-net',
+  ];
+
+  // Only isolate the network namespace when network access is not needed.
+  // In proxied mode the process must be able to reach 127.0.0.1:<proxy-port>.
+  if (!allowNetwork) {
+    args.push('--unshare-net');
+  }
+
+  args.push(
     '--unshare-pid',
     // Run bash inside the sandbox
     'bash', '-c', '--', command,
-  ];
+  );
+
+  return args;
 }
 
 /**
@@ -158,9 +177,11 @@ function buildBwrapArgs(workingDir: string, command: string): string[] {
  * macOS sandbox-exec (SBPL profiles) and Linux bwrap (bubblewrap).
  */
 export class NativeBackend implements SandboxBackend {
-  wrap(command: string, workingDir: string, _options?: import('./types.js').WrapOptions): SandboxResult {
+  wrap(command: string, workingDir: string, options?: WrapOptions): SandboxResult {
+    const allowNetwork = options?.networkMode === 'proxied';
+
     if (isMacOS()) {
-      const profile = getProfilePath(workingDir);
+      const profile = getProfilePath(workingDir, allowNetwork);
       return {
         command: 'sandbox-exec',
         args: ['-f', profile, 'bash', '-c', '--', command],
@@ -176,7 +197,7 @@ export class NativeBackend implements SandboxBackend {
       }
       return {
         command: 'bwrap',
-        args: buildBwrapArgs(workingDir, command),
+        args: buildBwrapArgs(workingDir, command, allowNetwork),
         sandboxed: true,
       };
     }

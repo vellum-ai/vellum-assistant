@@ -99,14 +99,20 @@ describe('terminal sandbox — enabled fail-closed behavior', () => {
   });
 
   test('returns bwrap wrapper when bwrap is available on linux', () => {
+    // GIVEN bwrap is available on a linux platform
     execSyncMock.mockImplementation(() => undefined);
+
+    // WHEN wrapping a command with the native sandbox config
     const result = wrapCommand('echo hello', '/home/user/project', nativeConfig());
+
+    // THEN the result uses bwrap with network isolation
     expect(result.command).toBe('bwrap');
     expect(result.sandboxed).toBe(true);
     expect(result.args).toContain('--ro-bind');
     expect(result.args).toContain('--unshare-net');
     expect(result.args).toContain('--unshare-pid');
-    // The user command runs via bash inside the sandbox
+
+    // AND the user command runs via bash inside the sandbox
     const bashIdx = result.args.indexOf('bash');
     expect(bashIdx).toBeGreaterThan(0);
     expect(result.args.slice(bashIdx)).toEqual(['bash', '-c', '--', 'echo hello']);
@@ -153,13 +159,21 @@ describe('terminal sandbox — macOS sandbox-exec behavior', () => {
   });
 
   test('returns sandbox-exec wrapper on macOS when enabled', () => {
+    // GIVEN the platform is macOS
+    // (set in beforeEach)
+
+    // WHEN wrapping a command with the native sandbox config
     const result = wrapCommand('echo hello', '/tmp/project', nativeConfig());
+
+    // THEN the result uses sandbox-exec
     expect(result.command).toBe('sandbox-exec');
     expect(result.sandboxed).toBe(true);
     expect(result.args[0]).toBe('-f');
-    // Profile path is the second arg
+
+    // AND the profile path is the second arg
     expect(result.args[1]).toContain('sandbox-profile-');
-    // bash -c -- command follows the profile
+
+    // AND bash -c -- command follows the profile
     expect(result.args.slice(2)).toEqual(['bash', '-c', '--', 'echo hello']);
   });
 
@@ -198,5 +212,126 @@ describe('terminal sandbox — backend selection', () => {
     const result = wrapCommand('echo hello', '/tmp/project', config);
     expect(result.command).toBe('bash');
     expect(result.sandboxed).toBe(false);
+  });
+});
+
+describe('terminal sandbox — proxied network mode on Linux', () => {
+  beforeEach(() => {
+    platform = 'linux';
+    execSyncMock.mockImplementation(() => undefined);
+  });
+
+  test('omits --unshare-net when networkMode is proxied', () => {
+    /**
+     * Tests that bwrap args omit --unshare-net in proxied mode so the process
+     * can reach the local credential proxy on 127.0.0.1.
+     */
+
+    // GIVEN bwrap is available on linux
+    // (set in beforeEach)
+
+    // WHEN wrapping a command with proxied network mode
+    const result = wrapCommand('curl https://example.com', '/home/user/project', nativeConfig(), { networkMode: 'proxied' });
+
+    // THEN the result uses bwrap
+    expect(result.command).toBe('bwrap');
+    expect(result.sandboxed).toBe(true);
+
+    // AND --unshare-net is NOT present (network is allowed)
+    expect(result.args).not.toContain('--unshare-net');
+
+    // AND --unshare-pid is still present (PID isolation remains)
+    expect(result.args).toContain('--unshare-pid');
+  });
+
+  test('includes --unshare-net when networkMode is off', () => {
+    /**
+     * Tests that bwrap args include --unshare-net when network is off (default).
+     */
+
+    // GIVEN bwrap is available on linux
+    // (set in beforeEach)
+
+    // WHEN wrapping a command with network mode off
+    const result = wrapCommand('echo hello', '/home/user/project', nativeConfig(), { networkMode: 'off' });
+
+    // THEN --unshare-net is present (network is blocked)
+    expect(result.args).toContain('--unshare-net');
+  });
+
+  test('includes --unshare-net when no options are provided', () => {
+    /**
+     * Tests that the default behavior (no options) blocks network access.
+     */
+
+    // GIVEN bwrap is available on linux
+    // (set in beforeEach)
+
+    // WHEN wrapping a command without any options
+    const result = wrapCommand('echo hello', '/home/user/project', nativeConfig());
+
+    // THEN --unshare-net is present (network is blocked by default)
+    expect(result.args).toContain('--unshare-net');
+  });
+});
+
+describe('terminal sandbox — proxied network mode on macOS', () => {
+  beforeEach(() => {
+    platform = 'darwin';
+    writeFileSyncMock.mockClear();
+    existsSyncMock.mockImplementation(() => true);
+  });
+
+  test('writes SBPL profile with allow network when networkMode is proxied', () => {
+    /**
+     * Tests that the macOS sandbox profile allows network access in proxied mode
+     * so the process can reach the local credential proxy.
+     */
+
+    // GIVEN the platform is macOS
+    // (set in beforeEach)
+
+    // WHEN wrapping a command with proxied network mode
+    wrapCommand('curl https://example.com', '/tmp/project', nativeConfig(), { networkMode: 'proxied' });
+
+    // THEN the written profile contains (allow network*) instead of (deny network*)
+    const profileContent = writeFileSyncMock.mock.calls[0]?.[1] as string;
+    expect(profileContent).toContain('(allow network*)');
+    expect(profileContent).not.toContain('(deny network*)');
+  });
+
+  test('writes SBPL profile with deny network when networkMode is off', () => {
+    /**
+     * Tests that the macOS sandbox profile blocks network access when network
+     * mode is off (the default behavior).
+     */
+
+    // GIVEN the platform is macOS
+    // (set in beforeEach)
+
+    // WHEN wrapping a command with network mode off
+    wrapCommand('echo hello', '/tmp/project', nativeConfig(), { networkMode: 'off' });
+
+    // THEN the written profile contains (deny network*)
+    const profileContent = writeFileSyncMock.mock.calls[0]?.[1] as string;
+    expect(profileContent).toContain('(deny network*)');
+    expect(profileContent).not.toContain('(allow network*)');
+  });
+
+  test('writes SBPL profile with deny network when no options are provided', () => {
+    /**
+     * Tests that the default behavior (no options) blocks network access on macOS.
+     */
+
+    // GIVEN the platform is macOS
+    // (set in beforeEach)
+
+    // WHEN wrapping a command without any options
+    wrapCommand('echo hello', '/tmp/project', nativeConfig());
+
+    // THEN the written profile contains (deny network*)
+    const profileContent = writeFileSyncMock.mock.calls[0]?.[1] as string;
+    expect(profileContent).toContain('(deny network*)');
+    expect(profileContent).not.toContain('(allow network*)');
   });
 });
