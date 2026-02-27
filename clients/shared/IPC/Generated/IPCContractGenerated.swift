@@ -3280,7 +3280,6 @@ public struct IPCPairingApprovalResponse: Codable, Sendable {
     }
 }
 
-
 public struct IPCPingMessage: Codable, Sendable {
     public let type: String
 
