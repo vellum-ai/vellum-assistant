@@ -1687,7 +1687,7 @@ private struct SetPINForEnableSheet: View {
 
     private var stepSubtitle: String {
         step == .enterNew
-            ? "Create a 6-digit passcode to protect parental settings."
+            ? "Create a 6-digit passcode."
             : "Re-enter your new passcode to confirm."
     }
 
