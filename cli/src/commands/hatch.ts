@@ -6,7 +6,7 @@ import { join } from "path";
 import cliPkg from "../../package.json";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
-import { loadAllAssistants, saveAssistantEntry } from "../lib/assistant-config";
+import { loadAllAssistants, saveAssistantEntry, syncConfigToLockfile } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { hatchAws } from "../lib/aws";
 import {
@@ -536,6 +536,7 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
   };
   if (!daemonOnly) {
     saveAssistantEntry(localEntry);
+    syncConfigToLockfile();
 
     if (process.env.VELLUM_DESKTOP_APP) {
       installCLISymlink();

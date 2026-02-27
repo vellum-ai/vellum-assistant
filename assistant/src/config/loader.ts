@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, statSync,writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 import { deleteSecureKey,getSecureKey, setSecureKey } from '../security/secure-keys.js';
 import { ConfigError } from '../util/errors.js';
@@ -113,6 +114,7 @@ export function loadConfig(): AssistantConfig {
     const configPath = getConfigPath();
 
     let fileConfig: Record<string, unknown> = {};
+    let configFileExisted = true;
     if (existsSync(configPath)) {
       const mode = statSync(configPath).mode;
       if (mode & 0o077) {
@@ -127,6 +129,8 @@ export function loadConfig(): AssistantConfig {
       } catch (err) {
         throw new ConfigError(`Failed to parse config at ${configPath}: ${err}`);
       }
+    } else {
+      configFileExisted = false;
     }
 
     // Pre-validate apiKeys shape before migration (must be a plain object)
@@ -181,6 +185,23 @@ export function loadConfig(): AssistantConfig {
 
     // Validate and apply defaults via Zod schema
     const config = validateWithSchema(fileConfig);
+
+    // If the config file didn't exist, write the full defaults to disk so
+    // users can discover and edit all available options.
+    if (!configFileExisted) {
+      try {
+        const dir = dirname(configPath);
+        if (!existsSync(dir)) {
+          mkdirSync(dir, { recursive: true });
+        }
+        // Strip apiKeys (managed in secure storage) and dataDir (runtime-derived)
+        const { apiKeys: _, dataDir: _d, ...persistable } = config;
+        writeFileSync(configPath, JSON.stringify(persistable, null, 2) + '\n');
+        log.info('Wrote default config to %s', configPath);
+      } catch (err) {
+        log.warn({ err }, 'Failed to write default config file');
+      }
+    }
 
     // Set cached before secure-key/env overrides so re-entrant calls
     // return the in-flight config instead of bare defaults.

@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { syncConfigToLockfile } from "../lib/assistant-config";
+
 interface AllowlistConfig {
   values?: string[];
   prefixes?: string[];
@@ -176,6 +178,7 @@ export function config(): void {
       }
       setNestedValue(raw, key, parsed);
       saveRawConfig(raw);
+      syncConfigToLockfile();
       console.log(`Set ${key} = ${JSON.stringify(parsed)}`);
       break;
     }
