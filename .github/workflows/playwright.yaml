@@ -128,6 +128,7 @@ jobs:
           fi
 
       - name: Upload test artifacts
+        id: upload-artifacts
         if: always() && steps.tests.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
@@ -135,6 +136,13 @@ jobs:
           path: playwright/test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Output artifact URL
+        if: always() && steps.upload-artifacts.outputs.artifact-id
+        run: |
+          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.upload-artifacts.outputs.artifact-id }}"
+          echo "::notice title=Playwright Artifacts::$ARTIFACT_URL"
+          echo "artifact-url=$ARTIFACT_URL" >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub App token
         if: steps.tests.outcome == 'failure'

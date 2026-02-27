@@ -158,18 +158,25 @@ const icon = conclusion === "success" ? "✓" : "✗";
 const color = conclusion === "success" ? "\x1b[32m" : "\x1b[31m";
 console.log(`\n${color}${icon}\x1b[0m Playwright Tests ${conclusion} in ${formatElapsed(startTime)}`);
 console.log(`  ${runUrl}`);
-console.log(`  ${runUrl}#artifacts`);
 
-// Download artifacts if any
-const { stdout: artifactCount } = gh([
+// Fetch specific artifact URL
+const { stdout: artifactJson } = gh([
   "api", `repos/${REPO}/actions/runs/${runId}/artifacts`,
-  "--jq", ".total_count",
+  "--jq", ".artifacts[0] // empty | {id, name}",
 ]);
 
-if (parseInt(artifactCount, 10) > 0) {
-  console.log("\nDownloading artifacts...");
-  ghPassthrough(["run", "download", runId, "-R", REPO, "-D", "test-results/ci-artifacts"]);
-  console.log("Saved to test-results/ci-artifacts/");
+if (artifactJson) {
+  try {
+    const artifact = JSON.parse(artifactJson) as { id: number; name: string };
+    const artifactUrl = `https://github.com/${REPO}/actions/runs/${runId}/artifacts/${artifact.id}`;
+    console.log(`  ${artifactUrl}`);
+
+    console.log("\nDownloading artifacts...");
+    ghPassthrough(["run", "download", runId, "-R", REPO, "-D", "test-results/ci-artifacts"]);
+    console.log("Saved to test-results/ci-artifacts/");
+  } catch {
+    // artifact JSON parse failed, skip download
+  }
 }
 
 process.exit(conclusion === "success" ? 0 : 1);
