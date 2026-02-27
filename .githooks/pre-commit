@@ -115,6 +115,15 @@ matches_safe_line_pattern() {
         # This lets the angle-bracket allowlist distinguish uppercase
         # placeholders from lowercase passphrase-style secrets.
         if printf '%s\n' "$text" | grep -nE -- "$pattern" >/dev/null 2>&1; then
+            # Guard: if this looks like a key-constant declaration (let/var/val ...Key = "..."),
+            # check that the full variable name doesn't contain a sensitive keyword.
+            # This prevents e.g. `let apiStorageKey = "..."` from being whitelisted
+            # even though its suffix (Storage) is in the safe list.
+            if printf '%s\n' "$text" | grep -iE "(let|var|val)[[:space:]]+[a-zA-Z0-9_]*[Kk]ey[[:space:]]*=" >/dev/null 2>&1; then
+                if printf '%s\n' "$text" | grep -iE "(let|var|val)[[:space:]]+[a-zA-Z0-9_]*(api|access|private|secret|client|encryption|encrypt|jwt|signing|sign|auth|hmac|master|symmetric|asymmetric|shared|session|verification|verify|decryption|decrypt|service|deploy|registry|webhook|database)[a-zA-Z0-9_]*[Kk]ey" >/dev/null 2>&1; then
+                    continue
+                fi
+            fi
             return 0
         fi
     done
@@ -223,6 +232,8 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_SWIFT_STORAGE_KEY='let archivedSessionsKey = "archivedSessionIds"'
     # Swift apiKey constant with alphabetic value (dangerous — must NOT be whitelisted)
     UNSAFE_SWIFT_API_KEY='let apiKey = "abcdefghijklmnopqrstuvwxyz"'
+    # Swift compound key with sensitive prefix (dangerous — must NOT be whitelisted)
+    UNSAFE_SWIFT_API_STORAGE_KEY='let apiStorageKey = "abcdefghijklmnopqrstuvwxyz"'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -462,6 +473,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_safe_line_pattern "$UNSAFE_SWIFT_API_KEY"; then
         echo -e "${RED}Self-test failed:${NC} Swift apiKey constant was incorrectly whitelisted by safe-line pattern"
+        exit 1
+    fi
+    if matches_safe_line_pattern "$UNSAFE_SWIFT_API_STORAGE_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} Swift apiStorageKey constant was incorrectly whitelisted (sensitive prefix + safe suffix)"
         exit 1
     fi
 
