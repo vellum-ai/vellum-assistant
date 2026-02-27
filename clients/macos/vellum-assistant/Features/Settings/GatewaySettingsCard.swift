@@ -18,7 +18,6 @@ struct GatewaySettingsCard: View {
     @State private var gatewayTargetCopied: Bool = false
     @State private var showingRegenerateConfirmation: Bool = false
     @State private var isRegeneratingToken: Bool = false
-    @State private var refreshSpinning: Set<String> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -110,7 +109,7 @@ struct GatewaySettingsCard: View {
                 .foregroundColor(VColor.textSecondary)
 
             // Gateway connection status (checks local daemon)
-            connectionStatusRow(
+            ConnectionStatusRow(
                 label: "Gateway",
                 status: gatewayStatusInfo,
                 isRefreshing: store.isCheckingGateway,
@@ -142,7 +141,7 @@ struct GatewaySettingsCard: View {
             }
 
             // Tunnel connection status (checks public URL)
-            connectionStatusRow(
+            ConnectionStatusRow(
                 label: "Tunnel",
                 status: tunnelStatusInfo,
                 isRefreshing: store.isCheckingTunnel,
@@ -254,12 +253,6 @@ struct GatewaySettingsCard: View {
 
     // MARK: - Connection Status Helpers
 
-    private struct ConnectionStatusInfo {
-        let label: String
-        let color: Color
-        let icon: String
-    }
-
     private var gatewayStatusInfo: ConnectionStatusInfo {
         guard let reachable = store.gatewayReachable else {
             return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
@@ -300,99 +293,6 @@ struct GatewaySettingsCard: View {
             return ConnectionStatusInfo(label: "Reachable", color: VColor.success, icon: "checkmark.circle.fill")
         } else {
             return ConnectionStatusInfo(label: "Unreachable", color: VColor.error, icon: "xmark.circle.fill")
-        }
-    }
-
-    private func connectionStatusRow(
-        label: String,
-        status: ConnectionStatusInfo,
-        isRefreshing: Bool = false,
-        lastChecked: Date? = nil,
-        onRefresh: (() -> Void)? = nil
-    ) -> some View {
-        let spinning = isRefreshing || refreshSpinning.contains(label)
-
-        return HStack(spacing: VSpacing.sm) {
-            Text(label)
-                .font(VFont.bodyMedium)
-                .foregroundColor(VColor.textSecondary)
-                .frame(width: 60, alignment: .leading)
-
-            Image(systemName: status.icon)
-                .foregroundColor(status.color)
-                .font(.system(size: 12))
-
-            Text(status.label)
-                .font(VFont.body)
-                .foregroundColor(status.color)
-
-            if let onRefresh {
-                let tooltipText: String = {
-                    if spinning { return "Checking..." }
-                    if let lastChecked { return "Last verified: \(relativeTimeString(from: lastChecked))" }
-                    return "Test connection"
-                }()
-
-                Button {
-                    guard !spinning else { return }
-                    refreshSpinning.insert(label)
-                    onRefresh()
-                    Task {
-                        try? await Task.sleep(nanoseconds: 500_000_000)
-                        refreshSpinning.remove(label)
-                    }
-                } label: {
-                    SpinningRefreshIcon(isSpinning: spinning)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Refresh \(label) status")
-                .help(tooltipText)
-            }
-
-            Spacer()
-        }
-    }
-
-    /// Returns a human-readable relative time string (e.g. "just now", "2 minutes ago").
-    private func relativeTimeString(from date: Date) -> String {
-        let seconds = Int(-date.timeIntervalSinceNow)
-        if seconds < 5 { return "just now" }
-        if seconds < 60 { return "\(seconds) seconds ago" }
-        let minutes = seconds / 60
-        if minutes == 1 { return "1 minute ago" }
-        if minutes < 60 { return "\(minutes) minutes ago" }
-        let hours = minutes / 60
-        if hours == 1 { return "1 hour ago" }
-        return "\(hours) hours ago"
-    }
-
-    // MARK: - Spinning Refresh Icon
-
-    private struct SpinningRefreshIcon: View {
-        let isSpinning: Bool
-
-        @State private var angle: Double = 0
-
-        var body: some View {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isSpinning ? VColor.accent : VColor.textMuted)
-                .rotationEffect(.degrees(angle))
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-                .task(id: isSpinning) {
-                    if isSpinning {
-                        angle = 0
-                        while !Task.isCancelled {
-                            withAnimation(.linear(duration: 1)) {
-                                angle += 360
-                            }
-                            try? await Task.sleep(nanoseconds: 1_000_000_000)
-                        }
-                    } else {
-                        angle = 0
-                    }
-                }
         }
     }
 
