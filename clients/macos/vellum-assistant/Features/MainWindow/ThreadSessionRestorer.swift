@@ -182,7 +182,13 @@ final class ThreadSessionRestorer {
             && delegate.chatViewModel(for: delegate.threads[0].id)?.sessionId == nil
 
         var restoredThreads: [ThreadModel] = []
-        var pinnedCount = 0
+        // Seed the fallback counter past the highest persisted pinned order
+        // so legacy threads (nil displayOrder) don't collide with explicit ones.
+        let maxPersistedPinnedOrder = recentSessions
+            .filter { $0.isPinned ?? false }
+            .compactMap { $0.displayOrder.map { Int($0) } }
+            .max() ?? -1
+        var pinnedCount = maxPersistedPinnedOrder + 1
         for session in recentSessions {
             // Skip sessions that already have a local thread (e.g. created by
             // createNotificationThread before the session list response arrived).

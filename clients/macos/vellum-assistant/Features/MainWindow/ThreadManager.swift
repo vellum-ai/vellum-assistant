@@ -435,9 +435,15 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             $0.threadType != "private" && $0.channelBinding?.sourceChannel == nil
         }
 
-        // Compute the next pinnedOrder based on existing pinned threads so
-        // appended pinned threads don't collide with already-loaded ones.
-        var nextPinnedOrder = (threads.compactMap(\.pinnedOrder).max() ?? -1) + 1
+        // Compute the next pinnedOrder based on existing pinned threads AND
+        // persisted displayOrder values in the incoming batch, so legacy threads
+        // (nil displayOrder) don't collide with explicit or already-loaded ones.
+        let existingMax = threads.compactMap(\.pinnedOrder).max() ?? -1
+        let batchMax = recentSessions
+            .filter { $0.isPinned ?? false }
+            .compactMap { $0.displayOrder.map { Int($0) } }
+            .max() ?? -1
+        var nextPinnedOrder = max(existingMax, batchMax) + 1
 
         for session in recentSessions {
             // Skip sessions that already have a thread
