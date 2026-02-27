@@ -2,6 +2,12 @@ name: Playwright Tests
 
 on:
   workflow_dispatch:
+    inputs:
+      agent:
+        description: 'Run agent-based tests instead of standard Playwright tests'
+        required: false
+        type: boolean
+        default: false
   pull_request:
     types: [labeled, synchronize, opened, reopened]
     paths:
@@ -20,6 +26,7 @@ permissions:
 
 jobs:
   headless:
+    if: github.event_name != 'workflow_dispatch'
     name: Headless Browser Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -104,18 +111,30 @@ jobs:
         working-directory: playwright
         run: bun install
 
+      - name: Install Chromium
+        if: inputs.agent
+        working-directory: playwright
+        run: bunx playwright install --with-deps chromium
+
       - name: Run Playwright tests
         id: tests
         working-directory: playwright
         continue-on-error: true
-        run: bun run test
+        run: |
+          if [ "${{ inputs.agent }}" = "true" ]; then
+            bun run test:agent
+          else
+            bun run test
+          fi
 
       - name: Upload screenshots on failure
         if: steps.tests.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-screenshots
-          path: playwright/test-results/screenshots/
+          path: |
+            playwright/test-results/screenshots/
+            playwright/test-results/agent-screenshots/
           retention-days: 7
           if-no-files-found: ignore
 
