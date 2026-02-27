@@ -1263,7 +1263,7 @@ struct MainWindowView: View {
 
             // Profile switcher row — always visible when parental controls are active,
             // even in child mode, so the child can always switch back to parental.
-            if settingsStore.isParentalEnabled {
+            if settingsStore.isParentalEnabled && FeatureFlagManager.shared.isEnabled(.parentalControlsEnabled) {
                 ProfileSwitcherSidebarRow(
                     activeProfile: settingsStore.activeProfile,
                     isExpanded: true,
@@ -1312,7 +1312,7 @@ struct MainWindowView: View {
             }
 
             // Profile switcher icon — always visible when parental controls are active
-            if settingsStore.isParentalEnabled {
+            if settingsStore.isParentalEnabled && FeatureFlagManager.shared.isEnabled(.parentalControlsEnabled) {
                 ProfileSwitcherSidebarRow(
                     activeProfile: settingsStore.activeProfile,
                     isExpanded: false,

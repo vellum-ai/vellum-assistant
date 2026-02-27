@@ -166,7 +166,9 @@ struct SettingsPanel: View {
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            ForEach(SettingsTab.allCases, id: \.self) { tab in
+            ForEach(SettingsTab.allCases.filter { tab in
+                tab != .parental || FeatureFlagManager.shared.isEnabled(.parentalControlsEnabled)
+            }, id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
                 }
