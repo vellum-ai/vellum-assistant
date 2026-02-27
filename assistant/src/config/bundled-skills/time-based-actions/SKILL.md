@@ -102,11 +102,33 @@ Use `notify` for simple alerts. Use `execute` when the reminder should trigger t
 ## Reminder Routing
 
 `reminder_create` supports a `routing_intent` parameter that controls how the reminder is delivered at trigger time:
-- **`single_channel`** (default) — deliver to one best channel
+- **`single_channel`** — deliver to one best channel
 - **`multi_channel`** — deliver to a subset of channels
-- **`all_channels`** — deliver to every available channel
+- **`all_channels`** (default) — deliver to every available channel
 
 You can also pass `routing_hints` (a JSON object) to influence routing decisions (e.g. preferred channels, exclusions).
+
+### Routing Defaults
+
+Use the following heuristics to pick `routing_intent`:
+
+- **Default to `all_channels`** for most reminders. Users setting reminders usually want to be notified wherever they are, and redundant notifications are less harmful than missed ones.
+- **Use `single_channel`** only when the user explicitly specifies a single channel (e.g. "remind me on Telegram") or the reminder is low-stakes and noise reduction matters.
+- **Check `user_message_channel`** from the turn context. If the user is currently active on a specific channel (e.g. `vellum`), always include that channel. Pass it as a routing hint:
+  ```
+  routing_hints: { preferred_channels: ["vellum"] }
+  routing_intent: "all_channels"
+  ```
+- **Never use `single_channel` as a passive default.** If you haven't thought about which channel to use, use `all_channels`.
+
+### Examples
+
+| Scenario | routing_intent | routing_hints |
+|---|---|---|
+| User sets reminder from desktop app | `all_channels` | `{ preferred_channels: ["vellum"] }` |
+| User says "remind me on Telegram" | `single_channel` | `{ preferred_channels: ["telegram"] }` |
+| User sets reminder from Telegram | `all_channels` | `{ preferred_channels: ["telegram"] }` |
+| No channel preference expressed | `all_channels` | `{}` |
 
 ## Tool Summary
 
