@@ -79,6 +79,10 @@ final class AssistantCli {
     /// from restarting the daemon.
     private var isStopping = false
 
+    /// Guards against multiple concurrent `restartDaemon()` calls — repeated
+    /// socket-not-found notifications can each spawn a Task that races to hatch.
+    private var isRestarting = false
+
     private var consecutiveCrashes = 0
     private var lastLaunchTime: Date?
 
@@ -327,7 +331,7 @@ final class AssistantCli {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, !self.isStopping else { return }
+                guard let self, !self.isStopping, !self.isRestarting else { return }
                 guard self.isDaemonAlive() == false else { return }
                 log.warning("Socket not found notification — attempting immediate restart")
                 await self.restartDaemon()
@@ -343,6 +347,7 @@ final class AssistantCli {
             NotificationCenter.default.removeObserver(observer)
             socketNotFoundObserver = nil
         }
+        isRestarting = false
     }
 
     // MARK: - Remote Hatch (pass-through to CLI)
@@ -574,6 +579,9 @@ final class AssistantCli {
 
     private func restartDaemon() async {
         guard cliBinaryURL != nil else { return }
+        guard !isRestarting else { return }
+        isRestarting = true
+        defer { isRestarting = false }
 
         // Only restart if the assistant is still registered in the lock file
         let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
