@@ -1455,6 +1455,7 @@ async function handleInviteTokenIntercept(params: {
     rawToken,
     sourceChannel,
     externalChatId,
+    externalMessageId,
     senderExternalUserId,
     senderName,
     senderUsername,
@@ -1463,6 +1464,26 @@ async function handleInviteTokenIntercept(params: {
     assistantId,
     canonicalAssistantId,
   } = params;
+
+  // Record the inbound event for dedup tracking BEFORE performing redemption.
+  // Without this, duplicate webhook deliveries (common with Telegram) would
+  // not be tracked: the first delivery redeems the invite and returns early,
+  // then the retry finds an active member, passes ACL, and the raw
+  // /start iv_<token> message leaks into the agent pipeline.
+  const dedupResult = channelDeliveryStore.recordInbound(
+    sourceChannel,
+    externalChatId,
+    externalMessageId,
+    { assistantId: canonicalAssistantId },
+  );
+
+  if (dedupResult.duplicate) {
+    return Response.json({
+      accepted: true,
+      duplicate: true,
+      eventId: dedupResult.eventId,
+    });
+  }
 
   const outcome = redeemInvite({
     rawToken,
@@ -1496,7 +1517,7 @@ async function handleInviteTokenIntercept(params: {
         log.error({ err, externalChatId }, 'Failed to deliver invite already-member reply');
       }
     }
-    return Response.json({ accepted: true, inviteRedemption: 'already_member' });
+    return Response.json({ accepted: true, eventId: dedupResult.eventId, inviteRedemption: 'already_member' });
   }
 
   const replyText = getInviteRedemptionReply(outcome);
@@ -1514,11 +1535,11 @@ async function handleInviteTokenIntercept(params: {
   }
 
   if (outcome.ok && outcome.type === 'redeemed') {
-    return Response.json({ accepted: true, inviteRedemption: 'redeemed', memberId: outcome.memberId });
+    return Response.json({ accepted: true, eventId: dedupResult.eventId, inviteRedemption: 'redeemed', memberId: outcome.memberId });
   }
 
   // Failed redemption — inform the user and deny
-  return Response.json({ accepted: true, denied: true, inviteRedemption: outcome.reason });
+  return Response.json({ accepted: true, eventId: dedupResult.eventId, denied: true, inviteRedemption: outcome.reason });
 }
 
 // ---------------------------------------------------------------------------

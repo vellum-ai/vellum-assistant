@@ -330,6 +330,59 @@ export function redeemInvite(params: {
 }
 
 // ---------------------------------------------------------------------------
+// recordInviteUse — consume one use without creating a member row
+// ---------------------------------------------------------------------------
+
+/**
+ * Increment an invite's use count and record redemption metadata without
+ * inserting a new member row. Used when reactivating an existing inactive
+ * member via invite — the member row already exists and just needs an
+ * update, so the transactional INSERT in `redeemInvite` would hit a
+ * unique-key constraint.
+ */
+export function recordInviteUse(params: {
+  inviteId: string;
+  externalUserId?: string;
+  externalChatId?: string;
+}): IngressInvite | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const invite = db
+    .select()
+    .from(assistantIngressInvites)
+    .where(eq(assistantIngressInvites.id, params.inviteId))
+    .get();
+
+  if (!invite) return null;
+
+  const newUseCount = invite.useCount + 1;
+  const newStatus = newUseCount >= invite.maxUses ? 'redeemed' : 'active';
+
+  db.update(assistantIngressInvites)
+    .set({
+      useCount: newUseCount,
+      status: newStatus,
+      redeemedByExternalUserId: params.externalUserId ?? null,
+      redeemedByExternalChatId: params.externalChatId ?? null,
+      redeemedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(assistantIngressInvites.id, invite.id))
+    .run();
+
+  return rowToInvite({
+    ...invite,
+    useCount: newUseCount,
+    status: newStatus,
+    redeemedByExternalUserId: params.externalUserId ?? null,
+    redeemedByExternalChatId: params.externalChatId ?? null,
+    redeemedAt: now,
+    updatedAt: now,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // markInviteExpired
 // ---------------------------------------------------------------------------
 
