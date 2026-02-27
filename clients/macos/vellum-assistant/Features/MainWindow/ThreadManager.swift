@@ -86,6 +86,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @Published private(set) var threadInteractionStates: [UUID: ThreadInteractionState] = [:]
     /// Subscriptions to per-thread interaction-state changes.
     private var interactionStateCancellables: [UUID: Set<AnyCancellable>] = [:]
+    /// Session IDs whose seen signals are deferred pending undo expiration.
+    private var pendingSeenSessionIds: [String] = []
+    /// Task that auto-commits deferred seen signals after the undo window.
+    private var pendingSeenSignalTask: Task<Void, Never>?
 
     /// Threads that are not archived — used by the UI to populate the sidebar.
     /// Sorted: pinned first (by pinnedOrder ascending), then unpinned by lastInteractedAt descending.
@@ -751,12 +755,15 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
     }
 
-    /// Mark all visible (non-archived, non-private) threads as seen and emit
-    /// IPC signals for each. Returns the IDs of threads that were actually
-    /// marked, so the caller can offer an undo action.
+    /// Mark all visible (non-archived, non-private) threads as seen locally.
+    /// IPC signals are NOT sent immediately — call `commitPendingSeenSignals()`
+    /// after the undo window expires, or `cancelPendingSeenSignals()` if the
+    /// user clicks Undo. Returns the IDs of threads that were actually marked.
     @discardableResult
     internal func markAllThreadsSeen() -> [UUID] {
+        cancelPendingSeenSignals()
         var markedIds: [UUID] = []
+        var sessionIds: [String] = []
         for idx in threads.indices {
             guard !threads[idx].isArchived,
                   threads[idx].kind != .private,
@@ -764,14 +771,51 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             threads[idx].hasUnseenLatestAssistantMessage = false
             markedIds.append(threads[idx].id)
             if let sessionId = threads[idx].sessionId {
-                emitConversationSeenSignal(conversationId: sessionId)
+                sessionIds.append(sessionId)
             }
+        }
+        if !sessionIds.isEmpty {
+            pendingSeenSessionIds = sessionIds
         }
         return markedIds
     }
 
-    /// Restore the unseen flag for the given thread IDs (used by undo).
+    /// Send the deferred IPC seen signals that were collected by
+    /// `markAllThreadsSeen()`. Called when the undo window expires
+    /// (toast dismissed or auto-dismiss timer fires).
+    internal func commitPendingSeenSignals() {
+        let sessionIds = pendingSeenSessionIds
+        pendingSeenSessionIds = []
+        pendingSeenSignalTask?.cancel()
+        pendingSeenSignalTask = nil
+        for sessionId in sessionIds {
+            emitConversationSeenSignal(conversationId: sessionId)
+        }
+    }
+
+    /// Cancel any pending IPC seen signals (user clicked Undo).
+    internal func cancelPendingSeenSignals() {
+        pendingSeenSessionIds = []
+        pendingSeenSignalTask?.cancel()
+        pendingSeenSignalTask = nil
+    }
+
+    /// Schedule deferred IPC seen signals to fire after a delay.
+    /// If the user clicks Undo before the delay, call
+    /// `cancelPendingSeenSignals()` to prevent them from sending.
+    internal func schedulePendingSeenSignals(delay: TimeInterval = 5.0) {
+        pendingSeenSignalTask?.cancel()
+        pendingSeenSignalTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.commitPendingSeenSignals()
+        }
+    }
+
+    /// Restore the unseen flag for the given thread IDs and cancel any
+    /// pending IPC seen signals (used by undo).
     internal func restoreUnseen(threadIds: [UUID]) {
+        cancelPendingSeenSignals()
         for id in threadIds {
             if let idx = threads.firstIndex(where: { $0.id == id }) {
                 threads[idx].hasUnseenLatestAssistantMessage = true
