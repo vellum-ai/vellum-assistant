@@ -87,6 +87,7 @@ export function registerMcpCommand(program: Command): void {
 
       if (servers[name]) {
         log.error(`MCP server "${name}" already exists. Remove it first with: vellum mcp remove ${name}`);
+        process.exitCode = 1;
         return;
       }
 
@@ -95,6 +96,7 @@ export function registerMcpCommand(program: Command): void {
         case 'stdio':
           if (!opts.command) {
             log.error('--command is required for stdio transport');
+            process.exitCode = 1;
             return;
           }
           transport = { type: 'stdio', command: opts.command, args: opts.args ?? [] };
@@ -103,17 +105,20 @@ export function registerMcpCommand(program: Command): void {
         case 'streamable-http':
           if (!opts.url) {
             log.error(`--url is required for ${opts.transportType} transport`);
+            process.exitCode = 1;
             return;
           }
           transport = { type: opts.transportType, url: opts.url };
           break;
         default:
           log.error(`Unknown transport type: ${opts.transportType}. Must be stdio, sse, or streamable-http`);
+          process.exitCode = 1;
           return;
       }
 
       if (!['low', 'medium', 'high'].includes(opts.risk)) {
         log.error(`Invalid risk level: ${opts.risk}. Must be low, medium, or high`);
+        process.exitCode = 1;
         return;
       }
 
