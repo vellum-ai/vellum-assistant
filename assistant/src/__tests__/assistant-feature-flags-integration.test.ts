@@ -5,8 +5,8 @@
  * Covers:
  *   - Flag OFF blocks all exposure paths
  *   - Missing persisted value falls back to code default
- *   - Legacy keys/section still read (backward compat)
- *   - New assistantFeatureFlagValues takes priority over legacy featureFlags
+ *   - New assistantFeatureFlagValues is the sole override mechanism
+ *   - Undeclared keys default to enabled
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,11 +22,9 @@ const TEST_DIR = join(tmpdir(), `vellum-asst-flags-test-${crypto.randomUUID()}`)
 
 let currentConfig: Record<string, unknown> = {
   sandbox: { enabled: false, backend: 'native' },
-  featureFlags: {},
 };
 
 const DECLARED_FLAG_KEY = 'feature_flags.hatch-new-assistant.enabled';
-const DECLARED_LEGACY_KEY = 'skills.hatch-new-assistant.enabled';
 const DECLARED_SKILL_ID = 'hatch-new-assistant';
 
 mock.module('../util/platform.js', () => ({
@@ -84,7 +82,7 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
 }));
 
 const { buildSystemPrompt } = await import('../config/system-prompt.js');
-const { isAssistantFeatureFlagEnabled, isAssistantSkillEnabled } = await import('../config/assistant-feature-flags.js');
+const { isAssistantFeatureFlagEnabled } = await import('../config/assistant-feature-flags.js');
 const { isSkillFeatureEnabled } = await import('../config/skill-state.js');
 
 // ---------------------------------------------------------------------------
@@ -95,7 +93,6 @@ beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
   currentConfig = {
     sandbox: { enabled: false, backend: 'native' },
-    featureFlags: {},
   };
 });
 
@@ -132,7 +129,7 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
-      featureFlags: { [DECLARED_LEGACY_KEY]: false },
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     };
 
     const result = buildSystemPrompt();
@@ -141,13 +138,12 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
   });
 
-  test('all skills visible when featureFlags is empty', () => {
+  test('all skills visible when no flag overrides set', () => {
     createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
     createSkillOnDisk('twitter', 'Twitter', 'Post to X/Twitter');
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
-      featureFlags: {},
     };
 
     const result = buildSystemPrompt();
@@ -156,33 +152,29 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
     expect(result).toContain('id="twitter"');
   });
 
-  test('flagged-off skills hidden even when all flags are OFF', () => {
+  test('flagged-off skills hidden when all flags are OFF', () => {
     createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
     createSkillOnDisk('twitter', 'Twitter', 'Post to X/Twitter');
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
-      featureFlags: {
-        [DECLARED_LEGACY_KEY]: false,
-        'skills.twitter.enabled': false,
+      assistantFeatureFlagValues: {
+        [DECLARED_FLAG_KEY]: false,
+        'feature_flags.twitter.enabled': false,
       },
     };
 
     const result = buildSystemPrompt();
 
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
-    // Twitter is undeclared but also has an explicit persisted override (false),
-    // so it should be hidden too.
     expect(result).not.toContain('id="twitter"');
   });
 
-  test('new assistantFeatureFlagValues takes priority over legacy featureFlags', () => {
+  test('assistantFeatureFlagValues overrides control visibility', () => {
     createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
 
-    // Legacy says disabled, new section says enabled — new section wins
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
-      featureFlags: { [DECLARED_LEGACY_KEY]: false },
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
     };
 
@@ -196,7 +188,6 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
-      featureFlags: { 'skills.browser.enabled': false },
       assistantFeatureFlagValues: { 'feature_flags.browser.enabled': false },
     };
 
@@ -212,7 +203,6 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
-      featureFlags: {},
     };
 
     const result = buildSystemPrompt();
@@ -226,18 +216,17 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
 // ---------------------------------------------------------------------------
 
 describe('isAssistantFeatureFlagEnabled', () => {
-  test('reads from assistantFeatureFlagValues first', () => {
+  test('reads from assistantFeatureFlagValues', () => {
     const config = {
-      featureFlags: { [DECLARED_LEGACY_KEY]: false },
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
     } as any;
 
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
-  test('falls back to legacy featureFlags when new section is absent', () => {
+  test('explicit false override in assistantFeatureFlagValues', () => {
     const config = {
-      featureFlags: { [DECLARED_LEGACY_KEY]: false },
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     } as any;
 
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(false);
@@ -246,68 +235,37 @@ describe('isAssistantFeatureFlagEnabled', () => {
   test('missing persisted value falls back to defaults registry defaultEnabled', () => {
     // No explicit config at all — should fall back to defaults registry
     // which has defaultEnabled: true for hatch-new-assistant
-    const config = {
-      featureFlags: {},
-    } as any;
+    const config = {} as any;
 
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
   test('unknown flag defaults to true when no persisted override', () => {
-    const config = {
-      featureFlags: {},
-    } as any;
+    const config = {} as any;
 
     expect(isAssistantFeatureFlagEnabled('feature_flags.unknown-skill.enabled', config)).toBe(true);
   });
 
   test('undeclared flag respects persisted canonical override', () => {
     const config = {
-      featureFlags: {},
       assistantFeatureFlagValues: { 'feature_flags.browser.enabled': false },
     } as any;
 
     expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(false);
   });
-
-  test('undeclared flag respects persisted legacy override', () => {
-    const config = {
-      featureFlags: { 'skills.browser.enabled': false },
-    } as any;
-
-    expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(false);
-  });
-});
-
-describe('isAssistantSkillEnabled', () => {
-  test('convenience wrapper translates skill ID to canonical key', () => {
-    const config = {
-      featureFlags: { [DECLARED_LEGACY_KEY]: false },
-    } as any;
-
-    expect(isAssistantSkillEnabled(DECLARED_SKILL_ID, config)).toBe(false);
-  });
-
-  test('enabled when no flag set', () => {
-    const config = { featureFlags: {} } as any;
-    expect(isAssistantSkillEnabled(DECLARED_SKILL_ID, config)).toBe(true);
-  });
 });
 
 describe('legacy isSkillFeatureEnabled backward compat', () => {
-  test('delegates to the new resolver and reads legacy flags', () => {
+  test('delegates to the canonical resolver', () => {
     const config = {
-      featureFlags: { [DECLARED_LEGACY_KEY]: false },
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     } as any;
 
     expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(false);
   });
 
-  test('new section overrides legacy via delegation', () => {
-    const config = {
-      featureFlags: { [DECLARED_LEGACY_KEY]: false },
-      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
-    } as any;
+  test('enabled when no override set', () => {
+    const config = {} as any;
 
     expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(true);
   });

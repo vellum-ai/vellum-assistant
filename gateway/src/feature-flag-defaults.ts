@@ -7,26 +7,24 @@ const log = getLogger("feature-flag-defaults");
 export type FeatureFlagDefault = {
   defaultEnabled: boolean;
   description: string;
+  label: string;
 };
 
 export type FeatureFlagDefaultsRegistry = Record<string, FeatureFlagDefault>;
 
 let cachedRegistry: FeatureFlagDefaultsRegistry | null = null;
 
-const REGISTRY_FILENAME = "assistant-feature-flag-defaults.json";
-const REGISTRY_RELATIVE = join("meta", "assistant-feature-flags", REGISTRY_FILENAME);
+const REGISTRY_FILENAME = "feature-flag-registry.json";
+const REGISTRY_RELATIVE = join("meta", "feature-flags", REGISTRY_FILENAME);
 
 /**
- * Resolve the path to the defaults registry JSON file.
+ * Resolve the path to the unified feature flag registry JSON file.
  *
  * The canonical file lives at
- * `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`
- * relative to the repository root. We also keep a bundled copy at
- * `gateway/src/assistant-feature-flag-defaults.json` so gateway-only layouts
- * can still resolve defaults without the repo-root `meta/` tree.
- *
- * We try several candidate locations so lookup works in monorepo dev,
- * gateway-only Docker, packaged macOS app bundles, and explicit test overrides.
+ * `meta/feature-flags/feature-flag-registry.json`
+ * relative to the repository root. We also support bundled copies so
+ * gateway-only layouts can still resolve defaults without the repo-root
+ * `meta/` tree.
  *
  * Candidate order:
  *   1. `FEATURE_FLAG_DEFAULTS_PATH` env var (explicit override)
@@ -71,6 +69,37 @@ function getRegistryCandidates(): string[] {
 }
 
 /**
+ * Parse the unified registry JSON into a flat key -> default map,
+ * filtering to assistant-scope flags only.
+ */
+function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+  const registry = parsed as { version?: number; flags?: unknown[] };
+  if (!Array.isArray(registry.flags)) return {};
+
+  const result: FeatureFlagDefaultsRegistry = {};
+  for (const flag of registry.flags) {
+    if (!flag || typeof flag !== "object" || Array.isArray(flag)) continue;
+    const entry = flag as Record<string, unknown>;
+    if (entry.scope !== "assistant") continue;
+    if (typeof entry.key !== "string") continue;
+    if (typeof entry.defaultEnabled !== "boolean") continue;
+    if (typeof entry.description !== "string") {
+      log.warn({ key: entry.key }, "Skipping invalid registry entry (description is not string)");
+      continue;
+    }
+
+    result[entry.key as string] = {
+      defaultEnabled: entry.defaultEnabled,
+      description: entry.description,
+      label: typeof entry.label === "string" ? entry.label : "",
+    };
+  }
+  return result;
+}
+
+/**
  * Load and validate the feature flag defaults registry.
  *
  * The registry is loaded once and cached for the lifetime of the process.
@@ -97,7 +126,7 @@ export function loadFeatureFlagDefaults(): FeatureFlagDefaultsRegistry {
   }
 
   if (!raw || !resolvedPath) {
-    log.error({ candidates }, "Failed to read feature flag defaults registry from any candidate path");
+    log.error({ candidates }, "Failed to read feature flag registry from any candidate path");
     cachedRegistry = {};
     return cachedRegistry;
   }
@@ -106,37 +135,12 @@ export function loadFeatureFlagDefaults(): FeatureFlagDefaultsRegistry {
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    log.error({ err, path: resolvedPath }, "Feature flag defaults registry is not valid JSON");
+    log.error({ err, path: resolvedPath }, "Feature flag registry is not valid JSON");
     cachedRegistry = {};
     return cachedRegistry;
   }
 
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    log.error({ path: resolvedPath }, "Feature flag defaults registry must be a JSON object");
-    cachedRegistry = {};
-    return cachedRegistry;
-  }
-
-  const registry: FeatureFlagDefaultsRegistry = {};
-  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      log.warn({ key }, "Skipping invalid defaults registry entry (not an object)");
-      continue;
-    }
-    const entry = value as Record<string, unknown>;
-    if (typeof entry.defaultEnabled !== "boolean") {
-      log.warn({ key }, "Skipping invalid defaults registry entry (defaultEnabled is not boolean)");
-      continue;
-    }
-    if (typeof entry.description !== "string") {
-      log.warn({ key }, "Skipping invalid defaults registry entry (description is not string)");
-      continue;
-    }
-    registry[key] = {
-      defaultEnabled: entry.defaultEnabled,
-      description: entry.description,
-    };
-  }
+  const registry = parseRegistryToDefaults(parsed);
 
   log.info({ flagCount: Object.keys(registry).length, path: resolvedPath }, "Loaded feature flag defaults registry");
   cachedRegistry = registry;

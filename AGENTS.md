@@ -169,15 +169,16 @@ All assistant API requests from clients, CLI, skills, and user-facing tooling **
 
 Assistant feature flags are the canonical assistant-scoped flagging mechanism for enabling/disabling assistant behavior across the system. They are declaration-driven and not limited to skills.
 
-- **Canonical key format:** `feature_flags.<flagId>.enabled`. All new code must use this format. The legacy `skills.<id>.enabled` format is still read for backward compatibility but must not be introduced in new code.
-- **Defaults registry:** All declared flags and their default values live in `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`. Keys declared in this registry participate in UI exposure and have registry-defined defaults. Undeclared keys still respect persisted config overrides but default to enabled when no override exists.
-- **Resolver:** The canonical resolver in `assistant/src/config/assistant-feature-flags.ts` resolves effective flag state by checking (in order): explicit config overrides, legacy config values, registry defaults (for declared keys), and finally `true` (for undeclared keys with no persisted override).
-- **Gateway API:** The gateway owns the `/v1/feature-flags` REST API for reading and mutating flags. New writes are stored in the `assistantFeatureFlagValues` config section using canonical keys.
-- **Guard tests:** A guard test (`assistant-feature-flag-guard.test.ts`) enforces two invariants:
+- **Canonical key format:** `feature_flags.<flagId>.enabled`. All new code must use this format. The legacy `skills.<id>.enabled` format is no longer supported.
+- **Unified registry:** All declared flags live in the unified feature flag registry at `meta/feature-flags/feature-flag-registry.json`. Each entry has `id`, `scope`, `key`, `label`, `description`, and `defaultEnabled`. Assistant-scope flags are filtered by `scope: "assistant"`. Keys declared in this registry participate in UI exposure and have registry-defined defaults. Undeclared keys still respect persisted config overrides but default to enabled when no override exists.
+- **Resolver:** The canonical resolver in `assistant/src/config/assistant-feature-flags.ts` resolves effective flag state by checking (in order): explicit config overrides (`assistantFeatureFlagValues`), registry defaults (for declared keys), and finally `true` (for undeclared keys with no persisted override).
+- **Gateway API:** The gateway owns the `/v1/feature-flags` REST API for reading and mutating flags. The GET response includes `key`, `label`, `enabled`, `defaultEnabled`, and `description` for each flag. New writes are stored in the `assistantFeatureFlagValues` config section using canonical keys.
+- **Guard tests:** Guard tests enforce:
   1. All feature flag key literals in production code use the canonical `feature_flags.<id>.enabled` format (not the legacy `skills.<id>.enabled` format).
-  2. All feature flag keys referenced in the defaults registry use the canonical format.
+  2. All assistant-scope flag keys in the unified registry use the canonical format.
+  3. All literal keys passed to `isAssistantFeatureFlagEnabled()` in production code are declared in the unified registry.
 
-When adding a new assistant feature flag, declare it in the defaults registry. When referencing a feature flag in code, always use the canonical key format.
+When adding a new assistant feature flag, declare it in the unified registry at `meta/feature-flags/feature-flag-registry.json` with `scope: "assistant"`. When referencing a feature flag in code, always use the canonical key format.
 
 ## LLM Provider Abstraction
 

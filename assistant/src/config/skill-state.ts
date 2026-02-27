@@ -1,4 +1,4 @@
-import { isAssistantSkillEnabled } from './assistant-feature-flags.js';
+import { isAssistantFeatureFlagEnabled } from './assistant-feature-flags.js';
 import type { AssistantConfig, SkillEntryConfig } from './schema.js';
 import type { SkillSummary } from './skills.js';
 import { checkSkillRequirements } from './skills.js';
@@ -13,14 +13,32 @@ export interface ResolvedSkill {
   configEntry?: SkillEntryConfig;
 }
 
+// Skill IDs whose feature flag key differs from the default
+// `feature_flags.<skillId>.enabled` derivation. The sms-setup skill is
+// gated by the `sms` flag so that the macOS Settings SMS toggle controls
+// both the channel UI and the setup skill.
+const SKILL_FLAG_KEY_OVERRIDES: Record<string, string> = {
+  'sms-setup': 'feature_flags.sms.enabled',
+};
+
 /**
- * @deprecated Use `isAssistantSkillEnabled` from `./assistant-feature-flags.js` instead.
+ * Derive the feature flag key for a given skill ID, respecting overrides.
+ *
+ * Exported so other modules (system-prompt, session-skill-tools, skill loader)
+ * can perform the same mapping without duplicating the override table.
+ */
+export function skillFlagKey(skillId: string): string {
+  return SKILL_FLAG_KEY_OVERRIDES[skillId] ?? `feature_flags.${skillId}.enabled`;
+}
+
+/**
+ * @deprecated Use `isAssistantFeatureFlagEnabled` from `./assistant-feature-flags.js` instead.
  *
  * Thin backward-compatible wrapper that delegates to the canonical resolver.
  * Kept to avoid breaking existing call sites during migration.
  */
 export function isSkillFeatureEnabled(skillId: string, config: AssistantConfig): boolean {
-  return isAssistantSkillEnabled(skillId, config);
+  return isAssistantFeatureFlagEnabled(skillFlagKey(skillId), config);
 }
 
 export function resolveSkillStates(
@@ -32,7 +50,7 @@ export function resolveSkillStates(
 
   for (const skill of catalog) {
     // Assistant feature flag gate: if the flag is explicitly OFF, skip this skill entirely
-    if (!isAssistantSkillEnabled(skill.id, config)) {
+    if (!isAssistantFeatureFlagEnabled(skillFlagKey(skill.id), config)) {
       continue;
     }
 

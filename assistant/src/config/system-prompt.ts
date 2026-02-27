@@ -6,10 +6,11 @@ import { getParentalControlSettings } from '../security/parental-control-store.j
 import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
-import { isAssistantSkillEnabled } from './assistant-feature-flags.js';
+import { isAssistantFeatureFlagEnabled } from './assistant-feature-flags.js';
 import { getBaseDataDir, getIsContainerized } from './env-registry.js';
 import { getConfig } from './loader.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
+import { skillFlagKey } from './skill-state.js';
 import { resolveUserReference } from './user-reference.js';
 
 const log = getLogger('system-prompt');
@@ -142,7 +143,7 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
     const config = getConfig();
     parts.push(buildToolPermissionSection());
     parts.push(buildTaskScheduleReminderRoutingSection());
-    if (isAssistantSkillEnabled('guardian-verify-setup', config)) {
+    if (isAssistantFeatureFlagEnabled('feature_flags.guardian-verify-setup.enabled', config)) {
       parts.push(buildGuardianVerificationRoutingSection());
     }
     parts.push(buildAttachmentSection());
@@ -771,7 +772,7 @@ function appendSkillsCatalog(basePrompt: string): string {
   const config = getConfig();
 
   // Filter out skills whose assistant feature flag is explicitly OFF
-  const flagFiltered = skills.filter(s => isAssistantSkillEnabled(s.id, config));
+  const flagFiltered = skills.filter(s => isAssistantFeatureFlagEnabled(skillFlagKey(s.id), config));
 
   const sections: string[] = [basePrompt];
 
@@ -798,7 +799,7 @@ function buildDynamicSkillWorkflowSection(config: import('./schema.js').Assistan
     'After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.',
   ];
 
-  if (isAssistantSkillEnabled('browser', config)) {
+  if (isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)) {
     lines.push(
       '',
       '### Browser Skill Prerequisite',
@@ -806,7 +807,7 @@ function buildDynamicSkillWorkflowSection(config: import('./schema.js').Assistan
     );
   }
 
-  if (isAssistantSkillEnabled('twitter', config)) {
+  if (isAssistantFeatureFlagEnabled('feature_flags.twitter.enabled', config)) {
     lines.push(
       '',
       '### X (Twitter) Skill',

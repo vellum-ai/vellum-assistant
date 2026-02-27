@@ -40,14 +40,21 @@ beforeAll(async () => {
     JSON.stringify({ assistantFeatureFlagValues: { [FLAG_KEY]: true } }),
   );
 
-  const defaultsPath = join(tmpDir, "assistant-feature-flag-defaults.json");
+  const defaultsPath = join(tmpDir, "feature-flag-registry.json");
   writeFileSync(
     defaultsPath,
     JSON.stringify({
-      [FLAG_KEY]: {
-        defaultEnabled: true,
-        description: "Hatch new assistant",
-      },
+      version: 1,
+      flags: [
+        {
+          id: "hatch-new-assistant",
+          scope: "assistant",
+          key: FLAG_KEY,
+          label: "Hatch New Assistant",
+          description: "Hatch new assistant",
+          defaultEnabled: true,
+        },
+      ],
     }),
   );
   process.env.FEATURE_FLAG_DEFAULTS_PATH = defaultsPath;
