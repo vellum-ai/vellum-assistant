@@ -454,28 +454,37 @@ extension MainWindowView {
     var chatView: some View {
         if let viewModel = threadManager.activeViewModel {
             let activeThread = threadManager.activeThread
+            let interactionState: ThreadInteractionState = {
+                guard let id = threadManager.activeThreadId else { return .idle }
+                return threadManager.interactionState(for: id)
+            }()
 
-            ActiveChatViewWrapper(
-                viewModel: viewModel,
-                windowState: windowState,
-                daemonClient: daemonClient,
-                ambientAgent: ambientAgent,
-                settingsStore: settingsStore,
-                onMicrophoneToggle: onMicrophoneToggle,
-                isTemporaryChat: activeThread?.kind == .private,
-                threadId: threadManager.activeThreadId
-            )
-            .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
-            .overlay(alignment: .top) {
-                if conversationZoomManager.showZoomIndicator {
-                    ZoomIndicatorView(percentage: conversationZoomManager.zoomPercentage, label: "Text")
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .padding(.top, VSpacing.xl)
+            VStack(spacing: 0) {
+                ThreadStatusBar(state: interactionState)
+                    .animation(VAnimation.fast, value: interactionState)
+
+                ActiveChatViewWrapper(
+                    viewModel: viewModel,
+                    windowState: windowState,
+                    daemonClient: daemonClient,
+                    ambientAgent: ambientAgent,
+                    settingsStore: settingsStore,
+                    onMicrophoneToggle: onMicrophoneToggle,
+                    isTemporaryChat: activeThread?.kind == .private,
+                    threadId: threadManager.activeThreadId
+                )
+                .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
+                .overlay(alignment: .top) {
+                    if conversationZoomManager.showZoomIndicator {
+                        ZoomIndicatorView(percentage: conversationZoomManager.zoomPercentage, label: "Text")
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .padding(.top, VSpacing.xl)
+                    }
                 }
-            }
-            .animation(VAnimation.fast, value: conversationZoomManager.showZoomIndicator)
-            .overlay(alignment: .bottomTrailing) {
-                DemoOverlayView()
+                .animation(VAnimation.fast, value: conversationZoomManager.showZoomIndicator)
+                .overlay(alignment: .bottomTrailing) {
+                    DemoOverlayView()
+                }
             }
         }
     }
