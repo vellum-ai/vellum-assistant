@@ -124,7 +124,7 @@ export const ContextWindowConfigSchema = z.object({
     .number({ error: 'contextWindow.maxInputTokens must be a number' })
     .int('contextWindow.maxInputTokens must be an integer')
     .positive('contextWindow.maxInputTokens must be a positive integer')
-    .default(180000),
+    .default(200000),
   targetInputTokens: z
     .number({ error: 'contextWindow.targetInputTokens must be a number' })
     .int('contextWindow.targetInputTokens must be an integer')
