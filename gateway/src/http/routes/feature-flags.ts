@@ -27,16 +27,6 @@ const ALLOWED_KEY_RE = /^feature_flags\.[a-z0-9][a-z0-9._-]*\.enabled$/;
  */
 const LEGACY_KEY_RE = /^skills\.([a-z0-9][a-z0-9._-]*)\.enabled$/;
 
-/**
- * Convert a canonical `feature_flags.<id>.enabled` key to the legacy
- * `skills.<id>.enabled` format. Returns null if the key doesn't match.
- */
-function canonicalKeyToLegacy(canonicalKey: string): string | null {
-  const match = /^feature_flags\.([a-z0-9][a-z0-9._-]*)\.enabled$/.exec(canonicalKey);
-  if (!match) return null;
-  return `skills.${match[1]}.enabled`;
-}
-
 function getConfigPath(): string {
   return join(getRootDir(), "workspace", "config.json");
 }
@@ -241,19 +231,6 @@ export function createFeatureFlagsPatchHandler() {
               : {};
 
           config.assistantFeatureFlagValues = { ...existingNewFlags, [flagKey]: enabled };
-
-          // Also write to the legacy `featureFlags` section so the assistant
-          // daemon picks up the change immediately (it reads `skills.<id>.enabled`
-          // keys from `config.featureFlags`).
-          const legacyKey = canonicalKeyToLegacy(flagKey);
-          if (legacyKey) {
-            const existingLegacyFlags =
-              config.featureFlags && typeof config.featureFlags === "object" && !Array.isArray(config.featureFlags)
-                ? (config.featureFlags as Record<string, unknown>)
-                : {};
-
-            config.featureFlags = { ...existingLegacyFlags, [legacyKey]: enabled };
-          }
 
           writeConfigFileAtomic(config);
 

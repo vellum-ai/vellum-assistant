@@ -25,6 +25,10 @@ let currentConfig: Record<string, unknown> = {
   featureFlags: {},
 };
 
+const DECLARED_FLAG_KEY = 'feature_flags.hatch-new-assistant.enabled';
+const DECLARED_LEGACY_KEY = 'skills.hatch-new-assistant.enabled';
+const DECLARED_SKILL_ID = 'hatch-new-assistant';
+
 mock.module('../util/platform.js', () => ({
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
@@ -123,22 +127,22 @@ function createSkillOnDisk(id: string, name: string, description: string): void 
 
 describe('buildSystemPrompt assistant feature flag filtering', () => {
   test('flag OFF skill does not appear in <available_skills> section', () => {
-    createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
+    createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
     createSkillOnDisk('twitter', 'Twitter', 'Post to X/Twitter');
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
-      featureFlags: { 'skills.browser.enabled': false },
+      featureFlags: { [DECLARED_LEGACY_KEY]: false },
     };
 
     const result = buildSystemPrompt();
 
     expect(result).toContain('id="twitter"');
-    expect(result).not.toContain('id="browser"');
+    expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
   });
 
   test('all skills visible when featureFlags is empty', () => {
-    createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
+    createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
     createSkillOnDisk('twitter', 'Twitter', 'Post to X/Twitter');
 
     currentConfig = {
@@ -148,36 +152,51 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
 
     const result = buildSystemPrompt();
 
-    expect(result).toContain('id="browser"');
+    expect(result).toContain(`id="${DECLARED_SKILL_ID}"`);
     expect(result).toContain('id="twitter"');
   });
 
   test('flagged-off skills hidden even when all flags are OFF', () => {
-    createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
+    createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
     createSkillOnDisk('twitter', 'Twitter', 'Post to X/Twitter');
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
       featureFlags: {
-        'skills.browser.enabled': false,
+        [DECLARED_LEGACY_KEY]: false,
         'skills.twitter.enabled': false,
       },
     };
 
     const result = buildSystemPrompt();
 
-    expect(result).not.toContain('id="browser"');
-    expect(result).not.toContain('id="twitter"');
+    expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
+    // Undeclared skill IDs are intentionally unaffected by assistant feature flags.
+    expect(result).toContain('id="twitter"');
   });
 
   test('new assistantFeatureFlagValues takes priority over legacy featureFlags', () => {
-    createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
+    createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
 
     // Legacy says disabled, new section says enabled — new section wins
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
+      featureFlags: { [DECLARED_LEGACY_KEY]: false },
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
+    };
+
+    const result = buildSystemPrompt();
+
+    expect(result).toContain(`id="${DECLARED_SKILL_ID}"`);
+  });
+
+  test('undeclared skill flags are ignored', () => {
+    createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
+
+    currentConfig = {
+      sandbox: { enabled: false, backend: 'native' },
       featureFlags: { 'skills.browser.enabled': false },
-      assistantFeatureFlagValues: { 'feature_flags.browser.enabled': true },
+      assistantFeatureFlagValues: { 'feature_flags.browser.enabled': false },
     };
 
     const result = buildSystemPrompt();
@@ -193,29 +212,29 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
 describe('isAssistantFeatureFlagEnabled', () => {
   test('reads from assistantFeatureFlagValues first', () => {
     const config = {
-      featureFlags: { 'skills.browser.enabled': false },
-      assistantFeatureFlagValues: { 'feature_flags.browser.enabled': true },
+      featureFlags: { [DECLARED_LEGACY_KEY]: false },
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
     } as any;
 
-    expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
   test('falls back to legacy featureFlags when new section is absent', () => {
     const config = {
-      featureFlags: { 'skills.browser.enabled': false },
+      featureFlags: { [DECLARED_LEGACY_KEY]: false },
     } as any;
 
-    expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(false);
+    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(false);
   });
 
   test('missing persisted value falls back to defaults registry defaultEnabled', () => {
     // No explicit config at all — should fall back to defaults registry
-    // which has defaultEnabled: true for browser
+    // which has defaultEnabled: true for hatch-new-assistant
     const config = {
       featureFlags: {},
     } as any;
 
-    expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
   test('unknown flag defaults to true', () => {
@@ -230,33 +249,33 @@ describe('isAssistantFeatureFlagEnabled', () => {
 describe('isAssistantSkillEnabled', () => {
   test('convenience wrapper translates skill ID to canonical key', () => {
     const config = {
-      featureFlags: { 'skills.browser.enabled': false },
+      featureFlags: { [DECLARED_LEGACY_KEY]: false },
     } as any;
 
-    expect(isAssistantSkillEnabled('browser', config)).toBe(false);
+    expect(isAssistantSkillEnabled(DECLARED_SKILL_ID, config)).toBe(false);
   });
 
   test('enabled when no flag set', () => {
     const config = { featureFlags: {} } as any;
-    expect(isAssistantSkillEnabled('browser', config)).toBe(true);
+    expect(isAssistantSkillEnabled(DECLARED_SKILL_ID, config)).toBe(true);
   });
 });
 
 describe('legacy isSkillFeatureEnabled backward compat', () => {
   test('delegates to the new resolver and reads legacy flags', () => {
     const config = {
-      featureFlags: { 'skills.browser.enabled': false },
+      featureFlags: { [DECLARED_LEGACY_KEY]: false },
     } as any;
 
-    expect(isSkillFeatureEnabled('browser', config)).toBe(false);
+    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(false);
   });
 
   test('new section overrides legacy via delegation', () => {
     const config = {
-      featureFlags: { 'skills.browser.enabled': false },
-      assistantFeatureFlagValues: { 'feature_flags.browser.enabled': true },
+      featureFlags: { [DECLARED_LEGACY_KEY]: false },
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
     } as any;
 
-    expect(isSkillFeatureEnabled('browser', config)).toBe(true);
+    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(true);
   });
 });

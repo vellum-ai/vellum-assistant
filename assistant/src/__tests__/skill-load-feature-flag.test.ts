@@ -14,6 +14,9 @@ let currentConfig: Record<string, unknown> = {
   featureFlags: {},
 };
 
+const DECLARED_SKILL_ID = 'hatch-new-assistant';
+const DECLARED_LEGACY_KEY = 'skills.hatch-new-assistant.enabled';
+
 const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
@@ -94,45 +97,45 @@ describe('skill_load feature flag enforcement', () => {
   });
 
   test('returns deterministic error for flag OFF skill', async () => {
-    writeSkill('browser', 'Browser', 'Web browsing', 'Use the browser.');
-    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- browser\n');
+    writeSkill(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior', 'Use the feature.');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), `- ${DECLARED_SKILL_ID}\n`);
 
     currentConfig = {
-      featureFlags: { 'skills.browser.enabled': false },
+      featureFlags: { [DECLARED_LEGACY_KEY]: false },
     };
 
-    const result = await executeSkillLoad({ skill: 'browser' });
+    const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('disabled by feature flag');
-    expect(result.content).toContain('browser');
+    expect(result.content).toContain(DECLARED_SKILL_ID);
   });
 
   test('loads skill normally when flag is ON', async () => {
-    writeSkill('browser', 'Browser', 'Web browsing', 'Use the browser.');
-    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- browser\n');
+    writeSkill(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior', 'Use the feature.');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), `- ${DECLARED_SKILL_ID}\n`);
 
     currentConfig = {
-      featureFlags: { 'skills.browser.enabled': true },
+      featureFlags: { [DECLARED_LEGACY_KEY]: true },
     };
 
-    const result = await executeSkillLoad({ skill: 'browser' });
+    const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('Skill: Browser');
+    expect(result.content).toContain('Skill: Hatch New Assistant');
   });
 
   test('loads skill normally when flag key is absent (defaults to enabled)', async () => {
-    writeSkill('browser', 'Browser', 'Web browsing', 'Use the browser.');
-    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- browser\n');
+    writeSkill(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior', 'Use the feature.');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), `- ${DECLARED_SKILL_ID}\n`);
 
     currentConfig = {
       featureFlags: {},
     };
 
-    const result = await executeSkillLoad({ skill: 'browser' });
+    const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('Skill: Browser');
+    expect(result.content).toContain('Skill: Hatch New Assistant');
   });
 });

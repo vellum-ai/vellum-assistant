@@ -31,7 +31,7 @@ Internet
 
 ### Assistant Feature Flags API
 
-The gateway exposes a REST API for reading and mutating assistant feature flags. Assistant feature flags control which skills are available to the assistant — when a flag is OFF, the corresponding skill is excluded from every exposure surface in the assistant (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for the resolver and enforcement points).
+The gateway exposes a REST API for reading and mutating assistant feature flags. Assistant feature flags are assistant-scoped, declaration-driven booleans that can gate any assistant behavior. Skill availability is one consumer, but not a required coupling (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for resolver and skill enforcement details).
 
 **Defaults registry loader:** The gateway loads the defaults registry from `meta/assistant-feature-flags/assistant-feature-flag-defaults.json` via `loadFeatureFlagDefaults()` in `gateway/src/feature-flag-defaults.ts`. The registry is loaded once and cached for the lifetime of the process. Invalid entries are skipped with a warning. The `isFlagDeclared()` helper validates that a flag key exists in the registry before allowing writes.
 
@@ -42,7 +42,7 @@ The gateway exposes a REST API for reading and mutating assistant feature flags.
 | GET | `/v1/feature-flags` | List all declared assistant feature flags from the defaults registry, merged with persisted values from workspace config. Returns `{ flags: FeatureFlagEntry[] }` where each entry has `key`, `enabled`, `defaultEnabled`, and `description`. |
 | PATCH | `/v1/feature-flags/:key` | Set a single assistant feature flag. Body: `{ "enabled": true\|false }`. Key must match `feature_flags.<flagId>.enabled` and be declared in the defaults registry. Writes to the `assistantFeatureFlagValues` config section. |
 
-**Defaults registry:** All declared assistant feature flags and their default values are defined in the shared defaults registry at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`. The gateway loads this registry on startup via `gateway/src/feature-flag-defaults.ts`. The GET endpoint merges persisted overrides with registry defaults to produce the full flag list. The PATCH endpoint validates that the target flag key exists in the registry before accepting a write.
+**Defaults registry:** All declared assistant feature flags and their default values are defined in the shared defaults registry at `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`. The gateway loads this registry on startup via `gateway/src/feature-flag-defaults.ts`. The GET endpoint merges persisted overrides with registry defaults to produce the full flag list. The PATCH endpoint validates that the target flag key exists in the registry before accepting a write. Only declared keys are exposed by this API.
 
 **Flag key format:** The canonical key format is `feature_flags.<flagId>.enabled`. Only keys matching this pattern are accepted by the PATCH endpoint; other patterns are rejected with 400. The legacy `skills.<id>.enabled` format is still read from persisted config for backward compatibility, but new writes always use the canonical format and are stored in the `assistantFeatureFlagValues` config section.
 
@@ -59,7 +59,7 @@ The assistant feature flags API uses a dedicated token (the **feature-flag token
 
 The feature-flag token is auto-generated on first gateway startup if the file does not exist. The gateway watches the token file for changes and hot-reloads without restart.
 
-**`assistantFeatureFlagValues` config section:** This is the canonical storage location for assistant feature flag overrides. It is a `Record<string, boolean>` keyed by canonical flag keys (`feature_flags.<id>.enabled`). The gateway's PATCH handler writes exclusively to this section. The daemon's resolver reads it with highest priority, falling back to the legacy `featureFlags` section and then the defaults registry.
+**`assistantFeatureFlagValues` config section:** This is the canonical storage location for assistant feature flag overrides. It is a `Record<string, boolean>` keyed by canonical flag keys (`feature_flags.<id>.enabled`). The gateway's PATCH handler writes exclusively to this section. The daemon's resolver reads it with highest priority, falling back to the legacy `featureFlags` section and then the defaults registry. Undeclared keys are ignored by the resolver.
 
 **Key source files:**
 

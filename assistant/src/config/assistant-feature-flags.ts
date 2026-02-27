@@ -3,11 +3,15 @@
  *
  * Loads default flag values from the registry at
  * `meta/assistant-feature-flags/assistant-feature-flag-defaults.json`
- * and resolves the effective enabled/disabled state for each flag by
+ * and resolves the effective enabled/disabled state for each declared flag by
  * consulting (in priority order):
  *   1. `config.assistantFeatureFlagValues[key]`  (new canonical section)
  *   2. `config.featureFlags[legacyKey]`           (legacy backward-compat)
  *   3. defaults registry `defaultEnabled`
+ *
+ * Only declared flags participate in resolution. Undeclared keys are treated
+ * as not part of the assistant feature-flag system and always resolve to
+ * enabled (`true`) regardless of persisted config values.
  *
  * Key format:
  *   Canonical:  `feature_flags.<id>.enabled`
@@ -40,7 +44,10 @@ function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
   if (cachedDefaults) return cachedDefaults;
 
   const thisDir = import.meta.dirname ?? __dirname;
+  const envPath = process.env.FEATURE_FLAG_DEFAULTS_PATH?.trim();
   const candidates = [
+    // Explicit override (primarily for tests / controlled environments)
+    ...(envPath ? [envPath] : []),
     // Bundled: co-located copy in the same directory as this source file.
     // Works in Docker / packaged builds where the repo-root `meta/` dir
     // is not available.
@@ -90,12 +97,21 @@ function canonicalToLegacyKey(canonicalKey: string): string | undefined {
  * Resolve whether an assistant feature flag is enabled.
  *
  * Resolution order:
+ *   0. undeclared key -> `true` (ignored by flag system)
  *   1. `config.assistantFeatureFlagValues[key]`  (explicit new-format override)
  *   2. `config.featureFlags[legacyKey]`           (legacy backward-compat)
  *   3. defaults registry `defaultEnabled`
- *   4. `true` (if the flag is unknown — open by default)
  */
 export function isAssistantFeatureFlagEnabled(key: string, config: AssistantConfig): boolean {
+  const defaults = loadDefaultsRegistry();
+  const declared = defaults[key];
+
+  // Ignore persisted values for undeclared keys: only declarative flags
+  // defined in the defaults registry are part of the system.
+  if (!declared) {
+    return true;
+  }
+
   // 1. Check new canonical section
   const newValues = (config as AssistantConfigWithFeatureFlags).assistantFeatureFlagValues;
   if (newValues) {
@@ -114,12 +130,7 @@ export function isAssistantFeatureFlagEnabled(key: string, config: AssistantConf
   }
 
   // 3. Check defaults registry
-  const defaults = loadDefaultsRegistry();
-  const entry = defaults[key];
-  if (entry) return entry.defaultEnabled;
-
-  // 4. Unknown flag — default to enabled
-  return true;
+  return declared.defaultEnabled;
 }
 
 /**

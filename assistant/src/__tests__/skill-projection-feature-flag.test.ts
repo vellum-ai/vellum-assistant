@@ -22,6 +22,8 @@ let mockUnregisteredSkillIds: string[] = [];
 let mockSkillRefCount: Map<string, number> = new Map();
 
 let currentConfig: Record<string, unknown> = { featureFlags: {} };
+const DECLARED_SKILL_ID = 'hatch-new-assistant';
+const DECLARED_LEGACY_KEY = 'skills.hatch-new-assistant.enabled';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -258,15 +260,15 @@ describe('projectSkillTools feature flag enforcement', () => {
   });
 
   test('no skill tools projected for flag OFF skill even with old markers', () => {
-    mockCatalog = [makeSkill('browser')];
-    mockManifests = { browser: makeManifest(['browser_navigate', 'browser_click']) };
+    mockCatalog = [makeSkill(DECLARED_SKILL_ID)];
+    mockManifests = { [DECLARED_SKILL_ID]: makeManifest(['browser_navigate', 'browser_click']) };
 
     // History contains a marker from before the flag was turned off
-    const history = buildHistoryWithMarker('browser');
+    const history = buildHistoryWithMarker(DECLARED_SKILL_ID);
     const prevActive = new Map<string, string>();
 
     // Feature flag is OFF
-    currentConfig = { featureFlags: { 'skills.browser.enabled': false } };
+    currentConfig = { featureFlags: { [DECLARED_LEGACY_KEY]: false } };
 
     const result = projectSkillTools(history, { previouslyActiveSkillIds: prevActive });
 
@@ -276,14 +278,14 @@ describe('projectSkillTools feature flag enforcement', () => {
   });
 
   test('skill tools projected normally when flag is ON', () => {
-    mockCatalog = [makeSkill('browser')];
-    mockManifests = { browser: makeManifest(['browser_navigate', 'browser_click']) };
+    mockCatalog = [makeSkill(DECLARED_SKILL_ID)];
+    mockManifests = { [DECLARED_SKILL_ID]: makeManifest(['browser_navigate', 'browser_click']) };
 
-    const history = buildHistoryWithMarker('browser');
+    const history = buildHistoryWithMarker(DECLARED_SKILL_ID);
     const prevActive = new Map<string, string>();
 
     // Feature flag is ON
-    currentConfig = { featureFlags: { 'skills.browser.enabled': true } };
+    currentConfig = { featureFlags: { [DECLARED_LEGACY_KEY]: true } };
 
     const result = projectSkillTools(history, { previouslyActiveSkillIds: prevActive });
 
@@ -293,10 +295,10 @@ describe('projectSkillTools feature flag enforcement', () => {
   });
 
   test('skill tools projected normally when flag key is absent (defaults to enabled)', () => {
-    mockCatalog = [makeSkill('browser')];
-    mockManifests = { browser: makeManifest(['browser_navigate']) };
+    mockCatalog = [makeSkill(DECLARED_SKILL_ID)];
+    mockManifests = { [DECLARED_SKILL_ID]: makeManifest(['browser_navigate']) };
 
-    const history = buildHistoryWithMarker('browser');
+    const history = buildHistoryWithMarker(DECLARED_SKILL_ID);
     const prevActive = new Map<string, string>();
 
     // featureFlags is empty — should default to enabled
@@ -309,9 +311,9 @@ describe('projectSkillTools feature flag enforcement', () => {
   });
 
   test('mixed flag-on and flag-off skills — only flag-on tools projected', () => {
-    mockCatalog = [makeSkill('browser'), makeSkill('twitter')];
+    mockCatalog = [makeSkill(DECLARED_SKILL_ID), makeSkill('twitter')];
     mockManifests = {
-      browser: makeManifest(['browser_navigate']),
+      [DECLARED_SKILL_ID]: makeManifest(['browser_navigate']),
       twitter: makeManifest(['twitter_post']),
     };
 
@@ -319,7 +321,7 @@ describe('projectSkillTools feature flag enforcement', () => {
       {
         role: 'assistant',
         content: [
-          { type: 'tool_use', id: 'tu-1', name: 'skill_load', input: { skill: 'browser' } },
+          { type: 'tool_use', id: 'tu-1', name: 'skill_load', input: { skill: DECLARED_SKILL_ID } },
         ],
       },
       {
@@ -327,7 +329,7 @@ describe('projectSkillTools feature flag enforcement', () => {
         content: [{
           type: 'tool_result',
           tool_use_id: 'tu-1',
-          content: '<loaded_skill id="browser" version="v1:default-hash-browser" />',
+          content: `<loaded_skill id="${DECLARED_SKILL_ID}" version="v1:default-hash-${DECLARED_SKILL_ID}" />`,
         }],
       },
       {
@@ -347,9 +349,9 @@ describe('projectSkillTools feature flag enforcement', () => {
     ];
     const prevActive = new Map<string, string>();
 
-    // browser is OFF, twitter is ON
+    // Declared skill is OFF, twitter is undeclared and remains ON.
     currentConfig = {
-      featureFlags: { 'skills.browser.enabled': false },
+      featureFlags: { [DECLARED_LEGACY_KEY]: false },
     };
 
     const result = projectSkillTools(history, { previouslyActiveSkillIds: prevActive });

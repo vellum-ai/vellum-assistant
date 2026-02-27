@@ -28,9 +28,9 @@ struct SettingsAccountTab: View {
 
     /// Whether the hatch new assistant feature flag is enabled.
     /// Defaults to `true` until the gateway responds. Once the gateway response
-    /// arrives, this reflects the value of `feature_flags.hatch_new_assistant.enabled`.
+    /// arrives, this reflects the value of `feature_flags.hatch-new-assistant.enabled`.
 
-    private static let hatchNewAssistantFlagKey = "feature_flags.hatch_new_assistant.enabled"
+    private static let hatchNewAssistantFlagKey = "feature_flags.hatch-new-assistant.enabled"
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -408,11 +408,18 @@ struct SettingsAccountTab: View {
         let config = WorkspaceConfigIO.read()
 
         // Check canonical assistantFeatureFlagValues first (new format)
-        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool],
-           let enabled = canonicalFlags[Self.hatchNewAssistantFlagKey] {
-            isHatchFlagEnabled = enabled
-            isLoadingHatchFlag = false
-            return
+        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool] {
+            let canonicalKeys = [
+                Self.hatchNewAssistantFlagKey,
+                "feature_flags.hatch_new_assistant.enabled"
+            ]
+            for key in canonicalKeys {
+                if let enabled = canonicalFlags[key] {
+                    isHatchFlagEnabled = enabled
+                    isLoadingHatchFlag = false
+                    return
+                }
+            }
         }
 
         // Check legacy featureFlags section

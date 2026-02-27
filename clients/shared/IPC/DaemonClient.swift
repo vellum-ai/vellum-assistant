@@ -1569,7 +1569,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         /// Derive a human-readable name from the flag key.
-        /// e.g. "feature_flags.hatch_new_assistant.enabled" -> "Hatch New Assistant"
+        /// e.g. "feature_flags.hatch-new-assistant.enabled" -> "Hatch New Assistant"
         public var displayName: String {
             var name = key
             // Strip common prefix/suffix patterns
@@ -1582,6 +1582,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             // Convert snake_case/dot.case to Title Case
             return name
                 .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
                 .replacingOccurrences(of: ".", with: " ")
                 .split(separator: " ")
                 .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
