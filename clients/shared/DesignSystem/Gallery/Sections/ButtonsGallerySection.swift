@@ -173,6 +173,7 @@ struct ButtonsGallerySection: View {
         case .tertiary: return "Tertiary"
         case .secondary: return "Secondary"
         case .danger: return "Danger"
+        case .ghost: return "Ghost"
         }
     }
 

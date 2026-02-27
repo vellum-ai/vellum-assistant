@@ -731,75 +731,68 @@ struct AgentPanelContent: View {
 
     @ViewBuilder
     private var categorySidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
             // "All" row
-            Button {
+            categoryRow(
+                icon: "square.grid.2x2",
+                iconColor: VColor.textMuted,
+                label: "All",
+                count: filteredUserSkills.count,
+                isSelected: selectedCategory == nil
+            ) {
                 withAnimation(VAnimation.fast) { selectedCategory = nil }
-            } label: {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "square.grid.2x2")
-                        .font(.system(size: 12))
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 20)
-
-                    Text("All")
-                        .font(VFont.body)
-                        .foregroundColor(selectedCategory == nil ? VColor.textPrimary : VColor.textMuted)
-
-                    Spacer()
-
-                    Text("\(filteredUserSkills.count)")
-                        .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
-                }
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(selectedCategory == nil ? VColor.surfaceSubtle : Color.clear)
-                )
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
 
             ForEach(SkillCategory.allCases, id: \.rawValue) { category in
-                let count = skillCount(for: category)
-                Button {
+                categoryRow(
+                    icon: category.icon,
+                    iconColor: category.color,
+                    label: category.displayName,
+                    count: skillCount(for: category),
+                    isSelected: selectedCategory == category
+                ) {
                     withAnimation(VAnimation.fast) { selectedCategory = category }
-                } label: {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: category.icon)
-                            .font(.system(size: 12))
-                            .foregroundColor(category.color)
-                            .frame(width: 20)
-
-                        Text(category.displayName)
-                            .font(VFont.body)
-                            .foregroundColor(selectedCategory == category ? VColor.textPrimary : VColor.textMuted)
-
-                        Spacer()
-
-                        Text("\(count)")
-                            .font(VFont.small)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.sm)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .fill(selectedCategory == category ? VColor.surfaceSubtle : Color.clear)
-                    )
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
 
             Spacer()
         }
-        .frame(width: 200)
-        .padding(.vertical, VSpacing.md)
-        .background(VColor.backgroundSubtle)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .frame(width: 180)
+    }
+
+    @ViewBuilder
+    private func categoryRow(icon: String, iconColor: Color, label: String, count: Int, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundColor(iconColor)
+                    .frame(width: 20)
+
+                Text(label)
+                    .font(.system(size: 13))
+                    .foregroundColor(isSelected ? VColor.textPrimary : VColor.textMuted)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Text("\(count)")
+                    .font(VFont.small)
+                    .foregroundColor(VColor.textMuted)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, VSpacing.xs)
+            .padding(.trailing, VSpacing.sm)
+            .padding(.vertical, VSpacing.sm)
+            .background(
+                isSelected
+                    ? adaptiveColor(light: Moss._100, dark: Moss._700)
+                    : Color.clear
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Installed Skills Content
@@ -918,37 +911,32 @@ struct AgentPanelContent: View {
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)
                         .background(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
+                            RoundedRectangle(cornerRadius: VRadius.md)
                                 .strokeBorder(Danger._500, lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)
             }
 
-            // Details toggle — full row is clickable
-            Button {
-                withAnimation(VAnimation.fast) {
-                    if isExpanded {
-                        expandedDetailSkillId = nil
-                    } else {
-                        expandedDetailSkillId = skill.id
-                        skillsManager.fetchSkillBody(skillId: skill.id)
+            // Details toggle
+            HStack {
+                Spacer()
+                VButton(
+                    label: "Details",
+                    rightIcon: isExpanded ? "chevron.up" : "chevron.down",
+                    style: .ghost,
+                    size: .small
+                ) {
+                    withAnimation(VAnimation.fast) {
+                        if isExpanded {
+                            expandedDetailSkillId = nil
+                        } else {
+                            expandedDetailSkillId = skill.id
+                            skillsManager.fetchSkillBody(skillId: skill.id)
+                        }
                     }
                 }
-            } label: {
-                HStack {
-                    Spacer()
-                    Text("Details")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 10))
-                        .foregroundColor(VColor.textMuted)
-                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .padding(.top, VSpacing.sm)
 
             // Expanded details content
@@ -960,9 +948,10 @@ struct AgentPanelContent: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(VSpacing.lg)
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
         .contentShape(Rectangle())
-        .vCard(background: VColor.surfaceSubtle)
+        .vCard(radius: VRadius.lg, background: VColor.surfaceSubtle)
     }
 
     // MARK: - Installed Skill Detail View
