@@ -5,8 +5,10 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { randomUUID } from "node:crypto";
 
@@ -240,6 +242,42 @@ function hasFlag(args: string[], flag: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// skills.sh CLI delegation
+// ---------------------------------------------------------------------------
+
+function resolveSkillsshCli(): string {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const cliPath = join(
+    __dirname,
+    "..",
+    "..",
+    "..",
+    "assistant",
+    "src",
+    "skills",
+    "skillssh-cli.ts",
+  );
+  if (!existsSync(cliPath)) {
+    throw new Error(
+      `skillssh-cli.ts not found at ${cliPath}. Is the assistant package available?`,
+    );
+  }
+  return cliPath;
+}
+
+/**
+ * Shells out to the skillssh-cli.ts subprocess and streams its output.
+ * Returns the exit code.
+ */
+export function runSkillsshCli(subArgs: string[]): number {
+  const cliPath = resolveSkillsshCli();
+  const result = spawnSync("bun", ["run", cliPath, ...subArgs], {
+    stdio: "inherit",
+  });
+  return result.status ?? 1;
+}
+
+// ---------------------------------------------------------------------------
 // Usage
 // ---------------------------------------------------------------------------
 
@@ -247,10 +285,11 @@ function printUsage(): void {
   console.log("Usage: vellum skills <subcommand> [options]");
   console.log("");
   console.log("Subcommands:");
-  console.log("  list                             List available catalog skills");
-  console.log(
-    "  install <skill-id> [--overwrite]  Install a skill from the catalog",
-  );
+  console.log("  list                                          List available first-party catalog skills");
+  console.log("  search <query> [--limit N]                    Search skills.sh for third-party skills");
+  console.log("  evaluate <source> <skillId>                   Security audit for a skills.sh skill");
+  console.log("  install <skill-id> [--overwrite]              Install a first-party skill from the catalog");
+  console.log("  install <source> <skillId> [--override]       Install a third-party skill from skills.sh");
   console.log("");
   console.log("Options:");
   console.log("  --json    Machine-readable JSON output");
@@ -306,8 +345,54 @@ export async function skills(): Promise<void> {
       break;
     }
 
+    case "search": {
+      const subArgs = ["search"];
+      const positional = args.filter((a) => !a.startsWith("--") && a !== "search");
+      if (positional.length < 1) {
+        console.error('Usage: vellum skills search "<query>" [--limit N] [--json]');
+        process.exit(1);
+      }
+      subArgs.push(positional[0]);
+      if (hasFlag(args, "--limit")) {
+        const limitIdx = args.indexOf("--limit");
+        if (limitIdx >= 0 && args[limitIdx + 1]) {
+          subArgs.push("--limit", args[limitIdx + 1]);
+        }
+      }
+      if (json) subArgs.push("--json");
+      const searchCode = runSkillsshCli(subArgs);
+      if (searchCode !== 0) process.exitCode = searchCode;
+      break;
+    }
+
+    case "evaluate": {
+      const positional = args.filter((a) => !a.startsWith("--") && a !== "evaluate");
+      if (positional.length < 2) {
+        console.error("Usage: vellum skills evaluate <source> <skillId> [--json]");
+        process.exit(1);
+      }
+      const subArgs = ["evaluate", positional[0], positional[1]];
+      if (json) subArgs.push("--json");
+      const evalCode = runSkillsshCli(subArgs);
+      if (evalCode !== 0) process.exitCode = evalCode;
+      break;
+    }
+
     case "install": {
-      const skillId = args.find((a) => !a.startsWith("--") && a !== "install");
+      const positional = args.filter((a) => !a.startsWith("--") && a !== "install");
+
+      // Two positional args => skills.sh third-party install
+      if (positional.length >= 2) {
+        const subArgs = ["install", positional[0], positional[1]];
+        if (json) subArgs.push("--json");
+        if (hasFlag(args, "--override")) subArgs.push("--override");
+        const installCode = runSkillsshCli(subArgs);
+        if (installCode !== 0) process.exitCode = installCode;
+        break;
+      }
+
+      // One positional arg => first-party catalog install (existing behavior)
+      const skillId = positional[0];
       if (!skillId) {
         console.error("Usage: vellum skills install <skill-id>");
         process.exit(1);
