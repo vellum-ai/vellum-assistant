@@ -3,6 +3,7 @@ import {
   applyGuardianDecision,
 } from '../../approvals/guardian-decision-primitive.js';
 import { getPendingApprovalForRequest } from '../../memory/channel-guardian-store.js';
+import { getCanonicalGuardianRequest } from '../../memory/canonical-guardian-store.js';
 import type { ApprovalAction } from '../../runtime/channel-approval-types.js';
 import { handleChannelDecision } from '../../runtime/channel-approvals.js';
 import * as pendingInteractions from '../../runtime/pending-interactions.js';
@@ -20,6 +21,7 @@ export const guardianActionsHandlers = defineHandlers({
   },
 
   guardian_action_decision: async (msg: GuardianActionDecision, socket, ctx) => {
+    try {
     // Validate the action is one of the known actions
     if (!VALID_ACTIONS.has(msg.action)) {
       log.warn({ requestId: msg.requestId, action: msg.action }, 'Invalid guardian action');
@@ -33,6 +35,19 @@ export const guardianActionsHandlers = defineHandlers({
     }
 
     // ── Canonical-first: try the unified canonical guardian decision primitive ──
+
+    // Verify conversationId scoping before applying the canonical decision.
+    // A caller must not be able to cross-resolve requests from a different conversation.
+    let skipCanonical = false;
+    if (msg.conversationId) {
+      const canonicalRequest = getCanonicalGuardianRequest(msg.requestId);
+      if (canonicalRequest && canonicalRequest.conversationId && canonicalRequest.conversationId !== msg.conversationId) {
+        // conversationId mismatch — treat as not found so we fall through to legacy
+        skipCanonical = true;
+      }
+    }
+
+    if (!skipCanonical) {
     const canonicalResult = await applyCanonicalGuardianDecision({
       requestId: msg.requestId,
       action: msg.action as ApprovalAction,
@@ -63,6 +78,7 @@ export const guardianActionsHandlers = defineHandlers({
         requestId: msg.requestId,
       });
       return;
+    }
     }
 
     // ── Legacy fallback: canonical request not found, try legacy stores ──
@@ -154,5 +170,14 @@ export const guardianActionsHandlers = defineHandlers({
       reason: 'not_found',
       requestId: msg.requestId,
     });
+    } catch (err) {
+      log.error({ err, requestId: msg.requestId }, 'guardian_action_decision: unhandled error');
+      ctx.send(socket, {
+        type: 'guardian_action_decision_response',
+        applied: false,
+        reason: 'internal_error',
+        requestId: msg.requestId,
+      });
+    }
   },
 });

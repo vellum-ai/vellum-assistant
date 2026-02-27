@@ -13,6 +13,7 @@ import {
   listPendingApprovalRequests,
 } from '../../memory/channel-guardian-store.js';
 import {
+  getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   type CanonicalGuardianRequest,
 } from '../../memory/canonical-guardian-store.js';
@@ -82,6 +83,18 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
   // ── Canonical-first: try the unified canonical guardian decision primitive ──
   // This is the future single write path. When the canonical request exists,
   // it handles CAS resolution, resolver dispatch, and grant minting.
+
+  // Verify conversationId scoping before applying the canonical decision.
+  // A caller must not be able to cross-resolve requests from a different conversation.
+  if (conversationId) {
+    const canonicalRequest = getCanonicalGuardianRequest(requestId);
+    if (canonicalRequest && canonicalRequest.conversationId && canonicalRequest.conversationId !== conversationId) {
+      // conversationId mismatch — treat as not found so we fall through to legacy
+      // (which will also fail to match, resulting in a 404).
+      return httpError('NOT_FOUND', 'No pending guardian action found for this requestId', 404);
+    }
+  }
+
   const canonicalResult = await applyCanonicalGuardianDecision({
     requestId,
     action: action as ApprovalAction,
