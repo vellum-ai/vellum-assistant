@@ -1263,7 +1263,7 @@ private struct DisableParentalModal: View {
                         .font(VFont.headline)
                         .foregroundColor(VColor.textPrimary)
                         .multilineTextAlignment(.center)
-                    Text("Enter your PIN to disable parental controls and clear the passcode.")
+                    Text("Enter your PIN to disable parental controls.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                         .multilineTextAlignment(.center)
@@ -1272,7 +1272,6 @@ private struct DisableParentalModal: View {
 
                 PINCircleField(text: $pin)
                     .frame(maxWidth: .infinity, alignment: .center)
-                    .onChange(of: pin) { _, v in if v.count == 6 { submit() } }
 
                 if let error = errorMessage {
                     Text(error)
@@ -1290,7 +1289,7 @@ private struct DisableParentalModal: View {
                 HStack {
                     VButton(label: "Cancel", style: .secondary) { onCancel() }
                     Spacer()
-                    VButton(label: "Disable", style: .danger) { submit() }
+                    VButton(label: "Confirm", style: .danger) { submit() }
                         .disabled(pin.count != 6)
                         .keyboardShortcut(.return, modifiers: [])
                 }
