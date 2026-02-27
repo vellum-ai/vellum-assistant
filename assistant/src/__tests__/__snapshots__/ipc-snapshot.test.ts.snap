@@ -3112,3 +3112,74 @@ exports[`IPC message snapshots ServerMessage types generate_avatar_response seri
   "type": "generate_avatar_response",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types guardian_actions_pending_request serializes to expected JSON 1`] = `
+{
+  "conversationId": "conv-guardian-001",
+  "type": "guardian_actions_pending_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types guardian_action_decision serializes to expected JSON 1`] = `
+{
+  "action": "approve_once",
+  "conversationId": "conv-guardian-001",
+  "requestId": "req-guardian-001",
+  "type": "guardian_action_decision",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types reorder_threads serializes to expected JSON 1`] = `
+{
+  "type": "reorder_threads",
+  "updates": [
+    {
+      "displayOrder": 0,
+      "isPinned": false,
+      "sessionId": "sess-001",
+    },
+    {
+      "displayOrder": 1,
+      "isPinned": true,
+      "sessionId": "sess-002",
+    },
+  ],
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types guardian_actions_pending_response serializes to expected JSON 1`] = `
+{
+  "conversationId": "conv-guardian-001",
+  "prompts": [
+    {
+      "actions": [
+        {
+          "action": "approve_once",
+          "label": "Approve once",
+        },
+        {
+          "action": "reject",
+          "label": "Reject",
+        },
+      ],
+      "callSessionId": null,
+      "conversationId": "conv-guardian-001",
+      "expiresAt": 1700100000000,
+      "questionText": "Approve tool: bash",
+      "requestCode": "REQ-GU",
+      "requestId": "req-guardian-001",
+      "state": "pending",
+      "toolName": "bash",
+    },
+  ],
+  "type": "guardian_actions_pending_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types guardian_action_decision_response serializes to expected JSON 1`] = `
+{
+  "applied": true,
+  "requestId": "req-guardian-001",
+  "type": "guardian_action_decision_response",
+}
+`;

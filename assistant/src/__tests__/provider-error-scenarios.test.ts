@@ -1,8 +1,4 @@
-import { resolve } from 'node:path';
-
 import { describe, expect, mock,test } from 'bun:test';
-
-const retryModulePath = resolve(import.meta.dir, '../util/retry.ts');
 
 mock.module('../util/logger.js', () => ({
   getLogger: () =>
@@ -10,12 +6,67 @@ mock.module('../util/logger.js', () => ({
   isDebug: () => false,
 }));
 
-// Only mock sleep so retries complete instantly; keep real retry logic
-mock.module('../util/retry.js', async () => {
-  const real = await import(retryModulePath);
+// Only mock sleep so retries complete instantly; keep real retry logic.
+// NOTE: We must NOT use `await import()` inside mock.module — it deadlocks
+// bun's module resolver. Instead, inline the real exports and only replace sleep.
+mock.module('../util/retry.js', () => {
+  const DEFAULT_MAX_RETRIES = 3;
+  const DEFAULT_BASE_DELAY_MS = 1000;
+
+  function computeRetryDelay(attempt: number, baseDelayMs = DEFAULT_BASE_DELAY_MS): number {
+    const cap = baseDelayMs * Math.pow(2, attempt);
+    const half = cap / 2;
+    return half + Math.random() * half;
+  }
+
+  function parseRetryAfterMs(value: string): number | undefined {
+    const seconds = Number(value);
+    if (!isNaN(seconds)) return seconds * 1000;
+    const dateMs = Date.parse(value);
+    if (!isNaN(dateMs)) return Math.max(0, dateMs - Date.now());
+    return undefined;
+  }
+
+  function getHttpRetryDelay(
+    response: Response,
+    attempt: number,
+    baseDelayMs = DEFAULT_BASE_DELAY_MS,
+  ): number {
+    const retryAfter = response.headers.get('retry-after');
+    if (retryAfter) {
+      const parsed = parseRetryAfterMs(retryAfter);
+      if (parsed !== undefined) return parsed;
+    }
+    const effectiveBase = attempt === 0 ? baseDelayMs * 2 : baseDelayMs;
+    return Math.max(baseDelayMs, computeRetryDelay(attempt, effectiveBase));
+  }
+
+  function isRetryableStatus(status: number): boolean {
+    return status === 429 || status >= 500;
+  }
+
+  function isRetryableNetworkError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    const retryableCodes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE']);
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code && retryableCodes.has(code)) return true;
+    if (error.cause instanceof Error) {
+      const causeCode = (error.cause as NodeJS.ErrnoException).code;
+      if (causeCode && retryableCodes.has(causeCode)) return true;
+    }
+    return false;
+  }
+
   return {
-    ...real,
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_BASE_DELAY_MS,
+    computeRetryDelay,
+    parseRetryAfterMs,
+    getHttpRetryDelay,
+    isRetryableStatus,
+    isRetryableNetworkError,
     sleep: () => Promise.resolve(),
+    abortableSleep: () => Promise.resolve(),
   };
 });
 
