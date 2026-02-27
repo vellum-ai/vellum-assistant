@@ -28,7 +28,6 @@ export const RemoteProvidersConfigSchema = z.object({
   clawhub: RemoteProviderConfigSchema.default({} as any),
 });
 
-const VALID_SKILLS_SH_RISK_LEVELS = ['safe', 'low', 'medium', 'high', 'critical', 'unknown'] as const;
 // 'unknown' is valid as a risk label on a skill but not as a threshold — setting the threshold
 // to 'unknown' would silently disable fail-closed behavior since nothing can exceed it.
 const VALID_MAX_RISK_LEVELS = ['safe', 'low', 'medium', 'high', 'critical'] as const;

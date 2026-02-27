@@ -54,13 +54,13 @@ mock.module('../util/logger.js', () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import {
-  type CreateScopedApprovalGrantParams,
-  consumeScopedApprovalGrantByToolSignature,
-  createScopedApprovalGrant,
-} from '../memory/scoped-approval-grants.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { scopedApprovalGrants } from '../memory/schema.js';
+import {
+  consumeScopedApprovalGrantByToolSignature,
+  createScopedApprovalGrant,
+  type CreateScopedApprovalGrantParams,
+} from '../memory/scoped-approval-grants.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 
 initializeDb();

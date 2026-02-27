@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, beforeEach, describe, expect, type Mock, mock, test } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'voice-scoped-grant-consumer-test-'));
 
@@ -98,17 +98,17 @@ mock.module('../daemon/session-runtime-assembly.js', () => ({
 
 import { and, eq } from 'drizzle-orm';
 
+import { setVoiceBridgeDeps, startVoiceTurn } from '../calls/voice-session-bridge.js';
+import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { scopedApprovalGrants } from '../memory/schema.js';
 import {
   createScopedApprovalGrant,
   type CreateScopedApprovalGrantParams,
   revokeScopedApprovalGrantsForContext,
 } from '../memory/scoped-approval-grants.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { conversations, scopedApprovalGrants } from '../memory/schema.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
-import { setVoiceBridgeDeps, startVoiceTurn } from '../calls/voice-session-bridge.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 
 initializeDb();
 
@@ -261,7 +261,7 @@ describe('voice scoped grant consumer', () => {
       requesterExternalUserId: 'caller-123',
     };
 
-    const handle = await startVoiceTurn({
+    await startVoiceTurn({
       conversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
       content: 'test utterance',
@@ -294,7 +294,7 @@ describe('voice scoped grant consumer', () => {
       requesterExternalUserId: 'caller-123',
     };
 
-    const handle = await startVoiceTurn({
+    await startVoiceTurn({
       conversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
       content: 'test utterance',

@@ -52,6 +52,7 @@ import {
 import { deliverChannelReply } from '../gateway-client.js';
 import { processGuardianFollowUpTurn } from '../guardian-action-conversation-turn.js';
 import { executeFollowupAction } from '../guardian-action-followup-executor.js';
+import { tryMintGuardianActionGrant } from '../guardian-action-grant-minter.js';
 import { composeGuardianActionMessageGenerative } from '../guardian-action-message-composer.js';
 import { resolveGuardianContext } from '../guardian-context-resolver.js';
 import {
@@ -78,7 +79,6 @@ import {
 } from './channel-route-shared.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
 import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
-import { tryMintGuardianActionGrant } from '../guardian-action-grant-minter.js';
 
 const log = getLogger('runtime-http');
 

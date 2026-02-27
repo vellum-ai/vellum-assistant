@@ -11,12 +11,12 @@
  *   - Expired and revoked grants cannot be consumed.
  */
 
-import { and, eq, lt, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { getLogger } from '../util/logger.js';
 import { getDb, rawChanges } from './db.js';
 import { scopedApprovalGrants } from './schema.js';
-import { getLogger } from '../util/logger.js';
 
 const log = getLogger('scoped-approval-grants');
 

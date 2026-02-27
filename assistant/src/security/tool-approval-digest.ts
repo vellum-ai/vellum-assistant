@@ -27,7 +27,7 @@ export function canonicalJsonSerialize(value: unknown): string {
 }
 
 function sortKeysDeep(value: unknown): unknown {
-  if (value === null || value === undefined) return value;
+  if (value == null) return value;
 
   if (Array.isArray(value)) {
     return value.map(sortKeysDeep);

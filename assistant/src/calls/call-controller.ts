@@ -17,6 +17,7 @@ import {
   markTimedOutWithReason,
 } from '../memory/guardian-action-store.js';
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
+import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getLogger } from '../util/logger.js';
 import { readHttpToken } from '../util/platform.js';
 import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
@@ -30,7 +31,6 @@ import {
   recordCallEvent,
   updateCallSession,
 } from './call-store.js';
-import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { sendGuardianExpiryNotices } from './guardian-action-sweep.js';
 import { dispatchGuardianQuestion } from './guardian-dispatch.js';
 import type { RelayConnection } from './relay-server.js';
