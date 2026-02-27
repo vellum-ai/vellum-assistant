@@ -294,7 +294,7 @@ describe('trusted contact lifecycle notification signals', () => {
     const vsPayload = vsSignal.contextPayload as Record<string, unknown>;
     expect(vsPayload.requesterExternalUserId).toBe('requester-user-456');
     expect(vsPayload.verificationSessionId).toBeDefined();
-    expect(vsSignal.attentionHints.visibleInSourceNow).toBe(true);
+    expect((vsSignal.attentionHints as Record<string, unknown>).visibleInSourceNow).toBe(true);
 
     // Should NOT emit denied signal
     const deniedSignals = emitSignalCalls.filter(
