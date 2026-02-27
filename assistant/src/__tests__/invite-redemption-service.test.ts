@@ -172,6 +172,25 @@ describe('invite-redemption-service', () => {
     expect((outcome as Extract<InviteRedemptionOutcome, { type: 'already_member' }>).memberId).toEqual(expect.any(String));
   });
 
+  test('returns blocked for a blocked member attempting to redeem an invite', () => {
+    const { rawToken } = createInvite({ sourceChannel: 'telegram', maxUses: 5 });
+
+    // Pre-create a blocked member — simulates a guardian-initiated block
+    upsertMember({
+      sourceChannel: 'telegram',
+      externalUserId: 'blocked-user',
+      status: 'blocked',
+    });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: 'telegram',
+      externalUserId: 'blocked-user',
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'blocked' });
+  });
+
   test('does not return already_member for a revoked member', () => {
     const { rawToken } = createInvite({ sourceChannel: 'telegram', maxUses: 5 });
 

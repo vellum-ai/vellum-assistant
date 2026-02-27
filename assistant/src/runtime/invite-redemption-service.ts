@@ -7,6 +7,7 @@
  * persisted, or returned in the outcome.
  */
 
+import { getSqlite } from '../memory/db.js';
 import { findMember, upsertMember } from '../memory/ingress-member-store.js';
 import { findByTokenHash, hashToken, markInviteExpired, redeemInvite as storeRedeemInvite, recordInviteUse } from '../memory/ingress-invite-store.js';
 
@@ -17,7 +18,7 @@ import { findByTokenHash, hashToken, markInviteExpired, redeemInvite as storeRed
 export type InviteRedemptionOutcome =
   | { ok: true; type: 'redeemed'; memberId: string; inviteId: string }
   | { ok: true; type: 'already_member'; memberId: string }
-  | { ok: false; reason: 'invalid_token' | 'expired' | 'revoked' | 'max_uses_reached' | 'channel_mismatch' | 'missing_identity' };
+  | { ok: false; reason: 'invalid_token' | 'expired' | 'revoked' | 'max_uses_reached' | 'channel_mismatch' | 'missing_identity' | 'blocked' };
 
 // ---------------------------------------------------------------------------
 // Error-string to typed-reason mapping
@@ -94,29 +95,39 @@ export function redeemInvite(params: {
     return { ok: true, type: 'already_member', memberId: existingMember.id };
   }
 
-  // Inactive member reactivation: when the user already has a member record
-  // in a non-active state (revoked/pending/blocked), reactivate it via
-  // upsertMember and consume an invite use separately. Falling through to
-  // storeRedeemInvite would try to INSERT a new member row, hitting the
-  // unique-key constraint on the members table.
-  if (existingMember) {
-    const reactivated = upsertMember({
-      assistantId: assistantId ?? invite.assistantId,
-      sourceChannel,
-      externalUserId,
-      externalChatId,
-      displayName,
-      username,
-      status: 'active',
-      policy: 'allow',
-      inviteId: invite.id,
-    });
+  // Blocked members cannot bypass the guardian's explicit block via invite
+  // links. Return a generic failure to avoid leaking membership status.
+  if (existingMember && existingMember.status === 'blocked') {
+    return { ok: false, reason: 'blocked' };
+  }
 
-    recordInviteUse({
-      inviteId: invite.id,
-      externalUserId,
-      externalChatId,
-    });
+  // Inactive member reactivation: when the user already has a member record
+  // in a non-active state (revoked/pending), reactivate it via upsertMember
+  // and consume an invite use atomically. Falling through to storeRedeemInvite
+  // would try to INSERT a new member row, hitting the unique-key constraint
+  // on the members table.
+  if (existingMember) {
+    const reactivated = getSqlite().transaction(() => {
+      const member = upsertMember({
+        assistantId: assistantId ?? invite.assistantId,
+        sourceChannel,
+        externalUserId,
+        externalChatId,
+        displayName,
+        username,
+        status: 'active',
+        policy: 'allow',
+        inviteId: invite.id,
+      });
+
+      recordInviteUse({
+        inviteId: invite.id,
+        externalUserId,
+        externalChatId,
+      });
+
+      return member;
+    }).immediate();
 
     return {
       ok: true,

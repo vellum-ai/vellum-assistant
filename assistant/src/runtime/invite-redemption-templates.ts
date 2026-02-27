@@ -19,6 +19,7 @@ export const INVITE_REPLY_TEMPLATES = {
   expired: 'This invite link is no longer valid.',
   revoked: 'This invite link is no longer valid.',
   max_uses_reached: 'This invite link is no longer valid.',
+  blocked: 'This invite link is not valid for you.',
   channel_mismatch: 'This invite link is not valid for this channel.',
   missing_identity: 'Unable to process this invite. Please contact the person who shared it.',
   generic_failure: 'Unable to process this invite. Please contact the person who shared it.',
