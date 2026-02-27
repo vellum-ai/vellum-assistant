@@ -95,7 +95,7 @@ describe('onboarding template contracts', () => {
       expect(lower).toContain('vibe');
       expect(lower).toContain("user's name");
       expect(lower).toContain('work role');
-      expect(lower).toContain('2 task suggestions');
+      expect(lower).toContain('2 suggestions shown');
       expect(lower).toContain('home base');
     });
 
