@@ -277,7 +277,7 @@ export class RuntimeHttpServer {
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
-      idleTimeout: 1800,
+      idleTimeout: 0,
       maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
       fetch: (req, server) => this.handleRequest(req, server),
       websocket: {
@@ -373,6 +373,7 @@ export class RuntimeHttpServer {
   }
 
   private async handleRequest(req: Request, server: ReturnType<typeof Bun.serve>): Promise<Response> {
+    server.timeout(req, 1800);
     return withRequestLogging(req, () => this.routeRequest(req, server));
   }
 
