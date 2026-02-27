@@ -46,29 +46,8 @@ struct AgentPanelContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Global search bar
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
-                    .foregroundColor(VColor.textMuted)
-
-                TextField("Search skills...", text: $globalSkillSearchQuery)
-                    .textFieldStyle(.plain)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
-
-                if !globalSkillSearchQuery.isEmpty {
-                    Button(action: { globalSkillSearchQuery = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(VSpacing.md)
-            .background(VColor.backgroundSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .padding(.bottom, VSpacing.lg)
+            VSearchBar(placeholder: "Search skills...", text: $globalSkillSearchQuery)
+                .padding(.bottom, VSpacing.lg)
 
             // Tab bar — hidden when locked to a single tab via visibleTab
             if visibleTab == nil {

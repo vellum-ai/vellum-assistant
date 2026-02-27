@@ -60,42 +60,7 @@ struct AppsGridView: View {
     // MARK: - Search Bar
 
     private var searchBar: some View {
-        GeometryReader { geometry in
-            HStack {
-                Spacer()
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-
-                    TextField("Search apps...", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-
-                    if !searchText.isEmpty {
-                        Button(action: { searchText = "" }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Clear search")
-                    }
-                }
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.sm)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.pill)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
-                )
-                .frame(maxWidth: geometry.size.width * 0.6)
-                Spacer()
-            }
-        }
-        .frame(height: 36)
+        VSearchBar(placeholder: "Search apps...", text: $searchText)
     }
 
     // MARK: - Sections
