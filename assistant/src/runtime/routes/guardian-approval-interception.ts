@@ -1152,27 +1152,34 @@ async function handleAccessRequestApproval(
     });
   }
 
-  // Emit guardian_decision (approved) signal
-  void emitNotificationSignal({
-    sourceEventName: 'ingress.trusted_contact.guardian_decision',
-    sourceChannel: approval.channel,
-    sourceSessionId: approval.conversationId,
-    assistantId,
-    attentionHints: {
-      requiresAction: false,
-      urgency: 'medium',
-      isAsyncBackground: false,
-      visibleInSourceNow: false,
-    },
-    contextPayload: {
+  // Don't emit guardian_decision for approvals that still require code
+  // verification — the guardian already received the code, and emitting
+  // this signal prematurely causes the notification pipeline to deliver
+  // a confusing "approved" message before the requester has verified.
+  // The guardian_decision signal should only fire once access is fully granted
+  // (i.e. after code consumption), which is handled in the verification path.
+  if (!decisionResult.verificationSessionId) {
+    void emitNotificationSignal({
+      sourceEventName: 'ingress.trusted_contact.guardian_decision',
       sourceChannel: approval.channel,
-      requesterExternalUserId: approval.requesterExternalUserId,
-      requesterChatId: approval.requesterChatId,
-      decidedByExternalUserId,
-      decision: 'approved',
-    },
-    dedupeKey: `trusted-contact:guardian-decision:${approval.id}`,
-  });
+      sourceSessionId: approval.conversationId,
+      assistantId,
+      attentionHints: {
+        requiresAction: false,
+        urgency: 'medium',
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        sourceChannel: approval.channel,
+        requesterExternalUserId: approval.requesterExternalUserId,
+        requesterChatId: approval.requesterChatId,
+        decidedByExternalUserId,
+        decision: 'approved',
+      },
+      dedupeKey: `trusted-contact:guardian-decision:${approval.id}`,
+    });
+  }
 
   // Only emit verification_sent when the code was actually delivered to the guardian.
   if (decisionResult.verificationSessionId && codeDelivered) {
