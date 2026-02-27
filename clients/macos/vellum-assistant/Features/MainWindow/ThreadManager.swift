@@ -308,7 +308,20 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func archiveThread(id: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
 
+        // Clear ordering state before archiving so stale is_pinned/display_order
+        // values don't affect DB pagination (which sorts by is_pinned DESC).
+        let wasPinned = threads[index].isPinned
+        let hadOrder = threads[index].displayOrder != nil
+        threads[index].isPinned = false
+        threads[index].pinnedOrder = nil
+        threads[index].displayOrder = nil
         threads[index].isArchived = true
+        if wasPinned {
+            recompactPinnedOrders()
+        }
+        if wasPinned || hadOrder {
+            sendReorderThreads()
+        }
 
         if let sessionId = threads[index].sessionId {
             chatViewModels[id]?.stopGenerating()
@@ -569,6 +582,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func updateLastInteracted(threadId: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
         threads[index].lastInteractedAt = Date()
+        // Clear explicit displayOrder so the thread reverts to recency-based sorting.
+        // This ensures actively-used threads float to the top naturally and new threads
+        // aren't permanently stuck below explicitly-ordered threads.
+        if threads[index].displayOrder != nil {
+            threads[index].displayOrder = nil
+            sendReorderThreads()
+        }
     }
 
     /// Move a thread to a new position in the visible list (for drag-and-drop reorder).
