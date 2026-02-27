@@ -1,3 +1,5 @@
+process.title = "vellum-gateway";
+
 import { randomBytes } from "node:crypto";
 import { readFileSync, watch, existsSync, mkdirSync, type FSWatcher } from "node:fs";
 import { join, dirname } from "node:path";

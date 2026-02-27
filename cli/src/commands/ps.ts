@@ -7,9 +7,15 @@ import {
   loadAllAssistants,
   type AssistantEntry,
 } from "../lib/assistant-config";
+import { GATEWAY_PORT } from "../lib/constants";
 import { checkHealth } from "../lib/health-check";
+import { pgrepExact } from "../lib/pgrep";
+import { probePort } from "../lib/port-probe";
 import { withStatusEmoji } from "../lib/status-emoji";
 import { execOutput } from "../lib/step-runner";
+
+const RUNTIME_HTTP_PORT = Number(process.env.RUNTIME_HTTP_PORT) || 7821;
+const QDRANT_PORT = 6333;
 
 // ── Table formatting helpers ────────────────────────────────────
 
@@ -149,62 +155,86 @@ async function getRemoteProcessesCustom(
   ]);
 }
 
-function checkPidFile(pidFile: string): { status: string; pid: string | null } {
-  if (!existsSync(pidFile)) {
-    return { status: "not running", pid: null };
-  }
+interface ProcessSpec {
+  name: string;
+  pgrepName: string;
+  port: number;
+  pidFile: string;
+}
+
+function readPidFile(pidFile: string): string | null {
+  if (!existsSync(pidFile)) return null;
   const pid = readFileSync(pidFile, "utf-8").trim();
+  return pid || null;
+}
+
+function isProcessAlive(pid: string): boolean {
   try {
     process.kill(parseInt(pid, 10), 0);
-    return { status: "running", pid };
+    return true;
   } catch {
-    return { status: "not running", pid };
+    return false;
   }
+}
+
+interface DetectedProcess {
+  name: string;
+  pid: string | null;
+  port: number;
+  running: boolean;
+}
+
+async function detectProcess(spec: ProcessSpec): Promise<DetectedProcess> {
+  // Tier 1: pgrep by process title
+  const pids = await pgrepExact(spec.pgrepName);
+  if (pids.length > 0) {
+    return { name: spec.name, pid: pids[0], port: spec.port, running: true };
+  }
+
+  // Tier 2: TCP port probe
+  const listening = await probePort(spec.port);
+  if (listening) {
+    const filePid = readPidFile(spec.pidFile);
+    return {
+      name: spec.name,
+      pid: filePid,
+      port: spec.port,
+      running: true,
+    };
+  }
+
+  // Tier 3: PID file fallback
+  const filePid = readPidFile(spec.pidFile);
+  if (filePid && isProcessAlive(filePid)) {
+    return { name: spec.name, pid: filePid, port: spec.port, running: true };
+  }
+
+  return { name: spec.name, pid: null, port: spec.port, running: false };
+}
+
+function formatDetectionInfo(proc: DetectedProcess): string {
+  const parts: string[] = [];
+  if (proc.pid) parts.push(`PID ${proc.pid}`);
+  parts.push(`port ${proc.port}`);
+  return parts.join(" | ");
 }
 
 async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
   const vellumDir = entry.baseDataDir ?? join(homedir(), ".vellum");
-  const rows: TableRow[] = [];
 
-  // Check daemon PID
-  const daemon = checkPidFile(join(vellumDir, "vellum.pid"));
-  rows.push({
-    name: "daemon",
-    status: withStatusEmoji(daemon.status),
-    info: daemon.pid ? `PID ${daemon.pid}` : "no PID file",
-  });
+  const specs: ProcessSpec[] = [
+    { name: "daemon", pgrepName: "vellum-daemon", port: RUNTIME_HTTP_PORT, pidFile: join(vellumDir, "vellum.pid") },
+    { name: "qdrant", pgrepName: "qdrant", port: QDRANT_PORT, pidFile: join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid") },
+    { name: "gateway", pgrepName: "vellum-gateway", port: GATEWAY_PORT, pidFile: join(vellumDir, "gateway.pid") },
+  ];
 
-  // Check qdrant PID
-  const qdrant = checkPidFile(join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid"));
-  rows.push({
-    name: "qdrant",
-    status: withStatusEmoji(qdrant.status),
-    info: qdrant.pid ? `PID ${qdrant.pid} | port 6333` : "no PID file",
-  });
+  const results = await Promise.all(specs.map(detectProcess));
 
-  // Check gateway PID
-  const gateway = checkPidFile(join(vellumDir, "gateway.pid"));
-  rows.push({
-    name: "gateway",
-    status: withStatusEmoji(gateway.status),
-    info: gateway.pid ? `PID ${gateway.pid} | port 7830` : "no PID file",
-  });
-
-  // If no PID files found, fall back to health check
-  const allMissingPid = !daemon.pid && !qdrant.pid && !gateway.pid;
-  if (allMissingPid) {
-    const health = await checkHealth(entry.runtimeUrl);
-    if (health.status === "healthy" || health.status === "ok") {
-      rows.length = 0;
-      rows.push({
-        name: "daemon",
-        status: withStatusEmoji("running"),
-        info: "no PID file (detected via health check)",
-      });
-    }
-  }
-
-  return rows;
+  return results.map((proc) => ({
+    name: proc.name,
+    status: withStatusEmoji(proc.running ? "running" : "not running"),
+    info: proc.running ? formatDetectionInfo(proc) : "not detected",
+  }));
 }
 
 async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
@@ -270,10 +300,10 @@ async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
   ];
 
   for (const { file, name } of pidFiles) {
-    const result = checkPidFile(file);
-    if (result.status === "running" && result.pid) {
-      results.push({ name, pid: result.pid, source: "pid file" });
-      seenPids.add(result.pid);
+    const pid = readPidFile(file);
+    if (pid && isProcessAlive(pid)) {
+      results.push({ name, pid, source: "pid file" });
+      seenPids.add(pid);
     }
   }
 
