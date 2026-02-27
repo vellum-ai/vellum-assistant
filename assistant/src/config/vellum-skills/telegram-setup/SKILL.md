@@ -14,6 +14,7 @@ Before beginning setup, verify these conditions are met:
 
 1. **Gateway is running:** Run `curl -sf http://localhost:7830/healthz` — it should return OK. If it fails, tell the user to start the daemon with `vellum daemon start` and wait for it to become healthy before continuing.
 2. **Public ingress URL is configured.** The gateway webhook URL is derived from `${ingress.publicBaseUrl}/webhooks/telegram`. If the ingress URL is not configured, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the URL before continuing.
+3. **Use gateway control-plane routes only.** Telegram setup/config actions in this skill must call gateway endpoints under `/v1/integrations/telegram/*` — never call the daemon runtime port directly.
 
 ## What You Need
 

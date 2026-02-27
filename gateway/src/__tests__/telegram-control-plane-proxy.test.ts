@@ -1,0 +1,166 @@
+import { describe, test, expect, mock, afterEach } from "bun:test";
+import type { GatewayConfig } from "../config.js";
+
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { createTelegramControlPlaneProxyHandler } = await import(
+  "../http/routes/telegram-control-plane-proxy.js"
+);
+
+function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
+  const merged: GatewayConfig = {
+    telegramBotToken: "tok",
+    telegramWebhookSecret: "wh-ver",
+    telegramApiBaseUrl: "https://api.telegram.org",
+    assistantRuntimeBaseUrl: "http://localhost:7821",
+    routingEntries: [],
+    defaultAssistantId: undefined,
+    unmappedPolicy: "reject",
+    port: 7830,
+    runtimeBearerToken: "runtime-token",
+    runtimeGatewayOriginSecret: "gateway-origin",
+    runtimeProxyEnabled: false,
+    runtimeProxyRequireAuth: true,
+    runtimeProxyBearerToken: undefined,
+    shutdownDrainMs: 5000,
+    runtimeTimeoutMs: 30000,
+    runtimeMaxRetries: 2,
+    runtimeInitialBackoffMs: 500,
+    telegramDeliverAuthBypass: false,
+    telegramInitialBackoffMs: 1000,
+    telegramMaxRetries: 3,
+    telegramTimeoutMs: 15000,
+    maxWebhookPayloadBytes: 1048576,
+    logFile: { dir: undefined, retentionDays: 30 },
+    maxAttachmentBytes: 20971520,
+    maxAttachmentConcurrency: 3,
+    twilioAuthToken: undefined,
+    twilioAccountSid: undefined,
+    twilioPhoneNumber: undefined,
+    smsDeliverAuthBypass: false,
+    ingressPublicBaseUrl: undefined,
+    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
+    whatsappPhoneNumberId: undefined,
+    whatsappAccessToken: undefined,
+    whatsappAppSecret: undefined,
+    whatsappWebhookVerifyToken: undefined,
+    whatsappDeliverAuthBypass: false,
+    whatsappTimeoutMs: 15000,
+    whatsappMaxRetries: 3,
+    whatsappInitialBackoffMs: 1000,
+    slackChannelBotToken: undefined,
+    slackChannelAppToken: undefined,
+    slackDeliverAuthBypass: false,
+    trustProxy: false,
+    ...overrides,
+  };
+  if (merged.runtimeGatewayOriginSecret === undefined) {
+    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
+  }
+  return merged;
+}
+
+afterEach(() => {
+  fetchMock = mock(async () => new Response());
+});
+
+describe("telegram control-plane proxy", () => {
+  test("forwards telegram control-plane endpoints to the runtime", async () => {
+    const captured: string[] = [];
+    fetchMock = mock(async (input: string | URL | Request) => {
+      captured.push(String(input));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const handler = createTelegramControlPlaneProxyHandler(makeConfig());
+
+    await handler.handleGetTelegramConfig(
+      new Request("http://localhost:7830/v1/integrations/telegram/config"),
+    );
+    await handler.handleSetTelegramConfig(
+      new Request("http://localhost:7830/v1/integrations/telegram/config", { method: "POST" }),
+    );
+    await handler.handleClearTelegramConfig(
+      new Request("http://localhost:7830/v1/integrations/telegram/config", { method: "DELETE" }),
+    );
+    await handler.handleSetTelegramCommands(
+      new Request("http://localhost:7830/v1/integrations/telegram/commands", { method: "POST" }),
+    );
+    await handler.handleSetupTelegram(
+      new Request("http://localhost:7830/v1/integrations/telegram/setup", { method: "POST" }),
+    );
+
+    expect(captured).toEqual([
+      "http://localhost:7821/v1/integrations/telegram/config",
+      "http://localhost:7821/v1/integrations/telegram/config",
+      "http://localhost:7821/v1/integrations/telegram/config",
+      "http://localhost:7821/v1/integrations/telegram/commands",
+      "http://localhost:7821/v1/integrations/telegram/setup",
+    ]);
+  });
+
+  test("replaces caller auth with runtime auth and forwards gateway-origin proof", async () => {
+    let capturedHeaders: Headers | undefined;
+    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as unknown as Headers;
+      return new Response("ok", { status: 200 });
+    });
+
+    const handler = createTelegramControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleSetupTelegram(
+      new Request("http://localhost:7830/v1/integrations/telegram/setup", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer caller-token",
+          "content-type": "application/json",
+          host: "localhost:7830",
+        },
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(capturedHeaders?.get("authorization")).toBe("Bearer runtime-token");
+    expect(capturedHeaders?.get("X-Gateway-Origin")).toBe("gateway-origin");
+    expect(capturedHeaders?.has("host")).toBe(false);
+  });
+
+  test("passes through upstream client errors", async () => {
+    fetchMock = mock(async () => {
+      return new Response(JSON.stringify({ success: false, error: "invalid_bot_token" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const handler = createTelegramControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleSetupTelegram(
+      new Request("http://localhost:7830/v1/integrations/telegram/setup", { method: "POST" }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ success: false, error: "invalid_bot_token" });
+  });
+
+  test("returns 502 when runtime is unreachable", async () => {
+    fetchMock = mock(async () => {
+      throw new Error("Connection refused");
+    });
+
+    const handler = createTelegramControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleGetTelegramConfig(
+      new Request("http://localhost:7830/v1/integrations/telegram/config"),
+    );
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "Bad Gateway" });
+  });
+});

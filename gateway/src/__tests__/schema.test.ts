@@ -60,6 +60,15 @@ describe("/schema route", () => {
     expect(body.paths["/webhooks/twilio/connect-action"]).toBeDefined();
     expect(body.paths["/webhooks/twilio/relay"]).toBeDefined();
     expect(body.paths["/webhooks/oauth/callback"]).toBeDefined();
+    expect(body.paths["/v1/integrations/telegram/config"]).toBeDefined();
+    expect(body.paths["/v1/integrations/telegram/commands"]).toBeDefined();
+    expect(body.paths["/v1/integrations/telegram/setup"]).toBeDefined();
+    expect(body.paths["/v1/ingress/members"]).toBeDefined();
+    expect(body.paths["/v1/ingress/members/{memberId}"]).toBeDefined();
+    expect(body.paths["/v1/ingress/members/{memberId}/block"]).toBeDefined();
+    expect(body.paths["/v1/ingress/invites"]).toBeDefined();
+    expect(body.paths["/v1/ingress/invites/redeem"]).toBeDefined();
+    expect(body.paths["/v1/ingress/invites/{inviteId}"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/challenge"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/status"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/outbound/start"]).toBeDefined();

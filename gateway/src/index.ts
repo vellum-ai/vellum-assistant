@@ -30,6 +30,8 @@ import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
 import { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } from "./http/routes/feature-flags.js";
 import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-control-plane-proxy.js";
+import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
+import { createIngressControlPlaneProxyHandler } from "./http/routes/ingress-control-plane-proxy.js";
 import { validateBearerToken } from "./http/auth/bearer.js";
 import { getLogger, initLogger } from "./logger.js";
 import { CircuitBreakerOpenError } from "./runtime/client.js";
@@ -198,6 +200,8 @@ function main() {
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
   const guardianControlPlaneProxy = createGuardianControlPlaneProxyHandler(config);
+  const telegramControlPlaneProxy = createTelegramControlPlaneProxyHandler(config);
+  const ingressControlPlaneProxy = createIngressControlPlaneProxyHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
 
@@ -413,14 +417,7 @@ function main() {
         return res;
       }
 
-      // ── Guardian verification control-plane proxy ──
-      if (
-        (url.pathname === "/v1/integrations/guardian/challenge" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/guardian/status" && req.method === "GET")
-        || (url.pathname === "/v1/integrations/guardian/outbound/start" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/guardian/outbound/resend" && req.method === "POST")
-        || (url.pathname === "/v1/integrations/guardian/outbound/cancel" && req.method === "POST")
-      ) {
+      function requireRuntimeBearerAuth(): Response | null {
         if (!config.runtimeBearerToken) {
           return Response.json(
             { error: "Service not configured: bearer token required" },
@@ -435,6 +432,86 @@ function main() {
           authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
+        return null;
+      }
+
+      // ── Telegram integration control-plane proxy ──
+      if (
+        (url.pathname === "/v1/integrations/telegram/config" && req.method === "GET")
+        || (url.pathname === "/v1/integrations/telegram/config" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/telegram/config" && req.method === "DELETE")
+        || (url.pathname === "/v1/integrations/telegram/commands" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/telegram/setup" && req.method === "POST")
+      ) {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+
+        if (url.pathname === "/v1/integrations/telegram/config" && req.method === "GET") {
+          return telegramControlPlaneProxy.handleGetTelegramConfig(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/telegram/config" && req.method === "POST") {
+          return telegramControlPlaneProxy.handleSetTelegramConfig(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/telegram/config" && req.method === "DELETE") {
+          return telegramControlPlaneProxy.handleClearTelegramConfig(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/telegram/commands") {
+          return telegramControlPlaneProxy.handleSetTelegramCommands(tracedReq);
+        }
+        return telegramControlPlaneProxy.handleSetupTelegram(tracedReq);
+      }
+
+      // ── Ingress members/invites control-plane proxy ──
+      const ingressMemberBlockMatch = url.pathname.match(/^\/v1\/ingress\/members\/([^/]+)\/block$/);
+      const ingressMemberMatch = url.pathname.match(/^\/v1\/ingress\/members\/([^/]+)$/);
+      const ingressInviteMatch = url.pathname.match(/^\/v1\/ingress\/invites\/([^/]+)$/);
+      if (
+        (url.pathname === "/v1/ingress/members" && req.method === "GET")
+        || (url.pathname === "/v1/ingress/members" && req.method === "POST")
+        || (!!ingressMemberBlockMatch && req.method === "POST")
+        || (!!ingressMemberMatch && req.method === "DELETE")
+        || (url.pathname === "/v1/ingress/invites" && req.method === "GET")
+        || (url.pathname === "/v1/ingress/invites" && req.method === "POST")
+        || (url.pathname === "/v1/ingress/invites/redeem" && req.method === "POST")
+        || (!!ingressInviteMatch && req.method === "DELETE")
+      ) {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+
+        if (url.pathname === "/v1/ingress/members" && req.method === "GET") {
+          return ingressControlPlaneProxy.handleListMembers(tracedReq);
+        }
+        if (url.pathname === "/v1/ingress/members" && req.method === "POST") {
+          return ingressControlPlaneProxy.handleUpsertMember(tracedReq);
+        }
+        if (ingressMemberBlockMatch && req.method === "POST") {
+          return ingressControlPlaneProxy.handleBlockMember(tracedReq, ingressMemberBlockMatch[1]);
+        }
+        if (ingressMemberMatch && req.method === "DELETE") {
+          return ingressControlPlaneProxy.handleRevokeMember(tracedReq, ingressMemberMatch[1]);
+        }
+        if (url.pathname === "/v1/ingress/invites" && req.method === "GET") {
+          return ingressControlPlaneProxy.handleListInvites(tracedReq);
+        }
+        if (url.pathname === "/v1/ingress/invites" && req.method === "POST") {
+          return ingressControlPlaneProxy.handleCreateInvite(tracedReq);
+        }
+        if (url.pathname === "/v1/ingress/invites/redeem") {
+          return ingressControlPlaneProxy.handleRedeemInvite(tracedReq);
+        }
+        return ingressControlPlaneProxy.handleRevokeInvite(tracedReq, ingressInviteMatch![1]);
+      }
+
+      // ── Guardian verification control-plane proxy ──
+      if (
+        (url.pathname === "/v1/integrations/guardian/challenge" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/guardian/status" && req.method === "GET")
+        || (url.pathname === "/v1/integrations/guardian/outbound/start" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/guardian/outbound/resend" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/guardian/outbound/cancel" && req.method === "POST")
+      ) {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
 
         if (url.pathname === "/v1/integrations/guardian/challenge") {
           return guardianControlPlaneProxy.handleCreateGuardianChallenge(tracedReq);
@@ -452,20 +529,8 @@ function main() {
       }
 
       if (url.pathname === "/integrations/status" && req.method === "GET") {
-        if (!config.runtimeBearerToken) {
-          return Response.json(
-            { error: "Service not configured: bearer token required" },
-            { status: 503 },
-          );
-        }
-        const authResult = validateBearerToken(
-          tracedReq.headers.get("authorization"),
-          config.runtimeBearerToken,
-        );
-        if (!authResult.authorized) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
         return Response.json({
           email: {
             address: config.assistantEmail ?? null,

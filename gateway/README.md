@@ -221,6 +221,15 @@ The gateway serves as the single public ingress point for all external callbacks
 | `/v1/integrations/guardian/outbound/start` | POST | Authenticated control-plane proxy for starting outbound guardian verification |
 | `/v1/integrations/guardian/outbound/resend` | POST | Authenticated control-plane proxy for resending outbound guardian verification |
 | `/v1/integrations/guardian/outbound/cancel` | POST | Authenticated control-plane proxy for cancelling outbound guardian verification |
+| `/v1/integrations/telegram/config` | GET/POST/DELETE | Authenticated control-plane proxy for Telegram integration config |
+| `/v1/integrations/telegram/commands` | POST | Authenticated control-plane proxy for Telegram command registration |
+| `/v1/integrations/telegram/setup` | POST | Authenticated control-plane proxy for Telegram setup orchestration |
+| `/v1/ingress/members` | GET/POST | Authenticated control-plane proxy for listing/upserting ingress members |
+| `/v1/ingress/members/:id` | DELETE | Authenticated control-plane proxy for revoking an ingress member |
+| `/v1/ingress/members/:id/block` | POST | Authenticated control-plane proxy for blocking an ingress member |
+| `/v1/ingress/invites` | GET/POST | Authenticated control-plane proxy for listing/creating ingress invites |
+| `/v1/ingress/invites/:id` | DELETE | Authenticated control-plane proxy for revoking an ingress invite |
+| `/v1/ingress/invites/redeem` | POST | Authenticated control-plane proxy for redeeming an ingress invite |
 | `/healthz` | GET | Liveness probe |
 | `/readyz` | GET | Readiness probe |
 | `/schema` | GET | Returns the OpenAPI 3.1 schema for this gateway |
@@ -290,7 +299,7 @@ When `INGRESS_PUBLIC_BASE_URL` is configured, the gateway prioritizes it as the 
 
 ## Default Mode: Dedicated Routes Only
 
-By default, the broad runtime proxy is disabled. Dedicated gateway-managed routes (webhooks, delivery endpoints, and explicit control-plane proxies such as `/v1/integrations/guardian/*`) remain available, but arbitrary runtime passthrough routes return `404` unless `GATEWAY_RUNTIME_PROXY_ENABLED=true`.
+By default, the broad runtime proxy is disabled. Dedicated gateway-managed routes (webhooks, delivery endpoints, and explicit control-plane proxies such as `/v1/integrations/guardian/*`, `/v1/integrations/telegram/*`, and `/v1/ingress/*`) remain available, but arbitrary runtime passthrough routes return `404` unless `GATEWAY_RUNTIME_PROXY_ENABLED=true`.
 
 ## Runtime Proxy Mode
 
