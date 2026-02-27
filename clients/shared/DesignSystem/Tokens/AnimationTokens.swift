@@ -13,6 +13,9 @@ public enum VAnimation {
     /// Bouncy spring for celebratory/attention-grabbing motion
     public static let bouncy   = Animation.spring(response: 0.3, dampingFraction: 0.5)
 
+    /// Gentle repeating pulse for indicating activity (e.g. streaming avatar)
+    public static let pulse    = Animation.easeInOut(duration: 1.5).repeatForever(autoreverses: true)
+
     // MARK: - Durations (for use with withAnimation or explicit timing)
 
     public static let durationFast: TimeInterval     = 0.15

@@ -24,6 +24,7 @@ struct ChatBubble: View {
 
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
+    @State private var isPulsing = false
 
     @State private var showCopyConfirmation = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
@@ -212,7 +213,26 @@ struct ChatBubble: View {
                                 Circle()
                                     .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
                             )
+                            .opacity(isPulsing ? 0.4 : 1.0)
                             .offset(x: -(28 + VSpacing.sm), y: 2)
+                            .onChange(of: isLatestAssistantMessage && message.isStreaming) { _, shouldPulse in
+                                if shouldPulse {
+                                    withAnimation(VAnimation.pulse) {
+                                        isPulsing = true
+                                    }
+                                } else {
+                                    withAnimation(VAnimation.fast) {
+                                        isPulsing = false
+                                    }
+                                }
+                            }
+                            .onAppear {
+                                if isLatestAssistantMessage && message.isStreaming {
+                                    withAnimation(VAnimation.pulse) {
+                                        isPulsing = true
+                                    }
+                                }
+                            }
                     }
                 }
                 .padding(.leading, isUser ? 0 : 28 + VSpacing.sm)
