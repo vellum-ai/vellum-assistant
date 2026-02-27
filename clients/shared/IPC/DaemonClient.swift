@@ -1574,19 +1574,22 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         public let enabled: Bool
         public let defaultEnabled: Bool?
         public let description: String?
+        public let label: String?
 
         public var id: String { key }
 
-        public init(key: String, enabled: Bool, defaultEnabled: Bool? = true, description: String? = nil) {
+        public init(key: String, enabled: Bool, defaultEnabled: Bool? = true, description: String? = nil, label: String? = nil) {
             self.key = key
             self.enabled = enabled
             self.defaultEnabled = defaultEnabled
             self.description = description
+            self.label = label
         }
 
         /// Derive a human-readable name from the flag key.
         /// e.g. "feature_flags.hatch-new-assistant.enabled" -> "Hatch New Assistant"
         public var displayName: String {
+            if let label = label { return label }
             var name = key
             // Strip common prefix/suffix patterns
             if name.hasPrefix("feature_flags.") {
