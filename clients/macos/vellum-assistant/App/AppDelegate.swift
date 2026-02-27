@@ -1607,11 +1607,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
-    func toggleQuickInput(aboveDock: Bool = false, requestScreenPermission: Bool = false) {
+    func toggleQuickInput(aboveDock: Bool = false, requestScreenPermission: Bool? = nil) {
         if let window = quickInputWindow, window.isVisible {
             window.dismiss()
             return
         }
+
+        // Auto-detect screen recording permission if not explicitly specified
+        let shouldShowPermissionPrompt = requestScreenPermission
+            ?? (PermissionManager.screenRecordingStatus() != .granted)
 
         let window = QuickInputWindow()
         window.onSubmit = { [weak self, weak window] message, imageData in
@@ -1636,7 +1640,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 .prefix(3)
                 .map { QuickInputThread(id: $0.id, title: $0.title) }
         }
-        window.showScreenPermissionPrompt = requestScreenPermission
+        window.showScreenPermissionPrompt = shouldShowPermissionPrompt
         if aboveDock {
             window.showAboveDock()
         } else {
