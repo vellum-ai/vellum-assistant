@@ -1426,6 +1426,15 @@ struct MainWindowView: View {
                             .frame(width: 200)
                             .padding(.bottom, VSpacing.sm)
                         }
+                        .onDisappear {
+                            // Reset popover state when badge is removed from hierarchy
+                            // (e.g. thread count drops to ≤1) to prevent stale
+                            // showThreadSwitcher causing the popover to immediately
+                            // reappear when threads are added back.
+                            threadSwitcherHoverTimer?.cancel()
+                            threadSwitcherHoverTimer = nil
+                            showThreadSwitcher = false
+                        }
                 }
             }
 
