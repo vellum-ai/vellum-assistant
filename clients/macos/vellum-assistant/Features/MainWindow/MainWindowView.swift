@@ -1681,7 +1681,7 @@ private struct ProfileSwitchModal: View {
     private var isChildToParental: Bool { activeProfile == "child" }
 
     var body: some View {
-        VStack(spacing: VSpacing.xl) {
+        VStack(spacing: VSpacing.md) {
             // Title
             Text(isChildToParental ? "Switch to Parental Mode" : "Switch to Restricted Mode")
                 .font(VFont.headline)
@@ -1718,7 +1718,7 @@ private struct ProfileSwitchModal: View {
     }
 
     private var enterPINContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
+        VStack(alignment: .center, spacing: VSpacing.md) {
             if isChildToParental {
                 PINCircleField(text: $pin)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -1757,7 +1757,7 @@ private struct ProfileSwitchModal: View {
                 .foregroundColor(VColor.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, VSpacing.xl)
+        .padding(.vertical, VSpacing.sm)
     }
 
     @ViewBuilder
