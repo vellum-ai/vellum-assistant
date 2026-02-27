@@ -59,6 +59,7 @@ import {
 
 const { consumeScopedApprovalGrantByToolSignature } = _internal;
 import { tryMintGuardianActionGrant } from '../runtime/guardian-action-grant-minter.js';
+import type { ApprovalConversationGenerator } from '../runtime/http-types.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 
 initializeDb();
@@ -109,7 +110,7 @@ function ensureFkParents(): void {
   // Pre-create enough pending questions for all tests in a suite run
   PENDING_QUESTION_IDS = [];
   pqIndex = 0;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 20; i++) {
     const pq = createPendingQuestion(session.id, `Question ${i}`);
     PENDING_QUESTION_IDS.push(pq.id);
   }
@@ -166,7 +167,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     ensureFkParents();
   });
 
-  test('full flow: resolve guardian action with tool metadata -> mint grant -> voice consume succeeds once', () => {
+  test('full flow: resolve guardian action with tool metadata -> mint grant -> voice consume succeeds once', async () => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     // Step 1: Create a guardian action request with tool metadata
@@ -199,7 +200,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(resolved!.status).toBe('answered');
 
     // Step 3: Mint a scoped grant from the resolved request
-    tryMintGuardianActionGrant({
+    await tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
       answerText: 'yes',
       decisionChannel: 'telegram',
@@ -249,7 +250,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(secondConsume.grant).toBeNull();
   });
 
-  test('grant minted for one assistantId cannot be consumed by another', () => {
+  test('grant minted for one assistantId cannot be consumed by another', async () => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
@@ -268,7 +269,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     const resolved = resolveGuardianActionRequest(request.id, 'Yes', 'telegram');
     expect(resolved).not.toBeNull();
 
-    tryMintGuardianActionGrant({
+    await tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
       answerText: 'Yes',
       decisionChannel: 'telegram',
@@ -299,7 +300,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(correctAssistant.ok).toBe(true);
   });
 
-  test('no grant minted when guardian action request lacks tool metadata', () => {
+  test('no grant minted when guardian action request lacks tool metadata', async () => {
     // Create a request without toolName/inputDigest (informational consult)
     const request = createGuardianActionRequest({
       assistantId: ASSISTANT_ID,
@@ -316,7 +317,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     const resolved = resolveGuardianActionRequest(request.id, 'Tell them to call back', 'vellum');
     expect(resolved).not.toBeNull();
 
-    tryMintGuardianActionGrant({
+    await tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
       answerText: 'Tell them to call back',
       decisionChannel: 'vellum',
@@ -331,7 +332,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(grants.length).toBe(0);
   });
 
-  test('grant minted via desktop/vellum channel also consumable by voice', () => {
+  test('grant minted via desktop/vellum channel also consumable by voice', async () => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
@@ -352,7 +353,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(resolved).not.toBeNull();
 
     // Mint with decisionChannel: 'vellum' (desktop path)
-    tryMintGuardianActionGrant({
+    await tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
       answerText: 'approve',
       decisionChannel: 'vellum',
@@ -371,7 +372,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(consumeResult.ok).toBe(true);
   });
 
-  test('no grant minted when guardian answer is a denial', () => {
+  test('no grant minted when guardian answer is a denial', async () => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
@@ -391,7 +392,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     const resolved = resolveGuardianActionRequest(request.id, 'No', 'telegram', 'guardian-user-456');
     expect(resolved).not.toBeNull();
 
-    tryMintGuardianActionGrant({
+    await tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
       answerText: 'No',
       decisionChannel: 'telegram',
@@ -407,7 +408,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(grants.length).toBe(0);
   });
 
-  test.each(['no', 'reject', 'deny', 'cancel'])('no grant minted for denial keyword: %s', (denialWord) => {
+  test.each(['no', 'reject', 'deny', 'cancel'])('no grant minted for denial keyword: %s', async (denialWord) => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
@@ -426,7 +427,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     const resolved = resolveGuardianActionRequest(request.id, denialWord, 'telegram');
     expect(resolved).not.toBeNull();
 
-    tryMintGuardianActionGrant({
+    await tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
       answerText: denialWord,
       decisionChannel: 'telegram',
@@ -440,7 +441,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(grants.length).toBe(0);
   });
 
-  test('no grant minted for unrecognised free-form answer (fail-closed)', () => {
+  test('no grant minted for unrecognised free-form answer without generator (fail-closed)', async () => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
@@ -460,7 +461,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     const resolved = resolveGuardianActionRequest(request.id, 'Sure, go ahead and run it', 'telegram');
     expect(resolved).not.toBeNull();
 
-    tryMintGuardianActionGrant({
+    await tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
       answerText: 'Sure, go ahead and run it',
       decisionChannel: 'telegram',
@@ -475,7 +476,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(grants.length).toBe(0);
   });
 
-  test.each(['yes', 'approve', 'approve once', 'allow', 'go ahead'])('grant IS minted for approval keyword: %s', (approveWord) => {
+  test.each(['yes', 'approve', 'approve once', 'allow', 'go ahead'])('grant IS minted for approval keyword: %s', async (approveWord) => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
@@ -494,7 +495,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     const resolved = resolveGuardianActionRequest(request.id, approveWord, 'telegram');
     expect(resolved).not.toBeNull();
 
-    tryMintGuardianActionGrant({
+    await tryMintGuardianActionGrant({
       resolvedRequest: resolved!,
       answerText: approveWord,
       decisionChannel: 'telegram',
@@ -507,5 +508,192 @@ describe('guardian-action grant mint -> voice consume integration', () => {
       .all();
     expect(grants.length).toBe(1);
     expect(grants[0].toolName).toBe(TOOL_NAME);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LLM fallback two-tier classification tests
+// ---------------------------------------------------------------------------
+
+describe('guardian-action grant minter: two-tier classification (deterministic + LLM fallback)', () => {
+  beforeEach(() => {
+    clearTables();
+    ensureFkParents();
+  });
+
+  test('deterministic parser works for exact phrases without needing the generator', async () => {
+    const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
+
+    const request = createGuardianActionRequest({
+      assistantId: ASSISTANT_ID,
+      kind: 'ask_guardian',
+      sourceChannel: 'voice',
+      sourceConversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      pendingQuestionId: nextPendingQuestionId(),
+      questionText: 'Can I run the command?',
+      expiresAt: Date.now() + 60_000,
+      toolName: TOOL_NAME,
+      inputDigest,
+    });
+
+    const resolved = resolveGuardianActionRequest(request.id, 'yes', 'telegram');
+    expect(resolved).not.toBeNull();
+
+    // Provide a generator that should NOT be called (deterministic match first)
+    const generatorSpy: ApprovalConversationGenerator = async () => {
+      throw new Error('Generator should not be called for exact phrase match');
+    };
+
+    await tryMintGuardianActionGrant({
+      resolvedRequest: resolved!,
+      answerText: 'yes',
+      decisionChannel: 'telegram',
+      approvalConversationGenerator: generatorSpy,
+    });
+
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(1);
+    expect(grants[0].toolName).toBe(TOOL_NAME);
+  });
+
+  test('free-form approval via LLM fallback mints a grant', async () => {
+    const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
+
+    const request = createGuardianActionRequest({
+      assistantId: ASSISTANT_ID,
+      kind: 'ask_guardian',
+      sourceChannel: 'voice',
+      sourceConversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      pendingQuestionId: nextPendingQuestionId(),
+      questionText: 'Can I run the command?',
+      expiresAt: Date.now() + 60_000,
+      toolName: TOOL_NAME,
+      inputDigest,
+    });
+
+    const resolved = resolveGuardianActionRequest(request.id, 'Sure, go ahead and run it', 'telegram');
+    expect(resolved).not.toBeNull();
+
+    const mockGenerator: ApprovalConversationGenerator = async () => ({
+      disposition: 'approve_once',
+      replyText: 'Approved.',
+    });
+
+    await tryMintGuardianActionGrant({
+      resolvedRequest: resolved!,
+      answerText: 'Sure, go ahead and run it',
+      decisionChannel: 'telegram',
+      approvalConversationGenerator: mockGenerator,
+    });
+
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(1);
+    expect(grants[0].toolName).toBe(TOOL_NAME);
+  });
+
+  test('ambiguous text returns keep_pending from generator, no grant minted', async () => {
+    const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
+
+    const request = createGuardianActionRequest({
+      assistantId: ASSISTANT_ID,
+      kind: 'ask_guardian',
+      sourceChannel: 'voice',
+      sourceConversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      pendingQuestionId: nextPendingQuestionId(),
+      questionText: 'Can I run the command?',
+      expiresAt: Date.now() + 60_000,
+      toolName: TOOL_NAME,
+      inputDigest,
+    });
+
+    const resolved = resolveGuardianActionRequest(request.id, "I'm not sure about this", 'telegram');
+    expect(resolved).not.toBeNull();
+
+    const mockGenerator: ApprovalConversationGenerator = async () => ({
+      disposition: 'keep_pending',
+      replyText: 'Could you clarify?',
+    });
+
+    await tryMintGuardianActionGrant({
+      resolvedRequest: resolved!,
+      answerText: "I'm not sure about this",
+      decisionChannel: 'telegram',
+      approvalConversationGenerator: mockGenerator,
+    });
+
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(0);
+  });
+
+  test('generator failure falls back to no grant (fail-closed)', async () => {
+    const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
+
+    const request = createGuardianActionRequest({
+      assistantId: ASSISTANT_ID,
+      kind: 'ask_guardian',
+      sourceChannel: 'voice',
+      sourceConversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      pendingQuestionId: nextPendingQuestionId(),
+      questionText: 'Can I run the command?',
+      expiresAt: Date.now() + 60_000,
+      toolName: TOOL_NAME,
+      inputDigest,
+    });
+
+    const resolved = resolveGuardianActionRequest(request.id, 'Sure, go ahead and run it', 'telegram');
+    expect(resolved).not.toBeNull();
+
+    const failingGenerator: ApprovalConversationGenerator = async () => {
+      throw new Error('LLM provider unavailable');
+    };
+
+    await tryMintGuardianActionGrant({
+      resolvedRequest: resolved!,
+      answerText: 'Sure, go ahead and run it',
+      decisionChannel: 'telegram',
+      approvalConversationGenerator: failingGenerator,
+    });
+
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(0);
+  });
+
+  test('no generator provided and unrecognised text produces no grant', async () => {
+    const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
+
+    const request = createGuardianActionRequest({
+      assistantId: ASSISTANT_ID,
+      kind: 'ask_guardian',
+      sourceChannel: 'voice',
+      sourceConversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      pendingQuestionId: nextPendingQuestionId(),
+      questionText: 'Can I run the command?',
+      expiresAt: Date.now() + 60_000,
+      toolName: TOOL_NAME,
+      inputDigest,
+    });
+
+    const resolved = resolveGuardianActionRequest(request.id, 'Sure, go ahead and run it', 'telegram');
+    expect(resolved).not.toBeNull();
+
+    // No generator provided — behaves like before, no LLM fallback
+    await tryMintGuardianActionGrant({
+      resolvedRequest: resolved!,
+      answerText: 'Sure, go ahead and run it',
+      decisionChannel: 'telegram',
+    });
+
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(0);
   });
 });

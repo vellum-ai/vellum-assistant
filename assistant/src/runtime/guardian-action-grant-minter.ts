@@ -10,7 +10,9 @@
 import { mintGrantFromDecision } from '../approvals/approval-primitive.js';
 import type { GuardianActionRequest } from '../memory/guardian-action-store.js';
 import { getLogger } from '../util/logger.js';
+import { runApprovalConversationTurn } from './approval-conversation-turn.js';
 import { parseApprovalDecision } from './channel-approval-parser.js';
+import type { ApprovalConversationGenerator } from './http-types.js';
 
 const log = getLogger('guardian-action-grant-minter');
 
@@ -21,20 +23,26 @@ export const GUARDIAN_ACTION_GRANT_TTL_MS = 5 * 60 * 1000;
  * Mint a `tool_signature` scoped grant when a guardian-action request is
  * resolved and the request carries tool metadata (toolName + inputDigest).
  *
+ * Uses two-tier classification:
+ *   1. Deterministic fast path via parseApprovalDecision (exact keyword match).
+ *   2. LLM fallback via runApprovalConversationTurn when the deterministic
+ *      parser returns null and an approvalConversationGenerator is provided.
+ *
  * Skips silently when:
  *   - The resolved request has no toolName/inputDigest (informational consult).
- *   - The guardian's answer is not an explicit approval (fail-closed).
+ *   - The guardian's answer is not classified as approval by either tier (fail-closed).
  *
  * Fails silently on error -- grant minting is best-effort and must never
  * block the guardian-action answer flow.
  */
-export function tryMintGuardianActionGrant(params: {
+export async function tryMintGuardianActionGrant(params: {
   resolvedRequest: GuardianActionRequest;
   answerText: string;
   decisionChannel: string;
   guardianExternalUserId?: string;
-}): void {
-  const { resolvedRequest, answerText, decisionChannel, guardianExternalUserId } = params;
+  approvalConversationGenerator?: ApprovalConversationGenerator;
+}): Promise<void> {
+  const { resolvedRequest, answerText, decisionChannel, guardianExternalUserId, approvalConversationGenerator } = params;
 
   // Only mint for requests that carry tool metadata -- informational
   // ASK_GUARDIAN consults without tool context do not produce grants.
@@ -42,13 +50,55 @@ export function tryMintGuardianActionGrant(params: {
     return;
   }
 
-  // Gate on explicit affirmative guardian decisions (fail-closed).
-  // Only mint when the deterministic parser recognises an approval keyword
-  // ("yes", "approve", "allow", "go ahead", etc.).  Unrecognised text
-  // (e.g. "nope", "don't do that") is treated as non-approval and skipped,
-  // preventing ambiguous answers from producing grants.
+  // Tier 1: Deterministic fast path -- try exact keyword matching first.
   const decision = parseApprovalDecision(answerText);
-  if (decision?.action !== 'approve_once' && decision?.action !== 'approve_always') {
+  let isApproval = decision?.action === 'approve_once' || decision?.action === 'approve_always';
+
+  // Tier 2: LLM fallback -- when the deterministic parser found no match
+  // and a generator is available, delegate to the conversational engine.
+  if (!isApproval && decision === null && approvalConversationGenerator) {
+    try {
+      const llmResult = await runApprovalConversationTurn(
+        {
+          toolName: resolvedRequest.toolName,
+          allowedActions: ['approve_once', 'reject'],
+          role: 'guardian',
+          pendingApprovals: [{ requestId: resolvedRequest.id, toolName: resolvedRequest.toolName }],
+          userMessage: answerText,
+        },
+        approvalConversationGenerator,
+      );
+
+      isApproval = llmResult.disposition === 'approve_once' || llmResult.disposition === 'approve_always';
+
+      log.info(
+        {
+          event: 'guardian_action_grant_llm_fallback',
+          toolName: resolvedRequest.toolName,
+          requestId: resolvedRequest.id,
+          answerText,
+          llmDisposition: llmResult.disposition,
+          matched: isApproval,
+          decisionChannel,
+        },
+        `LLM fallback classifier returned disposition: ${llmResult.disposition}`,
+      );
+    } catch (err) {
+      // Fail-closed: generator errors must not produce grants.
+      log.warn(
+        {
+          event: 'guardian_action_grant_llm_fallback_error',
+          toolName: resolvedRequest.toolName,
+          requestId: resolvedRequest.id,
+          err,
+          decisionChannel,
+        },
+        'LLM fallback classifier threw an error; treating as non-approval (fail-closed)',
+      );
+    }
+  }
+
+  if (!isApproval) {
     log.info(
       {
         event: 'guardian_action_grant_skipped_no_approval',
@@ -58,7 +108,7 @@ export function tryMintGuardianActionGrant(params: {
         parsedAction: decision?.action ?? null,
         decisionChannel,
       },
-      'Skipped grant minting: guardian answer not classified as explicit approval',
+      'Skipped grant minting: guardian answer not classified as approval',
     );
     return;
   }
