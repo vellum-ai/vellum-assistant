@@ -154,16 +154,16 @@ describe('reminder tool', () => {
 
   // ── routing ────────────────────────────────────────────────────────
 
-  test('create defaults routing_intent to single_channel', async () => {
+  test('create defaults routing_intent to all_channels', async () => {
     const future = new Date(Date.now() + 60_000).toISOString();
     const result = executeReminderCreate({
       fire_at: future,
       label: 'Default routing',
-      message: 'Should default to single_channel',
+      message: 'Should default to all_channels',
     });
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('Routing: single_channel');
+    expect(result.content).toContain('Routing: all_channels');
   });
 
   test('create with routing_intent all_channels succeeds', async () => {
@@ -242,7 +242,7 @@ describe('reminder tool', () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Reminder created');
-    expect(result.content).toContain('Routing: single_channel');
+    expect(result.content).toContain('Routing: all_channels');
   });
 
   // ── list ────────────────────────────────────────────────────────────

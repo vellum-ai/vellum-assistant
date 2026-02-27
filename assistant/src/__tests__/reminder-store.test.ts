@@ -45,7 +45,7 @@ describe('reminder-store', () => {
     expect(r.status).toBe('pending');
     expect(r.firedAt).toBeNull();
     expect(r.conversationId).toBeNull();
-    expect(r.routingIntent).toBe('single_channel');
+    expect(r.routingIntent).toBe('all_channels');
     expect(r.routingHints).toEqual({});
     expect(r.createdAt).toBeGreaterThan(0);
     expect(r.updatedAt).toBeGreaterThan(0);
@@ -69,7 +69,7 @@ describe('reminder-store', () => {
     expect(fetched!.routingHints).toEqual({ preferred: ['telegram', 'sms'] });
   });
 
-  test('insertReminder defaults routingIntent to single_channel when omitted', () => {
+  test('insertReminder defaults routingIntent to all_channels when omitted', () => {
     const r = insertReminder({
       label: 'No routing',
       message: 'Should default',
@@ -77,11 +77,11 @@ describe('reminder-store', () => {
       mode: 'notify',
     });
 
-    expect(r.routingIntent).toBe('single_channel');
+    expect(r.routingIntent).toBe('all_channels');
     expect(r.routingHints).toEqual({});
 
     const fetched = getReminder(r.id);
-    expect(fetched!.routingIntent).toBe('single_channel');
+    expect(fetched!.routingIntent).toBe('all_channels');
     expect(fetched!.routingHints).toEqual({});
   });
 
@@ -113,7 +113,7 @@ describe('reminder-store', () => {
 
     const all = listReminders();
     expect(all).toHaveLength(2);
-    expect(all[0].routingIntent).toBe('single_channel');
+    expect(all[0].routingIntent).toBe('all_channels');
     expect(all[1].routingIntent).toBe('multi_channel');
   });
 
