@@ -89,6 +89,7 @@ import {
 } from './channel-route-shared.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
 import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
+import { routeGuardianReply } from '../guardian-reply-router.js';
 
 import '../channel-invite-transports/telegram.js';
 
@@ -1243,6 +1244,55 @@ export async function handleChannelInbound(
     senderExternalUserId: body.senderExternalUserId,
     senderUsername: body.senderUsername,
   });
+
+  // ── Canonical guardian reply router ──
+  // Attempts to route inbound messages through the canonical decision pipeline
+  // before falling through to the legacy approval interception. Handles
+  // deterministic callbacks (button presses), request code prefixes, and
+  // NL classification via the conversational approval engine.
+  if (
+    !result.duplicate &&
+    replyCallbackUrl &&
+    (trimmedContent.length > 0 || hasCallbackData) &&
+    body.senderExternalUserId &&
+    guardianCtx.actorRole === 'guardian'
+  ) {
+    const routerResult = await routeGuardianReply({
+      messageText: trimmedContent,
+      channel: sourceChannel,
+      actor: {
+        externalUserId: body.senderExternalUserId,
+        channel: sourceChannel,
+        isTrusted: false,
+      },
+      conversationId: result.conversationId,
+      callbackData: body.callbackData,
+      approvalConversationGenerator,
+    });
+
+    if (routerResult.consumed) {
+      // Deliver reply text if the router produced one
+      if (routerResult.replyText) {
+        try {
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: externalChatId,
+            text: routerResult.replyText,
+            assistantId: canonicalAssistantId,
+          }, bearerToken);
+        } catch (err) {
+          log.error({ err, externalChatId }, 'Failed to deliver canonical router reply');
+        }
+      }
+
+      return Response.json({
+        accepted: true,
+        duplicate: false,
+        eventId: result.eventId,
+        canonicalRouter: routerResult.type,
+        requestId: routerResult.requestId,
+      });
+    }
+  }
 
   // ── Approval interception ──
   // Keep this active whenever callback context is available.

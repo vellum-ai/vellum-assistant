@@ -58,6 +58,15 @@ export interface CanonicalGuardianDelivery {
 }
 
 // ---------------------------------------------------------------------------
+// Request code generation
+// ---------------------------------------------------------------------------
+
+/** Generate a short human-readable request code (6 hex chars, uppercase). */
+export function generateCanonicalRequestCode(): string {
+  return uuid().replace(/-/g, '').slice(0, 6).toUpperCase();
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -141,7 +150,7 @@ export function createCanonicalGuardianRequest(params: CreateCanonicalGuardianRe
     callSessionId: params.callSessionId ?? null,
     pendingQuestionId: params.pendingQuestionId ?? null,
     questionText: params.questionText ?? null,
-    requestCode: params.requestCode ?? null,
+    requestCode: params.requestCode ?? generateCanonicalRequestCode(),
     toolName: params.toolName ?? null,
     inputDigest: params.inputDigest ?? null,
     status: params.status ?? ('pending' as const),
@@ -163,6 +172,20 @@ export function getCanonicalGuardianRequest(id: string): CanonicalGuardianReques
     .select()
     .from(canonicalGuardianRequests)
     .where(eq(canonicalGuardianRequests.id, id))
+    .get();
+  return row ? rowToRequest(row) : null;
+}
+
+/**
+ * Look up a canonical guardian request by its short request code.
+ * Returns the first matching request (codes should be unique in practice).
+ */
+export function getCanonicalGuardianRequestByCode(code: string): CanonicalGuardianRequest | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(canonicalGuardianRequests)
+    .where(eq(canonicalGuardianRequests.requestCode, code))
     .get();
   return row ? rowToRequest(row) : null;
 }
