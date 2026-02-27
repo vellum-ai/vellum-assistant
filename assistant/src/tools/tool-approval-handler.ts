@@ -59,6 +59,10 @@ export class ToolApprovalHandler {
     startTime: number,
     emitLifecycleEvent: (event: ToolLifecycleEvent) => void,
   ): PreExecutionGateResult {
+    // Track whether a scoped grant was consumed so the executor can skip
+    // the interactive permission prompt while still running policy gates.
+    let grantConsumed = false;
+
     // Bail out immediately if the session was aborted before this tool started.
     if (context.signal?.aborted) {
       const durationMs = Date.now() - startTime;
@@ -169,35 +173,10 @@ export class ToolApprovalHandler {
           grantId: grantResult.grant.id,
         }, 'Scoped grant consumed — allowing untrusted actor tool invocation');
 
-        // Resolve the tool from the registry before returning. A consumed
-        // scoped grant is a complete authorization — the executor must skip
-        // the interactive permission/prompt flow entirely, otherwise
-        // non-interactive sessions (isInteractive: false) would auto-deny
-        // prompt-gated tools and burn the one-time grant.
-        const grantedTool = getTool(name);
-        if (!grantedTool) {
-          const available = getAllTools().filter((t) => t.executionMode !== 'proxy' || context.proxyToolResolver).map((t) => t.name).sort().join(', ');
-          const msg = `Unknown tool: ${name}. Available tools: ${available}`;
-          const durationMs = Date.now() - startTime;
-          emitLifecycleEvent({
-            type: 'error',
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
-            sessionId: context.sessionId,
-            conversationId: context.conversationId,
-            requestId: context.requestId,
-            riskLevel,
-            decision: 'error',
-            durationMs,
-            errorMessage: msg,
-            isExpected: true,
-            errorCategory: 'tool_failure',
-          });
-          return { allowed: false, result: { content: msg, isError: true } };
-        }
-        return { allowed: true, tool: grantedTool, grantConsumed: true };
+        // A consumed scoped grant bypasses the interactive permission prompt
+        // (PermissionChecker) in the executor, but policy gates below
+        // (allowedToolNames, task-run preflight) must still run.
+        grantConsumed = true;
       } else {
         const reason = guardianApprovalDeniedMessage(context.guardianActorRole, name);
         log.warn({
@@ -304,6 +283,6 @@ export class ToolApprovalHandler {
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
-    return { allowed: true, tool };
+    return { allowed: true, tool, ...(grantConsumed ? { grantConsumed: true } : {}) };
   }
 }

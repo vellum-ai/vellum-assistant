@@ -610,7 +610,12 @@ export async function processMessage(
             if (callStillActive && currentPending) {
               const currentDeliveries = getDeliveriesByRequestId(currentPending.id);
               const guardianExtUserId = session.guardianContext?.guardianExternalUserId;
-              const senderHasDelivery = guardianExtUserId && currentDeliveries.some((d) => d.destinationExternalUserId === guardianExtUserId);
+              // When guardianExternalUserId is present, verify the sender has a
+              // matching delivery on the current pending request. When it's absent
+              // (trusted Vellum/HTTP session), allow the remap without delivery check.
+              const senderHasDelivery = guardianExtUserId
+                ? currentDeliveries.some((d) => d.destinationExternalUserId === guardianExtUserId)
+                : true;
               if (!senderHasDelivery) {
                 log.info({ supersededRequestId: request.id, currentRequestId: currentPending.id, guardianExternalUserId: guardianExtUserId }, 'Superseded remap skipped: sender has no delivery on current pending request');
               } else {

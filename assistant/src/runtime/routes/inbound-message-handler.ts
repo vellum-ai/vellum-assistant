@@ -1084,8 +1084,12 @@ export async function handleChannelInbound(
 
             if (callStillActive && currentPending) {
               const currentDeliveries = getDeliveriesByRequestId(currentPending.id);
+              // When senderExternalUserId is present, verify the sender has a
+              // matching delivery on the current pending request. When it's absent
+              // (trusted session), allow the remap without delivery check.
               const senderHasDelivery = body.senderExternalUserId
-                && currentDeliveries.some((d) => d.destinationExternalUserId === body.senderExternalUserId);
+                ? currentDeliveries.some((d) => d.destinationExternalUserId === body.senderExternalUserId)
+                : true;
               if (!senderHasDelivery) {
                 log.info(
                   { supersededRequestId: request.id, currentRequestId: currentPending.id, senderExternalUserId: body.senderExternalUserId },
