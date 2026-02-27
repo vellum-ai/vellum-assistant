@@ -949,7 +949,6 @@ struct SettingsParentalTab: View {
         successMessage = nil
 
         guard daemonClient != nil else { return }
-        isLoading = true
         let stream = daemonClient?.subscribe()
         let pin = settingsStore.cachedPIN
         Task {
@@ -960,9 +959,7 @@ struct SettingsParentalTab: View {
                     allowedWidgets: widgets
                 )
             } catch {
-                // Transport/connection error — no response will arrive, so restore state from daemon.
                 await MainActor.run {
-                    isLoading = false
                     errorMessage = error.localizedDescription
                     loadAllowlist()
                 }
@@ -987,7 +984,6 @@ struct SettingsParentalTab: View {
             }
 
             await MainActor.run {
-                isLoading = false
                 if let r = response, r.success {
                     allowedApps = r.allowedApps
                     allowedWidgets = r.allowedWidgets
@@ -995,7 +991,6 @@ struct SettingsParentalTab: View {
                     settingsStore.allowedWidgets = r.allowedWidgets
                 } else {
                     errorMessage = response?.error ?? "Update failed."
-                    // Reload to restore correct state on failure
                     loadAllowlist()
                 }
             }
@@ -1076,14 +1071,13 @@ struct SettingsParentalTab: View {
         successMessage = nil
 
         guard daemonClient != nil else { return }
-        isLoading = true
         let stream = daemonClient?.subscribe()
         let pin = settingsStore.cachedPIN
         Task {
             do {
                 try daemonClient?.sendParentalControlUpdate(pin: pin, contentRestrictions: restrictions)
             } catch {
-                await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
+                await MainActor.run { errorMessage = error.localizedDescription }
                 return
             }
 
@@ -1105,12 +1099,10 @@ struct SettingsParentalTab: View {
             }
 
             await MainActor.run {
-                isLoading = false
                 if let r = response, r.success {
                     contentRestrictions = Set(r.content_restrictions)
                 } else {
                     errorMessage = response?.error ?? "Update failed."
-                    // revert local toggle
                     loadSettings()
                 }
             }
@@ -1124,14 +1116,13 @@ struct SettingsParentalTab: View {
         successMessage = nil
 
         guard daemonClient != nil else { return }
-        isLoading = true
         let stream = daemonClient?.subscribe()
         let pin = settingsStore.cachedPIN
         Task {
             do {
                 try daemonClient?.sendParentalControlUpdate(pin: pin, blockedToolCategories: categories)
             } catch {
-                await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
+                await MainActor.run { errorMessage = error.localizedDescription }
                 return
             }
 
@@ -1153,7 +1144,6 @@ struct SettingsParentalTab: View {
             }
 
             await MainActor.run {
-                isLoading = false
                 if let r = response, r.success {
                     blockedToolCategories = Set(r.blocked_tool_categories)
                 } else {
