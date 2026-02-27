@@ -20,8 +20,14 @@ final class AvatarAppearanceManager {
     private var cachedFullFallbackAvatar: NSImage?
     private var cachedFullFallbackName: String?
 
+    /// Bundled initial avatar loaded once from Resources.
+    private static let bundledInitialAvatar: NSImage? = {
+        guard let url = Bundle.main.url(forResource: "initial-avatar", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
+
     /// Returns the custom avatar resized for chat (56pt for 2x Retina) if available,
-    /// otherwise an initial-letter placeholder (cached).
+    /// otherwise the bundled initial avatar, or an initial-letter placeholder as last resort.
     var chatAvatarImage: NSImage {
         if let custom = customAvatarImage {
             if let cached = cachedChatAvatar { return cached }
@@ -30,11 +36,14 @@ final class AvatarAppearanceManager {
             return resized
         }
 
-        let name = assistantName
-        if let cached = cachedFallbackAvatar, cachedFallbackName == name {
-            return cached
+        if let bundled = Self.bundledInitialAvatar {
+            if let cached = cachedFallbackAvatar { return cached }
+            let resized = Self.resizedImage(bundled, to: 56)
+            cachedFallbackAvatar = resized
+            return resized
         }
 
+        let name = assistantName
         let avatar = Self.buildInitialLetterAvatar(name: name)
         cachedFallbackAvatar = avatar
         cachedFallbackName = name
@@ -42,9 +51,10 @@ final class AvatarAppearanceManager {
     }
 
     /// Returns the full-size custom avatar for large displays (identity panel, constellation node),
-    /// or falls back to a larger initial-letter circle.
+    /// or falls back to the bundled initial avatar, or a larger initial-letter circle.
     var fullAvatarImage: NSImage {
         if let custom = customAvatarImage { return custom }
+        if let bundled = Self.bundledInitialAvatar { return bundled }
 
         let name = assistantName
         if let cached = cachedFullFallbackAvatar, cachedFullFallbackName == name {
