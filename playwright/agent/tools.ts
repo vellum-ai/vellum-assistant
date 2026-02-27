@@ -5,8 +5,10 @@
  * to interact with the browser during test execution.
  */
 
-import type { Page } from "playwright";
+import { mkdirSync } from "fs";
+
 import type Anthropic from "@anthropic-ai/sdk";
+import type { Page } from "playwright";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -239,7 +241,6 @@ export async function executeTool(
       }
 
       case "screenshot": {
-        const { mkdirSync } = await import("fs");
         mkdirSync(screenshotDir, { recursive: true });
         const filePath = `${screenshotDir}/${toolInput.name as string}.png`;
         await page.screenshot({ path: filePath });
