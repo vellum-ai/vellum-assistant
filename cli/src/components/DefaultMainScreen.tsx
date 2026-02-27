@@ -991,9 +991,9 @@ function ChatApp({
   const showTooltip = inputFocused && inputValue.length === 0;
   const tooltipHeight = showTooltip ? tooltipBubbleHeight : 0;
   const bottomHeight = selection
-    ? selection.options.length + 3 + tooltipHeight
+    ? selection.options.length + 3 + tooltipBubbleHeight
     : secretInput
-      ? 5 + tooltipHeight
+      ? 5 + tooltipBubbleHeight
       : spinnerText
         ? 4
         : 3 + tooltipHeight;
