@@ -200,6 +200,8 @@ build_binaries() {
     for img_pkg in "$ASSISTANT_SRC_DIR/node_modules/@img/"*; do
         [ -d "$img_pkg" ] && cp -R "$img_pkg" "$SCRIPT_DIR/daemon-bin/node_modules/@img/"
     done
+    # Strip build-time include dirs that codesign misinterprets as bundles
+    find "$SCRIPT_DIR/daemon-bin/node_modules/@img" -type d -name "glib-2.0" -exec rm -rf {} + 2>/dev/null || true
     # Stage sharp's JS dependencies
     for dep in detect-libc semver; do
         if [ -d "$ASSISTANT_SRC_DIR/node_modules/$dep" ]; then
@@ -379,6 +381,8 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     for img_pkg in "$ASSISTANT_SRC_DIR/node_modules/@img/"*; do
         [ -d "$img_pkg" ] && cp -R "$img_pkg" "$SCRIPT_DIR/daemon-bin/node_modules/@img/"
     done
+    # Strip build-time include dirs that codesign misinterprets as bundles
+    find "$SCRIPT_DIR/daemon-bin/node_modules/@img" -type d -name "glib-2.0" -exec rm -rf {} + 2>/dev/null || true
     for dep in detect-libc semver; do
         if [ -d "$ASSISTANT_SRC_DIR/node_modules/$dep" ]; then
             cp -R "$ASSISTANT_SRC_DIR/node_modules/$dep" "$SCRIPT_DIR/daemon-bin/node_modules/$dep"
