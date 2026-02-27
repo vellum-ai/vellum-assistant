@@ -11,8 +11,8 @@ import { describe, expect, test } from 'bun:test';
  *    `feature_flags.<flagId>.enabled` format, not the legacy
  *    `skills.<id>.enabled` format.
  *
- * 2. Declaration coverage: ensure all flag keys in the defaults registry
- *    conform to the canonical format.
+ * 2. Declaration coverage: ensure all assistant-scope flag keys in the
+ *    unified registry conform to the canonical format.
  *
  * See AGENTS.md "Assistant Feature Flags" for the full convention.
  */
@@ -27,10 +27,24 @@ function getRepoRoot(): string {
 }
 
 function getRegistryPath(): string {
-  return join(getRepoRoot(), 'meta', 'assistant-feature-flags', 'assistant-feature-flag-defaults.json');
+  return join(getRepoRoot(), 'meta', 'feature-flags', 'feature-flag-registry.json');
 }
 
-function loadRegistry(): Record<string, unknown> {
+interface RegistryFlag {
+  id: string;
+  scope: string;
+  key: string;
+  label: string;
+  description: string;
+  defaultEnabled: boolean;
+}
+
+interface Registry {
+  version: number;
+  flags: RegistryFlag[];
+}
+
+function loadRegistry(): Registry {
   const raw = readFileSync(getRegistryPath(), 'utf-8');
   return JSON.parse(raw);
 }
@@ -43,10 +57,6 @@ const CANONICAL_KEY_RE = /^feature_flags\.[a-z0-9][a-z0-9._-]*\.enabled$/;
  * the legacy format for backward compatibility.
  */
 const LEGACY_KEY_ALLOWLIST = new Set([
-  // Gateway route handler: reads legacy keys from persisted config for backward compat
-  'gateway/src/http/routes/feature-flags.ts',
-  // Assistant resolver: maps canonical to legacy keys for backward compat reads
-  'assistant/src/config/assistant-feature-flags.ts',
   // macOS client: fallback reads from legacy config section
   'clients/macos/vellum-assistant/Features/Settings/SettingsAccountTab.swift',
 ]);
@@ -117,18 +127,19 @@ describe('assistant feature flag guard', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Test: defaults registry key format
+  // Test: unified registry key format (assistant-scope only)
   // ---------------------------------------------------------------------------
 
-  test('all keys in the defaults registry use the canonical feature_flags.<id>.enabled format', () => {
+  test('all assistant-scope keys in the unified registry use the canonical feature_flags.<id>.enabled format', () => {
     const registry = loadRegistry();
-    const keys = Object.keys(registry);
+    const assistantFlags = registry.flags.filter((f) => f.scope === 'assistant');
+    const keys = assistantFlags.map((f) => f.key);
 
     const violations = keys.filter((key) => !CANONICAL_KEY_RE.test(key));
 
     if (violations.length > 0) {
       const message = [
-        'Found keys in the defaults registry that do not match the canonical format.',
+        'Found assistant-scope keys in the unified registry that do not match the canonical format.',
         'Expected format: feature_flags.<flagId>.enabled',
         '',
         'Violations:',
@@ -140,50 +151,32 @@ describe('assistant feature flag guard', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Test: bundled copy stays in sync with canonical registry
-  // ---------------------------------------------------------------------------
-
-  test('bundled assistant-feature-flag-defaults.json matches the canonical meta/ copy', () => {
-    const canonicalPath = getRegistryPath();
-    const bundledPath = join(process.cwd(), 'src', 'config', 'assistant-feature-flag-defaults.json');
-
-    const canonical = readFileSync(canonicalPath, 'utf-8');
-    const bundled = readFileSync(bundledPath, 'utf-8');
-
-    expect(bundled, [
-      'The bundled copy at assistant/src/config/assistant-feature-flag-defaults.json',
-      'is out of sync with the canonical copy at meta/assistant-feature-flags/assistant-feature-flag-defaults.json.',
-      '',
-      'To fix: copy the canonical file over the bundled one:',
-      '  cp meta/assistant-feature-flags/assistant-feature-flag-defaults.json assistant/src/config/assistant-feature-flag-defaults.json',
-    ].join('\n')).toBe(canonical);
-  });
-
-  // ---------------------------------------------------------------------------
   // Test: registry entries have required fields
   // ---------------------------------------------------------------------------
 
-  test('all entries in the defaults registry have required fields (defaultEnabled, description)', () => {
+  test('all assistant-scope entries in the unified registry have required fields', () => {
     const registry = loadRegistry();
+    const assistantFlags = registry.flags.filter((f) => f.scope === 'assistant');
     const violations: string[] = [];
 
-    for (const [key, value] of Object.entries(registry)) {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        violations.push(`${key}: entry is not an object`);
-        continue;
+    for (const flag of assistantFlags) {
+      if (typeof flag.defaultEnabled !== 'boolean') {
+        violations.push(`${flag.key}: missing or non-boolean 'defaultEnabled'`);
       }
-      const entry = value as Record<string, unknown>;
-      if (typeof entry.defaultEnabled !== 'boolean') {
-        violations.push(`${key}: missing or non-boolean 'defaultEnabled'`);
+      if (typeof flag.description !== 'string' || flag.description.length === 0) {
+        violations.push(`${flag.key}: missing or empty 'description'`);
       }
-      if (typeof entry.description !== 'string' || entry.description.length === 0) {
-        violations.push(`${key}: missing or empty 'description'`);
+      if (typeof flag.label !== 'string' || flag.label.length === 0) {
+        violations.push(`${flag.key}: missing or empty 'label'`);
+      }
+      if (typeof flag.id !== 'string' || flag.id.length === 0) {
+        violations.push(`${flag.key}: missing or empty 'id'`);
       }
     }
 
     if (violations.length > 0) {
       const message = [
-        'Found entries in the defaults registry with missing or invalid required fields.',
+        'Found entries in the unified registry with missing or invalid required fields.',
         '',
         'Violations:',
         ...violations.map((v) => `  - ${v}`),

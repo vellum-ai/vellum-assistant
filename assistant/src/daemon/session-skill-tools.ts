@@ -11,7 +11,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { isAssistantSkillEnabled } from '../config/assistant-feature-flags.js';
+import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
 import { getConfig } from '../config/loader.js';
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
 import { loadSkillCatalog } from '../config/skills.js';
@@ -224,7 +224,7 @@ export function projectSkillTools(
   const config = getConfig();
   const activeIds = new Set<string>();
   for (const id of allCandidateIds) {
-    if (isAssistantSkillEnabled(id, config)) {
+    if (isAssistantFeatureFlagEnabled(`feature_flags.${id}.enabled`, config)) {
       activeIds.add(id);
     }
   }

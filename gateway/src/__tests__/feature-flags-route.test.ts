@@ -9,26 +9,53 @@ const testDir = join(tmpdir(), `vellum-ff-test-${randomBytes(6).toString("hex")}
 const vellumRoot = join(testDir, ".vellum");
 const workspaceDir = join(vellumRoot, "workspace");
 const configPath = join(workspaceDir, "config.json");
-const defaultsPath = join(testDir, "assistant-feature-flag-defaults.json");
+const defaultsPath = join(testDir, "feature-flag-registry.json");
 
-const TEST_DEFAULTS = {
-  "feature_flags.browser.enabled": {
-    defaultEnabled: true,
-    description: "Browser skill",
-  },
-  "feature_flags.twitter.enabled": {
-    defaultEnabled: true,
-    description: "Twitter skill",
-  },
-  "feature_flags.guardian-verify-setup.enabled": {
-    defaultEnabled: true,
-    description: "Guardian verification setup",
-  },
-  "feature_flags.hatch-new-assistant.enabled": {
-    defaultEnabled: true,
-    description: "Hatch new assistant",
-  },
-} satisfies Record<string, { defaultEnabled: boolean; description: string }>;
+const TEST_REGISTRY = {
+  version: 1,
+  flags: [
+    {
+      id: "browser",
+      scope: "assistant",
+      key: "feature_flags.browser.enabled",
+      label: "Browser",
+      description: "Browser skill",
+      defaultEnabled: true,
+    },
+    {
+      id: "twitter",
+      scope: "assistant",
+      key: "feature_flags.twitter.enabled",
+      label: "Twitter",
+      description: "Twitter skill",
+      defaultEnabled: true,
+    },
+    {
+      id: "guardian-verify-setup",
+      scope: "assistant",
+      key: "feature_flags.guardian-verify-setup.enabled",
+      label: "Guardian Verification Setup",
+      description: "Guardian verification setup",
+      defaultEnabled: true,
+    },
+    {
+      id: "hatch-new-assistant",
+      scope: "assistant",
+      key: "feature_flags.hatch-new-assistant.enabled",
+      label: "Hatch New Assistant",
+      description: "Hatch new assistant",
+      defaultEnabled: true,
+    },
+    {
+      id: "user-hosted-enabled",
+      scope: "macos",
+      key: "user_hosted_enabled",
+      label: "User Hosted Enabled",
+      description: "Enable user-hosted onboarding flow",
+      defaultEnabled: false,
+    },
+  ],
+};
 
 const savedBaseDataDir = process.env.BASE_DATA_DIR;
 const savedFeatureFlagDefaultsPath = process.env.FEATURE_FLAG_DEFAULTS_PATH;
@@ -37,7 +64,7 @@ beforeEach(() => {
   process.env.BASE_DATA_DIR = testDir;
   process.env.FEATURE_FLAG_DEFAULTS_PATH = defaultsPath;
   mkdirSync(workspaceDir, { recursive: true });
-  writeFileSync(defaultsPath, JSON.stringify(TEST_DEFAULTS, null, 2));
+  writeFileSync(defaultsPath, JSON.stringify(TEST_REGISTRY, null, 2));
   resetFeatureFlagDefaultsCache();
 });
 
@@ -69,7 +96,7 @@ const { loadFeatureFlagDefaults, resetFeatureFlagDefaultsCache } = await import(
 );
 
 describe("GET /v1/feature-flags handler", () => {
-  test("returns all declared flags with defaults when config file does not exist", async () => {
+  test("returns all declared assistant-scope flags with defaults when config file does not exist", async () => {
     // Don't create the config file
     if (existsSync(configPath)) {
       rmSync(configPath);
@@ -83,13 +110,14 @@ describe("GET /v1/feature-flags handler", () => {
     const defaults = loadFeatureFlagDefaults();
     const declaredKeys = Object.keys(defaults);
 
-    // Should return all declared flags
+    // Should return all declared assistant-scope flags (not macos-scope)
     expect(body.flags.length).toBe(declaredKeys.length);
     expect(body.flags.length).toBeGreaterThan(0);
 
-    // Each entry should have the expected shape
+    // Each entry should have the expected shape including label
     for (const flag of body.flags) {
       expect(typeof flag.key).toBe("string");
+      expect(typeof flag.label).toBe("string");
       expect(typeof flag.enabled).toBe("boolean");
       expect(typeof flag.defaultEnabled).toBe("boolean");
       expect(typeof flag.description).toBe("string");
@@ -100,8 +128,43 @@ describe("GET /v1/feature-flags handler", () => {
     const browserFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.browser.enabled");
     expect(browserFlag).toBeDefined();
     expect(browserFlag.defaultEnabled).toBe(true);
+    expect(browserFlag.label).toBe("Browser");
     // When no persisted value, enabled should equal defaultEnabled
     expect(browserFlag.enabled).toBe(true);
+  });
+
+  test("returns label field for all flags", async () => {
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(new Request("http://gateway.test/v1/feature-flags"));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    for (const flag of body.flags) {
+      expect(typeof flag.label).toBe("string");
+      expect(flag.label.length).toBeGreaterThan(0);
+    }
+
+    // Verify specific labels
+    const twitterFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.twitter.enabled");
+    expect(twitterFlag).toBeDefined();
+    expect(twitterFlag.label).toBe("Twitter");
+
+    const hatchFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.hatch-new-assistant.enabled");
+    expect(hatchFlag).toBeDefined();
+    expect(hatchFlag.label).toBe("Hatch New Assistant");
+  });
+
+  test("does not include non-assistant-scope flags", async () => {
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(new Request("http://gateway.test/v1/feature-flags"));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    // The macos-scope flag should not appear
+    const macosFlag = body.flags.find((f: { key: string }) => f.key === "user_hosted_enabled");
+    expect(macosFlag).toBeUndefined();
   });
 
   test("returns all declared flags even when config has no persisted values", async () => {
@@ -145,67 +208,10 @@ describe("GET /v1/feature-flags handler", () => {
     expect(twitterFlag.enabled).toBe(false); // overridden from default true
   });
 
-  test("reads legacy featureFlags section and maps old key format", async () => {
+  test("ignores non-boolean values in assistantFeatureFlagValues", async () => {
     writeFileSync(
       configPath,
       JSON.stringify({
-        featureFlags: {
-          "skills.browser.enabled": false,
-          "skills.twitter.enabled": true,
-        },
-      }),
-    );
-
-    const handler = createFeatureFlagsGetHandler();
-    const res = await handler(new Request("http://gateway.test/v1/feature-flags"));
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-
-    // Legacy skills.browser.enabled should map to feature_flags.browser.enabled
-    const browserFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.browser.enabled");
-    expect(browserFlag).toBeDefined();
-    expect(browserFlag.enabled).toBe(false); // persisted as false
-
-    const twitterFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.twitter.enabled");
-    expect(twitterFlag).toBeDefined();
-    expect(twitterFlag.enabled).toBe(true);
-  });
-
-  test("new assistantFeatureFlagValues overrides legacy featureFlags", async () => {
-    writeFileSync(
-      configPath,
-      JSON.stringify({
-        featureFlags: {
-          "skills.browser.enabled": false,
-        },
-        assistantFeatureFlagValues: {
-          "feature_flags.browser.enabled": true,
-        },
-      }),
-    );
-
-    const handler = createFeatureFlagsGetHandler();
-    const res = await handler(new Request("http://gateway.test/v1/feature-flags"));
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-
-    const browserFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.browser.enabled");
-    expect(browserFlag).toBeDefined();
-    // The new section takes precedence over legacy
-    expect(browserFlag.enabled).toBe(true);
-  });
-
-  test("ignores non-boolean values in legacy and new sections", async () => {
-    writeFileSync(
-      configPath,
-      JSON.stringify({
-        featureFlags: {
-          "skills.browser.enabled": true,
-          "skills.bad.enabled": "yes",
-          "skills.number.enabled": 1,
-        },
         assistantFeatureFlagValues: {
           "feature_flags.twitter.enabled": "no",
         },
@@ -218,11 +224,6 @@ describe("GET /v1/feature-flags handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // browser should be resolved from legacy
-    const browserFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.browser.enabled");
-    expect(browserFlag).toBeDefined();
-    expect(browserFlag.enabled).toBe(true);
-
     // twitter should fall back to default since non-boolean was ignored
     const twitterFlag = body.flags.find((f: { key: string }) => f.key === "feature_flags.twitter.enabled");
     expect(twitterFlag).toBeDefined();
@@ -231,7 +232,7 @@ describe("GET /v1/feature-flags handler", () => {
 });
 
 describe("PATCH /v1/feature-flags/:flagKey handler", () => {
-  test("writes to assistantFeatureFlagValues without creating legacy skill keys", async () => {
+  test("writes to assistantFeatureFlagValues", async () => {
     writeFileSync(configPath, JSON.stringify({}));
 
     const handler = createFeatureFlagsPatchHandler();
@@ -248,11 +249,9 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const body = await res.json();
     expect(body).toEqual({ key: "feature_flags.browser.enabled", enabled: false });
 
-    // Verify persistence to the NEW section
+    // Verify persistence to the assistantFeatureFlagValues section
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(false);
-    // New writes are canonical-only and do not synthesize legacy `skills.*` keys
-    expect(config.featureFlags).toBeUndefined();
   });
 
   test("preserves existing config keys when writing", async () => {
@@ -261,7 +260,6 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
       JSON.stringify({
         sms: { phoneNumber: "+1234567890" },
         email: { address: "test@example.com" },
-        featureFlags: { "skills.existing.enabled": true },
         assistantFeatureFlagValues: { "feature_flags.twitter.enabled": true },
       }),
     );
@@ -279,9 +277,6 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(config.sms).toEqual({ phoneNumber: "+1234567890" });
     expect(config.email).toEqual({ address: "test@example.com" });
-    // Existing legacy section is preserved unchanged.
-    expect(config.featureFlags["skills.existing.enabled"]).toBe(true);
-    expect(config.featureFlags["skills.browser.enabled"]).toBeUndefined();
     // New section should have both old and new values
     expect(config.assistantFeatureFlagValues["feature_flags.twitter.enabled"]).toBe(true);
     expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(true);
@@ -306,7 +301,6 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(true);
-    expect(config.featureFlags).toBeUndefined();
   });
 
   // Validation tests
@@ -495,8 +489,6 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     expect(config.sms).toEqual({ phoneNumber: "+1234" });
     expect(config.assistantFeatureFlagValues["feature_flags.browser.enabled"]).toBe(true);
     expect(config.assistantFeatureFlagValues["feature_flags.twitter.enabled"]).toBe(false);
-    // Canonical writes should not synthesize legacy keys
-    expect(config.featureFlags).toBeUndefined();
 
     // Verify no temp files left behind
     const { readdirSync } = await import("node:fs");

@@ -20,13 +20,6 @@ let configWriteChain: Promise<void> = Promise.resolve();
  */
 const ALLOWED_KEY_RE = /^feature_flags\.[a-z0-9][a-z0-9._-]*\.enabled$/;
 
-/**
- * Legacy key format: `skills.<skillId>.enabled`.
- * Used to read persisted values from the old `featureFlags` config section
- * and map them to the canonical `feature_flags.<id>.enabled` format.
- */
-const LEGACY_KEY_RE = /^skills\.([a-z0-9][a-z0-9._-]*)\.enabled$/;
-
 function getConfigPath(): string {
   return join(getRootDir(), "workspace", "config.json");
 }
@@ -69,46 +62,13 @@ function writeConfigFileAtomic(data: Record<string, unknown>): void {
 }
 
 /**
- * Convert a legacy `skills.<id>.enabled` key to the canonical
- * `feature_flags.<id>.enabled` format. Returns null if the key doesn't
- * match the legacy format.
- */
-function legacyKeyToCanonical(legacyKey: string): string | null {
-  const match = LEGACY_KEY_RE.exec(legacyKey);
-  if (!match) return null;
-  return `feature_flags.${match[1]}.enabled`;
-}
-
-/**
- * Read persisted flag values from both legacy and new config sections.
+ * Read persisted flag values from the canonical config section.
  * Returns a map of canonical key -> boolean value.
- *
- * Priority (highest wins):
- * 1. `assistantFeatureFlagValues` section (new canonical storage)
- * 2. `featureFlags` section with legacy key mapping
  */
 function readPersistedFlags(config: Record<string, unknown>): Map<string, boolean> {
   const result = new Map<string, boolean>();
 
-  // Read legacy `featureFlags` section and map keys
-  const legacyRaw = config.featureFlags;
-  if (legacyRaw && typeof legacyRaw === "object" && !Array.isArray(legacyRaw)) {
-    for (const [k, v] of Object.entries(legacyRaw as Record<string, unknown>)) {
-      if (typeof v !== "boolean") continue;
-
-      // Try to map legacy key to canonical format
-      const canonicalKey = legacyKeyToCanonical(k);
-      if (canonicalKey) {
-        result.set(canonicalKey, v);
-      } else if (ALLOWED_KEY_RE.test(k)) {
-        // Already in canonical format (unlikely in legacy section, but handle gracefully)
-        result.set(k, v);
-      }
-      // Skip keys that don't match either format
-    }
-  }
-
-  // Read new `assistantFeatureFlagValues` section (overrides legacy)
+  // Read `assistantFeatureFlagValues` section
   const newRaw = config.assistantFeatureFlagValues;
   if (newRaw && typeof newRaw === "object" && !Array.isArray(newRaw)) {
     for (const [k, v] of Object.entries(newRaw as Record<string, unknown>)) {
@@ -124,6 +84,7 @@ function readPersistedFlags(config: Record<string, unknown>): Map<string, boolea
 
 export type FeatureFlagEntry = {
   key: string;
+  label: string;
   enabled: boolean;
   defaultEnabled: boolean;
   description: string;
@@ -144,6 +105,7 @@ export function createFeatureFlagsGetHandler() {
         const persistedValue = persisted.get(key);
         entries.push({
           key,
+          label: def.label,
           enabled: persistedValue !== undefined ? persistedValue : def.defaultEnabled,
           defaultEnabled: def.defaultEnabled,
           description: def.description,
@@ -224,7 +186,7 @@ export function createFeatureFlagsPatchHandler() {
 
           const config = result.data;
 
-          // Write to the new `assistantFeatureFlagValues` section
+          // Write to the `assistantFeatureFlagValues` section
           const existingNewFlags =
             config.assistantFeatureFlagValues && typeof config.assistantFeatureFlagValues === "object" && !Array.isArray(config.assistantFeatureFlagValues)
               ? (config.assistantFeatureFlagValues as Record<string, unknown>)

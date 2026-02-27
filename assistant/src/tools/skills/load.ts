@@ -1,4 +1,4 @@
-import { isAssistantSkillEnabled } from '../../config/assistant-feature-flags.js';
+import { isAssistantFeatureFlagEnabled } from '../../config/assistant-feature-flags.js';
 import { getConfig } from '../../config/loader.js';
 import type { SkillSummary } from '../../config/skills.js';
 import { loadSkillBySelector, loadSkillCatalog } from '../../config/skills.js';
@@ -50,7 +50,7 @@ export class SkillLoadTool implements Tool {
 
     // Assistant feature flag gate: reject loading if the skill's flag is OFF
     const config = getConfig();
-    if (!isAssistantSkillEnabled(skill.id, config)) {
+    if (!isAssistantFeatureFlagEnabled(`feature_flags.${skill.id}.enabled`, config)) {
       return {
         content: `Error: skill "${skill.id}" is currently unavailable (disabled by feature flag)`,
         isError: true,
@@ -95,7 +95,7 @@ export class SkillLoadTool implements Tool {
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
         if (!child) continue;
-        if (!isAssistantSkillEnabled(childId, config)) continue;
+        if (!isAssistantFeatureFlagEnabled(`feature_flags.${childId}.enabled`, config)) continue;
 
         childLines.push(`  - ${child.id}: ${child.name} — ${child.description} (${child.skillFilePath})`);
 
@@ -125,7 +125,7 @@ export class SkillLoadTool implements Tool {
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
         if (!child) continue;
-        if (!isAssistantSkillEnabled(childId, config)) continue;
+        if (!isAssistantFeatureFlagEnabled(`feature_flags.${childId}.enabled`, config)) continue;
         let childHash: string | undefined;
         try {
           childHash = computeSkillVersionHash(child.directoryPath);

@@ -8,7 +8,7 @@
  *
  * 2. Declaration coverage: all literal keys passed to
  *    `isAssistantFeatureFlagEnabled('<key>', ...)` in production code must be
- *    declared in the defaults registry. This keeps flag usage declarative while
+ *    declared in the unified registry. This keeps flag usage declarative while
  *    allowing skills to exist without corresponding feature flags.
  */
 
@@ -27,20 +27,37 @@ function getRepoRoot(): string {
   return join(process.cwd(), '..');
 }
 
+interface RegistryFlag {
+  id: string;
+  scope: string;
+  key: string;
+  label: string;
+  description: string;
+  defaultEnabled: boolean;
+}
+
+interface Registry {
+  version: number;
+  flags: RegistryFlag[];
+}
+
+function loadRegistry(): Registry {
+  const registryPath = join(getRepoRoot(), 'meta', 'feature-flags', 'feature-flag-registry.json');
+  return JSON.parse(readFileSync(registryPath, 'utf-8'));
+}
+
 /**
  * Files allowed to contain `skills.<id>.enabled` string literals because they
  * are part of the backward-compat / migration layer or are test files
  * exercising legacy paths.
  */
 const LEGACY_KEY_ALLOWLIST = new Set([
-  // Canonical resolver: contains the legacy key mapping function
-  'assistant/src/config/assistant-feature-flags.ts',
   // Legacy wrapper (deprecated, kept for migration)
   'assistant/src/config/skill-state.ts',
   // Type definitions documenting the legacy format
   'assistant/src/config/types.ts',
-  // Gateway feature flags route: reads legacy keys for backward compat
-  'gateway/src/http/routes/feature-flags.ts',
+  // macOS client: fallback reads from legacy config section
+  'clients/macos/vellum-assistant/Features/Settings/SettingsAccountTab.swift',
 ]);
 
 function isTestFile(filePath: string): boolean {
@@ -92,7 +109,7 @@ describe('assistant feature flag key format guard', () => {
       const message = [
         'Found production TypeScript files using legacy `skills.<id>.enabled` key format.',
         'Use the canonical `feature_flags.<id>.enabled` format instead.',
-        'Call `isAssistantSkillEnabled(skillId, config)` which constructs the canonical key automatically.',
+        'Call `isAssistantFeatureFlagEnabled(`feature_flags.${skillId}.enabled`, config)` to check skill flags.',
         '',
         'Violations:',
         ...violations.map((f) => `  - ${f}`),
@@ -111,15 +128,16 @@ describe('assistant feature flag key format guard', () => {
 // ---------------------------------------------------------------------------
 
 describe('assistant feature flag declaration coverage guard', () => {
-  test('all literal flag keys in isAssistantFeatureFlagEnabled calls are declared in the defaults registry', () => {
+  test('all literal flag keys in isAssistantFeatureFlagEnabled calls are declared in the unified registry', () => {
     const repoRoot = getRepoRoot();
 
-    // Load the defaults registry
-    const registryPath = join(repoRoot, 'meta', 'assistant-feature-flags', 'assistant-feature-flag-defaults.json');
-    const registry: Record<string, unknown> = JSON.parse(
-      readFileSync(registryPath, 'utf-8'),
+    // Load the unified registry and extract assistant-scope keys
+    const registry = loadRegistry();
+    const declaredKeys = new Set(
+      registry.flags
+        .filter((f) => f.scope === 'assistant')
+        .map((f) => f.key),
     );
-    const declaredKeys = new Set(Object.keys(registry));
 
     // Extract full keys from isAssistantFeatureFlagEnabled('<key>', ...) calls
     // in non-test production files. We read each matching file and apply a
@@ -165,13 +183,13 @@ describe('assistant feature flag declaration coverage guard', () => {
 
     if (undeclared.length > 0) {
       const message = [
-        'Found feature flag keys used in production code that are NOT declared in the defaults registry.',
-        `Registry: meta/assistant-feature-flags/assistant-feature-flag-defaults.json`,
+        'Found feature flag keys used in production code that are NOT declared in the unified registry.',
+        `Registry: meta/feature-flags/feature-flag-registry.json`,
         '',
         'Undeclared keys:',
         ...undeclared.map((k) => `  - ${k}`),
         '',
-        'To fix: add the missing key(s) to the defaults registry with a defaultEnabled value and description.',
+        'To fix: add the missing key(s) to the unified registry with scope "assistant".',
       ].join('\n');
 
       expect(undeclared, message).toEqual([]);
