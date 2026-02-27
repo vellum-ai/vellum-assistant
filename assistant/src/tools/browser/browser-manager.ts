@@ -509,17 +509,28 @@ class BrowserManager {
     this.cdpSessions.set(sessionId, cdp);
     this.screencastCallbacks.set(sessionId, onFrame);
 
+    // Throttle frame delivery to ~8fps max to avoid flooding IPC and the client.
+    // CDP still encodes fewer frames thanks to everyNthFrame:2, but on heavy
+    // pages Chrome can still produce bursts faster than the UI can consume.
+    const MIN_FRAME_INTERVAL_MS = 125;
+    let lastFrameTime = 0;
+
     cdp.on('Page.screencastFrame', (params) => {
-      onFrame({ data: params.data as string, metadata: params.metadata as ScreencastFrameMetadata });
+      const now = Date.now();
+      if (now - lastFrameTime >= MIN_FRAME_INTERVAL_MS) {
+        lastFrameTime = now;
+        onFrame({ data: params.data as string, metadata: params.metadata as ScreencastFrameMetadata });
+      }
+      // Always ack so CDP continues delivering frames (otherwise it stalls)
       silentlyWithLog(cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }), 'screencast frame ack');
     });
 
     await cdp.send('Page.startScreencast', {
       format: 'jpeg',
-      quality: 60,
+      quality: 50,
       maxWidth: 1280,
       maxHeight: 960,
-      everyNthFrame: 1,
+      everyNthFrame: 2,
     });
   }
 
