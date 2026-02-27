@@ -14,7 +14,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import type { AssistantConfig } from './schema.js';
 
@@ -50,6 +50,12 @@ function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
     // Works in Docker / packaged builds where the repo-root `meta/` dir
     // is not available.
     join(thisDir, REGISTRY_FILENAME),
+    // Packaged macOS app layout: the daemon binary lives at
+    // <App>.app/Contents/MacOS/vellum-daemon and the registry is copied
+    // to <App>.app/Contents/Resources/ by build.sh. In bun --compile
+    // binaries, import.meta.dirname resolves to /$bunfs/root (virtual),
+    // so we need to resolve relative to the real executable path.
+    join(dirname(process.execPath), '..', 'Resources', REGISTRY_FILENAME),
     // Development: relative to this source file's directory, walking up
     // to the repo root to reach `meta/feature-flags/`.
     join(thisDir, '..', '..', '..', 'meta', 'feature-flags', REGISTRY_FILENAME),
