@@ -392,7 +392,7 @@ External users join through **invite tokens**. There are two invite flows:
 #### Guardian-Initiated Invite Link Flow (Telegram)
 
 1. **Guardian requests invite** — The guardian asks the assistant (via desktop chat) to create a Telegram invite link. The `guardian-invite-intent.ts` module detects the intent and routes the request into the `trusted-contacts` skill.
-2. **Invite creation** — The skill creates an invite token via the ingress HTTP API and passes it to the Telegram invite transport adapter, which builds a shareable deep link: `https://t.me/<bot>?start=iv_<token>`.
+2. **Invite creation** — The skill creates an invite token via the ingress HTTP API, looks up the Telegram bot username from the integration config endpoint, and constructs a shareable deep link: `https://t.me/<bot>?start=iv_<token>`.
 3. **Guardian shares link** — The guardian copies the deep link and shares it with the invitee through any messaging channel.
 4. **Invitee redeems** — The invitee clicks the link, which opens Telegram and sends `/start iv_<token>` to the bot. The inbound message handler extracts the token via the transport adapter, redeems it through the invite redemption service, and auto-creates an active member record.
 5. **Access granted** — The invitee receives a welcome message and all subsequent messages pass the ingress ACL.
