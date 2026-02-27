@@ -891,6 +891,12 @@ export async function handleChannelInbound(
       conversationId: result.conversationId,
       callbackData: body.callbackData,
       approvalConversationGenerator,
+      channelDeliveryContext: {
+        replyCallbackUrl,
+        guardianChatId: externalChatId,
+        assistantId: canonicalAssistantId,
+        bearerToken,
+      },
     });
 
     if (routerResult.consumed) {

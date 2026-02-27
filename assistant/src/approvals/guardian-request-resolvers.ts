@@ -13,8 +13,10 @@
 
 import { answerCall } from '../calls/call-domain.js';
 import type { CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import type { ApprovalAction } from '../runtime/channel-approval-types.js';
 import { createOutboundSession } from '../runtime/channel-guardian-service.js';
+import { deliverChannelReply } from '../runtime/gateway-client.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 import { addRule } from '../permissions/trust-store.js';
 import { getTool } from '../tools/registry.js';
@@ -44,6 +46,18 @@ export interface ResolverDecision {
   userText?: string;
 }
 
+/** Channel delivery context for resolvers that need to send messages. */
+export interface ChannelDeliveryContext {
+  /** URL to POST channel replies to. */
+  replyCallbackUrl: string;
+  /** Chat ID of the guardian receiving the reply. */
+  guardianChatId: string;
+  /** Assistant ID for attribution. */
+  assistantId: string;
+  /** Optional bearer token for authenticated delivery. */
+  bearerToken?: string;
+}
+
 /** Context passed to each resolver after CAS resolution succeeds. */
 export interface ResolverContext {
   /** The canonical request record (already resolved to its terminal status). */
@@ -52,6 +66,8 @@ export interface ResolverContext {
   decision: ResolverDecision;
   /** Actor context for the entity making the decision. */
   actor: ActorContext;
+  /** Optional channel delivery context — present when the decision arrived via a channel message. */
+  channelDeliveryContext?: ChannelDeliveryContext;
 }
 
 /** Discriminated result from a resolver. */
@@ -245,39 +261,89 @@ const pendingQuestionResolver: GuardianRequestResolver = {
  * because canonical requests have no legacy channel_guardian_approval_requests
  * row, making the resolveApprovalRequest step a no-op that returns 'stale'.
  *
- * For deny: the canonical CAS already moved the request to 'denied' status,
- * so no additional side effect is needed.
+ * When a `channelDeliveryContext` is provided (channel path), the resolver
+ * also delivers the verification code to the guardian, notifies the requester,
+ * and emits lifecycle notification signals — mirroring the legacy
+ * handleAccessRequestApproval side effects.
+ *
+ * For deny: notifies the requester and emits denial lifecycle signals when
+ * channelDeliveryContext is available.
  */
 const accessRequestResolver: GuardianRequestResolver = {
   kind: 'access_request',
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
-    const { request, decision } = ctx;
+    const { request, decision, channelDeliveryContext } = ctx;
+    const channel = request.sourceChannel ?? 'unknown';
+    const requesterExternalUserId = request.requesterExternalUserId ?? '';
+    const requesterChatId = request.requesterExternalUserId ?? '';
+    const decidedByExternalUserId = ctx.actor.externalUserId ?? '';
+    const assistantId = channelDeliveryContext?.assistantId ?? 'self';
 
     if (decision.action === 'reject') {
-      // Canonical CAS already set the request to 'denied'. No additional
-      // side effect needed for deny.
       log.info(
-        {
-          event: 'resolver_access_request_denied',
-          requestId: request.id,
-        },
-        'Access request resolver: deny — no additional side effect needed',
+        { event: 'resolver_access_request_denied', requestId: request.id },
+        'Access request resolver: deny',
       );
+
+      // Deliver denial notification and lifecycle signals when channel context is available
+      if (channelDeliveryContext) {
+        try {
+          await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
+            chatId: requesterChatId,
+            text: 'Your access request has been denied by the guardian.',
+            assistantId,
+          }, channelDeliveryContext.bearerToken);
+        } catch (err) {
+          log.error({ err, requesterChatId }, 'Failed to notify requester of access request denial');
+        }
+
+        const deniedPayload = {
+          sourceChannel: channel,
+          requesterExternalUserId,
+          requesterChatId,
+          decidedByExternalUserId,
+          decision: 'denied' as const,
+        };
+
+        void emitNotificationSignal({
+          sourceEventName: 'ingress.trusted_contact.guardian_decision',
+          sourceChannel: channel,
+          sourceSessionId: request.conversationId ?? '',
+          assistantId,
+          attentionHints: {
+            requiresAction: false,
+            urgency: 'medium',
+            isAsyncBackground: false,
+            visibleInSourceNow: false,
+          },
+          contextPayload: deniedPayload,
+          dedupeKey: `trusted-contact:guardian-decision:${request.id}`,
+        });
+
+        void emitNotificationSignal({
+          sourceEventName: 'ingress.trusted_contact.denied',
+          sourceChannel: channel,
+          sourceSessionId: request.conversationId ?? '',
+          assistantId,
+          attentionHints: {
+            requiresAction: false,
+            urgency: 'low',
+            isAsyncBackground: false,
+            visibleInSourceNow: false,
+          },
+          contextPayload: deniedPayload,
+          dedupeKey: `trusted-contact:denied:${request.id}`,
+        });
+      }
+
       return { ok: true, applied: true };
     }
 
     // On approve: mint an identity-bound verification session so the
-    // requester can verify their identity. This is the key side effect
-    // that handleAccessRequestDecision used to provide.
-    const channel = request.sourceChannel ?? 'unknown';
-    const requesterExternalUserId = request.requesterExternalUserId ?? '';
-    // For access requests the requesterChatId is typically the same as
-    // requesterExternalUserId (Telegram user ID, phone E.164, etc.).
-    const requesterChatId = request.requesterExternalUserId ?? '';
-
+    // requester can verify their identity.
     const session = createOutboundSession({
-      assistantId: 'self',
+      assistantId,
       channel,
       expectedExternalUserId: requesterExternalUserId,
       expectedChatId: requesterChatId,
@@ -296,6 +362,79 @@ const accessRequestResolver: GuardianRequestResolver = {
       },
       'Access request resolver: minted verification session',
     );
+
+    // Deliver the verification code to the guardian and notify the requester
+    // when channel delivery context is available (channel message path).
+    if (channelDeliveryContext) {
+      let codeDelivered = true;
+
+      // Deliver verification code to guardian
+      try {
+        const codeText = `You approved access for ${requesterExternalUserId}. `
+          + `Give them this verification code: ${session.secret}. `
+          + `The code expires in 10 minutes.`;
+        await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
+          chatId: channelDeliveryContext.guardianChatId,
+          text: codeText,
+          assistantId,
+        }, channelDeliveryContext.bearerToken);
+      } catch (err) {
+        log.error(
+          { err, guardianChatId: channelDeliveryContext.guardianChatId },
+          'Failed to deliver verification code to guardian',
+        );
+        codeDelivered = false;
+      }
+
+      // Notify the requester
+      if (codeDelivered) {
+        try {
+          await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
+            chatId: requesterChatId,
+            text: 'Your access request has been approved! '
+              + 'Please enter the 6-digit verification code you receive from the guardian.',
+            assistantId,
+          }, channelDeliveryContext.bearerToken);
+        } catch (err) {
+          log.error({ err, requesterChatId }, 'Failed to notify requester of access request approval');
+        }
+      } else {
+        try {
+          await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
+            chatId: requesterChatId,
+            text: 'Your access request was approved, but we were unable to '
+              + 'deliver the verification code. Please try again later.',
+            assistantId,
+          }, channelDeliveryContext.bearerToken);
+        } catch (err) {
+          log.error({ err, requesterChatId }, 'Failed to notify requester of delivery failure');
+        }
+      }
+
+      // Emit verification_sent with visibleInSourceNow=true so the notification
+      // pipeline suppresses delivery — the guardian already received the code.
+      if (codeDelivered) {
+        void emitNotificationSignal({
+          sourceEventName: 'ingress.trusted_contact.verification_sent',
+          sourceChannel: channel,
+          sourceSessionId: request.conversationId ?? '',
+          assistantId,
+          attentionHints: {
+            requiresAction: false,
+            urgency: 'low',
+            isAsyncBackground: true,
+            visibleInSourceNow: true,
+          },
+          contextPayload: {
+            sourceChannel: channel,
+            requesterExternalUserId,
+            requesterChatId,
+            verificationSessionId: session.sessionId,
+          },
+          dedupeKey: `trusted-contact:verification-sent:${session.sessionId}`,
+        });
+      }
+    }
 
     return { ok: true, applied: true };
   },

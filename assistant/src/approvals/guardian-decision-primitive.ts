@@ -51,6 +51,7 @@ import { mintGrantFromDecision } from './approval-primitive.js';
 import {
   getResolver,
   type ActorContext,
+  type ChannelDeliveryContext,
 } from './guardian-request-resolvers.js';
 
 const log = getLogger('guardian-decision-primitive');
@@ -291,6 +292,8 @@ export interface ApplyCanonicalGuardianDecisionParams {
   actorContext: ActorContext;
   /** Optional user-supplied text (e.g. answer text for pending questions). */
   userText?: string;
+  /** Optional channel delivery context — present when the decision arrived via a channel message. */
+  channelDeliveryContext?: ChannelDeliveryContext;
 }
 
 export type CanonicalDecisionResult =
@@ -315,7 +318,7 @@ export type CanonicalDecisionResult =
 export async function applyCanonicalGuardianDecision(
   params: ApplyCanonicalGuardianDecisionParams,
 ): Promise<CanonicalDecisionResult> {
-  const { requestId, action, actorContext, userText } = params;
+  const { requestId, action, actorContext, userText, channelDeliveryContext } = params;
 
   // 1. Look up the canonical request
   const request = getCanonicalGuardianRequest(requestId);
@@ -406,8 +409,9 @@ export async function applyCanonicalGuardianDecision(
   if (resolver) {
     const resolverResult = await resolver.resolve({
       request: resolved,
-      decision: { action, userText },
+      decision: { action: effectiveAction, userText },
       actor: actorContext,
+      channelDeliveryContext,
     });
 
     if (!resolverResult.ok) {

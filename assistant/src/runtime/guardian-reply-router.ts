@@ -27,7 +27,7 @@ import {
   applyCanonicalGuardianDecision,
   type CanonicalDecisionResult,
 } from '../approvals/guardian-decision-primitive.js';
-import type { ActorContext } from '../approvals/guardian-request-resolvers.js';
+import type { ActorContext, ChannelDeliveryContext } from '../approvals/guardian-request-resolvers.js';
 import {
   getCanonicalGuardianRequest,
   getCanonicalGuardianRequestByCode,
@@ -58,6 +58,8 @@ export interface GuardianReplyContext {
   pendingRequestIds?: string[];
   /** Conversation generator for NL classification (injected by daemon). */
   approvalConversationGenerator?: ApprovalConversationGenerator;
+  /** Optional channel delivery context for resolver-driven side effects. */
+  channelDeliveryContext?: ChannelDeliveryContext;
 }
 
 export type GuardianReplyResultType =
@@ -224,7 +226,7 @@ function notConsumed(): GuardianReplyResult {
 export async function routeGuardianReply(
   ctx: GuardianReplyContext,
 ): Promise<GuardianReplyResult> {
-  const { messageText, channel, actor, conversationId, callbackData, approvalConversationGenerator } = ctx;
+  const { messageText, channel, actor, conversationId, callbackData, approvalConversationGenerator, channelDeliveryContext } = ctx;
 
   // ── 1. Deterministic callback parsing (button presses) ──
   // No conversationId scoping here — the guardian's reply comes from a
@@ -234,7 +236,7 @@ export async function routeGuardianReply(
   if (callbackData) {
     const parsed = parseCallbackAction(callbackData);
     if (parsed) {
-      return applyDecision(parsed.requestId, parsed.action, actor);
+      return applyDecision(parsed.requestId, parsed.action, actor, undefined, channelDeliveryContext);
     }
   }
 
@@ -309,7 +311,7 @@ export async function routeGuardianReply(
       // If the text indicates rejection, use reject; otherwise approve_once.
       const action = inferActionFromText(codeResult.remainingText);
 
-      return applyDecision(request.id, action, actor, codeResult.remainingText);
+      return applyDecision(request.id, action, actor, codeResult.remainingText, channelDeliveryContext);
     }
   }
 
@@ -321,25 +323,13 @@ export async function routeGuardianReply(
       return notConsumed();
     }
 
-    // Scope pending requests to the current conversation so disambiguation
-    // only shows requests that can actually be resolved from this thread.
-    // Requests without a conversationId are included as they may be global.
-    const pendingRequests = conversationId
-      ? allPendingRequests.filter(r => !r.conversationId || r.conversationId === conversationId)
-      : allPendingRequests;
-
-    if (pendingRequests.length === 0) {
-      log.info(
-        { event: 'router_nl_no_conversation_requests', conversationId, totalPending: allPendingRequests.length },
-        'No pending requests match the current conversation',
-      );
-      return {
-        decisionApplied: false,
-        consumed: false,
-        type: 'not_consumed',
-        replyText: 'No pending requests in this conversation.',
-      };
-    }
+    // Use all pending requests for the guardian without conversation scoping.
+    // Guardian requests for channel/voice flows are created on the requester's
+    // conversation, not the guardian's reply thread, so filtering by
+    // conversationId would incorrectly drop valid pending requests. Identity-
+    // based filtering in findPendingCanonicalRequests already constrains
+    // results to the correct guardian.
+    const pendingRequests = allPendingRequests;
 
     // Build the conversation context for the NL engine
     const engineContext: ApprovalConversationContext = {
@@ -413,7 +403,7 @@ export async function routeGuardianReply(
       };
     }
 
-    const result = await applyDecision(targetId, decisionAction, actor, messageText);
+    const result = await applyDecision(targetId, decisionAction, actor, messageText, channelDeliveryContext);
 
     // Attach the engine's reply text for stale/expired/identity-mismatch cases,
     // but preserve the explicit failure text when the resolver failed — the engine
@@ -441,12 +431,14 @@ async function applyDecision(
   action: ApprovalAction,
   actor: ActorContext,
   userText?: string,
+  channelDeliveryContext?: ChannelDeliveryContext,
 ): Promise<GuardianReplyResult> {
   const canonicalResult = await applyCanonicalGuardianDecision({
     requestId,
     action,
     actorContext: actor,
     userText,
+    channelDeliveryContext,
   });
 
   if (canonicalResult.applied) {

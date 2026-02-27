@@ -2979,6 +2979,7 @@ public struct GuardianActionsPendingResponseMessage: Decodable, Sendable {
 public struct GuardianActionDecisionResponseMessage: Decodable, Sendable {
     public let applied: Bool
     public let reason: String?
+    public let resolverFailureReason: String?
     public let requestId: String?
     public let userText: String?
 }
