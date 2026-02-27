@@ -94,14 +94,15 @@ export class SkillLoadTool implements Tool {
       const childLines: string[] = [];
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
-        if (child) {
-          childLines.push(`  - ${child.id}: ${child.name} — ${child.description} (${child.skillFilePath})`);
+        if (!child) continue;
+        if (!isSkillFeatureEnabled(childId, config)) continue;
 
-          // Load the included skill's body content
-          const childLoaded = loadSkillBySelector(childId);
-          if (childLoaded.skill && childLoaded.skill.body.length > 0) {
-            includedBodies.push(`--- Included Skill: ${childLoaded.skill.name} (${childId}) ---\n${childLoaded.skill.body}`);
-          }
+        childLines.push(`  - ${child.id}: ${child.name} — ${child.description} (${child.skillFilePath})`);
+
+        // Load the included skill's body content
+        const childLoaded = loadSkillBySelector(childId);
+        if (childLoaded.skill && childLoaded.skill.body.length > 0) {
+          includedBodies.push(`--- Included Skill: ${childLoaded.skill.name} (${childId}) ---\n${childLoaded.skill.body}`);
         }
       }
       immediateChildrenSection = `Included Skills (immediate):\n${childLines.join('\n')}`;
@@ -124,6 +125,7 @@ export class SkillLoadTool implements Tool {
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
         if (!child) continue;
+        if (!isSkillFeatureEnabled(childId, config)) continue;
         let childHash: string | undefined;
         try {
           childHash = computeSkillVersionHash(child.directoryPath);

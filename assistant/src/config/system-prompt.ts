@@ -732,13 +732,13 @@ function appendSkillsCatalog(basePrompt: string): string {
   const catalog = formatSkillsCatalog(flagFiltered);
   if (catalog) sections.push(catalog);
 
-  sections.push(buildDynamicSkillWorkflowSection());
+  sections.push(buildDynamicSkillWorkflowSection(config));
 
   return sections.join('\n\n');
 }
 
-function buildDynamicSkillWorkflowSection(): string {
-  return [
+function buildDynamicSkillWorkflowSection(config: import('./schema.js').AssistantConfig): string {
+  const lines = [
     '## Dynamic Skill Authoring Workflow',
     '',
     'When no existing tool or skill can satisfy a request:',
@@ -750,13 +750,25 @@ function buildDynamicSkillWorkflowSection(): string {
     '',
     '**Never persist or delete skills without explicit user confirmation.** To remove: `delete_managed_skill`.',
     'After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.',
-    '',
-    '### Browser Skill Prerequisite',
-    'If you need browser capabilities (navigating web pages, clicking elements, extracting content) and `browser_*` tools are not available, load the "browser" skill first using `skill_load`.',
-    '',
-    '### X (Twitter) Skill',
-    'When the user asks to post, reply, or interact with X/Twitter, load the "twitter" skill using `skill_load`. Do NOT use computer-use or the browser skill for X — the X skill provides CLI commands (`vellum x post`, `vellum x reply`) that are faster and more reliable.',
-  ].join('\n');
+  ];
+
+  if (isSkillFeatureEnabled('browser', config)) {
+    lines.push(
+      '',
+      '### Browser Skill Prerequisite',
+      'If you need browser capabilities (navigating web pages, clicking elements, extracting content) and `browser_*` tools are not available, load the "browser" skill first using `skill_load`.',
+    );
+  }
+
+  if (isSkillFeatureEnabled('twitter', config)) {
+    lines.push(
+      '',
+      '### X (Twitter) Skill',
+      'When the user asks to post, reply, or interact with X/Twitter, load the "twitter" skill using `skill_load`. Do NOT use computer-use or the browser skill for X — the X skill provides CLI commands (`vellum x post`, `vellum x reply`) that are faster and more reliable.',
+    );
+  }
+
+  return lines.join('\n');
 }
 
 function escapeXml(str: string): string {
