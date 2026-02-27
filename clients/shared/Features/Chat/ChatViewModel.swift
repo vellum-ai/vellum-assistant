@@ -2413,6 +2413,11 @@ public final class ChatViewModel: ObservableObject {
             if existingIds.contains(wire.requestId) {
                 // Update existing message
                 if let idx = messages.firstIndex(where: { $0.guardianDecision?.requestId == wire.requestId }) {
+                    // Don't overwrite a locally-resolved state with a stale state
+                    // from the server — the local resolved state carries the action label.
+                    if case .resolved = messages[idx].guardianDecision?.state {
+                        continue
+                    }
                     let newData = GuardianDecisionData(from: wire)
                     // Preserve submitting state if still waiting
                     let wasSubmitting = messages[idx].guardianDecision?.isSubmitting ?? false
