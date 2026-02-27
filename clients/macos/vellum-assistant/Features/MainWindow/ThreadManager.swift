@@ -743,6 +743,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
     }
 
+    /// If the active thread has an unseen assistant message, mark it as seen.
+    /// Called when the app becomes active (e.g. user clicks the menu bar icon
+    /// or switches back to the app) so that a pre-selected unread thread is
+    /// marked seen without requiring a thread switch.
+    func markActiveThreadSeenIfNeeded() {
+        guard !isRestoringThreads,
+              let activeId = activeThreadId,
+              let idx = threads.firstIndex(where: { $0.id == activeId }),
+              threads[idx].hasUnseenLatestAssistantMessage else { return }
+        markConversationSeen(threadId: activeId)
+    }
+
     /// Clear the local unseen flag and notify the daemon that the conversation
     /// has been seen. Use this from call-sites that bypass `selectThread` (e.g.
     /// deep-link navigation in `openConversationThread`) where the `id != previousActiveId`
