@@ -13,13 +13,9 @@
 
 import { answerCall } from '../calls/call-domain.js';
 import type { CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
-import type { GuardianApprovalRequest } from '../memory/channel-guardian-store.js';
 import type { ApprovalAction } from '../runtime/channel-approval-types.js';
+import { createOutboundSession } from '../runtime/channel-guardian-service.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
-import {
-  handleAccessRequestDecision,
-  type AccessRequestDecisionAction,
-} from '../runtime/routes/access-request-decision.js';
 import { addRule } from '../permissions/trust-store.js';
 import { getTool } from '../tools/registry.js';
 import { getLogger } from '../util/logger.js';
@@ -242,76 +238,63 @@ const pendingQuestionResolver: GuardianRequestResolver = {
  *
  * Access requests don't have pending interactions in the session tracker.
  * Instead, they create identity-bound verification sessions so the requester
- * can prove their identity. This resolver calls `handleAccessRequestDecision`
- * which mints verification sessions on approve and marks requests as denied
- * on reject.
+ * can prove their identity.
+ *
+ * This resolver directly mints the verification session on approve rather
+ * than going through handleAccessRequestDecision -> resolveApprovalRequest,
+ * because canonical requests have no legacy channel_guardian_approval_requests
+ * row, making the resolveApprovalRequest step a no-op that returns 'stale'.
+ *
+ * For deny: the canonical CAS already moved the request to 'denied' status,
+ * so no additional side effect is needed.
  */
 const accessRequestResolver: GuardianRequestResolver = {
   kind: 'access_request',
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
-    const { request, decision, actor } = ctx;
+    const { request, decision } = ctx;
 
-    // Map canonical decision action to access request action
-    const accessAction: AccessRequestDecisionAction =
-      decision.action === 'reject' ? 'deny' : 'approve';
-
-    const actorIdentity = actor.externalUserId ?? 'desktop';
-
-    // Build a synthetic GuardianApprovalRequest from the canonical request
-    // so handleAccessRequestDecision can create verification sessions.
-    // The conversationId for access requests encodes the requester identity
-    // as `access-req-<channel>-<externalUserId>`, so we extract the chatId
-    // from the requesterExternalUserId.
-    const now = Date.now();
-    const syntheticApproval: GuardianApprovalRequest = {
-      id: request.id,
-      runId: request.id,
-      requestId: request.id,
-      conversationId: request.conversationId ?? '',
-      assistantId: 'self',
-      channel: request.sourceChannel ?? 'unknown',
-      requesterExternalUserId: request.requesterExternalUserId ?? '',
-      requesterChatId: request.requesterExternalUserId ?? '',
-      guardianExternalUserId: request.guardianExternalUserId ?? '',
-      guardianChatId: '',
-      toolName: request.toolName ?? 'ingress_access_request',
-      riskLevel: 'access_request',
-      reason: request.questionText ?? null,
-      status: 'pending',
-      decidedByExternalUserId: null,
-      expiresAt: request.expiresAt ? new Date(request.expiresAt).getTime() : now + 300_000,
-      createdAt: new Date(request.createdAt).getTime(),
-      updatedAt: now,
-    };
-
-    const result = handleAccessRequestDecision(
-      syntheticApproval,
-      accessAction,
-      actorIdentity,
-    );
-
-    if (!result.handled || result.type === 'stale') {
-      log.warn(
+    if (decision.action === 'reject') {
+      // Canonical CAS already set the request to 'denied'. No additional
+      // side effect needed for deny.
+      log.info(
         {
-          event: 'resolver_access_request_stale',
+          event: 'resolver_access_request_denied',
           requestId: request.id,
-          resultType: result.type,
         },
-        'Access request resolver: decision was stale or unhandled',
+        'Access request resolver: deny — no additional side effect needed',
       );
-      return { ok: false, reason: result.type === 'stale' ? 'stale' : 'unhandled' };
+      return { ok: true, applied: true };
     }
+
+    // On approve: mint an identity-bound verification session so the
+    // requester can verify their identity. This is the key side effect
+    // that handleAccessRequestDecision used to provide.
+    const channel = request.sourceChannel ?? 'unknown';
+    const requesterExternalUserId = request.requesterExternalUserId ?? '';
+    // For access requests the requesterChatId is typically the same as
+    // requesterExternalUserId (Telegram user ID, phone E.164, etc.).
+    const requesterChatId = request.requesterExternalUserId ?? '';
+
+    const session = createOutboundSession({
+      assistantId: 'self',
+      channel,
+      expectedExternalUserId: requesterExternalUserId,
+      expectedChatId: requesterChatId,
+      identityBindingStatus: 'bound',
+      destinationAddress: requesterChatId,
+      verificationPurpose: 'trusted_contact',
+    });
 
     log.info(
       {
-        event: 'resolver_access_request_applied',
+        event: 'resolver_access_request_approved',
         requestId: request.id,
-        action: accessAction,
-        resultType: result.type,
-        verificationSessionId: result.verificationSessionId,
+        verificationSessionId: session.sessionId,
+        channel,
+        requesterExternalUserId,
       },
-      'Access request resolver: decision applied',
+      'Access request resolver: minted verification session',
     );
 
     return { ok: true, applied: true };

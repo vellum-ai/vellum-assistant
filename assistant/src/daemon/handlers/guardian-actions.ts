@@ -57,6 +57,20 @@ export const guardianActionsHandlers = defineHandlers({
     });
 
     if (canonicalResult.applied) {
+      // When the CAS committed but the resolver failed, the side effect
+      // (e.g. minting a verification session) did not happen. From the
+      // caller's perspective the decision was not truly applied.
+      if (canonicalResult.resolverFailed) {
+        ctx.send(socket, {
+          type: 'guardian_action_decision_response',
+          applied: false,
+          reason: 'resolver_failed',
+          resolverFailureReason: canonicalResult.resolverFailureReason,
+          requestId: canonicalResult.requestId,
+        });
+        return;
+      }
+
       ctx.send(socket, {
         type: 'guardian_action_decision_response',
         applied: true,

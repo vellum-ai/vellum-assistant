@@ -94,6 +94,18 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
   });
 
   if (canonicalResult.applied) {
+    // When the CAS committed but the resolver failed, the side effect
+    // (e.g. minting a verification session) did not happen. From the
+    // caller's perspective the decision was not truly applied.
+    if (canonicalResult.resolverFailed) {
+      return Response.json({
+        applied: false,
+        reason: 'resolver_failed',
+        resolverFailureReason: canonicalResult.resolverFailureReason,
+        requestId: canonicalResult.requestId,
+      });
+    }
+
     return Response.json({
       applied: true,
       requestId: canonicalResult.requestId,

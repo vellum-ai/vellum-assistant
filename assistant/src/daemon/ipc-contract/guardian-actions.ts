@@ -44,6 +44,7 @@ export interface GuardianActionDecisionResponse {
   type: 'guardian_action_decision_response';
   applied: boolean;
   reason?: string;
+  resolverFailureReason?: string;
   requestId?: string;
   userText?: string;
 }
