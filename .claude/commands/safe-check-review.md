@@ -20,7 +20,7 @@ Read `.private/safe-plan-state/<plan-slug>.md`. If it doesn't exist or has no ac
 
 Then stop.
 
-Record from the state file: **PR number**, **PR branch**, **worktree path**.
+Record from the state file: **PR number**, **PR branch**, **worktree path**, and **Review cycles completed** (e.g. `2/3` → record the number before the slash as the prior cycle count; default to 0 if not present).
 
 ### 2. Fetch review data
 
@@ -79,7 +79,7 @@ Show a summary table:
 
 ### 5. Address feedback (auto-loop, up to 3 cycles)
 
-Initialize a **cycle counter** at 0, a **fix counter** at 0, and `last_fix_push_time` as `null`.
+Initialize the **cycle counter** to the value read from the state file in Step 1 (default 0 if not present), a **fix counter** at 0, and `last_fix_push_time` as `null`.
 
 **Determining aggregate review status:**
 
@@ -165,7 +165,7 @@ The `check-pr-reviews` script reports **cumulative** review status — it counts
      - If aggregate status is `approved` → proceed to Step 6.
      - If aggregate status is `changes_requested` **and (the reviewer with `changes_requested` is a human, or the bot with `changes_requested` is in `responded_bot_logins`)** → return to step 1 of this loop (cycle limit check).
      - Otherwise (`pending`, `rate_limited`, or `changes_requested` from a non-responding bot) → continue polling.
-   - If `all_responded_bots` is **< 1**, **continue polling** — do not exit the loop. Re-fetching cumulative review data is unreliable for bot approval checks until at least one bot has posted new activity after the fix push; however, also re-check CI status and human reviewer threads on each poll since those can change independently of bot activity.
+   - If `all_responded_bots` is **< 1**, **continue polling** — do not exit the loop. Re-fetching cumulative review data is unreliable for bot approval checks until at least one bot has posted new activity after the fix push; however, also re-check CI status and human reviewer threads on each poll since those can change independently of bot activity. Specifically: re-run the CI check (`gh pr checks <number>`) and the review-threads GraphQL query. If CI is failing OR any human reviewer has new unresolved threads posted after `last_fix_push_time`, treat this as `changes_requested` and return to step 1 of this loop (cycle limit check) — no need to wait for bot activity in that case.
    - If **10 minutes** pass without any reviewer bot posting new activity → log `"Timed out after 10 minutes waiting for reviewer responses on PR #<number>."` and proceed to Step 6.
 
 Repeat steps 1–4 until the exit condition: either `approved` aggregate status, actionable `changes_requested` from a freshly-responding bot, 10-minute timeout after a fix push, or the cycle counter has reached 3.
@@ -226,6 +226,8 @@ Update `.private/safe-plan-state/<plan-slug>.md` to record the review cycles com
 ```markdown
 - **Review cycles completed**: <cycle-counter>/3
 ```
+
+Note: because the cycle counter was initialized from the prior value read in Step 1, writing `<cycle-counter>` here already reflects the cumulative total across all invocations (e.g. if `safe-execute-plan` previously completed 2 cycles and this invocation ran 1 more, `cycle-counter` is 3).
 
 ### 7. Notify the user and stop
 
