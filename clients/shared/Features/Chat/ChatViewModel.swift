@@ -665,11 +665,12 @@ public final class ChatViewModel: ObservableObject {
         messages.removeSubrange(0..<trimEnd)
         // displayedMessages is updated automatically via the messageManager.$messages
         // publisher subscription set up in init.
-        // After deleting the oldest messages, reset the history cursor to the oldest
-        // retained message so the next pagination fetch starts from that point.
-        // Do NOT clear hasMoreHistory — the daemon still has older pages available.
+        // After deleting the oldest messages, advance the history cursor to the oldest
+        // retained message and mark that older pages are available from the daemon so
+        // the user can paginate back to re-fetch the trimmed messages.
         if let oldestRetained = messages.first {
             historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
+            hasMoreHistory = true
         }
         // Reset pagination so the display window doesn't reference indices beyond the
         // newly shortened array. trimKeepRecent < messagePageSize is possible, so clamp.
@@ -866,11 +867,12 @@ public final class ChatViewModel: ObservableObject {
             let keepCount = Self.trimKeepRecent
             if self.messages.count > keepCount {
                 self.messages.removeFirst(self.messages.count - keepCount)
-                // Update cursor to oldest retained message so pagination
-                // doesn't skip the trimmed gap on the next page load.
+                // Advance cursor to oldest retained message and mark that older
+                // pages are available from the daemon so the user can paginate back.
                 if let oldestRetained = self.messages.first {
                     self.historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
                 }
+                self.hasMoreHistory = true
                 // displayedMessages is updated automatically via $messages sink.
                 self.displayedMessageCount = Self.messagePageSize
             }
