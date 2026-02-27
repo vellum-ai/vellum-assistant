@@ -955,7 +955,7 @@ export function buildSchema(): Record<string, unknown> {
             },
           ],
           requestBody: {
-            required: false,
+            required: true,
             content: {
               "application/json": {
                 schema: { type: "object", additionalProperties: true },
