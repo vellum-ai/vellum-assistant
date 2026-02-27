@@ -26,6 +26,42 @@ This document owns assistant-runtime architecture details. The repo-level archit
 
 Scoped approval grants allow a guardian's approval decision on one channel (e.g., Telegram) to authorize a tool execution on a different channel (e.g., voice). Two scope modes exist: `request_id` (bound to a specific pending request) and `tool_signature` (bound to `toolName` + canonical `inputDigest`). Grants are one-time-use, exact-match, fail-closed, and TTL-bound. Full architecture details (lifecycle flow, security invariants, key files) live in [`docs/architecture/security.md`](docs/architecture/security.md#channel-agnostic-scoped-approval-grants).
 
+### Guardian Decision Primitive (Dual-Mode Approval)
+
+All guardian approval decisions — regardless of how they arrive — route through a single unified primitive in `src/approvals/guardian-decision-primitive.ts`. This centralizes decision logic that was previously duplicated across callback button handlers, the conversational approval engine, the legacy text parser, and the requester self-cancel path.
+
+**Core API:**
+
+| Function | Purpose |
+|----------|---------|
+| `applyGuardianDecision(params)` | Apply a guardian decision atomically: downgrade `approve_always` for guardian-on-behalf requests, capture approval info, resolve the pending interaction, update the approval record, and mint a scoped grant on approve. Returns `{ applied, reason?, requestId? }`. |
+| `listGuardianDecisionPrompts({ conversationId })` | List pending prompts for a conversation, aggregating channel guardian approval requests and pending confirmation interactions into a uniform `GuardianDecisionPrompt` shape. |
+
+**Security invariants enforced by the primitive:**
+
+- Decision application is identity-bound to the expected guardian identity.
+- Decisions are first-response-wins (CAS-like stale protection via `handleChannelDecision`).
+- `approve_always` is downgraded to `approve_once` for guardian-on-behalf requests (guardians cannot permanently allowlist tools for requesters).
+- Scoped grant minting only fires on explicit approve for requests with tool metadata.
+
+**Dual-mode approval UX:** Guardians can respond to approval prompts via two modes, both routing through `applyGuardianDecision`:
+
+1. **Button UI (deterministic):** Desktop clients and channel adapters render structured `GuardianDecisionPrompt` objects as tappable buttons. Desktop clients use HTTP endpoints (`GET /v1/guardian-actions/pending`, `POST /v1/guardian-actions/decision`) or IPC (`guardian_actions_pending_request`, `guardian_action_decision`). Channel adapters (Telegram inline keyboards, WhatsApp) encode actions in callback data.
+2. **Conversational (NL parsing):** Text replies are classified by the conversational approval engine or parsed by the legacy text parser. The resulting `ApprovalDecisionResult` is passed to `applyGuardianDecision` identically.
+
+**Shared type system:** `GuardianDecisionPrompt` and `GuardianDecisionAction` (in `src/runtime/guardian-decision-types.ts`) define the structured prompt model. `buildDecisionActions()` computes the action set respecting `persistentDecisionsAllowed` and `forGuardianOnBehalf` flags. `buildPlainTextFallback()` generates parser-compatible text instructions. Channel adapters map these to channel-specific formats via `toApprovalActionOptions()` in `channel-approval-types.ts`.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/approvals/guardian-decision-primitive.ts` | Unified decision application: downgrade, approval info capture, `handleChannelDecision`, record update, grant minting |
+| `src/runtime/guardian-decision-types.ts` | Shared types: `GuardianDecisionPrompt`, `GuardianDecisionAction`, `buildDecisionActions`, `buildPlainTextFallback`, `ApplyGuardianDecisionResult` |
+| `src/runtime/routes/guardian-action-routes.ts` | HTTP route handlers for `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` |
+| `src/daemon/handlers/guardian-actions.ts` | IPC handlers wrapping the same logic for desktop socket clients |
+| `src/daemon/ipc-contract/guardian-actions.ts` | IPC message type definitions for guardian action requests/responses |
+| `src/runtime/channel-approval-types.ts` | Channel-facing approval action types and `toApprovalActionOptions` bridge |
+
 ### Outbound Guardian Verification (HTTP Endpoints)
 
 Guardian verification can be initiated through the runtime HTTP API as an alternative to the legacy IPC-only flow. This enables chat-first verification where the assistant guides the user through guardian setup via normal conversation.

@@ -216,6 +216,7 @@ There may be narrow cases where a direct provider call is acceptable (e.g., a lo
 - **Non-rich channels** (SMS, http-api) receive plain-text approval prompts without approval metadata payloads.
 - **Race conditions:** Always check whether a decision has already been resolved before delivering the engine's optimistic reply. If `handleChannelDecision` returns `applied: false`, deliver an "already resolved" notice and return `stale_ignored`.
 - **Requester self-cancel:** A requester with a pending guardian approval must be able to cancel their own request (but not self-approve).
+- **Unified guardian decision primitive:** All guardian decision paths (callback buttons, conversational engine, legacy text parser, requester self-cancel) must route through `applyGuardianDecision()` in `assistant/src/approvals/guardian-decision-primitive.ts`. Do not inline decision logic (approve_always downgrade, approval record updates, grant minting) at individual callsites.
 
 ## HTTP API Patterns
 

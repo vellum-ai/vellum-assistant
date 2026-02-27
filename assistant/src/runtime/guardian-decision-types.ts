@@ -6,8 +6,6 @@
  * unified `applyGuardianDecision` primitive.
  */
 
-import type { ChannelId } from '../channels/types.js';
-
 // ---------------------------------------------------------------------------
 // Guardian decision prompt
 // ---------------------------------------------------------------------------
@@ -81,17 +79,8 @@ export function buildPlainTextFallback(
 }
 
 // ---------------------------------------------------------------------------
-// Apply decision
+// Apply decision result
 // ---------------------------------------------------------------------------
-
-export interface ApplyGuardianDecisionParams {
-  requestId: string;
-  action: string;
-  actorExternalUserId: string | undefined;
-  actorChannel: ChannelId;
-  conversationId?: string;
-  callSessionId?: string;
-}
 
 export interface ApplyGuardianDecisionResult {
   applied: boolean;
