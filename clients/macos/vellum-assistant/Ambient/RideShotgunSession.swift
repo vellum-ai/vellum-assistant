@@ -1,5 +1,6 @@
 import Foundation
 import VellumAssistantShared
+import Combine
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "RideShotgunSession")
@@ -41,6 +42,7 @@ public final class RideShotgunSession: ObservableObject {
     private var messageSubscription: Task<Void, Never>?
     private var watchSessionObserver: Task<Void, Never>?
     private var expectedWatchId: String?
+    private var watchSessionStateBag = Set<AnyCancellable>()
 
     public init(durationSeconds: Int, intervalSeconds: Int = 10, mode: String? = nil, targetDomain: String? = nil) {
         self.durationSeconds = durationSeconds
@@ -151,20 +153,30 @@ public final class RideShotgunSession: ObservableObject {
 
         log.info("Watch session started: watchId=\(message.watchId)")
 
-        // Observe WatchSession published properties
+        // Observe WatchSession published properties via AsyncStream so the task
+        // sleeps between real state changes instead of spinning at 0.5s intervals.
+        let stateStream = AsyncStream<WatchSession.State> { continuation in
+            session.$state
+                .sink { continuation.yield($0) }
+                .store(in: &watchSessionStateBag)
+        }
         watchSessionObserver = Task { [weak self, weak session] in
             guard let session else { return }
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s poll
+            for await watchState in stateStream {
                 guard let self, !Task.isCancelled else { return }
+                // Mirror scalar properties on every state change
                 self.elapsedSeconds = session.elapsedSeconds
                 self.captureCount = session.captureCount
                 self.currentApp = session.currentApp
 
                 // When WatchSession completes, transition to summarizing
-                if session.state == .complete && self.state == .capturing {
+                if watchState == .complete && self.state == .capturing {
                     self.state = .summarizing
                     log.info("Capture complete, waiting for summary...")
+                    break
+                }
+                if watchState == .cancelled {
+                    break
                 }
             }
         }
@@ -198,5 +210,6 @@ public final class RideShotgunSession: ObservableObject {
         messageSubscription = nil
         watchSessionObserver?.cancel()
         watchSessionObserver = nil
+        watchSessionStateBag.removeAll()
     }
 }
