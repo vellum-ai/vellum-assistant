@@ -340,7 +340,7 @@ jobs:
   build-macos:
     needs: bump-and-tag
     runs-on: macos-14
-    timeout-minutes: 15
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: clients/macos
@@ -481,7 +481,7 @@ jobs:
             --password "${{ secrets.APPLE_APP_PASSWORD }}" \
             --team-id "${{ secrets.APPLE_TEAM_ID }}" \
             --wait \
-            --timeout 60m \
+            --timeout 30m \
             2>&1) || NOTARIZE_FAILED=true
 
           echo "$NOTARIZE_OUTPUT"
