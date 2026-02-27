@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { closeSync,existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
@@ -70,9 +70,17 @@ function killStaleDaemon(): void {
     return;
   }
 
-  // The PID file references a live process, but getDaemonStatus() (called
-  // earlier in startDaemon) already returns early when the daemon is healthy.
-  // If we reach here, the recorded process is alive but non-responsive.
+  // Guard against stale PID reuse: if the PID has been recycled by the OS
+  // and now belongs to an unrelated process, we must not signal it.
+  if (!isVellumDaemonProcess(pid)) {
+    log.info({ pid }, 'PID file references a non-vellum process (stale PID reuse) — cleaning up PID file only');
+    cleanupPidFile();
+    return;
+  }
+
+  // The PID file references a live vellum daemon process, but getDaemonStatus()
+  // (called earlier in startDaemon) already returns early when the daemon is
+  // healthy. If we reach here, the recorded process is alive but non-responsive.
   try {
     log.info({ pid }, 'Killing stale daemon process from PID file');
     process.kill(pid, 'SIGKILL');
@@ -87,6 +95,27 @@ function isProcessRunning(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch {
+    return false;
+  }
+}
+
+/**
+ * Check whether a PID belongs to a vellum daemon process (a bun process
+ * running the daemon's main.ts). Prevents signaling an unrelated process
+ * that reused a stale PID.
+ */
+function isVellumDaemonProcess(pid: number): boolean {
+  try {
+    const cmd = execSync(`ps -p ${pid} -o command=`, {
+      encoding: 'utf-8',
+      timeout: 3000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    // The daemon is spawned as `bun run <path>/main.ts` — look for bun
+    // running our daemon entry point.
+    return cmd.includes('bun') && cmd.includes('daemon/main.ts');
+  } catch {
+    // Process exited or ps failed — treat as not ours.
     return false;
   }
 }
@@ -166,10 +195,17 @@ export async function getDaemonStatus(): Promise<{ running: boolean; pid?: numbe
     cleanupPidFile();
     return { running: false };
   }
-  // Process is alive — verify the socket is responsive. A deadlocked or
-  // wedged daemon will pass the PID liveness check but fail to accept
-  // connections, and should be treated as not running so killStaleDaemon()
-  // can clean it up.
+  // Guard against stale PID reuse: if the OS recycled the PID and it now
+  // belongs to an unrelated process, discard the stale PID file.
+  if (!isVellumDaemonProcess(pid)) {
+    log.info({ pid }, 'PID file references a non-vellum process (stale PID reuse) — cleaning up');
+    cleanupPidFile();
+    return { running: false };
+  }
+  // Process is alive and is ours — verify the socket is responsive. A
+  // deadlocked or wedged daemon will pass the PID liveness check but fail
+  // to accept connections, and should be treated as not running so
+  // killStaleDaemon() can clean it up.
   const responsive = await isSocketResponsive();
   if (!responsive) {
     log.warn({ pid }, 'Daemon process alive but socket unresponsive');
@@ -363,6 +399,15 @@ export type StopResult =
 export async function stopDaemon(): Promise<StopResult> {
   const pid = readPid();
   if (pid == null || !isProcessRunning(pid)) {
+    cleanupPidFile();
+    return { stopped: false, reason: 'not_running' };
+  }
+
+  // Guard against stale PID reuse: if the PID has been recycled by the OS
+  // and now belongs to an unrelated process, clean up the PID file but
+  // never signal it.
+  if (!isVellumDaemonProcess(pid)) {
+    log.info({ pid }, 'PID file references a non-vellum process (stale PID reuse) — cleaning up PID file only');
     cleanupPidFile();
     return { stopped: false, reason: 'not_running' };
   }

@@ -42,20 +42,20 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, resetDb } from '../memory/db.js';
+import {
+  createBinding,
+  getActiveBinding,
+} from '../memory/channel-guardian-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import {
+  findMember,
+  revokeMember,
+  upsertMember,
+} from '../memory/ingress-member-store.js';
 import {
   createOutboundSession,
   validateAndConsumeChallenge,
 } from '../runtime/channel-guardian-service.js';
-import {
-  findMember,
-  upsertMember,
-  revokeMember,
-} from '../memory/ingress-member-store.js';
-import {
-  getActiveBinding,
-  createBinding,
-} from '../memory/channel-guardian-store.js';
 
 initializeDb();
 
@@ -69,7 +69,6 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 function resetTables(): void {
-  const { getDb } = require('../memory/db.js');
   const db = getDb();
   db.run('DELETE FROM channel_guardian_verification_challenges');
   db.run('DELETE FROM channel_guardian_bindings');
@@ -339,6 +338,7 @@ describe('trusted contact verification → member activation', () => {
 
   test('guardian inbound verification still creates binding (backward compat)', () => {
     // Create an inbound challenge (no expected identity — guardian flow)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createVerificationChallenge } = require('../runtime/channel-guardian-service.js');
     const { secret } = createVerificationChallenge('self', 'telegram');
 

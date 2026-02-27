@@ -7,11 +7,11 @@
  * registry entry instead of another if/else branch.
  */
 
-import { normalizeActivationKey } from './handlers/config-voice.js';
 import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
 import { openAppViaSurface } from '../tools/apps/open-proxy.js';
 import type { ToolExecutionResult } from '../tools/types.js';
 import { isDoordashCommand, updateDoordashProgress } from './doordash-steps.js';
+import { normalizeActivationKey } from './handlers/config-voice.js';
 import type { ServerMessage } from './ipc-protocol.js';
 import {
   refreshSurfacesForApp,

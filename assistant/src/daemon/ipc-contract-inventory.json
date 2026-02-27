@@ -248,6 +248,7 @@
     "heartbeat_runs_list_response",
     "history_response",
     "home_base_get_response",
+    "identity_changed",
     "identity_get_response",
     "ingress_config_response",
     "ingress_invite_response",

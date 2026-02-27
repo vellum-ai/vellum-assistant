@@ -55,20 +55,18 @@ mock.module('../runtime/gateway-client.js', () => ({
 
 import {
   createApprovalRequest,
-  createBinding,
   getApprovalRequestById,
-  findPendingAccessRequestForRequester,
 } from '../memory/channel-guardian-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import {
   findActiveSession,
 } from '../runtime/channel-guardian-service.js';
-import { initializeDb, resetDb } from '../memory/db.js';
 import {
-  handleAccessRequestDecision,
   deliverVerificationCodeToGuardian,
+  handleAccessRequestDecision,
   notifyRequesterOfApproval,
-  notifyRequesterOfDenial,
   notifyRequesterOfDeliveryFailure,
+  notifyRequesterOfDenial,
 } from '../runtime/routes/access-request-decision.js';
 
 initializeDb();
@@ -85,7 +83,6 @@ afterAll(() => {
 const GUARDIAN_APPROVAL_TTL_MS = 5 * 60 * 1000;
 
 function resetState(): void {
-  const { getDb } = require('../memory/db.js');
   const db = getDb();
   db.run('DELETE FROM channel_guardian_approval_requests');
   db.run('DELETE FROM channel_guardian_bindings');
@@ -215,7 +212,7 @@ describe('access request decision handler', () => {
       'guardian-user-789',
     );
     expect(result1.type).toBe('approved');
-    const sessionId1 = result1.verificationSessionId;
+    const _sessionId1 = result1.verificationSessionId;
 
     // Approve again — should be idempotent (already resolved with same decision)
     const result2 = handleAccessRequestDecision(
