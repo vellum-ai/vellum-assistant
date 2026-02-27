@@ -5,6 +5,9 @@
   "bin": {
     "vellum": "./bin/vellum.js"
   },
+  "files": [
+    "bin"
+  ],
   "dependencies": {
     "@vellumai/assistant": "0.3.19",
     "@vellumai/cli": "0.3.19",
