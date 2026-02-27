@@ -1,19 +1,18 @@
 /**
  * Test fixture management for the agent runner.
  *
- * Handles setup and teardown of test fixtures like mock servers.
- * Each fixture returns context variables that are injected into
- * the markdown test case template (e.g., {{SERVER_URL}}).
+ * Handles setup and teardown of test fixtures. Each fixture performs
+ * any required pre-test setup (e.g., verifying app exists, clearing state)
+ * and provides a teardown function for cleanup.
  */
 
 import { execSync } from "child_process";
+import { existsSync } from "fs";
 import path from "path";
 
 // ── Types ───────────────────────────────────────────────────────────
 
 export interface FixtureContext {
-  /** Template variables to substitute in the markdown (e.g., SERVER_URL) */
-  variables: Record<string, string>;
   /** Cleanup function to tear down the fixture */
   teardown: () => Promise<void>;
 }
@@ -31,18 +30,24 @@ const FIXTURE_REGISTRY: Record<string, FixtureFactory> = {
 async function createDesktopAppFixture(): Promise<FixtureContext> {
   const appDir = path.resolve(__dirname, "../../clients/macos/dist");
   const appDisplayName = process.env.APP_DISPLAY_NAME ?? "Vellum";
-  const anthropicApiKey = process.env.ANTHROPIC_API_KEY ?? "";
+  const appPath = path.join(appDir, `${appDisplayName}.app`);
 
-  if (!anthropicApiKey) {
-    throw new Error("ANTHROPIC_API_KEY environment variable is required for desktop-app fixture");
+  // Verify the built macOS app exists
+  if (!existsSync(appPath)) {
+    throw new Error(`Built macOS app not found at: ${appPath}`);
+  }
+
+  // Clear any previous onboarding state
+  try {
+    execSync("defaults delete com.vellum.vellum-assistant", {
+      encoding: "utf-8",
+      timeout: 5_000,
+    });
+  } catch {
+    // Domain may not exist yet on a fresh runner — that's fine
   }
 
   return {
-    variables: {
-      APP_DIR: appDir,
-      APP_DISPLAY_NAME: appDisplayName,
-      ANTHROPIC_API_KEY: anthropicApiKey,
-    },
     teardown: async () => {
       // Kill the app on teardown
       try {
