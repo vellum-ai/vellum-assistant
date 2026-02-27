@@ -34,13 +34,11 @@ function redactObject(obj: unknown): unknown {
 
 /**
  * Call after dotenv has loaded so SENTRY_DSN is available.
- * Pass enabled=false to skip initialization entirely (e.g. when the user has
- * opted out of crash reporting via the "collect-usage-data" feature flag).
- * The @sentry/node SDK no-ops all calls when not initialized, so guards on
- * individual Sentry.captureException callsites are not required.
+ * Always initializes Sentry to capture early startup crashes. If the user
+ * later opts out via the "collect-usage-data" feature flag, call closeSentry()
+ * after config is loaded to stop future event capturing.
  */
-export function initSentry(enabled = true): void {
-  if (!enabled) return;
+export function initSentry(): void {
   Sentry.init({
     dsn: getSentryDsn(),
     release: `vellum-assistant@${APP_VERSION}`,
@@ -66,4 +64,13 @@ export function initSentry(enabled = true): void {
       return event;
     },
   });
+}
+
+/**
+ * Stop capturing future Sentry events. Called after config loads when the
+ * user has opted out of crash reporting so that early-startup crashes are
+ * still captured but subsequent events are suppressed.
+ */
+export async function closeSentry(): Promise<void> {
+  await Sentry.close();
 }

@@ -22,7 +22,7 @@ import { syncUpdateBulletinOnStartup } from '../config/update-bulletin.js';
 import { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
-import { initSentry } from '../instrument.js';
+import { closeSentry, initSentry } from '../instrument.js';
 import { initLogfire } from '../logfire.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -97,6 +97,11 @@ export async function runDaemon(): Promise<void> {
   let socketCreated = false;
 
   try {
+    // Initialize crash reporting eagerly so early startup failures are
+    // captured. After config loads we check the opt-out flag and call
+    // closeSentry() if the user has disabled it.
+    initSentry();
+
     await initLogfire();
 
     // Migration order matters: first move legacy flat files into the data dir
@@ -173,10 +178,12 @@ export async function runDaemon(): Promise<void> {
       initLogger({ dir: config.logFile.dir, retentionDays: config.logFile.retentionDays });
     }
 
-    // Initialize crash reporting only if the user has opted in (default: enabled).
-    // Config is available here so the flag can be resolved against persisted overrides.
+    // If the user has opted out of crash reporting, stop Sentry from capturing
+    // future events. Early-startup crashes before this point are still captured.
     const collectUsageData = isAssistantFeatureFlagEnabled('feature_flags.collect-usage-data.enabled', config);
-    initSentry(collectUsageData);
+    if (!collectUsageData) {
+      await closeSentry();
+    }
 
     await initializeProvidersAndTools(config);
 
