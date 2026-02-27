@@ -228,8 +228,6 @@ final class LiveTranscriptManager: ObservableObject {
         let transcriptText = formatTranscript()
 
         // Save the original view model and any draft before switching threads.
-        // We need the original reference so we can restore the draft to the
-        // correct thread if createThread() reuses the current empty thread.
         let originalViewModel = threadManager.activeViewModel
         let existingDraft = originalViewModel?.inputText ?? ""
 
@@ -240,13 +238,15 @@ final class LiveTranscriptManager: ObservableObject {
             return
         }
 
+        // Set the transcript text and send it
         transcriptViewModel.inputText = transcriptText
         transcriptViewModel.sendMessage()
 
-        // Restore the draft to the original thread's view model (not the
-        // transcript thread) if the user had unsent text.
-        if !existingDraft.isEmpty, let originalViewModel,
-           originalViewModel !== transcriptViewModel {
+        // Restore the user's draft if they had unsent text.
+        // If createThread() created a new thread, restore to the original.
+        // If it reused the current empty thread, restore to that same VM
+        // (sendMessage clears inputText, so the draft would otherwise be lost).
+        if !existingDraft.isEmpty, let originalViewModel {
             originalViewModel.inputText = existingDraft
         }
 

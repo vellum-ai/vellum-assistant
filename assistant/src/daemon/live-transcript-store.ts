@@ -25,8 +25,9 @@ const MAX_SEGMENTS = 5000;
 let segments: TranscriptSegment[] = [];
 let listening = false;
 
-/** Record that live listening has started. */
+/** Record that live listening has started. Clears any stale segments from previous sessions. */
 export function startLiveTranscript(): void {
+  segments = [];
   listening = true;
   log.info('Live transcript listening started');
 }
