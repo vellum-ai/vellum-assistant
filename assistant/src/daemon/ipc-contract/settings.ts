@@ -9,7 +9,7 @@ export interface VoiceConfigUpdateRequest {
   activationKey: string;
 }
 
-/** Request from the client to generate a custom avatar via Claude. */
+/** Request from the client to generate a custom avatar via Gemini. */
 export interface GenerateAvatarRequest {
   type: 'generate_avatar';
   /** Text description of the desired avatar appearance. */
