@@ -177,8 +177,10 @@ export function getScreenDimensions(): { width: number; height: number } {
   if (cachedScreenDims) return cachedScreenDims;
   if (process.platform !== 'darwin') return FALLBACK_SCREEN;
   try {
+    // Use osascript (JXA) instead of `swift` to avoid the
+    // "Install Command Line Developer Tools" popup on fresh macOS installs.
     const out = execSync(
-      `swift -e 'import CoreGraphics; let b = CGDisplayBounds(CGMainDisplayID()); print("\\(Int(b.width))x\\(Int(b.height))")'`,
+      `osascript -l JavaScript -e 'ObjC.import("AppKit"); var f = $.NSScreen.mainScreen.frame; Math.round(f.size.width) + "x" + Math.round(f.size.height)'`,
       { timeout: 10_000, encoding: 'utf-8' },
     ).trim();
     const [w, h] = out.split('x').map(Number);
