@@ -370,17 +370,21 @@ final class LiveTranscriptManager: ObservableObject {
         guard let monitor = audioMonitor else { return }
         guard UserDefaults.standard.bool(forKey: "wakeWordEnabled") else { return }
 
-        // Don't resume wake word if voice mode is active — it uses
-        // SFSpeechRecognizer too and macOS only allows one active
-        // recognition task per process.
-        if let voiceModeManager, voiceModeManager.state != .off {
-            log.info("Skipping wake word resume — voice mode is active")
-            return
-        }
-
-        // Delay to let audio engine fully release
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak monitor] in
+        // Delay to let audio engine fully release.
+        // Voice mode check is inside the closure so it evaluates state
+        // AFTER the delay — avoids a race where voice mode activates
+        // during the 1-second window.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self, weak monitor] in
             guard let monitor, !monitor.isListening else { return }
+
+            // Don't resume wake word if voice mode is active — it uses
+            // SFSpeechRecognizer too and macOS only allows one active
+            // recognition task per process.
+            if let voiceModeManager = self?.voiceModeManager, voiceModeManager.state != .off {
+                log.info("Skipping wake word resume — voice mode is active")
+                return
+            }
+
             log.info("Resuming wake word engine after live transcription stopped")
             monitor.startMonitoring()
         }
