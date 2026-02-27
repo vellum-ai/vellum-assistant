@@ -19,6 +19,31 @@ permissions:
   actions: read
 
 jobs:
+  headless:
+    name: Headless Browser Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: playwright
+        run: bun install
+
+      - name: Install Chromium
+        working-directory: playwright
+        run: bunx playwright install chromium
+
+      - name: Run headless browser tests
+        working-directory: playwright
+        run: bunx playwright test tests/signup-e2e.spec.ts
+
   playwright:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'preview')
     name: Playwright Tests
