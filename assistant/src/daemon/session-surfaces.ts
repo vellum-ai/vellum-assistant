@@ -5,6 +5,7 @@ import {
   getPrebuiltHomeBasePreview,
 } from '../home-base/prebuilt/seed.js';
 import { getApp, updateApp } from '../memory/app-store.js';
+import { isAppAllowed } from '../security/parental-control-store.js';
 import type { ToolExecutionResult } from '../tools/types.js';
 import { getLogger } from '../util/logger.js';
 import { isPlainObject } from '../util/object.js';
@@ -736,6 +737,9 @@ export async function surfaceProxyResolver(
     const preview = input.preview as DynamicPageSurfaceData['preview'];
     const app = getApp(appId);
     if (!app) return { content: `App not found: ${appId}`, isError: true };
+    if (!isAppAllowed(app.name)) {
+      return { content: `App "${app.name}" is not allowed in Restricted Mode.`, isError: true };
+    }
     const seededHomeBase = findSeededHomeBaseApp();
     const defaultPreview = seededHomeBase && seededHomeBase.id === app.id
       ? getPrebuiltHomeBasePreview()

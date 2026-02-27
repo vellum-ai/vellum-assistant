@@ -11,6 +11,7 @@ import { defaultGallery } from '../../gallery/default-gallery.js';
 import { getAppDiff, getAppFileAtVersion, getAppHistory, restoreAppVersion } from '../../memory/app-git-service.js';
 import { createApp, createAppRecord, deleteAppRecord, getApp, getAppPreview, listApps, queryAppRecords, updateApp,updateAppRecord } from '../../memory/app-store.js';
 import { createSharedAppLink } from '../../memory/shared-app-links-store.js';
+import { isAppAllowed } from '../../security/parental-control-store.js';
 import { computeContentId } from '../../util/content-id.js';
 import type {
   AppDataRequest,
@@ -87,6 +88,11 @@ export function handleAppOpenRequest(msg: { appId: string }, socket: net.Socket,
   const app = getApp(appId);
   if (!app) {
     ctx.send(socket, { type: 'error', message: `App not found: ${appId}` });
+    return;
+  }
+
+  if (!isAppAllowed(app.name)) {
+    ctx.send(socket, { type: 'error', message: `App "${app.name}" is not allowed in Restricted Mode.` });
     return;
   }
 
