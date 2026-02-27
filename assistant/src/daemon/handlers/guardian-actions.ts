@@ -5,6 +5,7 @@ import { applyGuardianDecision } from '../../approvals/guardian-decision-primiti
 import { handleChannelDecision } from '../../runtime/channel-approvals.js';
 import type { ApprovalAction } from '../../runtime/channel-approval-types.js';
 import * as pendingInteractions from '../../runtime/pending-interactions.js';
+import { handleAccessRequestDecision } from '../../runtime/routes/access-request-decision.js';
 import { defineHandlers, log } from './shared.js';
 
 const VALID_ACTIONS = new Set<string>(['approve_once', 'approve_always', 'reject']);
@@ -31,6 +32,24 @@ export const guardianActionsHandlers = defineHandlers({
     // Try the channel guardian approval store first (tool approval prompts)
     const approval = getPendingApprovalForRequest(msg.requestId);
     if (approval) {
+      // Access request approvals need a separate decision path — they don't have
+      // pending interactions and use verification sessions instead.
+      if (approval.toolName === 'ingress_access_request') {
+        const mappedAction = msg.action === 'reject' ? 'deny' as const : 'approve' as const;
+        const decisionResult = handleAccessRequestDecision(
+          approval,
+          mappedAction,
+          approval.guardianExternalUserId ?? 'desktop',
+        );
+        ctx.send(socket, {
+          type: 'guardian_action_decision_response',
+          applied: decisionResult.type !== 'stale',
+          requestId: msg.requestId,
+          reason: decisionResult.type === 'stale' ? 'stale' : undefined,
+        });
+        return;
+      }
+
       const result = applyGuardianDecision({
         approval,
         decision: { action: msg.action as 'approve_once' | 'approve_always' | 'reject', source: 'plain_text', requestId: msg.requestId },
@@ -41,7 +60,7 @@ export const guardianActionsHandlers = defineHandlers({
         type: 'guardian_action_decision_response',
         applied: result.applied,
         reason: result.reason,
-        requestId: result.requestId,
+        requestId: result.requestId ?? msg.requestId,
       });
       return;
     }
@@ -57,7 +76,7 @@ export const guardianActionsHandlers = defineHandlers({
       ctx.send(socket, {
         type: 'guardian_action_decision_response',
         applied: result.applied,
-        requestId: result.requestId,
+        requestId: result.requestId ?? msg.requestId,
       });
       return;
     }

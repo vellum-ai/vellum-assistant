@@ -15,6 +15,7 @@ import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';
 import { buildDecisionActions } from '../guardian-decision-types.js';
 import { httpError } from '../http-errors.js';
 import * as pendingInteractions from '../pending-interactions.js';
+import { handleAccessRequestDecision } from './access-request-decision.js';
 
 // ---------------------------------------------------------------------------
 // GET /v1/guardian-actions/pending?conversationId=...
@@ -74,13 +75,30 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
   // Try the channel guardian approval store first (tool approval prompts)
   const approval = getPendingApprovalForRequest(requestId);
   if (approval) {
+    // Access request approvals need a separate decision path — they don't have
+    // pending interactions and use verification sessions instead.
+    if (approval.toolName === 'ingress_access_request') {
+      const mappedAction = action === 'reject' ? 'deny' as const : 'approve' as const;
+      const decisionResult = handleAccessRequestDecision(
+        approval,
+        mappedAction,
+        approval.guardianExternalUserId ?? 'desktop',
+      );
+      return Response.json({
+        applied: decisionResult.type !== 'stale',
+        requestId,
+        reason: decisionResult.type === 'stale' ? 'stale' : undefined,
+        accessRequestResult: decisionResult,
+      });
+    }
+
     const result = applyGuardianDecision({
       approval,
       decision: { action: action as 'approve_once' | 'approve_always' | 'reject', source: 'plain_text', requestId },
       actorExternalUserId: undefined,
       actorChannel: 'vellum',
     });
-    return Response.json(result);
+    return Response.json({ ...result, requestId: result.requestId ?? requestId });
   }
 
   // Fall back to the pending interactions tracker (direct confirmation requests).
@@ -91,7 +109,7 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
       interaction.conversationId,
       { action: action as ApprovalAction, source: 'plain_text', requestId },
     );
-    return Response.json(result);
+    return Response.json({ ...result, requestId: result.requestId ?? requestId });
   }
 
   return httpError('NOT_FOUND', 'No pending guardian action found for this requestId', 404);
