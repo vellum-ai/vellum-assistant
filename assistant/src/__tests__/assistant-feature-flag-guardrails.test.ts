@@ -13,7 +13,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
@@ -209,8 +209,8 @@ describe('assistant feature flag declaration coverage guard', () => {
         const absPath = join(repoRoot, relPath);
         const content = readFileSync(absPath, 'utf-8');
         let match: RegExpExecArray | null;
-        while ((match = multilinePattern.exec(content)) !== null) {
-          usedKeys.add(match[1]);
+        while ((match = multilinePattern.exec(content))) {
+          usedKeys.add(match[1]!);
         }
         // Reset lastIndex since we reuse the regex across files
         multilinePattern.lastIndex = 0;
