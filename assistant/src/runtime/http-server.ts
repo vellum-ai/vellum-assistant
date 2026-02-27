@@ -81,6 +81,10 @@ import {
   handleTrustRule,
 } from './routes/approval-routes.js';
 import {
+  handleGuardianActionDecision,
+  handleGuardianActionsPending,
+} from './routes/guardian-action-routes.js';
+import {
   handleDeleteAttachment,
   handleGetAttachment,
   handleGetAttachmentContent,
@@ -703,6 +707,10 @@ export class RuntimeHttpServer {
       if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req);
       if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req);
       if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url);
+
+      // Guardian action endpoints — deterministic button-based decisions
+      if (endpoint === 'guardian-actions/pending' && req.method === 'GET') return handleGuardianActionsPending(req);
+      if (endpoint === 'guardian-actions/decision' && req.method === 'POST') return await handleGuardianActionDecision(req);
 
       // Contacts
       if (endpoint === 'contacts' && req.method === 'GET') return handleListContacts(url);

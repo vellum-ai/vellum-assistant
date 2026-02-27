@@ -14,6 +14,7 @@ import { inboxInviteHandlers } from './config-inbox.js';
 import { diagnosticsHandlers } from './diagnostics.js';
 import { dictationHandlers } from './dictation.js';
 import { documentHandlers } from './documents.js';
+import { guardianActionsHandlers } from './guardian-actions.js';
 import { homeBaseHandlers } from './home-base.js';
 import { identityHandlers } from './identity.js';
 import { miscHandlers } from './misc.js';
@@ -149,6 +150,7 @@ const handlers = {
   ...diagnosticsHandlers,
   ...miscHandlers,
   ...documentHandlers,
+  ...guardianActionsHandlers,
   ...workItemHandlers,
   ...subagentHandlers,
   ...browserHandlers,

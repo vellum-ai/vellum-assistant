@@ -2343,6 +2343,8 @@ public enum ServerMessage: Decodable, Sendable {
     case pairingApprovalRequest(PairingApprovalRequestMessage)
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
     case approvedDeviceRemoveResponse(ApprovedDeviceRemoveResponseMessage)
+    case guardianActionsPendingResponse(GuardianActionsPendingResponseMessage)
+    case guardianActionDecisionResponse(GuardianActionDecisionResponseMessage)
     case recordingPause(IPCRecordingPause)
     case recordingResume(IPCRecordingResume)
     case recordingStart(IPCRecordingStart)
@@ -2760,6 +2762,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "approved_device_remove_response":
             let message = try ApprovedDeviceRemoveResponseMessage(from: decoder)
             self = .approvedDeviceRemoveResponse(message)
+        case "guardian_actions_pending_response":
+            let message = try GuardianActionsPendingResponseMessage(from: decoder)
+            self = .guardianActionsPendingResponse(message)
+        case "guardian_action_decision_response":
+            let message = try GuardianActionDecisionResponseMessage(from: decoder)
+            self = .guardianActionDecisionResponse(message)
         case "recording_pause":
             let message = try IPCRecordingPause(from: decoder)
             self = .recordingPause(message)
@@ -3013,6 +3021,64 @@ public struct ApprovedDevicesClearMessage: Encodable, Sendable {
     public let type: String = "approved_devices_clear"
 
     public init() {}
+}
+
+// MARK: - Guardian Action Messages
+
+/// A single action button a guardian can press.
+public struct GuardianActionOption: Decodable, Sendable {
+    public let action: String
+    public let label: String
+}
+
+/// A pending guardian decision prompt.
+public struct GuardianDecisionPromptWire: Decodable, Sendable {
+    public let requestId: String
+    public let requestCode: String
+    public let state: String
+    public let questionText: String
+    public let toolName: String?
+    public let actions: [GuardianActionOption]
+    public let expiresAt: Int
+    public let conversationId: String
+    public let callSessionId: String?
+}
+
+/// Server -> Client: list of pending guardian decision prompts.
+public struct GuardianActionsPendingResponseMessage: Decodable, Sendable {
+    public let prompts: [GuardianDecisionPromptWire]
+}
+
+/// Server -> Client: result of a guardian action decision.
+public struct GuardianActionDecisionResponseMessage: Decodable, Sendable {
+    public let applied: Bool
+    public let reason: String?
+    public let requestId: String?
+    public let userText: String?
+}
+
+/// Client -> Server: request pending guardian actions for a conversation.
+public struct GuardianActionsPendingRequestMessage: Encodable, Sendable {
+    public let type: String = "guardian_actions_pending_request"
+    public let conversationId: String
+
+    public init(conversationId: String) {
+        self.conversationId = conversationId
+    }
+}
+
+/// Client -> Server: submit a guardian action decision.
+public struct GuardianActionDecisionMessage: Encodable, Sendable {
+    public let type: String = "guardian_action_decision"
+    public let requestId: String
+    public let action: String
+    public let conversationId: String?
+
+    public init(requestId: String, action: String, conversationId: String? = nil) {
+        self.requestId = requestId
+        self.action = action
+        self.conversationId = conversationId
+    }
 }
 
 // MARK: - Work Item Helpers
