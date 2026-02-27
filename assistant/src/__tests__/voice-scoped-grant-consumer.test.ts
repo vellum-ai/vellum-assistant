@@ -1,13 +1,19 @@
 /**
- * Tests for M4: voice consumer checks scoped grants before auto-denying
- * non-guardian confirmation requests.
+ * Tests that the voice bridge consumes scoped approval grants via the
+ * unified approval primitive before auto-denying non-guardian callers.
+ *
+ * Some confirmation_request events originate from proxy/network paths
+ * (e.g. PermissionPrompter in createProxyApprovalCallback) that bypass
+ * the pre-exec gate. The bridge must check for a matching scoped grant
+ * and allow the confirmation if one exists.
  *
  * Verifies:
- *   1. A matching grant allows a non-guardian voice confirmation (exactly once).
- *   2. No grant or mismatched grant still auto-denies.
+ *   1. Non-guardian confirmation requests are auto-allowed when a
+ *      matching grant exists (bridge consumes it via the primitive).
+ *   2. Non-guardian confirmation requests are auto-denied when no
+ *      matching grant exists.
  *   3. Guardian auto-allow path remains unchanged.
  *   4. Grants are revoked on call end (controller.destroy).
- *   5. Second identical invocation after consume is denied (one-time use).
  */
 
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -243,13 +249,14 @@ function grantParams(overrides: Partial<CreateScopedApprovalGrantParams> = {}): 
 // Tests
 // ===========================================================================
 
-describe('voice scoped grant consumer', () => {
+describe('voice bridge confirmation handling (grant consumption via primitive)', () => {
   beforeEach(() => {
     clearTables();
   });
 
-  test('non-guardian with matching grant: consumed and allowed', async () => {
-    // Create a matching grant
+  test('non-guardian with matching grant: auto-allowed (bridge consumes grant via primitive)', async () => {
+    // A matching grant should be consumed and the confirmation allowed.
+    // This covers proxy/network confirmation requests that bypass the pre-exec gate.
     createScopedApprovalGrant(grantParams());
 
     const mockData = createMockSession();
@@ -279,7 +286,15 @@ describe('voice scoped grant consumer', () => {
     const decision = mockData.getConfirmationDecision();
     expect(decision).not.toBeNull();
     expect(decision!.decision).toBe('allow');
-    expect(decision!.reason).toContain('scoped grant');
+    expect(decision!.reason).toContain('guardian pre-approved via scoped grant');
+
+    // The grant should be consumed (no longer active)
+    const db = getDb();
+    const activeGrants = db.select()
+      .from(scopedApprovalGrants)
+      .where(eq(scopedApprovalGrants.status, 'active'))
+      .all();
+    expect(activeGrants.length).toBe(0);
   });
 
   test('non-guardian without grant: auto-denied', async () => {
@@ -379,13 +394,14 @@ describe('voice scoped grant consumer', () => {
     expect(decision!.reason).toContain('guardian voice call');
   });
 
-  test('one-time use: second identical invocation after consume is denied', async () => {
-    // Create a single grant
-    createScopedApprovalGrant(grantParams());
+  test('non-guardian with grant for different assistantId: auto-denied', async () => {
+    // Create a grant scoped to a different assistant
+    createScopedApprovalGrant(grantParams({
+      assistantId: 'other-assistant',
+    }));
 
-    // First invocation — should consume the grant and allow
-    const mockData1 = createMockSession({ confirmationRequestId: 'req-first' });
-    setupBridgeDeps(() => mockData1.session);
+    const mockData = createMockSession();
+    setupBridgeDeps(() => mockData.session);
 
     const guardianContext: GuardianRuntimeContext = {
       sourceChannel: 'voice',
@@ -396,7 +412,7 @@ describe('voice scoped grant consumer', () => {
     await startVoiceTurn({
       conversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
-      content: 'first utterance',
+      content: 'test utterance',
       assistantId: ASSISTANT_ID,
       guardianContext,
       isInbound: true,
@@ -407,31 +423,9 @@ describe('voice scoped grant consumer', () => {
 
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    const decision1 = mockData1.getConfirmationDecision();
-    expect(decision1).not.toBeNull();
-    expect(decision1!.decision).toBe('allow');
-
-    // Second invocation — grant already consumed, should deny
-    const mockData2 = createMockSession({ confirmationRequestId: 'req-second' });
-    setupBridgeDeps(() => mockData2.session);
-
-    await startVoiceTurn({
-      conversationId: CONVERSATION_ID,
-      callSessionId: CALL_SESSION_ID,
-      content: 'second utterance',
-      assistantId: ASSISTANT_ID,
-      guardianContext,
-      isInbound: true,
-      onTextDelta: () => {},
-      onComplete: () => {},
-      onError: () => {},
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    const decision2 = mockData2.getConfirmationDecision();
-    expect(decision2).not.toBeNull();
-    expect(decision2!.decision).toBe('deny');
+    const decision = mockData.getConfirmationDecision();
+    expect(decision).not.toBeNull();
+    expect(decision!.decision).toBe('deny');
   });
 
   test('grants revoked when revokeScopedApprovalGrantsForContext is called with callSessionId', () => {
@@ -533,39 +527,5 @@ describe('voice scoped grant consumer', () => {
       ))
       .all();
     expect(otherActive.length).toBe(1);
-  });
-
-  test('non-guardian with grant for different assistantId: auto-denied', async () => {
-    // Create a grant scoped to a different assistant
-    createScopedApprovalGrant(grantParams({
-      assistantId: 'other-assistant',
-    }));
-
-    const mockData = createMockSession();
-    setupBridgeDeps(() => mockData.session);
-
-    const guardianContext: GuardianRuntimeContext = {
-      sourceChannel: 'voice',
-      actorRole: 'non-guardian',
-      requesterExternalUserId: 'caller-123',
-    };
-
-    await startVoiceTurn({
-      conversationId: CONVERSATION_ID,
-      callSessionId: CALL_SESSION_ID,
-      content: 'test utterance',
-      assistantId: ASSISTANT_ID,
-      guardianContext,
-      isInbound: true,
-      onTextDelta: () => {},
-      onComplete: () => {},
-      onError: () => {},
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    const decision = mockData.getConfirmationDecision();
-    expect(decision).not.toBeNull();
-    expect(decision!.decision).toBe('deny');
   });
 });
