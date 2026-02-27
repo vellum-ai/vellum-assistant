@@ -526,14 +526,13 @@ export async function processMessage(
           const persisted = await conversationStore.addMessage(session.conversationId, 'user', JSON.stringify(userMsg.content), guardianChannelMeta);
           session.messages.push(userMsg);
 
-          // Mint the grant BEFORE answerCall so the grant exists before the
-          // call controller resumes and the next voice turn tries to consume it.
-          await tryMintGuardianActionGrant({ resolvedRequest: request, answerText, decisionChannel: 'vellum', approvalConversationGenerator: _approvalConversationGenerator });
-
           const answerResult = await answerCall({ callSessionId: request.callSessionId, answer: answerText, pendingQuestionId: request.pendingQuestionId });
 
           if ('ok' in answerResult && answerResult.ok) {
             const resolved = resolveGuardianActionRequest(request.id, answerText, 'vellum');
+            if (resolved) {
+              await tryMintGuardianActionGrant({ resolvedRequest: request, answerText, decisionChannel: 'vellum', approvalConversationGenerator: _approvalConversationGenerator });
+            }
             const replyText = resolved
               ? 'Your answer has been relayed to the call.'
               : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_answered' }, {}, _guardianActionCopyGenerator);
@@ -626,13 +625,10 @@ export async function processMessage(
               if (!senderHasDelivery) {
                 log.info({ supersededRequestId: request.id, currentRequestId: currentPending.id, guardianExternalUserId: guardianExtUserId }, 'Superseded remap skipped: sender has no delivery on current pending request');
               } else {
-                // Mint the grant BEFORE answerCall so the grant exists before the
-                // call controller resumes and the next voice turn tries to consume it.
-                await tryMintGuardianActionGrant({ resolvedRequest: currentPending, answerText, decisionChannel: 'vellum', approvalConversationGenerator: _approvalConversationGenerator });
-
                 const remapResult = await answerCall({ callSessionId: currentPending.callSessionId, answer: answerText, pendingQuestionId: currentPending.pendingQuestionId });
                 if ('ok' in remapResult && remapResult.ok) {
                   resolveGuardianActionRequest(currentPending.id, answerText, 'vellum');
+                  await tryMintGuardianActionGrant({ resolvedRequest: currentPending, answerText, decisionChannel: 'vellum', approvalConversationGenerator: _approvalConversationGenerator });
                   const remapText = await composeGuardianActionMessageGenerative({ scenario: 'guardian_superseded_remap', questionText: currentPending.questionText }, {}, _guardianActionCopyGenerator);
                   const remapMsg = createAssistantMessage(remapText);
                   await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(remapMsg.content), guardianChannelMeta);
