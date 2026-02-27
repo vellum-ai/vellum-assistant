@@ -14,6 +14,7 @@ struct HeartbeatConfigView: View {
     @State private var activeHoursEnd: Int = 17
     @State private var nextRunAt: Int?
     @State private var isApplyingFromServer = false
+    @State private var saveErrorMessage: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -175,6 +176,18 @@ struct HeartbeatConfigView: View {
                                     .foregroundColor(VColor.textSecondary)
                             }
                         }
+
+                        // Inline save error
+                        if let saveError = saveErrorMessage {
+                            HStack(spacing: VSpacing.sm) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(VColor.error)
+                                Text(saveError)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.error)
+                            }
+                        }
                     }
                     .padding(VSpacing.lg)
                 }
@@ -269,8 +282,9 @@ struct HeartbeatConfigView: View {
             )
             // Refresh to get updated nextRunAt
             try daemonClient.sendHeartbeatConfigGet()
+            saveErrorMessage = nil
         } catch {
-            errorMessage = "Failed to save: \(error.localizedDescription)"
+            saveErrorMessage = "Failed to save: \(error.localizedDescription)"
         }
     }
 }
