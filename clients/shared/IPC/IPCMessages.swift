@@ -3026,9 +3026,14 @@ public struct ApprovedDevicesClearMessage: Encodable, Sendable {
 // MARK: - Guardian Action Messages
 
 /// A single action button a guardian can press.
-public struct GuardianActionOption: Decodable, Sendable {
+public struct GuardianActionOption: Decodable, Sendable, Equatable {
     public let action: String
     public let label: String
+
+    public init(action: String, label: String) {
+        self.action = action
+        self.label = label
+    }
 }
 
 /// A pending guardian decision prompt.

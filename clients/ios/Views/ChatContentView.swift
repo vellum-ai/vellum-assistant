@@ -121,6 +121,9 @@ struct ChatContentView: View {
                                     onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil,
                                     onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in
                                         viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision)
+                                    },
+                                    onGuardianAction: { requestId, action in
+                                        viewModel.submitGuardianDecision(requestId: requestId, action: action)
                                     }
                                 )
                                 .id(message.id)

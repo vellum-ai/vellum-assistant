@@ -14,19 +14,23 @@ public struct MessageBubbleView: View {
     /// for the last assistant message. Pass nil when generation is in-flight.
     public let onRegenerate: (() -> Void)?
     public let onAlwaysAllow: ((String, String, String, String) -> Void)?
+    /// Called when a guardian decision action button is clicked: (requestId, action).
+    public let onGuardianAction: ((String, String) -> Void)?
 
     public init(
         message: ChatMessage,
         onConfirmationResponse: ((String, String) -> Void)?,
         onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?,
         onRegenerate: (() -> Void)?,
-        onAlwaysAllow: ((String, String, String, String) -> Void)? = nil
+        onAlwaysAllow: ((String, String, String, String) -> Void)? = nil,
+        onGuardianAction: ((String, String) -> Void)? = nil
     ) {
         self.message = message
         self.onConfirmationResponse = onConfirmationResponse
         self.onSurfaceAction = onSurfaceAction
         self.onRegenerate = onRegenerate
         self.onAlwaysAllow = onAlwaysAllow
+        self.onGuardianAction = onGuardianAction
     }
 
     public var body: some View {
@@ -48,6 +52,13 @@ public struct MessageBubbleView: View {
                         },
                         onAlwaysAllow: { requestId, pattern, scope, decision in
                             onAlwaysAllow?(requestId, pattern, scope, decision)
+                        }
+                    )
+                } else if let guardianDecision = message.guardianDecision {
+                    GuardianDecisionBubble(
+                        decision: guardianDecision,
+                        onAction: { requestId, action in
+                            onGuardianAction?(requestId, action)
                         }
                     )
                 } else if message.role == .assistant && hasInterleavedContent {

@@ -37,6 +37,7 @@ struct ChatView: View {
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onAlwaysAllow: (String, String, String, String) -> Void
+    var onGuardianAction: ((String, String) -> Void)?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let sessionError: SessionError?
     let onRetry: () -> Void
@@ -187,6 +188,7 @@ struct ChatView: View {
                             onConfirmationDeny: onConfirmationDeny,
                             onAlwaysAllow: onAlwaysAllow,
                             onSurfaceAction: onSurfaceAction,
+                            onGuardianAction: onGuardianAction,
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
                             mediaEmbedSettings: mediaEmbedSettings,
