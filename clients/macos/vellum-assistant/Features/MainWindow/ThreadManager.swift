@@ -1350,8 +1350,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard let viewModel = activeViewModel else { return }
 
         activeViewModelCancellable = viewModel.messageManager.$messages
-            .sink { [weak self] newMessages in
-                self?.activeMessageCount = newMessages.count
+            .map { $0.count }
+            .removeDuplicates()
+            .sink { [weak self] count in
+                self?.activeMessageCount = count
             }
     }
 
