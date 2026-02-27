@@ -874,6 +874,57 @@ export const guardianActionDeliveries = sqliteTable('guardian_action_deliveries'
   index('idx_guardian_action_deliveries_dest_conversation').on(table.destinationConversationId),
 ]);
 
+// ── Canonical Guardian Requests (unified cross-source guardian domain) ─
+
+export const canonicalGuardianRequests = sqliteTable('canonical_guardian_requests', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  sourceType: text('source_type').notNull(),
+  sourceChannel: text('source_channel'),
+  conversationId: text('conversation_id'),
+  requesterExternalUserId: text('requester_external_user_id'),
+  guardianExternalUserId: text('guardian_external_user_id'),
+  callSessionId: text('call_session_id'),
+  pendingQuestionId: text('pending_question_id'),
+  questionText: text('question_text'),
+  requestCode: text('request_code'),
+  toolName: text('tool_name'),
+  inputDigest: text('input_digest'),
+  status: text('status').notNull().default('pending'),
+  answerText: text('answer_text'),
+  decidedByExternalUserId: text('decided_by_external_user_id'),
+  followupState: text('followup_state'),
+  expiresAt: text('expires_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_canonical_guardian_requests_status').on(table.status),
+  index('idx_canonical_guardian_requests_guardian').on(table.guardianExternalUserId, table.status),
+  index('idx_canonical_guardian_requests_conversation').on(table.conversationId, table.status),
+  index('idx_canonical_guardian_requests_source').on(table.sourceType, table.status),
+  index('idx_canonical_guardian_requests_kind').on(table.kind, table.status),
+  index('idx_canonical_guardian_requests_request_code').on(table.requestCode),
+]);
+
+// ── Canonical Guardian Deliveries (per-channel delivery tracking) ─────
+
+export const canonicalGuardianDeliveries = sqliteTable('canonical_guardian_deliveries', {
+  id: text('id').primaryKey(),
+  requestId: text('request_id')
+    .notNull()
+    .references(() => canonicalGuardianRequests.id, { onDelete: 'cascade' }),
+  destinationChannel: text('destination_channel').notNull(),
+  destinationConversationId: text('destination_conversation_id'),
+  destinationChatId: text('destination_chat_id'),
+  destinationMessageId: text('destination_message_id'),
+  status: text('status').notNull().default('pending'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_canonical_guardian_deliveries_request_id').on(table.requestId),
+  index('idx_canonical_guardian_deliveries_status').on(table.status),
+]);
+
 // ── Assistant Inbox ──────────────────────────────────────────────────
 
 export const assistantIngressInvites = sqliteTable('assistant_ingress_invites', {
