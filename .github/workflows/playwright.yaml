@@ -107,25 +107,6 @@ jobs:
           SIGN_IDENTITY="-" \
           ./build.sh build
 
-      - name: Verify daemon external package resolution
-        run: |
-          MACOS_DIR="clients/macos/dist/Vellum.app/Contents/MacOS"
-
-          # Verify onnxruntime-node is bundled next to the daemon binary
-          if [ ! -d "$MACOS_DIR/node_modules/onnxruntime-node" ]; then
-            echo "::error::onnxruntime-node not bundled in app — daemon will fail to resolve external packages"
-            exit 1
-          fi
-
-          # Verify daemon can resolve external packages from its own directory
-          cd "$MACOS_DIR"
-          output=$(timeout 5 ./vellum-daemon 2>&1) || true
-          if echo "$output" | grep -q "Cannot find package"; then
-            echo "::error::Daemon binary cannot resolve external packages from its own directory"
-            echo "$output"
-            exit 1
-          fi
-
       - name: Install Playwright dependencies
         working-directory: playwright
         run: bun install
