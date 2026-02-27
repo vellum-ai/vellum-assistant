@@ -800,6 +800,17 @@ public final class ChatViewModel: ObservableObject {
                         }
                     }
                 }
+                // Auto-retry a failed message on reconnect so the user doesn't
+                // have to manually click "Retry" after a transient daemon crash.
+                if let self, self.isConnectionError, self.lastFailedMessageText != nil {
+                    self.retryLastMessage()
+                } else if let self, self.isConnectionError {
+                    // No message to retry, but clear the stale error banner
+                    self.errorText = nil
+                    self.lastFailedSendError = nil
+                    self.connectionDiagnosticHint = nil
+                }
+
                 // If we already have a session ID, flush immediately. Otherwise
                 // defer: sessionId's didSet will trigger flushOfflineQueue() once
                 // the session is restored from history (cold-start reconnect case).
