@@ -811,12 +811,13 @@ export async function handleChannelInbound(
     });
   }
 
-  // ── Guardian action answer interception ──
-  // Check if this inbound message is a reply to a cross-channel guardian
-  // action request (from a voice call). Must run before approval interception
-  // so guardian answers are not mistakenly routed into the approval flow.
-  // Callback payloads (inline button presses) are excluded — they should
-  // not be misclassified as guardian answers.
+  // ── Unified guardian action answer interception ──
+  // Deterministic priority matching: pending → follow-up → expired.
+  // When the guardian includes an explicit request code, match it across all
+  // states in priority order. When only one actionable request exists,
+  // auto-match without requiring a code prefix. Callback payloads (inline
+  // button presses) are excluded — they should not be misclassified as
+  // guardian answers.
   if (
     !result.duplicate &&
     !hasCallbackData &&
@@ -824,533 +825,340 @@ export async function handleChannelInbound(
     body.senderExternalUserId &&
     replyCallbackUrl
   ) {
-    const pendingDeliveries = getPendingDeliveriesByDestination(canonicalAssistantId, sourceChannel, externalChatId);
-    if (pendingDeliveries.length > 0) {
-      // Identity check: only the designated guardian can answer
-      const validDeliveries = pendingDeliveries.filter(
-        (d) => d.destinationExternalUserId === body.senderExternalUserId,
-      );
+    // Gather deliveries across all states for this destination, filtered by sender identity
+    const allPending = getPendingDeliveriesByDestination(canonicalAssistantId, sourceChannel, externalChatId)
+      .filter((d) => d.destinationExternalUserId === body.senderExternalUserId);
+    const allFollowup = getFollowupDeliveriesByDestination(canonicalAssistantId, sourceChannel, externalChatId)
+      .filter((d) => d.destinationExternalUserId === body.senderExternalUserId);
+    const allExpired = getExpiredDeliveriesByDestination(canonicalAssistantId, sourceChannel, externalChatId)
+      .filter((d) => d.destinationExternalUserId === body.senderExternalUserId);
+    const totalActionable = allPending.length + allFollowup.length + allExpired.length;
 
-      if (validDeliveries.length > 0) {
-        let matchedDelivery = validDeliveries.length === 1 ? validDeliveries[0] : null;
-        let answerText = trimmedContent;
-
-        // Multiple pending deliveries: require request code prefix for disambiguation
-        if (validDeliveries.length > 1) {
-          for (const d of validDeliveries) {
-            const req = getGuardianActionRequest(d.requestId);
-            if (req && trimmedContent.toUpperCase().startsWith(req.requestCode)) {
-              matchedDelivery = d;
-              answerText = trimmedContent.slice(req.requestCode.length).trim();
-              break;
-            }
-          }
-
-          if (!matchedDelivery) {
-            // Send disambiguation message listing the request codes
-            const codes = validDeliveries
-              .map((d) => {
-                const req = getGuardianActionRequest(d.requestId);
-                return req ? req.requestCode : null;
-              })
-              .filter(Boolean);
-            try {
-              await deliverChannelReply(replyCallbackUrl, {
-                chatId: externalChatId,
-                text: `You have multiple pending guardian questions. Please prefix your reply with the reference code (${codes.join(', ')}) to indicate which question you are answering.`,
-                assistantId,
-              }, bearerToken);
-            } catch (err) {
-              log.error({ err, externalChatId }, 'Failed to deliver guardian action disambiguation message');
-            }
-            return Response.json({
-              accepted: true,
-              duplicate: false,
-              eventId: result.eventId,
-              guardianAnswer: 'disambiguation_sent',
-            });
+    if (totalActionable > 0) {
+      // ── Try to parse an explicit request code from the message ──
+      // Check all deliveries across states for a code prefix match, in priority order
+      type CodeMatch = { delivery: typeof allPending[0]; request: NonNullable<ReturnType<typeof getGuardianActionRequest>>; state: 'pending' | 'followup' | 'expired'; answerText: string };
+      let codeMatch: CodeMatch | null = null;
+      const upperContent = trimmedContent.toUpperCase();
+      const orderedSets: Array<{ deliveries: typeof allPending; state: 'pending' | 'followup' | 'expired' }> = [
+        { deliveries: allPending, state: 'pending' },
+        { deliveries: allFollowup, state: 'followup' },
+        { deliveries: allExpired, state: 'expired' },
+      ];
+      for (const { deliveries, state } of orderedSets) {
+        for (const d of deliveries) {
+          const req = getGuardianActionRequest(d.requestId);
+          if (req && upperContent.startsWith(req.requestCode)) {
+            codeMatch = { delivery: d, request: req, state, answerText: trimmedContent.slice(req.requestCode.length).trim() };
+            break;
           }
         }
-
-        if (matchedDelivery) {
-          const request = getGuardianActionRequest(matchedDelivery.requestId);
-          if (request) {
-            // Attempt to deliver the answer to the call first. Only resolve
-            // the guardian action request if answerCall succeeds, so that a
-            // failed delivery (e.g. pending question timed out) leaves the
-            // request pending for retry from another channel.
-            const answerResult = await answerCall({ callSessionId: request.callSessionId, answer: answerText, pendingQuestionId: request.pendingQuestionId });
-
-            if (!('ok' in answerResult) || !answerResult.ok) {
-              const errorMsg = 'error' in answerResult ? answerResult.error : 'Unknown error';
-              log.warn({ callSessionId: request.callSessionId, error: errorMsg }, 'answerCall failed for guardian answer');
-              try {
-                const failureText = await composeGuardianActionMessageGenerative(
-                  { scenario: 'guardian_answer_delivery_failed' },
-                  {},
-                  guardianActionCopyGenerator,
-                );
-                await deliverChannelReply(replyCallbackUrl, {
-                  chatId: externalChatId,
-                  text: failureText,
-                  assistantId,
-                }, bearerToken);
-              } catch (deliverErr) {
-                log.error({ err: deliverErr, externalChatId }, 'Failed to deliver guardian answer failure notice');
-              }
-              return Response.json({
-                accepted: true,
-                duplicate: false,
-                eventId: result.eventId,
-                guardianAnswer: 'answer_failed',
-              });
-            }
-
-            const resolved = resolveGuardianActionRequest(
-              request.id,
-              answerText,
-              sourceChannel,
-              body.senderExternalUserId,
-            );
-
-            if (resolved) {
-              // Mint a scoped grant so the voice call can consume it
-              // for subsequent tool confirmations.
-              tryMintGuardianActionGrant({
-                resolvedRequest: resolved,
-                answerText,
-                decisionChannel: sourceChannel,
-                guardianExternalUserId: body.senderExternalUserId,
-              });
-
-              return Response.json({
-                accepted: true,
-                duplicate: false,
-                eventId: result.eventId,
-                guardianAnswer: 'resolved',
-              });
-            } else {
-              // resolveGuardianActionRequest returned null — request was no
-              // longer pending. answerCall already succeeded above, so the
-              // answer WAS delivered to the call. Don't initiate a follow-up
-              // negotiation; instead tell the guardian the answer was relayed.
-              const freshRequest = getGuardianActionRequest(request.id);
-
-              // answerCall succeeded, so the answer was delivered regardless
-              // of the resolve race. Inform the guardian accordingly.
-              const relayedText = await composeGuardianActionMessageGenerative(
-                {
-                  scenario: 'guardian_stale_answered' as const,
-                },
-                {},
-                guardianActionCopyGenerator,
-              );
-              try {
-                await deliverChannelReply(replyCallbackUrl, {
-                  chatId: externalChatId,
-                  text: relayedText,
-                  assistantId,
-                }, bearerToken);
-              } catch (err) {
-                log.error({ err, externalChatId }, 'Failed to deliver guardian action stale notice');
-              }
-              log.info(
-                { requestId: request.id, freshStatus: freshRequest?.status },
-                'answerCall succeeded but resolveGuardianActionRequest returned null — informed guardian answer was relayed',
-              );
-              return Response.json({
-                accepted: true,
-                duplicate: false,
-                eventId: result.eventId,
-                guardianAnswer: 'stale',
-              });
-            }
-          }
-        }
+        if (codeMatch) break;
       }
-    }
-  }
 
-  // ── Expired guardian action late answer interception ──
-  // When no pending delivery was found above, check for expired requests
-  // eligible for follow-up (status='expired', followup_state='none').
-  // Exclude callback payloads — inline button presses should not be
-  // misclassified as late guardian answers.
-  if (
-    !result.duplicate &&
-    !hasCallbackData &&
-    trimmedContent.length > 0 &&
-    body.senderExternalUserId &&
-    replyCallbackUrl
-  ) {
-    const expiredDeliveries = getExpiredDeliveriesByDestination(canonicalAssistantId, sourceChannel, externalChatId);
-    if (expiredDeliveries.length > 0) {
-      const validExpired = expiredDeliveries.filter(
-        (d) => d.destinationExternalUserId === body.senderExternalUserId,
-      );
+      // ── Explicit code targets a non-pending state: handle terminal/remap ──
+      if (codeMatch && codeMatch.state !== 'pending') {
+        const targetReq = codeMatch.request;
 
-      if (validExpired.length > 0) {
-        let matchedExpired = validExpired.length === 1 ? validExpired[0] : null;
-        let expiredAnswerText = trimmedContent;
-
-        // Multiple expired deliveries: require request code prefix for disambiguation
-        if (validExpired.length > 1) {
-          for (const d of validExpired) {
-            const req = getGuardianActionRequest(d.requestId);
-            if (req && trimmedContent.toUpperCase().startsWith(req.requestCode)) {
-              matchedExpired = d;
-              expiredAnswerText = trimmedContent.slice(req.requestCode.length).trim();
-              break;
-            }
-          }
-
-          if (!matchedExpired) {
-            // Send disambiguation message listing the request codes
-            const codes = validExpired
-              .map((d) => {
-                const req = getGuardianActionRequest(d.requestId);
-                return req ? req.requestCode : null;
-              })
-              .filter((code): code is string => typeof code === 'string' && code.length > 0);
-            const disambiguationText = await composeGuardianActionMessageGenerative(
-              {
-                scenario: 'guardian_expired_disambiguation',
-                requestCodes: codes,
-                channel: sourceChannel,
-              },
-              { requiredKeywords: codes },
+        // Superseded request with no active call → terminal notice
+        if (targetReq.status === 'expired' && targetReq.expiredReason === 'superseded') {
+          const callSession = getCallSession(targetReq.callSessionId);
+          const callStillActive = callSession && !isTerminalState(callSession.status);
+          if (!callStillActive) {
+            const staleText = await composeGuardianActionMessageGenerative(
+              { scenario: 'guardian_stale_superseded' },
+              {},
               guardianActionCopyGenerator,
             );
             try {
-              await deliverChannelReply(replyCallbackUrl, {
-                chatId: externalChatId,
-                text: disambiguationText,
-                assistantId,
-              }, bearerToken);
+              await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: staleText, assistantId }, bearerToken);
             } catch (err) {
-              log.error({ err, externalChatId }, 'Failed to deliver guardian action expired disambiguation message');
+              log.error({ err, externalChatId }, 'Failed to deliver superseded terminal notice');
             }
-            return Response.json({
-              accepted: true,
-              duplicate: false,
-              eventId: result.eventId,
-              guardianAnswer: 'disambiguation_sent',
-            });
+            return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'stale_superseded' });
           }
         }
 
-        if (matchedExpired) {
-          const expiredRequest = getGuardianActionRequest(matchedExpired.requestId);
+        // If the code pointed to expired/follow-up but there's a pending request,
+        // route intentionally to the expired/follow-up handler with explanation
+        // (the per-state blocks below will pick it up via codeMatch).
+      }
 
-          if (expiredRequest && expiredRequest.status === 'expired' && expiredRequest.followupState === 'none') {
-            // ── Superseded remap: if the request was superseded (not timed out
-            // or disconnected), check whether the call is still active with a
-            // current pending request. If so, remap the late approval to the
-            // current request instead of entering the callback/message follow-up.
-            if (expiredRequest.expiredReason === 'superseded') {
-              const callSession = getCallSession(expiredRequest.callSessionId);
-              const callStillActive = callSession && !isTerminalState(callSession.status);
-              const currentPending = callStillActive
-                ? getPendingRequestByCallSessionId(expiredRequest.callSessionId)
-                : null;
+      // ── Auto-match: single actionable request across all states ──
+      // When there's only one request and no explicit code, auto-match directly
+      let autoMatched = false;
+      if (!codeMatch && totalActionable === 1) {
+        const singleDelivery = allPending[0] ?? allFollowup[0] ?? allExpired[0];
+        const singleReq = getGuardianActionRequest(singleDelivery.requestId);
+        if (singleReq) {
+          const state: 'pending' | 'followup' | 'expired' = allPending.length === 1 ? 'pending' : allFollowup.length === 1 ? 'followup' : 'expired';
+          // Strip the code prefix if the guardian uses it out of habit
+          let text = trimmedContent;
+          if (upperContent.startsWith(singleReq.requestCode)) {
+            text = trimmedContent.slice(singleReq.requestCode.length).trim();
+          }
+          codeMatch = { delivery: singleDelivery, request: singleReq, state, answerText: text };
+          autoMatched = true;
+        }
+      }
 
-              if (callStillActive && currentPending) {
-                // Verify the replying guardian has a delivery on the current
-                // pending request. If guardian bindings rotated between requests,
-                // the previous guardian should not resolve the newer request.
-                const currentDeliveries = getDeliveriesByRequestId(currentPending.id);
-                const senderHasDelivery = body.senderExternalUserId
-                  && currentDeliveries.some((d) => d.destinationExternalUserId === body.senderExternalUserId);
-                if (!senderHasDelivery) {
-                  log.info(
-                    {
-                      supersededRequestId: expiredRequest.id,
-                      currentRequestId: currentPending.id,
-                      senderExternalUserId: body.senderExternalUserId,
-                    },
-                    'Superseded remap skipped: sender has no delivery on current pending request',
-                  );
-                  // Fall through to the existing callback/message follow-up path
-                } else {
-                // Remap: deliver the answer to the call targeting the current
-                // pending question, then resolve the current request and mint a grant.
+      // ── Unknown code: message looks like a code prefix but doesn't match anything ──
+      // Detect when the message starts with a 6-char alphanumeric token that
+      // resembles a request code but doesn't match any known delivery.
+      if (!codeMatch && totalActionable > 0) {
+        const possibleCodeMatch = trimmedContent.match(/^([A-F0-9]{6})\s/i);
+        if (possibleCodeMatch) {
+          const candidateCode = possibleCodeMatch[1].toUpperCase();
+          // Check if this code exists in ANY delivery across states
+          const allDeliveries = [...allPending, ...allFollowup, ...allExpired];
+          const knownCodes = allDeliveries
+            .map((d) => { const req = getGuardianActionRequest(d.requestId); return req?.requestCode; })
+            .filter((code): code is string => typeof code === 'string');
+          const isKnown = knownCodes.includes(candidateCode);
+          if (!isKnown) {
+            const unknownText = await composeGuardianActionMessageGenerative(
+              { scenario: 'guardian_unknown_code', unknownCode: candidateCode },
+              {},
+              guardianActionCopyGenerator,
+            );
+            try {
+              await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: unknownText, assistantId }, bearerToken);
+            } catch (err) {
+              log.error({ err, externalChatId }, 'Failed to deliver unknown code notice');
+            }
+            return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'unknown_code' });
+          }
+        }
+      }
+
+      // ── No match and multiple actionable requests → disambiguation ──
+      if (!codeMatch && totalActionable > 1) {
+        const allDeliveries = [...allPending, ...allFollowup, ...allExpired];
+        const codes = allDeliveries
+          .map((d) => { const req = getGuardianActionRequest(d.requestId); return req ? req.requestCode : null; })
+          .filter((code): code is string => typeof code === 'string' && code.length > 0);
+
+        // Choose the appropriate disambiguation scenario based on which states are present
+        const disambiguationScenario = allPending.length > 0
+          ? 'guardian_pending_disambiguation' as const
+          : allFollowup.length > 0
+            ? 'guardian_followup_disambiguation' as const
+            : 'guardian_expired_disambiguation' as const;
+
+        const disambiguationText = await composeGuardianActionMessageGenerative(
+          { scenario: disambiguationScenario, requestCodes: codes, channel: sourceChannel },
+          { requiredKeywords: codes },
+          guardianActionCopyGenerator,
+        );
+        try {
+          await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: disambiguationText, assistantId }, bearerToken);
+        } catch (err) {
+          log.error({ err, externalChatId }, 'Failed to deliver guardian action disambiguation message');
+        }
+        return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'disambiguation_sent' });
+      }
+
+      // ── Dispatch matched delivery by state ──
+      if (codeMatch) {
+        const { delivery: matchedDelivery, request, state, answerText } = codeMatch;
+
+        // ── PENDING state handler ──
+        if (state === 'pending' && request.status === 'pending') {
+          const answerResult = await answerCall({ callSessionId: request.callSessionId, answer: answerText, pendingQuestionId: request.pendingQuestionId });
+
+          if (!('ok' in answerResult) || !answerResult.ok) {
+            const errorMsg = 'error' in answerResult ? answerResult.error : 'Unknown error';
+            log.warn({ callSessionId: request.callSessionId, error: errorMsg }, 'answerCall failed for guardian answer');
+            try {
+              const failureText = await composeGuardianActionMessageGenerative(
+                { scenario: 'guardian_answer_delivery_failed' },
+                {},
+                guardianActionCopyGenerator,
+              );
+              await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: failureText, assistantId }, bearerToken);
+            } catch (deliverErr) {
+              log.error({ err: deliverErr, externalChatId }, 'Failed to deliver guardian answer failure notice');
+            }
+            return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'answer_failed' });
+          }
+
+          const resolved = resolveGuardianActionRequest(request.id, answerText, sourceChannel, body.senderExternalUserId);
+
+          if (resolved) {
+            tryMintGuardianActionGrant({
+              resolvedRequest: resolved,
+              answerText,
+              decisionChannel: sourceChannel,
+              guardianExternalUserId: body.senderExternalUserId,
+            });
+            return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'resolved' });
+          } else {
+            const freshRequest = getGuardianActionRequest(request.id);
+            const relayedText = await composeGuardianActionMessageGenerative(
+              { scenario: 'guardian_stale_answered' as const },
+              {},
+              guardianActionCopyGenerator,
+            );
+            try {
+              await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: relayedText, assistantId }, bearerToken);
+            } catch (err) {
+              log.error({ err, externalChatId }, 'Failed to deliver guardian action stale notice');
+            }
+            log.info(
+              { requestId: request.id, freshStatus: freshRequest?.status },
+              'answerCall succeeded but resolveGuardianActionRequest returned null — informed guardian answer was relayed',
+            );
+            return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'stale' });
+          }
+        }
+
+        // ── FOLLOW-UP state handler ──
+        if (state === 'followup' && request.followupState === 'awaiting_guardian_choice') {
+          const turnResult = await processGuardianFollowUpTurn(
+            {
+              questionText: request.questionText,
+              lateAnswerText: request.lateAnswerText ?? '',
+              guardianReply: answerText,
+            },
+            guardianFollowUpConversationGenerator,
+          );
+
+          let stateApplied = true;
+          if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
+            stateApplied = progressFollowupState(request.id, 'dispatching', turnResult.disposition) !== undefined;
+          } else if (turnResult.disposition === 'decline') {
+            stateApplied = finalizeFollowup(request.id, 'declined') !== undefined;
+          }
+
+          if (!stateApplied) {
+            log.warn({ requestId: request.id, disposition: turnResult.disposition }, 'Follow-up state transition failed (already resolved)');
+            const staleText = await composeGuardianActionMessageGenerative(
+              { scenario: 'guardian_stale_followup' as const },
+              {},
+              guardianActionCopyGenerator,
+            );
+            try {
+              await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: staleText, assistantId }, bearerToken);
+            } catch (err) {
+              log.error({ err, externalChatId }, 'Failed to deliver stale follow-up notice');
+            }
+            return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianFollowUp: 'stale_ignored' });
+          }
+
+          try {
+            await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: turnResult.replyText, assistantId }, bearerToken);
+          } catch (err) {
+            log.error({ err, externalChatId }, 'Failed to deliver guardian follow-up conversation reply');
+          }
+
+          if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
+            void (async () => {
+              try {
+                const execResult = await executeFollowupAction(
+                  request.id,
+                  turnResult.disposition as 'call_back' | 'message_back',
+                  guardianActionCopyGenerator,
+                );
+                await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: execResult.guardianReplyText, assistantId }, bearerToken);
+              } catch (execErr) {
+                log.error({ err: execErr, requestId: request.id }, 'Follow-up action execution or completion reply failed');
+              }
+            })();
+          }
+
+          return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianFollowUp: turnResult.disposition });
+        }
+
+        // ── EXPIRED state handler ──
+        if (state === 'expired' && request.status === 'expired' && request.followupState === 'none') {
+          // Superseded remap: if the request was superseded (not timed out
+          // or disconnected), check whether the call is still active with a
+          // current pending request. If so, remap the late approval to the
+          // current request instead of entering the callback/message follow-up.
+          if (request.expiredReason === 'superseded') {
+            const callSession = getCallSession(request.callSessionId);
+            const callStillActive = callSession && !isTerminalState(callSession.status);
+            const currentPending = callStillActive
+              ? getPendingRequestByCallSessionId(request.callSessionId)
+              : null;
+
+            if (callStillActive && currentPending) {
+              const currentDeliveries = getDeliveriesByRequestId(currentPending.id);
+              const senderHasDelivery = body.senderExternalUserId
+                && currentDeliveries.some((d) => d.destinationExternalUserId === body.senderExternalUserId);
+              if (!senderHasDelivery) {
+                log.info(
+                  { supersededRequestId: request.id, currentRequestId: currentPending.id, senderExternalUserId: body.senderExternalUserId },
+                  'Superseded remap skipped: sender has no delivery on current pending request',
+                );
+              } else {
                 const remapResult = await answerCall({
                   callSessionId: currentPending.callSessionId,
-                  answer: expiredAnswerText,
+                  answer: answerText,
                   pendingQuestionId: currentPending.pendingQuestionId,
                 });
 
                 if ('ok' in remapResult && remapResult.ok) {
-                  const resolved = resolveGuardianActionRequest(
-                    currentPending.id,
-                    expiredAnswerText,
-                    sourceChannel,
-                    body.senderExternalUserId,
-                  );
-
+                  const resolved = resolveGuardianActionRequest(currentPending.id, answerText, sourceChannel, body.senderExternalUserId);
                   if (resolved) {
                     tryMintGuardianActionGrant({
                       resolvedRequest: resolved,
-                      answerText: expiredAnswerText,
+                      answerText,
                       decisionChannel: sourceChannel,
                       guardianExternalUserId: body.senderExternalUserId,
                     });
                   }
 
                   const remapText = await composeGuardianActionMessageGenerative(
-                    {
-                      scenario: 'guardian_superseded_remap',
-                      questionText: currentPending.questionText,
-                    },
+                    { scenario: 'guardian_superseded_remap', questionText: currentPending.questionText },
                     {},
                     guardianActionCopyGenerator,
                   );
                   try {
-                    await deliverChannelReply(replyCallbackUrl, {
-                      chatId: externalChatId,
-                      text: remapText,
-                      assistantId,
-                    }, bearerToken);
+                    await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: remapText, assistantId }, bearerToken);
                   } catch (err) {
                     log.error({ err, externalChatId }, 'Failed to deliver superseded remap confirmation');
                   }
-
                   log.info(
-                    { supersededRequestId: expiredRequest.id, remappedToRequestId: currentPending.id },
+                    { supersededRequestId: request.id, remappedToRequestId: currentPending.id },
                     'Late approval for superseded request remapped to current pending request',
                   );
-
-                  return Response.json({
-                    accepted: true,
-                    duplicate: false,
-                    eventId: result.eventId,
-                    guardianAnswer: 'superseded_remapped',
-                  });
+                  return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'superseded_remapped' });
                 }
-                // answerCall failed — fall through to the normal follow-up path
                 log.warn(
                   { callSessionId: currentPending.callSessionId, error: 'error' in remapResult ? remapResult.error : 'unknown' },
                   'Superseded remap answerCall failed, falling through to follow-up',
                 );
-                } // end else (senderHasDelivery)
               }
-              // Call not active or no pending request — fall through to follow-up
             }
-
-            const followupResult = startFollowupFromExpiredRequest(expiredRequest.id, expiredAnswerText);
-            if (followupResult) {
-              const followupText = await composeGuardianActionMessageGenerative(
-                {
-                  scenario: 'guardian_late_answer_followup',
-                  questionText: expiredRequest.questionText,
-                  lateAnswerText: expiredAnswerText,
-                },
-                {},
-                guardianActionCopyGenerator,
-              );
-              try {
-                await deliverChannelReply(replyCallbackUrl, {
-                  chatId: externalChatId,
-                  text: followupText,
-                  assistantId,
-                }, bearerToken);
-              } catch (err) {
-                log.error({ err, externalChatId }, 'Failed to deliver guardian action late answer follow-up');
-              }
-              return Response.json({
-                accepted: true,
-                duplicate: false,
-                eventId: result.eventId,
-                guardianAnswer: 'followup_initiated',
-              });
-            } else {
-              // startFollowupFromExpiredRequest returned null (race condition:
-              // another reply already transitioned the request). Send a stale
-              // notice instead of falling through to the normal agent pipeline.
-              const staleText = await composeGuardianActionMessageGenerative(
-                { scenario: 'guardian_stale_expired' as const },
-                {},
-                guardianActionCopyGenerator,
-              );
-              try {
-                await deliverChannelReply(replyCallbackUrl, {
-                  chatId: externalChatId,
-                  text: staleText,
-                  assistantId,
-                }, bearerToken);
-              } catch (err) {
-                log.error({ err, externalChatId }, 'Failed to deliver guardian action stale notice for expired follow-up race');
-              }
-              return Response.json({
-                accepted: true,
-                duplicate: false,
-                eventId: result.eventId,
-                guardianAnswer: 'stale',
-              });
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // ── Guardian follow-up conversation interception ──
-  // When a request is in `awaiting_guardian_choice` state, the guardian has
-  // already been asked "call back or send a message?". Their next message
-  // is the reply to that prompt — route it through the conversation engine
-  // to classify their intent.
-  if (
-    !result.duplicate &&
-    !hasCallbackData &&
-    trimmedContent.length > 0 &&
-    body.senderExternalUserId &&
-    replyCallbackUrl
-  ) {
-    const followupDeliveries = getFollowupDeliveriesByDestination(canonicalAssistantId, sourceChannel, externalChatId);
-    if (followupDeliveries.length > 0) {
-      const validFollowup = followupDeliveries.filter(
-        (d) => d.destinationExternalUserId === body.senderExternalUserId,
-      );
-
-      if (validFollowup.length > 0) {
-        let matchedFollowup = validFollowup.length === 1 ? validFollowup[0] : null;
-        let followupReplyText = trimmedContent;
-
-        // Multiple follow-up deliveries: require request code prefix for disambiguation
-        if (validFollowup.length > 1) {
-          for (const d of validFollowup) {
-            const req = getGuardianActionRequest(d.requestId);
-            if (req && trimmedContent.toUpperCase().startsWith(req.requestCode)) {
-              matchedFollowup = d;
-              followupReplyText = trimmedContent.slice(req.requestCode.length).trim();
-              break;
-            }
+            // Call not active or no pending request — fall through to follow-up
           }
 
-          if (!matchedFollowup) {
-            // Send disambiguation message listing the request codes
-            const codes = validFollowup
-              .map((d) => {
-                const req = getGuardianActionRequest(d.requestId);
-                return req ? req.requestCode : null;
-              })
-              .filter((code): code is string => typeof code === 'string' && code.length > 0);
-            const disambiguationText = await composeGuardianActionMessageGenerative(
-              {
-                scenario: 'guardian_followup_disambiguation',
-                requestCodes: codes,
-                channel: sourceChannel,
-              },
-              { requiredKeywords: codes },
+          const followupResult = startFollowupFromExpiredRequest(request.id, answerText);
+          if (followupResult) {
+            const followupText = await composeGuardianActionMessageGenerative(
+              { scenario: 'guardian_late_answer_followup', questionText: request.questionText, lateAnswerText: answerText },
+              {},
               guardianActionCopyGenerator,
             );
             try {
-              await deliverChannelReply(replyCallbackUrl, {
-                chatId: externalChatId,
-                text: disambiguationText,
-                assistantId,
-              }, bearerToken);
+              await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: followupText, assistantId }, bearerToken);
             } catch (err) {
-              log.error({ err, externalChatId }, 'Failed to deliver guardian follow-up disambiguation message');
+              log.error({ err, externalChatId }, 'Failed to deliver guardian action late answer follow-up');
             }
-            return Response.json({
-              accepted: true,
-              duplicate: false,
-              eventId: result.eventId,
-              guardianFollowUp: 'disambiguation_sent',
-            });
-          }
-        }
-
-        if (matchedFollowup) {
-          const followupRequest = getGuardianActionRequest(matchedFollowup.requestId);
-
-          if (followupRequest && followupRequest.followupState === 'awaiting_guardian_choice') {
-            const turnResult = await processGuardianFollowUpTurn(
-              {
-                questionText: followupRequest.questionText,
-                lateAnswerText: followupRequest.lateAnswerText ?? '',
-                guardianReply: followupReplyText,
-              },
-              guardianFollowUpConversationGenerator,
+            return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'followup_initiated' });
+          } else {
+            const staleText = await composeGuardianActionMessageGenerative(
+              { scenario: 'guardian_stale_expired' as const },
+              {},
+              guardianActionCopyGenerator,
             );
-
-            // Apply the disposition to the follow-up state machine.
-            // Both progressFollowupState and finalizeFollowup are compare-and-set:
-            // they return null when the transition was not applied (e.g. a concurrent
-            // reply already advanced the state). In that case we notify the guardian
-            // that the request was already resolved and skip action execution.
-            let stateApplied = true;
-            if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-              stateApplied = progressFollowupState(followupRequest.id, 'dispatching', turnResult.disposition) !== undefined;
-            } else if (turnResult.disposition === 'decline') {
-              stateApplied = finalizeFollowup(followupRequest.id, 'declined') !== undefined;
-            }
-            // keep_pending: no state change — guardian can reply again
-
-            if (!stateApplied) {
-              log.warn({ requestId: followupRequest.id, disposition: turnResult.disposition }, 'Follow-up state transition failed (already resolved)');
-              const staleText = await composeGuardianActionMessageGenerative(
-                { scenario: 'guardian_stale_followup' as const },
-                {},
-                guardianActionCopyGenerator,
-              );
-              try {
-                await deliverChannelReply(replyCallbackUrl, {
-                  chatId: externalChatId,
-                  text: staleText,
-                  assistantId,
-                }, bearerToken);
-              } catch (err) {
-                log.error({ err, externalChatId }, 'Failed to deliver stale follow-up notice');
-              }
-              return Response.json({
-                accepted: true,
-                duplicate: false,
-                eventId: result.eventId,
-                guardianFollowUp: 'stale_ignored',
-              });
-            }
-
-            // Deliver the generated reply to the guardian
             try {
-              await deliverChannelReply(replyCallbackUrl, {
-                chatId: externalChatId,
-                text: turnResult.replyText,
-                assistantId,
-              }, bearerToken);
+              await deliverChannelReply(replyCallbackUrl, { chatId: externalChatId, text: staleText, assistantId }, bearerToken);
             } catch (err) {
-              log.error({ err, externalChatId }, 'Failed to deliver guardian follow-up conversation reply');
+              log.error({ err, externalChatId }, 'Failed to deliver guardian action stale notice for expired follow-up race');
             }
-
-            // Execute the action and send a completion/failure reply (fire-and-forget).
-            // The initial reply above acknowledges the guardian's choice; the executor
-            // carries out the actual call_back or message_back and posts a second message.
-            if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-              void (async () => {
-                try {
-                  const execResult = await executeFollowupAction(
-                    followupRequest.id,
-                    turnResult.disposition as 'call_back' | 'message_back',
-                    guardianActionCopyGenerator,
-                  );
-                  await deliverChannelReply(replyCallbackUrl, {
-                    chatId: externalChatId,
-                    text: execResult.guardianReplyText,
-                    assistantId,
-                  }, bearerToken);
-                } catch (execErr) {
-                  log.error({ err: execErr, requestId: followupRequest.id }, 'Follow-up action execution or completion reply failed');
-                }
-              })();
-            }
-
-            return Response.json({
-              accepted: true,
-              duplicate: false,
-              eventId: result.eventId,
-              guardianFollowUp: turnResult.disposition,
-            });
+            return Response.json({ accepted: true, duplicate: false, eventId: result.eventId, guardianAnswer: 'stale' });
           }
         }
       }
