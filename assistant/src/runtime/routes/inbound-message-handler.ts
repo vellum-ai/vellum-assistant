@@ -254,23 +254,13 @@ export async function handleChannelInbound(
 
       if (denyNonMember) {
         log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Ingress ACL: no member record, denying');
-        if (body.replyCallbackUrl) {
-          try {
-            await deliverChannelReply(body.replyCallbackUrl, {
-              chatId: externalChatId,
-              text: "Sorry, you haven't been approved to message this assistant. You can ask its Guardian for an invite.",
-              assistantId,
-            }, bearerToken);
-          } catch (err) {
-            log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
-          }
-        }
 
         // Notify the guardian about the access request so they can approve/deny.
         // Only fires when a guardian binding exists and no duplicate pending
         // request already exists for this requester.
+        let guardianNotified = false;
         try {
-          notifyGuardianOfAccessRequest({
+          guardianNotified = notifyGuardianOfAccessRequest({
             canonicalAssistantId,
             sourceChannel,
             externalChatId,
@@ -282,25 +272,89 @@ export async function handleChannelInbound(
           log.error({ err, sourceChannel, externalChatId }, 'Failed to notify guardian of access request');
         }
 
-        return Response.json({ accepted: true, denied: true, reason: 'not_a_member' });
-      }
-    }
-
-    if (resolvedMember) {
-      if (resolvedMember.status !== 'active') {
-        log.info({ sourceChannel, memberId: resolvedMember.id, status: resolvedMember.status }, 'Ingress ACL: member not active, denying');
         if (body.replyCallbackUrl) {
+          const replyText = guardianNotified
+            ? "I've let my guardian know you'd like access. They'll send you a verification code if they approve your request."
+            : "Sorry, you haven't been approved to message this assistant.";
           try {
             await deliverChannelReply(body.replyCallbackUrl, {
               chatId: externalChatId,
-              text: "Sorry, you haven't been approved to message this assistant. You can ask its Guardian for an invite.",
+              text: replyText,
               assistantId,
             }, bearerToken);
           } catch (err) {
             log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
           }
         }
-        return Response.json({ accepted: true, denied: true, reason: `member_${resolvedMember.status}` });
+
+        return Response.json({ accepted: true, denied: true, reason: 'not_a_member' });
+      }
+    }
+
+    if (resolvedMember) {
+      if (resolvedMember.status !== 'active') {
+        // Same bypass logic as the no-member branch: verification codes and
+        // bootstrap commands must pass through even when the member record is
+        // revoked/blocked — otherwise the user can never re-verify.
+        let denyInactiveMember = true;
+        if (isGuardianVerifyCode) {
+          const hasPendingChallenge = !!getPendingChallenge(canonicalAssistantId, sourceChannel);
+          const hasActiveOutboundSession = !!findActiveSession(canonicalAssistantId, sourceChannel);
+          if (hasPendingChallenge || hasActiveOutboundSession) {
+            denyInactiveMember = false;
+          } else {
+            log.info({ sourceChannel, memberId: resolvedMember.id, hasPendingChallenge, hasActiveOutboundSession }, 'Ingress ACL: inactive member verification bypass denied');
+          }
+        }
+        if (isBootstrapCommand) {
+          const bootstrapPayload = (rawCommandIntentForAcl as Record<string, unknown>).payload as string;
+          const bootstrapTokenForAcl = bootstrapPayload.slice(3);
+          const bootstrapSessionForAcl = resolveBootstrapToken(canonicalAssistantId, sourceChannel, bootstrapTokenForAcl);
+          if (bootstrapSessionForAcl && bootstrapSessionForAcl.status === 'pending_bootstrap') {
+            denyInactiveMember = false;
+          } else {
+            log.info({ sourceChannel, memberId: resolvedMember.id, hasValidBootstrapSession: false }, 'Ingress ACL: inactive member bootstrap bypass denied');
+          }
+        }
+
+        if (denyInactiveMember) {
+          log.info({ sourceChannel, memberId: resolvedMember.id, status: resolvedMember.status }, 'Ingress ACL: member not active, denying');
+
+          // For revoked/pending members, notify the guardian so they can
+          // re-approve. Blocked members are intentionally excluded — the
+          // guardian already made an explicit decision to block them.
+          let guardianNotified = false;
+          if (resolvedMember.status !== 'blocked') {
+            try {
+              guardianNotified = notifyGuardianOfAccessRequest({
+                canonicalAssistantId,
+                sourceChannel,
+                externalChatId,
+                senderExternalUserId: body.senderExternalUserId,
+                senderName: body.senderName,
+                senderUsername: body.senderUsername,
+              });
+            } catch (err) {
+              log.error({ err, sourceChannel, externalChatId }, 'Failed to notify guardian of access request');
+            }
+          }
+
+          if (body.replyCallbackUrl) {
+            const replyText = guardianNotified
+              ? "I've let my guardian know you'd like access. They'll send you a verification code if they approve your request."
+              : "Sorry, you haven't been approved to message this assistant.";
+            try {
+              await deliverChannelReply(body.replyCallbackUrl, {
+                chatId: externalChatId,
+                text: replyText,
+                assistantId,
+              }, bearerToken);
+            } catch (err) {
+              log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
+            }
+          }
+          return Response.json({ accepted: true, denied: true, reason: `member_${resolvedMember.status}` });
+        }
       }
 
       if (resolvedMember.policy === 'deny') {
@@ -309,7 +363,7 @@ export async function handleChannelInbound(
           try {
             await deliverChannelReply(body.replyCallbackUrl, {
               chatId: externalChatId,
-              text: "Sorry, you haven't been approved to message this assistant. You can ask its Guardian for an invite.",
+              text: "Sorry, you haven't been approved to message this assistant.",
               assistantId,
             }, bearerToken);
           } catch (err) {
@@ -1408,7 +1462,7 @@ function notifyGuardianOfAccessRequest(params: {
   senderExternalUserId?: string;
   senderName?: string;
   senderUsername?: string;
-}): void {
+}): boolean {
   const {
     canonicalAssistantId,
     sourceChannel,
@@ -1418,16 +1472,17 @@ function notifyGuardianOfAccessRequest(params: {
     senderUsername,
   } = params;
 
-  if (!senderExternalUserId) return;
+  if (!senderExternalUserId) return false;
 
   const binding = getGuardianBinding(canonicalAssistantId, sourceChannel);
   if (!binding) {
     log.debug({ sourceChannel, canonicalAssistantId }, 'No guardian binding for access request notification');
-    return;
+    return false;
   }
 
   // Deduplicate: skip if there is already a pending approval request for
-  // the same requester on this channel.
+  // the same requester on this channel.  Still return true — the guardian
+  // was already notified for this request.
   const existing = findPendingAccessRequestForRequester(
     canonicalAssistantId,
     sourceChannel,
@@ -1439,7 +1494,7 @@ function notifyGuardianOfAccessRequest(params: {
       { sourceChannel, senderExternalUserId, existingId: existing.id },
       'Skipping duplicate access request notification',
     );
-    return;
+    return true;
   }
 
   const senderIdentifier = senderName || senderUsername || senderExternalUserId;
@@ -1491,6 +1546,8 @@ function notifyGuardianOfAccessRequest(params: {
     { sourceChannel, senderExternalUserId, senderIdentifier },
     'Guardian notified of non-member access request',
   );
+
+  return true;
 }
 
 // ---------------------------------------------------------------------------
