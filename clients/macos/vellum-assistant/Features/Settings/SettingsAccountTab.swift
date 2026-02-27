@@ -108,6 +108,39 @@ struct SettingsAccountTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
+            if store.isDevMode {
+                Text("Platform URL")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+
+                HStack(spacing: VSpacing.sm) {
+                    TextField("https://platform.vellum.ai", text: $platformUrlText)
+                        .focused($isPlatformUrlFocused)
+                        .vInputStyle()
+                        .font(VFont.mono)
+                        .onSubmit {
+                            store.savePlatformBaseUrl(platformUrlText)
+                            Task { await store.checkVellumPlatform() }
+                        }
+                    VButton(label: "Save", style: .primary) {
+                        store.savePlatformBaseUrl(platformUrlText)
+                        Task { await store.checkVellumPlatform() }
+                    }
+                }
+            }
+
+            // Platform connection status
+            ConnectionStatusRow(
+                label: "Platform",
+                status: platformStatusInfo,
+                isRefreshing: store.isCheckingVellumPlatform,
+                lastChecked: store.platformLastChecked
+            ) {
+                Task { await store.checkVellumPlatform() }
+            }
+
+            Divider().background(VColor.surfaceBorder)
+
             if authManager.isLoading {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "arrow.triangle.2.circlepath")
@@ -153,41 +186,6 @@ struct SettingsAccountTab: View {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
-            }
-
-            if store.isDevMode {
-                Divider().background(VColor.surfaceBorder)
-
-                Text("Platform URL")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-
-                HStack(spacing: VSpacing.sm) {
-                    TextField("https://platform.vellum.ai", text: $platformUrlText)
-                        .focused($isPlatformUrlFocused)
-                        .vInputStyle()
-                        .font(VFont.mono)
-                        .onSubmit {
-                            store.savePlatformBaseUrl(platformUrlText)
-                            Task { await store.checkVellumPlatform() }
-                        }
-                    VButton(label: "Save", style: .primary) {
-                        store.savePlatformBaseUrl(platformUrlText)
-                        Task { await store.checkVellumPlatform() }
-                    }
-                }
-            }
-
-            Divider().background(VColor.surfaceBorder)
-
-            // Platform connection status
-            ConnectionStatusRow(
-                label: "Platform",
-                status: platformStatusInfo,
-                isRefreshing: store.isCheckingVellumPlatform,
-                lastChecked: store.platformLastChecked
-            ) {
-                Task { await store.checkVellumPlatform() }
             }
         }
         .padding(VSpacing.lg)
