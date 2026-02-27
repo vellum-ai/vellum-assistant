@@ -62,8 +62,6 @@ struct ChatView: View {
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
-    var isMemoryDegraded: Bool = false
-    var memoryDegradedReason: String? = nil
     var connectionDiagnosticHint: String? = nil
     var threadId: UUID?
 
@@ -109,9 +107,6 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 if !hasAPIKey {
                     APIKeyBanner(onOpenSettings: onOpenSettings)
-                }
-                if isMemoryDegraded {
-                    MemoryDegradedBanner(reason: memoryDegradedReason)
                 }
                 if messages.isEmpty && !isHistoryLoaded {
                     Spacer()
