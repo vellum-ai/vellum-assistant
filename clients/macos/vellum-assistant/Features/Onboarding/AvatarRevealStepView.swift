@@ -160,7 +160,29 @@ struct AvatarRevealStepView: View {
             if let client = daemonClient as? DaemonClient, !client.isConnected {
                 let connected = await ensureDaemonConnected(client: client)
                 if !connected {
-                    // Connection failed — skip straight to fallback avatar.
+                    // Connection failed — show fallback avatar immediately
+                    // instead of falling through to the generate request.
+                    await MainActor.run {
+                        avatarImage = AvatarAppearanceManager.buildInitialLetterAvatar(
+                            name: assistantName,
+                            size: 160
+                        )
+                        generationFailed = true
+
+                        withAnimation(.spring(duration: 0.6, bounce: 0.2)) {
+                            isGenerating = false
+                        }
+                        withAnimation(.spring(duration: 0.8, bounce: 0.3).delay(0.2)) {
+                            showAvatar = true
+                        }
+                        withAnimation(.easeOut(duration: 0.5).delay(0.5)) {
+                            showText = true
+                        }
+                        withAnimation(.easeOut(duration: 0.5).delay(0.8)) {
+                            showButton = true
+                        }
+                    }
+                    return
                 }
             }
 

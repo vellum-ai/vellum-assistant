@@ -60,6 +60,7 @@ final class AvatarAppearanceManager {
     static let shared = AvatarAppearanceManager()
 
     private var fileMonitor: DispatchSourceFileSystemObject?
+    private var identityObserver: NSObjectProtocol?
 
     /// Workspace path for custom avatar -- canonical storage location.
     nonisolated static func workspaceCustomAvatarURL(homeDirectory: String = NSHomeDirectory()) -> URL {
@@ -86,6 +87,24 @@ final class AvatarAppearanceManager {
         assistantName = IdentityInfo.load()?.name ?? "V"
         loadCustomAvatar()
         watchAvatarFile()
+
+        // Refresh assistantName and invalidate cached fallback avatars when
+        // the user renames their assistant so the initial-letter avatar
+        // reflects the new name.
+        identityObserver = NotificationCenter.default.addObserver(
+            forName: .identityChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.assistantName = IdentityInfo.load()?.name ?? "V"
+                self.cachedFallbackAvatar = nil
+                self.cachedFallbackName = nil
+                self.cachedFullFallbackAvatar = nil
+                self.cachedFullFallbackName = nil
+            }
+        }
     }
 
     // MARK: - Custom Avatar
