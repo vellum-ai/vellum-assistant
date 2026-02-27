@@ -116,6 +116,54 @@ function startHttpTokenWatcher(cfg: GatewayConfig): FSWatcher | null {
   }
 }
 
+/**
+ * Watch `~/.vellum/feature-flag-token` and update the config when the file
+ * changes. Mirrors startHttpTokenWatcher but for the feature-flag client token.
+ */
+function startFeatureFlagTokenWatcher(cfg: GatewayConfig): FSWatcher | null {
+  const tokenPath = process.env.FEATURE_FLAG_TOKEN_PATH
+    ?? join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "feature-flag-token");
+
+  const dir = dirname(tokenPath);
+  try {
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+  } catch (err) {
+    log.warn({ err, path: dir }, "Cannot create token directory, skipping feature-flag-token watcher");
+    return null;
+  }
+
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function refresh(): void {
+    if (process.env.FEATURE_FLAG_TOKEN) return;
+
+    try {
+      const token = readFileSync(tokenPath, "utf-8").trim() || undefined;
+      if (token && token !== cfg.featureFlagToken) {
+        cfg.featureFlagToken = token;
+        log.info("Feature-flag token refreshed from file");
+      }
+    } catch {
+      // File doesn't exist yet
+    }
+  }
+
+  try {
+    const watcher = watch(existsSync(tokenPath) ? tokenPath : dir, { persistent: false }, (_event, filename) => {
+      if (!existsSync(tokenPath) && filename !== "feature-flag-token") return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(refresh, 500);
+    });
+    log.info({ path: tokenPath }, "Watching feature-flag-token for changes");
+    return watcher;
+  } catch (err) {
+    log.warn({ err, path: tokenPath }, "Failed to watch feature-flag-token file");
+    return null;
+  }
+}
+
 function main() {
   const config = loadConfig();
   initLogger(config.logFile);
@@ -402,17 +450,24 @@ function main() {
 
       // ── Feature flags API ──
       if (url.pathname === "/v1/feature-flags" && req.method === "GET") {
-        if (!config.runtimeBearerToken) {
+        if (!config.runtimeBearerToken && !config.featureFlagToken) {
           return Response.json(
             { error: "Service not configured: bearer token required" },
             { status: 503 },
           );
         }
-        const authResult = validateBearerToken(
-          tracedReq.headers.get("authorization"),
-          config.runtimeBearerToken,
-        );
-        if (!authResult.authorized) {
+        // GET accepts either the runtime bearer token or the feature-flag token
+        const authHeader = tracedReq.headers.get("authorization");
+        let authorized = false;
+        if (config.runtimeBearerToken) {
+          const runtimeAuth = validateBearerToken(authHeader, config.runtimeBearerToken);
+          if (runtimeAuth.authorized) authorized = true;
+        }
+        if (!authorized && config.featureFlagToken) {
+          const flagAuth = validateBearerToken(authHeader, config.featureFlagToken);
+          if (flagAuth.authorized) authorized = true;
+        }
+        if (!authorized) {
           authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
@@ -421,15 +476,32 @@ function main() {
 
       const featureFlagPatchMatch = url.pathname.match(/^\/v1\/feature-flags\/(.+)$/);
       if (featureFlagPatchMatch && req.method === "PATCH") {
-        if (!config.runtimeBearerToken) {
+        if (!config.featureFlagToken) {
           return Response.json(
-            { error: "Service not configured: bearer token required" },
+            { error: "Service not configured: feature-flag token required" },
             { status: 503 },
           );
         }
+
+        // Explicitly reject the runtime bearer token on PATCH even if it is
+        // otherwise valid — PATCH requires the dedicated feature-flag token.
+        // Skip this check if both tokens are identical (allows single-token deployments).
+        if (config.runtimeBearerToken && config.runtimeBearerToken !== config.featureFlagToken) {
+          const isRuntimeToken = validateBearerToken(
+            tracedReq.headers.get("authorization"),
+            config.runtimeBearerToken,
+          );
+          if (isRuntimeToken.authorized) {
+            return Response.json(
+              { error: "Forbidden: runtime token cannot be used for feature-flag mutations" },
+              { status: 403 },
+            );
+          }
+        }
+
         const authResult = validateBearerToken(
           tracedReq.headers.get("authorization"),
-          config.runtimeBearerToken,
+          config.featureFlagToken,
         );
         if (!authResult.authorized) {
           authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
@@ -611,6 +683,7 @@ function main() {
   configFileWatcher.start();
 
   const httpTokenWatcher = startHttpTokenWatcher(config);
+  const featureFlagTokenWatcher = startFeatureFlagTokenWatcher(config);
 
   const drainMs = config.shutdownDrainMs;
 
@@ -620,6 +693,7 @@ function main() {
     credentialWatcher.stop();
     configFileWatcher.stop();
     httpTokenWatcher?.close();
+    featureFlagTokenWatcher?.close();
     telegramDedupCache.stopCleanup();
     smsDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
