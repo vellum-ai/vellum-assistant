@@ -29,13 +29,19 @@ export function registerMcpCommand(program: Command): void {
       }
 
       if (opts.json) {
-        const result = entries.map(([id, config]) => ({ id, ...config }));
+        const result = entries
+          .filter(([, config]) => config && typeof config === 'object')
+          .map(([id, config]) => ({ id, ...config }));
         process.stdout.write(JSON.stringify(result, null, 2) + '\n');
         return;
       }
 
       log.info(`${entries.length} MCP server(s) configured:\n`);
       for (const [id, cfg] of entries) {
+        if (!cfg || typeof cfg !== 'object') {
+          log.info(`  ${id} (invalid config — skipped)\n`);
+          continue;
+        }
         const enabled = cfg.enabled !== false;
         const transport = cfg.transport;
         const risk = cfg.defaultRiskLevel ?? 'high';
