@@ -290,8 +290,9 @@ export async function routeGuardianReply(
 
     const result = await applyDecision(targetId, decisionAction, actor, messageText);
 
-    // If the canonical decision was applied, include the engine's reply text
-    if (result.decisionApplied && engineResult.replyText) {
+    // Always attach the engine's reply text so the guardian gets feedback
+    // even when the decision was not applied (stale, expired, identity mismatch).
+    if (engineResult.replyText) {
       result.replyText = engineResult.replyText;
     }
 
