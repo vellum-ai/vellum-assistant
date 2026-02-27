@@ -15,6 +15,7 @@ struct IdentityPanel: View {
     @State private var skills: [SkillInfo] = []
     @State private var viewingFilePath: String?
     @State private var isFullscreen: Bool = false
+    @State private var showAvatarSheet: Bool = false
 
     private let sidebarWidth: CGFloat = 260
 
@@ -48,7 +49,7 @@ struct IdentityPanel: View {
                         Spacer()
 
                         // Update Avatar button
-                        VButton(label: "Update Avatar", style: .primary, action: onEditAvatar)
+                        VButton(label: "Update Avatar", style: .primary) { showAvatarSheet = true }
                             .padding(.horizontal, VSpacing.lg)
                             .padding(.bottom, VSpacing.xl)
 
@@ -112,6 +113,27 @@ struct IdentityPanel: View {
             }
         }
         .animation(VAnimation.standard, value: viewingFilePath != nil)
+        .overlay {
+            if showAvatarSheet {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture { showAvatarSheet = false }
+
+                AvatarManagementSheet(
+                    onClose: { showAvatarSheet = false },
+                    onEditAvatar: {
+                        showAvatarSheet = false
+                        onEditAvatar()
+                    }
+                )
+                .frame(width: 360)
+                .fixedSize(horizontal: false, vertical: true)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
+        }
+        .animation(VAnimation.standard, value: showAvatarSheet)
         .onAppear {
             identity = IdentityInfo.load()
             metadata = AssistantMetadata.load()
