@@ -1684,50 +1684,36 @@ private struct ProfileSwitchModal: View {
         ZStack {
             VColor.background.ignoresSafeArea()
 
-            VStack(spacing: VSpacing.md) {
-                // Title
-                Text(isChildToParental ? "Switch to Parental Mode" : "Switch to Restricted Mode")
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, alignment: .center)
-
-                // From/to avatar icons
-                HStack(spacing: VSpacing.md) {
-                    profileAvatarColumn(isParental: !isChildToParental)
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                    profileAvatarColumn(isParental: isChildToParental)
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-
-                ZStack {
-                    enterPINContent
-                        .opacity(step == .enterPIN ? 1 : 0)
-                        .allowsHitTesting(step == .enterPIN)
-
-                    switchingContent
-                        .opacity(step == .switching ? 1 : 0)
-                        .allowsHitTesting(step == .switching)
-                        .transition(.opacity)
-                }
-                .frame(maxWidth: .infinity)
+            if step == .switching {
+                switchingContent
+            } else {
+                enterPINContent
             }
-            .padding(VSpacing.xl)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
-        .frame(width: 360, height: 280)
+        .frame(width: 340)
+        .fixedSize(horizontal: true, vertical: true)
         .animation(VAnimation.standard, value: step)
     }
 
-
     private var enterPINContent: some View {
-        VStack(alignment: .center, spacing: VSpacing.md) {
+        VStack(alignment: .center, spacing: VSpacing.lg) {
+            // Title
+            Text(isChildToParental ? "Switch to Parental Mode" : "Switch to Restricted Mode")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textPrimary)
+                .multilineTextAlignment(.center)
+
+            // From/to avatar icons
+            HStack(spacing: VSpacing.xl) {
+                profileAvatarColumn(isParental: !isChildToParental)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+                profileAvatarColumn(isParental: isChildToParental)
+            }
+
             if isChildToParental {
                 PINCircleField(text: $pin)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, VSpacing.xs)
                     .onChange(of: pin) { _, newValue in
                         if newValue.count == 6 { performSwitch() }
                     }
@@ -1737,34 +1723,29 @@ private struct ProfileSwitchModal: View {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            } else {
-                Text(" ").font(VFont.caption)
+                    .multilineTextAlignment(.center)
             }
 
             HStack(spacing: VSpacing.sm) {
-                Spacer()
                 VButton(label: "Cancel", style: .secondary) { dismiss() }
-                VButton(label: "Switch Mode", style: .primary) {
-                    performSwitch()
-                }
-                .disabled(isChildToParental && pin.count != 6)
-                .keyboardShortcut(.return, modifiers: [])
-                Spacer()
+                VButton(label: "Switch Mode", style: .primary) { performSwitch() }
+                    .disabled(isChildToParental && pin.count != 6)
+                    .keyboardShortcut(.return, modifiers: [])
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .padding(VSpacing.xl)
+        .frame(maxWidth: .infinity)
     }
 
     private var switchingContent: some View {
         HStack(spacing: VSpacing.sm) {
             ProgressView().scaleEffect(0.7)
-            Text("Switching profile…")
+            Text("Switching…")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
         }
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, VSpacing.sm)
+        .padding(VSpacing.xl)
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
