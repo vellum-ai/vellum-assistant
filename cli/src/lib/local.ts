@@ -11,6 +11,35 @@ import { stopProcessByPidFile } from "./process.js";
 
 const _require = createRequire(import.meta.url);
 
+function isAssistantSourceDir(dir: string): boolean {
+  const pkgPath = join(dir, "package.json");
+  if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "index.ts"))) return false;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    return pkg.name === "@vellumai/assistant";
+  } catch {
+    return false;
+  }
+}
+
+function findAssistantSourceFrom(startDir: string): string | undefined {
+  let current = startDir;
+  while (true) {
+    if (isAssistantSourceDir(current)) {
+      return current;
+    }
+    const nestedCandidate = join(current, "assistant");
+    if (isAssistantSourceDir(nestedCandidate)) {
+      return nestedCandidate;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    current = parent;
+  }
+}
+
 function isGatewaySourceDir(dir: string): boolean {
   const pkgPath = join(dir, "package.json");
   if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "index.ts"))) return false;
@@ -38,6 +67,77 @@ function findGatewaySourceFromCwd(): string | undefined {
     }
     current = parent;
   }
+}
+
+function resolveAssistantIndexPath(): string | undefined {
+  // Source tree layout: cli/src/lib/ -> ../../.. -> repo root -> assistant/src/index.ts
+  const sourceTreeIndex = join(import.meta.dir, "..", "..", "..", "assistant", "src", "index.ts");
+  if (existsSync(sourceTreeIndex)) {
+    return sourceTreeIndex;
+  }
+
+  // bunx layout: @vellumai/cli/src/lib/ -> ../../../.. -> node_modules/vellum/src/index.ts
+  const bunxIndex = join(import.meta.dir, "..", "..", "..", "..", "vellum", "src", "index.ts");
+  if (existsSync(bunxIndex)) {
+    return bunxIndex;
+  }
+
+  const cwdSourceDir = findAssistantSourceFrom(process.cwd());
+  if (cwdSourceDir) {
+    return join(cwdSourceDir, "src", "index.ts");
+  }
+
+  const execSourceDir = findAssistantSourceFrom(dirname(process.execPath));
+  if (execSourceDir) {
+    return join(execSourceDir, "src", "index.ts");
+  }
+
+  try {
+    const vellumPkgPath = _require.resolve("vellum/package.json");
+    const resolved = join(dirname(vellumPkgPath), "src", "index.ts");
+    if (existsSync(resolved)) {
+      return resolved;
+    }
+  } catch {
+    // resolution failed
+  }
+
+  return undefined;
+}
+
+async function waitForSocketFile(socketPath: string, timeoutMs = 15000): Promise<boolean> {
+  if (existsSync(socketPath)) return true;
+
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (existsSync(socketPath)) {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
+  return existsSync(socketPath);
+}
+
+async function startDaemonFromSource(assistantIndex: string): Promise<void> {
+  const child = spawn("bun", ["run", assistantIndex, "daemon", "start"], {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
+    },
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Daemon start exited with code ${code}`));
+      }
+    });
+    child.on("error", reject);
+  });
 }
 
 function resolveGatewayDir(): string {
@@ -256,17 +356,20 @@ export async function startLocalDaemon(): Promise<void> {
     }
 
     // Wait for socket at ~/.vellum/vellum.sock (up to 15s)
-    if (!existsSync(socketFile)) {
-      const maxWait = 15000;
-      const start = Date.now();
-      while (Date.now() - start < maxWait) {
-        if (existsSync(socketFile)) {
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 100));
+    let socketReady = await waitForSocketFile(socketFile, 15000);
+
+    // Dev fallback: if the bundled daemon did not create a socket in time,
+    // fall back to source daemon startup so local `./build.sh run` still works.
+    if (!socketReady) {
+      const assistantIndex = resolveAssistantIndexPath();
+      if (assistantIndex) {
+        console.log("   Bundled daemon socket not ready after 15s — falling back to source daemon...");
+        await startDaemonFromSource(assistantIndex);
+        socketReady = await waitForSocketFile(socketFile, 15000);
       }
     }
-    if (existsSync(socketFile)) {
+
+    if (socketReady) {
       console.log("   Daemon socket ready\n");
     } else {
       console.log("   ⚠️  Daemon socket did not appear within 15s — continuing anyway\n");
@@ -274,50 +377,14 @@ export async function startLocalDaemon(): Promise<void> {
   } else {
     console.log("🔨 Starting local daemon...");
 
-    // Source tree layout: cli/src/commands/ -> ../../.. -> repo root -> assistant/src/index.ts
-    const sourceTreeIndex = join(import.meta.dir, "..", "..", "..", "assistant", "src", "index.ts");
-    // bunx layout: @vellumai/cli/src/commands/ -> ../../../.. -> node_modules/ -> vellum/src/index.ts
-    const bunxIndex = join(import.meta.dir, "..", "..", "..", "..", "vellum", "src", "index.ts");
-    let assistantIndex = sourceTreeIndex;
-
-    if (!existsSync(assistantIndex)) {
-      assistantIndex = bunxIndex;
-    }
-
-    if (!existsSync(assistantIndex)) {
-      try {
-        const vellumPkgPath = _require.resolve("vellum/package.json");
-        assistantIndex = join(dirname(vellumPkgPath), "src", "index.ts");
-      } catch {
-        // resolve failed, will fall through to existsSync check below
-      }
-    }
-
-    if (!existsSync(assistantIndex)) {
+    const assistantIndex = resolveAssistantIndexPath();
+    if (!assistantIndex) {
       throw new Error(
         "vellum-daemon binary not found and assistant source not available.\n" +
           "  Ensure the daemon binary is bundled alongside the CLI, or run from the source tree.",
       );
     }
-
-    const child = spawn("bun", ["run", assistantIndex, "daemon", "start"], {
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
-      },
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      child.on("close", (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(`Daemon start exited with code ${code}`));
-        }
-      });
-      child.on("error", reject);
-    });
+    await startDaemonFromSource(assistantIndex);
   }
 }
 
