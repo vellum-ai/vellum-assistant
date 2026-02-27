@@ -36,6 +36,30 @@ function extractSvg(text: string): string | null {
   return null;
 }
 
+/**
+ * Remove duplicate attributes from SVG elements.
+ * Claude sometimes generates elements like `<rect rx="5" rx="5" ...>`
+ * which is invalid XML and causes sharp/libvips to reject the SVG.
+ */
+function sanitizeSvg(svg: string): string {
+  return svg.replace(/<(\w+)((?:\s+[^>]*?)?)>/g, (_match, tag: string, attrs: string) => {
+    if (!attrs.trim()) return `<${tag}>`;
+    const seen = new Set<string>();
+    const unique: string[] = [];
+    // Match individual attribute="value" or attribute='value' pairs
+    const attrRegex = /\s+([\w-]+)(?:=(?:"[^"]*"|'[^']*'))?/g;
+    let m: RegExpExecArray | null;
+    while ((m = attrRegex.exec(attrs)) !== null) {
+      const name = m[1];
+      if (!seen.has(name)) {
+        seen.add(name);
+        unique.push(m[0]);
+      }
+    }
+    return `<${tag}${unique.join('')}>`;
+  });
+}
+
 export const setAvatarTool: Tool = {
   name: TOOL_NAME,
   description:
@@ -108,6 +132,8 @@ export const setAvatarTool: Tool = {
               '- Use a circular or rounded composition that fills the canvas\n' +
               '- Add a subtle background color (not white/transparent)\n' +
               '- Do NOT use external references, fonts, or images\n' +
+              '- Do NOT use filters, masks, clipPath, text, or foreignObject\n' +
+              '- NEVER duplicate attributes on the same element\n' +
               '- Use only basic SVG elements (circle, rect, path, ellipse, polygon, g, defs, linearGradient, radialGradient)',
           },
         ],
@@ -121,8 +147,8 @@ export const setAvatarTool: Tool = {
         };
       }
 
-      const svgContent = extractSvg(textBlock.text);
-      if (!svgContent) {
+      const rawSvg = extractSvg(textBlock.text);
+      if (!rawSvg) {
         log.error({ response: textBlock.text.slice(0, 500) }, 'Failed to extract SVG from response');
         return {
           content: 'Error: could not extract valid SVG from the generated response. Please try again.',
@@ -130,11 +156,56 @@ export const setAvatarTool: Tool = {
         };
       }
 
+      // Sanitize SVG to fix common issues (e.g. duplicate attributes)
+      const svgContent = sanitizeSvg(rawSvg);
+
       // Convert SVG to PNG at 1024x1024 for high-DPI displays
-      const pngBuffer = await sharp(Buffer.from(svgContent))
-        .resize(1024, 1024)
-        .png()
-        .toBuffer();
+      let pngBuffer: Buffer;
+      try {
+        pngBuffer = await sharp(Buffer.from(svgContent))
+          .resize(1024, 1024)
+          .png()
+          .toBuffer();
+      } catch (renderErr) {
+        const renderMsg = renderErr instanceof Error ? renderErr.message : String(renderErr);
+        log.warn({ error: renderMsg }, 'SVG render failed, retrying with simplified prompt');
+
+        // Retry once with a stricter prompt
+        const retry = await client.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4096,
+          messages: [
+            {
+              role: 'user',
+              content:
+                `Generate a simple SVG avatar: ${description.trim()}\n\n` +
+                'STRICT requirements:\n' +
+                '- Output ONLY valid SVG code, nothing else\n' +
+                '- viewBox="0 0 512 512", width="512", height="512"\n' +
+                '- Use ONLY: circle, rect, ellipse, path, polygon, line, g, defs, linearGradient, radialGradient, stop\n' +
+                '- NEVER duplicate attributes on the same element\n' +
+                '- NEVER use filters, masks, clipPath, text, or foreignObject\n' +
+                '- Keep it simple: fewer than 30 elements total\n' +
+                '- Use a solid colored circular background\n' +
+                '- Cute, friendly cartoon style',
+            },
+          ],
+        });
+
+        const retryBlock = retry.content.find((b) => b.type === 'text');
+        const retrySvg = retryBlock?.type === 'text' ? extractSvg(retryBlock.text) : null;
+        if (!retrySvg) {
+          return {
+            content: `Avatar generation failed: SVG rendering error (${renderMsg}). Please try again.`,
+            isError: true,
+          };
+        }
+
+        pngBuffer = await sharp(Buffer.from(sanitizeSvg(retrySvg)))
+          .resize(1024, 1024)
+          .png()
+          .toBuffer();
+      }
 
       const avatarPath = getAvatarPath();
       const avatarDir = dirname(avatarPath);
