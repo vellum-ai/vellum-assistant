@@ -1,4 +1,4 @@
-import { execSync, spawn } from "child_process";
+import { execFileSync, spawn } from "child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { createConnection } from "net";
@@ -206,7 +206,7 @@ function readWorkspaceIngressPublicBaseUrl(): string | undefined {
  *  Returns the PID if found, undefined otherwise. */
 function findSocketOwnerPid(socketPath: string): number | undefined {
   try {
-    const output = execSync(`lsof -U -a -F p -- ${JSON.stringify(socketPath)}`, {
+    const output = execFileSync("lsof", ["-U", "-a", "-F", "p", "--", socketPath], {
       encoding: "utf-8",
       timeout: 3000,
       stdio: ["ignore", "pipe", "ignore"],
