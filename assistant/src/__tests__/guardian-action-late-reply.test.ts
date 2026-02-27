@@ -29,7 +29,8 @@ mock.module('../runtime/gateway-client.js', () => ({
   deliverChannelReply: async () => {},
 }));
 
-import { createCallSession, createPendingQuestion } from '../calls/call-store.js';
+import { isTerminalState } from '../calls/call-state-machine.js';
+import { createCallSession, createPendingQuestion, getCallSession, updateCallSession } from '../calls/call-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import {
   createGuardianActionDelivery,
@@ -41,8 +42,10 @@ import {
   getFollowupDeliveriesByConversation,
   getGuardianActionRequest,
   getPendingDeliveriesByConversation,
+  getPendingRequestByCallSessionId,
   resolveGuardianActionRequest,
   startFollowupFromExpiredRequest,
+  supersedeGuardianActionRequest,
   updateDeliveryStatus,
 } from '../memory/guardian-action-store.js';
 import { conversations } from '../memory/schema.js';
@@ -420,6 +423,257 @@ describe('guardian-action-late-reply', () => {
       // After stripping the code prefix, the answer text is extracted
       const answerText = userInput.slice(code.length).trim();
       expect(answerText).toBe('the answer is 42');
+    });
+  });
+
+  // ── Superseded late-approval remap semantics ──────────────────────
+
+  describe('superseded late-approval remap', () => {
+    /**
+     * Helper: create two guardian action requests on the same call session.
+     * The first is superseded by the second (which stays pending).
+     * Returns the superseded request, the current pending request, and the call session.
+     */
+    function createSupersededScenario(convId: string, opts?: { chatId?: string; externalUserId?: string; conversationId?: string }) {
+      ensureConversation(convId);
+      const session = createCallSession({
+        conversationId: convId,
+        provider: 'twilio',
+        fromNumber: '+15550001111',
+        toNumber: '+15550002222',
+      });
+      // Keep call in 'initiated' status (non-terminal) — simulates active call
+      const pqOld = createPendingQuestion(session.id, 'What is the old gate code?');
+      const oldRequest = createGuardianActionRequest({
+        kind: 'ask_guardian',
+        sourceChannel: 'voice',
+        sourceConversationId: convId,
+        callSessionId: session.id,
+        pendingQuestionId: pqOld.id,
+        questionText: pqOld.questionText,
+        expiresAt: Date.now() + 60_000,
+        toolName: 'check_gate',
+        inputDigest: 'digest-old',
+      });
+
+      // Create delivery for the old request
+      const deliveryConvId = opts?.conversationId ?? `delivery-conv-${oldRequest.id}`;
+      if (opts?.conversationId) {
+        ensureConversation(opts.conversationId);
+      } else {
+        ensureConversation(deliveryConvId);
+      }
+      const oldDelivery = createGuardianActionDelivery({
+        requestId: oldRequest.id,
+        destinationChannel: 'telegram',
+        destinationChatId: opts?.chatId ?? 'chat-123',
+        destinationExternalUserId: opts?.externalUserId ?? 'user-456',
+        destinationConversationId: deliveryConvId,
+      });
+      updateDeliveryStatus(oldDelivery.id, 'sent');
+
+      // Create the new (current) pending request
+      const pqNew = createPendingQuestion(session.id, 'What is the new gate code?');
+      const newRequest = createGuardianActionRequest({
+        kind: 'ask_guardian',
+        sourceChannel: 'voice',
+        sourceConversationId: convId,
+        callSessionId: session.id,
+        pendingQuestionId: pqNew.id,
+        questionText: pqNew.questionText,
+        expiresAt: Date.now() + 60_000,
+        toolName: 'check_gate',
+        inputDigest: 'digest-new',
+      });
+
+      // Supersede the old request
+      supersedeGuardianActionRequest(oldRequest.id, newRequest.id);
+
+      return {
+        session,
+        supersededRequest: getGuardianActionRequest(oldRequest.id)!,
+        currentRequest: getGuardianActionRequest(newRequest.id)!,
+        oldDelivery,
+        deliveryConvId,
+      };
+    }
+
+    test('superseded request has expired_reason=superseded and links to replacement', () => {
+      const { supersededRequest, currentRequest } = createSupersededScenario('conv-supersede-1');
+
+      expect(supersededRequest.status).toBe('expired');
+      expect(supersededRequest.expiredReason).toBe('superseded');
+      expect(supersededRequest.supersededByRequestId).toBe(currentRequest.id);
+      expect(currentRequest.status).toBe('pending');
+    });
+
+    test('superseded request with active call and pending request is remap-eligible', () => {
+      const { session, supersededRequest, currentRequest } = createSupersededScenario('conv-supersede-2');
+
+      // Call should still be active (non-terminal)
+      const callSession = getCallSession(session.id);
+      expect(callSession).not.toBeNull();
+      expect(isTerminalState(callSession!.status)).toBe(false);
+
+      // Should find current pending request for the same call session
+      const pending = getPendingRequestByCallSessionId(supersededRequest.callSessionId);
+      expect(pending).not.toBeNull();
+      expect(pending!.id).toBe(currentRequest.id);
+
+      // The superseded request is expired with reason 'superseded' and followup_state 'none'
+      expect(supersededRequest.expiredReason).toBe('superseded');
+      expect(supersededRequest.followupState).toBe('none');
+    });
+
+    test('superseded request with completed call is NOT remap-eligible — falls through to follow-up', () => {
+      const { session, supersededRequest } = createSupersededScenario('conv-supersede-3');
+
+      // Transition the call to a terminal state
+      updateCallSession(session.id, { status: 'in_progress' });
+      updateCallSession(session.id, { status: 'completed', endedAt: Date.now() });
+
+      // Call is now terminal
+      const callSession = getCallSession(session.id);
+      expect(callSession).not.toBeNull();
+      expect(isTerminalState(callSession!.status)).toBe(true);
+
+      // Even though expired_reason is 'superseded', the remap should not apply
+      // because the call has ended. The follow-up path should be used instead.
+      expect(supersededRequest.expiredReason).toBe('superseded');
+    });
+
+    test('timeout-expired request is NOT remap-eligible even with active call', () => {
+      const convId = 'conv-timeout-no-remap';
+      ensureConversation(convId);
+      const session = createCallSession({
+        conversationId: convId,
+        provider: 'twilio',
+        fromNumber: '+15550001111',
+        toNumber: '+15550002222',
+      });
+
+      const pq = createPendingQuestion(session.id, 'What is the code?');
+      const request = createGuardianActionRequest({
+        kind: 'ask_guardian',
+        sourceChannel: 'voice',
+        sourceConversationId: convId,
+        callSessionId: session.id,
+        pendingQuestionId: pq.id,
+        questionText: pq.questionText,
+        expiresAt: Date.now() - 10_000,
+      });
+
+      const deliveryConvId = `delivery-conv-${request.id}`;
+      ensureConversation(deliveryConvId);
+      const delivery = createGuardianActionDelivery({
+        requestId: request.id,
+        destinationChannel: 'telegram',
+        destinationChatId: 'chat-timeout',
+        destinationExternalUserId: 'user-timeout',
+        destinationConversationId: deliveryConvId,
+      });
+      updateDeliveryStatus(delivery.id, 'sent');
+
+      // Expire with sweep_timeout (NOT superseded)
+      expireGuardianActionRequest(request.id, 'sweep_timeout');
+
+      const expired = getGuardianActionRequest(request.id)!;
+      expect(expired.expiredReason).toBe('sweep_timeout');
+
+      // Even if the call is active, this should follow the callback/message path
+      // because it's a real timeout, not a supersession
+      const callSession = getCallSession(session.id);
+      expect(callSession).not.toBeNull();
+      expect(isTerminalState(callSession!.status)).toBe(false);
+
+      // startFollowupFromExpiredRequest should work normally for timeouts
+      const followup = startFollowupFromExpiredRequest(request.id, 'late answer');
+      expect(followup).not.toBeNull();
+      expect(followup!.followupState).toBe('awaiting_guardian_choice');
+    });
+
+    test('call_timeout-expired request is NOT remap-eligible', () => {
+      const convId = 'conv-call-timeout-no-remap';
+      ensureConversation(convId);
+      const session = createCallSession({
+        conversationId: convId,
+        provider: 'twilio',
+        fromNumber: '+15550001111',
+        toNumber: '+15550002222',
+      });
+
+      const pq = createPendingQuestion(session.id, 'What is the code?');
+      const request = createGuardianActionRequest({
+        kind: 'ask_guardian',
+        sourceChannel: 'voice',
+        sourceConversationId: convId,
+        callSessionId: session.id,
+        pendingQuestionId: pq.id,
+        questionText: pq.questionText,
+        expiresAt: Date.now() - 10_000,
+      });
+
+      const deliveryConvId = `delivery-conv-${request.id}`;
+      ensureConversation(deliveryConvId);
+      const delivery = createGuardianActionDelivery({
+        requestId: request.id,
+        destinationChannel: 'telegram',
+        destinationChatId: 'chat-call-timeout',
+        destinationExternalUserId: 'user-call-timeout',
+        destinationConversationId: deliveryConvId,
+      });
+      updateDeliveryStatus(delivery.id, 'sent');
+
+      // Expire with call_timeout (NOT superseded)
+      expireGuardianActionRequest(request.id, 'call_timeout');
+
+      const expired = getGuardianActionRequest(request.id)!;
+      expect(expired.expiredReason).toBe('call_timeout');
+
+      // call_timeout should follow the callback/message path regardless
+      const followup = startFollowupFromExpiredRequest(request.id, 'late answer for timeout');
+      expect(followup).not.toBeNull();
+      expect(followup!.followupState).toBe('awaiting_guardian_choice');
+    });
+
+    test('superseded request with no pending replacement falls through to follow-up', () => {
+      const { supersededRequest, currentRequest } = createSupersededScenario('conv-supersede-no-pending');
+
+      // Resolve the current pending request so there's no pending replacement
+      resolveGuardianActionRequest(currentRequest.id, 'answered already', 'telegram');
+
+      // No pending request for this call session anymore
+      const pending = getPendingRequestByCallSessionId(supersededRequest.callSessionId);
+      expect(pending).toBeNull();
+
+      // The superseded request should fall through to follow-up since
+      // there's no pending request to remap to
+      const followup = startFollowupFromExpiredRequest(supersededRequest.id, 'late answer');
+      expect(followup).not.toBeNull();
+      expect(followup!.followupState).toBe('awaiting_guardian_choice');
+    });
+
+    test('composeGuardianActionMessageGenerative produces remap text for superseded scenario', async () => {
+      const { composeGuardianActionMessageGenerative } = await import('../runtime/guardian-action-message-composer.js');
+
+      const text = await composeGuardianActionMessageGenerative({
+        scenario: 'guardian_superseded_remap',
+        questionText: 'What is the new gate code?',
+      });
+
+      // In test mode, the deterministic fallback is used
+      expect(text).toContain('current active request');
+      expect(text).toContain('What is the new gate code?');
+    });
+
+    test('composeGuardianActionMessageGenerative produces remap text without question', async () => {
+      const { composeGuardianActionMessageGenerative } = await import('../runtime/guardian-action-message-composer.js');
+
+      const text = await composeGuardianActionMessageGenerative({
+        scenario: 'guardian_superseded_remap',
+      });
+
+      expect(text).toContain('current active request');
     });
   });
 });
