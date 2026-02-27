@@ -39,13 +39,15 @@ let cachedDefaults: FeatureFlagDefaultsRegistry | undefined;
 function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
   if (cachedDefaults) return cachedDefaults;
 
-  // Resolve from the repo root `meta/` directory. The built output lands
-  // in `assistant/dist/config/`, so we walk up to find the repo root.
-  // In a bundled/production build this file may not exist — that's fine,
-  // we fall back to an empty registry.
+  const thisDir = import.meta.dirname ?? __dirname;
   const candidates = [
-    // Development: relative to this source file's directory
-    join(import.meta.dirname ?? __dirname, '..', '..', '..', 'meta', 'assistant-feature-flags', 'assistant-feature-flag-defaults.json'),
+    // Bundled: co-located copy in the same directory as this source file.
+    // Works in Docker / packaged builds where the repo-root `meta/` dir
+    // is not available.
+    join(thisDir, 'assistant-feature-flag-defaults.json'),
+    // Development: relative to this source file's directory, walking up
+    // to the repo root to reach `meta/`.
+    join(thisDir, '..', '..', '..', 'meta', 'assistant-feature-flags', 'assistant-feature-flag-defaults.json'),
     // Alternate: from repo root via cwd
     join(process.cwd(), 'meta', 'assistant-feature-flags', 'assistant-feature-flag-defaults.json'),
   ];
