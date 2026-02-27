@@ -45,30 +45,11 @@ struct AgentPanelContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Global search bar
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
-                    .foregroundColor(VColor.textMuted)
-
-                TextField("Search skills...", text: $globalSkillSearchQuery)
-                    .textFieldStyle(.plain)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
-
-                if !globalSkillSearchQuery.isEmpty {
-                    Button(action: { globalSkillSearchQuery = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    .buttonStyle(.plain)
-                }
+            // Search bar for available skills tab (installed tab has its own in the right panel)
+            if (visibleTab ?? selectedTab) == .available {
+                VSearchBar(placeholder: "Search skills...", text: $globalSkillSearchQuery)
+                    .padding(.bottom, VSpacing.lg)
             }
-            .padding(VSpacing.md)
-            .background(VColor.backgroundSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .padding(.bottom, VSpacing.lg)
 
             // Tab bar — hidden when locked to a single tab via visibleTab
             if visibleTab == nil {
@@ -295,39 +276,43 @@ struct AgentPanelContent: View {
         ) < 7 * 86400
 
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.md) {
-                // Tappable area: icon + name + description
-                HStack(spacing: VSpacing.md) {
-                    Image(systemName: skill.isVellum ? "v.square.fill" : "shippingbox.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(skill.isVellum ? VColor.accent : VColor.textMuted)
-                        .frame(width: 24)
+            HStack(alignment: .top, spacing: VSpacing.md) {
+                Image(systemName: skill.isVellum ? "v.square.fill" : "shippingbox.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(skill.isVellum ? VColor.accent : VColor.textMuted)
+                    .frame(width: 24)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: VSpacing.sm) {
-                            Text(skill.name)
-                                .font(VFont.bodyBold)
-                                .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(skill.name)
+                        .font(VFont.bodyBold)
+                        .foregroundColor(VColor.textPrimary)
 
-                            if skill.isVellum {
-                                Text("VELLUM")
-                                    .font(VFont.small)
-                                    .foregroundColor(VColor.accent)
-                            } else if isNew {
-                                Text("NEW")
-                                    .font(VFont.small)
-                                    .foregroundColor(Amber._500)
-                            }
+                    Text(skill.description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .lineLimit(2)
+
+                    // Pill badges row
+                    HStack(spacing: VSpacing.xs) {
+                        if skill.isVellum {
+                            VSkillTypePill(type: .core)
+                        } else if isAlreadyInstalled {
+                            VSkillTypePill(type: .installed)
                         }
 
-                        Text(skill.description)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                            .lineLimit(2)
+                        if isNew {
+                            VSkillTypePill(type: .custom(
+                                label: "New",
+                                icon: "sparkles",
+                                foreground: Amber._500,
+                                background: Amber._500.opacity(0.15)
+                            ))
+                        }
                     }
+                    .padding(.top, VSpacing.xxs)
                 }
 
-                Spacer()
+                Spacer(minLength: VSpacing.lg)
 
                 if isAlreadyInstalled {
                     Text("Installed")
@@ -879,6 +864,8 @@ struct AgentPanelContent: View {
                 categorySidebar
 
                 VStack(spacing: VSpacing.md) {
+                    VSearchBar(placeholder: "Search skills", text: $globalSkillSearchQuery)
+
                     if categoryFilteredSkills.isEmpty {
                         VEmptyState(
                             title: "No skills in this category",
@@ -898,122 +885,80 @@ struct AgentPanelContent: View {
     }
 
     private func skillCard(_ skill: SkillInfo) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        let isExpanded = expandedDetailSkillId == skill.id
+
+        return VStack(alignment: .leading, spacing: 0) {
+            // Top row: icon + info + remove button
             HStack(alignment: .top, spacing: VSpacing.md) {
                 skillIcon(skill.emoji)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(skill.name)
-                            .font(VFont.bodyBold)
-                            .foregroundColor(VColor.textPrimary)
-
-                        // Source badge capsule
-                        Text(sourceLabel(skill.source))
-                            .font(VFont.small)
-                            .foregroundColor(sourceBadgeColor(skill.source))
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule()
-                                    .fill(sourceBadgeColor(skill.source).opacity(0.15))
-                            )
-
-                        // Provenance badge
-                        if let label = provenanceLabel(skill) {
-                            Text(label)
-                                .font(VFont.small)
-                                .foregroundColor(provenanceBadgeColor(skill))
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.vertical, 2)
-                                .background(
-                                    Capsule()
-                                        .fill(provenanceBadgeColor(skill).opacity(0.15))
-                                )
-                        }
-
-                        if skill.updateAvailable {
-                            Text("UPDATE")
-                                .font(VFont.small)
-                                .foregroundColor(Amber._500)
-                        }
-                    }
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(skill.name)
+                        .font(VFont.bodyBold)
+                        .foregroundColor(VColor.textPrimary)
 
                     Text(skill.description)
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                         .lineLimit(2)
 
-                    // Source link for third-party skills
-                    if let provenance = skill.provenance,
-                       provenance.kind == "third-party",
-                       let urlString = provenance.sourceUrl,
-                       let url = URL(string: urlString) {
-                        Link(destination: url) {
-                            HStack(spacing: 3) {
-                                Image(systemName: "arrow.up.right.square")
-                                    .font(.system(size: 9))
-                                Text("View on \(provenance.provider ?? "source")")
-                                    .font(VFont.small)
-                            }
-                            .foregroundColor(VColor.textMuted)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    VSkillTypePill(source: skill.source)
+                        .padding(.top, VSpacing.xxs)
                 }
 
                 Spacer(minLength: VSpacing.lg)
 
-                // Remove button for managed skills only
-                if skill.source == "managed" {
-                    Button {
-                        skillToDelete = skill
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "trash")
-                                .font(.system(size: 11))
-                            Text("Remove")
-                                .font(VFont.caption)
-                        }
+                // Remove button
+                Button {
+                    skillToDelete = skill
+                } label: {
+                    Text("Remove")
+                        .font(VFont.caption)
                         .foregroundColor(Danger._500)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.sm)
-                                .fill(Danger._500.opacity(0.1))
+                                .strokeBorder(Danger._500, lineWidth: 1)
                         )
-                    }
-                    .buttonStyle(.plain)
                 }
+                .buttonStyle(.plain)
             }
 
-            // Expandable details disclosure
-            DisclosureGroup(
-                isExpanded: Binding(
-                    get: { expandedDetailSkillId == skill.id },
-                    set: { isExpanded in
-                        withAnimation(VAnimation.fast) {
-                            if isExpanded {
-                                expandedDetailSkillId = skill.id
-                                skillsManager.fetchSkillBody(skillId: skill.id)
-                            } else {
-                                expandedDetailSkillId = nil
-                            }
-                        }
+            // Details toggle — full row is clickable
+            Button {
+                withAnimation(VAnimation.fast) {
+                    if isExpanded {
+                        expandedDetailSkillId = nil
+                    } else {
+                        expandedDetailSkillId = skill.id
+                        skillsManager.fetchSkillBody(skillId: skill.id)
                     }
-                )
-            ) {
+                }
+            } label: {
+                HStack {
+                    Spacer()
+                    Text("Details")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10))
+                        .foregroundColor(VColor.textMuted)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, VSpacing.sm)
+
+            // Expanded details content
+            if isExpanded {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     skillBody(for: skill.id)
                 }
                 .padding(.top, VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            } label: {
-                Text("Details")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
             }
-            .padding(.leading, 24 + VSpacing.md)
         }
         .padding(VSpacing.lg)
         .contentShape(Rectangle())
