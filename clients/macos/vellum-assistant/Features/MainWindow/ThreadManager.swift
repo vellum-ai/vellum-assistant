@@ -956,6 +956,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     /// Restore the last active thread from UserDefaults after session restoration completes
     func restoreLastActiveThread() {
+        // After restoration finishes, re-run the active-thread seen check.
+        // The didBecomeActive notification may have fired while isRestoringThreads
+        // was true, causing markActiveThreadSeenIfNeeded() to no-op. Deferring
+        // ensures the check runs once restoration is complete.
+        defer { markActiveThreadSeenIfNeeded() }
+
         guard restoreRecentThreads else {
             // Clear the flag even if restoration is disabled
             isRestoringThreads = false
