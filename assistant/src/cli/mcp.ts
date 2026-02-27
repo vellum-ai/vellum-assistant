@@ -132,4 +132,24 @@ export function registerMcpCommand(program: Command): void {
       log.info(`Added MCP server "${name}" (${opts.transportType})`);
       log.info('Restart the daemon for changes to take effect: vellum daemon restart');
     });
+
+  mcp
+    .command('remove <name>')
+    .description('Remove an MCP server configuration')
+    .action((name: string) => {
+      const raw = loadRawConfig();
+      const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
+      const servers = mcpConfig?.servers as Record<string, unknown> | undefined;
+
+      if (!servers || !servers[name]) {
+        log.error(`MCP server "${name}" not found.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      delete servers[name];
+      saveRawConfig(raw);
+      log.info(`Removed MCP server "${name}".`);
+      log.info('Restart the daemon for changes to take effect: vellum daemon restart');
+    });
 }
