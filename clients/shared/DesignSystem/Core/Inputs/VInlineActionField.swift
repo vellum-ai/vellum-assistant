@@ -20,6 +20,9 @@ public struct VInlineActionField: View {
     public let action: () -> Void
 
     @State private var isHovered = false
+    #if os(macOS)
+    @State private var cursorPushed = false
+    #endif
 
     public init(
         text: Binding<String>,
@@ -69,9 +72,27 @@ public struct VInlineActionField: View {
             .onHover { hovering in
                 isHovered = isEmpty ? false : hovering
                 #if os(macOS)
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                if hovering && !isEmpty {
+                    if !cursorPushed {
+                        NSCursor.pointingHand.push()
+                        cursorPushed = true
+                    }
+                } else {
+                    if cursorPushed {
+                        NSCursor.pop()
+                        cursorPushed = false
+                    }
+                }
                 #endif
             }
+            #if os(macOS)
+            .onDisappear {
+                if cursorPushed {
+                    NSCursor.pop()
+                    cursorPushed = false
+                }
+            }
+            #endif
             .padding(.trailing, VSpacing.sm)
         }
         .background(VColor.inputBackground)
