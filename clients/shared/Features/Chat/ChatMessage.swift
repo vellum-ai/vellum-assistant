@@ -1416,6 +1416,48 @@ public struct ChatAttachment: Identifiable {
     #endif
 }
 
+/// Tracks the state of a guardian decision prompt displayed in chat.
+public enum GuardianDecisionState: Equatable {
+    case pending
+    case resolved(action: String)
+    case stale
+}
+
+/// Data for a guardian decision prompt message displayed in chat.
+/// Populated from `GuardianDecisionPromptWire` returned by the daemon.
+public struct GuardianDecisionData: Equatable {
+    public let requestId: String
+    public let requestCode: String
+    public let questionText: String
+    public let toolName: String?
+    public let actions: [GuardianActionOption]
+    public let conversationId: String
+    public var state: GuardianDecisionState = .pending
+    /// True while waiting for the server to acknowledge a button click.
+    public var isSubmitting: Bool = false
+
+    public init(requestId: String, requestCode: String, questionText: String, toolName: String?, actions: [GuardianActionOption], conversationId: String, state: GuardianDecisionState = .pending) {
+        self.requestId = requestId
+        self.requestCode = requestCode
+        self.questionText = questionText
+        self.toolName = toolName
+        self.actions = actions
+        self.conversationId = conversationId
+        self.state = state
+    }
+
+    /// Build from the wire type returned by the daemon HTTP API.
+    public init(from wire: GuardianDecisionPromptWire) {
+        self.requestId = wire.requestId
+        self.requestCode = wire.requestCode
+        self.questionText = wire.questionText
+        self.toolName = wire.toolName
+        self.actions = wire.actions
+        self.conversationId = wire.conversationId
+        self.state = wire.state == "resolved" ? .stale : .pending
+    }
+}
+
 public struct ModelPickerData: Equatable {
     public init() {}
 }
@@ -1505,6 +1547,8 @@ public struct ChatMessage: Identifiable, Equatable {
         && lhs.attachments.count == rhs.attachments.count
         && lhs.inlineSurfaces.count == rhs.inlineSurfaces.count
         && lhs.confirmation?.state == rhs.confirmation?.state
+        && lhs.guardianDecision?.state == rhs.guardianDecision?.state
+        && lhs.guardianDecision?.isSubmitting == rhs.guardianDecision?.isSubmitting
         && lhs.isSubagentNotification == rhs.isSubagentNotification
         && lhs.isContentStripped == rhs.isContentStripped
         && lhs.streamingCodePreview == rhs.streamingCodePreview
@@ -1518,6 +1562,8 @@ public struct ChatMessage: Identifiable, Equatable {
     public var status: ChatMessageStatus
     /// Non-nil when this message is an inline tool confirmation request.
     public var confirmation: ToolConfirmationData?
+    /// Non-nil when this message is a guardian decision prompt.
+    public var guardianDecision: GuardianDecisionData?
     public var skillInvocation: SkillInvocationData?
     public var modelPicker: ModelPickerData?
     public var modelList: ModelListData?
@@ -1554,7 +1600,7 @@ public struct ChatMessage: Identifiable, Equatable {
         textSegments.joined()
     }
 
-    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], isError: Bool = false) {
+    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, guardianDecision: GuardianDecisionData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], isError: Bool = false) {
         self.id = id
         self.role = role
         self.textSegments = text.isEmpty ? [] : [text]
@@ -1563,6 +1609,7 @@ public struct ChatMessage: Identifiable, Equatable {
         self.isStreaming = isStreaming
         self.status = status
         self.confirmation = confirmation
+        self.guardianDecision = guardianDecision
         self.skillInvocation = skillInvocation
         self.attachments = attachments
         self.toolCalls = toolCalls

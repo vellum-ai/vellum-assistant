@@ -14,6 +14,8 @@ struct MessageListView: View {
     let onConfirmationDeny: (String) -> Void
     let onAlwaysAllow: (String, String, String, String) -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
+    /// Called when a guardian decision action button is clicked: (requestId, action).
+    var onGuardianAction: ((String, String) -> Void)?
     let onDismissDocumentWidget: ((String) -> Void)?
     let onReportMessage: ((String?) -> Void)?
     let mediaEmbedSettings: MediaEmbedResolverSettings?
@@ -189,6 +191,15 @@ struct MessageListView: View {
                             CommandListBubble()
                                 .id(message.id)
                                 .transition(.opacity)
+                        } else if let guardianDecision = message.guardianDecision {
+                            GuardianDecisionBubble(
+                                decision: guardianDecision,
+                                onAction: { requestId, action in
+                                    onGuardianAction?(requestId, action)
+                                }
+                            )
+                            .id(message.id)
+                            .transition(.opacity)
                         } else {
                             let nextIsPendingConfirmation = index + 1 < displayMessages.count
                                 && displayMessages[index + 1].confirmation?.state == .pending
