@@ -761,7 +761,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// user clicks Undo. Returns the IDs of threads that were actually marked.
     @discardableResult
     internal func markAllThreadsSeen() -> [UUID] {
-        cancelPendingSeenSignals()
+        // Commit (not cancel) any already-pending signals so a second
+        // mark-all invocation doesn't silently drop the first batch.
+        commitPendingSeenSignals()
         var markedIds: [UUID] = []
         var sessionIds: [String] = []
         for idx in threads.indices {
@@ -803,12 +805,15 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Schedule deferred IPC seen signals to fire after a delay.
     /// If the user clicks Undo before the delay, call
     /// `cancelPendingSeenSignals()` to prevent them from sending.
-    internal func schedulePendingSeenSignals(delay: TimeInterval = 5.0) {
+    /// The optional `onCommit` closure is called after the signals are sent,
+    /// allowing callers to dismiss the undo toast when the window expires.
+    internal func schedulePendingSeenSignals(delay: TimeInterval = 5.0, onCommit: (() -> Void)? = nil) {
         pendingSeenSignalTask?.cancel()
         pendingSeenSignalTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled else { return }
             self?.commitPendingSeenSignals()
+            onCommit?()
         }
     }
 
