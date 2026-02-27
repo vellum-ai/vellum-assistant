@@ -102,14 +102,14 @@ export interface ChannelGuardianApprovalContext {
 export function normalizeChannelGuardianApproval(ctx: ChannelGuardianApprovalContext): NormalizedApprovalRequest {
   return {
     assistantId: ctx.approval.assistantId,
-    requestId: ctx.approval.requestId ?? ctx.approval.runId,
+    requestId: ctx.approval.requestId ?? ctx.approval.id,
     requestChannel: ctx.approval.channel,
     decisionChannel: ctx.decisionChannel,
     toolName: ctx.approval.toolName,
     inputDigest: ctx.inputDigest ?? null,
     conversationId: ctx.approval.conversationId,
     callSessionId: null,
-    requesterExternalUserId: ctx.approval.requesterExternalUserId,
+    requesterExternalUserId: ctx.approval.requesterExternalUserId || null,
     guardianExternalUserId: ctx.approval.guardianExternalUserId,
   };
 }
