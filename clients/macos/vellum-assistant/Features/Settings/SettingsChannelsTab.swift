@@ -53,9 +53,6 @@ struct SettingsChannelsTab: View {
     // Outbound guardian verification destination input (keyed by channel)
     @State private var guardianDestinationText: [String: String] = [:]
 
-    // Hover state for guardian send button (keyed by channel)
-    @State private var guardianSendHovered: [String: Bool] = [:]
-
     // Outbound verification code copy state (tracks which channel's code was just copied)
     @State private var outboundCodeCopiedChannel: String?
 
@@ -1241,52 +1238,9 @@ struct SettingsChannelsTab: View {
             HStack(spacing: VSpacing.sm) {
                 guardianLabel
 
-                HStack(spacing: 0) {
-                    TextField(placeholder, text: destinationBinding)
-                        .textFieldStyle(.plain)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                        .padding(.leading, VSpacing.md)
-                        .padding(.vertical, VSpacing.md)
-                        .onSubmit {
-                            if !destination.isEmpty {
-                                store.startOutboundGuardianVerification(channel: channel, destination: destination)
-                            }
-                        }
-
-                    Button {
-                        store.startOutboundGuardianVerification(channel: channel, destination: destination)
-                    } label: {
-                        let isHovered = guardianSendHovered[channel] ?? false
-                        Text("Send")
-                            .font(VFont.captionMedium)
-                            .foregroundColor(destination.isEmpty ? VColor.textMuted : .white)
-                            .padding(.horizontal, VSpacing.md)
-                            .padding(.vertical, VSpacing.buttonV)
-                            .background(
-                                destination.isEmpty
-                                    ? VColor.surfaceBorder.opacity(0.5)
-                                    : (isHovered ? VColor.buttonPrimaryHover : VColor.buttonPrimary)
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .animation(VAnimation.fast, value: isHovered)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(destination.isEmpty)
-                    .onHover { hovering in
-                        guardianSendHovered[channel] = destination.isEmpty ? false : hovering
-                        if !destination.isEmpty {
-                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                        }
-                    }
-                    .padding(.trailing, VSpacing.sm)
+                VInlineActionField(text: destinationBinding, placeholder: placeholder, actionLabel: "Send") {
+                    store.startOutboundGuardianVerification(channel: channel, destination: destination)
                 }
-                .background(VColor.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
-                )
                 .frame(maxWidth: 360)
 
                 Spacer()
