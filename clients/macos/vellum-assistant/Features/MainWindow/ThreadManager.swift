@@ -748,7 +748,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// or switches back to the app) so that a pre-selected unread thread is
     /// marked seen without requiring a thread switch.
     func markActiveThreadSeenIfNeeded() {
-        guard !isRestoringThreads,
+        guard NSApp.isActive,
+              !isRestoringThreads,
               let activeId = activeThreadId,
               let idx = threads.firstIndex(where: { $0.id == activeId }),
               threads[idx].hasUnseenLatestAssistantMessage else { return }
