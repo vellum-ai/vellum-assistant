@@ -38,7 +38,7 @@ jobs:
 
       - name: Install Chromium
         working-directory: playwright
-        run: bunx playwright install chromium
+        run: bunx playwright install --with-deps chromium
 
       - name: Run headless browser tests
         working-directory: playwright
