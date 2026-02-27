@@ -66,6 +66,13 @@ Read and follow `.claude/phases/plan-and-spec.md`. For safe-blitz mode, replace 
 
 **Skip the approval step** (step 5 in plan-and-spec.md). Do NOT pause for user confirmation after creating the plan. Instead, log a summary of the plan (project issue link, milestone list, feature branch name) and proceed directly to the next phase. Safe-blitz already has review gates on every milestone PR and a final PR into main, so an upfront approval is unnecessary.
 
+**Update the blitz heartbeat** after planning completes to prevent the entry from going stale during long-running phases:
+```bash
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
+echo "<namespace> safe-blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
+mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+```
+
 ## Phase 3: Prepare Milestone List
 
 Do NOT use `.claude/phases/populate-todo.md` here. Instead, maintain an internal ordered list of milestones (M1, M2, ..., MN) with their titles and GitHub issue numbers. These milestones will be executed **one at a time** in Phase 4 — do NOT write them all to TODO.md at once.
@@ -185,6 +192,13 @@ Address the review feedback on PR #<milestone-pr-number> (<milestone-pr-url>):
 ### For each milestone (in order):
 
 #### 4a. Add to TODO.md and execute
+
+**Update the blitz heartbeat** before each milestone execution to prevent the entry from going stale:
+```bash
+grep -v "^<namespace> " .private/ACTIVE_BLITZ.md > .private/ACTIVE_BLITZ.md.tmp 2>/dev/null || true
+echo "<namespace> safe-blitz $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .private/ACTIVE_BLITZ.md.tmp
+mv .private/ACTIVE_BLITZ.md.tmp .private/ACTIVE_BLITZ.md
+```
 
 1. Prepend this single milestone item to `.private/TODO.md` (preserve existing items) with the namespace prefix:
    ```

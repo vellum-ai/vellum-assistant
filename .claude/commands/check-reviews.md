@@ -26,10 +26,11 @@ If neither `--namespace` nor `--force` was provided:
    ```
    Example: `approval-conv-flow safe-blitz 2026-02-26T10:00:00Z`
 
-3. For each entry, check if the heartbeat is stale (older than 30 minutes):
+3. For each entry, check if the heartbeat is stale (older than 30 minutes). Use portable date parsing that works on both macOS (BSD) and Linux (GNU):
    ```bash
    HEARTBEAT="<heartbeat-timestamp>"
-   HEARTBEAT_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$HEARTBEAT" "+%s" 2>/dev/null)
+   # Portable: try BSD date first, fall back to GNU date
+   HEARTBEAT_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$HEARTBEAT" "+%s" 2>/dev/null || date -d "$HEARTBEAT" "+%s" 2>/dev/null)
    NOW_EPOCH=$(date "+%s")
    AGE=$(( NOW_EPOCH - HEARTBEAT_EPOCH ))
    ```
