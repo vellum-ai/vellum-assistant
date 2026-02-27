@@ -406,12 +406,17 @@ private struct SkillRow: View {
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(skill.name)
-                    .font(VFont.headline)
+                HStack(spacing: 6) {
+                    Text(skill.name)
+                        .font(VFont.headline)
+                    provenanceBadge
+                }
                 Text(skill.description)
                     .font(VFont.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+
+                provenanceSourceLink
 
                 if skill.degraded, let missing = skill.missingRequirements {
                     degradedWarning(missing)
@@ -447,6 +452,48 @@ private struct SkillRow: View {
                 .labelsHidden()
         }
         .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private var provenanceBadge: some View {
+        if let provenance = skill.provenance {
+            if provenance.kind == "first-party" {
+                Text(provenance.provider ?? "Vellum")
+                    .font(.caption2)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.blue.opacity(0.15))
+                    .foregroundStyle(.blue)
+                    .clipShape(Capsule())
+            } else if provenance.kind == "third-party" {
+                Text(provenance.provider ?? "Third-party")
+                    .font(.caption2)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.orange.opacity(0.15))
+                    .foregroundStyle(.orange)
+                    .clipShape(Capsule())
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var provenanceSourceLink: some View {
+        if let provenance = skill.provenance,
+           provenance.kind == "third-party",
+           let urlString = provenance.sourceUrl,
+           let url = URL(string: urlString) {
+            Link(destination: url) {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.caption2)
+                    Text("View on \(provenance.provider ?? "source")")
+                        .font(.caption)
+                }
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     @ViewBuilder

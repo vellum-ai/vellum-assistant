@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { getConfig, invalidateConfigCache,loadRawConfig, saveRawConfig } from '../../config/loader.js';
 import { resolveSkillStates } from '../../config/skill-state.js';
-import { ensureSkillIcon,loadSkillBySelector, loadSkillCatalog } from '../../config/skills.js';
+import { ensureSkillIcon,loadSkillBySelector, loadSkillCatalog, type SkillSummary } from '../../config/skills.js';
 import { createTimeout,extractText, getConfiguredProvider, userMessage } from '../../providers/provider-send-message.js';
 import { clawhubCheckUpdates, clawhubInspect, clawhubInstall, clawhubSearch, type ClawhubSearchResultItem,clawhubUpdate } from '../../skills/clawhub.js';
 import { createManagedSkill,deleteManagedSkill, removeSkillsIndexEntry, validateManagedSkillId } from '../../skills/managed-store.js';
@@ -26,6 +26,57 @@ import type {
 } from '../ipc-protocol.js';
 import { CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, ensureSkillEntry, type HandlerContext,log } from './shared.js';
 
+// ─── Provenance resolution ──────────────────────────────────────────────────
+
+interface SkillProvenance {
+  kind: 'first-party' | 'third-party';
+  provider?: string;
+  originId?: string;
+  sourceUrl?: string;
+}
+
+const CLAWHUB_BASE_URL = 'https://skills.sh';
+
+function resolveProvenance(summary: SkillSummary): SkillProvenance {
+  // Bundled skills are always first-party (shipped with Vellum)
+  if (summary.source === 'bundled') {
+    return { kind: 'first-party', provider: 'Vellum' };
+  }
+
+  // Clawhub-sourced skills are third-party community skills
+  if (summary.source === 'clawhub') {
+    return {
+      kind: 'third-party',
+      provider: 'skills.sh',
+      originId: summary.id,
+      sourceUrl: `${CLAWHUB_BASE_URL}/skills/${encodeURIComponent(summary.id)}`,
+    };
+  }
+
+  // Managed skills could be either first-party (installed from Vellum catalog)
+  // or third-party (installed from clawhub). The homepage field serves as a
+  // heuristic: Vellum catalog skills don't typically have a clawhub homepage.
+  if (summary.source === 'managed') {
+    if (summary.homepage?.includes('skills.sh') || summary.homepage?.includes('clawhub')) {
+      return {
+        kind: 'third-party',
+        provider: 'skills.sh',
+        originId: summary.id,
+        sourceUrl: summary.homepage ?? `${CLAWHUB_BASE_URL}/skills/${encodeURIComponent(summary.id)}`,
+      };
+    }
+    // Default managed skills to first-party (most are installed from Vellum catalog)
+    return { kind: 'first-party', provider: 'Vellum' };
+  }
+
+  // Workspace and extra skills are user-provided
+  if (summary.source === 'workspace' || summary.source === 'extra') {
+    return { kind: 'third-party', provider: 'local' };
+  }
+
+  return { kind: 'third-party' };
+}
+
 export function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();
   const catalog = loadSkillCatalog();
@@ -43,6 +94,7 @@ export function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void 
     missingRequirements: r.missingRequirements,
     updateAvailable: false,
     userInvocable: r.summary.userInvocable,
+    provenance: resolveProvenance(r.summary),
   }));
 
   ctx.send(socket, { type: 'skills_list_response', skills });

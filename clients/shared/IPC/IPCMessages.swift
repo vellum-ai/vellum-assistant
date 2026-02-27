@@ -1045,6 +1045,10 @@ public typealias ClawhubInfo = IPCSkillsListResponseSkillClawhub
 /// Backed by generated `IPCSkillsListResponseSkillMissingRequirements`.
 public typealias MissingRequirements = IPCSkillsListResponseSkillMissingRequirements
 
+/// Provenance metadata indicating whether a skill is first-party or third-party.
+/// Backed by generated `IPCSkillsListResponseSkillProvenance`.
+public typealias SkillProvenance = IPCSkillsListResponseSkillProvenance
+
 /// Full skill info from the daemon's resolved skill list.
 /// Backed by generated `IPCSkillsListResponseSkill`.
 public typealias SkillInfo = IPCSkillsListResponseSkill
@@ -1054,12 +1058,12 @@ extension IPCSkillsListResponseSkill: Identifiable {}
 extension IPCSkillsListResponseSkill {
     /// Backward-compatible init that defaults `id` to `name`.
     public init(name: String, description: String, emoji: String?, homepage: String?, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements?, installedVersion: String?, latestVersion: String?, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub?) {
-        self.init(id: name, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: state, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub)
+        self.init(id: name, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: state, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: nil)
     }
 
     /// Returns a copy with a different `state`, preserving all other fields including `id`.
     public func withState(_ newState: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub)
+        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: provenance)
     }
 }
 

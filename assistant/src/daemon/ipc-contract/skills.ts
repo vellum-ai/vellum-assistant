@@ -95,6 +95,7 @@ export interface SkillsListResponse {
     updateAvailable: boolean;
     userInvocable: boolean;
     clawhub?: { author: string; stars: number; installs: number; reports: number; publishedAt: string };
+    provenance?: { kind: 'first-party' | 'third-party'; provider?: string; originId?: string; sourceUrl?: string };
   }>;
 }
 
