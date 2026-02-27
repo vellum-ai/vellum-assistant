@@ -54,14 +54,6 @@ function parseFrontmatter(content: string): { fixture?: string; body: string } {
   return { fixture, body };
 }
 
-function substituteVariables(content: string, variables: Record<string, string>): string {
-  let result = content;
-  for (const [key, value] of Object.entries(variables)) {
-    result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value);
-  }
-  return result;
-}
-
 // ── Test Discovery ──────────────────────────────────────────────────
 
 function discoverTestCases(casesDir: string, filter?: string): TestCase[] {
@@ -98,15 +90,13 @@ async function runTestCase(
 
   try {
     // Setup fixture if needed
-    let variables: Record<string, string> = {};
     if (testCase.fixture) {
       fixtureCtx = await setupFixture(testCase.fixture);
-      variables = fixtureCtx.variables;
     }
 
-    // Prepare test content with substituted variables
+    // Prepare test content (no variable substitution — markdown files are static)
     const { body } = parseFrontmatter(testCase.rawContent);
-    const testContent = substituteVariables(body, variables);
+    const testContent = body;
 
     // Create browser context and page
     context = await browser.newContext();
