@@ -331,10 +331,8 @@ extension AppDelegate {
         }
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
             showStatusMenu()
-        } else if PermissionManager.screenRecordingStatus() == .granted {
-            startScreenCapture()
         } else {
-            toggleQuickInput(aboveDock: true, requestScreenPermission: true)
+            toggleQuickInput()
         }
     }
 
