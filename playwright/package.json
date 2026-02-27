@@ -10,7 +10,8 @@
     "test:agent": "bun run agent/runner.ts",
     "test:agent:headed": "bun run agent/runner.ts --headed",
     "test:agent:verbose": "bun run agent/runner.ts --verbose",
-    "test:agent:ci": "gh workflow run playwright.yaml -f agent=true"
+    "test:agent:ci": "./scripts/agent-ci.sh",
+    "test:agent:ci:detach": "./scripts/agent-ci.sh -d"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0"
