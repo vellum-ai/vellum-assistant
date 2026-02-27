@@ -552,6 +552,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <string>https://github.com/vellum-ai/velly/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>${SU_PUBLIC_ED_KEY:-}</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
     <key>SUAutomaticallyUpdate</key>
     <true/>
     <key>CFBundleIconName</key>
