@@ -27,20 +27,7 @@ public final class AmbientAgent: ObservableObject {
     private var currentSessionForwarder: AnyCancellable?
     private var cancellables = Set<AnyCancellable>()
 
-    /// Tracks foreground state so that ambient capture/analyze cycles are skipped
-    /// while the app is not active, eliminating background CPU drain.
-    private var isAppActive: Bool = true
-
     var knowledge: KnowledgeStore { knowledgeStore }
-
-    init() {
-        NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)
-            .sink { [weak self] _ in self?.isAppActive = false }
-            .store(in: &cancellables)
-        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
-            .sink { [weak self] _ in self?.isAppActive = true }
-            .store(in: &cancellables)
-    }
 
     /// Set currentSession and forward its objectWillChange to our own,
     /// so SwiftUI views observing AmbientAgent re-render when nested
@@ -58,15 +45,6 @@ public final class AmbientAgent: ObservableObject {
             .sink { [weak self] shouldShow in
                 if shouldShow {
                     Task { @MainActor in
-                        // Skip the invitation cycle when the app is not in the
-                        // foreground — no point running analysis nobody will see.
-                        // Reset the flag so evaluate() can re-trigger when the
-                        // app becomes active again (removeDuplicates won't re-fire
-                        // the same `true` value otherwise).
-                        guard self?.isAppActive == true else {
-                            self?.rideShotgunTrigger.shouldShowInvitation = false
-                            return
-                        }
                         await self?.showInvitation()
                     }
                 }

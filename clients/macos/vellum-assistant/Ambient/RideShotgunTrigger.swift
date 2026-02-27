@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 import CoreGraphics
 import os
 
@@ -11,11 +10,6 @@ public final class RideShotgunTrigger: ObservableObject {
 
     private var checkTimer: Timer?
     private let appLaunchDate = Date()
-    private var cancellables = Set<AnyCancellable>()
-
-    /// Tracks whether the app is currently in the foreground; used to skip evaluation
-    /// when the user has switched away, preventing background CPU drain.
-    private var isAppActive: Bool = true
 
     /// Minimum time (minutes) since app launch before offering
     private let minAppRunMinutes: Double = 15
@@ -30,15 +24,6 @@ public final class RideShotgunTrigger: ObservableObject {
     private let totalSessionCountKey = "rideShotgunTotalSessionCount"
     private let lastDeclinedDateKey = "rideShotgunLastDeclinedDate"
     private let lastCompletedDateKey = "rideShotgunLastCompletedDate"
-
-    public init() {
-        NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)
-            .sink { [weak self] _ in self?.isAppActive = false }
-            .store(in: &cancellables)
-        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
-            .sink { [weak self] _ in self?.isAppActive = true }
-            .store(in: &cancellables)
-    }
 
     public func start() {
         guard checkTimer == nil else { return }
@@ -79,12 +64,8 @@ public final class RideShotgunTrigger: ObservableObject {
     }
 
     private func evaluate() {
-        // Skip when the app is not in the foreground — no point surfacing an invitation
-        // the user won't see, and this avoids unnecessary work while backgrounded.
-        guard isAppActive else { return }
-
         // Skip when the display is asleep; there's no one to show the invitation to.
-        guard !CGDisplayIsAsleep(CGMainDisplayID()) else { return }
+        guard CGDisplayIsAsleep(CGMainDisplayID()) == 0 else { return }
 
         // Already showing?
         guard !shouldShowInvitation else { return }
