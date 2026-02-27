@@ -34,30 +34,36 @@ mock.module('../util/logger.js', () => ({
 }));
 
 // Mock applyGuardianDecision to avoid needing the full approval + session machinery
-const mockApplyGuardianDecision = mock(() => ({
-  applied: true,
-  requestId: 'req-123',
-}));
+const mockApplyGuardianDecision = mock(
+  (..._args: any[]): { applied: boolean; requestId?: string; reason?: string; userText?: string } => ({
+    applied: true,
+    requestId: 'req-123',
+  }),
+);
 mock.module('../approvals/guardian-decision-primitive.js', () => ({
   applyGuardianDecision: mockApplyGuardianDecision,
 }));
 
 // Mock handleChannelDecision for the pending-interactions fallback path
-const mockHandleChannelDecision = mock(() => ({
-  applied: true,
-  requestId: 'req-456',
-}));
+const mockHandleChannelDecision = mock(
+  (..._args: any[]): { applied: boolean; requestId?: string } => ({
+    applied: true,
+    requestId: 'req-456',
+  }),
+);
 mock.module('../runtime/channel-approvals.js', () => ({
   handleChannelDecision: mockHandleChannelDecision,
 }));
 
 // Mock handleAccessRequestDecision for ingress_access_request routing
-const mockHandleAccessRequestDecision = mock(() => ({
-  handled: true,
-  type: 'approved' as const,
-  verificationSessionId: 'vs-1',
-  verificationCode: '123456',
-}));
+const mockHandleAccessRequestDecision = mock(
+  (..._args: any[]): { handled: boolean; type: string; verificationSessionId?: string; verificationCode?: string } => ({
+    handled: true,
+    type: 'approved',
+    verificationSessionId: 'vs-1',
+    verificationCode: '123456',
+  }),
+);
 mock.module('../runtime/routes/access-request-decision.js', () => ({
   handleAccessRequestDecision: mockHandleAccessRequestDecision,
 }));
@@ -285,7 +291,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       body: JSON.stringify({ requestId: 'req-access-deny', action: 'reject' }),
     });
     await handleGuardianActionDecision(req);
-    const call = mockHandleAccessRequestDecision.mock.calls[0];
+    const call = mockHandleAccessRequestDecision.mock.calls[0]!;
     expect(call[1]).toBe('deny');
   });
 
@@ -373,7 +379,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       body: JSON.stringify({ requestId: 'req-actor-1', action: 'approve_once' }),
     });
     await handleGuardianActionDecision(req);
-    const call = mockApplyGuardianDecision.mock.calls[0][0];
+    const call = mockApplyGuardianDecision.mock.calls[0]![0] as Record<string, unknown>;
     expect(call.actorExternalUserId).toBeUndefined();
     expect(call.actorChannel).toBe('vellum');
   });
@@ -624,7 +630,7 @@ describe('IPC guardian_action_decision', () => {
     expect(sent[0].applied).toBe(true);
     expect(mockHandleAccessRequestDecision).toHaveBeenCalledTimes(1);
     // Guardian identity should be passed through
-    const call = mockHandleAccessRequestDecision.mock.calls[0];
+    const call = mockHandleAccessRequestDecision.mock.calls[0]!;
     expect(call[2]).toBe('guardian-99');
   });
 
@@ -721,7 +727,7 @@ describe('IPC guardian_action_decision', () => {
       socket as any,
       ctx as any,
     );
-    const call = mockApplyGuardianDecision.mock.calls[0][0];
+    const call = mockApplyGuardianDecision.mock.calls[0]![0] as Record<string, unknown>;
     expect(call.actorExternalUserId).toBeUndefined();
     expect(call.actorChannel).toBe('vellum');
   });
