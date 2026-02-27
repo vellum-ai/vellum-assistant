@@ -1521,6 +1521,7 @@ async function handleInviteTokenIntercept(params: {
         log.error({ err, externalChatId }, 'Failed to deliver invite already-member reply');
       }
     }
+    channelDeliveryStore.markProcessed(dedupResult.eventId);
     return Response.json({ accepted: true, eventId: dedupResult.eventId, inviteRedemption: 'already_member' });
   }
 
@@ -1539,10 +1540,12 @@ async function handleInviteTokenIntercept(params: {
   }
 
   if (outcome.ok && outcome.type === 'redeemed') {
+    channelDeliveryStore.markProcessed(dedupResult.eventId);
     return Response.json({ accepted: true, eventId: dedupResult.eventId, inviteRedemption: 'redeemed', memberId: outcome.memberId });
   }
 
   // Failed redemption — inform the user and deny
+  channelDeliveryStore.markProcessed(dedupResult.eventId);
   return Response.json({ accepted: true, eventId: dedupResult.eventId, denied: true, inviteRedemption: outcome.reason });
 }
 
