@@ -23,6 +23,7 @@ const ALL_SCENARIOS: GuardianActionMessageScenario[] = [
   'guardian_followup_failed',
   'guardian_followup_declined_ack',
   'guardian_followup_clarification',
+  'guardian_pending_disambiguation',
   'guardian_expired_disambiguation',
   'guardian_followup_disambiguation',
   'guardian_stale_answered',
