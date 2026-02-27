@@ -245,42 +245,6 @@ struct MainWindowView: View {
         return threadManager.activeThreadId!
     }
 
-    private func toggleChatBubble() {
-        switch windowState.selection {
-        case .app(let appId):
-            // Toggle ON: open chat alongside app
-            let threadId = resolveThreadId()
-            threadManager.selectThread(id: threadId)
-            windowState.setAppEditing(appId: appId, threadId: threadId)
-            isAppChatOpen = true
-
-        case .appEditing(let appId, _):
-            // Toggle OFF: close chat, return to app-only view
-            windowState.selection = .app(appId)
-            isAppChatOpen = false
-
-        case .panel(let panelType) where panelType != .voiceMode && panelType != .documentEditor:
-            // Toggle: flip isAppChatOpen for any panel view
-            // (voiceMode and documentEditor have their own dedicated split layouts)
-            isAppChatOpen.toggle()
-
-        default:
-            break
-        }
-    }
-
-    /// Whether the chat bubble toggle should be visible for the current selection.
-    /// Hidden when already in a full-screen chat thread (.thread / .none),
-    /// or on panels that have their own dedicated chat layouts.
-    private var isChatBubbleVisible: Bool {
-        if windowState.isShowingChat { return false }
-        if case .panel(let panelType) = windowState.selection,
-           panelType == .voiceMode || panelType == .documentEditor {
-            return false
-        }
-        return true
-    }
-
     /// Whether the chat bubble toggle is active (chat is open).
     private var isChatBubbleActive: Bool {
         switch windowState.selection {
@@ -359,25 +323,6 @@ struct MainWindowView: View {
                     }
                 }
 
-                // Sticky behavior: if isAppChatOpen is true and we just navigated to .app,
-                // auto-transition to .appEditing so the chat dock stays open.
-                // Guard: only auto-transition from .app (not .appEditing) to avoid infinite loops.
-                if case .app(let appId) = newSelection, isAppChatOpen {
-                    let threadId = threadManager.activeThreadId
-                        ?? threadManager.visibleThreads.first?.id
-                    if let threadId {
-                        threadManager.selectThread(id: threadId)
-                        windowState.setAppEditing(appId: appId, threadId: threadId)
-                    } else {
-                        // No threads exist — create one, then transition
-                        threadManager.createThread()
-                        if let newThreadId = threadManager.activeThreadId {
-                            windowState.setAppEditing(appId: appId, threadId: newThreadId)
-                        }
-                    }
-                    return
-                }
-
                 // Sync surface and chat dock state when selection changes
                 let expanded = windowState.isDynamicExpanded
                 let docked = windowState.isChatDockOpen
@@ -438,13 +383,6 @@ struct MainWindowView: View {
                 withAnimation(VAnimation.panel) {
                     sidebarExpanded.toggle()
                 }
-            }
-            if isChatBubbleVisible {
-                ChatBubbleToggle(
-                    isActive: isChatBubbleActive,
-                    tooltip: isChatBubbleActive ? "Hide chat" : "Show chat",
-                    onToggle: { toggleChatBubble() }
-                )
             }
             Spacer()
             PTTKeyIndicator {
@@ -600,6 +538,11 @@ struct MainWindowView: View {
             JITPermissionView(manager: jitPermissionManager)
         }
         .onAppear {
+            // Reset stale chat-dock state for users upgrading from versions
+            // that had the ChatBubbleToggle (now removed). Without this,
+            // isAppChatOpen could remain persisted as true with no UI to
+            // disable it, leaving panels stuck in split mode.
+            isAppChatOpen = false
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             selectedThreadId = threadManager.activeThreadId
             // Initialize persistent thread tracking on launch
@@ -658,15 +601,9 @@ struct MainWindowView: View {
                 if let surface = windowState.activeDynamicParsedSurface,
                    case .dynamicPage(let dpData) = surface.data,
                    let appId = dpData.appId {
-                    // Auto-dock chat alongside the app so the user can
-                    // keep chatting while viewing the surface.
-                    let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
-                    if let threadId {
-                        threadManager.selectThread(id: threadId)
-                        windowState.setAppEditing(appId: appId, threadId: threadId)
-                    } else {
-                        windowState.selection = .app(appId)
-                    }
+                    // Open in view-only mode; user can enter edit mode
+                    // via the Edit button in the toolbar.
+                    windowState.selection = .app(appId)
                 } else {
                     windowState.selection = .app(msg.surfaceId)
                 }
@@ -1037,7 +974,6 @@ struct MainWindowView: View {
     @ViewBuilder
     private func sidebarPinnedAppRow(_ app: AppListManager.AppItem) -> some View {
         Button(action: {
-            windowState.selection = .app(app.id)
             openAppInWorkspace(app: app)
         }) {
             HStack(spacing: VSpacing.sm) {
@@ -1099,7 +1035,6 @@ struct MainWindowView: View {
     @ViewBuilder
     private func sidebarPinnedAppIcon(_ app: AppListManager.AppItem) -> some View {
         Button(action: {
-            windowState.selection = .app(app.id)
             openAppInWorkspace(app: app)
         }) {
             Image(systemName: app.sfSymbol ?? "square.grid.2x2")
@@ -1397,8 +1332,6 @@ struct MainWindowView: View {
     @ViewBuilder
     private func sidebarAppItem(_ app: AppListManager.AppItem) -> some View {
         Button(action: {
-            // Clicking a different app exits edit mode; same app stays in .app mode
-            windowState.selection = .app(app.id)
             openAppInWorkspace(app: app)
         }) {
             HStack(spacing: VSpacing.sm) {
