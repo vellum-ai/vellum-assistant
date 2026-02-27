@@ -20,7 +20,30 @@ struct OnboardingFlowView: View {
         ZStack {
             VColor.background.ignoresSafeArea()
 
-            if state.isHatching {
+            if state.showAvatarReveal {
+                AvatarRevealStepView(
+                    assistantName: state.assistantName,
+                    daemonClient: daemonClient,
+                    onContinue: {
+                        state.avatarRevealCompleted = true
+                        onComplete()
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RadialGradient(
+                        colors: [
+                            adaptiveColor(light: Stone._100, dark: Moss._900),
+                            adaptiveColor(light: Stone._200, dark: Moss._950)
+                        ],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 500
+                    )
+                    .ignoresSafeArea()
+                )
+                .transition(.opacity)
+            } else if state.isHatching {
                 HatchingStepView(state: state)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(
@@ -37,8 +60,8 @@ struct OnboardingFlowView: View {
                     )
             } else if (0...maxOnboardingStep).contains(state.currentStep) {
                 // Trimmed onboarding flow.
-                // When userHostedEnabled: WakeUp → APIKey → CloudCredentials (steps 0–2)
-                // Otherwise: WakeUp → APIKey (steps 0–1)
+                // When userHostedEnabled: WakeUp -> APIKey -> CloudCredentials (steps 0-2)
+                // Otherwise: WakeUp -> APIKey (steps 0-1)
                 VStack(spacing: 0) {
                     Spacer()
 
@@ -52,7 +75,7 @@ struct OnboardingFlowView: View {
                         .clipShape(Circle())
                         .padding(.bottom, VSpacing.xxl)
 
-                    // Step content — Group flattens into parent VStack so
+                    // Step content -- Group flattens into parent VStack so
                     // the inner Spacer flexes with the top Spacer above.
                     Group {
                         switch state.currentStep {
@@ -123,7 +146,11 @@ struct OnboardingFlowView: View {
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
-                onComplete()
+                // Transition from hatching to avatar reveal
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    state.isHatching = false
+                    state.showAvatarReveal = true
+                }
             }
         }
     }

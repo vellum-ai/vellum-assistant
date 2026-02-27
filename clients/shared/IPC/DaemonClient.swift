@@ -482,6 +482,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon broadcasts an `identity_changed` event (IDENTITY.md changed on disk).
     public var onIdentityChanged: ((IPCIdentityChanged) -> Void)?
 
+    /// Called when the daemon sends a `generate_avatar_response` message.
+    public var onGenerateAvatarResponse: ((IPCGenerateAvatarResponse) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -1275,6 +1278,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Request identity info via IPC.
     public func sendIdentityGet() throws {
         try send(IdentityGetRequestMessage())
+    }
+
+    /// Request avatar generation via the daemon's set_avatar tool.
+    public func sendGenerateAvatar(description: String) throws {
+        try send(GenerateAvatarRequestMessage(description: description))
     }
 
     // MARK: - Local Daemon HTTP Helpers
