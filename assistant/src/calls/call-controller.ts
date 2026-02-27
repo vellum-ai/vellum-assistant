@@ -384,7 +384,7 @@ export class CallController {
 
     // Queue the instruction when it cannot be safely appended right now
     if (this.state === 'processing' || this.state === 'speaking') {
-      this.pendingInstructions.push(instructionText);
+      this.pendingInstructions.push(`[USER_INSTRUCTION: ${instructionText}]`);
       return;
     }
 
