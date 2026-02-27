@@ -14,7 +14,7 @@ import { probePort } from "../lib/port-probe";
 import { withStatusEmoji } from "../lib/status-emoji";
 import { execOutput } from "../lib/step-runner";
 
-const DAEMON_HTTP_PORT = Number(process.env.DAEMON_HTTP_PORT) || 7821;
+const RUNTIME_HTTP_PORT = Number(process.env.RUNTIME_HTTP_PORT) || 7821;
 const QDRANT_PORT = 6333;
 
 // ── Table formatting helpers ────────────────────────────────────
@@ -223,7 +223,7 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
   const vellumDir = entry.baseDataDir ?? join(homedir(), ".vellum");
 
   const specs: ProcessSpec[] = [
-    { name: "daemon", pgrepName: "vellum-daemon", port: DAEMON_HTTP_PORT, pidFile: join(vellumDir, "vellum.pid") },
+    { name: "daemon", pgrepName: "vellum-daemon", port: RUNTIME_HTTP_PORT, pidFile: join(vellumDir, "vellum.pid") },
     { name: "qdrant", pgrepName: "qdrant", port: QDRANT_PORT, pidFile: join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid") },
     { name: "gateway", pgrepName: "vellum-gateway", port: GATEWAY_PORT, pidFile: join(vellumDir, "gateway.pid") },
   ];
