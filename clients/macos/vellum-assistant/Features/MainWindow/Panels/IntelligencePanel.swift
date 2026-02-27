@@ -92,24 +92,20 @@ struct IntelligencePanel: View {
             .clipped()
 
         case .installedSkills:
-            ScrollView {
-                AgentPanelContent(
-                    onInvokeSkill: onInvokeSkill,
-                    daemonClient: daemonClient,
-                    visibleTab: .installed
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            AgentPanelContent(
+                onInvokeSkill: onInvokeSkill,
+                daemonClient: daemonClient,
+                visibleTab: .installed
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .communitySkills:
-            ScrollView {
-                AgentPanelContent(
-                    onInvokeSkill: onInvokeSkill,
-                    daemonClient: daemonClient,
-                    visibleTab: .available
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            AgentPanelContent(
+                onInvokeSkill: onInvokeSkill,
+                daemonClient: daemonClient,
+                visibleTab: .available
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 }

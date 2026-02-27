@@ -202,41 +202,43 @@ struct AgentPanelContent: View {
 
     @ViewBuilder
     private var availableSkillsList: some View {
-        VStack(spacing: VSpacing.lg) {
-            if skillsManager.isSearching {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                    Spacer()
-                }
-                .frame(height: 60)
-            } else if !availableClawhubSkills.isEmpty {
-                ForEach(availableClawhubSkills) { skill in
-                    clawhubSkillCard(skill)
-                }
-            } else if hasActiveSearch {
-                VStack(spacing: VSpacing.md) {
-                    VEmptyState(
-                        title: "No matches in Available",
-                        subtitle: "No available skills matched \"\(globalSkillSearchQuery)\"",
-                        icon: "magnifyingglass"
-                    )
-
-                    if visibleTab == nil, !filteredUserSkills.isEmpty {
-                        Button {
-                            withAnimation(VAnimation.fast) { selectedTab = .installed }
-                        } label: {
-                            Text("Show \(filteredUserSkills.count) match\(filteredUserSkills.count == 1 ? "" : "es") in Installed")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                        }
-                        .buttonStyle(.plain)
+        ScrollView {
+            VStack(spacing: VSpacing.lg) {
+                if skillsManager.isSearching {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .controlSize(.small)
+                        Spacer()
                     }
-                }
-                .frame(minHeight: 100)
-            }
+                    .frame(height: 60)
+                } else if !availableClawhubSkills.isEmpty {
+                    ForEach(availableClawhubSkills) { skill in
+                        clawhubSkillCard(skill)
+                    }
+                } else if hasActiveSearch {
+                    VStack(spacing: VSpacing.md) {
+                        VEmptyState(
+                            title: "No matches in Available",
+                            subtitle: "No available skills matched \"\(globalSkillSearchQuery)\"",
+                            icon: "magnifyingglass"
+                        )
 
+                        if visibleTab == nil, !filteredUserSkills.isEmpty {
+                            Button {
+                                withAnimation(VAnimation.fast) { selectedTab = .installed }
+                            } label: {
+                                Text("Show \(filteredUserSkills.count) match\(filteredUserSkills.count == 1 ? "" : "es") in Installed")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.accent)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .frame(minHeight: 100)
+                }
+
+            }
         }
         .onAppear {
             skillsManager.searchSkills()
@@ -867,8 +869,12 @@ struct AgentPanelContent: View {
                         )
                         .frame(minHeight: 100)
                     } else {
-                        ForEach(categoryFilteredSkills) { skill in
-                            skillCard(skill)
+                        ScrollView {
+                            VStack(spacing: VSpacing.md) {
+                                ForEach(categoryFilteredSkills) { skill in
+                                    skillCard(skill)
+                                }
+                            }
                         }
                     }
                 }
