@@ -40,6 +40,10 @@ Rules:
 - If a step fails (tool returns an error), try to recover once. If it still fails, report the test as failed with details.
 - You have a strict 5-minute time limit. Work efficiently and avoid unnecessary retries.
 
+App-specific tips:
+- Tool permission prompts appear INLINE in the chat as a card with buttons like "Allow Once", "Always Allow", and "Don't Allow". They are NOT system dialogs or in the Settings panel. Look for these buttons in the chat area's accessibility tree.
+- Do NOT navigate to Settings or Trust Rules to handle permission prompts — just click the button directly in the chat.
+
 AppleScript tips (avoid common errors):
 - ALWAYS dump the accessibility tree (entire contents of window 1) BEFORE trying to interact with elements. Never guess element indices.
 - Static text elements are read-only — do not try to set their value.
