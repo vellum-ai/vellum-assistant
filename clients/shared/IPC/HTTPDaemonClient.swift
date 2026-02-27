@@ -627,6 +627,41 @@ final class HTTPTransport {
         log.info("Feature flag '\(key)' set to \(enabled)")
     }
 
+    /// Fetch all assistant feature flags from the gateway's `GET /v1/feature-flags` endpoint.
+    func fetchAssistantFeatureFlags(featureFlagToken: String) async throws -> [DaemonClient.AssistantFeatureFlagEntry] {
+        guard let url = URL(string: "\(baseURL)/v1/feature-flags") else {
+            throw HTTPTransportError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(featureFlagToken)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HTTPTransportError.healthCheckFailed
+        }
+
+        if http.statusCode == 401 {
+            log.error("Feature flags GET failed: authentication error (401)")
+            throw HTTPTransportError.healthCheckFailed
+        }
+
+        guard (200..<300).contains(http.statusCode) else {
+            let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
+            log.error("Feature flags GET failed (\(http.statusCode)): \(errorBody)")
+            throw HTTPTransportError.healthCheckFailed
+        }
+
+        struct FlagsResponse: Decodable {
+            let flags: [DaemonClient.AssistantFeatureFlagEntry]
+        }
+
+        let decoded = try JSONDecoder().decode(FlagsResponse.self, from: data)
+        return decoded.flags
+    }
+
     // MARK: - Remote Identity
 
     /// Fetch identity info from the remote daemon's `GET /v1/identity` endpoint.

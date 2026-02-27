@@ -6,7 +6,7 @@ struct ModelSelectionStepView: View {
     @Bindable var state: OnboardingState
 
     private var userHostedEnabled: Bool {
-        FeatureFlagManager.shared.isEnabled(.userHostedEnabled)
+        MacOSClientFeatureFlagManager.shared.isEnabled(.userHostedEnabled)
     }
 
     @State private var showTitle = false

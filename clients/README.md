@@ -44,7 +44,7 @@ clients/
     types that need Swift-specific logic (e.g. typed enums, polymorphic `AnyCodable` data)
 - **Shared chat features** (`ChatViewModel`, `ChatMessage`, `MessageBubbleView`, `InputBarView`, `AttachmentStripView`, `MarkdownRenderer`, `CurrentStepIndicator`, inline widgets)
 - **Design system** (`VColor`, `VFont`, `VSpacing`, `VRadius`, `VShadow`, `VAnimation`, and all `V`-prefixed components)
-- **Shared utilities** (`APIKeyManager` for Keychain credential storage, `PermissionManager`, `FeatureFlagManager`)
+- **Shared utilities** (`APIKeyManager` for Keychain credential storage, `PermissionManager`, `MacOSClientFeatureFlagManager`)
 - **Shared app utilities** (signing identity management)
 
 **Dependencies**: None (only system frameworks: Network, Security)

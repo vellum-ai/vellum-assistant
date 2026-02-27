@@ -24,10 +24,12 @@ struct SettingsAccountTab: View {
     @State private var devModeTapCount: Int = 0
     @State private var devModeMessage: String?
 
-    private static let hatchNewAssistantSkillFlagKeys: [String] = [
-        "skills.hatch_new_assistant.enabled",
-        "skills.hatch-new-assistant.enabled"
-    ]
+    /// Whether the hatch new assistant feature flag is enabled.
+    /// Defaults to `true` until the gateway responds. Once the gateway response
+    /// arrives, this reflects the value of `feature_flags.hatch-new-assistant.enabled`.
+    @State private var isHatchFlagEnabled: Bool = true
+
+    private static let hatchFlagKey = "feature_flags.hatch-new-assistant.enabled"
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -53,6 +55,7 @@ struct SettingsAccountTab: View {
                     remoteIdentity = await daemonClient?.fetchRemoteIdentity()
                 }
             }
+            Task { await loadHatchFlag() }
         }
         .onChange(of: store.platformBaseUrl) { _, newValue in
             if !isPlatformUrlFocused {
@@ -384,22 +387,41 @@ struct SettingsAccountTab: View {
 
     // MARK: - Hatch New Assistant
 
-    private var isHatchNewAssistantEnabled: Bool {
-        let config = WorkspaceConfigIO.read()
-        guard let featureFlags = config["featureFlags"] as? [String: Any] else {
-            return true
-        }
-        for key in Self.hatchNewAssistantSkillFlagKeys {
-            if let enabled = featureFlags[key] as? Bool {
-                return enabled
+    /// Fetch the hatch-new-assistant flag from the gateway API.
+    /// Falls back to the local workspace config if the gateway is unreachable.
+    private func loadHatchFlag() async {
+        if let dc = daemonClient {
+            do {
+                let flags = try await dc.fetchAssistantFeatureFlags()
+                if let match = flags.first(where: { $0.key == Self.hatchFlagKey }) {
+                    isHatchFlagEnabled = match.enabled
+                    return
+                }
+            } catch {
+                // Gateway unreachable — fall through to local config fallback
             }
         }
-        return true
+
+        // Fallback: read from local workspace config (legacy path)
+        let config = WorkspaceConfigIO.read()
+        if let featureFlags = config["featureFlags"] as? [String: Any] {
+            let legacyKeys = [
+                "skills.hatch_new_assistant.enabled",
+                "skills.hatch-new-assistant.enabled"
+            ]
+            for key in legacyKeys {
+                if let enabled = featureFlags[key] as? Bool {
+                    isHatchFlagEnabled = enabled
+                    return
+                }
+            }
+        }
+        isHatchFlagEnabled = true
     }
 
     @ViewBuilder
     private var hatchNewAssistantSection: some View {
-        if isHatchNewAssistantEnabled {
+        if isHatchFlagEnabled {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("Hatch New Assistant")
                     .font(VFont.sectionTitle)

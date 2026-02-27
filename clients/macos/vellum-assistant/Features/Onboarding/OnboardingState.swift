@@ -76,7 +76,7 @@ final class OnboardingState {
     }
 
     var userHostedEnabled: Bool {
-        FeatureFlagManager.shared.isEnabled(.userHostedEnabled)
+        MacOSClientFeatureFlagManager.shared.isEnabled(.userHostedEnabled)
     }
 
     /// Continuous crack progress (0.0–1.0) derived from step and permission state.
@@ -139,7 +139,7 @@ final class OnboardingState {
         // from reopening legacy permission-request steps.
         // When userHostedEnabled is on and a cloud provider is selected, the flow
         // has 3 steps (0–2); otherwise it stays at 2 steps (0–1).
-        let hasCloudStep = FeatureFlagManager.shared.isEnabled(.userHostedEnabled) && cloudProvider != "local"
+        let hasCloudStep = MacOSClientFeatureFlagManager.shared.isEnabled(.userHostedEnabled) && cloudProvider != "local"
         let maxStep = onboardingVariant == .firstMeeting ? 4 : (hasCloudStep ? 2 : 1)
         if currentStep > maxStep {
             currentStep = maxStep

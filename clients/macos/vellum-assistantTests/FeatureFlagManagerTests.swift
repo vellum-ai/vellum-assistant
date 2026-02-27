@@ -1,7 +1,7 @@
 import XCTest
 @testable import VellumAssistantShared
 
-final class FeatureFlagManagerTests: XCTestCase {
+final class MacOSClientFeatureFlagManagerTests: XCTestCase {
 
     /// Tests that a flag set to "true" is enabled.
     func testFlagSetToTrue() {
@@ -9,7 +9,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         let env = ["VELLUM_FLAG_MY_FEATURE": "true"]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN the flag is enabled
         XCTAssertTrue(manager.isEnabled("my_feature"))
@@ -21,7 +21,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         let env = ["VELLUM_FLAG_DARK_MODE": "1"]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN the flag is enabled
         XCTAssertTrue(manager.isEnabled("dark_mode"))
@@ -33,7 +33,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         let env = ["VELLUM_FLAG_BETA": "yes"]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN the flag is enabled
         XCTAssertTrue(manager.isEnabled("beta"))
@@ -45,7 +45,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         let env = ["VELLUM_FLAG_VERBOSE": "on"]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN the flag is enabled
         XCTAssertTrue(manager.isEnabled("verbose"))
@@ -57,7 +57,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         let env = ["VELLUM_FLAG_DISABLED": "false"]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN the flag is disabled
         XCTAssertFalse(manager.isEnabled("disabled"))
@@ -69,7 +69,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         let env = ["VELLUM_FLAG_OFF": "0"]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN the flag is disabled
         XCTAssertFalse(manager.isEnabled("off"))
@@ -81,7 +81,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         let env: [String: String] = [:]
 
         // WHEN we create a manager and query a nonexistent flag
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN the flag is disabled
         XCTAssertFalse(manager.isEnabled("nonexistent"))
@@ -93,7 +93,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         let env = ["VELLUM_FLAG_MY_FEATURE": "true"]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN the flag is found regardless of query casing
         XCTAssertTrue(manager.isEnabled("MY_FEATURE"))
@@ -112,7 +112,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         ]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN only the VELLUM_FLAG_ variable is loaded
         XCTAssertEqual(manager.allFlags().count, 1)
@@ -131,7 +131,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         ]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN each flag has its correct value
         XCTAssertTrue(manager.isEnabled("alpha"))
@@ -145,7 +145,7 @@ final class FeatureFlagManagerTests: XCTestCase {
     /// Tests that setOverride can enable a flag that was not in the environment.
     func testSetOverrideAddsFlag() {
         // GIVEN a manager with no flags
-        let manager = FeatureFlagManager(environment: [:])
+        let manager = MacOSClientFeatureFlagManager(environment: [:])
 
         // WHEN we set an override
         manager.setOverride("new_flag", enabled: true)
@@ -158,7 +158,7 @@ final class FeatureFlagManagerTests: XCTestCase {
     func testSetOverrideChangesExistingFlag() {
         // GIVEN a manager with a disabled flag
         let env = ["VELLUM_FLAG_FEATURE": "false"]
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // WHEN we override it to enabled
         manager.setOverride("feature", enabled: true)
@@ -171,7 +171,7 @@ final class FeatureFlagManagerTests: XCTestCase {
     func testRemoveOverride() {
         // GIVEN a manager with a flag enabled
         let env = ["VELLUM_FLAG_TEMP": "true"]
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // WHEN we remove the override
         manager.removeOverride("temp")
@@ -186,7 +186,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         let env = ["VELLUM_FLAG_": "true"]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN no flags are loaded
         XCTAssertEqual(manager.allFlags().count, 0)
@@ -198,7 +198,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         let env = ["VELLUM_FLAG_PADDED": "  true  "]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN the flag is correctly parsed as enabled
         XCTAssertTrue(manager.isEnabled("padded"))
@@ -210,7 +210,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         let env = ["VELLUM_FLAG_DARK_MODE": "1"]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN the flag is accessible via the camelCase string directly
         XCTAssertTrue(manager.isEnabled("darkMode"))
@@ -225,7 +225,7 @@ final class FeatureFlagManagerTests: XCTestCase {
         let env = ["VELLUM_FLAG_DARK_MODE": "true"]
 
         // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
+        let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN various casings all resolve to the same flag
         XCTAssertTrue(manager.isEnabled("DARK_MODE"))

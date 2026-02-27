@@ -1533,6 +1533,74 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Feature Flags
 
+    /// A single assistant feature flag entry returned by `GET /v1/feature-flags`.
+    public struct AssistantFeatureFlagEntry: Decodable, Identifiable {
+        public let key: String
+        public let enabled: Bool
+        public let defaultEnabled: Bool
+        public let description: String
+
+        public var id: String { key }
+
+        public init(key: String, enabled: Bool, defaultEnabled: Bool, description: String) {
+            self.key = key
+            self.enabled = enabled
+            self.defaultEnabled = defaultEnabled
+            self.description = description
+        }
+    }
+
+    /// Response shape for `GET /v1/feature-flags`.
+    private struct AssistantFeatureFlagsResponse: Decodable {
+        let flags: [AssistantFeatureFlagEntry]
+    }
+
+    /// Fetch all assistant feature flags from the gateway's `GET /v1/feature-flags` endpoint.
+    /// Uses the runtime bearer token or feature-flag token for auth.
+    ///
+    /// Routing logic mirrors `setFeatureFlag`: remote mode delegates to `httpTransport`,
+    /// local mode calls the gateway directly on port 7830.
+    public func fetchAssistantFeatureFlags() async throws -> [AssistantFeatureFlagEntry] {
+        let token: String
+        if let ffToken = config.featureFlagToken, !ffToken.isEmpty {
+            token = ffToken
+        } else {
+            throw FeatureFlagError.missingToken
+        }
+
+        #if os(macOS)
+        if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
+            return try await httpTransport.fetchAssistantFeatureFlags(featureFlagToken: token)
+        }
+
+        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+            .flatMap(Int.init) ?? 7830
+        let baseURL = "http://127.0.0.1:\(gatewayPort)"
+        guard let url = URL(string: "\(baseURL)/v1/feature-flags") else {
+            throw FeatureFlagError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw FeatureFlagError.requestFailed(statusCode)
+        }
+
+        let decoded = try JSONDecoder().decode(AssistantFeatureFlagsResponse.self, from: data)
+        return decoded.flags
+        #else
+        guard let httpTransport else {
+            throw FeatureFlagError.requestFailed(0)
+        }
+        return try await httpTransport.fetchAssistantFeatureFlags(featureFlagToken: token)
+        #endif
+    }
+
     /// Toggle a feature flag via the gateway's PATCH /v1/feature-flags/:flagKey endpoint.
     /// Uses the dedicated feature-flag token (not the runtime bearer token) for auth.
     ///

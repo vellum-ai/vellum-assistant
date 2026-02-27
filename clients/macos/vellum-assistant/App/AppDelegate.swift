@@ -216,8 +216,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         UserDefaults.standard.removeObject(forKey: "NSWindow Frame com_apple_SwiftUI_Settings_window")
 
 
-        if let envPath = FeatureFlagManager.findRepoEnvFile() {
-            FeatureFlagManager.shared.loadFromFile(at: envPath)
+        if let envPath = MacOSClientFeatureFlagManager.findRepoEnvFile() {
+            MacOSClientFeatureFlagManager.shared.loadFromFile(at: envPath)
         }
 
         applyThemePreference()
@@ -908,7 +908,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
             // Local assistant or no assistant.
-            if FeatureFlagManager.shared.isEnabled(.localHttpEnabled) {
+            if MacOSClientFeatureFlagManager.shared.isEnabled(.localHttpEnabled) {
                 // Use HTTP transport for the local daemon instead of IPC.
                 // Bearer token is nil; resolved lazily at connect time.
                 let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
