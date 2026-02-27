@@ -93,8 +93,13 @@ export async function handleRevokeMember(req: Request, memberId: string): Promis
  * POST /v1/ingress/members/:id/block
  */
 export async function handleBlockMember(req: Request, memberId: string): Promise<Response> {
-  const body = (await req.json()) as Record<string, unknown>;
-  const reason = body.reason as string | undefined;
+  let reason: string | undefined;
+  try {
+    const body = (await req.json()) as Record<string, unknown>;
+    reason = body.reason as string | undefined;
+  } catch {
+    // Body is optional — callers may omit it entirely
+  }
 
   const result = blockIngressMember(memberId, reason);
 
