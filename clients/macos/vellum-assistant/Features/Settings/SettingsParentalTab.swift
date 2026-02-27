@@ -98,13 +98,17 @@ struct SettingsParentalTab: View {
         .animation(VAnimation.standard, value: showSuccessToast)
         .sheet(isPresented: $showingDisableConfirmation) {
             DisableParentalModal(
-                onDisable: {
+                onComplete: {
                     showingDisableConfirmation = false
-                    updateEnabled(false)
+                    isEnabled = false
+                    hasPIN = false
+                    settingsStore.isParentalEnabled = false
+                    settingsStore.cachedPIN = nil
                 },
                 onCancel: {
                     showingDisableConfirmation = false
-                }
+                },
+                daemonClient: daemonClient
             )
         }
         .onAppear {
@@ -1086,10 +1090,6 @@ struct SettingsParentalTab: View {
                         hasPIN = r.has_pin
                         contentRestrictions = Set(r.content_restrictions)
                         blockedToolCategories = Set(r.blocked_tool_categories)
-                        // Clear PIN state when parental controls are disabled.
-                        if !r.enabled {
-                            settingsStore.cachedPIN = nil
-                        }
                     } else {
                         errorMessage = r.error ?? "Update failed."
                     }
@@ -1227,12 +1227,20 @@ extension SettingsParentalTab {
 
 // MARK: - Disable Parental Controls Modal
 
-/// Custom confirmation modal for disabling parental controls.
+/// PIN-gated confirmation modal for disabling parental controls.
 /// Uses the same layout/style as ProfileSwitchModal.
+/// Two-step IPC sequence on confirm:
+///   1. sendParentalControlUpdate(pin:, enabled: false) — verifies PIN + disables
+///   2. sendParentalControlClearPin(currentPin:) — deletes the PIN from the daemon
 @MainActor
 private struct DisableParentalModal: View {
-    let onDisable: () -> Void
+    let onComplete: () -> Void
     let onCancel: () -> Void
+    var daemonClient: DaemonClient?
+
+    @State private var pin: String = ""
+    @State private var isLoading: Bool = false
+    @State private var errorMessage: String?
 
     var body: some View {
         ZStack {
@@ -1245,7 +1253,6 @@ private struct DisableParentalModal: View {
 
     private var content: some View {
         VStack(alignment: .center, spacing: 0) {
-            // Content
             VStack(alignment: .center, spacing: VSpacing.lg) {
                 Image(systemName: "lock.open.fill")
                     .font(.system(size: 30, weight: .medium))
@@ -1256,26 +1263,113 @@ private struct DisableParentalModal: View {
                         .font(VFont.headline)
                         .foregroundColor(VColor.textPrimary)
                         .multilineTextAlignment(.center)
-                    Text("This will remove all restrictions. Are you sure?")
+                    Text("Enter your PIN to disable parental controls and clear the passcode.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                PINCircleField(text: $pin)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .onChange(of: pin) { _, v in if v.count == 6 { submit() } }
+
+                if let error = errorMessage {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                        .multilineTextAlignment(.center)
+                }
             }
 
             Spacer().frame(height: VSpacing.lg)
 
-            // Footer
-            HStack {
-                VButton(label: "Cancel", style: .secondary) { onCancel() }
-                Spacer()
-                VButton(label: "Disable", style: .danger) { onDisable() }
-                    .keyboardShortcut(.return, modifiers: [])
+            if isLoading {
+                ProgressView().scaleEffect(0.8)
+            } else {
+                HStack {
+                    VButton(label: "Cancel", style: .secondary) { onCancel() }
+                    Spacer()
+                    VButton(label: "Disable", style: .danger) { submit() }
+                        .disabled(pin.count != 6)
+                        .keyboardShortcut(.return, modifiers: [])
+                }
             }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity)
+    }
+
+    private func submit() {
+        guard pin.count == 6, !isLoading else { return }
+        let enteredPIN = pin
+        isLoading = true
+        errorMessage = nil
+
+        // Step 1: disable parental controls (daemon verifies PIN)
+        let updateStream = daemonClient?.subscribe()
+        Task {
+            do {
+                try daemonClient?.sendParentalControlUpdate(pin: enteredPIN, enabled: false)
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                    errorMessage = error.localizedDescription
+                    pin = ""
+                }
+                return
+            }
+
+            let updateResponse: ParentalControlUpdateResponseMessage? = await withTaskGroup(
+                of: ParentalControlUpdateResponseMessage?.self
+            ) { group in
+                group.addTask {
+                    guard let updateStream else { return nil }
+                    for await message in updateStream {
+                        if case .parentalControlUpdateResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask { try? await Task.sleep(nanoseconds: 8_000_000_000); return nil }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            guard let r = updateResponse, r.success else {
+                await MainActor.run {
+                    isLoading = false
+                    errorMessage = updateResponse?.error ?? "Incorrect PIN."
+                    pin = ""
+                }
+                return
+            }
+
+            // Step 2: clear the PIN from the daemon
+            let clearStream = daemonClient?.subscribe()
+            do {
+                try daemonClient?.sendParentalControlClearPin(currentPin: enteredPIN)
+            } catch {
+                // Controls are already disabled — proceed even if clear fails
+                await MainActor.run { onComplete() }
+                return
+            }
+
+            await withTaskGroup(of: ParentalControlSetPinResponseMessage?.self) { group in
+                group.addTask {
+                    guard let clearStream else { return nil }
+                    for await message in clearStream {
+                        if case .parentalControlSetPinResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask { try? await Task.sleep(nanoseconds: 8_000_000_000); return nil }
+                _ = await group.next() ?? nil
+                group.cancelAll()
+            }
+
+            await MainActor.run { onComplete() }
+        }
     }
 }
 
