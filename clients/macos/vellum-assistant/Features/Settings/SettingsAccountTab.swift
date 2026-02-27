@@ -23,13 +23,14 @@ struct SettingsAccountTab: View {
     @State private var remoteIdentity: RemoteIdentityInfo?
     @State private var devModeTapCount: Int = 0
     @State private var devModeMessage: String?
+    @State private var isHatchFlagEnabled: Bool = true
+    @State private var isLoadingHatchFlag: Bool = false
 
     /// Whether the hatch new assistant feature flag is enabled.
     /// Defaults to `true` until the gateway responds. Once the gateway response
-    /// arrives, this reflects the value of `feature_flags.hatch-new-assistant.enabled`.
-    @State private var isHatchFlagEnabled: Bool = true
+    /// arrives, this reflects the value of `feature_flags.hatch_new_assistant.enabled`.
 
-    private static let hatchFlagKey = "feature_flags.hatch-new-assistant.enabled"
+    private static let hatchNewAssistantFlagKey = "feature_flags.hatch_new_assistant.enabled"
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -390,16 +391,17 @@ struct SettingsAccountTab: View {
     /// Fetch the hatch-new-assistant flag from the gateway API.
     /// Falls back to the local workspace config if the gateway is unreachable.
     private func loadHatchFlag() async {
-        if let dc = daemonClient {
-            do {
-                let flags = try await dc.fetchAssistantFeatureFlags()
-                if let match = flags.first(where: { $0.key == Self.hatchFlagKey }) {
-                    isHatchFlagEnabled = match.enabled
-                    return
-                }
-            } catch {
-                // Gateway unreachable — fall through to local config fallback
+        guard let daemonClient else { return }
+        isLoadingHatchFlag = true
+        do {
+            let flags = try await daemonClient.getFeatureFlags()
+            if let hatchFlag = flags.first(where: { $0.key == Self.hatchNewAssistantFlagKey }) {
+                isHatchFlagEnabled = hatchFlag.enabled
+                isLoadingHatchFlag = false
+                return
             }
+        } catch {
+            // Gateway unreachable — fall through to local config fallback
         }
 
         // Fallback: read from local workspace config
@@ -407,8 +409,9 @@ struct SettingsAccountTab: View {
 
         // Check canonical assistantFeatureFlagValues first (new format)
         if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool],
-           let enabled = canonicalFlags[Self.hatchFlagKey] {
+           let enabled = canonicalFlags[Self.hatchNewAssistantFlagKey] {
             isHatchFlagEnabled = enabled
+            isLoadingHatchFlag = false
             return
         }
 
@@ -421,11 +424,14 @@ struct SettingsAccountTab: View {
             for key in legacyKeys {
                 if let enabled = featureFlags[key] as? Bool {
                     isHatchFlagEnabled = enabled
+                    isLoadingHatchFlag = false
                     return
                 }
             }
         }
+        // On failure, default to showing the hatch section
         isHatchFlagEnabled = true
+        isLoadingHatchFlag = false
     }
 
     @ViewBuilder
