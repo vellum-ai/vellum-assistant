@@ -81,7 +81,16 @@ function tryMintToolApprovalGrant(params: {
     return;
   }
 
-  const inputDigest = computeToolApprovalDigest(approvalInfo.toolName, approvalInfo.input);
+  let inputDigest: string;
+  try {
+    inputDigest = computeToolApprovalDigest(approvalInfo.toolName, approvalInfo.input);
+  } catch (err) {
+    log.error(
+      { err, toolName: approvalInfo.toolName, conversationId: approval.conversationId },
+      'Failed to compute tool approval digest for grant minting (non-fatal)',
+    );
+    return;
+  }
 
   const result = mintGrantFromDecision({
     assistantId: approval.assistantId,
