@@ -49,7 +49,7 @@ mock.module('../security/secret-allowlist.js', () => ({
 }));
 
 // Mutable store so each test can configure its own messages
-let mockDbMessages: Array<{ id: string; role: string; content: string }> = [];
+let mockDbMessages: Array<{ id: string; role: string; content: string; metadata?: string | null }> = [];
 let mockConversation: Record<string, unknown> | null = null;
 
 mock.module('../memory/conversation-store.js', () => ({
@@ -219,5 +219,103 @@ describe('loadFromDb history repair', () => {
 
     expect(messages).toHaveLength(2);
     expect(messages[1].content).toEqual([{ type: 'text', text: 'Sure' }]);
+  });
+
+  test('untrusted actor load hides guardian-provenance history and context summary', async () => {
+    mockConversation = {
+      id: 'conv-1',
+      contextSummary: 'Sensitive guardian summary',
+      contextCompactedMessageCount: 3,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: 'm1',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'Guardian secret question' }]),
+        metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content: JSON.stringify([{ type: 'text', text: 'Guardian-only answer' }]),
+        metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+      },
+      {
+        id: 'm3',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'Untrusted follow-up' }]),
+        metadata: JSON.stringify({ provenanceActorRole: 'unverified_channel', provenanceSourceChannel: 'telegram' }),
+      },
+      {
+        id: 'm4',
+        role: 'assistant',
+        content: JSON.stringify([{ type: 'text', text: 'Untrusted-safe reply' }]),
+        metadata: JSON.stringify({ provenanceActorRole: 'unverified_channel', provenanceSourceChannel: 'telegram' }),
+      },
+    ];
+
+    const session = makeSession();
+    session.setGuardianContext({ actorRole: 'unverified_channel', sourceChannel: 'telegram' });
+    await session.loadFromDb();
+    const messages = session.getMessages();
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0].role).toBe('user');
+    expect(messages[0].content).toEqual([{ type: 'text', text: 'Untrusted follow-up' }]);
+    expect(messages[1].role).toBe('assistant');
+    expect(messages[1].content).toEqual([{ type: 'text', text: 'Untrusted-safe reply' }]);
+  });
+
+  test('ensureActorScopedHistory reloads when actor role changes', async () => {
+    mockConversation = {
+      id: 'conv-1',
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: 'm1',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'Guardian question' }]),
+        metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content: JSON.stringify([{ type: 'text', text: 'Guardian answer' }]),
+        metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+      },
+      {
+        id: 'm3',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'Unverified ping' }]),
+        metadata: JSON.stringify({ provenanceActorRole: 'unverified_channel', provenanceSourceChannel: 'telegram' }),
+      },
+      {
+        id: 'm4',
+        role: 'assistant',
+        content: JSON.stringify([{ type: 'text', text: 'Unverified reply' }]),
+        metadata: JSON.stringify({ provenanceActorRole: 'unverified_channel', provenanceSourceChannel: 'telegram' }),
+      },
+    ];
+
+    const session = makeSession();
+
+    session.setGuardianContext({ actorRole: 'guardian', sourceChannel: 'telegram' });
+    await session.ensureActorScopedHistory();
+    expect(session.getMessages()).toHaveLength(4);
+
+    session.setGuardianContext({ actorRole: 'unverified_channel', sourceChannel: 'telegram' });
+    await session.ensureActorScopedHistory();
+    const downgradedMessages = session.getMessages();
+    expect(downgradedMessages).toHaveLength(2);
+    expect(downgradedMessages[0].content).toEqual([{ type: 'text', text: 'Unverified ping' }]);
+    expect(downgradedMessages[1].content).toEqual([{ type: 'text', text: 'Unverified reply' }]);
   });
 });

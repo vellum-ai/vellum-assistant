@@ -484,15 +484,15 @@ describe('ToolExecutor guardian-only policy gate', () => {
     expect(result.content).toBe('ok');
   });
 
-  test('non-guardian invocation of unrelated endpoint is unaffected', async () => {
+  test('non-guardian invocation of unrelated bash command is blocked by guardian approval gate', async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       'bash',
       { command: 'curl http://localhost:3000/v1/messages' },
       makeContext({ guardianActorRole: 'non-guardian' }),
     );
-    expect(result.isError).toBe(false);
-    expect(result.content).toBe('ok');
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('requires guardian approval');
   });
 
   test('non-guardian invocation of unrelated tool is unaffected', async () => {
@@ -578,5 +578,38 @@ describe('ToolExecutor guardian-only policy gate', () => {
       expect(result.isError).toBe(true);
       expect(result.content).toContain('restricted to guardian users');
     }
+  });
+
+  test('non-guardian actor is blocked from host read tools (host execution)', async () => {
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      'host_file_read',
+      { path: '/Users/noaflaherty/.ssh/config' },
+      makeContext({ guardianActorRole: 'non-guardian' }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('requires guardian approval');
+  });
+
+  test('unverified channel actor is blocked from side-effect tools', async () => {
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      'reminder_create',
+      { fire_at: '2026-02-27T12:00:00-05:00', label: 'test', message: 'hello' },
+      makeContext({ guardianActorRole: 'unverified_channel' }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('verified channel identity');
+  });
+
+  test('guardian actor can execute side-effect tools', async () => {
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      'reminder_create',
+      { fire_at: '2026-02-27T12:00:00-05:00', label: 'test', message: 'hello' },
+      makeContext({ guardianActorRole: 'guardian' }),
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe('ok');
   });
 });

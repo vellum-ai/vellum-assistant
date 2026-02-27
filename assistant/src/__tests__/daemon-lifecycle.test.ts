@@ -116,6 +116,7 @@ class MockSession {
   }
 
   async loadFromDb(): Promise<void> {}
+  async ensureActorScopedHistory(): Promise<void> {}
   updateClient(): void {}
   setSandboxOverride(): void {}
   isProcessing(): boolean { return this.processing; }

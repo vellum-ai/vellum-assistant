@@ -41,6 +41,7 @@ class MockSession {
   public readonly conversationId: string;
   public memoryPolicy: MockMemoryPolicy;
   public updateClientCalls = 0;
+  public ensureActorScopedHistoryCalls = 0;
   public lastUpdateClientHasNoClient: boolean | undefined;
   public lastUpdateClientSender: ((msg: Record<string, unknown>) => void) | undefined;
   public lastRunAgentLoopOptions: { skipPreMessageRollback?: boolean; isInteractive?: boolean } | undefined;
@@ -68,6 +69,10 @@ class MockSession {
   }
 
   async loadFromDb(): Promise<void> {}
+
+  async ensureActorScopedHistory(): Promise<void> {
+    this.ensureActorScopedHistoryCalls += 1;
+  }
 
   updateClient(sender?: (msg: Record<string, unknown>) => void, hasNoClient = false): void {
     this.updateClientCalls += 1;
@@ -634,6 +639,7 @@ describe('DaemonServer initial session hydration', () => {
     const session = internal.sessions.get(conversation.id);
     expect(session).toBeDefined();
     expect(session!.lastRunAgentLoopOptions?.isInteractive).toBe(true);
+    expect(session!.ensureActorScopedHistoryCalls).toBeGreaterThanOrEqual(1);
 
     // Verify the session was marked interactive during the loop, then restored.
     // updateClientHistory: [0] = initial no-socket creation (hasNoClient: true),

@@ -139,6 +139,7 @@ export class Session {
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ guardianContext?: GuardianRuntimeContext;
+  /** @internal */ loadedHistoryActorRole?: GuardianRuntimeContext['actorRole'];
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: { type: string; payload?: string; languageCode?: string };
@@ -332,6 +333,12 @@ export class Session {
 
   async loadFromDb(): Promise<void> {
     return loadFromDbImpl(this);
+  }
+
+  async ensureActorScopedHistory(): Promise<void> {
+    const currentRole = this.guardianContext?.actorRole;
+    if (this.loadedHistoryActorRole === currentRole) return;
+    await this.loadFromDb();
   }
 
   updateClient(sendToClient: (msg: ServerMessage) => void, hasNoClient = false): void {

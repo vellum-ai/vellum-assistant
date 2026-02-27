@@ -105,6 +105,7 @@ export interface ProcessSessionContext {
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
+  ensureActorScopedHistory(): Promise<void>;
   persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>, displayContent?: string): Promise<string>;
   runAgentLoop(
     content: string,
@@ -380,6 +381,7 @@ export async function processMessage(
   options?: { isInteractive?: boolean },
   displayContent?: string,
 ): Promise<string> {
+  await session.ensureActorScopedHistory();
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
 
