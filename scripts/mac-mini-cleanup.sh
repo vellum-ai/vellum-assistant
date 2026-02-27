@@ -54,8 +54,18 @@ else
     echo "      ⏭️  Git not found or not from a removable source, skipping"
 fi
 
-# 5. Uninstall bun
-echo "5/10 — Uninstalling bun..."
+# 5. Kill any processes running via "bun run"
+echo "5/10 — Killing bun run processes..."
+BUN_PIDS=$(pgrep -f "bun run" 2>/dev/null || true)
+if [ -n "$BUN_PIDS" ]; then
+    echo "$BUN_PIDS" | xargs kill -9 2>/dev/null || true
+    echo "      ✅ Killed bun run processes: $BUN_PIDS"
+else
+    echo "      ⏭️  No bun run processes found, skipping"
+fi
+
+# 6. Uninstall bun
+echo "6/10 — Uninstalling bun..."
 if [ -d ~/.bun ]; then
     rm -rf ~/.bun
     echo "      ✅ Removed ~/.bun directory"
@@ -68,16 +78,6 @@ if [ -d ~/.bun ]; then
     echo "      ✅ Cleaned bun references from shell profiles"
 else
     echo "      ⏭️  Bun not found, skipping"
-fi
-
-# 6. Kill any processes running via "bun run"
-echo "6/10 — Killing bun run processes..."
-BUN_PIDS=$(pgrep -f "bun run" 2>/dev/null || true)
-if [ -n "$BUN_PIDS" ]; then
-    echo "$BUN_PIDS" | xargs kill -9 2>/dev/null || true
-    echo "      ✅ Killed bun run processes: $BUN_PIDS"
-else
-    echo "      ⏭️  No bun run processes found, skipping"
 fi
 
 # 7. Kill any Vellum processes
