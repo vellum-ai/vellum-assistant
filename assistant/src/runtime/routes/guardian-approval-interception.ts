@@ -3,7 +3,6 @@
  * messages as decisions, reminders, or conversational follow-ups.
  */
 import type { ChannelId } from '../../channels/types.js';
-import { getScopedApprovalGrantsEnabled } from '../../config/env-registry.js';
 import {
   getAllPendingApprovalsByGuardianChat,
   getPendingApprovalByRequestAndGuardianChat,
@@ -73,11 +72,6 @@ function tryMintToolApprovalGrant(params: {
   guardianExternalUserId: string;
 }): void {
   const { approvalInfo, approval, decisionChannel, guardianExternalUserId } = params;
-
-  // Feature flag: skip grant minting when the scoped grants system is disabled.
-  if (!getScopedApprovalGrantsEnabled()) {
-    return;
-  }
 
   // Only mint for requests that carry a tool name — the presence of toolName
   // distinguishes tool-approval requests from informational ones.

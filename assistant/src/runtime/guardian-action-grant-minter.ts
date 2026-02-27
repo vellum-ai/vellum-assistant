@@ -7,7 +7,6 @@
  * consistently regardless of which channel the guardian answers on.
  */
 
-import { getScopedApprovalGrantsEnabled } from '../config/env-registry.js';
 import type { GuardianActionRequest } from '../memory/guardian-action-store.js';
 import { createScopedApprovalGrant } from '../memory/scoped-approval-grants.js';
 import { getLogger } from '../util/logger.js';
@@ -22,7 +21,6 @@ export const GUARDIAN_ACTION_GRANT_TTL_MS = 5 * 60 * 1000;
  * resolved and the request carries tool metadata (toolName + inputDigest).
  *
  * Skips silently when:
- *   - The scoped grants feature flag is disabled.
  *   - The resolved request has no toolName/inputDigest (informational consult).
  *
  * Fails silently on error -- grant minting is best-effort and must never
@@ -34,10 +32,6 @@ export function tryMintGuardianActionGrant(params: {
   guardianExternalUserId?: string;
 }): void {
   const { resolvedRequest, decisionChannel, guardianExternalUserId } = params;
-
-  if (!getScopedApprovalGrantsEnabled()) {
-    return;
-  }
 
   // Only mint for requests that carry tool metadata -- informational
   // ASK_GUARDIAN consults without tool context do not produce grants.

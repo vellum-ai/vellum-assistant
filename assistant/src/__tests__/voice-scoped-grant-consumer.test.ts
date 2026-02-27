@@ -43,13 +43,6 @@ mock.module('../util/logger.js', () => ({
   truncateForLog: (value: string) => value,
 }));
 
-// ── Feature flag mock: force scoped grants ON for tests ─────────────
-
-mock.module('../config/env-registry.js', () => ({
-  getScopedApprovalGrantsEnabled: () => true,
-  getVoiceScopedGrantConsumerEnabled: () => true,
-}));
-
 // ── Config mock ─────────────────────────────────────────────────────
 
 mock.module('../config/loader.js', () => ({

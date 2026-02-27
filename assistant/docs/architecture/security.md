@@ -374,13 +374,6 @@ sequenceDiagram
 
 7. **Persistent storage** -- Grants are stored in the SQLite `scoped_approval_grants` table, which survives daemon restarts. This ensures fail-closed behavior across restarts: consumed grants remain consumed, and no implicit "reset to allowed" occurs.
 
-### Feature Flags
-
-| Environment variable | Default | Effect when disabled |
-|---|---|---|
-| `VELLUM_SCOPED_APPROVAL_GRANTS_ENABLED` | `true` | Grant minting is skipped. Approval decisions still resolve normally. |
-| `VELLUM_VOICE_SCOPED_GRANT_CONSUMER_ENABLED` | `true` | Voice bridge skips grant lookup and falls through to default auto-deny for non-guardian callers. |
-
 ### Key Source Files
 
 | File | Role |
@@ -390,7 +383,6 @@ sequenceDiagram
 | `assistant/src/security/tool-approval-digest.ts` | Canonical JSON serialization + SHA-256 digest for tool signatures |
 | `assistant/src/runtime/routes/guardian-approval-interception.ts` | Grant minting on guardian approve_once decisions (`tryMintToolApprovalGrant`) |
 | `assistant/src/calls/voice-session-bridge.ts` | Voice consumer: checks and consumes grants before auto-denying |
-| `assistant/src/config/env-registry.ts` | Feature flag accessors (`getScopedApprovalGrantsEnabled`, `getVoiceScopedGrantConsumerEnabled`) |
 
 ### Test Coverage
 
