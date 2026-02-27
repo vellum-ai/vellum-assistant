@@ -186,6 +186,19 @@ build_binaries() {
         --outfile "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/dist/transformers-bundle.mjs" \
         --target node --format esm --external "*.node"
     rm -f "$ASSISTANT_SRC_DIR/_bundle-entry.js"
+    # Post-process: fix CJS/ESM dual-instance issue.
+    # Bun bundles onnxruntime-common twice: a CJS copy (used by onnxruntime-node
+    # for backend registration) and an ESM copy (used by transformers' webpack
+    # externals for InferenceSession.create). Each has its own `backends` Map,
+    # so registration on the CJS copy is invisible to the ESM copy.
+    # Fix: make the CJS closures reference the ESM-level Maps so both share state.
+    # The CJS factory runs lazily (after ESM-level vars are initialised).
+    local BUNDLE="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/dist/transformers-bundle.mjs"
+    sed -i.bak \
+        -e 's/var backends2 = new Map;/var backends2 = backends;/' \
+        -e 's/var backendsSortedByPriority2 = \[\];/var backendsSortedByPriority2 = backendsSortedByPriority;/' \
+        "$BUNDLE"
+    rm -f "${BUNDLE}.bak"
     find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
     # Copy bundled skills
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
@@ -346,6 +359,13 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
         --outfile "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/dist/transformers-bundle.mjs" \
         --target node --format esm --external "*.node"
     rm -f "$ASSISTANT_SRC_DIR/_bundle-entry.js"
+    # Post-process: fix CJS/ESM dual-instance issue (see build_binaries for details)
+    BUNDLE="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/dist/transformers-bundle.mjs"
+    sed -i.bak \
+        -e 's/var backends2 = new Map;/var backends2 = backends;/' \
+        -e 's/var backendsSortedByPriority2 = \[\];/var backendsSortedByPriority2 = backendsSortedByPriority;/' \
+        "$BUNDLE"
+    rm -f "${BUNDLE}.bak"
     find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
 fi
 

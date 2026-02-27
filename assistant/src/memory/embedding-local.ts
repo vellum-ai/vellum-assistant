@@ -70,7 +70,11 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     let transformers: typeof import('@huggingface/transformers');
     try {
       transformers = await import(bundlePath);
-    } catch {
+    } catch (bundleErr) {
+      // Log the bundle-path error so we can diagnose production failures
+      // (previously swallowed, making it impossible to tell why the primary
+      // import failed in compiled binaries).
+      log.warn({ err: bundleErr, bundlePath }, 'Pre-bundled transformers import failed, falling back to bare specifier');
       // Fall back to bare specifier for dev mode (running via `bun run`, not compiled)
       try {
         transformers = await import('@huggingface/transformers');
