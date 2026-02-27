@@ -294,8 +294,8 @@ export interface ApplyCanonicalGuardianDecisionParams {
 }
 
 export type CanonicalDecisionResult =
-  | { applied: true; requestId: string; grantMinted: boolean }
-  | { applied: false; reason: 'not_found' | 'already_resolved' | 'identity_mismatch' | 'invalid_action' | 'expired' | 'resolver_failed'; detail?: string };
+  | { applied: true; requestId: string; grantMinted: boolean; resolverFailed?: boolean; resolverFailureReason?: string }
+  | { applied: false; reason: 'not_found' | 'already_resolved' | 'identity_mismatch' | 'invalid_action' | 'expired'; detail?: string };
 
 /**
  * Apply a guardian decision through the canonical request primitive.
@@ -400,6 +400,8 @@ export async function applyCanonicalGuardianDecision(
   }
 
   // 5. Dispatch to kind-specific resolver
+  let resolverFailed = false;
+  let resolverFailureReason: string | undefined;
   const resolver = getResolver(request.kind);
   if (resolver) {
     const resolverResult = await resolver.resolve({
@@ -419,8 +421,11 @@ export async function applyCanonicalGuardianDecision(
         `Resolver for kind '${request.kind}' failed: ${resolverResult.reason}`,
       );
       // The canonical request is already resolved (CAS succeeded), so we don't
-      // roll back.  The resolver failure is logged for investigation.
-      return { applied: false, reason: 'resolver_failed', detail: resolverResult.reason };
+      // roll back.  Flag the failure and fall through to grant minting so that
+      // callers see applied: true (reflecting the committed DB state) while
+      // still being informed that the resolver had an issue.
+      resolverFailed = true;
+      resolverFailureReason = resolverResult.reason;
     }
   } else {
     log.info(
@@ -448,9 +453,17 @@ export async function applyCanonicalGuardianDecision(
       action: effectiveAction,
       targetStatus,
       grantMinted,
+      resolverFailed,
     },
-    'Canonical guardian decision applied successfully',
+    resolverFailed
+      ? 'Canonical guardian decision applied (CAS committed) but resolver failed'
+      : 'Canonical guardian decision applied successfully',
   );
 
-  return { applied: true, requestId, grantMinted };
+  return {
+    applied: true,
+    requestId,
+    grantMinted,
+    ...(resolverFailed ? { resolverFailed, resolverFailureReason } : {}),
+  };
 }
