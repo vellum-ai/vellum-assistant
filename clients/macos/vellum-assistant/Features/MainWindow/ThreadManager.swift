@@ -891,6 +891,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             unsubscribeFromBusyState(for: threadId)
             vmAccessOrder.removeAll { $0 == threadId }
         }
+        // Re-send ordering now that this thread has a session ID.
+        // Any drag/pin actions performed before the daemon assigned
+        // a session would have been skipped by sendReorderThreads()
+        // because it filters out threads without a sessionId.
+        sendReorderThreads()
     }
 
     // MARK: - Lazy VM Creation

@@ -1159,7 +1159,7 @@ export function handleReorderThreads(
     return;
   }
   conversationStore.batchSetDisplayOrders(
-    msg.updates.map((u) => ({ id: u.sessionId, displayOrder: u.displayOrder, isPinned: u.isPinned })),
+    msg.updates.map((u) => ({ id: u.sessionId, displayOrder: u.displayOrder ?? null, isPinned: u.isPinned ?? false })),
   );
 }
 
