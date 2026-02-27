@@ -79,8 +79,8 @@ struct SettingsParentalTab: View {
             }
         }
         .animation(VAnimation.standard, value: successMessage)
-        .onChange(of: successMessage) { msg in
-            guard msg != nil else { return }
+        .onChange(of: successMessage) { _, newMsg in
+            guard newMsg != nil else { return }
             Task {
                 try? await Task.sleep(for: .seconds(3))
                 withAnimation(VAnimation.standard) { successMessage = nil }
@@ -109,19 +109,26 @@ struct SettingsParentalTab: View {
                     showingPINSheet = false
                     switch result {
                     case .success(let mode):
-                        switch mode {
-                        case .set:
-                            hasPIN = true
-                            successMessage = "PIN set."
-                        case .change:
-                            // The old PIN is now invalid; clear the cache so subsequent
-                            // updates don't silently send a stale credential.
-                            settingsStore.cachedPIN = nil
-                            successMessage = "PIN changed."
-                        case .clear:
-                            hasPIN = false
-                            settingsStore.cachedPIN = nil
-                            successMessage = "PIN cleared."
+                        // Delay the toast slightly so the sheet-dismiss animation
+                        // finishes before successMessage is set. Without this delay,
+                        // the sheet teardown can race with the onChange observer and
+                        // the toast never appears.
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(350))
+                            switch mode {
+                            case .set:
+                                hasPIN = true
+                                successMessage = "PIN set."
+                            case .change:
+                                // The old PIN is now invalid; clear the cache so subsequent
+                                // updates don't silently send a stale credential.
+                                settingsStore.cachedPIN = nil
+                                successMessage = "PIN changed."
+                            case .clear:
+                                hasPIN = false
+                                settingsStore.cachedPIN = nil
+                                successMessage = "PIN cleared."
+                            }
                         }
                     case .failure(let msg):
                         errorMessage = msg
@@ -1299,9 +1306,10 @@ private struct PINSheet: View {
             }
         case .change:
             if step == .enterCurrent {
-                storedCurrent = pinInput
-                pinInput = ""
-                withAnimation(VAnimation.standard) { step = .enterNew }
+                // Verify the current PIN against the daemon before allowing
+                // the user to enter a new PIN. This prevents anyone who does
+                // not know the current PIN from changing it.
+                verifyCurrentPIN()
             } else if step == .enterNew {
                 storedNew = pinInput
                 pinInput = ""
@@ -1321,6 +1329,65 @@ private struct PINSheet: View {
         storedNew = ""
         pinInput = ""
         withAnimation(VAnimation.standard) { step = .enterNew }
+    }
+
+    /// Verifies the current PIN against the daemon before allowing the user to
+    /// proceed to the new-PIN entry step in the `.change` flow. On failure the
+    /// field is cleared and an error message is shown so the user can retry.
+    private func verifyCurrentPIN() {
+        guard !isLoading else { return }
+        let pinToVerify = pinInput
+        isLoading = true
+        errorMessage = nil
+        let stream = daemonClient?.subscribe()
+        Task {
+            do {
+                try daemonClient?.sendParentalControlVerifyPin(pin: pinToVerify)
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                    errorMessage = error.localizedDescription
+                    pinInput = ""
+                }
+                return
+            }
+
+            let response: ParentalControlVerifyPinResponseMessage? = await withTaskGroup(
+                of: ParentalControlVerifyPinResponseMessage?.self
+            ) { group in
+                group.addTask {
+                    guard let stream else { return nil }
+                    for await message in stream {
+                        if case .parentalControlVerifyPinResponse(let msg) = message { return msg }
+                    }
+                    return nil
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            await MainActor.run {
+                isLoading = false
+                if let r = response {
+                    if r.verified {
+                        storedCurrent = pinToVerify
+                        pinInput = ""
+                        withAnimation(VAnimation.standard) { step = .enterNew }
+                    } else {
+                        errorMessage = "Incorrect passcode. Try again."
+                        pinInput = ""
+                    }
+                } else {
+                    errorMessage = "No response from daemon."
+                    pinInput = ""
+                }
+            }
+        }
     }
 
     private func submit() {
