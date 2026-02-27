@@ -40,6 +40,7 @@ struct AppsGridView: View {
             }
             .frame(maxWidth: 700)
             .frame(maxWidth: .infinity)
+            .padding(.horizontal, VSpacing.xl)
             .padding(.bottom, VSpacing.xxl)
         }
         .background(VColor.backgroundSubtle)
