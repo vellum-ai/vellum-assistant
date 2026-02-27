@@ -7,8 +7,8 @@
  * consistently regardless of which channel the guardian answers on.
  */
 
+import { mintGrantFromDecision } from '../approvals/approval-primitive.js';
 import type { GuardianActionRequest } from '../memory/guardian-action-store.js';
-import { createScopedApprovalGrant } from '../memory/scoped-approval-grants.js';
 import { getLogger } from '../util/logger.js';
 import { parseApprovalDecision } from './channel-approval-parser.js';
 
@@ -63,21 +63,21 @@ export function tryMintGuardianActionGrant(params: {
     return;
   }
 
-  try {
-    createScopedApprovalGrant({
-      assistantId: resolvedRequest.assistantId,
-      scopeMode: 'tool_signature',
-      toolName: resolvedRequest.toolName,
-      inputDigest: resolvedRequest.inputDigest,
-      requestChannel: resolvedRequest.sourceChannel,
-      decisionChannel,
-      executionChannel: null,
-      conversationId: resolvedRequest.sourceConversationId,
-      callSessionId: resolvedRequest.callSessionId,
-      guardianExternalUserId: guardianExternalUserId ?? null,
-      expiresAt: new Date(Date.now() + GUARDIAN_ACTION_GRANT_TTL_MS).toISOString(),
-    });
+  const result = mintGrantFromDecision({
+    assistantId: resolvedRequest.assistantId,
+    scopeMode: 'tool_signature',
+    toolName: resolvedRequest.toolName,
+    inputDigest: resolvedRequest.inputDigest,
+    requestChannel: resolvedRequest.sourceChannel,
+    decisionChannel,
+    executionChannel: null,
+    conversationId: resolvedRequest.sourceConversationId,
+    callSessionId: resolvedRequest.callSessionId,
+    guardianExternalUserId: guardianExternalUserId ?? null,
+    expiresAt: new Date(Date.now() + GUARDIAN_ACTION_GRANT_TTL_MS).toISOString(),
+  });
 
+  if (result.ok) {
     log.info(
       {
         event: 'guardian_action_grant_minted',
@@ -88,9 +88,9 @@ export function tryMintGuardianActionGrant(params: {
       },
       'Minted scoped approval grant for guardian-action answer resolution',
     );
-  } catch (err) {
+  } else {
     log.error(
-      { err, toolName: resolvedRequest.toolName, requestId: resolvedRequest.id },
+      { reason: result.reason, toolName: resolvedRequest.toolName, requestId: resolvedRequest.id },
       'Failed to mint scoped approval grant for guardian-action (non-fatal)',
     );
   }
