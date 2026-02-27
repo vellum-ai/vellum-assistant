@@ -485,13 +485,13 @@ function main() {
 
         // Explicitly reject the runtime bearer token on PATCH even if it is
         // otherwise valid — PATCH requires the dedicated feature-flag token.
-        if (config.runtimeBearerToken) {
+        // Skip this check if both tokens are identical (allows single-token deployments).
+        if (config.runtimeBearerToken && config.runtimeBearerToken !== config.featureFlagToken) {
           const isRuntimeToken = validateBearerToken(
             tracedReq.headers.get("authorization"),
             config.runtimeBearerToken,
           );
           if (isRuntimeToken.authorized) {
-            authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
             return Response.json(
               { error: "Forbidden: runtime token cannot be used for feature-flag mutations" },
               { status: 403 },
