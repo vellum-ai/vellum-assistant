@@ -238,42 +238,6 @@ struct MainWindowView: View {
         return threadManager.activeThreadId!
     }
 
-    private func toggleChatBubble() {
-        switch windowState.selection {
-        case .app(let appId):
-            // Toggle ON: open chat alongside app
-            let threadId = resolveThreadId()
-            threadManager.selectThread(id: threadId)
-            windowState.setAppEditing(appId: appId, threadId: threadId)
-            isAppChatOpen = true
-
-        case .appEditing(let appId, _):
-            // Toggle OFF: close chat, return to app-only view
-            windowState.selection = .app(appId)
-            isAppChatOpen = false
-
-        case .panel(let panelType) where panelType != .voiceMode && panelType != .documentEditor:
-            // Toggle: flip isAppChatOpen for any panel view
-            // (voiceMode and documentEditor have their own dedicated split layouts)
-            isAppChatOpen.toggle()
-
-        default:
-            break
-        }
-    }
-
-    /// Whether the chat bubble toggle should be visible for the current selection.
-    /// Hidden when already in a full-screen chat thread (.thread / .none),
-    /// or on panels that have their own dedicated chat layouts.
-    private var isChatBubbleVisible: Bool {
-        if windowState.isShowingChat { return false }
-        if case .panel(let panelType) = windowState.selection,
-           panelType == .voiceMode || panelType == .documentEditor {
-            return false
-        }
-        return true
-    }
-
     /// Whether the chat bubble toggle is active (chat is open).
     private var isChatBubbleActive: Bool {
         switch windowState.selection {
@@ -432,13 +396,6 @@ struct MainWindowView: View {
                     sidebarExpanded.toggle()
                 }
             }
-            if isChatBubbleVisible {
-                ChatBubbleToggle(
-                    isActive: isChatBubbleActive,
-                    tooltip: isChatBubbleActive ? "Hide chat" : "Show chat",
-                    onToggle: { toggleChatBubble() }
-                )
-            }
             Spacer()
             PTTKeyIndicator {
                 settingsStore.pendingSettingsTab = .voice
@@ -593,6 +550,11 @@ struct MainWindowView: View {
             JITPermissionView(manager: jitPermissionManager)
         }
         .onAppear {
+            // Reset stale chat-dock state for users upgrading from versions
+            // that had the ChatBubbleToggle (now removed). Without this,
+            // isAppChatOpen could remain persisted as true with no UI to
+            // disable it, leaving panels stuck in split mode.
+            isAppChatOpen = false
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             selectedThreadId = threadManager.activeThreadId
             // Initialize persistent thread tracking on launch
