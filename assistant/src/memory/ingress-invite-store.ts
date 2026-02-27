@@ -339,12 +339,16 @@ export function redeemInvite(params: {
  * member via invite — the member row already exists and just needs an
  * update, so the transactional INSERT in `redeemInvite` would hit a
  * unique-key constraint.
+ *
+ * Returns `true` if the use was recorded, or `false` if the invite was
+ * concurrently revoked/expired (the WHERE clause constrains to
+ * `status = 'active'` so a stale write is impossible).
  */
 export function recordInviteUse(params: {
   inviteId: string;
   externalUserId?: string;
   externalChatId?: string;
-}): IngressInvite | null {
+}): boolean {
   const db = getDb();
   const now = Date.now();
 
@@ -354,12 +358,14 @@ export function recordInviteUse(params: {
     .where(eq(assistantIngressInvites.id, params.inviteId))
     .get();
 
-  if (!invite) return null;
+  if (!invite) return false;
 
   const newUseCount = invite.useCount + 1;
   const newStatus = newUseCount >= invite.maxUses ? 'redeemed' : 'active';
 
-  db.update(assistantIngressInvites)
+  // Constrain the update to active invites so a concurrent revoke/expire
+  // prevents this write rather than silently overwriting the new status.
+  const result = db.update(assistantIngressInvites)
     .set({
       useCount: newUseCount,
       status: newStatus,
@@ -368,18 +374,15 @@ export function recordInviteUse(params: {
       redeemedAt: now,
       updatedAt: now,
     })
-    .where(eq(assistantIngressInvites.id, invite.id))
+    .where(
+      and(
+        eq(assistantIngressInvites.id, invite.id),
+        eq(assistantIngressInvites.status, 'active'),
+      ),
+    )
     .run();
 
-  return rowToInvite({
-    ...invite,
-    useCount: newUseCount,
-    status: newStatus,
-    redeemedByExternalUserId: params.externalUserId ?? null,
-    redeemedByExternalChatId: params.externalChatId ?? null,
-    redeemedAt: now,
-    updatedAt: now,
-  });
+  return result.changes > 0;
 }
 
 // ---------------------------------------------------------------------------

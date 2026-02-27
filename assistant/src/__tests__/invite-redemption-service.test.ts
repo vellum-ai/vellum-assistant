@@ -172,7 +172,7 @@ describe('invite-redemption-service', () => {
     expect((outcome as Extract<InviteRedemptionOutcome, { type: 'already_member' }>).memberId).toEqual(expect.any(String));
   });
 
-  test('returns blocked for a blocked member attempting to redeem an invite', () => {
+  test('returns invalid_token for a blocked member to avoid leaking membership status', () => {
     const { rawToken } = createInvite({ sourceChannel: 'telegram', maxUses: 5 });
 
     // Pre-create a blocked member — simulates a guardian-initiated block
@@ -188,7 +188,7 @@ describe('invite-redemption-service', () => {
       externalUserId: 'blocked-user',
     });
 
-    expect(outcome).toEqual({ ok: false, reason: 'blocked' });
+    expect(outcome).toEqual({ ok: false, reason: 'invalid_token' });
   });
 
   test('does not return already_member for a revoked member', () => {

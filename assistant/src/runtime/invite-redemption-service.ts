@@ -18,7 +18,7 @@ import { findByTokenHash, hashToken, markInviteExpired, redeemInvite as storeRed
 export type InviteRedemptionOutcome =
   | { ok: true; type: 'redeemed'; memberId: string; inviteId: string }
   | { ok: true; type: 'already_member'; memberId: string }
-  | { ok: false; reason: 'invalid_token' | 'expired' | 'revoked' | 'max_uses_reached' | 'channel_mismatch' | 'missing_identity' | 'blocked' };
+  | { ok: false; reason: 'invalid_token' | 'expired' | 'revoked' | 'max_uses_reached' | 'channel_mismatch' | 'missing_identity' };
 
 // ---------------------------------------------------------------------------
 // Error-string to typed-reason mapping
@@ -96,9 +96,10 @@ export function redeemInvite(params: {
   }
 
   // Blocked members cannot bypass the guardian's explicit block via invite
-  // links. Return a generic failure to avoid leaking membership status.
+  // links. Return the same generic failure as an invalid token to avoid
+  // leaking membership status to the caller.
   if (existingMember && existingMember.status === 'blocked') {
-    return { ok: false, reason: 'blocked' };
+    return { ok: false, reason: 'invalid_token' };
   }
 
   // Inactive member reactivation: when the user already has a member record
@@ -107,32 +108,47 @@ export function redeemInvite(params: {
   // would try to INSERT a new member row, hitting the unique-key constraint
   // on the members table.
   if (existingMember) {
-    const reactivated = getSqlite().transaction(() => {
-      const member = upsertMember({
-        assistantId: assistantId ?? invite.assistantId,
-        sourceChannel,
-        externalUserId,
-        externalChatId,
-        displayName,
-        username,
-        status: 'active',
-        policy: 'allow',
-        inviteId: invite.id,
-      });
+    // Sentinel error used to trigger a transaction rollback when the invite
+    // was concurrently revoked/expired between pre-validation and write time.
+    const STALE_INVITE = Symbol('stale_invite');
 
-      recordInviteUse({
-        inviteId: invite.id,
-        externalUserId,
-        externalChatId,
-      });
+    let reactivated: ReturnType<typeof upsertMember> | undefined;
+    try {
+      getSqlite().transaction(() => {
+        reactivated = upsertMember({
+          assistantId: assistantId ?? invite.assistantId,
+          sourceChannel,
+          externalUserId,
+          externalChatId,
+          displayName,
+          username,
+          status: 'active',
+          policy: 'allow',
+          inviteId: invite.id,
+        });
 
-      return member;
-    }).immediate();
+        const recorded = recordInviteUse({
+          inviteId: invite.id,
+          externalUserId,
+          externalChatId,
+        });
+
+        // If the invite was revoked/expired between pre-validation and this
+        // write, recordInviteUse returns false — throw to roll back the
+        // member reactivation so the DB stays consistent.
+        if (!recorded) throw STALE_INVITE;
+      }).immediate();
+    } catch (err) {
+      if (err === STALE_INVITE) {
+        return { ok: false, reason: 'invalid_token' };
+      }
+      throw err;
+    }
 
     return {
       ok: true,
       type: 'redeemed',
-      memberId: reactivated.id,
+      memberId: reactivated!.id,
       inviteId: invite.id,
     };
   }
