@@ -16,6 +16,17 @@ public struct GuardianDecisionBubble: View {
         return false
     }
 
+    /// The canonical request kind (e.g. "tool_approval", "pending_question").
+    /// Determines header text and available action rendering.
+    private var kind: String? {
+        decision.kind
+    }
+
+    /// Whether this prompt is for a pending question (voice-originated).
+    private var isPendingQuestion: Bool {
+        kind == "pending_question"
+    }
+
     public var body: some View {
         if isPending {
             pendingContent
@@ -29,13 +40,13 @@ public struct GuardianDecisionBubble: View {
     @ViewBuilder
     private var pendingContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Header
+            // Header — adapts to the canonical request kind
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "shield.lefthalf.filled")
+                Image(systemName: isPendingQuestion ? "questionmark.circle.fill" : "shield.lefthalf.filled")
                     .font(.system(size: 14))
-                    .foregroundColor(VColor.warning)
+                    .foregroundColor(isPendingQuestion ? VColor.accent : VColor.warning)
 
-                Text("Guardian Approval Required")
+                Text(isPendingQuestion ? "Question Pending" : "Guardian Approval Required")
                     .font(VFont.captionMedium)
                     .foregroundColor(VColor.textSecondary)
             }
@@ -96,7 +107,10 @@ public struct GuardianDecisionBubble: View {
                 .fill(VColor.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.warning.opacity(0.3), lineWidth: 1)
+                        .stroke(
+                            (isPendingQuestion ? VColor.accent : VColor.warning).opacity(0.3),
+                            lineWidth: 1
+                        )
                 )
         )
     }
@@ -116,7 +130,7 @@ public struct GuardianDecisionBubble: View {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(VColor.success)
                     }
-                case .stale:
+                case .stale(_):
                     Image(systemName: "clock.fill")
                         .foregroundColor(VColor.textMuted)
                 case .pending:
@@ -138,7 +152,10 @@ public struct GuardianDecisionBubble: View {
         case .resolved(let action):
             let actionLabel = decision.actions.first(where: { $0.action == action })?.label ?? action
             return "Guardian: \(actionLabel)"
-        case .stale:
+        case .stale(let reason):
+            if let reason, !reason.isEmpty {
+                return "Guardian: \(reason)"
+            }
             return "Guardian: already resolved"
         case .pending:
             return ""
@@ -205,7 +222,7 @@ public struct GuardianDecisionBubble: View {
             onAction: { _, _ in }
         )
 
-        // Stale
+        // Stale (no reason)
         GuardianDecisionBubble(
             decision: GuardianDecisionData(
                 requestId: "req-3",
@@ -214,7 +231,38 @@ public struct GuardianDecisionBubble: View {
                 toolName: "web_fetch",
                 actions: [],
                 conversationId: "conv-1",
-                state: .stale
+                state: .stale()
+            ),
+            onAction: { _, _ in }
+        )
+
+        // Stale (with reason)
+        GuardianDecisionBubble(
+            decision: GuardianDecisionData(
+                requestId: "req-4",
+                requestCode: "GRD-G7H8",
+                questionText: "Allow file read?",
+                toolName: "file_read",
+                actions: [],
+                conversationId: "conv-1",
+                state: .stale(reason: "expired")
+            ),
+            onAction: { _, _ in }
+        )
+
+        // Pending question kind
+        GuardianDecisionBubble(
+            decision: GuardianDecisionData(
+                requestId: "req-5",
+                requestCode: "GRD-I9J0",
+                questionText: "What is the preferred deployment target?",
+                toolName: nil,
+                actions: [
+                    GuardianActionOption(action: "approve_once", label: "Approve"),
+                    GuardianActionOption(action: "reject", label: "Reject"),
+                ],
+                conversationId: "conv-1",
+                kind: "pending_question"
             ),
             onAction: { _, _ in }
         )

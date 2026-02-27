@@ -1420,7 +1420,9 @@ public struct ChatAttachment: Identifiable {
 public enum GuardianDecisionState: Equatable {
     case pending
     case resolved(action: String)
-    case stale
+    /// The request was already resolved by another actor or expired.
+    /// `reason` carries the server-supplied explanation when available.
+    case stale(reason: String? = nil)
 }
 
 /// Data for a guardian decision prompt message displayed in chat.
@@ -1432,17 +1434,21 @@ public struct GuardianDecisionData: Equatable {
     public let toolName: String?
     public let actions: [GuardianActionOption]
     public let conversationId: String
+    /// Canonical request kind (e.g. "tool_approval", "pending_question").
+    /// Determines UI treatment: header text, available actions, and styling.
+    public let kind: String?
     public var state: GuardianDecisionState = .pending
     /// True while waiting for the server to acknowledge a button click.
     public var isSubmitting: Bool = false
 
-    public init(requestId: String, requestCode: String, questionText: String, toolName: String?, actions: [GuardianActionOption], conversationId: String, state: GuardianDecisionState = .pending) {
+    public init(requestId: String, requestCode: String, questionText: String, toolName: String?, actions: [GuardianActionOption], conversationId: String, kind: String? = nil, state: GuardianDecisionState = .pending) {
         self.requestId = requestId
         self.requestCode = requestCode
         self.questionText = questionText
         self.toolName = toolName
         self.actions = actions
         self.conversationId = conversationId
+        self.kind = kind
         self.state = state
     }
 
@@ -1454,7 +1460,8 @@ public struct GuardianDecisionData: Equatable {
         self.toolName = wire.toolName
         self.actions = wire.actions
         self.conversationId = wire.conversationId
-        self.state = wire.state == "resolved" ? .stale : .pending
+        self.kind = wire.kind
+        self.state = wire.state == "resolved" ? .stale() : .pending
     }
 }
 
