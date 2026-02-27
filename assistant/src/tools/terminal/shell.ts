@@ -1,5 +1,4 @@
-import { execSync,spawn } from 'node:child_process';
-import { platform } from 'node:os';
+import { spawn } from 'node:child_process';
 
 import { getConfig } from '../../config/loader.js';
 import { RiskLevel } from '../../permissions/types.js';
@@ -20,32 +19,6 @@ import { buildSanitizedEnv } from './safe-env.js';
 import { wrapCommand } from './sandbox.js';
 
 const log = getLogger('shell-tool');
-
-/**
- * Returns the host address to bind the proxy to when Docker sandbox is active.
- * On macOS, Docker Desktop routes host.docker.internal through the VM to
- * 127.0.0.1, so no bind change is needed. On Linux, we need to bind to the
- * Docker bridge gateway IP so containers can reach the proxy.
- */
-function getDockerProxyHost(): string {
-  if (platform() !== 'linux') return '127.0.0.1';
-
-  try {
-    // Docker bridge gateway is the default route from inside docker0 network.
-    // `ip -4 addr show docker0` outputs the gateway IP assigned to the bridge.
-    const output = execSync('ip -4 addr show docker0 2>/dev/null', { encoding: 'utf-8' });
-    const match = output.match(/inet\s+(\d+\.\d+\.\d+\.\d+)/);
-    if (match) return match[1];
-  } catch {
-    // docker0 interface may not exist (e.g. rootless Docker, custom networks)
-  }
-  // Fallback: bind to localhost when docker0 is unavailable (e.g. rootless
-  // Docker, custom networks). This avoids EADDRNOTAVAIL from 172.17.0.1 while
-  // keeping the proxy off public interfaces — 0.0.0.0 would expose the
-  // unauthenticated credential proxy to the network. Docker containers won't
-  // be able to reach localhost on the host, but that's a safer failure mode.
-  return '127.0.0.1';
-}
 
 class ShellTool implements Tool {
   name = 'bash';
@@ -153,7 +126,6 @@ class ShellTool implements Tool {
     const sandboxConfig = context.sandboxOverride != null
       ? { ...config.sandbox, enabled: context.sandboxOverride }
       : config.sandbox;
-    const isDockerSandbox = sandboxConfig.enabled && sandboxConfig.backend === 'docker';
 
     // Acquire proxy session if proxied mode is requested.
     // `getOrStartSession` serializes per-conversation so concurrent proxied
@@ -170,9 +142,9 @@ class ShellTool implements Tool {
           undefined,
           getDataDir(),
           context.proxyApprovalCallback,
-          isDockerSandbox ? { listenHost: getDockerProxyHost() } : undefined,
+          undefined,
         );
-        proxyEnv = getSessionEnv(session.id, { dockerMode: isDockerSandbox });
+        proxyEnv = getSessionEnv(session.id);
       } catch (err) {
         log.error({ err }, 'Failed to start proxy session');
         return {

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -467,15 +467,6 @@ describe('buildSanitizedEnv', () => {
 describe('wrapCommand', () => {
   const disabledConfig: SandboxConfig = {
     enabled: false,
-    backend: 'native',
-    docker: {
-      image: 'vellum-sandbox:latest',
-      shell: 'bash',
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: 'none',
-    },
   };
 
   test('disabled sandbox returns plain bash invocation', () => {
@@ -546,89 +537,7 @@ describe('Native sandbox backend', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  5. Docker sandbox backend
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('Docker sandbox backend', () => {
-  let DockerBackend: new (sandboxRoot: string, config?: Record<string, unknown>, uid?: number, gid?: number) => SandboxBackend;
-  let _resetDockerChecks: () => void;
-
-  const sandboxDir = join(testTmpDir, 'docker-sandbox');
-
-  beforeEach(async () => {
-    mkdirSync(sandboxDir, { recursive: true });
-    const mod = await import('../tools/terminal/backends/docker.js');
-    DockerBackend = mod.DockerBackend;
-    _resetDockerChecks = mod._resetDockerChecks;
-    _resetDockerChecks();
-  });
-
-  afterEach(() => {
-    try { rmSync(sandboxDir, { recursive: true, force: true }); } catch {}
-  });
-
-  test('constructor resolves symlinks in sandbox root', () => {
-    const realDir = join(testTmpDir, 'docker-real');
-    const linkDir = join(testTmpDir, 'docker-link');
-    mkdirSync(realDir, { recursive: true });
-    try {
-      symlinkSync(realDir, linkDir);
-      // Construct backend with the symlink — it should resolve to the real path.
-      const backend = new DockerBackend(linkDir, undefined, 1000, 1000);
-      // We can't inspect private fields directly, but wrapping will fail at
-      // preflight checks (Docker not available) — this tests that constructor
-      // does not throw on a valid symlinked path.
-      expect(backend).toBeDefined();
-    } finally {
-      try { rmSync(linkDir); } catch {}
-      try { rmSync(realDir, { recursive: true, force: true }); } catch {}
-    }
-  });
-
-  test('constructor rejects sandbox root with null bytes', () => {
-    // realpathSync throws TypeError before validatePathSafety can run
-    expect(() => new DockerBackend('/tmp/foo\0bar', undefined, 1000, 1000)).toThrow();
-  });
-
-  test('constructor rejects sandbox root with newlines', () => {
-    // Create a real directory with a newline in its name so realpathSync
-    // succeeds and the rejection comes from validatePathSafety, not ENOENT.
-    const nlDir = join(testTmpDir, 'has\nnewline');
-    mkdirSync(nlDir, { recursive: true });
-    try {
-      expect(() => new DockerBackend(nlDir, undefined, 1000, 1000)).toThrow(ToolError);
-    } finally {
-      try { rmSync(nlDir, { recursive: true, force: true }); } catch {}
-    }
-  });
-
-  test('constructor rejects sandbox root with carriage returns', () => {
-    // Create a real directory with a carriage return in its name so
-    // realpathSync succeeds and validatePathSafety is what rejects it.
-    const crDir = join(testTmpDir, 'has\rreturn');
-    mkdirSync(crDir, { recursive: true });
-    try {
-      expect(() => new DockerBackend(crDir, undefined, 1000, 1000)).toThrow(ToolError);
-    } finally {
-      try { rmSync(crDir, { recursive: true, force: true }); } catch {}
-    }
-  });
-
-  test('validates path safety after resolving symlinks', () => {
-    // Create a directory with a comma in the name to test validatePathSafety.
-    // On most filesystems this is allowed, so validatePathSafety should catch it.
-    const commaDir = join(testTmpDir, 'has,comma');
-    mkdirSync(commaDir, { recursive: true });
-    try {
-      expect(() => new DockerBackend(commaDir, undefined, 1000, 1000)).toThrow(ToolError);
-    } finally {
-      try { rmSync(commaDir, { recursive: true, force: true }); } catch {}
-    }
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  6. Shell tool — input validation
+//  5. Shell tool — input validation
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('Shell tool input validation', () => {

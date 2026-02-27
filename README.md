@@ -111,72 +111,13 @@ bun run src/index.ts daemon start
 - Host/computer-use prompts: `host_*` and `computer_use_*` (including `computer_use_request_control`) default to `ask` unless allowlisted/denylisted in trust rules.
 - Runtime override removal: CLI `--no-sandbox` is removed; legacy `sandbox_set` IPC messages are accepted but ignored (deprecated no-op).
 
-### Sandbox Backend Selection
+### Sandbox Backend
 
-The `sandbox.backend` config option controls how the `bash` tool executes commands inside the sandbox. Two backends are available:
-
-| Backend | Value | Description |
-|---------|-------|-------------|
-| **Docker** | `"docker"` (default) | Runs each command in an ephemeral `docker run --rm` container with the sandbox filesystem bind-mounted to `/workspace`. Requires Docker Desktop or Docker Engine. |
-| **Native** | `"native"` | Uses OS-level sandboxing: `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. No extra dependencies on macOS. |
-
-The **Docker** backend is the default because it provides stronger container-level isolation with a hardened security posture (all capabilities dropped, read-only root filesystem, network disabled by default). Docker Desktop or Docker Engine must be installed and running. The native backend is available as a **fallback** for environments where Docker is not available.
-
-To switch to the native backend:
-
-```bash
-vellum config set sandbox.backend '"native"'
-```
-
-To switch back to Docker:
-
-```bash
-vellum config set sandbox.backend '"docker"'
-```
-
-### Docker Backend
-
-When `sandbox.backend` is set to `"docker"`, the daemon wraps every sandbox `bash` invocation in an ephemeral Docker container. The container is created with `docker run --rm` and destroyed after each command.
-
-**Prerequisites:**
-
-- Docker installed and the `docker` CLI available in `PATH`.
-- Docker daemon running (Docker Desktop on macOS/Windows, or `systemd` service on Linux).
-- The sandbox image available locally. The default image (`vellum-sandbox:latest`) is built automatically from `assistant/Dockerfile.sandbox` on first use. It extends `node:20-slim` with `curl`, `ca-certificates`, and `bash`. To build it manually:
-  ```
-  docker build -t vellum-sandbox:latest -f assistant/Dockerfile.sandbox assistant/
-  ```
-
-**Docker configuration options** (all under `sandbox.docker`):
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `image` | `vellum-sandbox:latest` | Container image (auto-built from Dockerfile.sandbox) |
-| `shell` | `"bash"` | Shell used to wrap commands inside the container |
-| `cpus` | `1` | CPU limit per container |
-| `memoryMb` | `512` | Memory limit in MB |
-| `pidsLimit` | `256` | Maximum number of processes |
-| `network` | `"none"` | Network mode (`"none"` or `"bridge"`) |
-
-**Container security posture:**
-
-- All capabilities dropped (`--cap-drop=ALL`)
-- No new privileges (`--security-opt=no-new-privileges`)
-- Read-only container root filesystem (`--read-only`)
-- Writable tmpfs for `/tmp` only
-- Network disabled by default (`--network=none`)
-- Host UID:GID forwarded to prevent permission drift
+The sandbox uses native OS-level sandboxing: `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. No extra dependencies on macOS.
 
 **Fail-closed behavior:**
 
-If Docker is unavailable, commands fail immediately with actionable error messages rather than falling back to unsandboxed execution. The preflight checks run in dependency order:
-
-1. Docker CLI installed
-2. Docker daemon reachable
-3. Configured image available locally
-4. Bind-mount probe succeeds
-
-Positive preflight results are cached for the lifetime of the daemon process. Negative results are never cached, so installing or starting Docker mid-session takes effect without a daemon restart.
+If the native sandbox backend is unavailable, commands fail immediately with actionable error messages rather than falling back to unsandboxed execution.
 
 ### Host Tools
 

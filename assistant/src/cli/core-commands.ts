@@ -649,11 +649,7 @@ export function registerDoctorCommand(program: Command): void {
       const { runSandboxDiagnostics } = await import('../tools/terminal/sandbox-diagnostics.js');
       const sandbox = runSandboxDiagnostics();
       log.info(`\n  Sandbox:   ${sandbox.config.enabled ? 'enabled' : 'disabled'}`);
-      log.info(`  Backend:   ${sandbox.config.backend}`);
       log.info(`  Reason:    ${sandbox.activeBackendReason}`);
-      if (sandbox.config.backend === 'docker') {
-        log.info(`  Image:     ${sandbox.config.dockerImage}`);
-      }
       log.info('');
       for (const check of sandbox.checks) {
         if (check.ok) {

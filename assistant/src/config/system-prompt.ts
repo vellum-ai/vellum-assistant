@@ -656,18 +656,7 @@ function buildConfigSection(): string {
   const hostWorkspaceDir = getWorkspaceDir();
 
   const config = getConfig();
-  const dockerSandboxActive =
-    config.sandbox.enabled && config.sandbox.backend === 'docker';
-  const localWorkspaceDir = dockerSandboxActive
-    ? '/workspace'
-    : hostWorkspaceDir;
-
-  // When Docker sandbox is active, shell commands run inside the container
-  // (use /workspace/) but file_edit/file_read/file_write run on the host
-  // (use the host path). Without Docker, both use the same path.
-  const configPreamble = dockerSandboxActive
-    ? `Your workspace is mounted at \`${localWorkspaceDir}/\` inside the Docker sandbox (host path: \`${hostWorkspaceDir}/\`). For **bash/shell commands** (which run inside Docker), use \`${localWorkspaceDir}/\`. For **file_edit, file_read, and file_write** tools (which run on the host), use the host path \`${hostWorkspaceDir}/\` or relative paths.`
-    : `Your configuration directory is \`${hostWorkspaceDir}/\`.`;
+  const configPreamble = `Your configuration directory is \`${hostWorkspaceDir}/\`.`;
 
   return [
     '## Configuration',

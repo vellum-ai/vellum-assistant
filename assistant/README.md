@@ -125,7 +125,6 @@ assistant/
 ├── docs/                     # Internal documentation
 ├── scripts/                  # Test runners and IPC codegen
 ├── Dockerfile                # Production container image
-├── Dockerfile.sandbox        # Sandbox container for bash tool
 └── package.json
 ```
 

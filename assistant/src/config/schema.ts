@@ -109,11 +109,9 @@ export {
   NotificationsConfigSchema,
 } from './notifications-schema.js';
 export type {
-  DockerConfig,
   SandboxConfig,
 } from './sandbox-schema.js';
 export {
-  DockerConfigSchema,
   SandboxConfigSchema,
 } from './sandbox-schema.js';
 export type {

@@ -50,7 +50,6 @@ import { formatShellOutput, MAX_OUTPUT_LENGTH } from '../tools/shared/shell-outp
 
 // Dynamically import modules that depend on the mocked logger
 const { NativeBackend } = await import('../tools/terminal/backends/native.js');
-const { DockerBackend, _resetDockerChecks } = await import('../tools/terminal/backends/docker.js');
 const { wrapCommand } = await import('../tools/terminal/sandbox.js');
 const { ToolError } = await import('../util/errors.js');
 
@@ -589,7 +588,7 @@ describe('SandboxResult shape consistency across backends', () => {
   });
 
   test('wrapCommand disabled returns bash with sandboxed=false', () => {
-    const result = wrapCommand('echo hi', '/tmp', { enabled: false, backend: 'native', docker: { image: 'vellum-sandbox:latest', shell: 'bash', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' } });
+    const result = wrapCommand('echo hi', '/tmp', { enabled: false });
 
     expect(result.command).toBe('bash');
     expect(result.args).toEqual(['-c', '--', 'echo hi']);
@@ -597,7 +596,7 @@ describe('SandboxResult shape consistency across backends', () => {
   });
 
   test('wrapCommand disabled result has same shape as enabled result', () => {
-    const disabled = wrapCommand('echo hi', '/tmp', { enabled: false, backend: 'native', docker: { image: 'vellum-sandbox:latest', shell: 'bash', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' } });
+    const disabled = wrapCommand('echo hi', '/tmp', { enabled: false });
 
     // Both must have: command (string), args (string[]), sandboxed (boolean)
     expect(typeof disabled.command).toBe('string');
@@ -859,26 +858,20 @@ describe('Regression: edge cases in shared FileSystemOps', () => {
 });
 
 // ===========================================================================
-// 9. Docker backend shape parity with native backend
+// 9. NativeBackend shape verification
 // ===========================================================================
 
-describe('DockerBackend vs NativeBackend: SandboxResult shape parity', () => {
-  test('both backends produce results with command, args, sandboxed fields', () => {
-    // Verify both classes have a wrap method that returns SandboxResult
+describe('NativeBackend: SandboxResult shape', () => {
+  test('NativeBackend has a wrap method', () => {
     const native = new NativeBackend();
     expect(typeof native.wrap).toBe('function');
-
-    _resetDockerChecks();
-    // DockerBackend requires a real sandbox root for construction
-    const docker = new DockerBackend(realpathSync('/tmp'), undefined, 1000, 1000);
-    expect(typeof docker.wrap).toBe('function');
   });
 
   test('disabled sandbox returns consistent bash -c -- invocation', () => {
     // Various commands should all be wrapped consistently when disabled
     const commands = ['echo hello', 'ls -la', 'cat /etc/hosts', 'true && false'];
     for (const cmd of commands) {
-      const result = wrapCommand(cmd, '/tmp', { enabled: false, backend: 'native', docker: { image: 'vellum-sandbox:latest', shell: 'bash', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' } });
+      const result = wrapCommand(cmd, '/tmp', { enabled: false });
       expect(result.command).toBe('bash');
       expect(result.args[0]).toBe('-c');
       expect(result.args[1]).toBe('--');

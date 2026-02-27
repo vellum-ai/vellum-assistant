@@ -52,7 +52,6 @@ mock.module('../util/platform.js', () => ({
 }));
 
 import { buildElevenLabsVoiceSpec, resolveVoiceQualityProfile } from '../calls/voice-quality.js';
-import { DEFAULT_CONFIG } from '../config/defaults.js';
 import { invalidateConfigCache,loadConfig } from '../config/loader.js';
 import { AssistantConfigSchema } from '../config/schema.js';
 import { _setStorePath } from '../security/encrypted-store.js';
@@ -96,15 +95,6 @@ describe('AssistantConfigSchema', () => {
     });
     expect(result.sandbox).toEqual({
       enabled: true,
-      backend: 'docker',
-      docker: {
-        image: 'vellum-sandbox:latest',
-        shell: 'bash',
-        cpus: 1,
-        memoryMb: 512,
-        pidsLimit: 256,
-        network: 'none',
-      },
     });
     expect(result.rateLimit).toEqual({ maxRequestsPerMinute: 0, maxTokensPerSession: 0 });
     expect(result.secretDetection).toEqual({ enabled: true, action: 'redact', entropyThreshold: 4.0, allowOneTimeSend: false, blockIngress: true });
@@ -393,111 +383,20 @@ describe('AssistantConfigSchema', () => {
     }
   });
 
-  // SANDBOX M11 cutover: Docker is now the default backend for stronger
-  // container-level isolation. Native is available as opt-in fallback.
-  test('default sandbox backend is docker', () => {
-    const result = AssistantConfigSchema.parse({});
-    expect(result.sandbox.backend).toBe('docker');
-  });
-
-  test('DEFAULT_CONFIG sandbox backend is docker', () => {
-    expect(DEFAULT_CONFIG.sandbox.backend).toBe('docker');
-  });
-
-  test('backward compatibility: sandbox with only enabled still parses', () => {
+  test('sandbox with only enabled still parses', () => {
     const result = AssistantConfigSchema.parse({ sandbox: { enabled: false } });
     expect(result.sandbox.enabled).toBe(false);
-    expect(result.sandbox.backend).toBe('docker');
-    expect(result.sandbox.docker.memoryMb).toBe(512);
   });
 
-  test('accepts docker backend with custom limits', () => {
-    const result = AssistantConfigSchema.parse({
-      sandbox: {
-        enabled: true,
-        backend: 'docker',
-        docker: {
-          image: 'ubuntu:22.04',
-          cpus: 2,
-          memoryMb: 1024,
-          pidsLimit: 512,
-          network: 'bridge',
-        },
-      },
-    });
-    expect(result.sandbox.backend).toBe('docker');
-    expect(result.sandbox.docker.image).toBe('ubuntu:22.04');
-    expect(result.sandbox.docker.cpus).toBe(2);
-    expect(result.sandbox.docker.memoryMb).toBe(1024);
-    expect(result.sandbox.docker.pidsLimit).toBe(512);
-    expect(result.sandbox.docker.network).toBe('bridge');
-  });
-
-  test('applies docker defaults when backend is docker but docker config omitted', () => {
-    const result = AssistantConfigSchema.parse({
+  test('rejects unknown sandbox fields', () => {
+    const result = AssistantConfigSchema.safeParse({
       sandbox: { backend: 'docker' },
     });
-    expect(result.sandbox.backend).toBe('docker');
-    expect(result.sandbox.docker.cpus).toBe(1);
-    expect(result.sandbox.docker.memoryMb).toBe(512);
-    expect(result.sandbox.docker.pidsLimit).toBe(256);
-    expect(result.sandbox.docker.network).toBe('none');
-  });
-
-  test('accepts partial docker config with defaults for missing fields', () => {
-    const result = AssistantConfigSchema.parse({
-      sandbox: {
-        backend: 'docker',
-        docker: { memoryMb: 2048 },
-      },
-    });
-    expect(result.sandbox.docker.memoryMb).toBe(2048);
-    expect(result.sandbox.docker.cpus).toBe(1);
-    expect(result.sandbox.docker.pidsLimit).toBe(256);
-    expect(result.sandbox.docker.network).toBe('none');
-  });
-
-  test('rejects invalid sandbox.backend', () => {
-    const result = AssistantConfigSchema.safeParse({
-      sandbox: { backend: 'podman' },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map(i => i.message);
-      expect(msgs.some(m => m.includes('sandbox.backend'))).toBe(true);
+    // Unknown keys are stripped by Zod passthrough/strip, so parse should still succeed
+    // but the unknown field should not appear in the output
+    if (result.success) {
+      expect((result.data.sandbox as Record<string, unknown>)['backend']).toBeUndefined();
     }
-  });
-
-  test('rejects invalid docker.network', () => {
-    const result = AssistantConfigSchema.safeParse({
-      sandbox: { docker: { network: 'host' } },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map(i => i.message);
-      expect(msgs.some(m => m.includes('sandbox.docker.network'))).toBe(true);
-    }
-  });
-
-  test('rejects non-positive docker.memoryMb', () => {
-    const result = AssistantConfigSchema.safeParse({
-      sandbox: { docker: { memoryMb: 0 } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test('rejects non-integer docker.pidsLimit', () => {
-    const result = AssistantConfigSchema.safeParse({
-      sandbox: { docker: { pidsLimit: 3.5 } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test('rejects negative docker.cpus', () => {
-    const result = AssistantConfigSchema.safeParse({
-      sandbox: { docker: { cpus: -1 } },
-    });
-    expect(result.success).toBe(false);
   });
 
   test('defaults permissions.mode to workspace', () => {
@@ -1277,28 +1176,13 @@ describe('loadConfig with schema validation', () => {
     writeConfig({ sandbox: { enabled: false } });
     const config = loadConfig();
     expect(config.sandbox.enabled).toBe(false);
-    expect(config.sandbox.backend).toBe('docker');
-    expect(config.sandbox.docker.memoryMb).toBe(512);
   });
 
-  test('loads sandbox docker backend config', () => {
-    writeConfig({
-      sandbox: {
-        backend: 'docker',
-        docker: { memoryMb: 2048, network: 'bridge' },
-      },
-    });
+  test('strips unknown sandbox fields', () => {
+    writeConfig({ sandbox: { enabled: true, backend: 'docker' } });
     const config = loadConfig();
-    expect(config.sandbox.backend).toBe('docker');
-    expect(config.sandbox.docker.memoryMb).toBe(2048);
-    expect(config.sandbox.docker.network).toBe('bridge');
-    expect(config.sandbox.docker.cpus).toBe(1);
-  });
-
-  test('falls back for invalid sandbox.backend', () => {
-    writeConfig({ sandbox: { backend: 'podman' } });
-    const config = loadConfig();
-    expect(config.sandbox.backend).toBe('docker');
+    expect(config.sandbox.enabled).toBe(true);
+    expect('backend' in config.sandbox).toBe(false);
   });
 
   test('falls back for invalid contextWindow relationship', () => {

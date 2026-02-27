@@ -45,14 +45,12 @@ mock.module('node:fs', () => ({
 const { wrapCommand } = await import('../tools/terminal/sandbox.js');
 const { ToolError } = await import('../util/errors.js');
 
-const defaultDocker = { image: 'vellum-sandbox:latest', shell: 'bash', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' as const };
-
 function disabledConfig(): SandboxConfig {
-  return { enabled: false, backend: 'native', docker: defaultDocker };
+  return { enabled: false };
 }
 
 function nativeConfig(): SandboxConfig {
-  return { enabled: true, backend: 'native', docker: defaultDocker };
+  return { enabled: true };
 }
 
 describe('terminal sandbox — disabled behavior', () => {
@@ -195,8 +193,8 @@ describe('terminal sandbox — backend selection', () => {
     expect(result.sandboxed).toBe(true);
   });
 
-  test('disabled config ignores backend setting', () => {
-    const config: SandboxConfig = { enabled: false, backend: 'docker', docker: defaultDocker };
+  test('disabled config returns unsandboxed wrapper', () => {
+    const config: SandboxConfig = { enabled: false };
     const result = wrapCommand('echo hello', '/tmp/project', config);
     expect(result.command).toBe('bash');
     expect(result.sandboxed).toBe(false);

@@ -9,7 +9,6 @@ export type {
   CallsVoiceConfig,
   ContextWindowConfig,
   DaemonConfig,
-  DockerConfig,
   HeartbeatConfig,
   IngressConfig,
   LogFileConfig,

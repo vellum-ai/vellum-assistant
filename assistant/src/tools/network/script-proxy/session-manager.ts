@@ -373,7 +373,6 @@ export async function stopSession(sessionId: ProxySessionId): Promise<void> {
  */
 export function getSessionEnv(
   sessionId: ProxySessionId,
-  options?: { dockerMode?: boolean },
 ): ProxyEnvVars {
   const managed = sessions.get(sessionId);
   if (!managed) throw new Error(`Session not found: ${sessionId}`);
@@ -384,10 +383,7 @@ export function getSessionEnv(
   // Touch the idle timer on access
   resetIdleTimer(managed);
 
-  // Inside Docker, 127.0.0.1 is the container's own loopback — use
-  // host.docker.internal so traffic reaches the host-side proxy.
-  const host = options?.dockerMode ? 'host.docker.internal' : '127.0.0.1';
-  const proxyUrl = `http://${host}:${managed.session.port}`;
+  const proxyUrl = `http://127.0.0.1:${managed.session.port}`;
   const env: ProxyEnvVars = {
     HTTP_PROXY: proxyUrl,
     HTTPS_PROXY: proxyUrl,

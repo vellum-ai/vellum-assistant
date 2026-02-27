@@ -49,7 +49,7 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
-    sandbox: { enabled: true, backend: 'docker' },
+    sandbox: { enabled: true },
   }),
 }));
 

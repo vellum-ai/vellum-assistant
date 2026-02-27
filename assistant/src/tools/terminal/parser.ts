@@ -109,7 +109,7 @@ const initGuard = new PromiseGuard<void>();
  * don't exist — fall back to:
  *   1. `../Resources/<file>` (macOS .app bundle layout)
  *   2. Next to the compiled binary (process.execPath)
- * This matches the pattern used by docker.ts for Dockerfile.sandbox.
+ * This matches the pattern used for compiled Bun binary asset resolution.
  */
 function findWasmPath(pkg: string, file: string): string {
   const dir = import.meta.dirname ?? __dirname;

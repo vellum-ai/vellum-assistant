@@ -429,9 +429,8 @@ graph TB
     end
 
     subgraph "Sandbox"
-        DOCKER["DockerBackend.wrap()<br/>networkMode: 'proxied'<br/>→ --network=bridge<br/>--add-host=host.docker.internal:host-gateway"]
-        ENV_INJECT["Inject env vars:<br/>HTTP_PROXY, HTTPS_PROXY,<br/>NO_PROXY, NODE_EXTRA_CA_CERTS<br/>(proxy URL uses host.docker.internal)"]
-        CONTAINER["Container<br/>all traffic → proxy<br/>via host.docker.internal"]
+        SANDBOX["NativeBackend.wrap()<br/>networkMode: 'proxied'"]
+        ENV_INJECT["Inject env vars:<br/>HTTP_PROXY, HTTPS_PROXY,<br/>NO_PROXY, NODE_EXTRA_CA_CERTS"]
     end
 
     subgraph "Proxy Server (on host)"
@@ -444,11 +443,10 @@ graph TB
     BASH_CALL --> EXECUTOR
     EXECUTOR --> PERM
     PERM --> PROMPT
-    PROMPT -->|"allowed"| DOCKER
-    DOCKER --> ENV_INJECT
-    ENV_INJECT --> CONTAINER
-    CONTAINER -->|"HTTP"| HTTP_FWD
-    CONTAINER -->|"HTTPS CONNECT"| CONNECT
+    PROMPT -->|"allowed"| SANDBOX
+    SANDBOX --> ENV_INJECT
+    ENV_INJECT -->|"HTTP"| HTTP_FWD
+    ENV_INJECT -->|"HTTPS CONNECT"| CONNECT
     CONNECT --> ROUTER
 ```
 
@@ -616,7 +614,6 @@ The proxy subsystem intercepts outbound HTTPS requests and injects stored creden
 | `assistant/src/tools/network/script-proxy/certs.ts` | Local CA management — ensureLocalCA, issueLeafCert, getCAPath |
 | `assistant/src/tools/network/script-proxy/logging.ts` | Log sanitization (header/URL redaction) and safe decision trace builders for policy and credential resolution |
 | `assistant/src/tools/network/script-proxy/types.ts` | Type definitions — session, policy decisions, approval callback |
-| `assistant/src/tools/terminal/backends/docker.ts` | Per-invocation network override — `networkMode: 'proxied'` switches to `--network=bridge` |
 | `assistant/src/tools/executor.ts` | `persistentDecisionsAllowed` gate — disables trust rule saving for proxied bash |
 | `assistant/src/daemon/session-tool-setup.ts` | `createProxyApprovalCallback` — wired into session startup, uses `network_request` tool name with URL-based trust rules |
 | `assistant/src/permissions/checker.ts` | `network_request` trust rule matching and risk classification (Medium) |
@@ -628,8 +625,7 @@ The proxy subsystem is fully wired, including credential injection. The session 
 - **MITM handler config**: `mitmHandler` is configured with the local CA path and a `rewriteCallback` that performs per-credential specificity-based template selection — for each credential it picks the most specific matching header template (exact > wildcard), blocks on same-credential equal-specificity ties or cross-credential ambiguity, and for the winning `header`-type template resolves the secret from secure storage and sets the outbound header. Wildcard patterns (`*.fal.run`) match the bare apex domain (`fal.run`) via apex-inclusive matching.
 - **Policy callback**: `evaluateRequestWithApproval()` is called via the `policyCallback`; for `'matched'` decisions it injects credential headers (reading the secret value at injection time), while `'ambiguous'` decisions are blocked and `'ask_*'` decisions route through the approval callback
 - **Approval callback**: `createProxyApprovalCallback()` from `session-tool-setup.ts` routes approval prompts through the `PermissionPrompter`, using the `network_request` tool name with URL-based trust rules
-- **Docker network override**: `network_mode: 'proxied'` switches the sandbox to `--network=bridge` with `--add-host=host.docker.internal:host-gateway`; proxy env vars use `host.docker.internal` so containers can reach the host-side proxy
-- **networkMode plumbing**: `shell.ts` passes `{ networkMode }` to `wrapCommand()`, which forwards it to the Docker backend
+- **networkMode plumbing**: `shell.ts` passes `{ networkMode }` to `wrapCommand()`, which forwards it to the native backend
 - **Session lifecycle**: `createSession` / `startSession` / `stopSession` with idle timeout and per-conversation limits
 
 ---
