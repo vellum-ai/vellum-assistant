@@ -22,14 +22,9 @@ Use `send_notification` for user-facing alerts and notifications. This tool rout
 
 Thread grouping is handled by the LLM-powered decision engine, not by any parameter you pass. There is no explicit "post to thread X" parameter — thread reuse is inferred, not commanded.
 
-**How it works:** The engine evaluates recent notification thread candidates and chooses `reuse_existing` when a new signal looks like a continuation of an existing thread (same title, same `source_event_name`, related context).
+**How it works:** The engine evaluates recent notification thread candidates and decides whether a new signal is a continuation of an existing thread based on `source_event_name`, provenance metadata, and message content. Use natural, descriptive titles and bodies — the engine groups by semantic relatedness, not string matching.
 
-**To encourage thread reuse:**
-- Use a consistent `title` across related notifications.
-- Use a `source_event_name` that reflects the same event type (e.g. `dog.news.thread.reply` rather than a brand new name each time).
-
-**To force a new thread:**
-- Use a distinct `title` or a clearly different `source_event_name`.
+**`source_event_name` is the primary grouping signal.** Use a stable event name for notifications that belong to the same logical stream (e.g. `dog.news.thread.reply` for all replies in a thread). Use a distinct event name when the notification represents a genuinely different kind of event.
 
 **Practical constraints:**
 - Thread candidates are scoped to the **last 24 hours** (max 5 per channel). You cannot reuse an old thread from days ago.
