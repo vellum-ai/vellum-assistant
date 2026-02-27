@@ -22,7 +22,7 @@ final class AvatarAppearanceManager {
 
     /// Bundled initial avatar loaded once from Resources.
     private static let bundledInitialAvatar: NSImage? = {
-        guard let url = Bundle.main.url(forResource: "initial-avatar", withExtension: "png") else { return nil }
+        guard let url = ResourceBundle.bundle.url(forResource: "initial-avatar", withExtension: "png") else { return nil }
         return NSImage(contentsOf: url)
     }()
 

@@ -52,15 +52,11 @@ extension ChatBubble {
             // All tools done but model is still working (generating next tool call)
             LiveToolProgressView(toolCalls: message.toolCalls, isRunning: true, thinkingLabel: "Thinking")
                 .frame(maxWidth: 520, alignment: .leading)
-        } else if hasCompletedTools || hasPermission || (hasInProgressTools && permissionWasDenied) {
-            // All done (or denied) — steps pill + permission chip on one row,
-            // with the expanded steps list in the row below.
-            let onlyPermissionTools = message.toolCalls.allSatisfy { $0.toolName == "request_system_permission" }
+        } else if hasPermission || (hasInProgressTools && permissionWasDenied) {
+            // Completed tool steps are hidden — only show permission chip or denied tool chip.
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: VSpacing.sm) {
-                    if hasCompletedTools && !(onlyPermissionTools && decidedConfirmation != nil) {
-                        UsedToolsList(toolCalls: message.toolCalls, isExpanded: $stepsExpanded)
-                    } else if hasInProgressTools && permissionWasDenied {
+                    if hasInProgressTools && permissionWasDenied {
                         compactFailedToolChip
                     }
                     if let confirmation = decidedConfirmation {
@@ -68,13 +64,7 @@ extension ChatBubble {
                     }
                     Spacer()
                 }
-
-                if stepsExpanded && hasCompletedTools {
-                    StepsSection(toolCalls: message.toolCalls, onRehydrate: message.wasTruncated ? onRehydrate : nil)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
             }
-            .animation(VAnimation.fast, value: stepsExpanded)
             .padding(.top, VSpacing.xxs)
         }
     }
