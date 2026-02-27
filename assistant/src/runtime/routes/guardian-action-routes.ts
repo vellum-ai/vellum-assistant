@@ -151,6 +151,9 @@ export function listGuardianDecisionPrompts(params: {
     if (prompts.some(p => p.requestId === interaction.requestId)) continue;
 
     const details = interaction.confirmationDetails;
+    // Hide "approve always" when persistent trust rules are disallowed for this
+    // invocation, matching the gating in getChannelApprovalPrompt.
+    const showAlways = details.persistentDecisionsAllowed !== false;
     prompts.push({
       requestId: interaction.requestId,
       requestCode: interaction.requestId.slice(0, 6).toUpperCase(),
@@ -159,7 +162,7 @@ export function listGuardianDecisionPrompts(params: {
       toolName: details.toolName,
       actions: [
         { action: 'approve_once', label: 'Approve once' },
-        { action: 'approve_always', label: 'Approve always' },
+        ...(showAlways ? [{ action: 'approve_always', label: 'Approve always' }] : []),
         { action: 'reject', label: 'Reject' },
       ],
       expiresAt: Date.now() + 300_000,
