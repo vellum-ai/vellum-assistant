@@ -2,7 +2,7 @@
  * Approval interception: checks for pending approvals and handles inbound
  * messages as decisions, reminders, or conversational follow-ups.
  */
-import { mintGrantFromDecision } from '../../approvals/approval-primitive.js';
+import { applyGuardianDecision } from '../../approvals/guardian-decision-primitive.js';
 import type { ChannelId } from '../../channels/types.js';
 import {
   getAllPendingApprovalsByGuardianChat,
@@ -13,7 +13,6 @@ import {
   updateApprovalDecision,
 } from '../../memory/channel-guardian-store.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
-import { computeToolApprovalDigest } from '../../security/tool-approval-digest.js';
 import { getLogger } from '../../util/logger.js';
 import { runApprovalConversationTurn } from '../approval-conversation-turn.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
@@ -25,7 +24,6 @@ import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
   handleChannelDecision,
-  type PendingApprovalInfo,
 } from '../channel-approvals.js';
 import { deliverChannelReply } from '../gateway-client.js';
 import type {
@@ -48,77 +46,6 @@ import {
 } from './channel-route-shared.js';
 
 const log = getLogger('runtime-http');
-
-/** TTL for scoped approval grants minted on guardian approve_once decisions. */
-export const GRANT_TTL_MS = 5 * 60 * 1000;
-
-// ---------------------------------------------------------------------------
-// Scoped grant minting on guardian tool-approval decisions
-// ---------------------------------------------------------------------------
-
-/**
- * Mint a `tool_signature` scoped grant when a guardian approves a tool-approval
- * request.  Only mints when the approval info contains a tool invocation with
- * input (so we can compute the input digest).  Informational ASK_GUARDIAN
- * requests that lack tool input are skipped.
- *
- * Fails silently on error — grant minting is best-effort and must never block
- * the approval flow.
- */
-function tryMintToolApprovalGrant(params: {
-  approvalInfo: PendingApprovalInfo;
-  approval: GuardianApprovalRequest;
-  decisionChannel: ChannelId;
-  guardianExternalUserId: string;
-}): void {
-  const { approvalInfo, approval, decisionChannel, guardianExternalUserId } = params;
-
-  // Only mint for requests that carry a tool name — the presence of toolName
-  // distinguishes tool-approval requests from informational ones.
-  // computeToolApprovalDigest can deterministically hash {} so zero-argument
-  // tool invocations must still receive a grant.
-  if (!approvalInfo.toolName) {
-    return;
-  }
-
-  let inputDigest: string;
-  try {
-    inputDigest = computeToolApprovalDigest(approvalInfo.toolName, approvalInfo.input);
-  } catch (err) {
-    log.error(
-      { err, toolName: approvalInfo.toolName, conversationId: approval.conversationId },
-      'Failed to compute tool approval digest for grant minting (non-fatal)',
-    );
-    return;
-  }
-
-  const result = mintGrantFromDecision({
-    assistantId: approval.assistantId,
-    scopeMode: 'tool_signature',
-    toolName: approvalInfo.toolName,
-    inputDigest,
-    requestChannel: approval.channel,
-    decisionChannel,
-    executionChannel: null,
-    conversationId: approval.conversationId,
-    callSessionId: null,
-    guardianExternalUserId,
-    requesterExternalUserId: approval.requesterExternalUserId,
-    expiresAt: new Date(Date.now() + GRANT_TTL_MS).toISOString(),
-  });
-
-  if (result.ok) {
-    log.info(
-      { toolName: approvalInfo.toolName, conversationId: approval.conversationId },
-      'Minted scoped approval grant for guardian tool-approval decision',
-    );
-  } else {
-    log.error(
-      { reason: result.reason, toolName: approvalInfo.toolName, conversationId: approval.conversationId },
-      'Failed to mint scoped approval grant (non-fatal)',
-    );
-  }
-}
 
 export interface ApprovalInterceptionParams {
   conversationId: string;
@@ -259,13 +186,6 @@ export async function handleApprovalInterception(
       }
 
       if (callbackDecision) {
-        // approve_always is not available for guardian approvals — guardians
-        // should not be able to permanently allowlist tools on behalf of the
-        // requester. Downgrade to approve_once.
-        if (callbackDecision.action === 'approve_always') {
-          callbackDecision = { ...callbackDecision, action: 'approve_once' };
-        }
-
         // Access request approvals don't have a pending interaction in the
         // session tracker, so they need a separate decision path that creates
         // a verification session instead of resuming an agent loop.
@@ -281,44 +201,22 @@ export async function handleApprovalInterception(
           return accessResult;
         }
 
-        // Capture pending approval info before handleChannelDecision resolves
-        // (and removes) the pending interaction. Needed for grant minting.
-        const cbApprovalInfo = getApprovalInfoByConversation(guardianApproval.conversationId);
-        const cbMatchedInfo = callbackDecision.requestId
-          ? cbApprovalInfo.find(a => a.requestId === callbackDecision!.requestId)
-          : cbApprovalInfo[0];
-
-        // Apply the decision to the underlying session using the requester's
-        // conversation context
-        const result = handleChannelDecision(
-          guardianApproval.conversationId,
-          callbackDecision,
-        );
+        // Apply the decision through the unified guardian decision primitive.
+        // The primitive handles approve_always downgrade, approval info capture,
+        // record update, and scoped grant minting.
+        const result = applyGuardianDecision({
+          approval: guardianApproval,
+          decision: callbackDecision,
+          actorExternalUserId: senderExternalUserId,
+          actorChannel: sourceChannel,
+        });
 
         if (result.applied) {
-          // Update the guardian approval request record only when the decision
-          // was actually applied. If the request was already resolved (race with
-          // expiry sweep or concurrent callback), skip to avoid inconsistency.
-          const approvalStatus = callbackDecision.action === 'reject' ? 'denied' as const : 'approved' as const;
-          updateApprovalDecision(guardianApproval.id, {
-            status: approvalStatus,
-            decidedByExternalUserId: senderExternalUserId,
-          });
-
-          // Mint a scoped grant when a guardian approves a tool-approval request
-          if (callbackDecision.action !== 'reject' && cbMatchedInfo) {
-            tryMintToolApprovalGrant({
-              approvalInfo: cbMatchedInfo,
-              approval: guardianApproval,
-              decisionChannel: sourceChannel,
-              guardianExternalUserId: senderExternalUserId,
-            });
-          }
-
           // Notify the requester's chat about the outcome with the tool name
+          const effectiveAction = callbackDecision.action === 'approve_always' ? 'approve_once' : callbackDecision.action;
           const outcomeText = await composeApprovalMessageGenerative({
             scenario: 'guardian_decision_outcome',
-            decision: callbackDecision.action === 'reject' ? 'denied' : 'approved',
+            decision: effectiveAction === 'reject' ? 'denied' : 'approved',
             toolName: guardianApproval.toolName,
             channel: sourceChannel,
           }, {}, approvalCopyGenerator);
@@ -437,38 +335,15 @@ export async function handleApprovalInterception(
           ...(engineResult.targetRequestId ? { requestId: engineResult.targetRequestId } : {}),
         };
 
-        // Capture pending approval info before handleChannelDecision resolves
-        // (and removes) the pending interaction. Needed for grant minting.
-        const engineApprovalInfo = getApprovalInfoByConversation(targetApproval.conversationId);
-        const engineMatchedInfo = engineDecision.requestId
-          ? engineApprovalInfo.find(a => a.requestId === engineDecision.requestId)
-          : engineApprovalInfo[0];
-
-        const result = handleChannelDecision(
-          targetApproval.conversationId,
-          engineDecision,
-        );
+        // Apply the decision through the unified guardian decision primitive.
+        const result = applyGuardianDecision({
+          approval: targetApproval,
+          decision: engineDecision,
+          actorExternalUserId: senderExternalUserId,
+          actorChannel: sourceChannel,
+        });
 
         if (result.applied) {
-          // Update the guardian approval request record only when the decision
-          // was actually applied. If the request was already resolved (race with
-          // expiry sweep or concurrent callback), skip to avoid inconsistency.
-          const approvalStatus = decisionAction === 'reject' ? 'denied' as const : 'approved' as const;
-          updateApprovalDecision(targetApproval.id, {
-            status: approvalStatus,
-            decidedByExternalUserId: senderExternalUserId,
-          });
-
-          // Mint a scoped grant when a guardian approves a tool-approval request
-          if (decisionAction !== 'reject' && engineMatchedInfo) {
-            tryMintToolApprovalGrant({
-              approvalInfo: engineMatchedInfo,
-              approval: targetApproval,
-              decisionChannel: sourceChannel,
-              guardianExternalUserId: senderExternalUserId,
-            });
-          }
-
           // Notify the requester's chat about the outcome
           const outcomeText = await composeApprovalMessageGenerative({
             scenario: 'guardian_decision_outcome',
@@ -600,35 +475,15 @@ export async function handleApprovalInterception(
             return accessResult;
           }
 
-          // Capture pending approval info before handleChannelDecision resolves
-          // (and removes) the pending interaction. Needed for grant minting.
-          const legacyApprovalInfo = getApprovalInfoByConversation(targetLegacyApproval.conversationId);
-          const legacyMatchedInfo = legacyGuardianDecision.requestId
-            ? legacyApprovalInfo.find(a => a.requestId === legacyGuardianDecision.requestId)
-            : legacyApprovalInfo[0];
-
-          const result = handleChannelDecision(
-            targetLegacyApproval.conversationId,
-            legacyGuardianDecision,
-          );
+          // Apply the decision through the unified guardian decision primitive.
+          const result = applyGuardianDecision({
+            approval: targetLegacyApproval,
+            decision: legacyGuardianDecision,
+            actorExternalUserId: senderExternalUserId,
+            actorChannel: sourceChannel,
+          });
 
           if (result.applied) {
-            const approvalStatus = legacyGuardianDecision.action === 'reject' ? 'denied' as const : 'approved' as const;
-            updateApprovalDecision(targetLegacyApproval.id, {
-              status: approvalStatus,
-              decidedByExternalUserId: senderExternalUserId,
-            });
-
-            // Mint a scoped grant when a guardian approves a tool-approval request
-            if (legacyGuardianDecision.action !== 'reject' && legacyMatchedInfo) {
-              tryMintToolApprovalGrant({
-                approvalInfo: legacyMatchedInfo,
-                approval: targetLegacyApproval,
-                decisionChannel: sourceChannel,
-                guardianExternalUserId: senderExternalUserId,
-              });
-            }
-
             // Notify the requester's chat about the outcome
             const outcomeText = await composeApprovalMessageGenerative({
               scenario: 'guardian_decision_outcome',
@@ -751,13 +606,15 @@ export async function handleApprovalInterception(
               action: 'reject',
               source: 'plain_text',
             };
-            const cancelApplyResult = handleChannelDecision(conversationId, rejectDecision);
+            // Apply the cancel decision through the unified primitive.
+            // The primitive handles record update and (no-op) grant logic.
+            const cancelApplyResult = applyGuardianDecision({
+              approval: guardianApprovalForRequest,
+              decision: rejectDecision,
+              actorExternalUserId: senderExternalUserId,
+              actorChannel: sourceChannel,
+            });
             if (cancelApplyResult.applied) {
-              updateApprovalDecision(guardianApprovalForRequest.id, {
-                status: 'denied',
-                decidedByExternalUserId: senderExternalUserId,
-              });
-
               // Notify requester
               const replyText = cancelReplyText ?? await composeApprovalMessageGenerative({
                 scenario: 'requester_cancel',
