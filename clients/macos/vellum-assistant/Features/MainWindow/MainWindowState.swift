@@ -241,8 +241,12 @@ public final class MainWindowState: ObservableObject {
     /// - Parameters:
     ///   - onDismiss: Optional callback invoked when the toast is dismissed
     ///     by the user (via the X button), as opposed to a primary action.
-    func showToast(message: String, style: ToastInfo.Style, primaryAction: VToastAction? = nil, onDismiss: (() -> Void)? = nil) {
-        toastInfo = ToastInfo(message: message, style: style, primaryAction: primaryAction, onDismiss: onDismiss)
+    /// - Returns: The unique ID of the displayed toast, useful for targeted dismissal.
+    @discardableResult
+    func showToast(message: String, style: ToastInfo.Style, primaryAction: VToastAction? = nil, onDismiss: (() -> Void)? = nil) -> UUID {
+        let toast = ToastInfo(message: message, style: style, primaryAction: primaryAction, onDismiss: onDismiss)
+        toastInfo = toast
+        return toast.id
     }
 
     /// Dismiss the currently displayed toast, invoking its onDismiss callback.
@@ -250,6 +254,13 @@ public final class MainWindowState: ObservableObject {
         let callback = toastInfo?.onDismiss
         toastInfo = nil
         callback?()
+    }
+
+    /// Dismiss the toast only if it matches the given ID.
+    /// Prevents deferred callbacks from accidentally dismissing a different toast.
+    func dismissToast(id: UUID) {
+        guard toastInfo?.id == id else { return }
+        dismissToast()
     }
 
     /// Restore the last active panel from UserDefaults
@@ -269,9 +280,18 @@ struct ToastInfo {
         case warning
     }
 
+    let id: UUID
     let message: String
     let style: Style
     let primaryAction: VToastAction?
     /// Called when the toast is dismissed via the X button (not via primary action).
     let onDismiss: (() -> Void)?
+
+    init(message: String, style: Style, primaryAction: VToastAction? = nil, onDismiss: (() -> Void)? = nil) {
+        self.id = UUID()
+        self.message = message
+        self.style = style
+        self.primaryAction = primaryAction
+        self.onDismiss = onDismiss
+    }
 }

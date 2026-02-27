@@ -498,7 +498,7 @@ extension AppDelegate {
         let markedIds = threadManager.markAllThreadsSeen()
         guard !markedIds.isEmpty else { return }
         let count = markedIds.count
-        mainWindow?.windowState.showToast(
+        let toastId = mainWindow?.windowState.showToast(
             message: "Marked \(count) thread\(count == 1 ? "" : "s") as seen",
             style: .success,
             primaryAction: VToastAction(label: "Undo") { [weak self] in
@@ -510,7 +510,8 @@ extension AppDelegate {
             }
         )
         threadManager.schedulePendingSeenSignals { [weak self] in
-            self?.mainWindow?.windowState.dismissToast()
+            guard let toastId else { return }
+            self?.mainWindow?.windowState.dismissToast(id: toastId)
         }
     }
 
