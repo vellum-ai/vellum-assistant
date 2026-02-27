@@ -111,8 +111,18 @@ registerHook('voice_config_update', (_name, input, _result, { broadcastToAllClie
   const key = SETTING_TO_KEY[setting];
   if (!key) return;
 
-  const value = input.value ?? input.activation_key;
-  broadcastToAllClients?.({ type: 'client_settings_update', key, value } as unknown as ServerMessage);
+  // Coerce the value to the correct type before broadcasting, matching
+  // the validation logic in the tool's execute method.
+  const raw = input.value ?? input.activation_key;
+  let coerced: string | boolean | number = raw as string;
+  if (setting === 'wake_word_enabled') {
+    coerced = raw === true || raw === 'true';
+  } else if (setting === 'wake_word_timeout') {
+    coerced = typeof raw === 'number' ? raw : Number(raw);
+  } else if (setting === 'wake_word_keyword' && typeof raw === 'string') {
+    coerced = raw.trim();
+  }
+  broadcastToAllClients?.({ type: 'client_settings_update', key, value: coerced } as unknown as ServerMessage);
 });
 
 // ── Runner ───────────────────────────────────────────────────────────
