@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 // MARK: - Parental Control Settings Tab
@@ -17,14 +18,6 @@ struct SettingsParentalTab: View {
     @State private var blockedToolCategories: Set<String> = []
     @State private var allowedApps: [String] = []
     @State private var allowedWidgets: [String] = []
-
-    // -- Allowlist entry fields --
-    @State private var newAppEntry: String = ""
-    @State private var newWidgetEntry: String = ""
-
-    // -- Apps & Widgets unified allowlist add sheets --
-    @State private var showingAddAppSheet: Bool = false
-    @State private var showingAddWidgetSheet: Bool = false
 
     // -- Local UI state --
     @State private var isLoading: Bool = false
@@ -136,28 +129,6 @@ struct SettingsParentalTab: View {
                     }
                 },
                 daemonClient: daemonClient
-            )
-        }
-        .sheet(isPresented: $showingAddAppSheet) {
-            AddAllowlistItemSheet(
-                placeholder: "App name",
-                title: "Add App",
-                onAdd: { name in
-                    guard !name.isEmpty, !allowedApps.contains(name) else { return }
-                    updateAllowlist(apps: allowedApps + [name], widgets: nil)
-                },
-                onDismiss: { showingAddAppSheet = false }
-            )
-        }
-        .sheet(isPresented: $showingAddWidgetSheet) {
-            AddAllowlistItemSheet(
-                placeholder: "Widget name",
-                title: "Add Widget",
-                onAdd: { name in
-                    guard !name.isEmpty, !allowedWidgets.contains(name) else { return }
-                    updateAllowlist(apps: nil, widgets: allowedWidgets + [name])
-                },
-                onDismiss: { showingAddWidgetSheet = false }
             )
         }
     }
@@ -395,63 +366,40 @@ struct SettingsParentalTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Child profile can only access enabled apps and widgets.")
+            Text("Child profile can only access enabled apps.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
 
-            if allowedApps.isEmpty && allowedWidgets.isEmpty {
-                Text("No apps or widgets configured — all are blocked.")
+            let knownApps = AppListManager.shared.apps
+            if knownApps.isEmpty {
+                Text("No apps tracked yet — apps will appear here as they are used.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .textSelection(.enabled)
             } else {
-                ForEach(allowedApps, id: \.self) { app in
-                    let iconInfo = VAppIconGenerator.generate(from: app)
+                ForEach(knownApps) { app in
                     HStack(spacing: VSpacing.sm) {
-                        VAppIcon(sfSymbol: iconInfo.sfSymbol, gradientColors: iconInfo.colors, size: .small)
-                        Text(app)
+                        if let symbol = app.sfSymbol {
+                            let gradientColors: [String] = app.iconBackground ?? ["#7C3AED", "#4F46E5"]
+                            VAppIcon(sfSymbol: symbol, gradientColors: gradientColors, size: .small)
+                        }
+                        Text(app.name)
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
-                            .textSelection(.enabled)
                         Spacer()
                         Toggle("", isOn: Binding(
-                            get: { allowedApps.contains(app) },
+                            get: { allowedApps.contains(app.id) },
                             set: { enabled in
-                                if !enabled {
-                                    allowedApps = allowedApps.filter { $0 != app }
-                                    updateAllowlist(apps: allowedApps, widgets: nil)
-                                }
+                                if enabled { allowedApps.append(app.id) }
+                                else { allowedApps.removeAll { $0 == app.id } }
+                                updateAllowlist(apps: allowedApps, widgets: nil)
                             }
                         ))
                         .toggleStyle(.switch)
                         .labelsHidden()
-                        .accessibilityLabel("\(app) allowed")
-                        .disabled(isLoading)
-                    }
-                }
-                ForEach(allowedWidgets, id: \.self) { widget in
-                    let iconInfo = VAppIconGenerator.generate(from: widget)
-                    HStack(spacing: VSpacing.sm) {
-                        VAppIcon(sfSymbol: iconInfo.sfSymbol, gradientColors: iconInfo.colors, size: .small)
-                        Text(widget)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .textSelection(.enabled)
-                        Spacer()
-                        Toggle("", isOn: Binding(
-                            get: { allowedWidgets.contains(widget) },
-                            set: { enabled in
-                                if !enabled {
-                                    allowedWidgets = allowedWidgets.filter { $0 != widget }
-                                    updateAllowlist(apps: nil, widgets: allowedWidgets)
-                                }
-                            }
-                        ))
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                        .accessibilityLabel("\(widget) allowed")
+                        .accessibilityLabel("\(app.name) allowed")
                         .disabled(isLoading)
                     }
                 }
@@ -464,14 +412,63 @@ struct SettingsParentalTab: View {
 
     // MARK: - Integrations Section
 
-    /// The canonical list of integrations that can be enabled for the child profile.
-    private let availableIntegrations: [(id: String, label: String, icon: String)] = [
-        ("telegram", "Telegram", "paperplane.fill"),
-        ("sms", "SMS", "message.fill"),
-        ("voice", "Voice", "phone.fill"),
-        ("email", "Email", "envelope.fill"),
-        ("mobile", "Mobile (iOS)", "iphone"),
-    ]
+    /// A configured integration entry for display in the parental controls tab.
+    private struct ConfiguredIntegration {
+        let id: String
+        let label: String
+        let subtitle: String
+        let icon: String
+        let iconColor: Color
+    }
+
+    /// Build the list of integrations that are currently configured in the Connect tab.
+    private var configuredIntegrations: [ConfiguredIntegration] {
+        var result: [ConfiguredIntegration] = []
+        if settingsStore.telegramHasBotToken {
+            result.append(ConfiguredIntegration(
+                id: "telegram",
+                label: "Telegram",
+                subtitle: "Message via Telegram bot",
+                icon: "paperplane.fill",
+                iconColor: .blue
+            ))
+        }
+        if settingsStore.twilioHasCredentials {
+            result.append(ConfiguredIntegration(
+                id: "sms",
+                label: "SMS",
+                subtitle: "Send and receive SMS messages",
+                icon: "message.fill",
+                iconColor: .green
+            ))
+            result.append(ConfiguredIntegration(
+                id: "voice",
+                label: "Voice",
+                subtitle: "Make and receive voice calls",
+                icon: "phone.fill",
+                iconColor: .orange
+            ))
+        }
+        if let email = settingsStore.assistantEmail, !email.isEmpty {
+            result.append(ConfiguredIntegration(
+                id: "email",
+                label: "Email",
+                subtitle: "Send and receive email",
+                icon: "envelope.fill",
+                iconColor: .gray
+            ))
+        }
+        if !settingsStore.approvedDevices.isEmpty {
+            result.append(ConfiguredIntegration(
+                id: "mobile",
+                label: "Mobile (iOS)",
+                subtitle: "Access from paired iOS devices",
+                icon: "iphone",
+                iconColor: .purple
+            ))
+        }
+        return result
+    }
 
     private var integrationsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -485,31 +482,48 @@ struct SettingsParentalTab: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
 
-            ForEach(availableIntegrations, id: \.id) { integration in
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: integration.icon)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(VColor.textSecondary)
-                        .frame(width: 18)
-                    Text(integration.label)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                    Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { settingsStore.allowedIntegrations.contains(integration.id) },
-                        set: { isOn in
-                            let pin = settingsStore.cachedPIN ?? ""
-                            let updated = isOn
-                                ? settingsStore.allowedIntegrations + [integration.id]
-                                : settingsStore.allowedIntegrations.filter { $0 != integration.id }
-                            settingsStore.allowedIntegrations = updated
-                            settingsStore.updateAllowedIntegrations(pin: pin, integrations: updated)
+            let integrations = configuredIntegrations
+            if integrations.isEmpty {
+                Text("No integrations configured. Set up integrations in the Connect tab.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .textSelection(.enabled)
+            } else {
+                ForEach(integrations, id: \.id) { integration in
+                    HStack(spacing: VSpacing.sm) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .fill(integration.iconColor)
+                                .frame(width: 28, height: 28)
+                            Image(systemName: integration.icon)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white)
                         }
-                    ))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .accessibilityLabel(integration.label)
-                    .disabled(isLoading)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(integration.label)
+                                .font(VFont.bodyMedium)
+                                .foregroundColor(VColor.textPrimary)
+                            Text(integration.subtitle)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                        }
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { settingsStore.allowedIntegrations.contains(integration.id) },
+                            set: { isOn in
+                                let pin = settingsStore.cachedPIN ?? ""
+                                let updated = isOn
+                                    ? settingsStore.allowedIntegrations + [integration.id]
+                                    : settingsStore.allowedIntegrations.filter { $0 != integration.id }
+                                settingsStore.allowedIntegrations = updated
+                                settingsStore.updateAllowedIntegrations(pin: pin, integrations: updated)
+                            }
+                        ))
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .accessibilityLabel(integration.label)
+                        .disabled(isLoading)
+                    }
                 }
             }
         }
@@ -527,6 +541,14 @@ struct SettingsParentalTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
+                Button { exportActivityLog() } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.plain)
+                .font(VFont.caption)
+                .foregroundColor(VColor.accent)
+                .accessibilityLabel("Export activity log as CSV")
+                .disabled(settingsStore.activityLog.isEmpty)
                 VButton(label: "Clear Log", style: .danger) {
                     settingsStore.clearActivityLogEntries(pin: settingsStore.cachedPIN)
                 }
@@ -919,6 +941,19 @@ struct SettingsParentalTab: View {
                     loadAllowlist()
                 }
             }
+        }
+    }
+
+    private func exportActivityLog() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType.commaSeparatedText]
+        panel.nameFieldStringValue = "activity-log.csv"
+        if panel.runModal() == .OK, let url = panel.url {
+            let header = "Timestamp,Type,Description\n"
+            let rows = settingsStore.activityLog.map {
+                "\($0.timestamp),\($0.actionType),\"\($0.description)\""
+            }.joined(separator: "\n")
+            try? (header + rows).write(to: url, atomically: true, encoding: .utf8)
         }
     }
 
@@ -1525,49 +1560,6 @@ private enum ToolCategory: String, CaseIterable, Identifiable {
         case .shell: return "Bash commands, terminal access."
         case .file_write: return "Creating, editing, or deleting files."
         }
-    }
-}
-
-// MARK: - Add Allowlist Item Sheet
-
-/// Sheet shown when the parent taps the + button in the Apps or Widgets subsection.
-/// Accepts a single name and calls `onAdd` with the trimmed value.
-@MainActor
-private struct AddAllowlistItemSheet: View {
-    let placeholder: String
-    let title: String
-    let onAdd: (String) -> Void
-    let onDismiss: () -> Void
-
-    @State private var name: String = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            Text(title)
-                .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
-
-            TextField(placeholder, text: $name)
-                .textFieldStyle(.roundedBorder)
-                .font(VFont.body)
-
-            HStack {
-                Spacer()
-                VButton(label: "Cancel", style: .secondary) {
-                    onDismiss()
-                }
-                VButton(label: "Add", style: .primary) {
-                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    onAdd(trimmed)
-                    onDismiss()
-                }
-                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-        .padding(VSpacing.xl)
-        .frame(width: 300)
-        .background(VColor.background)
     }
 }
 
