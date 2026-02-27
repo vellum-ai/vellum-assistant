@@ -96,13 +96,16 @@ struct SettingsParentalTab: View {
             }
         }
         .animation(VAnimation.standard, value: showSuccessToast)
-        .alert("Disable Parental Controls?", isPresented: $showingDisableConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Disable", role: .destructive) {
-                updateEnabled(false)
-            }
-        } message: {
-            Text("This will remove all restrictions. Are you sure?")
+        .sheet(isPresented: $showingDisableConfirmation) {
+            DisableParentalModal(
+                onDisable: {
+                    showingDisableConfirmation = false
+                    updateEnabled(false)
+                },
+                onCancel: {
+                    showingDisableConfirmation = false
+                }
+            )
         }
         .onAppear {
             loadSettings()
@@ -1215,6 +1218,60 @@ extension SettingsParentalTab {
                 onEnable()
             }
         }
+    }
+}
+
+// MARK: - Disable Parental Controls Modal
+
+/// Custom confirmation modal for disabling parental controls.
+/// Uses the same layout/style as ProfileSwitchModal.
+@MainActor
+private struct DisableParentalModal: View {
+    let onDisable: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            content
+        }
+        .frame(width: 340)
+        .fixedSize(horizontal: true, vertical: true)
+    }
+
+    private var content: some View {
+        VStack(alignment: .center, spacing: 0) {
+            // Content
+            VStack(alignment: .center, spacing: VSpacing.lg) {
+                Image(systemName: "lock.open.fill")
+                    .font(.system(size: 30, weight: .medium))
+                    .foregroundColor(VColor.error)
+
+                VStack(spacing: VSpacing.xs) {
+                    Text("Disable Parental Controls")
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.textPrimary)
+                        .multilineTextAlignment(.center)
+                    Text("This will remove all restrictions. Are you sure?")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer().frame(height: VSpacing.lg)
+
+            // Footer
+            HStack {
+                VButton(label: "Cancel", style: .secondary) { onCancel() }
+                Spacer()
+                VButton(label: "Disable", style: .danger) { onDisable() }
+                    .keyboardShortcut(.return, modifiers: [])
+            }
+        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity)
     }
 }
 
