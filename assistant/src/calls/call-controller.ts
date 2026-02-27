@@ -12,6 +12,7 @@ import { getGatewayInternalBaseUrl } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import {
+  expireGuardianActionRequest,
   getDeliveriesByRequestId,
   getPendingRequestByCallSessionId,
   markTimedOutWithReason,
@@ -39,7 +40,19 @@ import { startVoiceTurn, type VoiceTurnHandle } from './voice-session-bridge.js'
 
 const log = getLogger('call-controller');
 
-type ControllerState = 'idle' | 'processing' | 'waiting_on_user' | 'speaking';
+type ControllerState = 'idle' | 'processing' | 'speaking';
+
+/**
+ * Tracks a pending guardian consultation independently of the controller's
+ * turn state. This allows the call to continue normal turn processing
+ * (idle -> processing -> speaking) while a consultation is outstanding.
+ */
+interface PendingConsultation {
+  questionText: string;
+  questionId: string;
+  toolApprovalMeta: { toolName: string; inputDigest: string } | null;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 const ASK_GUARDIAN_CAPTURE_REGEX = /\[ASK_GUARDIAN:\s*(.+?)\]/;
 const ASK_GUARDIAN_MARKER_REGEX = /\[ASK_GUARDIAN:\s*.+?\]/g;
@@ -176,15 +189,18 @@ export class CallController {
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationWarningTimer: ReturnType<typeof setTimeout> | null = null;
-  private consultationTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Tracks the currently pending guardian consultation, if any. Decoupled
+   * from the controller's turn state so callers can continue to trigger
+   * normal turns while consultation is outstanding.
+   */
+  private pendingConsultation: PendingConsultation | null = null;
   private durationEndTimer: ReturnType<typeof setTimeout> | null = null;
   private task: string | null;
   /** True when the call session was created via the inbound path (no outbound task). */
   private isInbound: boolean;
-  /** Instructions queued while an LLM turn is in-flight or during waiting_on_user */
+  /** Instructions queued while an LLM turn is in-flight or during pending consultation */
   private pendingInstructions: string[] = [];
-  /** Caller utterances queued while waiting_on_user to prevent re-entrant turns */
-  private pendingCallerUtterances: Array<{transcript: string, speaker?: PromptSpeakerContext}> = [];
   /** Ensures the call opener is triggered at most once per call. */
   private initialGreetingStarted = false;
   /** Marks that the next caller turn should be treated as an opening acknowledgment. */
@@ -270,19 +286,10 @@ export class CallController {
 
   /**
    * Handle a final caller utterance from the ConversationRelay.
+   * Caller utterances always trigger normal turns, even when a guardian
+   * consultation is pending — the consultation is tracked separately.
    */
   async handleCallerUtterance(transcript: string, speaker?: PromptSpeakerContext): Promise<void> {
-    // Do not start a new turn while waiting for guardian input — queue
-    // the utterance so it can be processed after the answer arrives.
-    if (this.state === 'waiting_on_user') {
-      log.warn(
-        { callSessionId: this.callSessionId },
-        'Caller utterance received while waiting_on_user — queued for after answer.',
-      );
-      this.pendingCallerUtterances.push({ transcript, speaker });
-      return;
-    }
-
     const interruptedInFlight = this.state === 'processing' || this.state === 'speaking';
     // If we're already processing or speaking, abort the in-flight generation
     if (interruptedInFlight) {
@@ -318,66 +325,39 @@ export class CallController {
   }
 
   /**
-   * Called when the user (in the chat UI) answers a pending question.
+   * Called when the guardian (via chat UI or channel) answers a pending
+   * consultation question. Acceptance is gated on having an active
+   * pending consultation record, not on controller turn state — so
+   * answers can arrive while the controller is idle, processing, or
+   * speaking.
    */
   async handleUserAnswer(answerText: string): Promise<boolean> {
-    if (this.state !== 'waiting_on_user') {
+    if (!this.pendingConsultation) {
       log.warn(
         { callSessionId: this.callSessionId, state: this.state },
-        'handleUserAnswer called but controller is not in waiting_on_user state',
+        'handleUserAnswer called but no pending consultation exists',
       );
       return false;
     }
 
-    // Clear the consultation timeout
-    if (this.consultationTimer) {
-      clearTimeout(this.consultationTimer);
-      this.consultationTimer = null;
-    }
+    // Clear the consultation timeout and record
+    clearTimeout(this.pendingConsultation.timer);
+    this.pendingConsultation = null;
 
-    // Defensive: await any lingering turn promise before starting a new one.
-    if (this.currentTurnPromise) {
-      const teardownPromise = this.currentTurnPromise;
-      this.currentTurnPromise = null;
-      await Promise.race([
-        teardownPromise.catch(() => {}),
-        new Promise<void>(resolve => setTimeout(resolve, 2000)),
-      ]);
-    }
-
-    this.state = 'processing';
     updateCallSession(this.callSessionId, { status: 'in_progress' });
 
-    // Merge any instructions that were queued during the waiting_on_user
-    // state into a single user message alongside the answer to avoid
-    // consecutive user-role messages (which violate API role-alternation
-    // requirements).
-    const parts: string[] = [];
-    for (const instr of this.pendingInstructions) {
-      parts.push(`[USER_INSTRUCTION: ${instr}]`);
+    // Inject the answer as a queued instruction so it merges into the
+    // next turn naturally, respecting role-alternation. If the controller
+    // is idle the instruction flush will fire a turn immediately.
+    this.pendingInstructions.push(`[USER_ANSWERED: ${answerText}]`);
+
+    // If the controller is idle, flush instructions immediately to
+    // deliver the answer. If processing/speaking, the answer will be
+    // delivered when the current turn completes via flushPendingInstructions.
+    if (this.state === 'idle') {
+      this.flushPendingInstructions();
     }
-    this.pendingInstructions = [];
-    parts.push(`[USER_ANSWERED: ${answerText}]`);
 
-    const content = parts.join('\n');
-
-    // Fire-and-forget: unblock the caller so the HTTP response and answer
-    // persistence happen immediately, before LLM streaming begins.
-    this.runTurn(content)
-      .then(() => {
-        // If the answer turn ended the call (e.g. [END_CALL]), don't drain
-        // queued utterances — just discard them to avoid starting a fresh
-        // turn on a dead session.
-        if (this.state === 'idle' && this.isCallCompleted()) {
-          this.pendingCallerUtterances = [];
-          return;
-        }
-        this.drainPendingCallerUtterances();
-      })
-      .catch((err) => {
-        this.pendingCallerUtterances = [];
-        log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after user answer');
-      });
     return true;
   }
 
@@ -386,16 +366,15 @@ export class CallController {
    * The instruction is formatted as a dedicated marker that the system prompt
    * tells the model to treat as high-priority steering input.
    *
-   * When the LLM is actively processing or speaking, or when the controller
-   * is waiting on a user answer, the instruction is queued and spliced into
-   * the conversation at the correct chronological position once the current
-   * turn completes.
+   * When the LLM is actively processing or speaking, the instruction is
+   * queued and spliced into the conversation at the correct chronological
+   * position once the current turn completes.
    */
   async handleUserInstruction(instructionText: string): Promise<void> {
     recordCallEvent(this.callSessionId, 'user_instruction_relayed', { instruction: instructionText });
 
     // Queue the instruction when it cannot be safely appended right now
-    if (this.state === 'processing' || this.state === 'speaking' || this.state === 'waiting_on_user') {
+    if (this.state === 'processing' || this.state === 'speaking') {
       this.pendingInstructions.push(instructionText);
       return;
     }
@@ -432,7 +411,7 @@ export class CallController {
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.durationTimer) clearTimeout(this.durationTimer);
     if (this.durationWarningTimer) clearTimeout(this.durationWarningTimer);
-    if (this.consultationTimer) clearTimeout(this.consultationTimer);
+    if (this.pendingConsultation) { clearTimeout(this.pendingConsultation.timer); this.pendingConsultation = null; }
     if (this.durationEndTimer) { clearTimeout(this.durationEndTimer); this.durationEndTimer = null; }
     this.llmRunVersion++;
     this.abortCurrentTurn();
@@ -693,8 +672,26 @@ export class CallController {
           );
           // Fall through to normal turn completion (idle + flushPendingInstructions)
         } else {
+          // Cancel any prior pending consultation (superseded by this new one)
+          if (this.pendingConsultation) {
+            clearTimeout(this.pendingConsultation.timer);
+
+            // Expire the previous consultation's storage records so stale
+            // guardian answers cannot match the old request.
+            expirePendingQuestions(this.callSessionId);
+            const previousRequest = getPendingRequestByCallSessionId(this.callSessionId);
+            if (previousRequest) {
+              expireGuardianActionRequest(previousRequest.id, 'cancelled');
+              log.info(
+                { callSessionId: this.callSessionId, requestId: previousRequest.id },
+                'Expired superseded guardian action request',
+              );
+            }
+
+            this.pendingConsultation = null;
+          }
+
           const pendingQuestion = createPendingQuestion(this.callSessionId, questionText);
-          this.state = 'waiting_on_user';
           updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
           recordCallEvent(this.callSessionId, 'user_question_asked', { question: questionText });
 
@@ -714,11 +711,13 @@ export class CallController {
             });
           }
 
-          // Set a consultation timeout
-          this.consultationTimer = setTimeout(() => {
-            if (this.state !== 'waiting_on_user') return;
+          // Set a consultation timeout tied to this specific consultation
+          // record, not the global controller state.
+          const consultationTimer = setTimeout(() => {
+            // Only fire if this consultation is still the active one
+            if (!this.pendingConsultation || this.pendingConsultation.questionId !== pendingQuestion.id) return;
 
-            log.info({ callSessionId: this.callSessionId }, 'User consultation timed out');
+            log.info({ callSessionId: this.callSessionId }, 'Guardian consultation timed out');
 
             // Mark the linked guardian action request as timed out and
             // send expiry notices to guardian destinations. Deliveries
@@ -747,45 +746,37 @@ export class CallController {
 
             // Expire pending questions and update call state
             expirePendingQuestions(this.callSessionId);
-            this.state = 'idle';
+            this.pendingConsultation = null;
             updateCallSession(this.callSessionId, { status: 'in_progress' });
             this.guardianUnavailableForCall = true;
             recordCallEvent(this.callSessionId, 'guardian_consultation_timed_out', { question: questionText });
 
-            // Restart silence detection before firing the generated turn
-            this.resetSilenceTimer();
-
-            // Build a generated turn instruction instead of hardcoded text.
-            // Merge any queued instructions and caller utterances into the
-            // timeout turn to avoid concurrent-turn races.
+            // Inject timeout instruction so the model addresses it on the
+            // next turn. If idle, flush immediately; otherwise it merges
+            // into the next turn completion.
             const timeoutInstruction =
               `[GUARDIAN_TIMEOUT] Your guardian did not respond in time to your question: "${questionText}". `
               + `Apologize to the caller for the delay, let them know you were unable to reach your guardian, `
               + `ask if they would like to leave a message or receive a callback, `
               + `and ask if there are any other questions you can help with right now.`;
 
-            const parts: string[] = [];
-            for (const instr of this.pendingInstructions) {
-              parts.push(`[USER_INSTRUCTION: ${instr}]`);
-            }
-            this.pendingInstructions = [];
-            parts.push(`[USER_INSTRUCTION: ${timeoutInstruction}]`);
+            this.pendingInstructions.push(timeoutInstruction);
 
-            if (this.pendingCallerUtterances.length > 0) {
-              const latest = this.pendingCallerUtterances[this.pendingCallerUtterances.length - 1];
-              this.pendingCallerUtterances = [];
-              const callerContent = this.formatCallerUtterance(latest.transcript, latest.speaker);
-              if (callerContent.length > 0) {
-                parts.push(callerContent);
-              }
+            if (this.state === 'idle') {
+              this.resetSilenceTimer();
+              this.flushPendingInstructions();
             }
-
-            const content = parts.join('\n');
-            this.runTurn(content).catch((err) =>
-              log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after guardian consultation timeout'),
-            );
           }, getUserConsultationTimeoutMs());
-          return;
+
+          this.pendingConsultation = {
+            questionText,
+            questionId: pendingQuestion.id,
+            toolApprovalMeta: toolApprovalMeta
+              ? { toolName: toolApprovalMeta.toolName, inputDigest: toolApprovalMeta.inputDigest }
+              : null,
+            timer: consultationTimer,
+          };
+          // Fall through to normal turn completion (idle + flushPendingInstructions)
         }
       }
 
@@ -875,24 +866,13 @@ export class CallController {
   }
 
   /**
-   * Check whether the underlying call session has already ended.
-   * Used to guard against post-completion work (e.g. draining queued
-   * utterances after an [END_CALL] turn).
-   */
-  private isCallCompleted(): boolean {
-    const session = getCallSession(this.callSessionId);
-    if (!session) return true;
-    return session.status === 'completed' || session.status === 'failed' || session.status === 'cancelled';
-  }
-
-  /**
    * Drain any instructions that were queued while the LLM was active.
    */
   private flushPendingInstructions(): void {
     if (this.pendingInstructions.length === 0) return;
 
     const parts = this.pendingInstructions.map(
-      (instr) => `[USER_INSTRUCTION: ${instr}]`,
+      (instr) => instr.startsWith('[') ? instr : `[USER_INSTRUCTION: ${instr}]`,
     );
     this.pendingInstructions = [];
 
@@ -903,49 +883,6 @@ export class CallController {
     // Fire-and-forget so we don't block the current turn's cleanup.
     this.runTurn(content).catch((err) =>
       log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after flushing queued instructions'),
-    );
-  }
-
-  /**
-   * Drain caller utterances that were queued while waiting_on_user.
-   * Only the most recent utterance is processed — older ones are discarded
-   * as stale since the caller likely moved on.
-   *
-   * @param contentPrefix — optional string (e.g. instruction markers) to
-   *   prepend to the turn content so instructions and the caller utterance
-   *   are sent as a single turn, avoiding concurrent-turn races.
-   */
-  private drainPendingCallerUtterances(contentPrefix?: string): void {
-    if (this.pendingCallerUtterances.length === 0) return;
-
-    // Keep only the most recent utterance; discard stale older ones
-    const latest = this.pendingCallerUtterances[this.pendingCallerUtterances.length - 1];
-    this.pendingCallerUtterances = [];
-
-    if (contentPrefix) {
-      // Merge prefix content with the caller utterance into a single turn
-      let callerContent = this.formatCallerUtterance(latest.transcript, latest.speaker);
-
-      // Preserve opening-ack semantics when draining bypasses handleCallerUtterance
-      if (this.awaitingOpeningAck) {
-        callerContent = callerContent.length > 0
-          ? `${CALL_OPENING_ACK_MARKER}\n${callerContent}`
-          : CALL_OPENING_ACK_MARKER;
-        this.awaitingOpeningAck = false;
-        this.lastSentWasOpener = false;
-      }
-
-      const combined = `${contentPrefix}\n${callerContent}`;
-      this.resetSilenceTimer();
-      this.runTurn(combined).catch((err) =>
-        log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after draining queued caller utterance with prefix'),
-      );
-      return;
-    }
-
-    // Fire-and-forget so we don't block the current turn's cleanup.
-    this.handleCallerUtterance(latest.transcript, latest.speaker).catch((err) =>
-      log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after draining queued caller utterance'),
     );
   }
 

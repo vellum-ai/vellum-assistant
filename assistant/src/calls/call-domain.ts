@@ -539,7 +539,7 @@ export async function answerCall(input: AnswerCallInput): Promise<{ ok: true; qu
   if (!accepted) {
     log.warn(
       { callSessionId },
-      'answerCall: controller rejected the answer (not in waiting_on_user state)',
+      'answerCall: controller rejected the answer (no pending consultation)',
     );
     return { ok: false, error: 'Controller is not waiting for an answer', status: 409 };
   }
