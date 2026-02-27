@@ -16,18 +16,28 @@ export function migrateSchemaIndexesAndColumns(database: DrizzleDb): void {
     database.run(/*sql*/ `ALTER TABLE memory_jobs ADD COLUMN started_at INTEGER`);
   } catch { /* already exists */ }
 
-  // Skip the notification_deliveries dedup + unique index if the table doesn't
-  // have the notification_decision_id column yet. This column is added by
-  // migration 114-notifications.ts (createNotificationTables), which runs
-  // before this migration in the db-init sequence. However, on databases where
-  // migration 119 is applied before 114 has fully completed (e.g., after a
-  // crash mid-migration), the column may be absent and the DELETE would throw.
+  // Ensure notification_decision_id column exists on notification_deliveries.
+  // Migration 114 (createNotificationTables) should have created this column,
+  // but on databases where 114 crashed mid-run the column may be absent. Rather
+  // than silently skipping the dedup+index step (leaving the schema incompatible
+  // with runtime code that writes notificationDecisionId), we add the column
+  // here if it is missing, then proceed unconditionally.
   const raw = getSqliteFrom(database);
   const notifDdl = raw.query(
     `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notification_deliveries'`,
   ).get() as { sql: string } | null;
 
-  if (notifDdl?.sql.includes('notification_decision_id')) {
+  if (notifDdl && !notifDdl.sql.includes('notification_decision_id')) {
+    // ADD COLUMN cannot carry NOT NULL without a default in SQLite, so we add
+    // it as nullable TEXT. Existing rows get NULL, which is valid until the
+    // runtime backfills or replaces them. The unique index below is created
+    // with WHERE NOT NULL to tolerate the transition period.
+    try {
+      database.run(/*sql*/ `ALTER TABLE notification_deliveries ADD COLUMN notification_decision_id TEXT`);
+    } catch { /* column was added concurrently — safe to continue */ }
+  }
+
+  if (notifDdl) {
     // Deduplicate before creating the unique index — the prior schema allowed
     // multiple rows per (notification_decision_id, channel) via the wider
     // (decision_id, channel, destination, attempt) unique index.  Keep the
@@ -49,7 +59,7 @@ export function migrateSchemaIndexesAndColumns(database: DrizzleDb): void {
     } catch { /* deduplication failed — unique index creation below may fail too, which is non-fatal */ }
 
     try {
-      database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_deliveries_decision_channel ON notification_deliveries(notification_decision_id, channel)`);
+      database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_deliveries_decision_channel ON notification_deliveries(notification_decision_id, channel) WHERE notification_decision_id IS NOT NULL`);
     } catch { /* index already exists or constraint violation — safe to continue */ }
   }
 }
