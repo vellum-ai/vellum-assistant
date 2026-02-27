@@ -531,7 +531,7 @@ export async function processMessage(
           if ('ok' in answerResult && answerResult.ok) {
             const resolved = resolveGuardianActionRequest(request.id, answerText, 'vellum');
             if (resolved) {
-              await tryMintGuardianActionGrant({ resolvedRequest: request, answerText, decisionChannel: 'vellum', approvalConversationGenerator: _approvalConversationGenerator });
+              await tryMintGuardianActionGrant({ request, answerText, decisionChannel: 'vellum', approvalConversationGenerator: _approvalConversationGenerator });
             }
             const replyText = resolved
               ? 'Your answer has been relayed to the call.'
@@ -629,16 +629,16 @@ export async function processMessage(
                 if ('ok' in remapResult && remapResult.ok) {
                   const resolved = resolveGuardianActionRequest(currentPending.id, answerText, 'vellum');
                   if (resolved) {
-                    await tryMintGuardianActionGrant({ resolvedRequest: currentPending, answerText, decisionChannel: 'vellum', approvalConversationGenerator: _approvalConversationGenerator });
-                    const remapText = await composeGuardianActionMessageGenerative({ scenario: 'guardian_superseded_remap', questionText: currentPending.questionText }, {}, _guardianActionCopyGenerator);
-                    const remapMsg = createAssistantMessage(remapText);
-                    await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(remapMsg.content), guardianChannelMeta);
-                    session.messages.push(remapMsg);
-                    onEvent({ type: 'assistant_text_delta', text: remapText });
-                    onEvent({ type: 'message_complete', sessionId: session.conversationId });
-                    log.info({ supersededRequestId: request.id, remappedToRequestId: currentPending.id }, 'Late approval for superseded request remapped to current pending request');
-                    return persisted.id;
+                    await tryMintGuardianActionGrant({ request: currentPending, answerText, decisionChannel: 'vellum', approvalConversationGenerator: _approvalConversationGenerator });
                   }
+                  const remapText = await composeGuardianActionMessageGenerative({ scenario: 'guardian_superseded_remap', questionText: currentPending.questionText }, {}, _guardianActionCopyGenerator);
+                  const remapMsg = createAssistantMessage(remapText);
+                  await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(remapMsg.content), guardianChannelMeta);
+                  session.messages.push(remapMsg);
+                  onEvent({ type: 'assistant_text_delta', text: remapText });
+                  onEvent({ type: 'message_complete', sessionId: session.conversationId });
+                  log.info({ supersededRequestId: request.id, remappedToRequestId: currentPending.id }, 'Late approval for superseded request remapped to current pending request');
+                  return persisted.id;
                 }
                 log.warn({ callSessionId: currentPending.callSessionId, error: 'error' in remapResult ? remapResult.error : 'unknown' }, 'Superseded remap answerCall failed, falling through to follow-up');
               }

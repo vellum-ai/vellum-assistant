@@ -201,7 +201,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
 
     // Step 3: Mint a scoped grant from the resolved request
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: 'yes',
       decisionChannel: 'telegram',
       guardianExternalUserId: 'guardian-user-123',
@@ -270,7 +270,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(resolved).not.toBeNull();
 
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: 'Yes',
       decisionChannel: 'telegram',
     });
@@ -318,7 +318,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(resolved).not.toBeNull();
 
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: 'Tell them to call back',
       decisionChannel: 'vellum',
     });
@@ -354,7 +354,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
 
     // Mint with decisionChannel: 'vellum' (desktop path)
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: 'approve',
       decisionChannel: 'vellum',
     });
@@ -393,7 +393,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(resolved).not.toBeNull();
 
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: 'No',
       decisionChannel: 'telegram',
       guardianExternalUserId: 'guardian-user-456',
@@ -428,7 +428,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(resolved).not.toBeNull();
 
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: denialWord,
       decisionChannel: 'telegram',
     });
@@ -462,7 +462,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(resolved).not.toBeNull();
 
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: 'Sure, go ahead and run it',
       decisionChannel: 'telegram',
     });
@@ -496,7 +496,7 @@ describe('guardian-action grant mint -> voice consume integration', () => {
     expect(resolved).not.toBeNull();
 
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: approveWord,
       decisionChannel: 'telegram',
     });
@@ -546,7 +546,7 @@ describe('guardian-action grant minter: two-tier classification (deterministic +
     };
 
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: 'yes',
       decisionChannel: 'telegram',
       approvalConversationGenerator: generatorSpy,
@@ -583,7 +583,7 @@ describe('guardian-action grant minter: two-tier classification (deterministic +
     });
 
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: 'Sure, go ahead and run it',
       decisionChannel: 'telegram',
       approvalConversationGenerator: mockGenerator,
@@ -620,7 +620,7 @@ describe('guardian-action grant minter: two-tier classification (deterministic +
     });
 
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: "I'm not sure about this",
       decisionChannel: 'telegram',
       approvalConversationGenerator: mockGenerator,
@@ -655,7 +655,7 @@ describe('guardian-action grant minter: two-tier classification (deterministic +
     };
 
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: 'Sure, go ahead and run it',
       decisionChannel: 'telegram',
       approvalConversationGenerator: failingGenerator,
@@ -687,11 +687,91 @@ describe('guardian-action grant minter: two-tier classification (deterministic +
 
     // No generator provided — behaves like before, no LLM fallback
     await tryMintGuardianActionGrant({
-      resolvedRequest: resolved!,
+      request: resolved!,
       answerText: 'Sure, go ahead and run it',
       decisionChannel: 'telegram',
     });
 
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(0);
+  });
+
+  test('deterministic "approve always" still mints a one-time grant (normalized to approve_once semantics)', async () => {
+    const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
+
+    const request = createGuardianActionRequest({
+      assistantId: ASSISTANT_ID,
+      kind: 'ask_guardian',
+      sourceChannel: 'voice',
+      sourceConversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      pendingQuestionId: nextPendingQuestionId(),
+      questionText: 'Can I run the command?',
+      expiresAt: Date.now() + 60_000,
+      toolName: TOOL_NAME,
+      inputDigest,
+    });
+
+    const resolved = resolveGuardianActionRequest(request.id, 'approve always', 'telegram');
+    expect(resolved).not.toBeNull();
+
+    // Generator should NOT be called -- deterministic parser matches "approve always"
+    const generatorSpy: ApprovalConversationGenerator = async () => {
+      throw new Error('Generator should not be called for deterministic match');
+    };
+
+    await tryMintGuardianActionGrant({
+      request: resolved!,
+      answerText: 'approve always',
+      decisionChannel: 'telegram',
+      approvalConversationGenerator: generatorSpy,
+    });
+
+    // Grant is minted (approve_always treated as approval), but it is still
+    // a one-time tool_signature grant -- no broader privilege is granted.
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(1);
+    expect(grants[0].scopeMode).toBe('tool_signature');
+  });
+
+  test('LLM fallback allowedActions excludes approve_always (guardian invariant)', async () => {
+    const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
+
+    const request = createGuardianActionRequest({
+      assistantId: ASSISTANT_ID,
+      kind: 'ask_guardian',
+      sourceChannel: 'voice',
+      sourceConversationId: CONVERSATION_ID,
+      callSessionId: CALL_SESSION_ID,
+      pendingQuestionId: nextPendingQuestionId(),
+      questionText: 'Can I run the command?',
+      expiresAt: Date.now() + 60_000,
+      toolName: TOOL_NAME,
+      inputDigest,
+    });
+
+    const resolved = resolveGuardianActionRequest(request.id, 'Sure, go ahead and run it', 'telegram');
+    expect(resolved).not.toBeNull();
+
+    // Generator returns approve_always -- but the allowedActions constraint
+    // in the minter restricts to approve_once/reject, so the approval-
+    // conversation-turn layer will normalize this to keep_pending.
+    const mockGenerator: ApprovalConversationGenerator = async () => ({
+      disposition: 'approve_always',
+      replyText: 'Approved permanently.',
+    });
+
+    await tryMintGuardianActionGrant({
+      request: resolved!,
+      answerText: 'Sure, go ahead and run it',
+      decisionChannel: 'telegram',
+      approvalConversationGenerator: mockGenerator,
+    });
+
+    // No grant -- approve_always is not in LLM fallback allowedActions,
+    // so the disposition gets normalized to keep_pending (fail-closed).
     const db = getDb();
     const grants = db.select().from(scopedApprovalGrants).all();
     expect(grants.length).toBe(0);
