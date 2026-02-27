@@ -191,8 +191,8 @@ struct SettingsChannelsTab: View {
             mobileCard
             telegramCard
             slackChannelCard
-            twilioCard
             voiceCard
+            twilioCard
             emailCard
         }
     }
@@ -1555,13 +1555,6 @@ struct SettingsChannelsTab: View {
                         }
                     )
                 }
-
-                Button("Clear All") {
-                    store.clearAllApprovedDevices()
-                }
-                .font(VFont.caption)
-                .foregroundColor(VColor.error)
-                .buttonStyle(.borderless)
             }
 
             Divider().background(VColor.surfaceBorder)
