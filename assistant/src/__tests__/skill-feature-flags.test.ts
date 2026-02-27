@@ -9,7 +9,6 @@ const DECLARED_FLAG_KEY = 'feature_flags.hatch-new-assistant.enabled';
 const DECLARED_LEGACY_KEY = 'skills.hatch-new-assistant.enabled';
 const DECLARED_SKILL_ID = 'hatch-new-assistant';
 const SMS_FLAG_KEY = 'feature_flags.sms.enabled';
-const SMS_LEGACY_KEY = 'skills.sms.enabled';
 const SMS_SKILL_ID = 'sms-setup';
 
 // ---------------------------------------------------------------------------
@@ -121,12 +120,9 @@ describe('isAssistantSkillEnabled', () => {
 
   test('supports skill-to-flag override keys (skill id does not need to match flag id)', () => {
     const config = makeConfig({
-      featureFlags: {
-        [SMS_LEGACY_KEY]: false,
-        'skills.sms-setup.enabled': true,
-      },
       assistantFeatureFlagValues: {
         [SMS_FLAG_KEY]: false,
+        'feature_flags.sms-setup.enabled': true,
       },
     });
     expect(isAssistantSkillEnabled(SMS_SKILL_ID, config)).toBe(false);
@@ -248,9 +244,9 @@ describe('resolveSkillStates with feature flags', () => {
   test('skill-to-flag override applies to skill state resolution', () => {
     const catalog = [makeSkill(SMS_SKILL_ID)];
     const config = makeConfig({
-      featureFlags: {
-        [SMS_LEGACY_KEY]: false,
-        'skills.sms-setup.enabled': true,
+      assistantFeatureFlagValues: {
+        [SMS_FLAG_KEY]: false,
+        'feature_flags.sms-setup.enabled': true,
       },
     });
 
