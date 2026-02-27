@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { randomBytes } from "node:crypto";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { getLogger, type LogFileConfig } from "./logger.js";
 import { getRootDir, readKeychainCredential, readCredential, readTwilioCredentials, readWhatsAppCredentials, readSlackChannelCredentials } from "./credential-reader.js";
@@ -89,6 +90,8 @@ export type GatewayConfig = {
   slackDeliverAuthBypass: boolean;
   /** When true, trust X-Forwarded-For for client IP resolution (set when behind a reverse proxy). */
   trustProxy: boolean;
+  /** Dedicated token for authenticating PATCH /v1/feature-flags/* requests (distinct from runtimeBearerToken). */
+  featureFlagToken: string | undefined;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -126,6 +129,40 @@ function readHttpTokenFile(): string | null {
   try {
     return readFileSync(tokenPath, "utf-8").trim() || null;
   } catch {
+    return null;
+  }
+}
+
+function getFeatureFlagTokenPath(): string {
+  return process.env.FEATURE_FLAG_TOKEN_PATH
+    ?? join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "feature-flag-token");
+}
+
+/**
+ * Read the feature-flag token from file, generating a new one if the file
+ * doesn't exist. This follows the same pattern as http-token but uses a
+ * separate file so the two tokens are independently revocable.
+ */
+function readOrGenerateFeatureFlagToken(): string | null {
+  const tokenPath = getFeatureFlagTokenPath();
+  try {
+    const existing = readFileSync(tokenPath, "utf-8").trim();
+    if (existing) return existing;
+  } catch {
+    // File doesn't exist — generate below
+  }
+
+  try {
+    const dir = dirname(tokenPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const token = randomBytes(32).toString("hex");
+    writeFileSync(tokenPath, token + "\n", { mode: 0o600 });
+    log.info({ path: tokenPath }, "Generated new feature-flag token");
+    return token;
+  } catch (err) {
+    log.warn({ err, path: tokenPath }, "Failed to generate feature-flag token file");
     return null;
   }
 }
@@ -200,6 +237,12 @@ export function loadConfig(): GatewayConfig {
   // backward compatibility so existing deployments continue working.
   const runtimeGatewayOriginSecret =
     process.env.RUNTIME_GATEWAY_ORIGIN_SECRET || runtimeBearerToken;
+
+  // Dedicated feature-flag client token: env var takes precedence, then file
+  // (auto-generated on first run). Intentionally separate from runtimeBearerToken
+  // so PATCH /v1/feature-flags/* can reject the runtime token.
+  const featureFlagToken =
+    process.env.FEATURE_FLAG_TOKEN || readOrGenerateFeatureFlagToken() || undefined;
 
   const MAX_TIMEOUT_MS = 2_147_483_647; // 2^31 - 1, max safe setTimeout delay
 
@@ -467,6 +510,7 @@ export function loadConfig(): GatewayConfig {
       hasSlackChannelAppToken: !!slackChannelAppToken,
       slackDeliverAuthBypass,
       trustProxy,
+      hasFeatureFlagToken: !!featureFlagToken,
     },
     "Configuration loaded",
   );
@@ -517,6 +561,7 @@ export function loadConfig(): GatewayConfig {
     slackChannelAppToken,
     slackDeliverAuthBypass,
     trustProxy,
+    featureFlagToken,
   };
 }
 
