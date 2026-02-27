@@ -39,14 +39,13 @@ struct APIKeyStepView: View {
     @FocusState private var keyFieldFocused: Bool
 
     private var userHostedEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
+        FeatureFlagManager.shared.isEnabled(.userHostedEnabled)
     }
 
     var body: some View {
         Text(userHostedEnabled ? "Setup" : "Add your API key")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
-            .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
@@ -56,7 +55,6 @@ struct APIKeyStepView: View {
              : "Enter your Anthropic API key to get started.")
             .font(.system(size: 16))
             .foregroundColor(VColor.textSecondary)
-            .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
 
@@ -124,9 +122,9 @@ struct APIKeyStepView: View {
                 }
                 Spacer()
                 Circle()
-                    .fill(isSelected ? Forest._600 : Color.clear)
+                    .fill(isSelected ? Sage._600 : Color.clear)
                     .overlay(
-                        Circle().stroke(isSelected ? Forest._600 : VColor.surfaceBorder, lineWidth: 1.5)
+                        Circle().stroke(isSelected ? Sage._600 : VColor.surfaceBorder, lineWidth: 1.5)
                     )
                     .overlay(
                         isSelected
@@ -140,10 +138,10 @@ struct APIKeyStepView: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isSelected ? Forest._600.opacity(0.1) : Color.clear)
+                    .fill(isSelected ? Sage._600.opacity(0.1) : Color.clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(isSelected ? Forest._600.opacity(0.5) : VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(isSelected ? Sage._600.opacity(0.5) : VColor.surfaceBorder, lineWidth: 1)
                     )
             )
         }
@@ -164,7 +162,6 @@ struct APIKeyStepView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 20)
                     .padding(.vertical, VSpacing.lg)
-                    .textSelection(.enabled)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
                             .stroke(VColor.surfaceBorder, lineWidth: 1)
@@ -209,11 +206,11 @@ struct APIKeyStepView: View {
                         .fill(primaryButtonDisabled
                             ? adaptiveColor(
                                 light: Stone._900.opacity(0.3),
-                                dark: Forest._600.opacity(0.3)
+                                dark: Sage._600.opacity(0.3)
                             )
                             : adaptiveColor(
                                 light: Stone._900,
-                                dark: Forest._600
+                                dark: Sage._600
                             )
                         )
                 )
@@ -280,11 +277,36 @@ struct APIKeyStepView: View {
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed)
 
+            saveModelToConfig("claude-opus-4-6")
             if userHostedEnabled && hostingMode != .local {
                 state.advance()
-            } else {
+            } else if userHostedEnabled {
                 state.isHatching = true
+            } else {
+                state.advance()
             }
+    }
+
+    private func saveModelToConfig(_ model: String) {
+        let configURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vellum/workspace/config.json")
+
+        let dirURL = configURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+
+        do {
+            let data = try Data(contentsOf: configURL)
+            if var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                json["model"] = model
+                let updated = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+                try updated.write(to: configURL)
+            }
+        } catch {
+            let json: [String: Any] = ["model": model]
+            if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
+                try? data.write(to: configURL)
+            }
+        }
     }
 
     private func loadHostingModeFromDefaults() -> HostingMode? {
@@ -337,6 +359,6 @@ struct APIKeyStepView: View {
     }
     .frame(width: 460, height: 620)
     .onAppear {
-        MacOSClientFeatureFlagManager.shared.setOverride("user_hosted_enabled", enabled: true)
+        FeatureFlagManager.shared.setOverride(.userHostedEnabled, enabled: true)
     }
 }

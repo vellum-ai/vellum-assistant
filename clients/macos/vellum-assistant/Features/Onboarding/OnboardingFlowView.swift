@@ -20,37 +20,14 @@ struct OnboardingFlowView: View {
         ZStack {
             VColor.background.ignoresSafeArea()
 
-            if state.showAvatarReveal {
-                AvatarRevealStepView(
-                    assistantName: state.assistantName,
-                    daemonClient: daemonClient,
-                    onContinue: {
-                        state.avatarRevealCompleted = true
-                        onComplete()
-                    }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(
-                    RadialGradient(
-                        colors: [
-                            adaptiveColor(light: Stone._100, dark: Moss._900),
-                            adaptiveColor(light: Stone._200, dark: Moss._950)
-                        ],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 500
-                    )
-                    .ignoresSafeArea()
-                )
-                .transition(.opacity)
-            } else if state.isHatching {
+            if state.isHatching {
                 HatchingStepView(state: state)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(
                         RadialGradient(
                             colors: [
-                                adaptiveColor(light: Stone._100, dark: Moss._900),
-                                adaptiveColor(light: Stone._200, dark: Moss._950)
+                                adaptiveColor(light: Slate._100, dark: Slate._900),
+                                adaptiveColor(light: Slate._200, dark: Slate._950)
                             ],
                             center: .center,
                             startRadius: 0,
@@ -60,22 +37,18 @@ struct OnboardingFlowView: View {
                     )
             } else if (0...maxOnboardingStep).contains(state.currentStep) {
                 // Trimmed onboarding flow.
-                // When userHostedEnabled: WakeUp -> APIKey -> CloudCredentials (steps 0-2)
-                // Otherwise: WakeUp -> APIKey (steps 0-1)
+                // When userHostedEnabled: WakeUp → APIKey → CloudCredentials (steps 0–2)
+                // Otherwise: WakeUp → APIKey (steps 0–1)
                 VStack(spacing: 0) {
                     Spacer()
 
-                    // Avatar placeholder circle with initial letter
-                    Image(nsImage: AvatarAppearanceManager.buildInitialLetterAvatar(
-                        name: state.assistantName,
-                        size: 128
-                    ))
-                        .resizable()
+                    // Persistent evolving avatar — stays in place across step transitions
+                    EvolvingAvatarView(evolutionState: state.avatarEvolutionState, animated: true)
+                        .scaleEffect(0.3)
                         .frame(width: 128, height: 128)
-                        .clipShape(Circle())
                         .padding(.bottom, VSpacing.xxl)
 
-                    // Step content -- Group flattens into parent VStack so
+                    // Step content — Group flattens into parent VStack so
                     // the inner Spacer flexes with the top Spacer above.
                     Group {
                         switch state.currentStep {
@@ -88,6 +61,8 @@ struct OnboardingFlowView: View {
                                     guard !isAdvancingFromWakeUp else { return }
                                     isAdvancingFromWakeUp = true
                                     state.hasHatched = true
+                                    DeterministicEvolutionEngine.applyMilestone(.hatched, to: state.avatarEvolutionState)
+                                    state.avatarEvolutionState.save()
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                         state.advance()
                                     }
@@ -118,8 +93,8 @@ struct OnboardingFlowView: View {
                 .background(
                     RadialGradient(
                         colors: [
-                            adaptiveColor(light: Stone._100, dark: Moss._900),
-                            adaptiveColor(light: Stone._200, dark: Moss._950)
+                            adaptiveColor(light: Stone._100, dark: Slate._900),
+                            adaptiveColor(light: Stone._200, dark: Slate._950)
                         ],
                         center: .center,
                         startRadius: 0,
@@ -146,11 +121,7 @@ struct OnboardingFlowView: View {
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
-                // Transition from hatching to avatar reveal
-                withAnimation(.easeInOut(duration: 0.5)) {
-                    state.isHatching = false
-                    state.showAvatarReveal = true
-                }
+                onComplete()
             }
         }
     }
