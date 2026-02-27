@@ -589,6 +589,44 @@ final class HTTPTransport {
         }
     }
 
+    // MARK: - Feature Flags
+
+    /// Toggle a feature flag via the gateway's PATCH endpoint.
+    /// Uses the dedicated feature-flag token (not the runtime bearer token) for auth.
+    func setFeatureFlag(key: String, enabled: Bool, featureFlagToken: String) async throws {
+        let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
+        guard let url = URL(string: "\(baseURL)/v1/feature-flags/\(encoded)") else {
+            throw HTTPTransportError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(featureFlagToken)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 10
+
+        let body: [String: Any] = ["enabled": enabled]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HTTPTransportError.healthCheckFailed
+        }
+
+        if http.statusCode == 401 {
+            log.error("Feature flag PATCH failed: authentication error (401)")
+            throw HTTPTransportError.healthCheckFailed
+        }
+
+        guard (200..<300).contains(http.statusCode) else {
+            let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
+            log.error("Feature flag PATCH failed (\(http.statusCode)): \(errorBody)")
+            throw HTTPTransportError.healthCheckFailed
+        }
+
+        log.info("Feature flag '\(key)' set to \(enabled)")
+    }
+
     // MARK: - Remote Identity
 
     /// Fetch identity info from the remote daemon's `GET /v1/identity` endpoint.
