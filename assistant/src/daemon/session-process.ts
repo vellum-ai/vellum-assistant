@@ -17,6 +17,7 @@ import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import {
   finalizeFollowup,
+  getDeliveriesByRequestId,
   getExpiredDeliveriesByConversation,
   getFollowupDeliveriesByConversation,
   getGuardianActionRequest,
@@ -658,6 +659,24 @@ export async function processMessage(
             : null;
 
           if (callStillActive && currentPending) {
+            // Verify the replying guardian has a delivery on the current
+            // pending request. If guardian bindings rotated between requests,
+            // the previous guardian should not resolve the newer request.
+            const currentDeliveries = getDeliveriesByRequestId(currentPending.id);
+            const guardianExtUserId = session.guardianContext?.guardianExternalUserId;
+            const senderHasDelivery = guardianExtUserId
+              && currentDeliveries.some((d) => d.destinationExternalUserId === guardianExtUserId);
+            if (!senderHasDelivery) {
+              log.info(
+                {
+                  supersededRequestId: expiredRequest.id,
+                  currentRequestId: currentPending.id,
+                  guardianExternalUserId: guardianExtUserId,
+                },
+                'Superseded remap skipped: sender has no delivery on current pending request',
+              );
+              // Fall through to the existing callback/message follow-up path
+            } else {
             const remapResult = await answerCall({
               callSessionId: currentPending.callSessionId,
               answer: expiredAnswerText,
@@ -706,6 +725,7 @@ export async function processMessage(
               { callSessionId: currentPending.callSessionId, error: 'error' in remapResult ? remapResult.error : 'unknown' },
               'Superseded remap answerCall failed, falling through to follow-up',
             );
+            } // end else (senderHasDelivery)
           }
           // Call not active or no pending request — fall through to follow-up
         }

@@ -21,6 +21,7 @@ import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import {
   finalizeFollowup,
+  getDeliveriesByRequestId,
   getExpiredDeliveriesByDestination,
   getFollowupDeliveriesByDestination,
   getGuardianActionRequest,
@@ -1054,6 +1055,23 @@ export async function handleChannelInbound(
                 : null;
 
               if (callStillActive && currentPending) {
+                // Verify the replying guardian has a delivery on the current
+                // pending request. If guardian bindings rotated between requests,
+                // the previous guardian should not resolve the newer request.
+                const currentDeliveries = getDeliveriesByRequestId(currentPending.id);
+                const senderHasDelivery = body.senderExternalUserId
+                  && currentDeliveries.some((d) => d.destinationExternalUserId === body.senderExternalUserId);
+                if (!senderHasDelivery) {
+                  log.info(
+                    {
+                      supersededRequestId: expiredRequest.id,
+                      currentRequestId: currentPending.id,
+                      senderExternalUserId: body.senderExternalUserId,
+                    },
+                    'Superseded remap skipped: sender has no delivery on current pending request',
+                  );
+                  // Fall through to the existing callback/message follow-up path
+                } else {
                 // Remap: deliver the answer to the call targeting the current
                 // pending question, then resolve the current request and mint a grant.
                 const remapResult = await answerCall({
@@ -1114,6 +1132,7 @@ export async function handleChannelInbound(
                   { callSessionId: currentPending.callSessionId, error: 'error' in remapResult ? remapResult.error : 'unknown' },
                   'Superseded remap answerCall failed, falling through to follow-up',
                 );
+                } // end else (senderHasDelivery)
               }
               // Call not active or no pending request — fall through to follow-up
             }
