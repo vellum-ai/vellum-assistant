@@ -24,6 +24,11 @@ struct SettingsAccountTab: View {
     @State private var devModeTapCount: Int = 0
     @State private var devModeMessage: String?
 
+    private static let hatchNewAssistantSkillFlagKeys: [String] = [
+        "skills.hatch_new_assistant.enabled",
+        "skills.hatch-new-assistant.enabled"
+    ]
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             accountSection
@@ -383,9 +388,22 @@ struct SettingsAccountTab: View {
 
     // MARK: - Hatch New Assistant
 
+    private var isHatchNewAssistantEnabled: Bool {
+        let config = WorkspaceConfigIO.read()
+        guard let featureFlags = config["featureFlags"] as? [String: Any] else {
+            return true
+        }
+        for key in Self.hatchNewAssistantSkillFlagKeys {
+            if let enabled = featureFlags[key] as? Bool {
+                return enabled
+            }
+        }
+        return true
+    }
+
     @ViewBuilder
     private var hatchNewAssistantSection: some View {
-        if FeatureFlagManager.shared.isEnabled(.hatchNewAssistantEnabled) {
+        if isHatchNewAssistantEnabled {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("Hatch New Assistant")
                     .font(VFont.sectionTitle)
