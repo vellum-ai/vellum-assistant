@@ -130,11 +130,11 @@ import {
   updateCallSession,
 } from '../calls/call-store.js';
 import type { RelayConnection } from '../calls/relay-server.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import {
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByCallSessionId,
 } from '../memory/canonical-guardian-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
 
 initializeDb();
