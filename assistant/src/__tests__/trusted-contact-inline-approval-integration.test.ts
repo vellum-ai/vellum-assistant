@@ -758,6 +758,12 @@ describe('(f) timeout/stale flow: stale guardian decision after inline wait time
       requestId: pending[0].id,
       action: 'approve_once',
       actorContext: guardianActor(),
+      channelDeliveryContext: {
+        replyCallbackUrl: 'http://localhost:3000/reply',
+        guardianChatId: 'guardian-chat-1',
+        assistantId: 'self',
+        bearerToken: 'test-token',
+      },
     });
     expect(approvalResult.applied).toBe(true);
 
@@ -802,6 +808,12 @@ describe('(f) timeout/stale flow: stale guardian decision after inline wait time
       requestId: req.id,
       action: 'approve_once',
       actorContext: guardianActor(),
+      channelDeliveryContext: {
+        replyCallbackUrl: 'http://localhost:3000/reply',
+        guardianChatId: 'guardian-chat-1',
+        assistantId: 'self',
+        bearerToken: 'test-token',
+      },
     });
     expect(approvalResult.applied).toBe(true);
 
@@ -839,6 +851,12 @@ describe('(f) timeout/stale flow: stale guardian decision after inline wait time
       requestId: req.id,
       action: 'approve_once',
       actorContext: guardianActor(),
+      channelDeliveryContext: {
+        replyCallbackUrl: 'http://localhost:3000/reply',
+        guardianChatId: 'guardian-chat-1',
+        assistantId: 'self',
+        bearerToken: 'test-token',
+      },
     });
     expect(approvalResult.applied).toBe(true);
 
