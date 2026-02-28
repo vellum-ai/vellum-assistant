@@ -145,15 +145,16 @@ const TIER_SYSTEM_PROMPT =
 
 /**
  * Fire-and-forget Haiku call to classify the conversation trajectory.
- * Returns the classified tier or null on any failure.
+ * Returns the classified tier, or undefined when no provider is configured
+ * or on any failure.
  */
 export async function classifyResponseTierAsync(
   recentUserTexts: string[],
-): Promise<ResponseTier | null> {
+): Promise<ResponseTier | undefined> {
   const provider = getConfiguredProvider();
   if (!provider) {
     log.debug('No provider available for async tier classification');
-    return null;
+    return undefined;
   }
 
   const combined = recentUserTexts
@@ -186,14 +187,14 @@ export async function classifyResponseTierAsync(
       }
 
       log.debug({ raw }, 'Async tier classification returned unexpected value');
-      return null;
+      return undefined;
     } finally {
       cleanup();
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.debug({ err: message }, 'Async tier classification failed');
-    return null;
+    return undefined;
   }
 }
 
