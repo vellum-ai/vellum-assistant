@@ -1477,6 +1477,106 @@ function startPendingApprovalPromptWatcher(params: {
   };
 }
 
+/**
+ * Resolve a human-readable guardian name from the guardian binding metadata.
+ * Returns the display name, username (prefixed with @), or undefined if
+ * no name is available.
+ */
+function resolveGuardianDisplayName(
+  assistantId: string,
+  sourceChannel: ChannelId,
+): string | undefined {
+  const binding = getGuardianBinding(assistantId, sourceChannel);
+  if (!binding?.metadataJson) return undefined;
+  try {
+    const parsed = JSON.parse(binding.metadataJson) as Record<string, unknown>;
+    if (typeof parsed.displayName === 'string' && parsed.displayName.trim().length > 0) {
+      return parsed.displayName.trim();
+    }
+    if (typeof parsed.username === 'string' && parsed.username.trim().length > 0) {
+      return `@${parsed.username.trim()}`;
+    }
+  } catch {
+    // ignore malformed metadata
+  }
+  return undefined;
+}
+
+/**
+ * Start a poller that sends a one-shot "waiting for guardian approval" message
+ * to the trusted contact when a confirmation_request enters guardian approval
+ * wait. Deduplicates by requestId so each request only produces one message.
+ *
+ * Only activates for trusted-contact actors with a resolvable guardian route.
+ */
+function startTrustedContactApprovalNotifier(params: {
+  conversationId: string;
+  sourceChannel: ChannelId;
+  externalChatId: string;
+  guardianTrustClass: GuardianContext['trustClass'];
+  guardianExternalUserId?: string;
+  replyCallbackUrl: string;
+  bearerToken?: string;
+  assistantId?: string;
+}): () => void {
+  const {
+    conversationId,
+    sourceChannel,
+    externalChatId,
+    guardianTrustClass,
+    guardianExternalUserId,
+    replyCallbackUrl,
+    bearerToken,
+    assistantId,
+  } = params;
+
+  // Only notify trusted contacts who have a resolvable guardian route.
+  if (guardianTrustClass !== 'trusted_contact' || !guardianExternalUserId) {
+    return () => {};
+  }
+
+  let active = true;
+  const notifiedRequestIds = new Set<string>();
+
+  const poll = async (): Promise<void> => {
+    while (active) {
+      try {
+        const pending = getApprovalInfoByConversation(conversationId);
+        const info = pending[0];
+        if (info && !notifiedRequestIds.has(info.requestId)) {
+          notifiedRequestIds.add(info.requestId);
+          const guardianName = resolveGuardianDisplayName(
+            assistantId ?? 'self',
+            sourceChannel,
+          );
+          const waitingText = guardianName
+            ? `Waiting for ${guardianName}'s approval...`
+            : 'Waiting for your guardian\'s approval...';
+          try {
+            await deliverChannelReply(replyCallbackUrl, {
+              chatId: externalChatId,
+              text: waitingText,
+              assistantId: assistantId ?? 'self',
+            }, bearerToken);
+          } catch (err) {
+            log.warn({ err, conversationId }, 'Failed to deliver trusted-contact pending-approval notification');
+            // Remove from notified set so delivery is retried on next poll
+            notifiedRequestIds.delete(info.requestId);
+          }
+        }
+      } catch (err) {
+        log.warn({ err, conversationId }, 'Trusted-contact approval notifier poll failed');
+      }
+      await delay(PENDING_APPROVAL_POLL_INTERVAL_MS);
+    }
+  };
+
+  void poll();
+  return () => {
+    active = false;
+  };
+}
+
 function processChannelMessageInBackground(params: BackgroundProcessingParams): void {
   const {
     processMessage,
@@ -1517,6 +1617,18 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
         bearerToken,
         assistantId,
         approvalCopyGenerator,
+      })
+      : undefined;
+    const stopTcApprovalNotifier = replyCallbackUrl
+      ? startTrustedContactApprovalNotifier({
+        conversationId,
+        sourceChannel,
+        externalChatId,
+        guardianTrustClass: guardianCtx.trustClass,
+        guardianExternalUserId: guardianCtx.guardianExternalUserId,
+        replyCallbackUrl,
+        bearerToken,
+        assistantId,
       })
       : undefined;
 
@@ -1564,6 +1676,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     } finally {
       stopTypingHeartbeat?.();
       stopApprovalWatcher?.();
+      stopTcApprovalNotifier?.();
     }
   })();
 }
