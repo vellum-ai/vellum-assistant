@@ -415,20 +415,27 @@ export async function handleSendMessage(
       ? smDeps.resolveAttachments(attachmentIds)
       : [];
 
-    const inlineReplyResult = await tryConsumeInlineApprovalReply({
-      conversationId: mapping.conversationId,
-      sourceChannel,
-      sourceInterface,
-      content: content ?? '',
-      attachments,
-      session,
-      onEvent,
-    });
-    if (inlineReplyResult.consumed) {
-      return Response.json(
-        { accepted: true, ...(inlineReplyResult.messageId ? { messageId: inlineReplyResult.messageId } : {}) },
-        { status: 202 },
-      );
+    // Try to consume the message as an inline approval/rejection reply.
+    // On failure, degrade to the existing queue/auto-deny path rather than
+    // surfacing a 500 — mirrors the IPC handler's catch-and-fallback.
+    try {
+      const inlineReplyResult = await tryConsumeInlineApprovalReply({
+        conversationId: mapping.conversationId,
+        sourceChannel,
+        sourceInterface,
+        content: content ?? '',
+        attachments,
+        session,
+        onEvent,
+      });
+      if (inlineReplyResult.consumed) {
+        return Response.json(
+          { accepted: true, ...(inlineReplyResult.messageId ? { messageId: inlineReplyResult.messageId } : {}) },
+          { status: 202 },
+        );
+      }
+    } catch (err) {
+      log.warn({ err, conversationId: mapping.conversationId }, 'Inline approval consumption failed, falling through to normal send path');
     }
 
     if (session.isProcessing()) {
