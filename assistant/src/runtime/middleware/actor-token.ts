@@ -7,7 +7,7 @@
  *
  * Used by vellum-channel HTTP routes (POST /v1/messages, POST /v1/confirm,
  * POST /v1/guardian-actions/decision, etc.) to enforce identity-based
- * authentication after the M5 cutover.
+ * authentication.
  *
  * For backward compatibility with bearer-authenticated local clients (CLI),
  * provides fallback functions that resolve identity through the local IPC

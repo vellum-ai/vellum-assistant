@@ -4,8 +4,8 @@
  * These endpoints resolve pending confirmations, secrets, and trust rules
  * by requestId — orthogonal to message sending.
  *
- * After M5 cutover: all approval endpoints require a valid actor token
- * via the X-Actor-Token header. Guardian decisions additionally verify
+ * All approval endpoints require a valid actor token via the X-Actor-Token
+ * header (with local CLI fallback). Guardian decisions additionally verify
  * that the actor is the bound guardian.
  */
 import { getConversationByKey } from '../../memory/conversation-key-store.js';

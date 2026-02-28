@@ -22,6 +22,43 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
+### Vellum Guardian Identity Model (Actor Tokens + Bootstrap)
+
+The vellum channel (macOS desktop, iOS, CLI) uses an identity-bound actor token system to authenticate guardian identity on HTTP routes. This replaces the previous implicit trust model where all local connections were assumed to be the guardian.
+
+**Identity lifecycle:**
+
+1. **Startup migration** — On daemon start, `ensureVellumGuardianBinding()` (in `guardian-vellum-migration.ts`) backfills a `channel='vellum'` guardian binding with a stable `guardianPrincipalId` (format: `vellum-principal-<uuid>`). Existing installations get a binding with `verifiedVia: 'startup-migration'`; new installs get one via bootstrap. This migration is idempotent and preserves bindings for other channels (Telegram, SMS, etc.).
+
+2. **Hatch bootstrap** — After hatch, the macOS client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform, deviceId }`. The endpoint is idempotent: it ensures a vellum guardian principal exists, revokes any prior token for the same device binding, mints a new HMAC-SHA256 signed actor token, stores only the SHA-256 hash, and returns `{ guardianPrincipalId, actorToken, isNew }`. The raw token is returned once and never persisted on the server.
+
+3. **iOS pairing** — When an iOS device completes pairing, the pairing response includes an `actorToken` minted against the same vellum guardian principal. The pairing handler in `pairing-routes.ts` calls `mintPairingActorToken()` which looks up the vellum binding and mints a device-specific token.
+
+4. **IPC identity** — Local IPC connections (Unix domain socket from the macOS native app) do not send actor tokens. Instead, the daemon assigns a deterministic local actor identity via `resolveLocalIpcGuardianContext()` in `local-actor-identity.ts`. This looks up the vellum guardian binding and routes through the same `resolveGuardianContext` trust pipeline used by HTTP channel ingress. When no vellum binding exists yet (pre-bootstrap), a fallback guardian context is returned since the local macOS user is inherently the guardian of their own machine.
+
+**Actor token format:** `base64url(JSON claims) + '.' + base64url(HMAC-SHA256 signature)`. Claims include `assistantId`, `platform`, `deviceId`, `guardianPrincipalId`, `iat`, `exp` (null for non-expiring), and `jti`.
+
+**Hash-only storage:** Only the SHA-256 hex digest of the raw token is persisted in the `actor_token_records` table. Token verification recomputes the hash and looks it up in the store to check revocation status. Tokens are scoped to `(assistantId, guardianPrincipalId, hashedDeviceId)` with a one-active-per-device invariant.
+
+**Signing key management:** A 32-byte random signing key is generated on first startup and persisted at `~/.vellum/protected/actor-token-signing-key` with `chmod 0o600`. The key is loaded on subsequent startups via `loadOrCreateSigningKey()`.
+
+**Strict HTTP enforcement:** Vellum-channel HTTP routes (POST /v1/messages, POST /v1/confirm, POST /v1/guardian-actions/decision, etc.) require a valid actor token via the `X-Actor-Token` header. The middleware in `middleware/actor-token.ts` verifies the HMAC signature, checks the token is active in the store, and resolves a guardian context through the standard trust pipeline. For backward compatibility with the CLI, requests without an actor token that originate from a loopback address (no `X-Forwarded-For` header) fall back to `resolveLocalIpcGuardianContext()`. Gateway-proxied requests (which carry `X-Forwarded-For`) without an actor token are rejected.
+
+**Notification scoping:** Guardian-sensitive notifications (e.g., approval requests, access request alerts) are annotated with `targetGuardianPrincipalId` so the notification pipeline can scope delivery to the correct guardian identity across devices.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/runtime/actor-token-service.ts` | HMAC-SHA256 mint/verify, signing key management, `hashToken` |
+| `src/runtime/actor-token-store.ts` | Hash-only persistence: create, find by hash/device binding, revoke |
+| `src/runtime/middleware/actor-token.ts` | HTTP middleware: `verifyHttpActorToken`, `verifyHttpActorTokenWithLocalFallback`, `isActorBoundGuardian` |
+| `src/runtime/local-actor-identity.ts` | `resolveLocalIpcGuardianContext` — deterministic IPC identity |
+| `src/runtime/guardian-vellum-migration.ts` | `ensureVellumGuardianBinding` — startup binding backfill |
+| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/integrations/guardian/vellum/bootstrap` handler |
+| `src/runtime/routes/pairing-routes.ts` | `mintPairingActorToken` — actor token in pairing response |
+| `src/memory/guardian-bindings.ts` | Guardian binding persistence (shared across all channels) |
+
 ### Channel-Agnostic Scoped Approval Grants
 
 Scoped approval grants allow a guardian's approval decision on one channel (e.g., Telegram) to authorize a tool execution on a different channel (e.g., voice). Two scope modes exist: `request_id` (bound to a specific pending request) and `tool_signature` (bound to `toolName` + canonical `inputDigest`). Grants are one-time-use, exact-match, fail-closed, and TTL-bound. Full architecture details (lifecycle flow, security invariants, key files) live in [`docs/architecture/security.md`](docs/architecture/security.md#channel-agnostic-scoped-approval-grants).

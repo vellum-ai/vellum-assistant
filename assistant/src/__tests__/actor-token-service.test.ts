@@ -1,6 +1,7 @@
 /**
- * Tests for actor-token mint/verify service, hash-only storage, and
- * guardian bootstrap endpoint idempotency.
+ * Tests for actor-token mint/verify service, hash-only storage,
+ * guardian bootstrap endpoint idempotency, HTTP middleware strict
+ * enforcement, and local IPC identity fallback.
  */
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -49,6 +50,11 @@ import {
   revokeByTokenHash,
 } from '../runtime/actor-token-store.js';
 import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
+import {
+  verifyHttpActorToken,
+  verifyHttpActorTokenWithLocalFallback,
+} from '../runtime/middleware/actor-token.js';
+import { resolveLocalIpcGuardianContext } from '../runtime/local-actor-identity.js';
 
 initializeDb();
 
@@ -401,5 +407,221 @@ describe('bootstrap endpoint idempotency', () => {
     // Same principal, different tokens
     expect(body2.guardianPrincipalId).toBe(body1.guardianPrincipalId);
     expect(body2.actorToken).not.toBe(body1.actorToken);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HTTP middleware strict enforcement
+// ---------------------------------------------------------------------------
+
+describe('HTTP actor token middleware (strict enforcement)', () => {
+  test('rejects request without X-Actor-Token header', () => {
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const result = verifyHttpActorToken(req);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+      expect(result.message).toContain('Missing X-Actor-Token');
+    }
+  });
+
+  test('rejects request with invalid (tampered) token', () => {
+    const { token } = mintActorToken({
+      assistantId: 'self',
+      platform: 'macos',
+      deviceId: 'device-tamper',
+      guardianPrincipalId: 'principal-tamper',
+    });
+
+    const parts = token.split('.');
+    const tampered = parts[0] + 'XXXXXX.' + parts[1];
+
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: { 'X-Actor-Token': tampered },
+    });
+
+    const result = verifyHttpActorToken(req);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+    }
+  });
+
+  test('rejects request with revoked token', () => {
+    const principalId = ensureVellumGuardianBinding('self');
+    const { token, tokenHash } = mintActorToken({
+      assistantId: 'self',
+      platform: 'macos',
+      deviceId: 'device-revoked',
+      guardianPrincipalId: principalId,
+    });
+
+    createActorTokenRecord({
+      tokenHash,
+      assistantId: 'self',
+      guardianPrincipalId: principalId,
+      hashedDeviceId: 'hashed-device-revoked',
+      platform: 'macos',
+      issuedAt: Date.now(),
+    });
+
+    // Revoke the token
+    revokeByTokenHash(tokenHash);
+
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: { 'X-Actor-Token': token },
+    });
+
+    const result = verifyHttpActorToken(req);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+      expect(result.message).toContain('no longer active');
+    }
+  });
+
+  test('accepts request with valid active token and resolves guardian context', () => {
+    const principalId = ensureVellumGuardianBinding('self');
+    const { token, tokenHash } = mintActorToken({
+      assistantId: 'self',
+      platform: 'macos',
+      deviceId: 'device-valid',
+      guardianPrincipalId: principalId,
+    });
+
+    createActorTokenRecord({
+      tokenHash,
+      assistantId: 'self',
+      guardianPrincipalId: principalId,
+      hashedDeviceId: 'hashed-device-valid',
+      platform: 'macos',
+      issuedAt: Date.now(),
+    });
+
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: { 'X-Actor-Token': token },
+    });
+
+    const result = verifyHttpActorToken(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.claims.assistantId).toBe('self');
+      expect(result.claims.guardianPrincipalId).toBe(principalId);
+      expect(result.guardianContext).toBeTruthy();
+      expect(result.guardianContext.trustClass).toBe('guardian');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Local IPC fallback (verifyHttpActorTokenWithLocalFallback)
+// ---------------------------------------------------------------------------
+
+describe('HTTP actor token local fallback', () => {
+  test('falls back to local IPC identity when no actor token and no forwarding header', () => {
+    ensureVellumGuardianBinding('self');
+
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const result = verifyHttpActorTokenWithLocalFallback(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.guardianContext.trustClass).toBe('guardian');
+      // localFallback should be true when claims are null
+      if ('localFallback' in result) {
+        expect(result.localFallback).toBe(true);
+        expect(result.claims).toBeNull();
+      }
+    }
+  });
+
+  test('rejects gateway-proxied request without actor token (X-Forwarded-For present)', () => {
+    ensureVellumGuardianBinding('self');
+
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '1.2.3.4',
+      },
+    });
+
+    const result = verifyHttpActorTokenWithLocalFallback(req);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+      expect(result.message).toContain('Proxied requests require actor identity');
+    }
+  });
+
+  test('uses strict verification when actor token is present even with X-Forwarded-For', () => {
+    const principalId = ensureVellumGuardianBinding('self');
+    const { token, tokenHash } = mintActorToken({
+      assistantId: 'self',
+      platform: 'ios',
+      deviceId: 'device-proxied',
+      guardianPrincipalId: principalId,
+    });
+
+    createActorTokenRecord({
+      tokenHash,
+      assistantId: 'self',
+      guardianPrincipalId: principalId,
+      hashedDeviceId: 'hashed-device-proxied',
+      platform: 'ios',
+      issuedAt: Date.now(),
+    });
+
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: {
+        'X-Actor-Token': token,
+        'X-Forwarded-For': '1.2.3.4',
+      },
+    });
+
+    const result = verifyHttpActorTokenWithLocalFallback(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.claims).not.toBeNull();
+      expect(result.guardianContext.trustClass).toBe('guardian');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Local IPC identity resolution
+// ---------------------------------------------------------------------------
+
+describe('resolveLocalIpcGuardianContext', () => {
+  test('returns guardian context when vellum binding exists', () => {
+    ensureVellumGuardianBinding('self');
+
+    const ctx = resolveLocalIpcGuardianContext();
+    expect(ctx.trustClass).toBe('guardian');
+    expect(ctx.sourceChannel).toBe('vellum');
+  });
+
+  test('returns fallback guardian context when no vellum binding exists', () => {
+    // No binding created — fresh DB state
+    const ctx = resolveLocalIpcGuardianContext();
+    expect(ctx.trustClass).toBe('guardian');
+    expect(ctx.sourceChannel).toBe('vellum');
+  });
+
+  test('respects custom sourceChannel parameter', () => {
+    ensureVellumGuardianBinding('self');
+    const ctx = resolveLocalIpcGuardianContext('vellum');
+    expect(ctx.sourceChannel).toBe('vellum');
   });
 });
