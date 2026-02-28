@@ -144,6 +144,8 @@ export interface ToolContext {
   callSessionId?: string;
   /** External user ID of the requester (non-guardian actor). Used for scoped grant consumption. */
   requesterExternalUserId?: string;
+  /** Chat ID of the requester (non-guardian actor). Used for tool grant request escalation notifications. */
+  requesterChatId?: string;
 }
 
 export interface DiffInfo {

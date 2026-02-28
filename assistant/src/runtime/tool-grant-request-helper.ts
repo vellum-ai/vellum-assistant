@@ -85,7 +85,9 @@ export function createOrReuseToolGrantRequest(
   }
 
   // Deduplicate: skip creation if there is already a pending canonical request
-  // for the same requester + conversation + tool + input digest.
+  // for the same requester + conversation + tool + input digest + guardian.
+  // Guardian identity is included so that after a guardian rebind, old requests
+  // tied to the previous guardian don't block creation of a new approvable request.
   const existing = listCanonicalGuardianRequests({
     status: 'pending',
     requesterExternalUserId,
@@ -93,7 +95,9 @@ export function createOrReuseToolGrantRequest(
     kind: 'tool_grant_request',
     toolName,
   });
-  const dedupeMatch = existing.find((r) => r.inputDigest === inputDigest);
+  const dedupeMatch = existing.find(
+    (r) => r.inputDigest === inputDigest && r.guardianExternalUserId === binding.guardianExternalUserId,
+  );
   if (dedupeMatch) {
     log.debug(
       {

@@ -285,7 +285,7 @@ export class ToolApprovalHandler {
           sourceChannel: context.executionChannel as import('../channels/types.js').ChannelId,
           conversationId: context.conversationId,
           requesterExternalUserId: context.requesterExternalUserId,
-          requesterChatId: undefined,
+          requesterChatId: context.requesterChatId,
           toolName: name,
           inputDigest,
           questionText: `Trusted contact is requesting permission to use "${name}"`,
