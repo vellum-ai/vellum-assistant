@@ -9,8 +9,11 @@
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import { getLogger } from '../util/logger.js';
+import { getRootDir } from '../util/platform.js';
 
 const log = getLogger('actor-token-service');
 
@@ -55,20 +58,61 @@ export type VerifyResult =
 let signingKey: Buffer | null = null;
 
 /**
- * Initialize (or reinitialize) the signing key. In production this is
- * derived once at startup from a persisted secret; tests can inject a
- * deterministic key.
+ * Path to the persisted signing key file.
+ * Stored in the protected directory alongside other sensitive material.
  */
-export function initSigningKey(key?: Buffer): void {
-  signingKey = key ?? randomBytes(32);
+function getSigningKeyPath(): string {
+  return join(getRootDir(), 'protected', 'actor-token-signing-key');
+}
+
+/**
+ * Load a signing key from disk or generate and persist a new one.
+ * Uses the same atomic-write + chmod 0o600 pattern as approved-devices-store.ts.
+ */
+export function loadOrCreateSigningKey(): Buffer {
+  const keyPath = getSigningKeyPath();
+
+  // Try to load existing key
+  if (existsSync(keyPath)) {
+    try {
+      const raw = readFileSync(keyPath);
+      if (raw.length === 32) {
+        log.info('Actor-token signing key loaded from disk');
+        return raw;
+      }
+      log.warn('Signing key file has unexpected length, regenerating');
+    } catch (err) {
+      log.warn({ err }, 'Failed to read signing key file, regenerating');
+    }
+  }
+
+  // Generate and persist a new key
+  const newKey = randomBytes(32);
+  const dir = dirname(keyPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  const tmpPath = keyPath + '.tmp.' + process.pid;
+  writeFileSync(tmpPath, newKey, { mode: 0o600 });
+  renameSync(tmpPath, keyPath);
+  chmodSync(keyPath, 0o600);
+
+  log.info('Actor-token signing key generated and persisted');
+  return newKey;
+}
+
+/**
+ * Initialize (or reinitialize) the signing key. Called at daemon startup
+ * with a key loaded from disk via loadOrCreateSigningKey(), or by tests
+ * with a deterministic key.
+ */
+export function initSigningKey(key: Buffer): void {
+  signingKey = key;
 }
 
 function getSigningKey(): Buffer {
   if (!signingKey) {
-    // Lazy init on first use — ensures the daemon can mint tokens even
-    // if initSigningKey() was not called during startup.
-    signingKey = randomBytes(32);
-    log.info('Actor-token signing key lazily initialized');
+    throw new Error('Actor-token signing key not initialized — call initSigningKey() during startup');
   }
   return signingKey;
 }

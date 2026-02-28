@@ -35,6 +35,7 @@ import { rotateToolInvocations } from '../memory/tool-usage-store.js';
 import { migrateToDataLayout } from '../migrations/data-layout.js';
 import { migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
 import { emitNotificationSignal, registerBroadcastFn } from '../notifications/emit-signal.js';
+import { initSigningKey, loadOrCreateSigningKey } from '../runtime/actor-token-service.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { startScheduler } from '../schedule/scheduler.js';
@@ -130,6 +131,11 @@ export async function runDaemon(): Promise<void> {
     writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
     chmodSync(httpTokenPath, 0o600);
     log.info('Daemon startup: bearer token written');
+
+    // Load (or generate + persist) the actor-token signing key so tokens
+    // survive daemon restarts. Must happen after ensureDataDir() creates
+    // the protected directory.
+    initSigningKey(loadOrCreateSigningKey());
 
     log.info('Daemon startup: migrations complete');
 

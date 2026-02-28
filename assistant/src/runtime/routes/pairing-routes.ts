@@ -63,12 +63,43 @@ function mintPairingActorToken(deviceId: string, platform: string): string | nul
 }
 
 /**
- * Transient in-memory map of pairingRequestId -> actorToken.
- * Actor tokens are minted when the pairing request is created (we have the
- * raw deviceId), and retrieved when the status is polled as approved.
- * Never persisted to disk — cleared when entries expire.
+ * Transient in-memory map of pairingRequestId -> raw deviceId.
+ * Stored when a pairing request is initiated (we have the raw deviceId)
+ * so the token can be minted later when the pairing is actually approved.
  */
-const pendingActorTokens = new Map<string, string>();
+const pendingDeviceIds = new Map<string, string>();
+
+/**
+ * Transient in-memory map of pairingRequestId -> { actorToken, approvedAt }.
+ * Populated when a pairing is approved and the actor token is minted.
+ * Entries are kept for TOKEN_RETRIEVAL_TTL_MS after approval so that
+ * subsequent polls can still retrieve the token if the first response
+ * was dropped or timed out.
+ */
+const TOKEN_RETRIEVAL_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const approvedActorTokens = new Map<string, { actorToken: string; approvedAt: number }>();
+
+/**
+ * Sweep stale entries from the approved actor tokens map.
+ * Called lazily on each status poll.
+ */
+function sweepApprovedTokens(): void {
+  const now = Date.now();
+  for (const [id, entry] of approvedActorTokens) {
+    if (now - entry.approvedAt > TOKEN_RETRIEVAL_TTL_MS) {
+      approvedActorTokens.delete(id);
+    }
+  }
+}
+
+/**
+ * Clean up all transient pairing state for a given request.
+ * Called when pairing is denied or otherwise finalized.
+ */
+export function cleanupPairingState(pairingRequestId: string): void {
+  pendingDeviceIds.delete(pairingRequestId);
+  approvedActorTokens.delete(pairingRequestId);
+}
 
 export interface PairingHandlerContext {
   pairingStore: PairingStore;
@@ -157,12 +188,10 @@ export async function handlePairingRequest(req: Request, ctx: PairingHandlerCont
       });
     }
 
-    // Pre-mint actor token while we still have the raw deviceId.
-    // Store in transient memory only — never on disk.
-    const pendingActorToken = mintPairingActorToken(deviceId, 'ios');
-    if (pendingActorToken) {
-      pendingActorTokens.set(pairingRequestId, pendingActorToken);
-    }
+    // Store the raw deviceId transiently so we can mint the actor token
+    // later when the pairing is actually approved (avoids revoking existing
+    // tokens and creating DB records for unapproved devices).
+    pendingDeviceIds.set(pairingRequestId, deviceId);
 
     // Send IPC to macOS to show approval prompt
     if (ctx.pairingBroadcast) {
@@ -204,19 +233,33 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
   }
 
   if (entry.status === 'approved') {
-    // Retrieve the pre-minted actor token from transient memory.
-    // Cleared after retrieval to avoid leaking the token on repeated polls.
-    const actorToken = pendingActorTokens.get(id);
-    if (actorToken) {
-      pendingActorTokens.delete(id);
+    // Sweep expired token entries on each poll
+    sweepApprovedTokens();
+
+    // Mint the actor token on first approved poll if we still have the
+    // raw deviceId from the pairing request. Once minted, the token is
+    // cached in approvedActorTokens with a TTL so subsequent polls can
+    // still retrieve it if the first response was dropped.
+    let tokenEntry = approvedActorTokens.get(id);
+    if (!tokenEntry) {
+      const rawDeviceId = pendingDeviceIds.get(id);
+      if (rawDeviceId) {
+        pendingDeviceIds.delete(id);
+        const actorToken = mintPairingActorToken(rawDeviceId, 'ios');
+        if (actorToken) {
+          tokenEntry = { actorToken, approvedAt: Date.now() };
+          approvedActorTokens.set(id, tokenEntry);
+        }
+      }
     }
+
     return Response.json({
       status: 'approved',
       bearerToken: entry.bearerToken,
       gatewayUrl: entry.gatewayUrl,
       localLanUrl: entry.localLanUrl,
       ...(ctx.featureFlagToken ? { featureFlagToken: ctx.featureFlagToken } : {}),
-      ...(actorToken ? { actorToken } : {}),
+      ...(tokenEntry ? { actorToken: tokenEntry.actorToken } : {}),
     });
   }
 
