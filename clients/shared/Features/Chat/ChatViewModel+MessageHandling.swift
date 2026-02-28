@@ -883,6 +883,7 @@ extension ChatViewModel {
                     messages[index].streamingCodeToolName = nil
                 }
                 currentAssistantMessageId = nil
+                currentTurnUserText = nil
                 currentAssistantHasText = false
                 lastContentWasToolCall = false
             }
