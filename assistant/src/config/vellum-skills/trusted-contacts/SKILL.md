@@ -123,16 +123,34 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members/<member_id>/block
 
 Use this when the guardian wants to invite someone to message the assistant on Telegram without needing their user ID upfront. The invite link is a shareable Telegram deep link — when someone opens it, they automatically get trusted-contact access.
 
+**Important**: Do **not** print the raw create-invite JSON response to chat. It includes a high-entropy `token` field that can be redacted in tool output. Instead, extract values in-shell and only print the final deep link.
+
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites" \
+
+BOT_CONFIG_JSON=$(curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/config" \
+  -H "Authorization: Bearer $TOKEN")
+BOT_USERNAME=$(printf '%s' "$BOT_CONFIG_JSON" | tr -d '\n' | sed -n 's/.*"botUsername"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+if [ -z "$BOT_USERNAME" ]; then
+  echo "error:no_bot_username"
+  exit 1
+fi
+
+INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
     "sourceChannel": "telegram",
     "maxUses": 1,
     "note": "<optional note, e.g. the person it is for>"
-  }'
+  }')
+INVITE_TOKEN=$(printf '%s' "$INVITE_JSON" | tr -d '\n' | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+if [ -z "$INVITE_TOKEN" ]; then
+  printf '%s\n' "$INVITE_JSON"
+  exit 1
+fi
+
+echo "https://t.me/$BOT_USERNAME?start=iv_$INVITE_TOKEN"
 ```
 
 Optional fields:
@@ -140,21 +158,7 @@ Optional fields:
 - `expiresInMs` — expiration time in milliseconds from now (e.g., `86400000` for 24 hours). Defaults to 7 days (`604800000`) if omitted.
 - `note` — a human-readable label for the invite (e.g., "For Mom", "Family group").
 
-The response contains `{ ok: true, invite: { id, token, ... } }`. The `token` field is the raw invite token — it is only returned at creation time and cannot be retrieved later.
-
-**Building the shareable link**: After creating the invite, look up the Telegram bot username so you can build the deep link. Query the Telegram integration config:
-
-```bash
-TOKEN=$(cat ~/.vellum/http-token)
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/config" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-The response includes `botUsername`. Use it to construct the deep link:
-
-```
-https://t.me/<botUsername>?start=iv_<token>
-```
+The create response contains `{ ok: true, invite: { id, token, ... } }`. The `token` field is the raw invite token — it is only returned at creation time and cannot be retrieved later.
 
 **Presenting to the guardian**: Give the guardian the link with clear copy-paste instructions:
 

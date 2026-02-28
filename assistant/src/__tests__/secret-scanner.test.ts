@@ -675,6 +675,14 @@ describe('entropy-based detection', () => {
       expect(entropyMatches.length).toBeGreaterThanOrEqual(1);
     }
   });
+
+  test('does not redact Telegram invite deep links', () => {
+    const invite = 'https://t.me/credence_the_bot?start=iv_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_ABCDE';
+    const input = `Here is your invite link: ${invite}`;
+    const matches = scanText(input);
+    expect(matches).toHaveLength(0);
+    expect(redactSecrets(input)).toBe(input);
+  });
 });
 
 // ---------------------------------------------------------------------------
