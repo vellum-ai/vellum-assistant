@@ -165,6 +165,8 @@ describe('trusted contact verification → member activation', () => {
 
     expect(trust.trustClass).toBe('trusted_contact');
     expect(trust.actorMetadata.displayName).toBe('Jeff');
+    expect(trust.actorMetadata.senderDisplayName).toBeUndefined();
+    expect(trust.actorMetadata.memberDisplayName).toBe('Jeff');
     expect(trust.actorMetadata.identifier).toBe('@jeff_handle');
   });
 
@@ -191,6 +193,8 @@ describe('trusted contact verification → member activation', () => {
 
     expect(trust.trustClass).toBe('trusted_contact');
     expect(trust.actorMetadata.displayName).toBe('Jeff');
+    expect(trust.actorMetadata.senderDisplayName).toBe('Jeffrey');
+    expect(trust.actorMetadata.memberDisplayName).toBe('Jeff');
     expect(trust.actorMetadata.username).toBe('jeff_handle');
     expect(trust.actorMetadata.identifier).toBe('@jeff_handle');
   });

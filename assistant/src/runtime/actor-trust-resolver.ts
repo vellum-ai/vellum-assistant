@@ -43,6 +43,8 @@ export interface ActorTrustContext {
   actorMetadata: {
     identifier: string | undefined;
     displayName: string | undefined;
+    senderDisplayName: string | undefined;
+    memberDisplayName: string | undefined;
     username: string | undefined;
     channel: ChannelId;
     trustStatus: TrustClass;
@@ -105,6 +107,8 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
       actorMetadata: {
         identifier,
         displayName: senderDisplayName,
+        senderDisplayName,
+        memberDisplayName: undefined,
         username: senderUsername,
         channel: input.sourceChannel,
         trustStatus: 'unknown',
@@ -172,6 +176,8 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
     actorMetadata: {
       identifier: resolvedIdentifier,
       displayName: resolvedDisplayName,
+      senderDisplayName,
+      memberDisplayName,
       username: resolvedUsername,
       channel: input.sourceChannel,
       trustStatus: trustClass,
@@ -196,6 +202,8 @@ export function toGuardianRuntimeContextFromTrust(
     guardianExternalUserId: ctx.guardianBindingMatch?.guardianExternalUserId,
     requesterIdentifier: ctx.actorMetadata.identifier,
     requesterDisplayName: ctx.actorMetadata.displayName,
+    requesterSenderDisplayName: ctx.actorMetadata.senderDisplayName,
+    requesterMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     requesterExternalUserId: ctx.canonicalSenderId ?? undefined,
     requesterChatId: externalChatId,
     denialReason: ctx.denialReason,

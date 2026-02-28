@@ -40,6 +40,8 @@ export interface GuardianRuntimeContext {
   guardianExternalUserId?: string;
   requesterIdentifier?: string;
   requesterDisplayName?: string;
+  requesterSenderDisplayName?: string;
+  requesterMemberDisplayName?: string;
   requesterExternalUserId?: string;
   requesterChatId?: string;
   denialReason?: 'no_binding' | 'no_identity';
@@ -61,6 +63,10 @@ export interface InboundActorContext {
   actorIdentifier?: string;
   /** Human-readable actor display name (e.g. "Jeff"). */
   actorDisplayName?: string;
+  /** Raw sender display name as provided by the channel transport. */
+  actorSenderDisplayName?: string;
+  /** Guardian-managed member display name from ingress membership. */
+  actorMemberDisplayName?: string;
   /** Trust classification: guardian, trusted_contact, or unknown. */
   trustClass: 'guardian' | 'trusted_contact' | 'unknown';
   /** Guardian identity for this (assistant, channel) binding. */
@@ -84,6 +90,8 @@ export function inboundActorContextFromGuardian(ctx: GuardianRuntimeContext): In
     canonicalActorIdentity: ctx.requesterExternalUserId ?? null,
     actorIdentifier: ctx.requesterIdentifier,
     actorDisplayName: ctx.requesterDisplayName,
+    actorSenderDisplayName: ctx.requesterSenderDisplayName,
+    actorMemberDisplayName: ctx.requesterMemberDisplayName,
     trustClass: ctx.trustClass,
     guardianIdentity: ctx.guardianExternalUserId,
     denialReason: ctx.denialReason,
@@ -100,6 +108,8 @@ export function inboundActorContextFromTrust(ctx: ActorTrustContext): InboundAct
     canonicalActorIdentity: ctx.canonicalSenderId,
     actorIdentifier: ctx.actorMetadata.identifier,
     actorDisplayName: ctx.actorMetadata.displayName,
+    actorSenderDisplayName: ctx.actorMetadata.senderDisplayName,
+    actorMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     trustClass: ctx.trustClass,
     guardianIdentity: ctx.guardianBindingMatch?.guardianExternalUserId,
     memberStatus: ctx.memberRecord?.status ?? undefined,
@@ -539,6 +549,8 @@ export function buildInboundActorContextBlock(ctx: InboundActorContext): string 
   lines.push(`canonical_actor_identity: ${ctx.canonicalActorIdentity ?? 'unknown'}`);
   lines.push(`actor_identifier: ${ctx.actorIdentifier ?? 'unknown'}`);
   lines.push(`actor_display_name: ${ctx.actorDisplayName ?? 'unknown'}`);
+  lines.push(`actor_sender_display_name: ${ctx.actorSenderDisplayName ?? 'unknown'}`);
+  lines.push(`actor_member_display_name: ${ctx.actorMemberDisplayName ?? 'unknown'}`);
   lines.push(`trust_class: ${ctx.trustClass}`);
   lines.push(`guardian_identity: ${ctx.guardianIdentity ?? 'unknown'}`);
   if (ctx.memberStatus) {
@@ -548,6 +560,13 @@ export function buildInboundActorContextBlock(ctx: InboundActorContext): string 
     lines.push(`member_policy: ${ctx.memberPolicy}`);
   }
   lines.push(`denial_reason: ${ctx.denialReason ?? 'none'}`);
+  if (
+    ctx.actorMemberDisplayName
+    && ctx.actorSenderDisplayName
+    && ctx.actorMemberDisplayName !== ctx.actorSenderDisplayName
+  ) {
+    lines.push('name_preference_note: actor_member_display_name is the guardian-preferred nickname for this person; actor_sender_display_name is the channel-provided display name.');
+  }
 
   // Behavioral guidance — injected per-turn so it only appears when relevant.
   lines.push('');
