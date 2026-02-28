@@ -227,19 +227,23 @@ export async function runAgentLoopImpl(
     // regeneration at turn 3 will refine the title with more context.
     // No abort signal — title generation should complete even if the user
     // cancels the response, since the user message is already persisted.
+    // Deferred via setTimeout so the main agent loop LLM call enqueues
+    // first, avoiding rate-limit slot contention on strict configs.
     if (isReplaceableTitle(conversationStore.getConversation(ctx.conversationId)?.title ?? null)) {
-      queueGenerateConversationTitle({
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        userMessage: options?.titleText ?? content,
-        onTitleUpdated: (title) => {
-          onEvent({
-            type: 'session_title_updated',
-            sessionId: ctx.conversationId,
-            title,
-          });
-        },
-      });
+      setTimeout(() => {
+        queueGenerateConversationTitle({
+          conversationId: ctx.conversationId,
+          provider: ctx.provider,
+          userMessage: options?.titleText ?? content,
+          onTitleUpdated: (title) => {
+            onEvent({
+              type: 'session_title_updated',
+              sessionId: ctx.conversationId,
+              title,
+            });
+          },
+        });
+      }, 0);
     }
 
     const isFirstMessage = ctx.messages.length === 1;
