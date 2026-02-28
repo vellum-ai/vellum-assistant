@@ -1593,6 +1593,14 @@ function startTrustedContactApprovalNotifier(params: {
   void poll();
   return () => {
     active = false;
+
+    // Evict all dedupe entries owned by this conversation so the
+    // module-level map doesn't grow unboundedly after the poller stops.
+    for (const [rid, cid] of globalNotifiedApprovalRequestIds) {
+      if (cid === conversationId) {
+        globalNotifiedApprovalRequestIds.delete(rid);
+      }
+    }
   };
 }
 
