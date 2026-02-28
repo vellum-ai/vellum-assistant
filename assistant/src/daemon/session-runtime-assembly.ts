@@ -75,8 +75,13 @@ export interface InboundActorContext {
  *
  * Maps the legacy actor role to the new trust classification:
  * - guardian -> guardian
- * - non-guardian -> trusted_contact
+ * - non-guardian -> unknown (the legacy context carries no membership
+ *   evidence, so we cannot distinguish known members from arbitrary
+ *   non-guardian senders; default to unknown for safety)
  * - unverified_channel -> unknown
+ *
+ * The new ActorTrustContext path (via `inboundActorContextFromTrust`)
+ * resolves `trusted_contact` correctly using ingress member records.
  */
 export function inboundActorContextFromGuardian(ctx: GuardianRuntimeContext): InboundActorContext {
   let trustClass: InboundActorContext['trustClass'];
@@ -85,8 +90,6 @@ export function inboundActorContextFromGuardian(ctx: GuardianRuntimeContext): In
       trustClass = 'guardian';
       break;
     case 'non-guardian':
-      trustClass = 'trusted_contact';
-      break;
     case 'unverified_channel':
       trustClass = 'unknown';
       break;
