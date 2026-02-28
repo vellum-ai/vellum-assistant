@@ -887,7 +887,7 @@ extension ChatViewModel {
                 currentAssistantHasText = false
                 lastContentWasToolCall = false
             }
-            if msg.runStillActive == false && pendingQueuedCount == 0 {
+            if msg.runStillActive != true && pendingQueuedCount == 0 {
                 isSending = false
                 isThinking = false
             }
