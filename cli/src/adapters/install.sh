@@ -41,6 +41,10 @@ ensure_git() {
         exit 1
     fi
 
+    # Clear bash's command hash so it finds the newly installed git binary
+    # instead of the cached path to the macOS /usr/bin/git shim.
+    hash -r 2>/dev/null || true
+
     if ! git --version >/dev/null 2>&1; then
         error "git installation failed. Please install manually."
         exit 1
