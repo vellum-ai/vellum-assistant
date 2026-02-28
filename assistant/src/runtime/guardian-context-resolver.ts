@@ -7,6 +7,7 @@
  */
 import type { ChannelId } from '../channels/types.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import {
   type DenialReason,
   resolveActorTrust,
@@ -41,11 +42,14 @@ export type ResolveGuardianContextInput = ResolveActorTrustInput;
  */
 export function resolveGuardianContext(input: ResolveGuardianContextInput): GuardianContext {
   const trust = resolveActorTrust(input);
+  const canonicalGuardianExternalUserId = trust.guardianBindingMatch?.guardianExternalUserId
+    ? canonicalizeInboundIdentity(input.sourceChannel, trust.guardianBindingMatch.guardianExternalUserId) ?? undefined
+    : undefined;
   return {
     trustClass: trust.trustClass,
     guardianChatId: trust.guardianBindingMatch?.guardianDeliveryChatId ??
       (trust.trustClass === 'guardian' ? input.externalChatId : undefined),
-    guardianExternalUserId: trust.guardianBindingMatch?.guardianExternalUserId,
+    guardianExternalUserId: canonicalGuardianExternalUserId,
     requesterIdentifier: trust.actorMetadata.identifier,
     requesterDisplayName: trust.actorMetadata.displayName,
     requesterSenderDisplayName: trust.actorMetadata.senderDisplayName,

@@ -2615,6 +2615,56 @@ describe('background channel processing approval prompts', () => {
     deliverPromptSpy.mockRestore();
   });
 
+  test('guardian prompt delivery still works when binding ID formatting differs from sender ID', async () => {
+    // Guardian binding includes extra whitespace; trust resolution canonicalizes
+    // identity and prompt delivery should still treat this sender as the guardian.
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: '  telegram-user-default  ',
+      guardianDeliveryChatId: 'chat-123',
+    });
+
+    const deliverPromptSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+    const processCalls: Array<{ options?: Record<string, unknown> }> = [];
+
+    const processMessage = mock(async (
+      conversationId: string,
+      _content: string,
+      _attachmentIds?: string[],
+      options?: Record<string, unknown>,
+    ) => {
+      processCalls.push({ options });
+
+      registerPendingInteraction('req-bg-format-1', conversationId, 'host_bash', {
+        input: { command: 'ls -la' },
+        riskLevel: 'medium',
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      return { messageId: 'msg-bg-format-1' };
+    });
+
+    const req = makeInboundRequest({
+      content: 'run ls',
+      sourceChannel: 'telegram',
+      replyCallbackUrl: 'https://gateway.test/deliver/telegram',
+      externalMessageId: 'msg-bg-format-1',
+    });
+
+    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage, 'token');
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    expect(processCalls.length).toBeGreaterThan(0);
+    expect(processCalls[0].options?.isInteractive).toBe(true);
+    expect(deliverPromptSpy).toHaveBeenCalled();
+
+    deliverPromptSpy.mockRestore();
+  });
+
   test('non-guardian channel turns are not interactive to prevent self-approval', async () => {
     // Set up a guardian binding for a DIFFERENT user so the sender is non-guardian
     createBinding({
