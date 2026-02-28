@@ -1,6 +1,8 @@
-import { describe, expect, test } from 'bun:test';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { describe, expect, test } from 'bun:test';
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 
@@ -11,11 +13,71 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
  * for all assistant-scoped storage. Public assistant IDs are an edge concern
  * handled by the gateway/platform layer — they must not leak into daemon
  * scoping logic.
+ *
+ * These tests prevent regressions by scanning source files for banned patterns:
+ *  - No `normalizeAssistantId` usage in daemon/runtime scoping modules
+ *  - No assistant-scoped route handlers in the daemon HTTP server
+ *  - No hardcoded `'self'` string for assistant scoping (use the constant)
+ *  - The constant itself equals `'self'`
  */
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Resolve repo root (tests run from assistant/). */
+function getRepoRoot(): string {
+  return join(process.cwd(), '..');
+}
+
+/**
+ * Directories containing daemon/runtime source files that must not reference
+ * `normalizeAssistantId` or hardcode assistant scope strings.
+ *
+ * Each directory gets both a `*.ts` glob (top-level files) and a `**\/*.ts`
+ * glob (nested files) so that `git grep` matches at all directory depths.
+ */
+const SCANNED_DIRS = [
+  'assistant/src/runtime',
+  'assistant/src/daemon',
+  'assistant/src/memory',
+  'assistant/src/approvals',
+  'assistant/src/calls',
+  'assistant/src/tools',
+];
+
+const SCANNED_DIR_GLOBS = SCANNED_DIRS.flatMap((dir) => [`${dir}/*.ts`, `${dir}/**/*.ts`]);
+
+function isTestFile(filePath: string): boolean {
+  return (
+    filePath.includes('/__tests__/') ||
+    filePath.endsWith('.test.ts') ||
+    filePath.endsWith('.test.js') ||
+    filePath.endsWith('.spec.ts') ||
+    filePath.endsWith('.spec.js')
+  );
+}
+
+function isMigrationFile(filePath: string): boolean {
+  return filePath.includes('/migrations/');
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 describe('assistant ID boundary', () => {
+  // -------------------------------------------------------------------------
+  // Rule (d): The DAEMON_INTERNAL_ASSISTANT_ID constant equals 'self'
+  // -------------------------------------------------------------------------
+
   test('DAEMON_INTERNAL_ASSISTANT_ID equals "self"', () => {
     expect(DAEMON_INTERNAL_ASSISTANT_ID).toBe('self');
   });
+
+  // -------------------------------------------------------------------------
+  // Rule (a): No normalizeAssistantId in daemon scoping paths — spot check
+  // -------------------------------------------------------------------------
 
   test('no normalizeAssistantId imports in daemon scoping paths', () => {
     // Key daemon/runtime files that previously used normalizeAssistantId
@@ -37,5 +99,216 @@ describe('assistant ID boundary', () => {
     }
   });
 
-  test.todo('daemon storage keys never contain external assistant IDs');
+  // -------------------------------------------------------------------------
+  // Rule (a): No normalizeAssistantId in daemon/runtime directories — broad scan
+  // -------------------------------------------------------------------------
+
+  test('no normalizeAssistantId usage across daemon/runtime source directories', () => {
+    const repoRoot = getRepoRoot();
+
+    // Scan all daemon/runtime source directories for any reference to
+    // normalizeAssistantId. The function is defined in util/platform.ts for
+    // gateway use — it must not appear in daemon scoping modules.
+    let grepOutput = '';
+    try {
+      grepOutput = execFileSync(
+        'git',
+        ['grep', '-lE', 'normalizeAssistantId', '--', ...SCANNED_DIR_GLOBS],
+        { encoding: 'utf-8', cwd: repoRoot },
+      ).trim();
+    } catch (err) {
+      // Exit code 1 means no matches — happy path
+      if ((err as { status?: number }).status === 1) {
+        return;
+      }
+      throw err;
+    }
+
+    const files = grepOutput.split('\n').filter((f) => f.length > 0);
+    const violations = files.filter((f) => !isTestFile(f));
+
+    if (violations.length > 0) {
+      const message = [
+        'Found daemon/runtime source files that reference `normalizeAssistantId`.',
+        'Daemon code should use the `DAEMON_INTERNAL_ASSISTANT_ID` constant instead.',
+        'The `normalizeAssistantId` function is for gateway/platform use only (defined in util/platform.ts).',
+        '',
+        'Violations:',
+        ...violations.map((f) => `  - ${f}`),
+      ].join('\n');
+
+      expect(violations, message).toEqual([]);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Rule (b): No assistant-scoped route registration in daemon HTTP server
+  // -------------------------------------------------------------------------
+
+  test('no /v1/assistants/:assistantId/ route handler registration in daemon HTTP server', () => {
+    const httpServerPath = join(import.meta.dir, '..', 'runtime', 'http-server.ts');
+    const content = readFileSync(httpServerPath, 'utf-8');
+
+    // The transitional rewrite in dispatchEndpoint is acceptable — it strips
+    // the assistant-scoped prefix and recurses. What we guard against is a
+    // regex that extracts an assistantId for routing purposes, like:
+    //   /^\/v1\/assistants\/([^/]+)\/(.+)$/
+    // which would mean the server is treating the assistantId as meaningful.
+
+    // Check that there's no regex extracting assistantId from a /v1/assistants/ path
+    // for use as a route handler (as opposed to the rewrite pattern).
+    // Match both literal slashes (/v1/assistants/([) and escaped slashes in regex
+    // literals (\/v1\/assistants\/([) so we catch patterns like:
+    //   endpoint.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/)
+    const routeHandlerRegex = /\\?\/v1\\?\/assistants\\?\/\(\[/;
+    const match = content.match(routeHandlerRegex);
+    expect(
+      match,
+      'Found a route pattern matching /v1/assistants/([^/]+)/... that extracts an assistantId. ' +
+        'The daemon HTTP server should not have assistant-scoped route handlers — ' +
+        'use flat /v1/<endpoint> paths instead. The transitional rewrite in dispatchEndpoint ' +
+        'is the only acceptable place for the assistants/ prefix.',
+    ).toBeNull();
+
+    // Scan the entire file for assistant-scoped path literals. The only
+    // acceptable occurrence is the transitional rewrite in dispatchEndpoint
+    // (the `assistantScopedMatch` regex and surrounding deprecation log).
+    // Any other reference — in routeRequest, handleAuthenticatedRequest, or
+    // anywhere else — would mean the daemon is treating assistant IDs as
+    // meaningful routing state.
+    const lines = content.split('\n');
+    const violations: string[] = [];
+
+    // Allowlist: lines that are part of the transitional dispatchEndpoint
+    // rewrite. We identify them by the `assistantScopedMatch` variable name
+    // or the "Transitional rewrite" comment.
+    const isTransitionalRewriteLine = (line: string): boolean =>
+      line.includes('assistantScopedMatch') ||
+      line.includes('Transitional rewrite');
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Match both literal /v1/assistants/ and escaped \/v1\/assistants\/
+      if (line.includes('/v1/assistants/') || line.includes('\\/v1\\/assistants\\/')) {
+        if (!isTransitionalRewriteLine(line)) {
+          violations.push(`  line ${i + 1}: ${line.trim()}`);
+        }
+      }
+    }
+
+    expect(
+      violations,
+      'Found /v1/assistants/ references outside the transitional dispatchEndpoint rewrite — ' +
+        'the daemon HTTP server should not have assistant-scoped path literals.\n' +
+        violations.join('\n'),
+    ).toEqual([]);
+
+    // Guard against prefix-less assistants/ route patterns that extract an
+    // assistantId.  dispatchEndpoint receives the endpoint *after* the /v1/
+    // prefix has been stripped, so a regex like `assistants\/([^/]+)` would
+    // capture an external assistant ID from the path — violating the
+    // assistant-scoping boundary.
+    //
+    // The transitional rewrite `assistants\/[^/]+\/(.+)` is allowlisted
+    // because it only captures the trailing path (not the assistantId).
+    const prefixLessViolations: string[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Match regex patterns like assistants\/([^/]+) that capture the ID
+      // segment.  We look for the escaped-slash form used inside JS regex
+      // literals (e.g. /^assistants\/([^/]+)\//).
+      if (/assistants\\\/\(\[/.test(line)) {
+        // Allowlist the transitional rewrite which only captures the
+        // trailing path, not the assistantId itself.
+        if (!isTransitionalRewriteLine(line)) {
+          prefixLessViolations.push(`  line ${i + 1}: ${line.trim()}`);
+        }
+      }
+    }
+
+    expect(
+      prefixLessViolations,
+      'Found prefix-less assistants/([^/]+) route pattern that extracts an assistantId. ' +
+        'The daemon should not parse assistant IDs from URL paths — use ' +
+        'DAEMON_INTERNAL_ASSISTANT_ID instead.\n' +
+        prefixLessViolations.join('\n'),
+    ).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Rule (c): No hardcoded 'self' for assistant scoping in daemon files
+  // -------------------------------------------------------------------------
+
+  test('no hardcoded \'self\' string for assistant scoping in daemon source files', () => {
+    const repoRoot = getRepoRoot();
+
+    // Search for patterns where 'self' is used as an assistant ID value.
+    // We look for assignment / default / comparison patterns that suggest
+    // using the raw string instead of the DAEMON_INTERNAL_ASSISTANT_ID constant.
+    //
+    // Patterns matched:
+    //   assistantId: 'self'
+    //   assistantId = 'self'
+    //   assistantId ?? 'self'
+    //   ?? 'self'   (fallback to self)
+    //   || 'self'   (fallback to self)
+    //
+    // Excluded:
+    //   - Test files (they may legitimately assert against the value)
+    //   - Migration files (SQL literals like DEFAULT 'self' are fine)
+    //   - IPC contract files (comments documenting default values are fine)
+    //   - CSP headers ('self' in Content-Security-Policy has nothing to do with assistant IDs)
+    const pattern = `(assistantId|assistant_id).*['"]self['"]`;
+
+    let grepOutput = '';
+    try {
+      grepOutput = execFileSync(
+        'git',
+        ['grep', '-nE', pattern, '--', ...SCANNED_DIR_GLOBS],
+        { encoding: 'utf-8', cwd: repoRoot },
+      ).trim();
+    } catch (err) {
+      // Exit code 1 means no matches — happy path
+      if ((err as { status?: number }).status === 1) {
+        return;
+      }
+      throw err;
+    }
+
+    const lines = grepOutput.split('\n').filter((l) => l.length > 0);
+    const violations = lines.filter((line) => {
+      const filePath = line.split(':')[0];
+      if (isTestFile(filePath)) return false;
+      if (isMigrationFile(filePath)) return false;
+
+      // Allow comments (lines where the code portion starts with //)
+      const parts = line.split(':');
+      // parts[0] = file, parts[1] = line number, rest = content
+      const content = parts.slice(2).join(':').trim();
+      if (content.startsWith('//') || content.startsWith('*') || content.startsWith('/*')) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (violations.length > 0) {
+      const message = [
+        "Found daemon/runtime source files with hardcoded 'self' for assistant scoping.",
+        'Use the `DAEMON_INTERNAL_ASSISTANT_ID` constant from `runtime/assistant-scope.ts` instead.',
+        '',
+        'Violations:',
+        ...violations.map((v) => `  - ${v}`),
+      ].join('\n');
+
+      expect(violations, message).toEqual([]);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Rule (d): Daemon storage keys don't contain external assistant IDs
+  // (verified by the constant value test above — if the constant is 'self',
+  // all daemon storage keyed by DAEMON_INTERNAL_ASSISTANT_ID uses the fixed
+  // internal value rather than externally-provided IDs).
+  // -------------------------------------------------------------------------
 });
