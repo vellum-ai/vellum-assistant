@@ -4,7 +4,7 @@ import AppKit
 #endif
 
 public struct VButton: View {
-    public enum Style: Hashable { case primary, secondary, tertiary, danger, ghost }
+    public enum Style: Hashable { case primary, secondary, tertiary, danger, ghost, outlined, success }
     public enum Size: Hashable { case small, medium, large }
 
     public let label: String
@@ -96,16 +96,31 @@ private struct VButtonStyle: ButtonStyle {
             .frame(height: height)
             .frame(maxWidth: isFullWidth ? .infinity : nil)
             .background(backgroundColor(isPressed: configuration.isPressed))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(borderColor(isPressed: configuration.isPressed), lineWidth: style == .tertiary ? 1 : 0)
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(borderColor(isPressed: configuration.isPressed), lineWidth: borderLineWidth)
             )
-            .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
             .shadow(color: configuration.isPressed ? .clear : shadowColor, radius: 0, x: 0, y: 2)
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(VAnimation.fast, value: configuration.isPressed)
             .animation(VAnimation.fast, value: isHovered)
+    }
+
+    private var cornerRadius: CGFloat {
+        switch style {
+        case .outlined: return VRadius.xl
+        default: return VRadius.md
+        }
+    }
+
+    private var borderLineWidth: CGFloat {
+        switch style {
+        case .tertiary: return 1
+        case .outlined: return 2.5
+        default: return 0
+        }
     }
 
     private var height: CGFloat {
@@ -136,6 +151,8 @@ private struct VButtonStyle: ButtonStyle {
             return .clear
         case .secondary:
             return .clear
+        case .outlined, .success:
+            return .clear
         }
     }
 
@@ -161,6 +178,12 @@ private struct VButtonStyle: ButtonStyle {
             if isPressed { return VColor.ghostPressed }
             if isHovered { return VColor.ghostHover }
             return .clear
+        case .outlined:
+            return .clear
+        case .success:
+            if isPressed { return adaptiveColor(light: Forest._300, dark: Forest._800) }
+            if isHovered { return adaptiveColor(light: Forest._300, dark: Forest._800) }
+            return adaptiveColor(light: Forest._200, dark: Forest._900)
         }
     }
 
@@ -171,6 +194,8 @@ private struct VButtonStyle: ButtonStyle {
         case .secondary: return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
         case .danger: return .white
         case .ghost: return Color(hex: 0x516748)
+        case .outlined: return VColor.buttonSecondaryText
+        case .success: return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._300)
         }
     }
 
@@ -179,7 +204,10 @@ private struct VButtonStyle: ButtonStyle {
         case .tertiary:
             if isPressed { return VColor.ghostPressed }
             return VColor.buttonSecondaryBorder
-        case .secondary, .ghost:
+        case .outlined:
+            if isPressed { return VColor.buttonSecondaryBorder.opacity(0.7) }
+            return VColor.buttonSecondaryBorder
+        case .secondary, .ghost, .success:
             return .clear
         default:
             return .clear
