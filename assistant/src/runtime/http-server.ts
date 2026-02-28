@@ -714,7 +714,7 @@ export class RuntimeHttpServer {
       if (endpoint === 'confirm' && req.method === 'POST') return await handleConfirm(req);
       if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req);
       if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req);
-      if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url);
+      if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url, req);
 
       // Guardian action endpoints — deterministic button-based decisions
       if (endpoint === 'guardian-actions/pending' && req.method === 'GET') return handleGuardianActionsPending(req);
