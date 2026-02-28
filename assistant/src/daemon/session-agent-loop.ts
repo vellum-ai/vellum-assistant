@@ -216,24 +216,28 @@ export async function runAgentLoopImpl(
     }
 
     // Generate title early — the user message alone is sufficient context.
-    // Firing here (after hook gating but before the LLM call) removes the
+    // Firing after hook gating but before the main LLM call removes the
     // delay of waiting for the full assistant response. The second-pass
     // regeneration at turn 3 will refine the title with more context.
+    // Deferred via setTimeout so the main agent loop LLM call is queued
+    // first, avoiding rate-limit slot contention.
     const currentConvForTitle = conversationStore.getConversation(ctx.conversationId);
     if (isReplaceableTitle(currentConvForTitle?.title ?? null)) {
-      queueGenerateConversationTitle({
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        userMessage: options?.titleText ?? content,
-        onTitleUpdated: (title) => {
-          onEvent({
-            type: 'session_title_updated',
-            sessionId: ctx.conversationId,
-            title,
-          });
-        },
-        signal: abortController.signal,
-      });
+      setTimeout(() => {
+        queueGenerateConversationTitle({
+          conversationId: ctx.conversationId,
+          provider: ctx.provider,
+          userMessage: options?.titleText ?? content,
+          onTitleUpdated: (title) => {
+            onEvent({
+              type: 'session_title_updated',
+              sessionId: ctx.conversationId,
+              title,
+            });
+          },
+          signal: abortController.signal,
+        });
+      }, 0);
     }
 
     const isFirstMessage = ctx.messages.length === 1;
