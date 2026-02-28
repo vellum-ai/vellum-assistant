@@ -697,6 +697,20 @@ export async function handleTwilioConfig(
         delete sms.phoneNumber;
       }
 
+      // Prune any legacy assistant-mapped phone entries that reference
+      // the released number so the gateway does not attempt to send from it.
+      const mappings = sms.assistantPhoneNumbers as Record<string, string> | undefined;
+      if (mappings && typeof mappings === 'object') {
+        for (const [key, value] of Object.entries(mappings)) {
+          if (value === phoneNumber) {
+            delete mappings[key];
+          }
+        }
+        if (Object.keys(mappings).length === 0) {
+          delete sms.assistantPhoneNumbers;
+        }
+      }
+
       const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);
       try {
