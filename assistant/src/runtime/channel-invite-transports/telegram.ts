@@ -2,10 +2,12 @@
  * Telegram channel invite transport adapter.
  *
  * Builds `https://t.me/<botUsername>?start=iv_<token>` deep links and
- * extracts invite tokens from `/start iv_<token>` command payloads.
+ * extracts invite tokens from `/start` command payloads.
  *
- * The `iv_` prefix distinguishes invite tokens from `gv_` (guardian
- * verification) tokens that use the same `/start` deep-link mechanism.
+ * The canonical format uses `iv_` to distinguish invite tokens from `gv_`
+ * (guardian verification) tokens that use the same `/start` deep-link
+ * mechanism. For defensive compatibility, bare raw invite tokens are also
+ * accepted when they match the invite-token shape.
  */
 
 import type { ChannelId } from '../../channels/types.js';
@@ -38,6 +40,34 @@ function getTelegramBotUsername(): string | undefined {
 // ---------------------------------------------------------------------------
 
 const INVITE_TOKEN_PREFIX = 'iv_';
+const LEGACY_RAW_INVITE_TOKEN_RE = /^[A-Za-z0-9_-]{32,128}$/;
+
+function extractTokenFromStartPayload(payload: string): string | undefined {
+  const trimmed = payload.trim();
+  if (trimmed.length === 0) return undefined;
+
+  // Canonical format: /start iv_<token>
+  if (trimmed.startsWith(INVITE_TOKEN_PREFIX)) {
+    const token = trimmed.slice(INVITE_TOKEN_PREFIX.length);
+    if (token.length > 0 && token.trim().length > 0) {
+      return token;
+    }
+    return undefined;
+  }
+
+  // Keep guardian bootstrap tokens on their own control-plane path.
+  if (trimmed.startsWith('gv_')) {
+    return undefined;
+  }
+
+  // Backward/defensive compatibility: accept bare raw invite tokens in
+  // /start payloads. This covers links shared without the iv_ prefix.
+  if (LEGACY_RAW_INVITE_TOKEN_RE.test(trimmed)) {
+    return trimmed;
+  }
+
+  return undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Transport implementation
@@ -75,23 +105,15 @@ export const telegramInviteTransport: ChannelInviteTransport = {
       params.commandIntent.type === 'start' &&
       typeof params.commandIntent.payload === 'string'
     ) {
-      const payload = params.commandIntent.payload;
-      if (payload.startsWith(INVITE_TOKEN_PREFIX)) {
-        const token = payload.slice(INVITE_TOKEN_PREFIX.length);
-        // Reject empty or whitespace-only tokens
-        if (token.length > 0 && token.trim().length > 0) {
-          return token;
-        }
-      }
-      return undefined;
+      return extractTokenFromStartPayload(params.commandIntent.payload);
     }
 
-    // Fallback: raw content parsing for `/start iv_<token>` messages.
+    // Fallback: raw content parsing for `/start <payload>` messages.
     // This handles cases where the gateway forwards the raw command text
     // without a structured commandIntent.
-    const match = params.content.match(/^\/start\s+iv_(\S+)/);
+    const match = params.content.match(/^\/start\s+(\S+)/i);
     if (match && match[1] && match[1].length > 0) {
-      return match[1];
+      return extractTokenFromStartPayload(match[1]);
     }
 
     return undefined;

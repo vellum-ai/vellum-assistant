@@ -170,7 +170,16 @@ describe('channel-invite-transport', () => {
       expect(token).toBeUndefined();
     });
 
-    test('returns undefined when commandIntent payload has no prefix', () => {
+    test('extracts token from commandIntent payload without iv_ prefix when it matches invite token shape', () => {
+      const rawToken = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_ABCDE';
+      const token = telegramInviteTransport.extractInboundToken({
+        commandIntent: { type: 'start', payload: rawToken },
+        content: `/start ${rawToken}`,
+      });
+      expect(token).toBe(rawToken);
+    });
+
+    test('returns undefined when commandIntent payload has no prefix and is not invite-shaped', () => {
       const token = telegramInviteTransport.extractInboundToken({
         commandIntent: { type: 'start', payload: 'abc123' },
         content: '/start abc123',
@@ -216,6 +225,14 @@ describe('channel-invite-transport', () => {
       expect(token).toBe('token123');
     });
 
+    test('extracts token from raw content without iv_ prefix when it matches invite token shape', () => {
+      const rawToken = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_ABCDE';
+      const token = telegramInviteTransport.extractInboundToken({
+        content: `/start ${rawToken}`,
+      });
+      expect(token).toBe(rawToken);
+    });
+
     test('returns undefined for empty content', () => {
       const token = telegramInviteTransport.extractInboundToken({
         content: '',
@@ -233,6 +250,13 @@ describe('channel-invite-transport', () => {
     test('returns undefined for /start without iv_ prefix in content', () => {
       const token = telegramInviteTransport.extractInboundToken({
         content: '/start gv_abc123',
+      });
+      expect(token).toBeUndefined();
+    });
+
+    test('returns undefined for /start with non-token payload in content', () => {
+      const token = telegramInviteTransport.extractInboundToken({
+        content: '/start hello',
       });
       expect(token).toBeUndefined();
     });

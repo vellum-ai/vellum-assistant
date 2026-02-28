@@ -190,6 +190,32 @@ describe('inbound invite redemption intercept', () => {
     expect(replyText).toContain("Welcome! You've been granted access via invite link.");
   });
 
+  test('non-member with valid invite token in bare /start payload is redeemed (compat path)', async () => {
+    const { rawToken } = createInvite({ sourceChannel: 'telegram', maxUses: 5 });
+
+    const req = buildInboundRequest({
+      content: `/start ${rawToken}`,
+      sourceMetadata: {
+        commandIntent: { type: 'start', payload: rawToken },
+      },
+    });
+
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = await resp.json() as Record<string, unknown>;
+
+    expect(json.accepted).toBe(true);
+    expect(json.inviteRedemption).toBe('redeemed');
+    expect(json.denied).toBeUndefined();
+
+    const member = findMember({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalUserId: 'user-invite-123',
+    });
+    expect(member).not.toBeNull();
+    expect(member!.status).toBe('active');
+  });
+
   test('non-member with invalid token gets refusal text', async () => {
     const req = buildInviteRequest('completely-bogus-token-xyz');
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
