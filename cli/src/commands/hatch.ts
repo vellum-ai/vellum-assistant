@@ -498,7 +498,8 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
     });
 
     if (!registerRes.ok) {
-      console.warn("⚠ Could not register pairing request (daemon may still be initializing). Run `vellum pair` to try again.\n");
+      const body = await registerRes.text().catch(() => "");
+      console.warn(`⚠ Could not register pairing request: ${registerRes.status} ${registerRes.statusText}${body ? ` — ${body}` : ""}. Run \`vellum pair\` to try again.\n`);
       return;
     }
 
@@ -522,9 +523,10 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
     console.log(qrString);
     console.log("This pairing request expires in 5 minutes.");
     console.log("Run `vellum pair` to generate a new one.\n");
-  } catch {
+  } catch (err) {
     // Non-fatal — pairing is optional
-    console.warn("⚠ Could not generate pairing QR code. Run `vellum pair` to try again.\n");
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(`⚠ Could not generate pairing QR code: ${reason}. Run \`vellum pair\` to try again.\n`);
   }
 }
 
