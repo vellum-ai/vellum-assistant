@@ -1,12 +1,959 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Brain Graph</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>🧠 Knowledge Brain</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <style>
+    :root {
+      --v-slate-950: #070D19;
+      --v-slate-900: #0F172A;
+      --v-slate-800: #1E293B;
+      --v-slate-700: #334155;
+      --v-slate-600: #475569;
+      --v-slate-500: #64748B;
+      --v-slate-400: #94A3B8;
+      --v-slate-300: #CBD5E1;
+      --v-slate-200: #E2E8F0;
+      --v-slate-100: #F1F5F9;
+      --v-slate-50:  #F8FAFC;
+
+      --v-violet-950: #321669;
+      --v-violet-900: #4A2390;
+      --v-violet-800: #5C2FB2;
+      --v-violet-700: #7240CC;
+      --v-violet-600: #8A5BE0;
+      --v-violet-500: #9878EA;
+      --v-violet-400: #B8A6F1;
+      --v-violet-300: #D4C8F7;
+      --v-violet-200: #E8E1FB;
+      --v-violet-100: #F4F0FD;
+
+      --bg: var(--v-slate-950);
+      --surface: var(--v-slate-900);
+      --surface-raised: var(--v-slate-800);
+      --border: var(--v-slate-700);
+      --border-subtle: rgba(51, 65, 85, 0.5);
+      --text: var(--v-slate-50);
+      --text-secondary: var(--v-slate-400);
+      --text-muted: var(--v-slate-500);
+      --accent: var(--v-violet-600);
+      --accent-dim: rgba(138, 91, 224, 0.12);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      top: -20%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 120%;
+      height: 50%;
+      background: radial-gradient(
+        ellipse at center,
+        rgba(138, 91, 224, 0.06) 0%,
+        rgba(91, 78, 255, 0.02) 50%,
+        transparent 70%
+      );
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    .page-header {
+      position: relative;
+      z-index: 1;
+      padding: 24px 32px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .header-title-block {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .header-title {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(180deg, #fff 30%, var(--v-slate-300) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .header-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+
+    .stats-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .stat-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .stat-value {
+      font-weight: 700;
+      color: var(--v-violet-400);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-sep {
+      color: var(--border);
+      user-select: none;
+    }
+
+    .knowledge-count-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(138, 91, 224, 0.25);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--v-violet-400);
+    }
+
+    .brain-pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.7); }
+    }
+
+    /* ── Mode Toggle ─────────────────────────────────────────── */
+    .mode-toggle {
+      display: flex;
+      background: var(--surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 3px;
+      gap: 2px;
+    }
+
+    .mode-btn {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 16px;
+      border: none;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      background: transparent;
+      color: var(--text-muted);
+    }
+
+    .mode-btn.active {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 1px 4px rgba(138, 91, 224, 0.35);
+    }
+
+    .mode-btn:not(.active):hover {
+      background: var(--surface-raised);
+      color: var(--text-secondary);
+    }
+
+    /* ── Main Content ─────────────────────────────────────────── */
+    .main-content {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 16px 24px;
+      gap: 16px;
+      min-height: 0;
+    }
+
+    /* ── Visualization Panels ─────────────────────────────────── */
+    .viz-panel {
+      flex: 1;
+      display: none;
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      overflow: hidden;
+      min-height: 460px;
+    }
+
+    .viz-panel.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── 2D Panel ─────────────────────────────────────────────── */
+    #panel-2d {
+      align-items: stretch;
+    }
+
+    #graph-svg {
+      width: 100%;
+      height: 100%;
+      min-height: 460px;
+    }
+
+    /* Brain silhouette animation */
+    @keyframes brain-breathe {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 0.7; }
+    }
+
+    .brain-outline {
+      animation: brain-breathe 4s ease-in-out infinite;
+    }
+
+    /* ── 3D Panel ─────────────────────────────────────────────── */
+    #panel-3d {
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 16px;
+    }
+
+    .placeholder-3d {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 48px;
+    }
+
+    .placeholder-3d .icon {
+      font-size: 56px;
+      line-height: 1;
+    }
+
+    .placeholder-3d h3 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .placeholder-3d p {
+      font-size: 14px;
+      color: var(--text-muted);
+      max-width: 300px;
+      line-height: 1.5;
+    }
+
+    .placeholder-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(138, 91, 224, 0.25);
+      border-radius: 999px;
+      font-size: 12px;
+      color: var(--v-violet-400);
+      font-weight: 600;
+    }
+
+    /* ── Empty / Error states ─────────────────────────────────── */
+    .state-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      text-align: center;
+      padding: 48px;
+      pointer-events: none;
+    }
+
+    .state-overlay .icon {
+      font-size: 48px;
+      line-height: 1;
+    }
+
+    .state-overlay h3 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .state-overlay p {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      max-width: 280px;
+    }
+
+    /* ── Tooltip ──────────────────────────────────────────────── */
+    #tooltip {
+      position: fixed;
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+      padding: 10px 14px;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(138, 91, 224, 0.35);
+      border-radius: 10px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      pointer-events: none;
+      z-index: 9999;
+      max-width: 220px;
+      font-size: 13px;
+    }
+
+    #tooltip.visible {
+      display: flex;
+    }
+
+    .tooltip-name {
+      font-weight: 700;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .tooltip-type {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+      color: var(--v-violet-400);
+    }
+
+    .tooltip-row {
+      font-size: 12px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .tooltip-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── Legend ───────────────────────────────────────────────── */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      padding: 4px 0;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .legend-label {
+      font-size: 12px;
+    }
+
+    /* ── Footer ───────────────────────────────────────────────── */
+    .page-footer {
+      position: relative;
+      z-index: 1;
+      padding: 16px 32px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+    }
+
+    .back-link {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: color 0.15s ease;
+    }
+
+    .back-link:hover {
+      color: var(--v-violet-400);
+    }
+
+    /* ── D3 node styles ───────────────────────────────────────── */
+    .node-circle {
+      cursor: pointer;
+      transition: filter 0.15s ease;
+    }
+
+    .node-circle:hover {
+      filter: brightness(1.3);
+    }
+
+    .link-line {
+      pointer-events: none;
+    }
+
+    .lobe-label {
+      pointer-events: none;
+      user-select: none;
+    }
+
+    /* ── Responsive ───────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .page-header { padding: 16px; }
+      .main-content { padding: 12px; }
+      .header-title { font-size: 20px; }
+      .stats-bar { font-size: 12px; }
+    }
+  </style>
 </head>
 <body>
-  <h1>🧠 Brain Graph</h1>
-  <p>Loading...</p>
+
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <header class="page-header">
+    <div class="header-top">
+      <div class="header-title-block">
+        <div class="header-title">🧠 Knowledge Brain</div>
+        <div class="header-subtitle">Identity Knowledge Graph</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div class="knowledge-count-badge">
+          <div class="brain-pulse"></div>
+          <span id="badge-knowledge-count">0 knowledge items</span>
+        </div>
+        <div class="mode-toggle">
+          <button class="mode-btn active" id="btn-2d" onclick="switchMode('2d')">2D</button>
+          <button class="mode-btn" id="btn-3d" onclick="switchMode('3d')">3D</button>
+        </div>
+      </div>
+    </div>
+    <div class="stats-bar" id="stats-bar">
+      <span class="stat-item">
+        <span id="stat-entities" class="stat-value">0</span> entities
+      </span>
+      <span class="stat-sep">·</span>
+      <span class="stat-item">
+        <span id="stat-relations" class="stat-value">0</span> relations
+      </span>
+      <span class="stat-sep">·</span>
+      <span class="stat-item">
+        <span id="stat-memory" class="stat-value">0</span> memory items
+      </span>
+      <span class="stat-sep">·</span>
+      <span class="stat-item">Last updated: <span id="stat-updated" class="stat-value">—</span></span>
+    </div>
+  </header>
+
+  <!-- ── Main Content ───────────────────────────────────────── -->
+  <main class="main-content">
+
+    <!-- 2D Panel -->
+    <div class="viz-panel active" id="panel-2d">
+      <svg id="graph-svg"></svg>
+    </div>
+
+    <!-- 3D Panel -->
+    <div class="viz-panel" id="panel-3d">
+      <div class="placeholder-3d">
+        <div class="icon">🔮</div>
+        <h3>3D mode</h3>
+        <p>3D mode — coming in the next milestone</p>
+        <div class="placeholder-badge">Coming in M3</div>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend" id="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div><span class="legend-label">👤 Person</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f97316"></div><span class="legend-label">📁 Project</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#06b6d4"></div><span class="legend-label">🔧 Tool</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#a855f7"></div><span class="legend-label">🏢 Organization</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#eab308"></div><span class="legend-label">💡 Concept</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#14b8a6"></div><span class="legend-label">📍 Location</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div><span class="legend-label">🟣 Profile</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div><span class="legend-label">🔵 Preference</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div><span class="legend-label">🔴 Constraint</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div><span class="legend-label">🟡 Instruction</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ec4899"></div><span class="legend-label">🩷 Style</span></div>
+    </div>
+
+  </main>
+
+  <!-- ── Footer ─────────────────────────────────────────────── -->
+  <footer class="page-footer">
+    <a href="/" class="back-link">← Back to Home Base</a>
+  </footer>
+
+  <!-- ── Tooltip ─────────────────────────────────────────────── -->
+  <div id="tooltip">
+    <div class="tooltip-name" id="tt-name"></div>
+    <div class="tooltip-type" id="tt-type"></div>
+    <div class="tooltip-row"><div class="tooltip-dot" id="tt-dot"></div><span id="tt-lobe"></span></div>
+    <div class="tooltip-row">🔗 <span id="tt-connections"></span></div>
+    <div class="tooltip-row">📌 <span id="tt-mentions"></span></div>
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    /* ── Mode toggle ─────────────────────────────────────────── */
+    function switchMode(mode) {
+      document.getElementById('panel-2d').classList.toggle('active', mode === '2d');
+      document.getElementById('panel-3d').classList.toggle('active', mode === '3d');
+      document.getElementById('btn-2d').classList.toggle('active', mode === '2d');
+      document.getElementById('btn-3d').classList.toggle('active', mode === '3d');
+    }
+    window.switchMode = switchMode;
+
+    /* ── Stats helpers ────────────────────────────────────────── */
+    function updateStats(data) {
+      var entities = data.entities || [];
+      var relations = data.relations || [];
+      var memory = data.memorySummary || [];
+      var totalMemory = memory.reduce(function(s, m) { return s + (m.count || 0); }, 0);
+      var total = data.totalKnowledgeCount || (entities.length + totalMemory);
+
+      document.getElementById('stat-entities').textContent = entities.length;
+      document.getElementById('stat-relations').textContent = relations.length;
+      document.getElementById('stat-memory').textContent = totalMemory;
+      document.getElementById('badge-knowledge-count').innerHTML =
+        '<div class="brain-pulse"></div>' + total + ' knowledge items';
+
+      if (data.generatedAt) {
+        var d = new Date(data.generatedAt);
+        document.getElementById('stat-updated').textContent = d.toLocaleString(undefined, {
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+      }
+    }
+
+    /* ── Brain SVG silhouette ─────────────────────────────────── */
+    function drawBrainSilhouette(svg, W, H) {
+      var cx = W / 2;
+      var cy = H / 2;
+
+      // Scale factors — brain occupies ~80% W, ~70% H
+      var bw = W * 0.78;
+      var bh = H * 0.68;
+      var lx = cx - bw * 0.26; // left lobe center x
+      var rx = cx + bw * 0.26; // right lobe center x
+      var lw = bw * 0.46;
+      var rw = bw * 0.46;
+      var lh = bh * 0.88;
+      var rh = bh * 0.88;
+
+      var brainG = svg.append('g').attr('class', 'brain-silhouette');
+
+      // Left lobe outline (organic blob via cubic bezier)
+      var leftPath = [
+        'M', cx - 4, cy + lh * 0.42,
+        'C', cx - 4, cy + lh * 0.55, lx - lw * 0.55, cy + lh * 0.55, lx - lw * 0.55, cy + lh * 0.2,
+        'C', lx - lw * 0.6, cy - lh * 0.05, lx - lw * 0.55, cy - lh * 0.35, lx - lw * 0.2, cy - lh * 0.5,
+        'C', lx + lw * 0.1, cy - lh * 0.62, lx + lw * 0.4, cy - lh * 0.58, lx + lw * 0.45, cy - lh * 0.42,
+        'C', lx + lw * 0.52, cy - lh * 0.22, cx - 4, cy - lh * 0.2, cx - 4, cy + lh * 0.42,
+        'Z'
+      ].join(' ');
+
+      // Right lobe outline
+      var rightPath = [
+        'M', cx + 4, cy + rh * 0.42,
+        'C', cx + 4, cy + rh * 0.55, rx + rw * 0.55, cy + rh * 0.55, rx + rw * 0.55, cy + rh * 0.2,
+        'C', rx + rw * 0.6, cy - rh * 0.05, rx + rw * 0.55, cy - rh * 0.35, rx + rw * 0.2, cy - rh * 0.5,
+        'C', rx - rw * 0.1, cy - rh * 0.62, rx - rw * 0.4, cy - rh * 0.58, rx - rw * 0.45, cy - rh * 0.42,
+        'C', rx - rw * 0.52, cy - rh * 0.22, cx + 4, cy - rh * 0.2, cx + 4, cy + rh * 0.42,
+        'Z'
+      ].join(' ');
+
+      // Draw fills
+      brainG.append('path')
+        .attr('d', leftPath)
+        .attr('fill', 'rgba(138, 91, 224, 0.04)')
+        .attr('stroke', 'rgba(138, 91, 224, 0.4)')
+        .attr('stroke-width', 1.5)
+        .attr('class', 'brain-outline');
+
+      brainG.append('path')
+        .attr('d', rightPath)
+        .attr('fill', 'rgba(138, 91, 224, 0.04)')
+        .attr('stroke', 'rgba(138, 91, 224, 0.4)')
+        .attr('stroke-width', 1.5)
+        .attr('class', 'brain-outline');
+
+      // Corpus callosum divider (dashed vertical line in center)
+      var ccTop = cy - lh * 0.28;
+      var ccBottom = cy + lh * 0.35;
+      brainG.append('line')
+        .attr('x1', cx).attr('y1', ccTop)
+        .attr('x2', cx).attr('y2', ccBottom)
+        .attr('stroke', 'rgba(138, 91, 224, 0.25)')
+        .attr('stroke-width', 1)
+        .attr('stroke-dasharray', '4,4');
+
+      // Lobe labels
+      var labelStyle = {
+        'font-family': "'DM Sans', sans-serif",
+        'font-size': '10px',
+        'font-weight': '600',
+        'fill': 'rgba(148, 163, 184, 0.45)',
+        'letter-spacing': '0.06em',
+        'text-transform': 'uppercase',
+        'pointer-events': 'none',
+        'user-select': 'none'
+      };
+
+      function addLabel(x, y, text) {
+        var t = brainG.append('text')
+          .attr('x', x).attr('y', y)
+          .attr('text-anchor', 'middle')
+          .attr('class', 'lobe-label')
+          .text(text);
+        Object.keys(labelStyle).forEach(function(k) { t.attr(k, labelStyle[k]); });
+      }
+
+      addLabel(lx - lw * 0.15, cy + 5, 'Analytical');
+      addLabel(rx + rw * 0.15, cy + 5, 'Creative');
+      addLabel(lx - lw * 0.1, cy - lh * 0.32, 'Planning');
+      addLabel(rx + rw * 0.1, cy - rh * 0.32, 'Social');
+      addLabel(cx, cy + lh * 0.5, 'Memory');
+
+      // Return brain bounds for use in bounding force
+      return {
+        leftLobe: { cx: lx, cy: cy, rx: lw * 0.52, ry: lh * 0.52 },
+        rightLobe: { cx: rx, cy: cy, rx: rw * 0.52, ry: rh * 0.52 },
+        centerX: cx,
+        centerY: cy,
+        width: bw,
+        height: bh
+      };
+    }
+
+    /* ── Lobe target positions ────────────────────────────────── */
+    function lobeTarget(lobeRegion, bounds) {
+      var cx = bounds.centerX;
+      var cy = bounds.centerY;
+      var lx = bounds.leftLobe.cx;
+      var rx = bounds.rightLobe.cx;
+      var hw = bounds.width * 0.18;
+      var hh = bounds.height * 0.18;
+      switch (lobeRegion) {
+        case 'right-social':    return { x: rx + hw * 0.3, y: cy - hh * 1.2 };
+        case 'left-planning':   return { x: lx - hw * 0.3, y: cy - hh * 1.2 };
+        case 'left-technical':  return { x: lx - hw * 0.2, y: cy };
+        case 'right-creative':  return { x: rx + hw * 0.2, y: cy };
+        case 'right-spatial':   return { x: rx + hw * 0.2, y: cy + hh * 1.2 };
+        case 'center':
+        default:                return { x: cx, y: cy + hh };
+      }
+    }
+
+    /* ── Tooltip logic ────────────────────────────────────────── */
+    var tooltip = document.getElementById('tooltip');
+
+    function showTooltip(event, d, connectionCount) {
+      document.getElementById('tt-name').textContent = d.name;
+      document.getElementById('tt-type').textContent = d.type || d.kind || 'memory';
+      document.getElementById('tt-dot').style.background = d.color || '#8A5BE0';
+      document.getElementById('tt-lobe').textContent = d.lobeRegion || 'center';
+      document.getElementById('tt-connections').textContent = (connectionCount || 0) + ' connections';
+      document.getElementById('tt-mentions').textContent = (d.mentionCount || d.count || 0) + ' mentions';
+      tooltip.classList.add('visible');
+      moveTooltip(event);
+    }
+
+    function moveTooltip(event) {
+      var x = event.clientX + 14;
+      var y = event.clientY - 10;
+      var tw = tooltip.offsetWidth || 200;
+      var th = tooltip.offsetHeight || 100;
+      if (x + tw > window.innerWidth - 8) x = event.clientX - tw - 14;
+      if (y + th > window.innerHeight - 8) y = event.clientY - th - 14;
+      tooltip.style.left = x + 'px';
+      tooltip.style.top = y + 'px';
+    }
+
+    function hideTooltip() {
+      tooltip.classList.remove('visible');
+    }
+
+    /* ── Render graph ─────────────────────────────────────────── */
+    function renderBrain(data) {
+      var svgEl = document.getElementById('graph-svg');
+      var W = svgEl.clientWidth || svgEl.parentElement.clientWidth || 800;
+      var H = svgEl.clientHeight || svgEl.parentElement.clientHeight || 500;
+
+      var svg = d3.select('#graph-svg')
+        .attr('viewBox', '0 0 ' + W + ' ' + H)
+        .attr('preserveAspectRatio', 'xMidYMid meet');
+
+      svg.selectAll('*').remove();
+
+      var entities = data.entities || [];
+      var relations = data.relations || [];
+      var memorySummary = data.memorySummary || [];
+
+      // Empty state
+      if (entities.length === 0 && memorySummary.length === 0) {
+        var panel = document.getElementById('panel-2d');
+        var overlay = document.createElement('div');
+        overlay.className = 'state-overlay';
+        overlay.innerHTML = '<div class="icon">🌱</div><h3>Your brain is empty</h3><p>Start a conversation to grow it!</p>';
+        panel.appendChild(overlay);
+        return;
+      }
+
+      // Draw brain silhouette
+      var bounds = drawBrainSilhouette(svg, W, H);
+
+      // Build node list
+      var nodeMap = {};
+      var nodes = entities.map(function(e) {
+        var n = Object.assign({}, e, {
+          _isEntity: true,
+          r: Math.max(6, Math.min(20, 6 + (e.mentionCount || 1) * 1.5))
+        });
+        nodeMap[e.id] = n;
+        return n;
+      });
+
+      // Add memory cluster nodes
+      memorySummary.forEach(function(m, i) {
+        var n = {
+          id: 'memory-' + i,
+          name: m.kind,
+          type: 'Memory',
+          kind: m.kind,
+          lobeRegion: 'center',
+          color: m.color || '#8b5cf6',
+          mentionCount: m.count || 0,
+          count: m.count || 0,
+          _isMemory: true,
+          r: Math.max(4, Math.min(8, 4 + Math.sqrt(m.count || 1)))
+        };
+        nodes.push(n);
+      });
+
+      // Build links
+      var links = relations.map(function(rel) {
+        return {
+          source: rel.sourceId,
+          target: rel.targetId,
+          relation: rel.relation
+        };
+      }).filter(function(l) {
+        return nodeMap[l.source] && nodeMap[l.target];
+      });
+
+      // Connection count map
+      var connCount = {};
+      links.forEach(function(l) {
+        connCount[l.source] = (connCount[l.source] || 0) + 1;
+        connCount[l.target] = (connCount[l.target] || 0) + 1;
+      });
+
+      // Initial positions near lobe targets
+      nodes.forEach(function(n) {
+        var t = lobeTarget(n.lobeRegion, bounds);
+        n.x = t.x + (Math.random() - 0.5) * 60;
+        n.y = t.y + (Math.random() - 0.5) * 60;
+      });
+
+      // ── D3 force simulation ──────────────────────────────────
+      var sim = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(links)
+          .id(function(d) { return d.id; })
+          .distance(60)
+          .strength(0.3))
+        .force('charge', d3.forceManyBody().strength(-80))
+        .force('collide', d3.forceCollide().radius(function(d) { return d.r + 4; }).strength(0.8))
+        // Lobe attraction force
+        .force('lobe', function(alpha) {
+          nodes.forEach(function(n) {
+            var t = lobeTarget(n.lobeRegion, bounds);
+            n.vx += (t.x - n.x) * alpha * 0.12;
+            n.vy += (t.y - n.y) * alpha * 0.12;
+          });
+        })
+        // Bounding force — keep nodes inside brain bounding ellipse
+        .force('bound', function(alpha) {
+          nodes.forEach(function(n) {
+            var lobe = bounds.leftLobe;
+            var rlobe = bounds.rightLobe;
+            // Check if inside either lobe (ellipse test)
+            var inLeft = Math.pow((n.x - lobe.cx) / (lobe.rx + n.r), 2) + Math.pow((n.y - lobe.cy) / (lobe.ry + n.r), 2);
+            var inRight = Math.pow((n.x - rlobe.cx) / (rlobe.rx + n.r), 2) + Math.pow((n.y - rlobe.cy) / (rlobe.ry + n.r), 2);
+            if (inLeft > 1 && inRight > 1) {
+              // Push toward closer lobe center
+              var dl = Math.hypot(n.x - lobe.cx, n.y - lobe.cy);
+              var dr = Math.hypot(n.x - rlobe.cx, n.y - rlobe.cy);
+              var target = dl < dr ? lobe : rlobe;
+              n.vx += (target.cx - n.x) * alpha * 0.5;
+              n.vy += (target.cy - n.y) * alpha * 0.5;
+            }
+          });
+        })
+        .alphaDecay(0.025)
+        .velocityDecay(0.4);
+
+      // Draw links
+      var linkLayer = svg.append('g').attr('class', 'links');
+      var linkSel = linkLayer.selectAll('line')
+        .data(links)
+        .enter().append('line')
+        .attr('class', 'link-line')
+        .attr('stroke', function(d) {
+          var src = typeof d.source === 'object' ? d.source : nodeMap[d.source];
+          return src ? src.color : 'rgba(138,91,224,0.15)';
+        })
+        .attr('stroke-width', 1)
+        .attr('stroke-opacity', 0.15);
+
+      // Draw nodes
+      var nodeLayer = svg.append('g').attr('class', 'nodes');
+      var nodeSel = nodeLayer.selectAll('g')
+        .data(nodes)
+        .enter().append('g')
+        .attr('class', 'node-group')
+        .call(d3.drag()
+          .on('start', function(event, d) {
+            if (!event.active) sim.alphaTarget(0.3).restart();
+            d.fx = d.x; d.fy = d.y;
+          })
+          .on('drag', function(event, d) {
+            d.fx = event.x; d.fy = event.y;
+          })
+          .on('end', function(event, d) {
+            if (!event.active) sim.alphaTarget(0);
+            d.fx = null; d.fy = null;
+          })
+        );
+
+      nodeSel.append('circle')
+        .attr('class', 'node-circle')
+        .attr('r', function(d) { return d.r; })
+        .attr('fill', function(d) { return d.color || '#8A5BE0'; })
+        .attr('stroke', function(d) { return d.color || '#8A5BE0'; })
+        .attr('stroke-width', 1.5)
+        .attr('stroke-opacity', 0.6)
+        .attr('fill-opacity', 0.85);
+
+      // Node hover events
+      nodeSel
+        .on('mouseenter', function(event, d) {
+          d3.select(this).select('circle')
+            .transition().duration(120)
+            .attr('r', function(d) { return d.r * 1.35; })
+            .attr('fill-opacity', 1);
+          showTooltip(event, d, connCount[d.id] || 0);
+        })
+        .on('mousemove', function(event) {
+          moveTooltip(event);
+        })
+        .on('mouseleave', function(event, d) {
+          d3.select(this).select('circle')
+            .transition().duration(120)
+            .attr('r', function(d) { return d.r; })
+            .attr('fill-opacity', 0.85);
+          hideTooltip();
+        });
+
+      // Tick
+      sim.on('tick', function() {
+        linkSel
+          .attr('x1', function(d) { return d.source.x; })
+          .attr('y1', function(d) { return d.source.y; })
+          .attr('x2', function(d) { return d.target.x; })
+          .attr('y2', function(d) { return d.target.y; });
+
+        nodeSel.attr('transform', function(d) {
+          return 'translate(' + d.x + ',' + d.y + ')';
+        });
+      });
+    }
+
+    /* ── Data fetch ───────────────────────────────────────────── */
+    async function loadBrainData() {
+      try {
+        var res = await fetch('/v1/brain-graph');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        var data = await res.json();
+        updateStats(data);
+        renderBrain(data);
+      } catch (err) {
+        console.error('Brain graph load error:', err);
+        var panel = document.getElementById('panel-2d');
+        var overlay = document.createElement('div');
+        overlay.className = 'state-overlay';
+        overlay.innerHTML =
+          '<div class="icon">⚠️</div>' +
+          '<h3>Could not load brain data</h3>' +
+          '<p>' + (err.message || 'An unexpected error occurred.') + '</p>';
+        panel.appendChild(overlay);
+      }
+    }
+
+    // Kick off on load
+    loadBrainData();
+  })();
+  </script>
 </body>
 </html>
