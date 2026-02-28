@@ -252,7 +252,7 @@ function buildVoiceWebhookTwiml(
     });
   }
 
-  const twilioConfig = getTwilioConfig(assistantId);
+  const twilioConfig = getTwilioConfig();
   let relayUrl: string;
   try {
     relayUrl = getTwilioRelayUrl(loadConfig());

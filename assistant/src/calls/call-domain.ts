@@ -101,8 +101,7 @@ export type CallerIdentityResult =
  * - Otherwise, always use `assistant_number` (implicit default).
  *
  * For `assistant_number`: uses the Twilio phone number from
- *   `getTwilioConfig(assistantId)` so multi-assistant mappings are honored.
- *   No eligibility check is performed — this is a fast path.
+ *   `getTwilioConfig()`. No eligibility check is performed — this is a fast path.
  * For `user_number`: uses `config.calls.callerIdentity.userNumber` or the
  *   secure key `credential:twilio:user_phone_number`, then validates that the
  *   number is usable as an outbound caller ID via the Twilio API.
@@ -133,8 +132,8 @@ export async function resolveCallerIdentity(
   }
 
   if (mode === 'assistant_number') {
-    const twilioConfig = getTwilioConfig(assistantId);
-    log.info({ mode, source, fromNumber: twilioConfig.phoneNumber, assistantId }, 'Resolved caller identity');
+    const twilioConfig = getTwilioConfig();
+    log.info({ mode, source, fromNumber: twilioConfig.phoneNumber }, 'Resolved caller identity');
     return { ok: true, mode, fromNumber: twilioConfig.phoneNumber, source };
   }
 

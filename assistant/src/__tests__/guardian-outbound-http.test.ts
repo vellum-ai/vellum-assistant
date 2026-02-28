@@ -268,7 +268,7 @@ describe('startOutbound', () => {
 
 describe('resendOutbound', () => {
   test('returns no_active_session when no session exists', () => {
-    const result = resendOutbound({ channel: 'sms', assistantId: 'no-such-assistant' });
+    const result = resendOutbound({ channel: 'sms' });
     expect(result.success).toBe(false);
     expect(result.error).toBe('no_active_session');
   });
@@ -339,7 +339,7 @@ describe('resendOutbound', () => {
 
 describe('cancelOutbound', () => {
   test('returns no_active_session when no session exists', () => {
-    const result = cancelOutbound({ channel: 'sms', assistantId: 'no-such-assistant-cancel' });
+    const result = cancelOutbound({ channel: 'sms' });
     expect(result.success).toBe(false);
     expect(result.error).toBe('no_active_session');
   });
@@ -397,7 +397,7 @@ describe('HTTP route: handleResendOutbound', () => {
   });
 
   test('returns 400 for no_active_session', async () => {
-    const req = jsonRequest({ channel: 'sms', assistantId: 'resend-no-session' });
+    const req = jsonRequest({ channel: 'sms' });
     const resp = await handleResendOutbound(req);
     expect(resp.status).toBe(400);
     const body = await resp.json() as { error?: string };
@@ -439,7 +439,7 @@ describe('HTTP route: handleCancelOutbound', () => {
   });
 
   test('returns 400 for no_active_session', async () => {
-    const req = jsonRequest({ channel: 'sms', assistantId: 'cancel-no-session' });
+    const req = jsonRequest({ channel: 'sms' });
     const resp = await handleCancelOutbound(req);
     expect(resp.status).toBe(400);
     const body = await resp.json() as { error?: string };

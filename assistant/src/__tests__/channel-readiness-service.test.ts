@@ -302,24 +302,18 @@ describe('ChannelReadinessService', () => {
     expect(snapshot.reasons).toEqual([]);
   });
 
-  test('remote cache is scoped per assistantId', async () => {
-    const remoteCalls: Record<string, number> = {};
-    const probe: ChannelProbe = {
-      channel: 'sms',
-      runLocalChecks: () => [{ name: 'local', passed: true, message: 'ok' }],
-      async runRemoteChecks(context) {
-        const key = context?.assistantId ?? '__default__';
-        remoteCalls[key] = (remoteCalls[key] ?? 0) + 1;
-        return [{ name: 'remote', passed: true, message: `ok-${key}` }];
-      },
-    };
+  test('remote cache uses fixed internal scope (no per-assistantId scoping)', async () => {
+    const probe = makeProbe(
+      'sms',
+      [{ name: 'local', passed: true, message: 'ok' }],
+      [{ name: 'remote', passed: true, message: 'ok' }],
+    );
     service.registerProbe(probe);
 
-    await service.getReadiness('sms', true, 'ast-alpha');
-    await service.getReadiness('sms', true, 'ast-beta');
-    await service.getReadiness('sms', true, 'ast-alpha');
+    // All calls share the same cache key since there is no assistantId dimension
+    await service.getReadiness('sms', true);
+    await service.getReadiness('sms', true);
 
-    expect(remoteCalls['ast-alpha']).toBe(1);
-    expect(remoteCalls['ast-beta']).toBe(1);
+    expect(probe.remoteCallCount).toBe(1);
   });
 });

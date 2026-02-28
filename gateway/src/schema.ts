@@ -1102,13 +1102,6 @@ export function buildSchema(): Record<string, unknown> {
               schema: { type: "string", enum: ["sms", "voice", "telegram"] },
               description: "Optional guardian channel filter.",
             },
-            {
-              name: "assistantId",
-              in: "query",
-              required: false,
-              schema: { type: "string" },
-              description: "Optional assistant identifier override.",
-            },
           ],
           responses: {
             "200": { description: "Guardian status returned" },
