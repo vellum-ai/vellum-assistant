@@ -27,6 +27,8 @@ mock.module('../providers/registry.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'mock-provider',
     maxTokens: 4096,
     thinking: false,
@@ -69,6 +71,13 @@ let mockDbMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockConversation: Record<string, unknown> | null = null;
 
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getMessages: () => mockDbMessages,
   getConversation: () => mockConversation,
   createConversation: () => ({ id: 'conv-1' }),
@@ -119,6 +128,20 @@ mock.module('../context/window-manager.js', () => ({
   },
   createContextSummaryMessage: () => ({ role: 'user', content: [{ type: 'text', text: 'summary' }] }),
   getSummaryFromContextMessage: () => null,
+}));
+mock.module('../memory/canonical-guardian-store.js', () => ({
+  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
+  listCanonicalGuardianRequests: () => [],
+  createCanonicalGuardianRequest: () => ({ id: 'mock-cg-id', code: 'MOCK', status: 'pending' }),
+  getCanonicalGuardianRequest: () => null,
+  getCanonicalGuardianRequestByCode: () => null,
+  updateCanonicalGuardianRequest: () => {},
+  resolveCanonicalGuardianRequest: () => {},
+  createCanonicalGuardianDelivery: () => ({ id: 'mock-cgd-id' }),
+  listCanonicalGuardianDeliveries: () => [],
+  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
+  updateCanonicalGuardianDelivery: () => {},
+  generateCanonicalRequestCode: () => 'MOCK-CODE',
 }));
 
 import { Session } from '../daemon/session.js';
