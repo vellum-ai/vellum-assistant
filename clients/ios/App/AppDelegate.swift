@@ -211,14 +211,28 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             // Already have a token — nothing to do.
             if ActorTokenManager.hasToken { return }
 
+            // If no pairing config exists (fresh install or logged-out state),
+            // bail out immediately. Without a gateway URL the daemon connection
+            // will never succeed, so looping would just drain battery. The
+            // bootstrap will be re-triggered after a successful QR pairing via
+            // the clientProvider rebuild path.
+            let gatewayURL = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL)
+            guard let gatewayURL, !gatewayURL.isEmpty else {
+                log.info("Actor token bootstrap skipped — no pairing config present")
+                return
+            }
+
             let deviceId = getOrCreateDeviceId()
             var delay: UInt64 = 2_000_000_000 // 2 seconds initial
             let maxDelay: UInt64 = 60_000_000_000 // 60 seconds cap
+            let connectionMaxDelay: UInt64 = 300_000_000_000 // 5 minutes cap for waiting on connection
+            var connectionDelay: UInt64 = 2_000_000_000
 
             while !Task.isCancelled {
                 // Wait for the daemon to be connected before attempting.
                 guard self.clientProvider.client.isConnected else {
-                    try? await Task.sleep(nanoseconds: delay)
+                    try? await Task.sleep(nanoseconds: connectionDelay)
+                    connectionDelay = min(connectionDelay * 2, connectionMaxDelay)
                     continue
                 }
 
