@@ -96,7 +96,7 @@ export interface AgentLoopSessionContext {
 
   currentActiveSurfaceId?: string;
   currentPage?: string;
-  readonly surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData }>;
+  readonly surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   currentTurnSurfaces: Array<{ surfaceId: string; surfaceType: SurfaceType; title?: string; data: SurfaceData; actions?: Array<{ id: string; label: string; style?: string }>; display?: string }>;
 

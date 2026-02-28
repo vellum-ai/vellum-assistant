@@ -26,7 +26,7 @@ function makeContext(
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<string, { actionId: string; data?: Record<string, unknown> }>(),
-    surfaceState: new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>(),
+    surfaceState: new Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>(),
     surfaceUndoStacks: new Map<string, string[]>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
