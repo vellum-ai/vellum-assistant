@@ -403,12 +403,14 @@ struct QRPairingSheet: View {
             }
             let localLanUrl = response["localLanUrl"] as? String
             let featureFlagToken = response["featureFlagToken"] as? String
+            let actorToken = response["actorToken"] as? String
             savePairingConfig(
                 bearerToken: bearerToken,
                 gatewayUrl: gatewayUrl,
                 hostId: payload.hostId,
                 localLanUrl: localLanUrl,
-                featureFlagToken: featureFlagToken
+                featureFlagToken: featureFlagToken,
+                actorToken: actorToken
             )
             connectToMac()
 
@@ -477,12 +479,14 @@ struct QRPairingSheet: View {
                     }
                     let localLanUrl = json["localLanUrl"] as? String
                     let featureFlagToken = json["featureFlagToken"] as? String
+                    let actorToken = json["actorToken"] as? String
                     savePairingConfig(
                         bearerToken: bearerToken,
                         gatewayUrl: gatewayUrl,
                         hostId: payload.hostId,
                         localLanUrl: localLanUrl,
-                        featureFlagToken: featureFlagToken
+                        featureFlagToken: featureFlagToken,
+                        actorToken: actorToken
                     )
                     connectToMac()
 
@@ -507,7 +511,7 @@ struct QRPairingSheet: View {
 
     // MARK: - Config Persistence
 
-    private func savePairingConfig(bearerToken: String, gatewayUrl: String, hostId: String, localLanUrl: String?, featureFlagToken: String? = nil) {
+    private func savePairingConfig(bearerToken: String, gatewayUrl: String, hostId: String, localLanUrl: String?, featureFlagToken: String? = nil, actorToken: String? = nil) {
         UserDefaults.standard.set(gatewayUrl, forKey: UserDefaultsKeys.gatewayBaseURL)
         _ = APIKeyManager.shared.setAPIKey(bearerToken, provider: "runtime-bearer-token")
         if !hostId.isEmpty {
@@ -518,6 +522,12 @@ struct QRPairingSheet: View {
         }
         // Don't delete on absence — the server may not send featureFlagToken yet,
         // so a missing field shouldn't wipe a previously stored token.
+
+        // Persist the actor token received during pairing so subsequent HTTP
+        // requests include the X-Actor-Token header immediately.
+        if let actorToken = actorToken, !actorToken.isEmpty {
+            ActorTokenManager.setToken(actorToken)
+        }
 
         // Generate conversation key if missing
         if UserDefaults.standard.string(forKey: UserDefaultsKeys.conversationKey)?.isEmpty != false {

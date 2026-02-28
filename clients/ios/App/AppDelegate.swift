@@ -76,6 +76,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     let clientProvider: ClientProvider
     let authManager = AuthManager()
     let ambientAgentManager = AmbientAgentManager()
+    /// Background task that retries actor-token bootstrap until success.
+    private var actorTokenBootstrapTask: Task<Void, Never>?
 
     override init() {
         self.clientProvider = ClientProvider(client: DaemonClient(config: .fromUserDefaults()))
@@ -90,10 +92,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // the new approval flow. Runs once; the flag persists across future launches.
         migrateToPairingV4IfNeeded()
 
-
         // Initial connect is handled by SceneDelegate.sceneWillEnterForeground, which fires
         // during launch and on every background→foreground transition. Calling connect() here
         // too would race with the scene's connect() since isConnected is false while in-flight.
+
+        // Ensure an actor token is present. Newly paired devices receive it
+        // via the pairing response; existing devices that paired before
+        // actor-token support was added will bootstrap here on startup.
+        ensureActorTokenBootstrap()
 
         // Register for push notifications
         UNUserNotificationCenter.current().requestAuthorization(
@@ -190,6 +196,64 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         log.info("v4 pairing migration complete — legacy pairing state cleared")
     }
 
+
+    // MARK: - Actor Token Bootstrap
+
+    /// Ensures an actor token is present. If missing, waits for the daemon
+    /// to become reachable and calls the bootstrap endpoint with exponential
+    /// backoff. Runs entirely in the background and never blocks the UI.
+    private func ensureActorTokenBootstrap() {
+        actorTokenBootstrapTask?.cancel()
+
+        actorTokenBootstrapTask = Task { [weak self] in
+            guard let self else { return }
+
+            // Already have a token — nothing to do.
+            if ActorTokenManager.hasToken { return }
+
+            let deviceId = getOrCreateDeviceId()
+            var delay: UInt64 = 2_000_000_000 // 2 seconds initial
+            let maxDelay: UInt64 = 60_000_000_000 // 60 seconds cap
+
+            while !Task.isCancelled {
+                // Wait for the daemon to be connected before attempting.
+                guard self.clientProvider.client.isConnected else {
+                    try? await Task.sleep(nanoseconds: delay)
+                    continue
+                }
+
+                guard let daemon = self.clientProvider.client as? DaemonClient else {
+                    return
+                }
+
+                let success = await daemon.bootstrapActorToken(
+                    platform: "ios",
+                    deviceId: deviceId
+                )
+
+                if success {
+                    log.info("Actor token bootstrap succeeded")
+                    return
+                }
+
+                // Exponential backoff with jitter
+                let jitter = UInt64.random(in: 0...(delay / 4))
+                try? await Task.sleep(nanoseconds: delay + jitter)
+                delay = min(delay * 2, maxDelay)
+            }
+        }
+    }
+
+    /// Get or create a stable device ID stored in the Keychain.
+    /// Shared with QRPairingSheet so both paths use the same identity.
+    private func getOrCreateDeviceId() -> String {
+        if let existing = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id"), !existing.isEmpty {
+            return existing
+        }
+        let newId = UUID().uuidString
+        _ = APIKeyManager.shared.setAPIKey(newId, provider: "pairing-device-id")
+        return newId
+    }
 
     func application(
         _ application: UIApplication,
