@@ -200,26 +200,6 @@ export async function runAgentLoopImpl(
   ctx.profiler.startRequest();
   let turnStarted = false;
 
-  // Generate title early — the user message alone is sufficient context.
-  // Firing here (before the LLM call) removes the delay of waiting for the
-  // full assistant response. The second-pass regeneration at turn 3 will
-  // refine the title with more context if needed.
-  const currentConvForTitle = conversationStore.getConversation(ctx.conversationId);
-  if (isReplaceableTitle(currentConvForTitle?.title ?? null)) {
-    queueGenerateConversationTitle({
-      conversationId: ctx.conversationId,
-      provider: ctx.provider,
-      userMessage: options?.titleText ?? content,
-      onTitleUpdated: (title) => {
-        onEvent({
-          type: 'session_title_updated',
-          sessionId: ctx.conversationId,
-          title,
-        });
-      },
-    });
-  }
-
   try {
     const preMessageResult = await getHookManager().trigger('pre-message', {
       sessionId: ctx.conversationId,
@@ -233,6 +213,27 @@ export async function runAgentLoopImpl(
       }
       onEvent({ type: 'error', message: `Message blocked by hook "${preMessageResult.blockedBy}"` });
       return;
+    }
+
+    // Generate title early — the user message alone is sufficient context.
+    // Firing here (after hook gating but before the LLM call) removes the
+    // delay of waiting for the full assistant response. The second-pass
+    // regeneration at turn 3 will refine the title with more context.
+    const currentConvForTitle = conversationStore.getConversation(ctx.conversationId);
+    if (isReplaceableTitle(currentConvForTitle?.title ?? null)) {
+      queueGenerateConversationTitle({
+        conversationId: ctx.conversationId,
+        provider: ctx.provider,
+        userMessage: options?.titleText ?? content,
+        onTitleUpdated: (title) => {
+          onEvent({
+            type: 'session_title_updated',
+            sessionId: ctx.conversationId,
+            title,
+          });
+        },
+        signal: abortController.signal,
+      });
     }
 
     const isFirstMessage = ctx.messages.length === 1;
