@@ -16,7 +16,7 @@ final class BrowserPiPManager: ObservableObject {
     @Published var highlights: [BrowserHighlight] = []
     @Published var isInteractive: Bool = false
     var handoffMessage: String?
-    var frameSize: CGSize = CGSize(width: 800, height: 600)
+    var frameSize: CGSize = CGSize(width: 1280, height: 800)
 
     var activePage: BrowserPage? {
         pages.first(where: { $0.active })
@@ -248,8 +248,8 @@ final class BrowserPiPManager: ObservableObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.title = "Browser"
         panel.isReleasedWhenClosed = false
-        panel.minSize = NSSize(width: 200, height: 150)
-        panel.aspectRatio = NSSize(width: 4, height: 3)
+        panel.minSize = NSSize(width: 320, height: 200)
+        panel.aspectRatio = NSSize(width: 8, height: 5)
 
         // Position bottom-right by default
         if !hasSavedPosition() {
@@ -290,11 +290,11 @@ final class BrowserPiPManager: ObservableObject {
             return NSRect(
                 x: defaults.double(forKey: Self.positionXKey),
                 y: defaults.double(forKey: Self.positionYKey),
-                width: max(defaults.double(forKey: Self.sizeWKey), 200),
-                height: max(defaults.double(forKey: Self.sizeHKey), 150)
+                width: max(defaults.double(forKey: Self.sizeWKey), 320),
+                height: max(defaults.double(forKey: Self.sizeHKey), 200)
             )
         }
-        return NSRect(x: 0, y: 0, width: 800, height: 600)
+        return NSRect(x: 0, y: 0, width: 1024, height: 640)
     }
 
     private func hasSavedPosition() -> Bool {

@@ -248,9 +248,9 @@ export async function executeBrowserNavigate(
       routeHandler = null;
     }
 
-    // In CDP mode, keep the browser minimized unless a handoff is active.
+    // In CDP mode, position the browser on the side unless a handoff is active.
     if (browserManager.browserMode === 'cdp' && !browserManager.isInteractive(context.sessionId)) {
-      await browserManager.moveWindowOffscreen();
+      await browserManager.positionWindowSidebar();
     }
 
     if (blockedUrl) {
