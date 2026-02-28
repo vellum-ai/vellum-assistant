@@ -2,8 +2,10 @@
  * Trigger the Playwright agent tests in CI and optionally follow the run.
  *
  * Usage:
- *   bun run scripts/agent-ci.ts        # trigger + poll until done
- *   bun run scripts/agent-ci.ts -d     # trigger + print URL, then exit
+ *   bun run scripts/agent-ci.ts                    # trigger + poll until done
+ *   bun run scripts/agent-ci.ts -d                 # trigger + print URL, then exit
+ *   bun run scripts/agent-ci.ts -v 1.2.3           # test against released version 1.2.3
+ *   bun run scripts/agent-ci.ts --version 1.2.3 -d # test release + detach
  */
 
 import { spawnSync } from "child_process";
@@ -14,6 +16,14 @@ const WORKFLOW = "playwright.yaml";
 const POLL_INTERVAL_MS = 5000;
 
 const detach = process.argv.includes("-d");
+
+function parseVersion(): string | undefined {
+  const idx = process.argv.findIndex((a) => a === "-v" || a === "--version");
+  if (idx === -1 || idx + 1 >= process.argv.length) return undefined;
+  return process.argv[idx + 1];
+}
+
+const releaseVersion = parseVersion();
 
 function gh(args: string[]): { stdout: string; status: number } {
   const result = spawnSync("gh", args, { encoding: "utf-8", stdio: ["inherit", "pipe", "inherit"] });
@@ -149,8 +159,14 @@ const runListArgs = [
 const { stdout: previousRunId } = gh(runListArgs);
 
 // Trigger the workflow
-console.log(`Triggering ${WORKFLOW}...`);
-const trigger = ghPassthrough(["workflow", "run", WORKFLOW, "-R", REPO]);
+const triggerArgs = ["workflow", "run", WORKFLOW, "-R", REPO];
+if (releaseVersion) {
+  triggerArgs.push("-f", `release_version=${releaseVersion}`);
+  console.log(`Triggering ${WORKFLOW} with release_version=${releaseVersion}...`);
+} else {
+  console.log(`Triggering ${WORKFLOW}...`);
+}
+const trigger = ghPassthrough(triggerArgs);
 if (trigger !== 0) {
   process.exit(trigger);
 }
