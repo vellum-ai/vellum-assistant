@@ -98,7 +98,6 @@ import {
   startCanonicalGuardianExpirySweep,
   stopCanonicalGuardianExpirySweep,
 } from './routes/canonical-guardian-expiry-sweep.js';
-import { canonicalChannelAssistantId } from './routes/channel-route-shared.js';
 import {
   handleChannelDeliveryAck,
   handleChannelInbound,
@@ -522,22 +521,13 @@ export class RuntimeHttpServer {
       }
     }
 
-    // New assistant-less runtime routes: /v1/<endpoint>
-    const newRouteMatch = path.match(/^\/v1\/(?!assistants\/)(.+)$/);
-    if (newRouteMatch) {
-      return this.dispatchEndpoint(newRouteMatch[1], req, url);
+    // Runtime routes: /v1/<endpoint>
+    const routeMatch = path.match(/^\/v1\/(.+)$/);
+    if (routeMatch) {
+      return this.dispatchEndpoint(routeMatch[1], req, url);
     }
 
-    // Legacy: /v1/assistants/:assistantId/<endpoint>
-    const match = path.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/);
-    if (!match) {
-      return httpError('NOT_FOUND', 'Not found', 404);
-    }
-
-    const assistantId = canonicalChannelAssistantId(match[1]);
-    const endpoint = match[2];
-    log.warn({ endpoint, assistantId }, '[deprecated] /v1/assistants/:assistantId/... route used; migrate to /v1/...');
-    return this.dispatchEndpoint(endpoint, req, url, assistantId);
+    return httpError('NOT_FOUND', 'Not found', 404);
   }
 
   private handleBrowserRelayUpgrade(req: Request, server: ReturnType<typeof Bun.serve>): Response {
@@ -617,8 +607,21 @@ export class RuntimeHttpServer {
     endpoint: string,
     req: Request,
     url: URL,
-    assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
   ): Promise<Response> {
+    // Transitional rewrite: the gateway still constructs /v1/assistants/:id/...
+    // URLs for direct daemon calls (runtime/client.ts). Strip the assistant-scoped
+    // prefix and forward to the flat endpoint so those requests keep working.
+    // Remove this rewrite once the gateway is updated to use flat paths (M4).
+    const assistantScopedMatch = endpoint.match(/^assistants\/[^/]+\/(.+)$/);
+    if (assistantScopedMatch) {
+      log.warn(
+        { originalEndpoint: endpoint, rewrittenEndpoint: assistantScopedMatch[1] },
+        'DEPRECATION: received assistant-scoped path; rewriting to flat endpoint. Update the caller to use /v1/<endpoint> directly.',
+      );
+      return this.dispatchEndpoint(assistantScopedMatch[1], req, url);
+    }
+
+    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     return withErrorHandling(endpoint, async () => {
       if (endpoint === 'health' && req.method === 'GET') return handleHealth();
       if (endpoint === 'debug' && req.method === 'GET') return handleDebug();
