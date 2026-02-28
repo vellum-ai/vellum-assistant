@@ -6,6 +6,7 @@
  */
 
 import type {
+  ArchiveResult,
   ConnectionInfo,
   Conversation,
   HistoryOptions,
@@ -13,6 +14,7 @@ import type {
   Message,
   SearchOptions,
   SearchResult,
+  SenderDigestResult,
   SendOptions,
   SendResult,
 } from './provider-types.js';
@@ -37,6 +39,11 @@ export interface MessagingProvider {
 
   getThreadReplies?(token: string, conversationId: string, threadId: string, options?: HistoryOptions): Promise<Message[]>;
   markRead?(token: string, conversationId: string, messageId?: string): Promise<void>;
+
+  /** Scan messages and group by sender for bulk cleanup (e.g. newsletter decluttering). */
+  senderDigest?(token: string, query: string, options?: { maxMessages?: number; maxSenders?: number }): Promise<SenderDigestResult>;
+  /** Archive messages matching a search query. */
+  archiveByQuery?(token: string, query: string): Promise<ArchiveResult>;
 
   /**
    * Override the default credential check used by getConnectedProviders().

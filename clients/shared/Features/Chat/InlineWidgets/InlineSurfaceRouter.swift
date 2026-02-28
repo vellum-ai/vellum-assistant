@@ -124,8 +124,11 @@ public struct InlineSurfaceRouter: View {
         .frame(maxWidth: isDynamicPreview || isDocumentPreview ? 350 : 540, alignment: .leading)
         }
         }
-        .onChange(of: surface) { _, _ in
-            clickedActionLabel = nil
+        .onChange(of: surface) { oldSurface, newSurface in
+            if newSurface.completionState != nil { return }
+            if oldSurface.data != newSurface.data || oldSurface.actions != newSurface.actions {
+                clickedActionLabel = nil
+            }
         }
     }
 
