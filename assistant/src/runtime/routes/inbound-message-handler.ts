@@ -76,6 +76,7 @@ import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 
 import '../channel-invite-transports/telegram.js';
+import '../channel-invite-transports/voice.js';
 
 const log = getLogger('runtime-http');
 
