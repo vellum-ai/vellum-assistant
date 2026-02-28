@@ -78,6 +78,7 @@ export interface ChannelReadinessRequest {
   type: 'channel_readiness';
   action: 'get' | 'refresh';
   channel?: ChannelId;
+  /** @deprecated Ignored — daemon always uses internal scope (DAEMON_INTERNAL_ASSISTANT_ID). */
   assistantId?: string;
   includeRemote?: boolean;
 }
@@ -87,7 +88,8 @@ export interface GuardianVerificationRequest {
   action: 'create_challenge' | 'status' | 'revoke' | 'start_outbound' | 'resend_outbound' | 'cancel_outbound';
   channel?: ChannelId;  // Defaults to 'telegram'
   sessionId?: string;
-  assistantId?: string;  // Defaults to DAEMON_INTERNAL_ASSISTANT_ID
+  /** @deprecated Ignored — daemon always uses internal scope (DAEMON_INTERNAL_ASSISTANT_ID). */
+  assistantId?: string;
   rebind?: boolean;  // When true, allows creating a challenge even if a binding already exists
   /** E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions. */
   destination?: string;

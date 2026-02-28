@@ -349,7 +349,6 @@ export async function forwardTwilioVoiceWebhook(
   config: GatewayConfig,
   params: Record<string, string>,
   originalUrl: string,
-  assistantId?: string,
 ): Promise<TwilioForwardResponse> {
   cbBeforeRequest();
 
@@ -360,7 +359,7 @@ export async function forwardTwilioVoiceWebhook(
     response = await fetchImpl(url, {
       method: "POST",
       headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
-      body: JSON.stringify({ params, originalUrl, assistantId }),
+      body: JSON.stringify({ params, originalUrl }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
   } catch (err) {

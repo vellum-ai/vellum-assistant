@@ -1457,9 +1457,11 @@ describe('IPC handler channel-aware guardian status', () => {
     expect(resp!.channel).toBe('sms');
   });
 
-  test('status action with custom assistantId returns correct value', () => {
+  test('status action with custom assistantId is ignored (daemon uses internal scope)', () => {
+    // Create binding under the internal scope constant — the handler always
+    // uses DAEMON_INTERNAL_ASSISTANT_ID regardless of what the caller passes.
     createBinding({
-      assistantId: 'asst-custom',
+      assistantId: 'self',
       channel: 'telegram',
       guardianExternalUserId: 'user-77',
       guardianDeliveryChatId: 'chat-77',
@@ -1470,7 +1472,7 @@ describe('IPC handler channel-aware guardian status', () => {
       type: 'guardian_verification',
       action: 'status',
       channel: 'telegram',
-      assistantId: 'asst-custom',
+      assistantId: 'asst-custom',  // ignored by handler
     };
 
     handleGuardianVerification(msg, mockSocket, ctx);
@@ -1479,7 +1481,7 @@ describe('IPC handler channel-aware guardian status', () => {
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.bound).toBe(true);
-    expect(resp!.assistantId).toBe('asst-custom');
+    expect(resp!.assistantId).toBe('self');
     expect(resp!.channel).toBe('telegram');
     expect(resp!.guardianExternalUserId).toBe('user-77');
     expect(resp!.guardianDeliveryChatId).toBe('chat-77');
