@@ -19,8 +19,27 @@ public struct InlineDynamicPagePreview: View {
                 // Icon + title row
                 HStack(spacing: VSpacing.sm) {
                     if let icon = preview.icon {
-                        Text(icon)
-                            .font(.system(size: 28))
+                        if let url = URL(string: icon), url.scheme == "https" || url.scheme == "http" {
+                            AsyncImage(url: url) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                case .failure:
+                                    RoundedRectangle(cornerRadius: VRadius.sm)
+                                        .fill(VColor.surfaceSubtle)
+                                default:
+                                    RoundedRectangle(cornerRadius: VRadius.sm)
+                                        .fill(VColor.surfaceSubtle)
+                                }
+                            }
+                            .frame(width: 32, height: 32)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        } else {
+                            Text(icon)
+                                .font(.system(size: 28))
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {

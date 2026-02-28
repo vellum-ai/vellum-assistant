@@ -338,9 +338,24 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   let currentSegmentParts: string[] = [];
   let hasOpenSegment = false;
 
+  function joinWithSpacing(parts: string[]): string {
+    let result = parts[0] ?? '';
+    for (let i = 1; i < parts.length; i++) {
+      const prev = result[result.length - 1];
+      const next = parts[i][0];
+      // Only insert a space when neither side already has whitespace
+      if (prev && next && prev !== ' ' && prev !== '\n' && prev !== '\t' &&
+          next !== ' ' && next !== '\n' && next !== '\t') {
+        result += ' ';
+      }
+      result += parts[i];
+    }
+    return result;
+  }
+
   function finalizeSegment(): void {
     if (hasOpenSegment) {
-      textSegments[textSegments.length - 1] = currentSegmentParts.join('\n');
+      textSegments[textSegments.length - 1] = joinWithSpacing(currentSegmentParts);
       currentSegmentParts = [];
       hasOpenSegment = false;
     }
@@ -445,7 +460,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
 
   finalizeSegment();
 
-  const text = textParts.join('\n');
+  const text = joinWithSpacing(textParts);
   let rendered: string;
   if (attachmentParts.length === 0) {
     rendered = text;

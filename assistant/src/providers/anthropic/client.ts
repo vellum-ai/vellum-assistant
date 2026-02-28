@@ -531,12 +531,14 @@ export class AnthropicProvider implements Provider {
         let pendingInputJsonFlush: ReturnType<typeof setTimeout> | undefined;
 
         stream.on("streamEvent", (event) => {
-          // Insert a newline separator when a new text content block starts
+          // Insert a space separator when a new text content block starts
           // after a previous one, so consecutive text blocks don't get
           // concatenated without whitespace (e.g. "sentence.NextSentence").
+          // Uses a space instead of \n because the client's MarkdownRenderer
+          // can collapse soft line breaks (\n) within a paragraph.
           if (event.type === 'content_block_start' && event.content_block.type === 'text') {
             if (hasSeenTextBlock) {
-              onEvent?.({ type: "text_delta", text: "\n" });
+              onEvent?.({ type: "text_delta", text: " " });
             }
             hasSeenTextBlock = true;
           }

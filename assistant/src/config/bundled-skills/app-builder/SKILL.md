@@ -1332,7 +1332,25 @@ Both `ui_show` and `app_create` support a `preview` object for an inline chat pr
 }
 ```
 
-**With `app_create`:**
+**With `app_create` (image URL icon):**
+```json
+{
+  "name": "Microsoft Overview",
+  "schema_json": "{}",
+  "html": "...",
+  "preview": {
+    "title": "Microsoft",
+    "subtitle": "3 Slides",
+    "icon": "https://www.microsoft.com/favicon.ico",
+    "metrics": [
+      { "label": "Founded", "value": "1975" },
+      { "label": "Market Cap", "value": "$2.98T" }
+    ]
+  }
+}
+```
+
+**With `app_create` (emoji icon):**
 ```json
 {
   "name": "Expense Tracker",
@@ -1349,7 +1367,7 @@ Both `ui_show` and `app_create` support a `preview` object for an inline chat pr
 }
 ```
 
-Preview fields: `title` (required), `subtitle`, `description`, `icon` (emoji), `metrics` (up to 3 key-value pills). When `app_create` is called with `auto_open: true` (the default), the preview is forwarded through `app_open` automatically.
+Preview fields: `title` (required), `subtitle`, `description`, `icon`, `metrics` (up to 3 key-value pills). The `icon` field accepts an emoji or an image URL. **Prefer an image URL whenever you have a relevant one** — logos, favicons, product images, headshots, flags, album art, or any image you encountered during research. The preview card renders image URLs as a thumbnail automatically. Fall back to emoji only when there is no natural image. When `app_create` is called with `auto_open: true` (the default), the preview is forwarded through `app_open` automatically.
 
 ### 6. Handle Iteration
 
