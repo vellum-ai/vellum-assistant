@@ -94,37 +94,24 @@ jobs:
             bun run test
           fi
 
-      - name: Upload test results
-        id: upload-results
+      - name: Upload test artifacts
+        id: upload-artifacts
         if: always() && steps.tests.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-results
-          path: playwright/test-results/
-          retention-days: 7
-          if-no-files-found: ignore
-
-      - name: Upload HTML report
-        id: upload-report
-        if: always() && steps.tests.outcome != 'skipped'
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: playwright/playwright-report/
+          path: |
+            playwright/test-results/
+            playwright/playwright-report/
           retention-days: 30
           if-no-files-found: ignore
 
-      - name: Output artifact URLs
-        if: always() && (steps.upload-results.outputs.artifact-id || steps.upload-report.outputs.artifact-id)
+      - name: Output artifact URL
+        if: always() && steps.upload-artifacts.outputs.artifact-id
         run: |
-          if [ -n "${{ steps.upload-results.outputs.artifact-id }}" ]; then
-            RESULTS_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.upload-results.outputs.artifact-id }}"
-            echo "::notice title=Playwright Results::$RESULTS_URL"
-          fi
-          if [ -n "${{ steps.upload-report.outputs.artifact-id }}" ]; then
-            REPORT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.upload-report.outputs.artifact-id }}"
-            echo "::notice title=Playwright HTML Report::$REPORT_URL"
-          fi
+          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.upload-artifacts.outputs.artifact-id }}"
+          echo "::notice title=Playwright Artifacts::$ARTIFACT_URL"
+          echo "artifact-url=$ARTIFACT_URL" >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub App token
         if: steps.tests.outcome == 'failure'

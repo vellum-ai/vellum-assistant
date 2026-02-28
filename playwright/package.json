@@ -10,9 +10,6 @@
     "test:agent": "playwright test --project=agent",
     "test:agent:headed": "playwright test --project=agent --headed",
     "test:agent:verbose": "VERBOSE=1 playwright test --project=agent",
-    "test:agent:standalone": "bun run agent/runner.ts",
-    "test:agent:standalone:headed": "bun run agent/runner.ts --headed",
-    "test:agent:standalone:verbose": "bun run agent/runner.ts --verbose",
     "test:agent:ci": "bun run scripts/agent-ci.ts",
     "test:agent:ci:detach": "bun run scripts/agent-ci.ts -d",
     "test:all": "playwright test"
