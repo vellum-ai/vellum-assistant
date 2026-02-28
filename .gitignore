@@ -86,3 +86,5 @@ next-env.d.ts
 # bun build artifacts
 *.bun-build
 vellum-assistant-safe-do-permissions
+
+.agents/
