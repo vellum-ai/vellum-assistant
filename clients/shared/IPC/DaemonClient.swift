@@ -1136,7 +1136,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
-        assistantId: String? = nil,
         rebind: Bool? = nil,
         destination: String? = nil
     ) throws {
@@ -1144,7 +1143,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             action: action,
             channel: channel,
             sessionId: sessionId,
-            assistantId: assistantId,
             rebind: rebind,
             destination: destination
         ))
@@ -1162,8 +1160,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         authToken: String? = nil,
         phoneNumber: String? = nil,
         areaCode: String? = nil,
-        country: String? = nil,
-        assistantId: String? = nil
+        country: String? = nil
     ) throws {
         try send(TwilioConfigRequestMessage(
             action: action,
@@ -1171,8 +1168,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             authToken: authToken,
             phoneNumber: phoneNumber,
             areaCode: areaCode,
-            country: country,
-            assistantId: assistantId
+            country: country
         ))
     }
 
