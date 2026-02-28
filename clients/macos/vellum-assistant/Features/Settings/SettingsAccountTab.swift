@@ -166,7 +166,7 @@ struct SettingsAccountTab: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
-                    VButton(label: "Log Out", style: .danger) {
+                    VButton(label: "Log Out", style: .danger, size: .large) {
                         Task { await authManager.logout() }
                     }
                 }
@@ -181,7 +181,8 @@ struct SettingsAccountTab: View {
                     Spacer()
                     VButton(
                         label: authManager.isSubmitting ? "Signing in..." : "Log In",
-                        style: .primary
+                        style: .primary,
+                        size: .large
                     ) {
                         Task { await authManager.startWorkOSLogin() }
                     }
