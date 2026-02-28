@@ -292,6 +292,8 @@ export function redeemVoiceInviteCode(params: {
         assistantId: invite.assistantId,
         sourceChannel: 'voice',
         externalUserId: callerExternalUserId,
+        externalChatId: callerExternalUserId,
+        displayName: invite.friendName ?? undefined,
         status: 'active',
         policy: 'allow',
         inviteId: invite.id,
