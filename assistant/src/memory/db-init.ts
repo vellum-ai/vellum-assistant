@@ -4,6 +4,7 @@ import {
   createAssistantInboxTables,
   createCallSessionsTables,
   createCanonicalGuardianTables,
+  migrateNormalizePhoneIdentities,
   createChannelGuardianTables,
   createContactsAndTriageTables,
   createConversationAttentionTables,
@@ -148,6 +149,9 @@ export function initializeDb(): void {
 
   // 24. Canonical guardian requests and deliveries (unified cross-source guardian domain)
   createCanonicalGuardianTables(database);
+
+  // 25. Normalize phone-like identity fields to E.164 across guardian and ingress tables
+  migrateNormalizePhoneIdentities(database);
 
   validateMigrationState(database);
 }
