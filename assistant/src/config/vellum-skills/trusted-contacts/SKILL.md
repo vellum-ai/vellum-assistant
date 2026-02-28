@@ -245,7 +245,7 @@ Required fields:
 Optional fields:
 - `maxUses` — how many times the code can be used (default: 1)
 - `expiresInMs` — expiration time in milliseconds from now (e.g., `86400000` for 24 hours). Defaults to 7 days if omitted.
-- `voiceCodeDigits` — number of digits in the code (4-10, default: 6)
+- `voiceCodeDigits` — _(reserved, always 6)_ the code is always 6 digits in the current implementation
 - `note` — a human-readable label for the invite (e.g., "For Mom", "Dr. Smith")
 
 The create response contains `{ ok: true, invite: { id, voiceCode, expectedExternalUserId, ... } }`. The `voiceCode` is the numeric code the invitee must enter — it is only returned at creation time.
