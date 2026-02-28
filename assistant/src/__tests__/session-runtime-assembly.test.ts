@@ -615,7 +615,10 @@ describe('injectInboundActorContext', () => {
 
     const result = injectInboundActorContext(baseUserMessage, ctx);
     const text = (result.content[0] as { type: 'text'; text: string }).text;
-    expect(text).toContain('non-guardian account');
+    expect(text).toContain('trusted contact (non-guardian)');
+    expect(text).toContain('attempt to fulfill it normally');
+    expect(text).toContain('tool execution layer will automatically deny it and escalate');
+    expect(text).toContain('Do not self-approve');
     expect(text).toContain('Do not explain the verification system');
     expect(text).toContain('member_status: active');
     expect(text).toContain('member_policy: default');
