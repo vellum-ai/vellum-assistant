@@ -380,7 +380,7 @@ struct SettingsAccountTab: View {
                     }
                 }
                 Spacer()
-                VButton(label: "Retire...", style: .danger) {
+                VButton(label: "Retire...", style: .danger, size: .large) {
                     showingRetireConfirmation = true
                 }
             }
