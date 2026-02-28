@@ -885,7 +885,7 @@ struct MainWindowView: View {
                 .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
-            } else if isHovered && threadManager.visibleThreads.count > 1 {
+            } else if isHovered {
                 Button {
                     sidebar.threadPendingDeletion = thread.id
                 } label: {
@@ -923,12 +923,10 @@ struct MainWindowView: View {
                     Label("Rename", systemImage: "pencil")
                 }
             }
-            if threadManager.visibleThreads.count > 1 {
-                Button {
-                    threadManager.archiveThread(id: thread.id)
-                } label: {
-                    Label("Archive", systemImage: "archivebox")
-                }
+            Button {
+                threadManager.archiveThread(id: thread.id)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
             }
         }
         .onHover { hovering in
