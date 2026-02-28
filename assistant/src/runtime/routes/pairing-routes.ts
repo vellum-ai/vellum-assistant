@@ -63,11 +63,14 @@ function mintPairingActorToken(deviceId: string, platform: string): string | nul
 }
 
 /**
- * Transient in-memory map of pairingRequestId -> raw deviceId.
+ * Transient in-memory map of pairingRequestId -> { deviceId, createdAt }.
  * Stored when a pairing request is initiated (we have the raw deviceId)
  * so the token can be minted later when the pairing is actually approved.
+ * Entries include a timestamp so stale entries can be swept if the
+ * corresponding pairing expires without an explicit deny.
  */
-const pendingDeviceIds = new Map<string, string>();
+const PENDING_DEVICE_ID_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const pendingDeviceIds = new Map<string, { deviceId: string; createdAt: number }>();
 
 /**
  * Transient in-memory map of pairingRequestId -> { actorToken, approvedAt }.
@@ -88,6 +91,21 @@ function sweepApprovedTokens(): void {
   for (const [id, entry] of approvedActorTokens) {
     if (now - entry.approvedAt > TOKEN_RETRIEVAL_TTL_MS) {
       approvedActorTokens.delete(id);
+    }
+  }
+}
+
+/**
+ * Sweep stale entries from the pending device IDs map.
+ * Entries older than PENDING_DEVICE_ID_TTL_MS are removed to prevent
+ * unbounded accumulation of raw device identifiers when pairings expire
+ * without an explicit deny.
+ */
+function sweepPendingDeviceIds(): void {
+  const now = Date.now();
+  for (const [id, entry] of pendingDeviceIds) {
+    if (now - entry.createdAt > PENDING_DEVICE_ID_TTL_MS) {
+      pendingDeviceIds.delete(id);
     }
   }
 }
@@ -191,7 +209,7 @@ export async function handlePairingRequest(req: Request, ctx: PairingHandlerCont
     // Store the raw deviceId transiently so we can mint the actor token
     // later when the pairing is actually approved (avoids revoking existing
     // tokens and creating DB records for unapproved devices).
-    pendingDeviceIds.set(pairingRequestId, deviceId);
+    pendingDeviceIds.set(pairingRequestId, { deviceId, createdAt: Date.now() });
 
     // Send IPC to macOS to show approval prompt
     if (ctx.pairingBroadcast) {
@@ -229,24 +247,29 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
 
   const entry = ctx.pairingStore.get(id);
   if (!entry) {
+    // Pairing expired or was swept — clean up any lingering pending device ID
+    pendingDeviceIds.delete(id);
     return httpError('NOT_FOUND', 'Not found', 404);
   }
 
   if (entry.status === 'approved') {
-    // Sweep expired token entries on each poll
+    // Sweep expired entries on each poll
     sweepApprovedTokens();
+    sweepPendingDeviceIds();
 
     // Mint the actor token on first approved poll if we still have the
     // raw deviceId from the pairing request. Once minted, the token is
     // cached in approvedActorTokens with a TTL so subsequent polls can
     // still retrieve it if the first response was dropped.
+    // The pending deviceId is only removed after a successful mint so
+    // transient failures allow retries on subsequent polls.
     let tokenEntry = approvedActorTokens.get(id);
     if (!tokenEntry) {
-      const rawDeviceId = pendingDeviceIds.get(id);
-      if (rawDeviceId) {
-        pendingDeviceIds.delete(id);
-        const actorToken = mintPairingActorToken(rawDeviceId, 'ios');
+      const pending = pendingDeviceIds.get(id);
+      if (pending) {
+        const actorToken = mintPairingActorToken(pending.deviceId, 'ios');
         if (actorToken) {
+          pendingDeviceIds.delete(id);
           tokenEntry = { actorToken, approvedAt: Date.now() };
           approvedActorTokens.set(id, tokenEntry);
         }
