@@ -828,6 +828,40 @@ jobs:
         run: bun run test
         working-directory: gateway
 
+  build-ios:
+    needs: bump-and-tag
+    runs-on: macos-14
+    timeout-minutes: 15
+    continue-on-error: true
+    outputs:
+      actual_result: ${{ steps.report.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Clear stale SPM artifact cache
+        run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts
+
+      - name: Build for simulator
+        working-directory: clients/ios
+        run: ./build.sh
+
+      - name: Run iOS tests
+        working-directory: clients/ios
+        run: ./build.sh test
+
+      - name: Report actual result
+        id: report
+        if: always()
+        run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
+
   ci-playwright:
     needs: [bump-and-tag, build-macos]
     runs-on: macos-14
@@ -930,7 +964,7 @@ jobs:
 
   notify:
     if: always() && !cancelled()
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, build-ios, push-assistant-image, push-gateway-image, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -984,6 +1018,7 @@ jobs:
           G=$(ci_icon "${{ needs.ci-gateway.result }}")
           P=$(ci_icon "${{ needs.ci-playwright.result }}")
           D=$(ci_icon "${{ needs.build-macos.result }}")
+          I=$(ci_icon "${{ needs.build-ios.outputs.actual_result }}")
           AI=$(ci_icon "${{ needs.push-assistant-image.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-image.result }}")
 
@@ -993,7 +1028,7 @@ jobs:
             PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop\n• %s assistant-docker\n• %s gateway-docker' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$AI" "$GI")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop\n• %s ios\n• %s assistant-docker\n• %s gateway-docker' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$I" "$AI" "$GI")
           META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
 
           # Fetch release notes from GitHub release
