@@ -96,6 +96,28 @@ describe('notification decision strategy', () => {
       expect(copy.vellum!.body).toContain('reject');
     });
 
+    test('guardian.question template uses approve/reject for tool-backed pending_question payloads', () => {
+      const signal = makeSignal({
+        sourceEventName: 'guardian.question',
+        contextPayload: {
+          requestId: 'req-voice-tool-1',
+          questionText: 'Allow send_email to bob@example.com?',
+          requestCode: 'A1B2C3',
+          requestKind: 'pending_question',
+          callSessionId: 'call-1',
+          activeGuardianRequestCount: 1,
+          toolName: 'send_email',
+        },
+      });
+
+      const copy = composeFallbackCopy(signal, channels);
+      expect(copy.vellum).toBeDefined();
+      expect(copy.vellum!.body).toContain('A1B2C3');
+      expect(copy.vellum!.body).toContain('approve');
+      expect(copy.vellum!.body).toContain('reject');
+      expect(copy.vellum!.body).not.toContain('<your answer>');
+    });
+
     test('reminder.fired template uses message from payload', () => {
       const signal = makeSignal({
         sourceEventName: 'reminder.fired',

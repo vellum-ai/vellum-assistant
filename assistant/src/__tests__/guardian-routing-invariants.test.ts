@@ -506,6 +506,38 @@ describe('routing invariant: code-only messages return clarification', () => {
     expect(unchanged!.status).toBe('pending');
   });
 
+  test('code-only tool-backed pending_question asks for approve/reject decision', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+      sourceChannel: 'voice',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      callSessionId: 'call-2',
+      pendingQuestionId: 'pq-2',
+      requestCode: 'B2C3D4',
+      questionText: 'Allow send_email to bob@example.com?',
+      toolName: 'send_email',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'B2C3D4',
+      conversationId: 'conv-1',
+    }));
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe('code_only_clarification');
+    expect(result.decisionApplied).toBe(false);
+    expect(result.replyText).toContain('B2C3D4');
+    expect(result.replyText).toContain('approve');
+    expect(result.replyText).toContain('reject');
+    expect(result.replyText).not.toContain('<your answer>');
+
+    const unchanged = getCanonicalGuardianRequest(req.id);
+    expect(unchanged!.status).toBe('pending');
+  });
+
   test('code with decision text does apply the decision', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
@@ -730,6 +762,51 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
     // Disambiguation reply should list request codes
     expect(result.replyText).toContain('AAA111');
     expect(result.replyText).toContain('BBB222');
+  });
+
+  test('disambiguation treats tool-backed pending_question as approval request', async () => {
+    const answerRequest = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+      sourceChannel: 'voice',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      callSessionId: 'call-answer',
+      pendingQuestionId: 'pq-answer',
+      requestCode: 'ABC123',
+      questionText: 'What time works best?',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const approvalRequest = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+      sourceChannel: 'voice',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      callSessionId: 'call-approval',
+      pendingQuestionId: 'pq-approval',
+      requestCode: 'DEF456',
+      questionText: 'Allow send_email to bob@example.com?',
+      toolName: 'send_email',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'approve',
+      conversationId: 'conv-guardian-thread',
+      pendingRequestIds: [answerRequest.id, approvalRequest.id],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe('disambiguation_needed');
+    expect(result.decisionApplied).toBe(false);
+    expect(result.replyText).toContain('ABC123');
+    expect(result.replyText).toContain('DEF456');
+    expect(result.replyText).toContain('send_email');
+    expect(result.replyText).toContain('For questions: reply "ABC123 <your answer>".');
+    expect(result.replyText).toContain('For approvals: reply "DEF456 approve" or "DEF456 reject".');
   });
 
   test('single pending request does not need disambiguation', async () => {

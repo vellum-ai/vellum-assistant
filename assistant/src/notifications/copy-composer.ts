@@ -10,7 +10,10 @@
  */
 
 import type { NotificationSignal } from './signal.js';
-import { resolveGuardianQuestionInstructionMode } from './guardian-question-mode.js';
+import {
+  buildGuardianRequestCodeInstruction,
+  resolveGuardianQuestionInstructionMode,
+} from './guardian-question-mode.js';
 import type { NotificationChannel, RenderedChannelCopy } from './types.js';
 
 type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
@@ -50,9 +53,7 @@ const TEMPLATES: Record<string, CopyTemplate> = {
 
     const normalizedCode = requestCode.toUpperCase();
     const modeResolution = resolveGuardianQuestionInstructionMode(payload);
-    const instruction = modeResolution.mode === 'approval'
-      ? `Reference code: ${normalizedCode}. Reply "${normalizedCode} approve" or "${normalizedCode} reject".`
-      : `Reference code: ${normalizedCode}. Reply "${normalizedCode} <your answer>".`;
+    const instruction = buildGuardianRequestCodeInstruction(normalizedCode, modeResolution.mode);
     return {
       title: 'Guardian Question',
       body: `${question}\n\n${instruction}`,

@@ -28,6 +28,11 @@ import {
   getCanonicalGuardianRequestByCode,
   listCanonicalGuardianRequests,
 } from '../memory/canonical-guardian-store.js';
+import {
+  buildGuardianRequestCodeInstruction,
+  resolveGuardianInstructionModeFromFields,
+  type GuardianQuestionInstructionMode,
+} from '../notifications/guardian-question-mode.js';
 import { getLogger } from '../util/logger.js';
 import { runApprovalConversationTurn } from './approval-conversation-turn.js';
 import type { ApprovalAction } from './channel-approval-types.js';
@@ -570,13 +575,15 @@ async function applyDecision(
     return notConsumed();
   }
 
+  const request = getCanonicalGuardianRequest(requestId);
+
   return {
     decisionApplied: false,
     consumed: true,
     type: 'canonical_decision_stale',
     requestId,
     canonicalResult,
-    replyText: failureReplyText(canonicalResult.reason),
+    replyText: failureReplyText(canonicalResult.reason, request?.requestCode, request ?? undefined),
   };
 }
 
@@ -643,8 +650,17 @@ function inferActionFromText(text: string): ApprovalAction {
   return 'approve_once';
 }
 
-function isPendingQuestionRequest(request?: CanonicalGuardianRequest | null): boolean {
-  return request?.kind === 'pending_question';
+function resolveRequestInstructionMode(
+  request?: Pick<CanonicalGuardianRequest, 'kind' | 'toolName'> | null,
+): GuardianQuestionInstructionMode {
+  if (!request) return 'approval';
+  const modeResolution = resolveGuardianInstructionModeFromFields(request.kind, request.toolName);
+  if (!modeResolution) return 'approval';
+  return modeResolution.mode;
+}
+
+function isAnswerModeRequest(request?: Pick<CanonicalGuardianRequest, 'kind' | 'toolName'> | null): boolean {
+  return resolveRequestInstructionMode(request) === 'answer';
 }
 
 // ---------------------------------------------------------------------------
@@ -669,18 +685,33 @@ function failureReplyText(
       return 'This request has expired.';
     case 'identity_mismatch':
       return "You don't have permission to decide on this request.";
-    case 'invalid_action':
-      if (isPendingQuestionRequest(request)) {
-        return requestCode
-          ? `I found request ${requestCode}, but I still need your answer. Reply "${requestCode} <your answer>".`
-          : "I couldn't determine your answer. Reply with the request code followed by your answer (e.g., \"ABC123 3pm works\").";
+    case 'invalid_action': {
+      const mode = resolveRequestInstructionMode(request);
+      switch (mode) {
+        case 'answer':
+          return requestCode
+            ? `I found request ${requestCode}, but I still need your answer. Reply "${requestCode} <your answer>".`
+            : "I couldn't determine your answer. Reply with the request code followed by your answer (e.g., \"ABC123 3pm works\").";
+        case 'approval':
+          return requestCode
+            ? `I found request ${requestCode}, but I need to know your decision. Reply "${requestCode} approve" or "${requestCode} reject".`
+            : "I couldn't determine your intended action. Reply with the request code followed by 'approve' or 'reject' (e.g., \"ABC123 approve\").";
+        default: {
+          const _never: never = mode;
+          return _never;
+        }
       }
-      return requestCode
-        ? `I found request ${requestCode}, but I need to know your decision. Reply "${requestCode} approve" or "${requestCode} reject".`
-        : "I couldn't determine your intended action. Reply with the request code followed by 'approve' or 'reject' (e.g., \"ABC123 approve\").";
+    }
     default:
       return "I couldn't process that request. Please try again.";
   }
+}
+
+function instructionTail(mode: GuardianQuestionInstructionMode, requestCode: string): string {
+  const instruction = buildGuardianRequestCodeInstruction(requestCode, mode);
+  const prefix = `Reference code: ${requestCode}. `;
+  if (!instruction.startsWith(prefix)) return instruction;
+  return instruction.slice(prefix.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -694,14 +725,15 @@ function failureReplyText(
  */
 function composeCodeOnlyClarification(request: CanonicalGuardianRequest): string {
   const code = request.requestCode ?? 'unknown';
-  if (isPendingQuestionRequest(request)) {
+  const mode = resolveRequestInstructionMode(request);
+  if (mode === 'answer') {
     const lines: string[] = [
       `I found question ${code}.`,
     ];
     if (request.questionText) {
       lines.push(`Question: ${request.questionText}`);
     }
-    lines.push(`Reply "${code} <your answer>" to send your answer.`);
+    lines.push(instructionTail(mode, code));
     return lines.join('\n');
   }
 
@@ -712,7 +744,7 @@ function composeCodeOnlyClarification(request: CanonicalGuardianRequest): string
   if (request.questionText) {
     lines.push(`Details: ${request.questionText}`);
   }
-  lines.push(`Reply "${code} approve" to approve or "${code} reject" to reject.`);
+  lines.push(instructionTail(mode, code));
   return lines.join('\n');
 }
 
@@ -730,6 +762,10 @@ function composeDisambiguationReply(
   engineReplyText?: string,
 ): string {
   const lines: string[] = [];
+  const requestsWithMode = pendingRequests.map((request) => ({
+    request,
+    mode: resolveRequestInstructionMode(request),
+  }));
 
   if (engineReplyText) {
     lines.push(engineReplyText);
@@ -738,23 +774,23 @@ function composeDisambiguationReply(
 
   lines.push(`You have ${pendingRequests.length} pending requests. Please specify which one:`);
 
-  for (const req of pendingRequests) {
-    const toolLabel = isPendingQuestionRequest(req)
-      ? (req.questionText ?? 'question')
-      : (req.toolName ?? 'action');
-    const code = req.requestCode ?? req.id.slice(0, 6).toUpperCase();
+  for (const { request, mode } of requestsWithMode) {
+    const toolLabel = mode === 'answer'
+      ? (request.questionText ?? 'question')
+      : (request.toolName ?? request.questionText ?? 'action');
+    const code = request.requestCode ?? request.id.slice(0, 6).toUpperCase();
     lines.push(`  - ${code}: ${toolLabel}`);
   }
 
-  const questionRequest = pendingRequests.find((req) => isPendingQuestionRequest(req));
-  const decisionRequest = pendingRequests.find((req) => !isPendingQuestionRequest(req));
+  const questionRequest = requestsWithMode.find(({ mode }) => mode === 'answer');
+  const decisionRequest = requestsWithMode.find(({ mode }) => mode === 'approval');
   lines.push('');
   if (questionRequest) {
-    const exampleCode = questionRequest.requestCode ?? questionRequest.id.slice(0, 6).toUpperCase();
+    const exampleCode = questionRequest.request.requestCode ?? questionRequest.request.id.slice(0, 6).toUpperCase();
     lines.push(`For questions: reply "${exampleCode} <your answer>".`);
   }
   if (decisionRequest) {
-    const exampleCode = decisionRequest.requestCode ?? decisionRequest.id.slice(0, 6).toUpperCase();
+    const exampleCode = decisionRequest.request.requestCode ?? decisionRequest.request.id.slice(0, 6).toUpperCase();
     lines.push(`For approvals: reply "${exampleCode} approve" or "${exampleCode} reject".`);
   }
 

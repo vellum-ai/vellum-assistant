@@ -17,7 +17,11 @@ import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } fro
 import type { ModelIntent } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import { composeFallbackCopy } from './copy-composer.js';
-import { resolveGuardianQuestionInstructionMode } from './guardian-question-mode.js';
+import {
+  buildGuardianRequestCodeInstruction,
+  hasGuardianRequestCodeInstruction,
+  resolveGuardianQuestionInstructionMode,
+} from './guardian-question-mode.js';
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal, RoutingIntent } from './signal.js';
@@ -412,21 +416,11 @@ function ensureGuardianRequestCodeInCopy(
   requestCode: string,
   mode: 'approval' | 'answer',
 ): RenderedChannelCopy {
-  const instruction = mode === 'approval'
-    ? `Reference code: ${requestCode}. Reply "${requestCode} approve" or "${requestCode} reject".`
-    : `Reference code: ${requestCode}. Reply "${requestCode} <your answer>".`;
-  const hasParserCompatibleInstructions = (text: string | undefined): boolean => {
-    if (typeof text !== 'string') return false;
-    const upper = text.toUpperCase();
-    if (mode === 'approval') {
-      return upper.includes(`${requestCode} APPROVE`) && upper.includes(`${requestCode} REJECT`);
-    }
-    return upper.includes(`REFERENCE CODE: ${requestCode}`) && upper.includes(`"${requestCode} `);
-  };
+  const instruction = buildGuardianRequestCodeInstruction(requestCode, mode);
 
   const ensureText = (text: string | undefined): string => {
     const base = typeof text === 'string' ? text.trim() : '';
-    if (hasParserCompatibleInstructions(base)) return base;
+    if (hasGuardianRequestCodeInstruction(base, requestCode, mode)) return base;
     return base.length > 0 ? `${base}\n\n${instruction}` : instruction;
   };
 

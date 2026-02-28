@@ -166,6 +166,7 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
         requestKind: request.kind,
         requestCode: request.requestCode,
         callSessionId,
+        toolName: toolName ?? null,
         questionText: pendingQuestion.questionText,
         activeGuardianRequestCount,
       },

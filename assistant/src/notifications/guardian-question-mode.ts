@@ -16,6 +16,27 @@ export const GUARDIAN_QUESTION_REQUEST_KINDS = {
 export type GuardianQuestionRequestKind = keyof typeof GUARDIAN_QUESTION_REQUEST_KINDS;
 export type GuardianQuestionInstructionMode = 'approval' | 'answer';
 
+interface GuardianRequestKindModeConfig {
+  defaultMode: GuardianQuestionInstructionMode;
+  modeWhenToolNamePresent?: GuardianQuestionInstructionMode;
+}
+
+const REQUEST_KIND_MODE_CONFIG: Record<GuardianQuestionRequestKind, GuardianRequestKindModeConfig> = {
+  pending_question: {
+    defaultMode: 'answer',
+    modeWhenToolNamePresent: 'approval',
+  },
+  tool_approval: {
+    defaultMode: 'approval',
+  },
+  tool_grant_request: {
+    defaultMode: 'approval',
+  },
+  access_request: {
+    defaultMode: 'approval',
+  },
+};
+
 interface GuardianQuestionPayloadBase {
   requestKind: GuardianQuestionRequestKind;
   requestId: string;
@@ -27,6 +48,11 @@ export interface PendingQuestionGuardianPayload extends GuardianQuestionPayloadB
   requestKind: 'pending_question';
   callSessionId: string;
   activeGuardianRequestCount: number;
+  /**
+   * Voice tool-approval requests are persisted as pending_question with tool
+   * metadata so they still route through pending-question resolution.
+   */
+  toolName?: string;
 }
 
 export interface ToolApprovalGuardianPayload extends GuardianQuestionPayloadBase {
@@ -107,14 +133,21 @@ export function parseGuardianQuestionPayload(
       const activeGuardianRequestCount = typeof payload.activeGuardianRequestCount === 'number'
         ? payload.activeGuardianRequestCount
         : null;
+      const toolName = nonEmptyString(payload.toolName);
       if (!callSessionId || activeGuardianRequestCount === null || Number.isNaN(activeGuardianRequestCount)) {
         return null;
       }
-      return {
+      const pendingQuestionPayload: PendingQuestionGuardianPayload = {
         requestKind,
         ...base,
         callSessionId,
         activeGuardianRequestCount,
+      };
+      if (toolName) {
+        pendingQuestionPayload.toolName = toolName;
+      }
+      return {
+        ...pendingQuestionPayload,
       };
     }
     case 'tool_approval':
@@ -137,17 +170,67 @@ export function parseGuardianQuestionPayload(
   }
 }
 
-function modeForKind(requestKind: GuardianQuestionRequestKind): GuardianQuestionInstructionMode {
-  switch (requestKind) {
-    case 'pending_question':
-      return 'answer';
-    case 'tool_approval':
-    case 'tool_grant_request':
-    case 'access_request':
-      return 'approval';
+export function resolveGuardianInstructionModeForRequestKind(
+  requestKind: GuardianQuestionRequestKind,
+  toolName?: string | null,
+): GuardianQuestionInstructionMode {
+  const config = REQUEST_KIND_MODE_CONFIG[requestKind];
+  const normalizedToolName = nonEmptyString(toolName);
+  if (normalizedToolName && config.modeWhenToolNamePresent) {
+    return config.modeWhenToolNamePresent;
+  }
+
+  return config.defaultMode;
+}
+
+export function resolveGuardianInstructionModeFromFields(
+  requestKindValue: unknown,
+  toolNameValue: unknown,
+): { requestKind: GuardianQuestionRequestKind; mode: GuardianQuestionInstructionMode } | null {
+  const requestKind = parseGuardianQuestionRequestKind({ requestKind: requestKindValue });
+  if (!requestKind) return null;
+
+  return {
+    requestKind,
+    mode: resolveGuardianInstructionModeForRequestKind(requestKind, nonEmptyString(toolNameValue)),
+  };
+}
+
+export function buildGuardianRequestCodeInstruction(
+  requestCode: string,
+  mode: GuardianQuestionInstructionMode,
+): string {
+  switch (mode) {
+    case 'approval':
+      return `Reference code: ${requestCode}. Reply "${requestCode} approve" or "${requestCode} reject".`;
+    case 'answer':
+      return `Reference code: ${requestCode}. Reply "${requestCode} <your answer>".`;
     default: {
-      // Exhaustive guard for future request kinds
-      const _never: never = requestKind;
+      const _never: never = mode;
+      return _never;
+    }
+  }
+}
+
+export function hasGuardianRequestCodeInstruction(
+  text: string | undefined,
+  requestCode: string,
+  mode: GuardianQuestionInstructionMode,
+): boolean {
+  if (typeof text !== 'string') return false;
+  const upper = text.toUpperCase();
+  const normalizedCode = requestCode.toUpperCase();
+
+  switch (mode) {
+    case 'approval':
+      return upper.includes(`${normalizedCode} APPROVE`) && upper.includes(`${normalizedCode} REJECT`);
+    case 'answer': {
+      const hasAnswerInstruction = upper.includes(`${normalizedCode} <YOUR ANSWER>`);
+      const hasApprovalInstruction = upper.includes(`${normalizedCode} APPROVE`) || upper.includes(`${normalizedCode} REJECT`);
+      return hasAnswerInstruction && !hasApprovalInstruction;
+    }
+    default: {
+      const _never: never = mode;
       return _never;
     }
   }
@@ -164,17 +247,30 @@ export function resolveGuardianQuestionInstructionMode(
 ): GuardianQuestionModeResolution {
   const parsed = parseGuardianQuestionPayload(payload);
   if (parsed) {
+    const parsedToolName = 'toolName' in parsed ? parsed.toolName : null;
     return {
-      mode: modeForKind(parsed.requestKind),
+      mode: resolveGuardianInstructionModeForRequestKind(parsed.requestKind, parsedToolName),
       requestKind: parsed.requestKind,
       legacyFallbackUsed: false,
+    };
+  }
+
+  const requestKindResolution = resolveGuardianInstructionModeFromFields(
+    payload.requestKind,
+    payload.toolName,
+  );
+  if (requestKindResolution) {
+    return {
+      mode: requestKindResolution.mode,
+      requestKind: requestKindResolution.requestKind,
+      legacyFallbackUsed: true,
     };
   }
 
   const toolName = nonEmptyString(payload.toolName);
   return {
     mode: toolName ? 'approval' : 'answer',
-    requestKind: parseGuardianQuestionRequestKind(payload),
+    requestKind: null,
     legacyFallbackUsed: true,
   };
 }

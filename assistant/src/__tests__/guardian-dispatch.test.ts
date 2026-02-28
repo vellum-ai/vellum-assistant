@@ -367,6 +367,11 @@ describe('guardian-dispatch', () => {
     expect(request).toBeDefined();
     expect(request!.tool_name).toBe('send_email');
     expect(request!.input_digest).toBe('abc123def456');
+
+    const signalParams = emitCalls[0] as Record<string, unknown>;
+    const payload = signalParams.contextPayload as Record<string, unknown>;
+    expect(payload.requestKind).toBe('pending_question');
+    expect(payload.toolName).toBe('send_email');
   });
 
   test('omitting toolName and inputDigest stores null for informational ASK_GUARDIAN dispatches', async () => {
@@ -423,6 +428,7 @@ describe('guardian-dispatch', () => {
     expect(payload.activeGuardianRequestCount).toBe(1);
     expect(payload.callSessionId).toBe(session.id);
     expect(payload.requestKind).toBe('pending_question');
+    expect(payload.toolName).toBeNull();
     expect(payload.pendingQuestionId).toBeUndefined();
   });
 

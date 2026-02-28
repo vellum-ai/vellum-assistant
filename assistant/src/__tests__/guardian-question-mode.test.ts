@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  buildGuardianRequestCodeInstruction,
+  hasGuardianRequestCodeInstruction,
   parseGuardianQuestionPayload,
+  resolveGuardianInstructionModeFromFields,
   resolveGuardianQuestionInstructionMode,
 } from '../notifications/guardian-question-mode.js';
 
@@ -36,6 +39,23 @@ describe('guardian-question-mode', () => {
     expect(parsed?.requestKind).toBe('tool_grant_request');
     if (!parsed || parsed.requestKind !== 'tool_grant_request') return;
     expect(parsed.toolName).toBe('host_bash');
+  });
+
+  test('parses pending_question payload with optional toolName metadata', () => {
+    const parsed = parseGuardianQuestionPayload({
+      requestKind: 'pending_question',
+      requestId: 'req-voice-tool-1',
+      requestCode: 'AA11BB',
+      questionText: 'Allow send_email?',
+      callSessionId: 'call-voice-1',
+      activeGuardianRequestCount: 1,
+      toolName: 'send_email',
+    });
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.requestKind).toBe('pending_question');
+    if (!parsed || parsed.requestKind !== 'pending_question') return;
+    expect(parsed.toolName).toBe('send_email');
   });
 
   test('rejects invalid pending_question payload missing required fields', () => {
@@ -74,5 +94,34 @@ describe('guardian-question-mode', () => {
     expect(resolved.requestKind).toBeNull();
     expect(resolved.legacyFallbackUsed).toBe(true);
   });
-});
 
+  test('resolve mode treats pending_question with toolName as approval-mode', () => {
+    const resolved = resolveGuardianQuestionInstructionMode({
+      requestKind: 'pending_question',
+      requestId: 'req-voice-tool-2',
+      requestCode: 'CC22DD',
+      questionText: 'Allow send_email?',
+      callSessionId: 'call-voice-2',
+      activeGuardianRequestCount: 1,
+      toolName: 'send_email',
+    });
+
+    expect(resolved.mode).toBe('approval');
+    expect(resolved.requestKind).toBe('pending_question');
+    expect(resolved.legacyFallbackUsed).toBe(false);
+  });
+
+  test('resolveGuardianInstructionModeFromFields returns null for unknown request kind', () => {
+    const resolved = resolveGuardianInstructionModeFromFields('unknown_kind', 'send_email');
+    expect(resolved).toBeNull();
+  });
+
+  test('answer-mode instruction detection rejects approval phrasing', () => {
+    const code = 'A1B2C3';
+    const wrongInstruction = buildGuardianRequestCodeInstruction(code, 'approval');
+    const correctInstruction = buildGuardianRequestCodeInstruction(code, 'answer');
+
+    expect(hasGuardianRequestCodeInstruction(wrongInstruction, code, 'answer')).toBe(false);
+    expect(hasGuardianRequestCodeInstruction(correctInstruction, code, 'answer')).toBe(true);
+  });
+});

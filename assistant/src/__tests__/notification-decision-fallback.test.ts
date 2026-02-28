@@ -154,6 +154,44 @@ describe('notification decision fallback copy', () => {
     expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 <your answer>"');
   });
 
+  test('enforcement appends answer instructions when LLM copy incorrectly uses approve/reject wording', async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: 'record_notification_decision',
+      input: {
+        shouldNotify: true,
+        selectedChannels: ['vellum'],
+        reasoningSummary: 'LLM decision',
+        renderedCopy: {
+          vellum: {
+            title: 'Guardian Question',
+            body: 'Reference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".',
+          },
+        },
+        dedupeKey: 'guardian-question-wrong-instructions-test',
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeSignal({
+      contextPayload: {
+        requestId: 'req-pending-approve-phrasing',
+        questionText: 'What is the gate code?',
+        requestCode: 'A1B2C3',
+        requestKind: 'pending_question',
+        callSessionId: 'call-1',
+        activeGuardianRequestCount: 1,
+      },
+    });
+
+    const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 <your answer>"');
+  });
+
   test('enforcement appends explicit approve/reject instructions for tool-approval guardian questions', async () => {
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
