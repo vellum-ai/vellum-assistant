@@ -156,6 +156,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     private var bootstrapInterstitialWindow: NSWindow?
     /// Active task for the bootstrap retry coordinator. Cancelled on dismiss.
     private var bootstrapRetryTask: Task<Void, Never>?
+    /// Background task that retries actor-token bootstrap until success.
+    private var actorTokenBootstrapTask: Task<Void, Never>?
     /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
@@ -354,6 +356,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupNotifications()
         setupAutoUpdate()
         installCLISymlinkIfNeeded()
+
+        // Ensure an actor token is present. On first launch this is the
+        // initial bootstrap; on subsequent launches it retries silently
+        // if a previous attempt failed or the token was cleared.
+        ensureActorTokenBootstrap()
 
         if isFirstLaunch {
             // Enter the bootstrap state machine. The sequence is:
@@ -601,6 +608,49 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
     }
 
+    // MARK: - Actor Token Bootstrap
+
+    /// Ensures an actor token is present. If missing, waits for the daemon
+    /// to become reachable and calls the bootstrap endpoint with exponential
+    /// backoff. Runs entirely in the background and never blocks the UI.
+    private func ensureActorTokenBootstrap() {
+        actorTokenBootstrapTask?.cancel()
+
+        actorTokenBootstrapTask = Task { [weak self] in
+            guard let self else { return }
+
+            // Already have a token — nothing to do.
+            if ActorTokenManager.hasToken { return }
+
+            let deviceId = PairingQRCodeSheet.computeHostId()
+            var delay: UInt64 = 2_000_000_000 // 2 seconds initial
+            let maxDelay: UInt64 = 60_000_000_000 // 60 seconds cap
+
+            while !Task.isCancelled {
+                // Wait for the daemon to be connected before attempting.
+                guard self.daemonClient.isConnected else {
+                    try? await Task.sleep(nanoseconds: delay)
+                    continue
+                }
+
+                let success = await self.daemonClient.bootstrapActorToken(
+                    platform: "macos",
+                    deviceId: deviceId
+                )
+
+                if success {
+                    log.info("Actor token bootstrap succeeded")
+                    return
+                }
+
+                // Exponential backoff with jitter
+                let jitter = UInt64.random(in: 0...(delay / 4))
+                try? await Task.sleep(nanoseconds: delay + jitter)
+                delay = min(delay * 2, maxDelay)
+            }
+        }
+    }
+
     private func showAuthWindow() {
         if let existing = authWindow {
             existing.makeKeyAndOrderFront(nil)
@@ -725,6 +775,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 }
             }
 
+            actorTokenBootstrapTask?.cancel()
+            actorTokenBootstrapTask = nil
+            ActorTokenManager.deleteToken()
+
             assistantCli.stopMonitoring()
             hasSetupApp = false
             hasSetupDaemon = false
@@ -739,8 +793,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
         assistant.writeToWorkspaceConfig()
 
+        // Clear stale actor token for the previous assistant and re-bootstrap
+        // for the new one once the daemon connects.
+        actorTokenBootstrapTask?.cancel()
+        actorTokenBootstrapTask = nil
+        ActorTokenManager.deleteToken()
+
         hasSetupDaemon = false
         setupDaemonClient()
+        ensureActorTokenBootstrap()
     }
 
     @objc func performRetire() {
@@ -804,6 +865,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // new onboarding flow.
         bootstrapRetryTask?.cancel()
         bootstrapRetryTask = nil
+        actorTokenBootstrapTask?.cancel()
+        actorTokenBootstrapTask = nil
+        ActorTokenManager.deleteToken()
 
         mainWindow?.close()
         mainWindow = nil
