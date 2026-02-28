@@ -121,25 +121,6 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
       console.log(`  [agent] iteration ${iteration + 1}/${MAX_ITERATIONS}`);
     }
 
-    // Inject budget awareness into the conversation at key thresholds
-    const elapsedMs = Date.now() - startTime;
-    const remainingIterations = MAX_ITERATIONS - iteration;
-    const remainingSecs = Math.max(0, Math.floor((MAX_TEST_DURATION_MS - elapsedMs) / 1000));
-
-    if (remainingIterations <= 5 || remainingSecs <= 30) {
-      // Urgent: about to run out of time/iterations
-      messages.push({
-        role: "user",
-        content: `⚠️ URGENT: You have ${remainingIterations} iterations and ~${remainingSecs}s remaining. You MUST call report_result NOW with your best assessment of pass/fail. Do not perform any more test steps.`,
-      });
-    } else if (remainingIterations <= 15 || remainingSecs <= 90) {
-      // Warning: getting close to the limit
-      messages.push({
-        role: "user",
-        content: `⏱️ Budget check: ${remainingIterations} iterations and ~${remainingSecs}s remaining. Wrap up your verification and call report_result soon.`,
-      });
-    }
-
     let response: Anthropic.Message;
     for (let retry = 0; ; retry++) {
       if (signal.aborted) {
@@ -252,8 +233,27 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
       }
     }
 
-    // Add tool results to conversation
-    messages.push({ role: "user", content: toolResultBlocks });
+    // Build the user message with tool results and optional budget warning
+    const userContent: (Anthropic.ToolResultBlockParam | Anthropic.TextBlockParam)[] = [...toolResultBlocks];
+
+    // Inject budget awareness into the tool results message
+    const elapsedMs = Date.now() - startTime;
+    const remainingIterations = MAX_ITERATIONS - iteration - 1; // iterations left after this one
+    const remainingSecs = Math.max(0, Math.floor((MAX_TEST_DURATION_MS - elapsedMs) / 1000));
+
+    if (remainingIterations <= 5 || remainingSecs <= 30) {
+      userContent.push({
+        type: "text",
+        text: `⚠️ URGENT: You have ${remainingIterations} iterations and ~${remainingSecs}s remaining. You MUST call report_result NOW with your best assessment of pass/fail. Do not perform any more test steps.`,
+      });
+    } else if (remainingIterations <= 15 || remainingSecs <= 90) {
+      userContent.push({
+        type: "text",
+        text: `⏱️ Budget check: ${remainingIterations} iterations and ~${remainingSecs}s remaining. Wrap up your verification and call report_result soon.`,
+      });
+    }
+
+    messages.push({ role: "user", content: userContent });
 
     // If the agent reported a result, we're done
     if (finalTestResult) {
