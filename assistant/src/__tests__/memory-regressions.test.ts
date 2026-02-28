@@ -4591,7 +4591,7 @@ describe('Memory regressions', () => {
   test('messageMetadataSchema validates provenance fields', () => {
     const valid = messageMetadataSchema.safeParse({
       provenanceTrustClass: 'guardian',
-      provenanceSourceChannel: 'macos',
+      provenanceSourceChannel: 'vellum',
     });
     expect(valid.success).toBe(true);
 

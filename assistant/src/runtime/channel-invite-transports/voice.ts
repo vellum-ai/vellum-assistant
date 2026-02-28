@@ -25,7 +25,7 @@ import {
 export const voiceInviteTransport: ChannelInviteTransport = {
   channel: 'voice' as ChannelId,
 
-  buildShareableInvite(params: {
+  buildShareableInvite(_params: {
     rawToken: string;
     sourceChannel: ChannelId;
   }): InviteSharePayload {

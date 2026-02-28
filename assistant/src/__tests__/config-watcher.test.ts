@@ -96,7 +96,9 @@ mock.module('node:fs', () => {
 
 // Mock config/loader and other dependencies that ConfigWatcher imports
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({}),
+  getConfig: () => ({
+    ui: {},
+    }),
   invalidateConfigCache: () => {},
 }));
 

@@ -35,6 +35,8 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     model: 'test',
     provider: 'test',
     apiKeys: {},
@@ -116,8 +118,8 @@ describe('SSE assistant-events endpoint', () => {
 
     const res = await fetch(eventsUrl(), { headers: AUTH_HEADERS });
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('conversationKey');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('conversationKey');
 
     await stopServer();
   });

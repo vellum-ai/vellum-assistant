@@ -271,7 +271,7 @@ describe('routing invariant: identity checks enforced before decisions', () => {
     expect(result.applied).toBe(true);
   });
 
-  test('request with no guardian binding accepts any actor', async () => {
+  test('request with no guardian binding rejects non-trusted actor', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
@@ -286,7 +286,9 @@ describe('routing invariant: identity checks enforced before decisions', () => {
       actorContext: guardianActor({ externalUserId: 'anyone' }),
     });
 
-    expect(result.applied).toBe(true);
+    expect(result.applied).toBe(false);
+    if (result.applied) return;
+    expect(result.reason).toBe('identity_mismatch');
   });
 
   test('identity mismatch on code-only message blocks detail leakage', async () => {
@@ -759,6 +761,45 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
     const resolved = getCanonicalGuardianRequest(req.id);
     expect(resolved!.status).toBe('approved');
   });
+
+  test('code-based routing is constrained to caller-provided pendingRequestIds scope', async () => {
+    const inScope = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: '111AAA',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const outOfScope = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-2',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: '222BBB',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    registerPendingToolApprovalInteraction(inScope.id, 'conv-1', 'shell');
+    registerPendingToolApprovalInteraction(outOfScope.id, 'conv-2', 'shell');
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: '222BBB approve',
+      conversationId: 'conv-guardian-thread',
+      pendingRequestIds: [inScope.id],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(false);
+    expect(result.type).toBe('not_consumed');
+    expect(result.decisionApplied).toBe(false);
+
+    const inScopeAfter = getCanonicalGuardianRequest(inScope.id);
+    const outOfScopeAfter = getCanonicalGuardianRequest(outOfScope.id);
+    expect(inScopeAfter!.status).toBe('pending');
+    expect(outOfScopeAfter!.status).toBe('pending');
+  });
 });
 
 // ===========================================================================
@@ -907,14 +948,14 @@ describe('routing invariant: callback buttons route through canonical primitive'
 });
 
 // ===========================================================================
-// SECTION 9: Destination hint-based NL approval for missing guardianExternalUserId
+// SECTION 9: Destination hints do not bypass identity binding for tool_approval
 // ===========================================================================
 
-describe('routing invariant: destination hints enable NL approval without guardianExternalUserId', () => {
+describe('routing invariant: destination hints do not bypass tool_approval identity binding', () => {
   beforeEach(() => resetTables());
 
-  test('explicit pendingRequestIds from destination hints allows deterministic plain-text approval when guardianExternalUserId is missing', async () => {
-    // Voice-originated pending_question: no guardianExternalUserId
+  test('explicit pendingRequestIds still fail closed when guardianExternalUserId is missing', async () => {
+    // Voice-originated tool approval with missing guardian identity binding.
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
@@ -939,11 +980,11 @@ describe('routing invariant: destination hints enable NL approval without guardi
     }));
 
     expect(result.consumed).toBe(true);
-    expect(result.type).toBe('canonical_decision_applied');
-    expect(result.decisionApplied).toBe(true);
+    expect(result.type).toBe('canonical_decision_stale');
+    expect(result.decisionApplied).toBe(false);
 
     const resolved = getCanonicalGuardianRequest(req.id);
-    expect(resolved!.status).toBe('approved');
+    expect(resolved!.status).toBe('pending');
   });
 
   test('without destination hints, missing guardianExternalUserId means no pending requests found', async () => {
@@ -1049,7 +1090,7 @@ describe('routing invariant: invite handoff bypass for access requests', () => {
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
-    const result = await routeGuardianReply(replyCtx({
+    await routeGuardianReply(replyCtx({
       messageText: 'open invite flow',
       conversationId: 'conv-guardian-thread',
       pendingRequestIds: [req.id],
@@ -1070,14 +1111,14 @@ describe('routing invariant: invite handoff bypass for access requests', () => {
       sourceChannel: 'telegram',
       conversationId: 'conv-access-2',
       guardianExternalUserId: 'guardian-1',
-      requestCode: 'APP001',
+      requestCode: 'A00B01',
       toolName: 'ingress_access_request',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
-    // Code-based approve should still work
+    // Code-based approve should still work (request code must be valid hex: [A-F0-9]{6})
     const result = await routeGuardianReply(replyCtx({
-      messageText: 'APP001 approve',
+      messageText: 'A00B01 approve',
       conversationId: 'conv-guardian-thread',
       pendingRequestIds: [req.id],
       approvalConversationGenerator: undefined,

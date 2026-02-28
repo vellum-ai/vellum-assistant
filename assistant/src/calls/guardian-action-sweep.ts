@@ -10,7 +10,6 @@
  */
 
 import { addMessage } from '../memory/conversation-store.js';
-import type { GuardianActionDelivery } from '../memory/guardian-action-store.js';
 import {
   expireGuardianActionRequest,
   getDeliveriesByRequestId,
@@ -37,8 +36,17 @@ let sweepInProgress = false;
  * Deliveries must be captured *before* their status is changed to 'expired'
  * so the sent/pending filter still matches.
  */
+/** Minimal delivery shape used by the expiry notice sender. */
+export interface ExpiryDeliveryInfo {
+  id: string;
+  status: string;
+  destinationChannel: string;
+  destinationConversationId: string | null;
+  destinationChatId: string | null;
+}
+
 export async function sendGuardianExpiryNotices(
-  deliveries: GuardianActionDelivery[],
+  deliveries: ExpiryDeliveryInfo[],
   assistantId: string,
   gatewayBaseUrl: string,
   bearerToken?: string,

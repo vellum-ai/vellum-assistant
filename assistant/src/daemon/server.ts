@@ -94,6 +94,16 @@ function resolveTurnInterface(sourceInterface?: string): InterfaceId {
   return 'vellum';
 }
 
+function resolveCanonicalRequestSourceType(sourceChannel: string | undefined): 'desktop' | 'channel' | 'voice' {
+  if (sourceChannel === 'voice') {
+    return 'voice';
+  }
+  if (sourceChannel === 'vellum') {
+    return 'desktop';
+  }
+  return 'channel';
+}
+
 /**
  * Build an onEvent callback that registers pending interactions when the agent
  * loop emits confirmation_request or secret_request events. This ensures that
@@ -122,12 +132,17 @@ function makePendingInteractionRegistrar(
 
       // Create a canonical guardian request so IPC/HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
+      const guardianContext = session.guardianContext;
+      const sourceChannel = guardianContext?.sourceChannel ?? 'vellum';
       createCanonicalGuardianRequest({
         id: msg.requestId,
         kind: 'tool_approval',
-        sourceType: 'desktop',
-        sourceChannel: 'vellum',
+        sourceType: resolveCanonicalRequestSourceType(sourceChannel),
+        sourceChannel,
         conversationId,
+        requesterExternalUserId: guardianContext?.requesterExternalUserId,
+        requesterChatId: guardianContext?.requesterChatId,
+        guardianExternalUserId: guardianContext?.guardianExternalUserId,
         toolName: msg.toolName,
         status: 'pending',
         requestCode: generateCanonicalRequestCode(),

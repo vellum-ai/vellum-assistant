@@ -19,6 +19,8 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     daemon: { standaloneRecording: true },
     provider: 'mock-provider',
     model: 'mock-model',
@@ -233,6 +235,14 @@ mock.module('../daemon/handlers/recording.js', () => ({
 // ── Mock conversation store ────────────────────────────────────────────────
 
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  updateConversationUsage: () => {},
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getMessages: () => [],
   addMessage: () => ({ id: 'msg-mock', role: 'assistant', content: '' }),
   createConversation: (titleOrOpts?: string | { title?: string }) => {
@@ -269,6 +279,7 @@ mock.module('../security/secret-ingress.js', () => ({
 
 mock.module('../security/secret-scanner.js', () => ({
   redactSecrets: (text: string) => text,
+  compileCustomPatterns: () => [],
 }));
 
 // ── Mock classifier (for task_submit fallthrough) ──────────────────────────
@@ -307,6 +318,7 @@ mock.module('../providers/provider-send-message.js', () => ({
 
 mock.module('../memory/external-conversation-store.js', () => ({
   getBindingsForConversations: () => new Map(),
+  upsertBinding: () => {},
 }));
 
 // ── Mock subagent manager ──────────────────────────────────────────────────
@@ -376,6 +388,7 @@ function createCtx(overrides?: Partial<HandlerContext>): {
     setTurnChannelContext: noop,
     setTurnInterfaceContext: noop,
     setAssistantId: noop,
+    setChannelCapabilities: noop,
     setGuardianContext: noop,
     setCommandIntent: noop,
     processMessage: async () => {},
@@ -386,6 +399,8 @@ function createCtx(overrides?: Partial<HandlerContext>): {
     dispose: noop,
     hasPendingConfirmation: () => false,
     hasPendingSecret: () => false,
+    isProcessing: () => false,
+    messages: [] as any[],
   };
 
   const sessions = new Map<string, any>();

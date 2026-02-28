@@ -31,10 +31,31 @@ const DECLARED_LEGACY_KEY = 'skills.hatch-new-assistant.enabled';
 
 mock.module('../config/skills.js', () => ({
   loadSkillCatalog: () => mockCatalog,
+  checkSkillRequirements: () => ({ satisfied: true, missing: [] }),
 }));
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => currentConfig,
+  loadConfig: () => currentConfig,
+  invalidateConfigCache: () => {},
+}));
+
+mock.module('../config/assistant-feature-flags.js', () => ({
+  isAssistantFeatureFlagEnabled: (key: string, config: Record<string, unknown>) => {
+    const vals = (config as { assistantFeatureFlagValues?: Record<string, boolean> }).assistantFeatureFlagValues;
+    if (vals && typeof vals[key] === 'boolean') return vals[key];
+    // Check legacy featureFlags too
+    const legacy = (config as { featureFlags?: Record<string, boolean> }).featureFlags;
+    if (legacy && typeof legacy[key] === 'boolean') return legacy[key];
+    return true; // default enabled
+  },
+  loadDefaultsRegistry: () => ({}),
+  getAssistantFeatureFlagDefaults: () => ({}),
+  _resetDefaultsCache: () => {},
+}));
+
+mock.module('../config/skill-state.js', () => ({
+  skillFlagKey: (skillId: string) => `skills.${skillId}.enabled`,
 }));
 
 mock.module('../skills/active-skill-tools.js', () => {
@@ -184,6 +205,7 @@ mock.module('../util/logger.js', () => ({
     debug: () => {},
     error: () => {},
   }),
+  isDebug: () => false,
 }));
 
 // ---------------------------------------------------------------------------

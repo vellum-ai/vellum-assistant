@@ -13,6 +13,8 @@ mock.module('../channels/config.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     notifications: {
       decisionModelIntent: 'latency-optimized',
     },

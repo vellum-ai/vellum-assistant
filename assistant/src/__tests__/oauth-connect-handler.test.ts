@@ -39,7 +39,9 @@ mock.module('../util/logger.js', () => ({
 }));
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({}),
+  getConfig: () => ({
+    ui: {},
+    }),
   loadConfig: () => ({ ingress: { publicBaseUrl: 'https://test.example.com' } }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},

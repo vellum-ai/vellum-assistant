@@ -51,11 +51,11 @@ import {
   revokeMember,
   upsertMember,
 } from '../memory/ingress-member-store.js';
+import { resolveActorTrust } from '../runtime/actor-trust-resolver.js';
 import {
   createOutboundSession,
   validateAndConsumeChallenge,
 } from '../runtime/channel-guardian-service.js';
-import { resolveActorTrust } from '../runtime/actor-trust-resolver.js';
 
 initializeDb();
 

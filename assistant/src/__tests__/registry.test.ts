@@ -160,15 +160,19 @@ describe('tool manifest', () => {
   });
 
   test('manifest declares expected core lazy tools', () => {
+    // bash and swarm_delegate moved from lazy to eager registration
     const lazyNames = new Set(lazyTools.map((t) => t.name));
-    expect(lazyNames.has('bash')).toBe(true);
+    expect(lazyNames.has('bash')).toBe(false);
     expect(lazyNames.has('evaluate_typescript_code')).toBe(false);
     expect(lazyNames.has('claude_code')).toBe(false);
-    expect(lazyNames.has('swarm_delegate')).toBe(true);
+    expect(lazyNames.has('swarm_delegate')).toBe(false);
+    // Verify they are in eager tools instead
+    expect(eagerModuleToolNames).toContain('bash');
+    expect(eagerModuleToolNames).toContain('swarm_delegate');
   });
 
   test('eager module tool names list contains expected count', () => {
-    expect(eagerModuleToolNames.length).toBe(16);
+    expect(eagerModuleToolNames.length).toBe(15);
   });
 
   test('explicit tools list includes memory, credential, watch, and catalog tools', () => {

@@ -17,6 +17,8 @@ mock.module('../permissions/trust-store.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'mock-provider',
     timeouts: { permissionTimeoutSec: 5 },
     permissions: { mode: 'legacy' },

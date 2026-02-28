@@ -73,6 +73,8 @@ let mockConflictableKinds: string[] = [
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     apiKeys: { anthropic: 'test-key' },
     memory: {
       conflicts: {

@@ -26,6 +26,15 @@ describe('resolveChannelCapabilities', () => {
   test('defaults to vellum when no source channel is provided', () => {
     const caps = resolveChannelCapabilities();
     expect(caps.channel).toBe('vellum');
+    // Without a sourceInterface, desktop UI capabilities are false
+    expect(caps.dashboardCapable).toBe(false);
+    expect(caps.supportsDynamicUi).toBe(false);
+    expect(caps.supportsVoiceInput).toBe(false);
+  });
+
+  test('vellum channel with macos interface has full desktop capabilities', () => {
+    const caps = resolveChannelCapabilities(undefined, 'macos');
+    expect(caps.channel).toBe('vellum');
     expect(caps.dashboardCapable).toBe(true);
     expect(caps.supportsDynamicUi).toBe(true);
     expect(caps.supportsVoiceInput).toBe(true);
@@ -34,41 +43,42 @@ describe('resolveChannelCapabilities', () => {
   test('defaults to vellum for null source channel', () => {
     const caps = resolveChannelCapabilities(null);
     expect(caps.channel).toBe('vellum');
-    expect(caps.dashboardCapable).toBe(true);
+    expect(caps.dashboardCapable).toBe(false);
   });
 
   test('normalises "dashboard" to "vellum"', () => {
     const caps = resolveChannelCapabilities('dashboard');
     expect(caps.channel).toBe('vellum');
-    expect(caps.dashboardCapable).toBe(true);
-    expect(caps.supportsDynamicUi).toBe(true);
-    expect(caps.supportsVoiceInput).toBe(true);
+    // Without macos interface, capabilities are false
+    expect(caps.dashboardCapable).toBe(false);
+    expect(caps.supportsDynamicUi).toBe(false);
+    expect(caps.supportsVoiceInput).toBe(false);
   });
 
   test('normalises "http-api" to "vellum"', () => {
     const caps = resolveChannelCapabilities('http-api');
     expect(caps.channel).toBe('vellum');
-    expect(caps.dashboardCapable).toBe(true);
-    expect(caps.supportsDynamicUi).toBe(true);
-    expect(caps.supportsVoiceInput).toBe(true);
+    expect(caps.dashboardCapable).toBe(false);
+    expect(caps.supportsDynamicUi).toBe(false);
+    expect(caps.supportsVoiceInput).toBe(false);
   });
 
   test('normalises "mac" to "vellum"', () => {
     const caps = resolveChannelCapabilities('mac');
     expect(caps.channel).toBe('vellum');
-    expect(caps.dashboardCapable).toBe(true);
+    expect(caps.dashboardCapable).toBe(false);
   });
 
   test('normalises "macos" to "vellum"', () => {
     const caps = resolveChannelCapabilities('macos');
     expect(caps.channel).toBe('vellum');
-    expect(caps.dashboardCapable).toBe(true);
+    expect(caps.dashboardCapable).toBe(false);
   });
 
   test('normalises "ios" to "vellum"', () => {
     const caps = resolveChannelCapabilities('ios');
     expect(caps.channel).toBe('vellum');
-    expect(caps.dashboardCapable).toBe(true);
+    expect(caps.dashboardCapable).toBe(false);
   });
 
   test('resolves "telegram" as non-dashboard-capable', () => {
@@ -342,8 +352,8 @@ describe('buildChannelAwarenessSection', () => {
 // ---------------------------------------------------------------------------
 
 describe('trust-gating via channel capabilities', () => {
-  test('vellum channel does not add constraint rules', () => {
-    const caps = resolveChannelCapabilities('vellum');
+  test('vellum channel with macos interface does not add constraint rules', () => {
+    const caps = resolveChannelCapabilities('vellum', 'macos');
     const message: Message = {
       role: 'user',
       content: [{ type: 'text', text: 'Enable my microphone' }],

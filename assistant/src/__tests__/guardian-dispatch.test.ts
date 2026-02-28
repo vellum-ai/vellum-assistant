@@ -42,6 +42,8 @@ mock.module('../memory/channel-guardian-store.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     calls: {
       userConsultTimeoutSeconds: 120,
     },

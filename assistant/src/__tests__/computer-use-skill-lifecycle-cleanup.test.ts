@@ -3,6 +3,8 @@ import { beforeAll, describe, expect, mock,test } from 'bun:test';
 // Mock config before importing modules that depend on it.
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'mock-provider',
     permissions: { mode: 'legacy' },
     apiKeys: {},

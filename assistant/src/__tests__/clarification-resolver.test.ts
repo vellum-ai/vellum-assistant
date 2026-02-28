@@ -57,6 +57,8 @@ mock.module('../providers/provider-send-message.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     apiKeys: {
       anthropic: 'test-key',
     },

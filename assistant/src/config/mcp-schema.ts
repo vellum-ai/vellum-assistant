@@ -37,7 +37,7 @@ export const McpServerConfigSchema = z.object({
 });
 
 export const McpConfigSchema = z.object({
-  servers: z.record(z.string(), McpServerConfigSchema).default({} as any),
+  servers: z.record(z.string(), McpServerConfigSchema).default({} as Record<string, never>),
   globalMaxTools: z.number({ error: 'mcp globalMaxTools must be a number' }).int().positive().default(50),
 });
 

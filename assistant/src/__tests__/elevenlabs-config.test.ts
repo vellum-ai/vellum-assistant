@@ -27,6 +27,8 @@ let mockVoiceConfig = {
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     calls: { voice: mockVoiceConfig },
   }),
 }));

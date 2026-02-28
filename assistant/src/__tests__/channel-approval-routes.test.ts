@@ -2615,6 +2615,56 @@ describe('background channel processing approval prompts', () => {
     deliverPromptSpy.mockRestore();
   });
 
+  test('guardian prompt delivery still works when binding ID formatting differs from sender ID', async () => {
+    // Guardian binding includes extra whitespace; trust resolution canonicalizes
+    // identity and prompt delivery should still treat this sender as the guardian.
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: '  telegram-user-default  ',
+      guardianDeliveryChatId: 'chat-123',
+    });
+
+    const deliverPromptSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+    const processCalls: Array<{ options?: Record<string, unknown> }> = [];
+
+    const processMessage = mock(async (
+      conversationId: string,
+      _content: string,
+      _attachmentIds?: string[],
+      options?: Record<string, unknown>,
+    ) => {
+      processCalls.push({ options });
+
+      registerPendingInteraction('req-bg-format-1', conversationId, 'host_bash', {
+        input: { command: 'ls -la' },
+        riskLevel: 'medium',
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      return { messageId: 'msg-bg-format-1' };
+    });
+
+    const req = makeInboundRequest({
+      content: 'run ls',
+      sourceChannel: 'telegram',
+      replyCallbackUrl: 'https://gateway.test/deliver/telegram',
+      externalMessageId: 'msg-bg-format-1',
+    });
+
+    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage, 'token');
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    expect(processCalls.length).toBeGreaterThan(0);
+    expect(processCalls[0].options?.isInteractive).toBe(true);
+    expect(deliverPromptSpy).toHaveBeenCalled();
+
+    deliverPromptSpy.mockRestore();
+  });
+
   test('non-guardian channel turns are not interactive to prevent self-approval', async () => {
     // Set up a guardian binding for a DIFFERENT user so the sender is non-guardian
     createBinding({
@@ -2709,8 +2759,8 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
     noopProcessMessage.mockClear();
   });
 
-  test('guardian plain-text "yes" resolves a pending_question with no guardianExternalUserId via delivery-scoped hint', async () => {
-    // Simulate a voice-originated pending_question without guardianExternalUserId
+  test('guardian plain-text "yes" fails closed for tool_approval with no guardianExternalUserId', async () => {
+    // Simulate a voice-originated tool approval without guardianExternalUserId
     const guardianChatId = 'guardian-chat-nl-1';
     const guardianUserId = 'guardian-user-nl-1';
 
@@ -2759,12 +2809,12 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.canonicalRouter).toBe('canonical_decision_applied');
+    expect(body.canonicalRouter).toBe('canonical_decision_stale');
 
-    // Verify the request was resolved
+    // Verify the request remains pending (identity-bound fail-closed).
     const resolved = getCanonicalGuardianRequest(canonicalReq.id);
     expect(resolved).not.toBeNull();
-    expect(resolved!.status).toBe('approved');
+    expect(resolved!.status).toBe('pending');
   });
 
   test('inbound from different chat ID does not auto-match delivery-scoped canonical request', async () => {

@@ -349,7 +349,28 @@ export async function applyCanonicalGuardianDecision(
   }
 
   // 2c. Validate identity: actor must match guardian_external_user_id
-  // unless the actor is trusted (desktop) or the request has no guardian binding.
+  // unless the actor is trusted (desktop).
+  //
+  // Channel tool-approval requests must always be identity-bound. Treat
+  // missing guardianExternalUserId as unauthorized (fail-closed) so a
+  // non-guardian actor can never approve an unbound request.
+  if (
+    !actorContext.isTrusted &&
+    request.kind === 'tool_approval' &&
+    !request.guardianExternalUserId
+  ) {
+    log.warn(
+      {
+        event: 'canonical_decision_missing_guardian_binding',
+        requestId,
+        kind: request.kind,
+        sourceType: request.sourceType,
+      },
+      'Canonical tool approval missing guardian binding; rejecting decision',
+    );
+    return { applied: false, reason: 'identity_mismatch', detail: 'missing guardian binding' };
+  }
+
   if (
     request.guardianExternalUserId &&
     !actorContext.isTrusted &&

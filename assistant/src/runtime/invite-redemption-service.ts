@@ -10,7 +10,7 @@
 import type { ChannelId } from '../channels/types.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { getSqlite } from '../memory/db.js';
-import { findByTokenHash, hashToken, markInviteExpired, recordInviteUse, redeemInvite as storeRedeemInvite, findActiveVoiceInvites } from '../memory/ingress-invite-store.js';
+import { findActiveVoiceInvites,findByTokenHash, hashToken, markInviteExpired, recordInviteUse, redeemInvite as storeRedeemInvite } from '../memory/ingress-invite-store.js';
 import { findMember, upsertMember } from '../memory/ingress-member-store.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { hashVoiceCode } from '../util/voice-code.js';

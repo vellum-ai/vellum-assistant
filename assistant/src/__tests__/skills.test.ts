@@ -518,14 +518,14 @@ describe('bundled browser skill', () => {
     expect(browserSkill!.disableModelInvocation).toBe(false);
   });
 
-  test('browser skill has a valid tool manifest with 10 tools', () => {
+  test('browser skill has a valid tool manifest with 14 tools', () => {
     const catalog = loadSkillCatalog();
     const browserSkill = catalog.find((s) => s.id === 'browser');
     expect(browserSkill).toBeDefined();
     expect(browserSkill!.toolManifest).toBeDefined();
     expect(browserSkill!.toolManifest!.present).toBe(true);
     expect(browserSkill!.toolManifest!.valid).toBe(true);
-    expect(browserSkill!.toolManifest!.toolCount).toBe(10);
+    expect(browserSkill!.toolManifest!.toolCount).toBe(14);
     expect(browserSkill!.toolManifest!.toolNames).toEqual([
       'browser_navigate',
       'browser_snapshot',
@@ -534,8 +534,12 @@ describe('bundled browser skill', () => {
       'browser_click',
       'browser_type',
       'browser_press_key',
+      'browser_scroll',
+      'browser_select_option',
+      'browser_hover',
       'browser_wait_for',
       'browser_extract',
+      'browser_wait_for_download',
       'browser_fill_credential',
     ]);
   });
@@ -618,10 +622,10 @@ describe('ingress-dependent setup skills declare public-ingress', () => {
     expect(includes).toContain('public-ingress');
   });
 
-  test('slack-oauth-setup includes public-ingress', () => {
+  test('slack-oauth-setup includes browser', () => {
     const includes = readSkillIncludes(VELLUM_SKILLS_DIR, 'slack-oauth-setup');
     expect(includes).toBeDefined();
-    expect(includes).toContain('public-ingress');
+    expect(includes).toContain('browser');
   });
 });
 

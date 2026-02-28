@@ -36,6 +36,8 @@ mock.module('../providers/registry.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'mock-provider',
     maxTokens: 4096,
     thinking: false,
@@ -111,6 +113,11 @@ mock.module('../security/secret-allowlist.js', () => ({
 }));
 
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  setConversationOriginChannelIfUnset: () => {},
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getMessages: () => persistedMessages,
   getConversation: () => ({
     id: 'conv-1',
@@ -234,6 +241,20 @@ mock.module('../agent/loop.js', () => ({
       return [...messages, assistantMessage];
     }
   },
+}));
+mock.module('../memory/canonical-guardian-store.js', () => ({
+  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
+  listCanonicalGuardianRequests: () => [],
+  createCanonicalGuardianRequest: () => ({ id: 'mock-cg-id', code: 'MOCK', status: 'pending' }),
+  getCanonicalGuardianRequest: () => null,
+  getCanonicalGuardianRequestByCode: () => null,
+  updateCanonicalGuardianRequest: () => {},
+  resolveCanonicalGuardianRequest: () => {},
+  createCanonicalGuardianDelivery: () => ({ id: 'mock-cgd-id' }),
+  listCanonicalGuardianDeliveries: () => [],
+  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
+  updateCanonicalGuardianDelivery: () => {},
+  generateCanonicalRequestCode: () => 'MOCK-CODE',
 }));
 
 import type { SessionMemoryPolicy } from '../daemon/session.js';

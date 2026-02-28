@@ -52,6 +52,21 @@ mock.module('../hooks/manager.js', () => ({
 }));
 
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationUsage: () => {},
+  getMessages: () => [],
+  getConversation: () => ({
+    id: 'conv-1',
+    contextSummary: null,
+    contextCompactedMessageCount: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalEstimatedCost: 0,
+    title: null,
+  }),
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
   addMessage: () => ({ id: 'mock-msg-id' }),
   deleteMessageById: () => {},
   updateConversationContextWindow: () => {},
@@ -300,6 +315,7 @@ function makeCtx(overrides?: Partial<AgentLoopSessionContext> & { agentLoopRun?:
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
     drainQueue: () => {},
+    getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => ({
       userMessageChannel: 'vellum' as const,
       assistantMessageChannel: 'vellum' as const,

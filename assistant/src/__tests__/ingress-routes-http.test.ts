@@ -92,7 +92,7 @@ describe('ingress member HTTP routes', () => {
     });
 
     const res = await handleUpsertMember(req);
-    const body = await res.json() as Record<string, unknown>;
+    const body = await res.json() as { ok: boolean; error: string };
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
@@ -109,7 +109,7 @@ describe('ingress member HTTP routes', () => {
     });
 
     const res = await handleUpsertMember(req);
-    const body = await res.json() as Record<string, unknown>;
+    const body = await res.json() as { ok: boolean; error: string };
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
@@ -322,7 +322,7 @@ describe('ingress invite HTTP routes', () => {
     });
 
     const res = await handleCreateInvite(req);
-    const body = await res.json() as Record<string, unknown>;
+    const body = await res.json() as { ok: boolean; error: string };
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
@@ -412,7 +412,7 @@ describe('ingress invite HTTP routes', () => {
     });
 
     const res = await handleRedeemInvite(req);
-    const body = await res.json() as Record<string, unknown>;
+    const body = await res.json() as { ok: boolean; error: string };
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);

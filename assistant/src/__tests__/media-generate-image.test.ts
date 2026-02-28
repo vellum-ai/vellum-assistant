@@ -19,6 +19,8 @@ let mockGenerateError: Error | null = null;
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     apiKeys: { gemini: mockApiKey },
   }),
 }));
@@ -70,6 +72,25 @@ mock.module('drizzle-orm', () => ({
 }));
 
 mock.module('../memory/conversation-store.js', () => ({
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  updateConversationTitle: () => {},
+  updateConversationUsage: () => {},
+  addMessage: () => ({ id: 'mock-msg-id' }),
+  getMessages: () => [],
+  getConversation: () => ({
+    id: 'conv-1',
+    contextSummary: null,
+    contextCompactedMessageCount: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalEstimatedCost: 0,
+    title: null,
+  }),
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getConversationThreadType: () => 'standard',
 }));
 

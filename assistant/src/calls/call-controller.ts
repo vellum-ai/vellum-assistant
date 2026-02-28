@@ -12,13 +12,11 @@ import { getGatewayInternalBaseUrl } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import {
-  backfillSupersessionMetadata,
-  expireGuardianActionRequest,
-  getByPendingQuestionId,
-  getDeliveriesByRequestId,
-  getPendingRequestByCallSessionId,
-  markTimedOutWithReason,
-} from '../memory/guardian-action-store.js';
+  expireCanonicalGuardianRequest,
+  getCanonicalRequestByPendingQuestionId,
+  getPendingCanonicalRequestByCallSessionId,
+  listCanonicalGuardianDeliveries,
+} from '../memory/canonical-guardian-store.js';
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getLogger } from '../util/logger.js';
@@ -710,8 +708,7 @@ export class CallController {
               effectiveToolMeta && this.pendingConsultation.toolApprovalMeta
                 ? effectiveToolMeta.toolName === this.pendingConsultation.toolApprovalMeta.toolName
                   && effectiveToolMeta.inputDigest === this.pendingConsultation.toolApprovalMeta.inputDigest
-                : !effectiveToolMeta && !this.pendingConsultation.toolApprovalMeta
-                  && questionText === this.pendingConsultation.questionText;
+                : !effectiveToolMeta && !this.pendingConsultation.toolApprovalMeta;
 
             if (isSameToolAction) {
               // Same tool/action — coalesce. Keep the existing consultation
@@ -729,11 +726,11 @@ export class CallController {
               // Expire the previous consultation's storage records so stale
               // guardian answers cannot match the old request.
               expirePendingQuestions(this.callSessionId);
-              const previousRequest = getPendingRequestByCallSessionId(this.callSessionId);
+              const previousRequest = getPendingCanonicalRequestByCallSessionId(this.callSessionId);
               if (previousRequest) {
                 // Immediately expire with 'superseded' reason to prevent
                 // stale answers from resolving the old request.
-                expireGuardianActionRequest(previousRequest.id, 'superseded');
+                expireCanonicalGuardianRequest(previousRequest.id);
                 log.info(
                   { callSessionId: this.callSessionId, requestId: previousRequest.id },
                   'Superseded guardian action request (materially different intent)',
@@ -770,9 +767,9 @@ export class CallController {
           // a completed call with a dangling pendingQuestion, and guardian
           // replies are cleanly rejected instead of hitting answerCall failures.
           expirePendingQuestions(this.callSessionId);
-          const previousRequest = getPendingRequestByCallSessionId(this.callSessionId);
+          const previousRequest = getPendingCanonicalRequestByCallSessionId(this.callSessionId);
           if (previousRequest) {
-            expireGuardianActionRequest(previousRequest.id, 'cancelled');
+            expireCanonicalGuardianRequest(previousRequest.id);
           }
 
           this.pendingConsultation = null;
@@ -897,11 +894,16 @@ export class CallController {
         inputDigest: effectiveToolMeta?.inputDigest,
       }).then(() => {
         // Backfill supersession chain: now that the new request exists in
-        // the store, update the old request's superseded_by_request_id.
+        // the store, link the old request to the new one.
         if (supersededRequestId) {
-          const newRequest = getByPendingQuestionId(stablePendingQuestionId);
+          const newRequest = getCanonicalRequestByPendingQuestionId(stablePendingQuestionId);
           if (newRequest) {
-            backfillSupersessionMetadata(supersededRequestId, newRequest.id);
+            // Canonical store does not track supersession metadata;
+            // the old request was already expired above.
+            log.info(
+              { callSessionId: this.callSessionId, oldRequestId: supersededRequestId, newRequestId: newRequest.id },
+              'Supersession chain: new canonical request created',
+            );
           }
         }
       });
@@ -919,17 +921,18 @@ export class CallController {
       // send expiry notices to guardian destinations. Deliveries
       // must be captured before markTimedOutWithReason changes
       // their status.
-      const pendingActionRequest = getPendingRequestByCallSessionId(this.callSessionId);
+      const pendingActionRequest = getPendingCanonicalRequestByCallSessionId(this.callSessionId);
       if (pendingActionRequest) {
-        const deliveries = getDeliveriesByRequestId(pendingActionRequest.id);
-        markTimedOutWithReason(pendingActionRequest.id, 'call_timeout');
+        const canonicalDeliveries = listCanonicalGuardianDeliveries(pendingActionRequest.id);
+        // Expire the canonical request and its deliveries
+        expireCanonicalGuardianRequest(pendingActionRequest.id);
         log.info(
           { callSessionId: this.callSessionId, requestId: pendingActionRequest.id },
-          'Marked guardian action request as timed out',
+          'Marked canonical guardian request as timed out',
         );
         void sendGuardianExpiryNotices(
-          deliveries,
-          pendingActionRequest.assistantId,
+          canonicalDeliveries,
+          this.assistantId,
           getGatewayInternalBaseUrl(),
           readHttpToken() ?? undefined,
         ).catch((err) => {

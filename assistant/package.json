@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/assistant",
-  "version": "0.3.28",
+  "version": "0.4.1",
   "type": "module",
   "bin": {
     "vellum": "./src/index.ts"
@@ -30,7 +30,6 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/genai": "^1.40.0",
     "@modelcontextprotocol/sdk": "^1.15.1",
-    "@huggingface/transformers": "^3.8.1",
     "@qdrant/js-client-rest": "^1.16.2",
     "@sentry/node": "^10.38.0",
     "agentmail": "^0.1.0",

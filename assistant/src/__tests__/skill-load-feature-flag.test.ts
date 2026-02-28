@@ -15,7 +15,7 @@ let currentConfig: Record<string, unknown> = {
 };
 
 const DECLARED_SKILL_ID = 'hatch-new-assistant';
-const DECLARED_LEGACY_KEY = 'skills.hatch-new-assistant.enabled';
+const DECLARED_FLAG_KEY = 'feature_flags.hatch-new-assistant.enabled';
 
 const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   getRootDir: () => TEST_DIR,
@@ -54,6 +54,7 @@ mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
   }),
+  isDebug: () => false,
 }));
 
 mock.module('../config/loader.js', () => ({
@@ -101,7 +102,7 @@ describe('skill_load feature flag enforcement', () => {
     writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), `- ${DECLARED_SKILL_ID}\n`);
 
     currentConfig = {
-      featureFlags: { [DECLARED_LEGACY_KEY]: false },
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     };
 
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
@@ -116,7 +117,7 @@ describe('skill_load feature flag enforcement', () => {
     writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), `- ${DECLARED_SKILL_ID}\n`);
 
     currentConfig = {
-      featureFlags: { [DECLARED_LEGACY_KEY]: true },
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
     };
 
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });
@@ -130,7 +131,7 @@ describe('skill_load feature flag enforcement', () => {
     writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), `- ${DECLARED_SKILL_ID}\n`);
 
     currentConfig = {
-      featureFlags: {},
+      assistantFeatureFlagValues: {},
     };
 
     const result = await executeSkillLoad({ skill: DECLARED_SKILL_ID });

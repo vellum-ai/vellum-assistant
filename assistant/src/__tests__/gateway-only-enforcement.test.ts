@@ -243,9 +243,9 @@ describe('gateway-only ingress enforcement', () => {
         body: makeFormBody({ CallSid: 'CA123', AccountSid: 'AC_test' }),
       });
       expect(res.status).toBe(410);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('GATEWAY_ONLY');
-      expect(body.error).toContain('Direct webhook access disabled');
+      const body = await res.json() as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('GONE');
+      expect(body.error.message).toContain('Direct webhook access disabled');
     });
 
     test('POST /webhooks/twilio/status returns 410', async () => {
@@ -255,8 +255,8 @@ describe('gateway-only ingress enforcement', () => {
         body: makeFormBody({ CallSid: 'CA123', CallStatus: 'completed' }),
       });
       expect(res.status).toBe(410);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('GATEWAY_ONLY');
+      const body = await res.json() as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('GONE');
     });
 
     test('POST /webhooks/twilio/connect-action returns 410', async () => {
@@ -266,8 +266,8 @@ describe('gateway-only ingress enforcement', () => {
         body: makeFormBody({ CallSid: 'CA123' }),
       });
       expect(res.status).toBe(410);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('GATEWAY_ONLY');
+      const body = await res.json() as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('GONE');
     });
 
     test('POST /v1/calls/twilio/voice-webhook returns 410', async () => {
@@ -277,8 +277,8 @@ describe('gateway-only ingress enforcement', () => {
         body: makeFormBody({ CallSid: 'CA123' }),
       });
       expect(res.status).toBe(410);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('GATEWAY_ONLY');
+      const body = await res.json() as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('GONE');
     });
 
     test('POST /v1/calls/twilio/status returns 410', async () => {
@@ -288,8 +288,8 @@ describe('gateway-only ingress enforcement', () => {
         body: makeFormBody({ CallSid: 'CA123', CallStatus: 'completed' }),
       });
       expect(res.status).toBe(410);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('GATEWAY_ONLY');
+      const body = await res.json() as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('GONE');
     });
   });
 
@@ -304,9 +304,9 @@ describe('gateway-only ingress enforcement', () => {
         body: makeFormBody({ Body: 'hello', From: '+15551234567', To: '+15559876543', MessageSid: 'SM123' }),
       });
       expect(res.status).toBe(410);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('GATEWAY_ONLY');
-      expect(body.error).toContain('Direct webhook access disabled');
+      const body = await res.json() as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('GONE');
+      expect(body.error.message).toContain('Direct webhook access disabled');
     });
 
     test('POST /v1/calls/twilio/sms returns 410 (legacy path also blocked)', async () => {
@@ -316,8 +316,8 @@ describe('gateway-only ingress enforcement', () => {
         body: makeFormBody({ Body: 'hello', From: '+15551234567', MessageSid: 'SM456' }),
       });
       expect(res.status).toBe(410);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('GATEWAY_ONLY');
+      const body = await res.json() as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('GONE');
     });
 
     test('POST /webhooks/twilio/sms with valid auth still returns 410 (auth does not bypass gateway-only)', async () => {
@@ -331,8 +331,8 @@ describe('gateway-only ingress enforcement', () => {
       });
       // The gateway-only guard runs before auth for Twilio webhook paths
       expect(res.status).toBe(410);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('GATEWAY_ONLY');
+      const body = await res.json() as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('GONE');
     });
   });
 
@@ -407,9 +407,9 @@ describe('gateway-only ingress enforcement', () => {
         },
       });
       expect(res.status).toBe(403);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('GATEWAY_ONLY');
-      expect(body.error).toContain('Direct relay access disabled');
+      const body = await res.json() as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('FORBIDDEN');
+      expect(body.error.message).toContain('Direct relay access disabled');
     });
 
     test('allows request with no origin header (private network peer)', async () => {

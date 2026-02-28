@@ -11,7 +11,9 @@ const testDir = mkdtempSync(join(tmpdir(), 'handlers-twilio-cfg-test-'));
 let rawConfigStore: Record<string, unknown> = {};
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({ ...rawConfigStore }),
+  getConfig: () => ({
+    ui: {},
+     ...rawConfigStore }),
   loadConfig: () => ({ ...rawConfigStore }),
   loadRawConfig: () => ({ ...rawConfigStore }),
   saveRawConfig: (cfg: Record<string, unknown>) => {

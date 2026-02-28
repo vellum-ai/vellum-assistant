@@ -7,7 +7,7 @@
  * request from the expected status wins.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getDb, rawChanges } from './db.js';
@@ -496,6 +496,68 @@ export function listPendingCanonicalGuardianRequestsByDestinationChat(
 export interface UpdateCanonicalGuardianDeliveryParams {
   status?: string;
   destinationMessageId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Call-controller convenience functions
+// ---------------------------------------------------------------------------
+
+/**
+ * Find the most recent pending canonical guardian request for a given call session.
+ * Used by the call-controller's consultation timeout handler.
+ */
+export function getPendingCanonicalRequestByCallSessionId(callSessionId: string): CanonicalGuardianRequest | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(canonicalGuardianRequests)
+    .where(
+      and(
+        eq(canonicalGuardianRequests.callSessionId, callSessionId),
+        eq(canonicalGuardianRequests.status, 'pending'),
+      ),
+    )
+    .orderBy(desc(canonicalGuardianRequests.createdAt))
+    .get();
+  return row ? rowToRequest(row) : null;
+}
+
+/**
+ * Find a canonical guardian request by its linked pending question ID.
+ * Used after async dispatch completes to locate the newly created request.
+ */
+export function getCanonicalRequestByPendingQuestionId(questionId: string): CanonicalGuardianRequest | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(canonicalGuardianRequests)
+    .where(eq(canonicalGuardianRequests.pendingQuestionId, questionId))
+    .get();
+  return row ? rowToRequest(row) : null;
+}
+
+/**
+ * Expire a canonical guardian request and all its deliveries.
+ * Atomically transitions the request from 'pending' to 'expired'.
+ */
+export function expireCanonicalGuardianRequest(id: string): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  db.update(canonicalGuardianRequests)
+    .set({ status: 'expired', updatedAt: now })
+    .where(
+      and(
+        eq(canonicalGuardianRequests.id, id),
+        eq(canonicalGuardianRequests.status, 'pending'),
+      ),
+    )
+    .run();
+
+  db.update(canonicalGuardianDeliveries)
+    .set({ status: 'expired', updatedAt: now })
+    .where(eq(canonicalGuardianDeliveries.requestId, id))
+    .run();
 }
 
 export function updateCanonicalGuardianDelivery(

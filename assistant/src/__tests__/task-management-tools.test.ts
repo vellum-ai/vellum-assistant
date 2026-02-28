@@ -27,7 +27,9 @@ mock.module('../util/logger.js', () => ({
 }));
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({ memory: {} }),
+  getConfig: () => ({
+    ui: {},
+     memory: {} }),
 }));
 
 mock.module('../tools/registry.js', () => ({

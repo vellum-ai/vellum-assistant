@@ -79,7 +79,7 @@ describe('AssistantConfigSchema', () => {
     expect(result.thinking).toEqual({ enabled: false, budgetTokens: 10000, streamThinking: false });
     expect(result.contextWindow).toEqual({
       enabled: true,
-      maxInputTokens: 180000,
+      maxInputTokens: 200000,
       targetInputTokens: 110000,
       compactThreshold: 0.8,
       preserveRecentUserTurns: 8,
@@ -1098,7 +1098,7 @@ describe('loadConfig with schema validation', () => {
     expect(config.thinking).toEqual({ enabled: false, budgetTokens: 10000, streamThinking: false });
     expect(config.contextWindow).toEqual({
       enabled: true,
-      maxInputTokens: 180000,
+      maxInputTokens: 200000,
       targetInputTokens: 110000,
       compactThreshold: 0.8,
       preserveRecentUserTurns: 8,
@@ -1188,7 +1188,7 @@ describe('loadConfig with schema validation', () => {
   test('falls back for invalid contextWindow relationship', () => {
     writeConfig({ contextWindow: { maxInputTokens: 1000, targetInputTokens: 1000 } });
     const config = loadConfig();
-    expect(config.contextWindow.maxInputTokens).toBe(180000);
+    expect(config.contextWindow.maxInputTokens).toBe(200000);
     expect(config.contextWindow.targetInputTokens).toBe(110000);
   });
 
@@ -1348,7 +1348,7 @@ describe('Call entrypoint gating', () => {
     const response = await handleStartCall(req);
     expect(response.status).toBe(403);
 
-    const body = await response.json() as { error: string };
-    expect(body.error).toContain('disabled');
+    const body = await response.json() as { error: { message: string } };
+    expect(body.error.message).toContain('disabled');
   });
 });

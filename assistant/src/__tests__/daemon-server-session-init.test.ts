@@ -36,6 +36,7 @@ let lastCreateConversationArgs: unknown;
 // field declarations create own-properties that mask prototype assignments.
 let mockConfirmationToEmitDuringLoop: Record<string, unknown> | undefined;
 let mockMidLoopCallback: ((session: MockSession) => void) | undefined;
+let lastCanonicalGuardianCreateParams: Record<string, unknown> | undefined;
 
 class MockSession {
   public readonly conversationId: string;
@@ -203,6 +204,8 @@ mock.module('../providers/ratelimit.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'mock-provider',
     providerOrder: ['mock-provider'],
     maxTokens: 4096,
@@ -243,7 +246,34 @@ mock.module('../memory/external-conversation-store.js', () => ({
   getBindingsForConversations: () => new Map(),
 }));
 
+mock.module('../memory/conversation-attention-store.js', () => ({
+  getAttentionStateByConversationIds: () => new Map(),
+  recordAttentionSignal: () => {},
+  recordConversationSeenSignal: () => {},
+}));
+
+mock.module('../memory/canonical-guardian-store.js', () => ({
+  generateCanonicalRequestCode: () => 'mock-code-0000',
+  createCanonicalGuardianRequest: (params: Record<string, unknown>) => {
+    lastCanonicalGuardianCreateParams = params;
+    return { requestCode: 'mock-code-0000', status: 'pending' };
+  },
+  submitCanonicalRequest: () => ({ requestCode: 'mock-code-0000', status: 'pending' }),
+  getCanonicalRequest: () => null,
+  resolveCanonicalRequest: () => false,
+  listPendingCanonicalRequests: () => [],
+}));
+
 mock.module('../memory/conversation-store.js', () => ({
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  updateConversationTitle: () => {},
+  updateConversationUsage: () => {},
+  addMessage: () => ({ id: 'mock-msg-id' }),
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getLatestConversation: () => conversation,
   createConversation: (titleOrOpts?: string | { title?: string; threadType?: string }) => {
     lastCreateConversationArgs = titleOrOpts;
@@ -266,6 +296,7 @@ mock.module('../memory/conversation-store.js', () => ({
   getMessages: () => [],
   listConversations: () => [conversation],
   countConversations: () => 1,
+  getDisplayMetaForConversations: () => new Map(),
 }));
 
 mock.module('../daemon/session.js', () => ({
@@ -315,6 +346,7 @@ describe('DaemonServer initial session hydration', () => {
     lastCreatedWorkingDir = undefined;
     lastCreatedMemoryPolicy = undefined;
     lastCreateConversationArgs = undefined;
+    lastCanonicalGuardianCreateParams = undefined;
     mockConfirmationToEmitDuringLoop = undefined;
     mockMidLoopCallback = undefined;
     pendingInteractions.clear();
@@ -657,6 +689,54 @@ describe('DaemonServer initial session hydration', () => {
     expect(interaction).toBeDefined();
     expect(interaction?.kind).toBe('confirmation');
     expect(interaction?.conversationId).toBe(conversation.id);
+  });
+
+  test('confirmation_request canonical records include bound guardian identity context', async () => {
+    const server = new DaemonServer();
+
+    mockConfirmationToEmitDuringLoop = {
+      type: 'confirmation_request',
+      requestId: 'req-bound-1',
+      toolName: 'host_bash',
+      input: { command: 'ls' },
+      riskLevel: 'high',
+      allowlistOptions: [{ label: 'host_bash:*', description: 'host_bash:*', pattern: 'host_bash:*' }],
+      scopeOptions: [{ label: 'everywhere', scope: 'everywhere' }],
+      persistentDecisionsAllowed: true,
+    };
+
+    await server.processMessage(
+      conversation.id,
+      'run ls',
+      undefined,
+      {
+        isInteractive: false,
+        guardianContext: {
+          sourceChannel: 'telegram',
+          trustClass: 'trusted_contact',
+          guardianExternalUserId: 'guardian-123',
+          requesterExternalUserId: 'trusted-456',
+          requesterChatId: 'chat-789',
+        },
+      },
+      'telegram',
+      'telegram',
+    );
+
+    expect(lastCanonicalGuardianCreateParams).toBeDefined();
+    expect(lastCanonicalGuardianCreateParams).toMatchObject({
+      id: 'req-bound-1',
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      sourceChannel: 'telegram',
+      conversationId: conversation.id,
+      guardianExternalUserId: 'guardian-123',
+      requesterExternalUserId: 'trusted-456',
+      requesterChatId: 'chat-789',
+      toolName: 'host_bash',
+      status: 'pending',
+      requestCode: 'mock-code-0000',
+    });
   });
 
   test('finally block does not overwrite IPC client that connected during interactive agent loop (processMessage)', async () => {

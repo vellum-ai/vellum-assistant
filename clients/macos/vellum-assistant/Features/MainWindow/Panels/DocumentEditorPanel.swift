@@ -24,8 +24,8 @@ struct DocumentEditorPanelView: View {
                 if documentManager.isSaving {
                     ProgressView().controlSize(.small).scaleEffect(0.7)
                 } else {
-                    VIconButton(label: "Save", icon: "square.and.arrow.down", isActive: false, iconOnly: true) {
-                        documentManager.save()
+                    VIconButton(label: "Export", icon: "square.and.arrow.down", isActive: false, iconOnly: true) {
+                        documentManager.exportToFile()
                     }
                 }
                 VIconButton(label: "Close", icon: "xmark", isActive: false, iconOnly: true, action: onClose)

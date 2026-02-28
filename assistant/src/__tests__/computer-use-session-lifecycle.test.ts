@@ -5,6 +5,8 @@ import { describe, expect, mock,test } from 'bun:test';
 // (which have no trust rules in test) don't trigger approval prompts.
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'mock-provider',
     permissions: { mode: 'legacy' },
     apiKeys: {},

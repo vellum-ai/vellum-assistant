@@ -205,7 +205,7 @@ struct MainWindowView: View {
         } else {
             // Ensure a thread exists
             if threadManager.activeViewModel == nil {
-                threadManager.createThread()
+                threadManager.enterDraftMode()
             }
             windowState.selection = .panel(.voiceMode)
             // Activate directly — voiceInput was set on VoiceModeManager at MainWindow creation
@@ -227,7 +227,7 @@ struct MainWindowView: View {
                 } else if let recent = threadManager.visibleThreads.first {
                     threadManager.selectThread(id: recent.id)
                 } else {
-                    threadManager.createThread()
+                    threadManager.enterDraftMode()
                 }
                 preTemporaryChatThreadId = nil
             } else {
@@ -582,9 +582,8 @@ struct MainWindowView: View {
             // Without this, archiving the active thread while viewing a panel
             // leaves persistentThreadId pointing at the archived (invisible) thread
             // and the sidebar shows no active highlight.
-            if let newId {
-                windowState.persistentThreadId = newId
-            }
+            // Clear it when entering draft mode (nil) so no thread appears active.
+            windowState.persistentThreadId = newId
             if case .panel(.intelligence) = windowState.selection {
                 windowState.selection = nil
             }
@@ -1155,7 +1154,7 @@ struct MainWindowView: View {
                 },
                 onNewThread: {
                     windowState.selection = nil
-                    threadManager.createThread()
+                    threadManager.enterDraftMode()
                 }
             )
 
@@ -1329,7 +1328,7 @@ struct MainWindowView: View {
 
             SidebarNavRow(icon: "square.and.pencil", label: "New Chat", isActive: false, isExpanded: false) {
                 windowState.selection = nil
-                threadManager.createThread()
+                threadManager.enterDraftMode()
             }
 
             // MARK: Thread Section (collapsed)

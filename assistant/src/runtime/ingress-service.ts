@@ -25,13 +25,14 @@ import {
 } from '../memory/ingress-member-store.js';
 import { isValidE164 } from '../util/phone.js';
 import { generateVoiceCode, hashVoiceCode } from '../util/voice-code.js';
+import { getTransport } from './channel-invite-transport.js';
 import {
   type InviteRedemptionOutcome,
-  type VoiceRedemptionOutcome,
   redeemInvite as redeemInviteTyped,
   redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
+  type VoiceRedemptionOutcome,
 } from './invite-redemption-service.js';
-import { getTransport } from './channel-invite-transport.js';
+
 import './channel-invite-transports/telegram.js';
 
 // ---------------------------------------------------------------------------

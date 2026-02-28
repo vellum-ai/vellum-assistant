@@ -12,6 +12,8 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'anthropic',
     providerOrder: ['anthropic'],
     apiKeys: { anthropic: 'test-key' },

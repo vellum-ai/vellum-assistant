@@ -22,6 +22,8 @@ import { mock } from 'bun:test';
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'anthropic',
     model: 'test',
     apiKeys: {},

@@ -19,6 +19,8 @@ mock.module('../providers/registry.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'mock-provider',
     maxTokens: 4096,
     thinking: false,
@@ -54,6 +56,14 @@ let mockConversation: Record<string, unknown> | null = null;
 let nextMockMessageId = 1;
 
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  updateConversationTitle: () => {},
+  updateConversationUsage: () => {},
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getMessages: () => mockDbMessages,
   getConversation: () => mockConversation,
   createConversation: () => ({ id: 'conv-1' }),

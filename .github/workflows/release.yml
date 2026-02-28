@@ -908,6 +908,10 @@ jobs:
         working-directory: playwright
         run: bun install
 
+      - name: Install Chromium
+        working-directory: playwright
+        run: bunx playwright install --with-deps chromium
+
       - name: Run Playwright tests
         working-directory: playwright
         run: bun run test

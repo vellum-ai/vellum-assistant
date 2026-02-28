@@ -27,7 +27,9 @@ mock.module('../util/logger.js', () => ({
 }));
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({ memory: {} }),
+  getConfig: () => ({
+    ui: {},
+     memory: {} }),
 }));
 
 // Stub memory job queue to avoid side effects

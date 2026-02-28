@@ -25,6 +25,8 @@ mock.module('../providers/registry.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'mock-provider',
     maxTokens: 4096,
     thinking: false,
@@ -66,6 +68,13 @@ mock.module('../memory/admin.js', () => ({
 let persistedMessages: Array<{ role: string; content: string }> = [];
 
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getMessages: () => [],
   getConversation: () => ({
     id: 'conv-1',
@@ -147,6 +156,20 @@ mock.module('../agent/loop.js', () => ({
       return history;
     }
   },
+}));
+mock.module('../memory/canonical-guardian-store.js', () => ({
+  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
+  listCanonicalGuardianRequests: () => [],
+  createCanonicalGuardianRequest: () => ({ id: 'mock-cg-id', code: 'MOCK', status: 'pending' }),
+  getCanonicalGuardianRequest: () => null,
+  getCanonicalGuardianRequestByCode: () => null,
+  updateCanonicalGuardianRequest: () => {},
+  resolveCanonicalGuardianRequest: () => {},
+  createCanonicalGuardianDelivery: () => ({ id: 'mock-cgd-id' }),
+  listCanonicalGuardianDeliveries: () => [],
+  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
+  updateCanonicalGuardianDelivery: () => {},
+  generateCanonicalRequestCode: () => 'MOCK-CODE',
 }));
 
 import { Session } from '../daemon/session.js';

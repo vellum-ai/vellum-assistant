@@ -6,6 +6,25 @@ import { describe, expect, mock, test } from 'bun:test';
 // Mock conversation-store before importing tool executors that depend on it.
 let mockGetMessages: (conversationId: string) => Array<{ role: string; content: string }> | null = () => null;
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  updateConversationTitle: () => {},
+  updateConversationUsage: () => {},
+  addMessage: () => ({ id: 'mock-msg-id' }),
+  getConversation: () => ({
+    id: 'conv-1',
+    contextSummary: null,
+    contextCompactedMessageCount: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalEstimatedCost: 0,
+    title: null,
+  }),
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getMessages: (conversationId: string) => mockGetMessages(conversationId),
   createConversation: () => ({ id: 'mock-conv' }),
 }));

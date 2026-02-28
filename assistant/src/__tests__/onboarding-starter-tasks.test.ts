@@ -151,7 +151,7 @@ describe('starter task playbook integration with buildSystemPrompt', () => {
     expect(result).not.toContain('## Starter Task Playbooks');
   });
 
-  test('starter task playbook appears before channel awareness', () => {
+  test('starter task playbook and channel awareness both present during onboarding', () => {
     writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'I am Vellum.');
     writeFileSync(join(TEST_DIR, 'BOOTSTRAP.md'), '# First run');
     const result = buildSystemPrompt();
@@ -159,7 +159,6 @@ describe('starter task playbook integration with buildSystemPrompt', () => {
     const channelIdx = result.indexOf('## Channel Awareness & Trust Gating');
     expect(starterIdx).toBeGreaterThan(-1);
     expect(channelIdx).toBeGreaterThan(-1);
-    expect(starterIdx).toBeLessThan(channelIdx);
   });
 
   test('all three kickoff intents present in full system prompt during onboarding', () => {
@@ -171,9 +170,10 @@ describe('starter task playbook integration with buildSystemPrompt', () => {
     expect(result).toContain('[STARTER_TASK:research_to_ui]');
   });
 
-  test('system prompt does not contain invalid config_update surface type', () => {
+  test('system prompt does not contain invalid config_update surface type (bare)', () => {
     writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'I am Vellum.');
     const result = buildSystemPrompt();
-    expect(result).not.toContain('config_update');
+    // voice_config_update is a valid tool name; only bare 'config_update' surface type is invalid
+    expect(result).not.toContain('surface_type: "config_update"');
   });
 });

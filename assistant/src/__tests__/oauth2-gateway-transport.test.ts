@@ -11,6 +11,8 @@ mock.module('../config/loader.js', () => ({
     ingress: { publicBaseUrl: mockPublicBaseUrl },
   }),
   getConfig: () => ({
+    ui: {},
+    
     ingress: { publicBaseUrl: mockPublicBaseUrl },
   }),
   loadRawConfig: () => ({}),

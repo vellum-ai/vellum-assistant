@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import os
 import VellumAssistantShared
 
@@ -127,6 +128,27 @@ final class DocumentManager: ObservableObject {
         initialContent = ""
         pendingInitialContent = nil
         log.info("Document closed")
+    }
+
+    func exportToFile() {
+        let content = currentContent ?? ""
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = sanitizedFilename(from: title) + ".md"
+        panel.canCreateDirectories = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            DispatchQueue.global(qos: .userInitiated).async {
+                try? content.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    private func sanitizedFilename(from title: String) -> String {
+        let replaced = title.replacingOccurrences(of: " ", with: "-")
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let sanitized = replaced.unicodeScalars.filter { allowed.contains($0) }
+        let result = String(String.UnicodeScalarView(sanitized))
+        return result.isEmpty ? "document" : result
     }
 
     func save() {

@@ -36,6 +36,8 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     model: 'test',
     provider: 'test',
     apiKeys: {},
@@ -79,8 +81,11 @@ function makeIdleSession(opts?: {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
     updateClient: () => {},
     enqueueMessage: () => ({ queued: false, requestId: 'noop' }),
+    hasAnyPendingConfirmation: () => false,
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent({ type: 'assistant_text_delta', text: 'Hello!' });
       onEvent({ type: 'message_complete', sessionId: 'test-session' });
@@ -118,8 +123,11 @@ function makeConfirmationEmittingSession(opts?: {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
     updateClient: () => {},
     enqueueMessage: () => ({ queued: false, requestId: 'noop' }),
+    hasAnyPendingConfirmation: () => false,
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       // Emit confirmation_request — this triggers the hub publisher to register
       // the pending interaction
@@ -549,8 +557,8 @@ describe('standalone approval endpoints — HTTP layer', () => {
       });
 
       expect(res.status).toBe(403);
-      const body = await res.json() as { error: string };
-      expect(body.error).toContain('pattern');
+      const body = await res.json() as { error: { message: string; code?: string } };
+      expect(body.error.message).toContain('pattern');
 
       await stopServer();
     });
@@ -579,8 +587,8 @@ describe('standalone approval endpoints — HTTP layer', () => {
       });
 
       expect(res.status).toBe(403);
-      const body = await res.json() as { error: string };
-      expect(body.error).toContain('scope');
+      const body = await res.json() as { error: { message: string; code?: string } };
+      expect(body.error.message).toContain('scope');
 
       await stopServer();
     });
@@ -637,7 +645,7 @@ describe('standalone approval endpoints — HTTP layer', () => {
       const res = await fetch(url('messages'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-        body: JSON.stringify({ conversationKey: 'conv-auto', content: 'Run ls', sourceChannel: 'vellum' }),
+        body: JSON.stringify({ conversationKey: 'conv-auto', content: 'Run ls', sourceChannel: 'vellum', interface: 'macos' }),
       });
       expect(res.status).toBe(202);
 

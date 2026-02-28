@@ -94,6 +94,15 @@ const conversation = {
 };
 
 mock.module('../memory/conversation-store.js', () => ({
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  updateConversationTitle: () => {},
+  updateConversationUsage: () => {},
+  addMessage: () => ({ id: 'mock-msg-id' }),
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getLatestConversation: () => conversation,
   createConversation: () => conversation,
   getConversation: (id: string) => (id === conversation.id ? conversation : null),

@@ -12,7 +12,9 @@ let rawConfigStore: Record<string, unknown> = {};
 const saveRawConfigCalls: Record<string, unknown>[] = [];
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({}),
+  getConfig: () => ({
+    ui: {},
+    }),
   loadConfig: () => ({}),
   loadRawConfig: () => ({ ...rawConfigStore }),
   saveRawConfig: (cfg: Record<string, unknown>) => {

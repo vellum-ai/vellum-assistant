@@ -4,6 +4,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
+import { createAssistantMessage, createUserMessage } from '../../agent/message-types.js';
 import { CHANNEL_IDS, INTERFACE_IDS, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { mergeToolResults,renderHistoryContent } from '../../daemon/handlers.js';
 import type { ServerMessage } from '../../daemon/ipc-protocol.js';
@@ -11,6 +12,8 @@ import * as attachmentsStore from '../../memory/attachments-store.js';
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
+  listCanonicalGuardianRequests,
+  listPendingCanonicalGuardianRequestsByDestinationConversation,
 } from '../../memory/canonical-guardian-store.js';
 import {
   getConversationByKey,
@@ -22,6 +25,7 @@ import type { Provider } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
 import { buildAssistantEvent } from '../assistant-event.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
+import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
 import type {
   MessageProcessor,
@@ -35,6 +39,153 @@ import * as pendingInteractions from '../pending-interactions.js';
 const log = getLogger('conversation-routes');
 
 const SUGGESTION_CACHE_MAX = 100;
+
+function collectLivePendingConfirmationRequestIds(
+  conversationId: string,
+  sourceChannel: string,
+  session: import('../../daemon/session.js').Session,
+): string[] {
+  const pendingInteractionRequestIds = pendingInteractions
+    .getByConversation(conversationId)
+    .filter(
+      (interaction) =>
+        interaction.kind === 'confirmation'
+        && interaction.session === session
+        && session.hasPendingConfirmation(interaction.requestId),
+    )
+    .map((interaction) => interaction.requestId);
+
+  // Query both by destination conversation (via deliveries table) and by
+  // source conversation (direct field). For desktop/HTTP sessions these
+  // often overlap, but the Set dedup below handles that.
+  const pendingCanonicalRequestIds = [
+    ...listPendingCanonicalGuardianRequestsByDestinationConversation(conversationId, sourceChannel)
+      .filter((request) => request.kind === 'tool_approval')
+      .map((request) => request.id),
+    ...listCanonicalGuardianRequests({
+      status: 'pending',
+      conversationId,
+      kind: 'tool_approval',
+    }).map((request) => request.id),
+  ].filter((requestId) => session.hasPendingConfirmation(requestId));
+
+  return Array.from(new Set([
+    ...pendingInteractionRequestIds,
+    ...pendingCanonicalRequestIds,
+  ]));
+}
+
+async function tryConsumeInlineApprovalReply(params: {
+  conversationId: string;
+  sourceChannel: string;
+  sourceInterface: string;
+  content: string;
+  attachments: Array<{
+    id: string;
+    filename: string;
+    mimeType: string;
+    data: string;
+  }>;
+  session: import('../../daemon/session.js').Session;
+  onEvent: (msg: ServerMessage) => void;
+}): Promise<{ consumed: boolean; messageId?: string }> {
+  const {
+    conversationId,
+    sourceChannel,
+    sourceInterface,
+    content,
+    attachments,
+    session,
+    onEvent,
+  } = params;
+  const trimmedContent = content.trim();
+
+  // Only consume inline replies when there are no queued turns, matching
+  // the IPC path guard. With queued messages, "approve"/"no" should be
+  // processed in queue order rather than treated as a confirmation reply.
+  if (
+    !session.hasAnyPendingConfirmation()
+    || session.getQueueDepth() > 0
+    || trimmedContent.length === 0
+  ) {
+    return { consumed: false };
+  }
+
+  const pendingRequestIds = collectLivePendingConfirmationRequestIds(conversationId, sourceChannel, session);
+  if (pendingRequestIds.length === 0) {
+    return { consumed: false };
+  }
+
+  const routerResult = await routeGuardianReply({
+    messageText: trimmedContent,
+    channel: sourceChannel,
+    actor: {
+      externalUserId: undefined,
+      channel: sourceChannel,
+      isTrusted: true,
+    },
+    conversationId,
+    pendingRequestIds,
+  });
+
+  if (!routerResult.consumed || routerResult.type === 'nl_keep_pending') {
+    return { consumed: false };
+  }
+
+  // Decision has been applied — transcript persistence is best-effort.
+  // If DB writes fail, we still return consumed: true so the approval text
+  // is not re-processed as a new user turn.
+  let messageId: string | undefined;
+  try {
+    const channelMeta = {
+      userMessageChannel: sourceChannel,
+      assistantMessageChannel: sourceChannel,
+      userMessageInterface: sourceInterface,
+      assistantMessageInterface: sourceInterface,
+      provenanceActorRole: 'guardian' as const,
+    };
+
+    const userMessage = createUserMessage(content, attachments);
+    const persistedUser = await conversationStore.addMessage(
+      conversationId,
+      'user',
+      JSON.stringify(userMessage.content),
+      channelMeta,
+    );
+    messageId = persistedUser.id;
+
+    const replyText = (routerResult.replyText?.trim())
+      || (routerResult.decisionApplied ? 'Decision applied.' : 'Request already resolved.');
+    const assistantMessage = createAssistantMessage(replyText);
+    await conversationStore.addMessage(
+      conversationId,
+      'assistant',
+      JSON.stringify(assistantMessage.content),
+      channelMeta,
+    );
+
+    // Avoid mutating in-memory history / emitting stream deltas while a run is active.
+    if (!session.isProcessing()) {
+      session.getMessages().push(userMessage, assistantMessage);
+      onEvent({ type: 'assistant_text_delta', text: replyText, sessionId: conversationId });
+      onEvent({ type: 'message_complete', sessionId: conversationId });
+    }
+  } catch (err) {
+    log.warn({ err, conversationId }, 'Failed to persist inline approval transcript entries');
+  }
+
+  return { consumed: true, messageId };
+}
+
+function resolveCanonicalRequestSourceType(sourceChannel: string | undefined): 'desktop' | 'channel' | 'voice' {
+  if (sourceChannel === 'voice') {
+    return 'voice';
+  }
+  if (sourceChannel === 'vellum') {
+    return 'desktop';
+  }
+  return 'channel';
+}
 
 function getInterfaceFilesWithMtimes(interfacesDir: string | null): Array<{ path: string; mtimeMs: number }> {
   if (!interfacesDir || !existsSync(interfacesDir)) return [];
@@ -179,12 +330,17 @@ function makeHubPublisher(
 
       // Create a canonical guardian request so IPC/HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
+      const guardianContext = session.guardianContext;
+      const sourceChannel = guardianContext?.sourceChannel ?? 'vellum';
       createCanonicalGuardianRequest({
         id: msg.requestId,
         kind: 'tool_approval',
-        sourceType: 'desktop',
-        sourceChannel: 'vellum',
+        sourceType: resolveCanonicalRequestSourceType(sourceChannel),
+        sourceChannel,
         conversationId,
+        requesterExternalUserId: guardianContext?.requesterExternalUserId,
+        requesterChatId: guardianContext?.requesterChatId,
+        guardianExternalUserId: guardianContext?.guardianExternalUserId,
         toolName: msg.toolName,
         status: 'pending',
         requestCode: generateCanonicalRequestCode(),
@@ -290,6 +446,29 @@ export async function handleSendMessage(
     const attachments = hasAttachments
       ? smDeps.resolveAttachments(attachmentIds)
       : [];
+
+    // Try to consume the message as an inline approval/rejection reply.
+    // On failure, degrade to the existing queue/auto-deny path rather than
+    // surfacing a 500 — mirrors the IPC handler's catch-and-fallback.
+    try {
+      const inlineReplyResult = await tryConsumeInlineApprovalReply({
+        conversationId: mapping.conversationId,
+        sourceChannel,
+        sourceInterface,
+        content: content ?? '',
+        attachments,
+        session,
+        onEvent,
+      });
+      if (inlineReplyResult.consumed) {
+        return Response.json(
+          { accepted: true, ...(inlineReplyResult.messageId ? { messageId: inlineReplyResult.messageId } : {}) },
+          { status: 202 },
+        );
+      }
+    } catch (err) {
+      log.warn({ err, conversationId: mapping.conversationId }, 'Inline approval consumption failed, falling through to normal send path');
+    }
 
     if (session.isProcessing()) {
       // If a tool confirmation is pending, auto-deny it so the agent

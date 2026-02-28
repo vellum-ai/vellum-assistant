@@ -2,6 +2,11 @@ name: Playwright Tests
 
 on:
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release version to test (e.g. "1.2.3"). If set, downloads the DMG from vellum-ai/velly releases instead of building from source.'
+        required: false
+        type: string
 
 concurrency:
   group: playwright-${{ github.run_id }}
@@ -23,8 +28,94 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── Build from source (when no release version is provided) ──
+
       - name: Select Xcode 16.2
+        if: ${{ !inputs.release_version }}
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Cache SPM build artifacts
+        if: ${{ !inputs.release_version }}
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build binaries
+        if: ${{ !inputs.release_version }}
+        working-directory: clients/macos
+        run: ./build.sh binaries
+
+      - name: Build macOS app
+        if: ${{ !inputs.release_version }}
+        working-directory: clients/macos
+        run: |
+          SKIP_CLEAN=1 \
+          BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
+          SIGN_IDENTITY="-" \
+          ./build.sh build
+
+      # ── Download released DMG (when release version is provided) ──
+
+      - name: Download released DMG
+        if: ${{ inputs.release_version }}
+        env:
+          VERSION: ${{ inputs.release_version }}
+        run: |
+          TAG="v${VERSION}"
+          DMG_URL="https://github.com/vellum-ai/velly/releases/download/${TAG}/vellum-assistant.dmg"
+          echo "Downloading DMG from ${DMG_URL}..."
+          curl -fSL --retry 3 -o /tmp/vellum-assistant.dmg "$DMG_URL"
+          echo "DMG downloaded to /tmp/vellum-assistant.dmg"
+
+      - name: Install app from DMG
+        if: ${{ inputs.release_version }}
+        run: |
+          MOUNT_DIR=$(hdiutil attach /tmp/vellum-assistant.dmg -nobrowse | tail -1 | awk '{print $NF}')
+          echo "Mounted at: $MOUNT_DIR"
+
+          mkdir -p clients/macos/dist
+          cp -R "$MOUNT_DIR/${APP_DISPLAY_NAME}.app" "clients/macos/dist/${APP_DISPLAY_NAME}.app"
+          echo "App installed at: clients/macos/dist/${APP_DISPLAY_NAME}.app"
+
+          hdiutil detach "$MOUNT_DIR"
+          rm -f /tmp/vellum-assistant.dmg
+
+      # ── Common steps ──
+
+      - name: Remove all source files except playwright and app
+        run: |
+          # Move playwright and built app to safe locations
+          mv playwright /tmp/playwright-tests
+          if [ -d clients/macos/dist ]; then
+            mv clients/macos/dist /tmp/app-dist
+          fi
+
+          # Remove everything in the repo except .git
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+
+          # Restore playwright and app
+          mv /tmp/playwright-tests playwright
+          if [ -d /tmp/app-dist ]; then
+            mkdir -p clients/macos
+            mv /tmp/app-dist clients/macos/dist
+          fi
+
+      - name: Verify no source files present
+        run: |
+          echo "=== Repository contents ==="
+          ls -la
+          echo ""
+          echo "Only playwright/ and clients/macos/dist/ should exist:"
+          find . -mindepth 1 -maxdepth 2 ! -path './.git*' ! -path './playwright*' ! -path './clients*' | head -20 || true
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -41,32 +132,6 @@ jobs:
 
       - name: Set Anthropic API key in env
         run: echo "ANTHROPIC_API_KEY=${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}" >> "$GITHUB_ENV"
-
-      - name: Cache SPM build artifacts
-        uses: actions/cache@v4
-        with:
-          path: clients/.build
-          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
-          restore-keys: |
-            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
-            macos-spm-
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Build binaries
-        working-directory: clients/macos
-        run: ./build.sh binaries
-
-      - name: Build macOS app
-        working-directory: clients/macos
-        run: |
-          SKIP_CLEAN=1 \
-          BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
-          SIGN_IDENTITY="-" \
-          ./build.sh build
 
       - name: Install Playwright dependencies
         working-directory: playwright

@@ -13,6 +13,7 @@ import type { ServerWebSocket } from 'bun';
 import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
 import { getConfig } from '../config/loader.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { findActiveVoiceInvites } from '../memory/ingress-invite-store.js';
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
 import { notifyGuardianOfAccessRequest } from '../runtime/access-request-helper.js';
 import {
@@ -28,7 +29,6 @@ import {
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from '../runtime/guardian-verification-templates.js';
 import { redeemVoiceInviteCode } from '../runtime/ingress-service.js';
-import { findActiveVoiceInvites } from '../memory/ingress-invite-store.js';
 import { parseJsonSafe } from '../util/json.js';
 import { getLogger } from '../util/logger.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';

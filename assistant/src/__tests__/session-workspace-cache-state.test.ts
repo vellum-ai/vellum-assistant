@@ -23,6 +23,8 @@ mock.module('../providers/registry.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'mock-provider',
     maxTokens: 4096,
     thinking: false,
@@ -76,6 +78,11 @@ mock.module('../security/secret-allowlist.js', () => ({
 }));
 
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  setConversationOriginChannelIfUnset: () => {},
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getMessages: () => [],
   getConversation: () => ({
     id: 'conv-1',
