@@ -62,6 +62,7 @@ mock.module('../util/logger.js', () => ({
 import { handleUserMessage } from '../daemon/handlers/sessions.js';
 
 interface TestSession {
+  messages: Array<{ role: string; content: unknown[] }>;
   hasEscalationHandler: () => boolean;
   setChannelCapabilities: (caps: unknown) => void;
   hasAnyPendingConfirmation: () => boolean;
@@ -112,6 +113,7 @@ function makeMessage(content: string): UserMessage {
 
 function makeSession(overrides: Partial<TestSession> = {}): TestSession {
   return {
+    messages: [],
     hasEscalationHandler: () => true,
     setChannelCapabilities: () => {},
     hasAnyPendingConfirmation: () => true,
@@ -159,6 +161,9 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     expect(typeof routeCall.approvalConversationGenerator).toBe('function');
     expect((session.denyAllPendingConfirmations as any).mock.calls.length).toBe(0);
     expect((session.enqueueMessage as any).mock.calls.length).toBe(0);
+    expect(session.messages).toHaveLength(2);
+    expect(session.messages[0]?.role).toBe('user');
+    expect(session.messages[1]?.role).toBe('assistant');
     expect(addMessageMock).toHaveBeenCalledTimes(2);
     expect(addMessageMock).toHaveBeenCalledWith(
       'conv-1',
@@ -214,6 +219,7 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
     expect((session.denyAllPendingConfirmations as any).mock.calls.length).toBe(1);
     expect((session.enqueueMessage as any).mock.calls.length).toBe(1);
+    expect(session.messages).toHaveLength(0);
     expect(addMessageMock).toHaveBeenCalledTimes(0);
     expect(sent.some((msg) => msg.type === 'message_queued')).toBe(true);
     expect(sent.some((msg) => msg.type === 'message_dequeued')).toBe(false);
