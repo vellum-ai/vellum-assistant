@@ -576,8 +576,8 @@
       document.getElementById('stat-entities').textContent = entities.length;
       document.getElementById('stat-relations').textContent = relations.length;
       document.getElementById('stat-memory').textContent = totalMemory;
-      document.getElementById('badge-knowledge-count').innerHTML =
-        '<div class="brain-pulse"></div>' + total + ' knowledge items';
+      document.getElementById('badge-knowledge-count').textContent =
+        total + ' knowledge items';
 
       if (data.generatedAt) {
         var d = new Date(data.generatedAt);
@@ -946,7 +946,8 @@
         overlay.innerHTML =
           '<div class="icon">⚠️</div>' +
           '<h3>Could not load brain data</h3>' +
-          '<p>' + (err.message || 'An unexpected error occurred.') + '</p>';
+          '<p></p>';
+        overlay.querySelector('p').textContent = err.message || 'An unexpected error occurred.';
         panel.appendChild(overlay);
       }
     }
