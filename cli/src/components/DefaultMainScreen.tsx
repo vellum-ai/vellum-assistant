@@ -745,6 +745,14 @@ function estimateItemHeight(item: FeedItem, terminalColumns: number): number {
   if (item.type === "help") {
     return 6;
   }
+  if (item.type === "status" || item.type === "error") {
+    const cols = Math.max(1, terminalColumns);
+    let lines = 0;
+    for (const line of item.text.split("\n")) {
+      lines += Math.max(1, Math.ceil(line.length / cols));
+    }
+    return lines;
+  }
   return 1;
 }
 
