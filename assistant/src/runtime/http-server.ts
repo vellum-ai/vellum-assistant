@@ -714,6 +714,7 @@ export class RuntimeHttpServer {
           processMessage: this.processMessage,
           persistAndProcessMessage: this.persistAndProcessMessage,
           sendMessageDeps: this.sendMessageDeps,
+          approvalConversationGenerator: this.approvalConversationGenerator,
         });
       }
 

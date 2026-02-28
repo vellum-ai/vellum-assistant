@@ -12,6 +12,10 @@ const routeGuardianReplyMock = mock(async () => ({
   decisionApplied: false,
   type: 'not_consumed' as const,
 })) as any;
+const createCanonicalGuardianRequestMock = mock(() => ({
+  id: 'canonical-id',
+}));
+const generateCanonicalRequestCodeMock = mock(() => 'ABC123');
 const listPendingByDestinationMock = mock(() => [] as Array<{ id: string; kind?: string }>);
 const listCanonicalMock = mock(() => [] as Array<{ id: string }>);
 const getByConversationMock = mock(
@@ -21,6 +25,7 @@ const getByConversationMock = mock(
     session?: unknown;
   }>,
 );
+const registerMock = mock(() => {});
 const resolveMock = mock(() => undefined as unknown);
 const addMessageMock = mock(async () => ({ id: 'persisted-message-id' }));
 const getConfigMock = mock(() => ({
@@ -33,11 +38,14 @@ mock.module('../runtime/guardian-reply-router.js', () => ({
 }));
 
 mock.module('../memory/canonical-guardian-store.js', () => ({
+  createCanonicalGuardianRequest: createCanonicalGuardianRequestMock,
+  generateCanonicalRequestCode: generateCanonicalRequestCodeMock,
   listPendingCanonicalGuardianRequestsByDestinationConversation: listPendingByDestinationMock,
   listCanonicalGuardianRequests: listCanonicalMock,
 }));
 
 mock.module('../runtime/pending-interactions.js', () => ({
+  register: registerMock,
   getByConversation: getByConversationMock,
   resolve: resolveMock,
 }));
@@ -151,8 +159,11 @@ function makeSession(overrides: Partial<TestSession> = {}): TestSession {
 describe('handleUserMessage pending-confirmation reply interception', () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
+    createCanonicalGuardianRequestMock.mockClear();
+    generateCanonicalRequestCodeMock.mockClear();
     listPendingByDestinationMock.mockClear();
     listCanonicalMock.mockClear();
+    registerMock.mockClear();
     getByConversationMock.mockClear();
     resolveMock.mockClear();
     addMessageMock.mockClear();
@@ -314,5 +325,58 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     // session-scoped interaction should be resolved.
     expect(resolveMock).toHaveBeenCalledTimes(1);
     expect(resolveMock).toHaveBeenCalledWith('req-live');
+  });
+
+  test('registers IPC confirmation events for NL approval routing', async () => {
+    const session = makeSession({
+      hasAnyPendingConfirmation: () => false,
+      enqueueMessage: mock(() => ({ queued: false, requestId: 'direct-id' })),
+      processMessage: async (_content, _attachments, onEvent) => {
+        (onEvent as (msg: ServerMessage) => void)({
+          type: 'confirmation_request',
+          requestId: 'req-confirm-1',
+          toolName: 'call_start',
+          input: { phone_number: '+18084436762' },
+          riskLevel: 'high',
+          executionTarget: 'host',
+          allowlistOptions: [],
+          scopeOptions: [],
+          persistentDecisionsAllowed: false,
+        } as ServerMessage);
+        return 'msg-id';
+      },
+    });
+    const { ctx, sent } = createContext(session);
+
+    await handleUserMessage(makeMessage('please call now'), {} as net.Socket, ctx);
+
+    expect(registerMock).toHaveBeenCalledTimes(1);
+    expect(registerMock).toHaveBeenCalledWith(
+      'req-confirm-1',
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        kind: 'confirmation',
+        session,
+        confirmationDetails: expect.objectContaining({
+          toolName: 'call_start',
+          riskLevel: 'high',
+          executionTarget: 'host',
+        }),
+      }),
+    );
+    expect(createCanonicalGuardianRequestMock).toHaveBeenCalledTimes(1);
+    expect(createCanonicalGuardianRequestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'req-confirm-1',
+        kind: 'tool_approval',
+        sourceType: 'desktop',
+        sourceChannel: 'vellum',
+        conversationId: 'conv-1',
+        toolName: 'call_start',
+        status: 'pending',
+        requestCode: 'ABC123',
+      }),
+    );
+    expect(sent.some((event) => event.type === 'confirmation_request')).toBe(true);
   });
 });

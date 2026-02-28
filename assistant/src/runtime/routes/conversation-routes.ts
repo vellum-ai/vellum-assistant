@@ -27,6 +27,7 @@ import { buildAssistantEvent } from '../assistant-event.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
 import type {
+  ApprovalConversationGenerator,
   MessageProcessor,
   NonBlockingMessageProcessor,
   RuntimeAttachmentMetadata,
@@ -87,6 +88,7 @@ async function tryConsumeInlineApprovalReply(params: {
   }>;
   session: import('../../daemon/session.js').Session;
   onEvent: (msg: ServerMessage) => void;
+  approvalConversationGenerator?: ApprovalConversationGenerator;
 }): Promise<{ consumed: boolean; messageId?: string }> {
   const {
     conversationId,
@@ -96,6 +98,7 @@ async function tryConsumeInlineApprovalReply(params: {
     attachments,
     session,
     onEvent,
+    approvalConversationGenerator,
   } = params;
   const trimmedContent = content.trim();
 
@@ -125,6 +128,7 @@ async function tryConsumeInlineApprovalReply(params: {
     },
     conversationId,
     pendingRequestIds,
+    approvalConversationGenerator,
   });
 
   if (!routerResult.consumed || routerResult.type === 'nl_keep_pending') {
@@ -377,6 +381,7 @@ export async function handleSendMessage(
     processMessage?: MessageProcessor;
     persistAndProcessMessage?: NonBlockingMessageProcessor;
     sendMessageDeps?: SendMessageDeps;
+    approvalConversationGenerator?: ApprovalConversationGenerator;
   },
 ): Promise<Response> {
   const body = await req.json() as {
@@ -455,10 +460,11 @@ export async function handleSendMessage(
         sourceChannel,
         sourceInterface,
         content: content ?? '',
-        attachments,
-        session,
-        onEvent,
-      });
+      attachments,
+      session,
+      onEvent,
+      approvalConversationGenerator: deps.approvalConversationGenerator,
+    });
       if (inlineReplyResult.consumed) {
         return Response.json(
           { accepted: true, ...(inlineReplyResult.messageId ? { messageId: inlineReplyResult.messageId } : {}) },
