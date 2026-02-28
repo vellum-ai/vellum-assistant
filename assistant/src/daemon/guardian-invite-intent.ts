@@ -33,7 +33,6 @@ const CREATE_VOICE_INVITE_PATTERNS: RegExp[] = [
   /\b(?:create|make|generate|get|set\s+up)\s+(?:a\s+|an\s+)?(?:phone|call)\s+invite\b/i,
   /\binvite\s+(?:code\s+)?(?:for|via|by|on|through)\s+(?:phone|voice|call)\b/i,
   /\b(?:phone|voice|call)\s+invite\s*(?:code)?\b/i,
-  /\blet\s+.*\s+call\s+(?:in|me)\b/i,
 ];
 
 const LIST_INVITE_PATTERNS: RegExp[] = [
