@@ -364,4 +364,37 @@ describe('inbound invite redemption intercept', () => {
     expect(json.accepted).toBe(true);
     expect(json.denied).toBeUndefined();
   });
+
+  test('reactivation via invite preserves existing guardian-managed member display name', async () => {
+    const { rawToken } = createInvite({ sourceChannel: 'telegram', maxUses: 5 });
+
+    upsertMember({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalUserId: 'user-invite-123',
+      externalChatId: 'chat-invite-test',
+      status: 'revoked',
+      policy: 'allow',
+      displayName: 'Jeff',
+    });
+
+    const req = buildInviteRequest(rawToken, {
+      senderName: 'Noa Flaherty',
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = await resp.json() as Record<string, unknown>;
+
+    expect(json.accepted).toBe(true);
+    expect(json.inviteRedemption).toBe('redeemed');
+
+    const member = findMember({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalUserId: 'user-invite-123',
+      externalChatId: 'chat-invite-test',
+    });
+    expect(member).not.toBeNull();
+    expect(member!.status).toBe('active');
+    expect(member!.displayName).toBe('Jeff');
+  });
 });

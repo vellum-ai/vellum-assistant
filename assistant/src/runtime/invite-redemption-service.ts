@@ -119,6 +119,9 @@ export function redeemInvite(params: {
     // Sentinel error used to trigger a transaction rollback when the invite
     // was concurrently revoked/expired between pre-validation and write time.
     const STALE_INVITE = Symbol('stale_invite');
+    const preservedDisplayName = existingMember.displayName?.trim().length
+      ? existingMember.displayName
+      : displayName;
 
     let reactivated: ReturnType<typeof upsertMember> | undefined;
     try {
@@ -128,7 +131,8 @@ export function redeemInvite(params: {
           sourceChannel,
           externalUserId,
           externalChatId,
-          displayName,
+          // Reactivation should not overwrite a guardian-managed nickname.
+          displayName: preservedDisplayName,
           username,
           status: 'active',
           policy: 'allow',

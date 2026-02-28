@@ -775,6 +775,18 @@ export async function handleChannelInbound(
     const guardianVerifyOutcome: 'verified' | 'failed' = verifyResult.success ? 'verified' : 'failed';
 
     if (verifyResult.success) {
+      const existingMember = (canonicalSenderId ?? rawSenderId)
+        ? findMember({
+          assistantId: canonicalAssistantId,
+          sourceChannel,
+          externalUserId: canonicalSenderId ?? rawSenderId!,
+          externalChatId,
+        })
+        : null;
+      const preservedDisplayName = existingMember?.displayName?.trim().length
+        ? existingMember.displayName
+        : body.senderName;
+
       upsertMember({
         assistantId: canonicalAssistantId,
         sourceChannel,
@@ -782,7 +794,8 @@ export async function handleChannelInbound(
         externalChatId,
         status: 'active',
         policy: 'allow',
-        displayName: body.senderName,
+        // Keep guardian-curated member name stable across re-verification.
+        displayName: preservedDisplayName,
         username: body.senderUsername,
       });
 

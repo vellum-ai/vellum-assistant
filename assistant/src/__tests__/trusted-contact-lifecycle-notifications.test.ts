@@ -419,6 +419,54 @@ describe('trusted contact activated notification signal', () => {
     expect(hints.urgency).toBe('low');
   });
 
+  test('re-verification preserves an existing guardian-managed member display name', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-789',
+      guardianDeliveryChatId: 'guardian-chat-789',
+    });
+
+    upsertMember({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalUserId: 'requester-user-456',
+      externalChatId: 'chat-123',
+      status: 'revoked',
+      policy: 'allow',
+      displayName: 'Jeff',
+    });
+
+    const session = createOutboundSession({
+      assistantId: 'self',
+      channel: 'telegram',
+      expectedExternalUserId: 'requester-user-456',
+      expectedChatId: 'chat-123',
+      identityBindingStatus: 'bound',
+      destinationAddress: 'chat-123',
+      verificationPurpose: 'trusted_contact',
+    });
+
+    const verifyReq = buildInboundRequest({
+      content: session.secret,
+      externalChatId: 'chat-123',
+      senderExternalUserId: 'requester-user-456',
+      senderName: 'Noa Flaherty',
+    });
+
+    await handleChannelInbound(verifyReq, undefined, TEST_BEARER_TOKEN);
+
+    const member = findMember({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalUserId: 'requester-user-456',
+      externalChatId: 'chat-123',
+    });
+    expect(member).not.toBeNull();
+    expect(member!.status).toBe('active');
+    expect(member!.displayName).toBe('Jeff');
+  });
+
   test('guardian verification does NOT emit activated signal', async () => {
     // Create an inbound challenge (guardian flow, not trusted contact)
     // eslint-disable-next-line @typescript-eslint/no-require-imports
