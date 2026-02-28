@@ -236,6 +236,22 @@ export async function handleTwilioConfig(
       const sms = (raw?.sms ?? {}) as Record<string, unknown>;
       sms.phoneNumber = purchased.phoneNumber;
 
+      // Clear any legacy assistantPhoneNumbers entries that reference a
+      // different number than the one being assigned. The gateway prefers
+      // mapped numbers over the global phoneNumber, so stale entries would
+      // cause outbound sends to use an outdated number.
+      const mappings = sms.assistantPhoneNumbers as Record<string, string> | undefined;
+      if (mappings && typeof mappings === 'object') {
+        for (const [key, value] of Object.entries(mappings)) {
+          if (value !== purchased.phoneNumber) {
+            delete mappings[key];
+          }
+        }
+        if (Object.keys(mappings).length === 0) {
+          delete sms.assistantPhoneNumbers;
+        }
+      }
+
       const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);
       try {
