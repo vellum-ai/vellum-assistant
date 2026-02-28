@@ -75,6 +75,9 @@ export async function handlePairingRequest(req: Request, ctx: PairingHandlerCont
 
     const result = ctx.pairingStore.beginRequest({ pairingRequestId, pairingSecret, deviceId, deviceName });
     if (!result.ok) {
+      if (result.reason === 'already_paired') {
+        return httpError('CONFLICT', 'This pairing request is already bound to another device', 409);
+      }
       const statusCode = result.reason === 'invalid_secret' ? 403 : result.reason === 'not_found' ? 403 : 410;
       return httpError('FORBIDDEN', 'Forbidden', statusCode);
     }

@@ -98,7 +98,7 @@ export class PairingStore {
     pairingSecret: string;
     deviceId: string;
     deviceName: string;
-  }): { ok: true; entry: PairingRequest } | { ok: false; reason: 'not_found' | 'invalid_secret' | 'expired' } {
+  }): { ok: true; entry: PairingRequest } | { ok: false; reason: 'not_found' | 'invalid_secret' | 'expired' | 'already_paired' } {
     const entry = this.requests.get(params.pairingRequestId);
     if (!entry) {
       return { ok: false, reason: 'not_found' };
@@ -113,7 +113,16 @@ export class PairingStore {
       return { ok: false, reason: 'invalid_secret' };
     }
 
-    entry.hashedDeviceId = hashValue(params.deviceId);
+    const hashedDeviceId = hashValue(params.deviceId);
+
+    // If a device has already been bound to this pairing request, reject
+    // attempts from a different device to prevent hijacking.
+    if (entry.hashedDeviceId && !timingSafeCompare(entry.hashedDeviceId, hashedDeviceId)) {
+      log.warn({ pairingRequestId: params.pairingRequestId }, 'Pairing request already bound to a different device');
+      return { ok: false, reason: 'already_paired' };
+    }
+
+    entry.hashedDeviceId = hashedDeviceId;
     entry.deviceName = params.deviceName;
     if (entry.status === 'registered') {
       entry.status = 'pending';
