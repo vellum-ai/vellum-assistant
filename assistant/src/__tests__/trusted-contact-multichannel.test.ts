@@ -88,7 +88,6 @@ mock.module('../runtime/approval-message-composer.js', () => ({
 
 import {
   createBinding,
-  findPendingAccessRequestForRequester,
 } from '../memory/channel-guardian-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { findMember, upsertMember } from '../memory/ingress-member-store.js';
