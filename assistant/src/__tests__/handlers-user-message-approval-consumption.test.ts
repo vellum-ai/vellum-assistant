@@ -21,6 +21,7 @@ const getByConversationMock = mock(
     session?: unknown;
   }>,
 );
+const resolveMock = mock(() => undefined as unknown);
 const addMessageMock = mock(async () => ({ id: 'persisted-message-id' }));
 const getConfigMock = mock(() => ({
   daemon: { standaloneRecording: false },
@@ -38,6 +39,7 @@ mock.module('../memory/canonical-guardian-store.js', () => ({
 
 mock.module('../runtime/pending-interactions.js', () => ({
   getByConversation: getByConversationMock,
+  resolve: resolveMock,
 }));
 
 mock.module('../memory/conversation-store.js', () => ({
@@ -152,6 +154,7 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     listPendingByDestinationMock.mockClear();
     listCanonicalMock.mockClear();
     getByConversationMock.mockClear();
+    resolveMock.mockClear();
     addMessageMock.mockClear();
     getConfigMock.mockClear();
   });
@@ -306,5 +309,10 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
     const routeCall = (routeGuardianReplyMock as any).mock.calls[0][0] as Record<string, unknown>;
     expect(routeCall.pendingRequestIds).toEqual(['req-live']);
+    // Auto-deny clears matching confirmation entries from pending-interactions
+    // so stale IDs are not reused as routing candidates. Only the live
+    // session-scoped interaction should be resolved.
+    expect(resolveMock).toHaveBeenCalledTimes(1);
+    expect(resolveMock).toHaveBeenCalledWith('req-live');
   });
 });
