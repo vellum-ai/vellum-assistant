@@ -140,7 +140,9 @@ function findWasmPath(pkg: string, file: string): string {
     const pkgDir = dirname(resolved);
     const resolvedPath = join(pkgDir, file);
     if (existsSync(resolvedPath)) return resolvedPath;
-  } catch { /* fall through to manual resolution */ }
+  } catch (err) {
+    log.warn({ err, pkg, file }, 'require.resolve failed for WASM package, falling back to manual resolution');
+  }
 
   const sourcePath = join(dir, '..', '..', '..', 'node_modules', pkg, file);
 
