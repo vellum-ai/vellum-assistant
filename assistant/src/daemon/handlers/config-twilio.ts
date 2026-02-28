@@ -91,15 +91,7 @@ export async function handleTwilioConfig(
       const hasCredentials = hasTwilioCredentials();
       const raw = loadRawConfig();
       const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-      // When assistantId is provided, look up in assistantPhoneNumbers first,
-      // fall back to the legacy phoneNumber field
-      let phoneNumber: string;
-      if (msg.assistantId) {
-        const mapping = (sms.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
-        phoneNumber = mapping[msg.assistantId] ?? (sms.phoneNumber as string) ?? '';
-      } else {
-        phoneNumber = (sms.phoneNumber as string) ?? '';
-      }
+      const phoneNumber = (sms.phoneNumber as string) ?? '';
       ctx.send(socket, {
         type: 'twilio_config_response',
         success: true,
@@ -242,22 +234,7 @@ export async function handleTwilioConfig(
 
       const raw = loadRawConfig();
       const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-      // When assistantId is provided, only set the legacy global phoneNumber
-      // if it's not already set — this prevents multi-assistant assignments
-      // from clobbering each other's outbound SMS number.
-      if (msg.assistantId) {
-        if (!sms.phoneNumber) {
-          sms.phoneNumber = purchased.phoneNumber;
-        }
-      } else {
-        sms.phoneNumber = purchased.phoneNumber;
-      }
-      // When assistantId is provided, also persist into the per-assistant mapping
-      if (msg.assistantId) {
-        const mapping = (sms.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
-        mapping[msg.assistantId] = purchased.phoneNumber;
-        sms.assistantPhoneNumbers = mapping;
-      }
+      sms.phoneNumber = purchased.phoneNumber;
 
       const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);
@@ -312,22 +289,7 @@ export async function handleTwilioConfig(
       // Also persist in assistant config (non-secret) for the UI
       const raw = loadRawConfig();
       const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-      // When assistantId is provided, only set the legacy global phoneNumber
-      // if it's not already set — this prevents multi-assistant assignments
-      // from clobbering each other's outbound SMS number.
-      if (msg.assistantId) {
-        if (!sms.phoneNumber) {
-          sms.phoneNumber = msg.phoneNumber;
-        }
-      } else {
-        sms.phoneNumber = msg.phoneNumber;
-      }
-      // When assistantId is provided, also persist into the per-assistant mapping
-      if (msg.assistantId) {
-        const mapping = (sms.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
-        mapping[msg.assistantId] = msg.phoneNumber;
-        sms.assistantPhoneNumbers = mapping;
-      }
+      sms.phoneNumber = msg.phoneNumber;
 
       const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);
@@ -394,13 +356,7 @@ export async function handleTwilioConfig(
 
       const raw = loadRawConfig();
       const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-      let phoneNumber: string;
-      if (msg.assistantId) {
-        const mapping = (sms.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
-        phoneNumber = mapping[msg.assistantId] ?? (sms.phoneNumber as string) ?? '';
-      } else {
-        phoneNumber = (sms.phoneNumber as string) ?? '';
-      }
+      const phoneNumber = (sms.phoneNumber as string) ?? '';
 
       if (!phoneNumber) {
         ctx.send(socket, {
@@ -717,9 +673,6 @@ export async function handleTwilioConfig(
       let phoneNumber: string;
       if (msg.phoneNumber) {
         phoneNumber = msg.phoneNumber;
-      } else if (msg.assistantId) {
-        const mapping = (sms.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
-        phoneNumber = mapping[msg.assistantId] ?? (sms.phoneNumber as string) ?? '';
       } else {
         phoneNumber = (sms.phoneNumber as string) ?? '';
       }
@@ -742,17 +695,6 @@ export async function handleTwilioConfig(
       // Clear the number from config and secure key store
       if (sms.phoneNumber === phoneNumber) {
         delete sms.phoneNumber;
-      }
-      const assistantPhoneNumbers = sms.assistantPhoneNumbers as Record<string, string> | undefined;
-      if (assistantPhoneNumbers) {
-        for (const [id, num] of Object.entries(assistantPhoneNumbers)) {
-          if (num === phoneNumber) {
-            delete assistantPhoneNumbers[id];
-          }
-        }
-        if (Object.keys(assistantPhoneNumbers).length === 0) {
-          delete sms.assistantPhoneNumbers;
-        }
       }
 
       const wasSuppressed = ctx.suppressConfigReload;
@@ -802,18 +744,9 @@ export async function handleTwilioConfig(
 
       const raw = loadRawConfig();
       const smsSection = (raw?.sms ?? {}) as Record<string, unknown>;
-      let from = '';
-      // When assistantId is provided, check assistant-scoped phone mapping first
-      if (msg.assistantId) {
-        const mapping = (smsSection.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
-        from = mapping[msg.assistantId] ?? '';
-      }
-      // Fall back to global phone number
-      if (!from) {
-        from = (smsSection.phoneNumber as string | undefined)
-          || getSecureKey('credential:twilio:phone_number')
-          || '';
-      }
+      const from = (smsSection.phoneNumber as string | undefined)
+        || getSecureKey('credential:twilio:phone_number')
+        || '';
       if (!from) {
         ctx.send(socket, {
           type: 'twilio_config_response',
@@ -838,7 +771,7 @@ export async function handleTwilioConfig(
           'Content-Type': 'application/json',
           ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
         },
-        body: JSON.stringify({ to, text, ...(msg.assistantId ? { assistantId: msg.assistantId } : {}) }),
+        body: JSON.stringify({ to, text }),
         signal: AbortSignal.timeout(30_000),
       });
 
@@ -910,7 +843,7 @@ export async function handleTwilioConfig(
       const readinessIssues: string[] = [];
       try {
         const readinessService = getReadinessService();
-        const snapshots = await readinessService.getReadiness('sms', false, msg.assistantId);
+        const snapshots = await readinessService.getReadiness('sms', false);
         const snapshot = snapshots[0];
         if (snapshot) {
           readinessReady = snapshot.ready;
@@ -932,14 +865,7 @@ export async function handleTwilioConfig(
         try {
           const raw = loadRawConfig();
           const smsSection = (raw?.sms ?? {}) as Record<string, unknown>;
-          let phoneNumber = '';
-          if (msg.assistantId) {
-            const mapping = (smsSection.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
-            phoneNumber = mapping[msg.assistantId] ?? '';
-          }
-          if (!phoneNumber) {
-            phoneNumber = (smsSection.phoneNumber as string | undefined) || getSecureKey('credential:twilio:phone_number') || '';
-          }
+          const phoneNumber = (smsSection.phoneNumber as string | undefined) || getSecureKey('credential:twilio:phone_number') || '';
           if (phoneNumber) {
             const accountSid = getSecureKey('credential:twilio:account_sid')!;
             const authToken = getSecureKey('credential:twilio:auth_token')!;

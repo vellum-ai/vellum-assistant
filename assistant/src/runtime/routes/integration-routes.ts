@@ -144,16 +144,15 @@ export function handleClearSlackChannelConfig(): Response {
 /**
  * POST /v1/integrations/guardian/challenge
  *
- * Body: { channel?: ChannelId; assistantId?: string; rebind?: boolean; sessionId?: string }
+ * Body: { channel?: ChannelId; rebind?: boolean; sessionId?: string }
  */
 export async function handleCreateGuardianChallenge(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     channel?: ChannelId;
-    assistantId?: string;
     rebind?: boolean;
     sessionId?: string;
   };
-  const result = createGuardianChallenge(body.channel, body.assistantId, body.rebind, body.sessionId);
+  const result = createGuardianChallenge(body.channel, body.rebind, body.sessionId);
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });
 }
@@ -161,12 +160,11 @@ export async function handleCreateGuardianChallenge(req: Request): Promise<Respo
 /**
  * GET /v1/integrations/guardian/status
  *
- * Query params: channel?, assistantId?
+ * Query params: channel?
  */
 export function handleGetGuardianStatus(url: URL): Response {
   const channel = (url.searchParams.get('channel') as ChannelId | null) ?? undefined;
-  const assistantId = url.searchParams.get('assistantId') ?? undefined;
-  const result = getGuardianStatus(channel, assistantId);
+  const result = getGuardianStatus(channel);
   return Response.json(result);
 }
 
@@ -177,13 +175,12 @@ export function handleGetGuardianStatus(url: URL): Response {
 /**
  * POST /v1/integrations/guardian/outbound/start
  *
- * Body: { channel: ChannelId; destination?: string; assistantId?: string; rebind?: boolean; originConversationId?: string }
+ * Body: { channel: ChannelId; destination?: string; rebind?: boolean; originConversationId?: string }
  */
 export async function handleStartOutbound(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     channel?: ChannelId;
     destination?: string;
-    assistantId?: string;
     rebind?: boolean;
     originConversationId?: string;
   };
@@ -209,7 +206,6 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
   const result = startOutbound({
     channel: body.channel,
     destination: body.destination,
-    assistantId: body.assistantId,
     rebind: body.rebind,
     originConversationId: body.originConversationId,
   });
@@ -225,12 +221,11 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
 /**
  * POST /v1/integrations/guardian/outbound/resend
  *
- * Body: { channel: ChannelId; assistantId?: string; originConversationId?: string }
+ * Body: { channel: ChannelId; originConversationId?: string }
  */
 export async function handleResendOutbound(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     channel?: ChannelId;
-    assistantId?: string;
     originConversationId?: string;
   };
   if (!body.channel) {
@@ -238,7 +233,6 @@ export async function handleResendOutbound(req: Request): Promise<Response> {
   }
   const result = resendOutbound({
     channel: body.channel,
-    assistantId: body.assistantId,
     originConversationId: body.originConversationId,
   });
   const status = result.success ? 200 : (result.error === 'rate_limited' ? 429 : 400);
@@ -248,19 +242,17 @@ export async function handleResendOutbound(req: Request): Promise<Response> {
 /**
  * POST /v1/integrations/guardian/outbound/cancel
  *
- * Body: { channel: ChannelId; assistantId?: string }
+ * Body: { channel: ChannelId }
  */
 export async function handleCancelOutbound(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     channel?: ChannelId;
-    assistantId?: string;
   };
   if (!body.channel) {
     return httpError('BAD_REQUEST', 'The "channel" field is required.', 400);
   }
   const result = cancelOutbound({
     channel: body.channel,
-    assistantId: body.assistantId,
   });
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });

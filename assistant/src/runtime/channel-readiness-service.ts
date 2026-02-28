@@ -31,41 +31,15 @@ function hasIngressConfigured(): boolean {
   }
 }
 
-function getAssistantMappedPhoneNumber(
-  smsConfig: Record<string, unknown>,
-  assistantId?: string,
-): string | undefined {
-  if (!assistantId) return undefined;
-  const mapping = (smsConfig.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
-  return mapping[assistantId];
-}
-
-function hasAnyAssistantMappedPhoneNumber(smsConfig: Record<string, unknown>): boolean {
-  const mapping = (smsConfig.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
-  return Object.keys(mapping).length > 0;
-}
-
-function hasAnyAssistantMappedPhoneNumberSafe(): boolean {
-  try {
-    const raw = loadRawConfig();
-    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    return hasAnyAssistantMappedPhoneNumber(smsConfig);
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Resolve SMS from-number with canonical precedence:
- * assistant mapping -> env override -> config sms.phoneNumber -> secure key fallback.
+ * env override -> config sms.phoneNumber -> secure key fallback.
  */
-function resolveSmsPhoneNumber(assistantId?: string): string {
+function resolveSmsPhoneNumber(): string {
   try {
     const raw = loadRawConfig();
     const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    const mapped = getAssistantMappedPhoneNumber(smsConfig, assistantId);
-    return mapped
-      || getTwilioPhoneNumberEnv()
+    return getTwilioPhoneNumberEnv()
       || (smsConfig.phoneNumber as string)
       || getSecureKey('credential:twilio:phone_number')
       || '';
@@ -78,7 +52,7 @@ function resolveSmsPhoneNumber(assistantId?: string): string {
 
 const smsProbe: ChannelProbe = {
   channel: 'sms',
-  runLocalChecks(context?: ChannelProbeContext): ReadinessCheckResult[] {
+  runLocalChecks(): ReadinessCheckResult[] {
     const results: ReadinessCheckResult[] = [];
 
     const hasCreds = hasTwilioCredentials();
@@ -90,18 +64,14 @@ const smsProbe: ChannelProbe = {
         : 'Twilio Account SID and Auth Token are not configured',
     });
 
-    const resolvedNumber = resolveSmsPhoneNumber(context?.assistantId);
-    const hasPhone = !!resolvedNumber || (!context?.assistantId && hasAnyAssistantMappedPhoneNumberSafe());
+    const resolvedNumber = resolveSmsPhoneNumber();
+    const hasPhone = !!resolvedNumber;
     results.push({
       name: 'phone_number',
       passed: hasPhone,
       message: hasPhone
-        ? (context?.assistantId && !resolvedNumber
-          ? `Assistant ${context.assistantId} has no direct mapping, but SMS phone numbers are assigned`
-          : 'Phone number is assigned')
-        : (context?.assistantId
-          ? `No phone number assigned for assistant ${context.assistantId}`
-          : 'No phone number assigned'),
+        ? 'Phone number is assigned'
+        : 'No phone number assigned',
     });
 
     const hasIngress = hasIngressConfigured();
@@ -115,14 +85,14 @@ const smsProbe: ChannelProbe = {
 
     return results;
   },
-  async runRemoteChecks(context?: ChannelProbeContext): Promise<ReadinessCheckResult[]> {
+  async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
     if (!hasTwilioCredentials()) return [];
 
     const accountSid = getSecureKey('credential:twilio:account_sid');
     const authToken = getSecureKey('credential:twilio:auth_token');
     if (!accountSid || !authToken) return [];
 
-    const phoneNumber = resolveSmsPhoneNumber(context?.assistantId);
+    const phoneNumber = resolveSmsPhoneNumber();
     if (!phoneNumber) return [];
 
     // Only toll-free numbers need verification checks
@@ -170,18 +140,16 @@ const smsProbe: ChannelProbe = {
 
 /**
  * Resolve voice from-number with the same precedence as SMS:
- * assistant mapping -> env override -> config sms.phoneNumber -> secure key fallback.
+ * env override -> config sms.phoneNumber -> secure key fallback.
  *
  * Voice and SMS share the same Twilio phone number infrastructure, so the
  * resolution logic is identical to resolveSmsPhoneNumber.
  */
-function resolveVoicePhoneNumber(assistantId?: string): string {
+function resolveVoicePhoneNumber(): string {
   try {
     const raw = loadRawConfig();
     const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    const mapped = getAssistantMappedPhoneNumber(smsConfig, assistantId);
-    return mapped
-      || getTwilioPhoneNumberEnv()
+    return getTwilioPhoneNumberEnv()
       || (smsConfig.phoneNumber as string)
       || getSecureKey('credential:twilio:phone_number')
       || '';
@@ -194,7 +162,7 @@ function resolveVoicePhoneNumber(assistantId?: string): string {
 
 const voiceProbe: ChannelProbe = {
   channel: 'voice',
-  runLocalChecks(context?: ChannelProbeContext): ReadinessCheckResult[] {
+  runLocalChecks(): ReadinessCheckResult[] {
     const results: ReadinessCheckResult[] = [];
 
     const hasCreds = hasTwilioCredentials();
@@ -206,18 +174,14 @@ const voiceProbe: ChannelProbe = {
         : 'Twilio Account SID and Auth Token are not configured',
     });
 
-    const resolvedNumber = resolveVoicePhoneNumber(context?.assistantId);
-    const hasPhone = !!resolvedNumber || (!context?.assistantId && hasAnyAssistantMappedPhoneNumberSafe());
+    const resolvedNumber = resolveVoicePhoneNumber();
+    const hasPhone = !!resolvedNumber;
     results.push({
       name: 'phone_number',
       passed: hasPhone,
       message: hasPhone
-        ? (context?.assistantId && !resolvedNumber
-          ? `Assistant ${context.assistantId} has no direct mapping, but phone numbers are assigned`
-          : 'Phone number is assigned for voice calls')
-        : (context?.assistantId
-          ? `No phone number assigned for assistant ${context.assistantId}`
-          : 'No phone number assigned for voice calls'),
+        ? 'Phone number is assigned for voice calls'
+        : 'No phone number assigned for voice calls',
     });
 
     const hasIngress = hasIngressConfigured();
@@ -290,7 +254,6 @@ export class ChannelReadinessService {
   async getReadiness(
     channel?: ChannelId,
     includeRemote?: boolean,
-    assistantId?: string,
   ): Promise<ChannelReadinessSnapshot[]> {
     const channels = channel
       ? [channel]
@@ -304,14 +267,14 @@ export class ChannelReadinessService {
         continue;
       }
 
-      const probeContext: ChannelProbeContext = { assistantId };
+      const probeContext: ChannelProbeContext = {};
       const localChecks = probe.runLocalChecks(probeContext);
       let remoteChecks: ReadinessCheckResult[] | undefined;
       let remoteChecksFreshlyFetched = false;
       let remoteChecksAffectReadiness = false;
       let stale = false;
 
-      const cacheKey = this.snapshotCacheKey(ch, assistantId);
+      const cacheKey = this.snapshotCacheKey(ch);
       const cached = this.snapshots.get(cacheKey);
       const now = Date.now();
 
@@ -372,11 +335,7 @@ export class ChannelReadinessService {
   }
 
   /** Clear cached snapshot for a specific channel, forcing re-evaluation on next call. */
-  invalidateChannel(channel: ChannelId, assistantId?: string): void {
-    if (assistantId) {
-      this.snapshots.delete(this.snapshotCacheKey(channel, assistantId));
-      return;
-    }
+  invalidateChannel(channel: ChannelId): void {
     const prefix = `${channel}::`;
     for (const key of this.snapshots.keys()) {
       if (key.startsWith(prefix)) {
@@ -401,8 +360,8 @@ export class ChannelReadinessService {
     };
   }
 
-  private snapshotCacheKey(channel: ChannelId, assistantId?: string): string {
-    return `${channel}::${assistantId ?? '__default__'}`;
+  private snapshotCacheKey(channel: ChannelId): string {
+    return `${channel}::__default__`;
   }
 }
 

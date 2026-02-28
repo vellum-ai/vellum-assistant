@@ -287,4 +287,127 @@ describe('assistant ID boundary', () => {
   // all daemon storage keyed by DAEMON_INTERNAL_ASSISTANT_ID uses the fixed
   // internal value rather than externally-provided IDs).
   // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // Rule (e): No assistantId on daemon control-plane request/param types
+  //
+  // Daemon IPC contracts and guardian outbound param interfaces must not
+  // accept an assistantId field -- the daemon always uses
+  // DAEMON_INTERNAL_ASSISTANT_ID internally. Accepting assistantId on these
+  // surfaces invites callers to pass external IDs into daemon scoping.
+  // -------------------------------------------------------------------------
+
+  test('IPC contract types do not contain assistantId for Twilio/readiness/guardian requests', () => {
+    const ipcContractPath = join(import.meta.dir, '..', 'daemon', 'ipc-contract', 'integrations.ts');
+    const content = readFileSync(ipcContractPath, 'utf-8');
+
+    // Extract the interface blocks for the three request types and verify
+    // none of them declare an assistantId property.
+    const requestTypeNames = [
+      'TwilioConfigRequest',
+      'ChannelReadinessRequest',
+      'GuardianVerificationRequest',
+    ];
+
+    for (const typeName of requestTypeNames) {
+      // Find the interface/type block — match from the type name to the next
+      // closing brace at the same indentation level. We use a simple heuristic:
+      // find the line declaring the type, then scan forward to the closing '}'.
+      const typeIndex = content.indexOf(typeName);
+      expect(typeIndex, `Expected to find ${typeName} in IPC contract`).toBeGreaterThan(-1);
+
+      // Extract from the type declaration to the next '}' line
+      const blockStart = content.indexOf('{', typeIndex);
+      if (blockStart === -1) continue;
+      let braceDepth = 0;
+      let blockEnd = blockStart;
+      for (let i = blockStart; i < content.length; i++) {
+        if (content[i] === '{') braceDepth++;
+        if (content[i] === '}') braceDepth--;
+        if (braceDepth === 0) {
+          blockEnd = i + 1;
+          break;
+        }
+      }
+      const block = content.slice(blockStart, blockEnd);
+
+      // The block should not contain an assistantId property declaration
+      // (matches "assistantId?" or "assistantId:" on a non-comment line)
+      const lines = block.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
+        expect(
+          /\bassistantId\s*[?:]/.test(trimmed),
+          `${typeName} must not declare an assistantId property. Found: "${trimmed}"`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  test('guardian outbound param interfaces do not contain assistantId', () => {
+    const actionsPath = join(import.meta.dir, '..', 'runtime', 'guardian-outbound-actions.ts');
+    const content = readFileSync(actionsPath, 'utf-8');
+
+    const interfaceNames = [
+      'StartOutboundParams',
+      'ResendOutboundParams',
+      'CancelOutboundParams',
+    ];
+
+    for (const name of interfaceNames) {
+      const idx = content.indexOf(name);
+      expect(idx, `Expected to find ${name} in guardian-outbound-actions.ts`).toBeGreaterThan(-1);
+
+      const blockStart = content.indexOf('{', idx);
+      if (blockStart === -1) continue;
+      let braceDepth = 0;
+      let blockEnd = blockStart;
+      for (let i = blockStart; i < content.length; i++) {
+        if (content[i] === '{') braceDepth++;
+        if (content[i] === '}') braceDepth--;
+        if (braceDepth === 0) {
+          blockEnd = i + 1;
+          break;
+        }
+      }
+      const block = content.slice(blockStart, blockEnd);
+
+      const lines = block.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
+        expect(
+          /\bassistantId\s*[?:]/.test(trimmed),
+          `${name} must not declare an assistantId property. Found: "${trimmed}"`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  test('channel readiness service does not accept assistantId parameter', () => {
+    const servicePath = join(import.meta.dir, '..', 'runtime', 'channel-readiness-service.ts');
+    const content = readFileSync(servicePath, 'utf-8');
+
+    // getReadiness and invalidateChannel signatures must not include assistantId
+    const signaturePatterns = [
+      /getReadiness\([^)]*assistantId/,
+      /invalidateChannel\([^)]*assistantId/,
+    ];
+    for (const pattern of signaturePatterns) {
+      expect(
+        pattern.test(content),
+        `Channel readiness service must not accept assistantId parameter (matched: ${pattern})`,
+      ).toBe(false);
+    }
+
+    // ChannelProbeContext must not have assistantId
+    const probeContextMatch = content.match(/interface\s+ChannelProbeContext\s*\{([^}]*)\}/);
+    if (probeContextMatch) {
+      expect(
+        probeContextMatch[1],
+        'ChannelProbeContext must not contain assistantId',
+      ).not.toContain('assistantId');
+    }
+  });
 });

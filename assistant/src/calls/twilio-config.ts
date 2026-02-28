@@ -15,26 +15,15 @@ export interface TwilioConfig {
   wssBaseUrl: string;
 }
 
-function resolveTwilioPhoneNumber(assistantId: string | undefined, config: ReturnType<typeof loadConfig>): string {
-  if (assistantId) {
-    const assistantPhone = config.sms?.assistantPhoneNumbers?.[assistantId];
-    if (assistantPhone) {
-      return assistantPhone;
-    }
-  }
-
-  // Global fallback order:
-  // 1. TWILIO_PHONE_NUMBER env var (explicit override)
-  // 2. config file sms.phoneNumber (primary storage)
-  // 3. credential:twilio:phone_number secure key (backward-compat fallback)
+function resolveTwilioPhoneNumber(config: ReturnType<typeof loadConfig>): string {
   return getTwilioPhoneNumberEnv() || config.sms?.phoneNumber || getSecureKey('credential:twilio:phone_number') || '';
 }
 
-export function getTwilioConfig(assistantId?: string): TwilioConfig {
+export function getTwilioConfig(): TwilioConfig {
   const accountSid = getSecureKey('credential:twilio:account_sid');
   const authToken = getSecureKey('credential:twilio:auth_token');
   const config = loadConfig();
-  const phoneNumber = resolveTwilioPhoneNumber(assistantId, config);
+  const phoneNumber = resolveTwilioPhoneNumber(config);
   const webhookBaseUrl = getPublicBaseUrl(config);
 
   // Always use the centralized relay URL derived from the public ingress base URL.
