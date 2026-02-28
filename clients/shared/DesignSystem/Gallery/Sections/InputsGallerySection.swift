@@ -11,6 +11,7 @@ struct InputsGallerySection: View {
     @State private var sliderSmallValue: Double = 5
     @State private var toggleA: Bool = true
     @State private var toggleB: Bool = false
+    @State private var dropdownValue = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
@@ -164,6 +165,52 @@ struct InputsGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Without label").font(VFont.caption).foregroundColor(VColor.textMuted)
                         VToggle(isOn: $toggleB)
+                    }
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
+            // MARK: - VDropdown
+            GallerySectionHeader(
+                title: "VDropdown",
+                description: "Generic dropdown picker styled like VTextField, using native Menu for macOS popup behavior."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    Text("Live value: \"\(dropdownValue)\"")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textMuted)
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Empty state (placeholder visible)").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VDropdown(
+                            placeholder: "Select an option...",
+                            selection: .constant(""),
+                            options: [
+                                (label: "Option A", value: "a"),
+                                (label: "Option B", value: "b"),
+                                (label: "Option C", value: "c")
+                            ],
+                            emptyValue: ""
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Selected state (interactive)").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VDropdown(
+                            placeholder: "Select an option...",
+                            selection: $dropdownValue,
+                            options: [
+                                (label: "Option A", value: "a"),
+                                (label: "Option B", value: "b"),
+                                (label: "Option C", value: "c")
+                            ],
+                            emptyValue: ""
+                        )
                     }
                 }
             }
