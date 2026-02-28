@@ -182,7 +182,7 @@ describe('ASK_GUARDIAN canonical notification path', () => {
     expect(payload.questionText).toBe('What is the gate code?');
     expect(payload.callSessionId).toBe(session.id);
     expect(payload.requestKind).toBe('pending_question');
-    expect(payload.toolName).toBeNull();
+    expect(payload.toolName).toBeUndefined();
     expect(payload.pendingQuestionId).toBeUndefined();
     expect(payload.requestId).toBeDefined();
     expect(payload.requestCode).toBeDefined();

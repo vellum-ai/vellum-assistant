@@ -1,8 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  buildGuardianCodeOnlyClarification,
+  buildGuardianDisambiguationExample,
+  buildGuardianDisambiguationLabel,
+  buildGuardianInvalidActionReply,
+  buildGuardianReplyDirective,
   buildGuardianRequestCodeInstruction,
   hasGuardianRequestCodeInstruction,
+  resolveGuardianInstructionModeForRequest,
   parseGuardianQuestionPayload,
   resolveGuardianInstructionModeFromFields,
   resolveGuardianQuestionInstructionMode,
@@ -123,5 +129,63 @@ describe('guardian-question-mode', () => {
 
     expect(hasGuardianRequestCodeInstruction(wrongInstruction, code, 'answer')).toBe(false);
     expect(hasGuardianRequestCodeInstruction(correctInstruction, code, 'answer')).toBe(true);
+  });
+
+  test('buildGuardianReplyDirective uses mode-specific wording', () => {
+    expect(buildGuardianReplyDirective('A1B2C3', 'approval')).toBe('Reply "A1B2C3 approve" or "A1B2C3 reject".');
+    expect(buildGuardianReplyDirective('A1B2C3', 'answer')).toBe('Reply "A1B2C3 <your answer>".');
+  });
+
+  test('resolveGuardianInstructionModeForRequest handles tool-backed pending_question as approval', () => {
+    expect(
+      resolveGuardianInstructionModeForRequest({
+        kind: 'pending_question',
+        toolName: 'send_email',
+      }),
+    ).toBe('approval');
+    expect(
+      resolveGuardianInstructionModeForRequest({
+        kind: 'pending_question',
+        toolName: null,
+      }),
+    ).toBe('answer');
+  });
+
+  test('centralized guardian response copy builders produce mode-specific copy', () => {
+    expect(buildGuardianInvalidActionReply('approval', 'A1B2C3')).toContain('approve');
+    expect(buildGuardianInvalidActionReply('answer', 'A1B2C3')).toContain('<your answer>');
+
+    expect(
+      buildGuardianCodeOnlyClarification('approval', {
+        requestCode: 'A1B2C3',
+        questionText: 'Allow send_email to bob@example.com?',
+        toolName: 'send_email',
+      }),
+    ).toContain('I found request A1B2C3 for send_email.');
+    expect(
+      buildGuardianCodeOnlyClarification('answer', {
+        requestCode: 'A1B2C3',
+        questionText: 'What time works best?',
+      }),
+    ).toContain('I found question A1B2C3.');
+
+    expect(
+      buildGuardianDisambiguationLabel('approval', {
+        questionText: 'Allow send_email to bob@example.com?',
+        toolName: 'send_email',
+      }),
+    ).toBe('send_email');
+    expect(
+      buildGuardianDisambiguationLabel('answer', {
+        questionText: 'What time works best?',
+      }),
+    ).toBe('What time works best?');
+
+    expect(buildGuardianDisambiguationExample('approval', 'A1B2C3')).toBe(
+      'For approvals: reply "A1B2C3 approve" or "A1B2C3 reject".',
+    );
+    expect(buildGuardianDisambiguationExample('answer', 'A1B2C3')).toBe(
+      'For questions: reply "A1B2C3 <your answer>".',
+    );
   });
 });

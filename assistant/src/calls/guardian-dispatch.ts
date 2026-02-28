@@ -149,6 +149,7 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
     // Route through the canonical notification pipeline. The paired vellum
     // conversation from this pipeline is the canonical guardian thread.
     let vellumDeliveryId: string | null = null;
+    const requestCode = request.requestCode ?? request.id.slice(0, 6).toUpperCase();
     const signalResult = await emitNotificationSignal({
       sourceEventName: 'guardian.question',
       sourceChannel: 'voice',
@@ -163,10 +164,10 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
       },
       contextPayload: {
         requestId: request.id,
-        requestKind: request.kind,
-        requestCode: request.requestCode,
+        requestKind: 'pending_question',
+        requestCode,
         callSessionId,
-        toolName: toolName ?? null,
+        toolName,
         questionText: pendingQuestion.questionText,
         activeGuardianRequestCount,
       },

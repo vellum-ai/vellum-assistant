@@ -428,7 +428,7 @@ describe('guardian-dispatch', () => {
     expect(payload.activeGuardianRequestCount).toBe(1);
     expect(payload.callSessionId).toBe(session.id);
     expect(payload.requestKind).toBe('pending_question');
-    expect(payload.toolName).toBeNull();
+    expect(payload.toolName).toBeUndefined();
     expect(payload.pendingQuestionId).toBeUndefined();
   });
 

@@ -29,9 +29,11 @@ import {
   listCanonicalGuardianRequests,
 } from '../memory/canonical-guardian-store.js';
 import {
-  buildGuardianRequestCodeInstruction,
-  resolveGuardianInstructionModeFromFields,
-  type GuardianQuestionInstructionMode,
+  buildGuardianCodeOnlyClarification,
+  buildGuardianDisambiguationExample,
+  buildGuardianDisambiguationLabel,
+  buildGuardianInvalidActionReply,
+  resolveGuardianInstructionModeForRequest,
 } from '../notifications/guardian-question-mode.js';
 import { getLogger } from '../util/logger.js';
 import { runApprovalConversationTurn } from './approval-conversation-turn.js';
@@ -652,15 +654,8 @@ function inferActionFromText(text: string): ApprovalAction {
 
 function resolveRequestInstructionMode(
   request?: Pick<CanonicalGuardianRequest, 'kind' | 'toolName'> | null,
-): GuardianQuestionInstructionMode {
-  if (!request) return 'approval';
-  const modeResolution = resolveGuardianInstructionModeFromFields(request.kind, request.toolName);
-  if (!modeResolution) return 'approval';
-  return modeResolution.mode;
-}
-
-function isAnswerModeRequest(request?: Pick<CanonicalGuardianRequest, 'kind' | 'toolName'> | null): boolean {
-  return resolveRequestInstructionMode(request) === 'answer';
+): 'approval' | 'answer' {
+  return resolveGuardianInstructionModeForRequest(request);
 }
 
 // ---------------------------------------------------------------------------
@@ -685,33 +680,11 @@ function failureReplyText(
       return 'This request has expired.';
     case 'identity_mismatch':
       return "You don't have permission to decide on this request.";
-    case 'invalid_action': {
-      const mode = resolveRequestInstructionMode(request);
-      switch (mode) {
-        case 'answer':
-          return requestCode
-            ? `I found request ${requestCode}, but I still need your answer. Reply "${requestCode} <your answer>".`
-            : "I couldn't determine your answer. Reply with the request code followed by your answer (e.g., \"ABC123 3pm works\").";
-        case 'approval':
-          return requestCode
-            ? `I found request ${requestCode}, but I need to know your decision. Reply "${requestCode} approve" or "${requestCode} reject".`
-            : "I couldn't determine your intended action. Reply with the request code followed by 'approve' or 'reject' (e.g., \"ABC123 approve\").";
-        default: {
-          const _never: never = mode;
-          return _never;
-        }
-      }
-    }
+    case 'invalid_action':
+      return buildGuardianInvalidActionReply(resolveRequestInstructionMode(request), requestCode ?? undefined);
     default:
       return "I couldn't process that request. Please try again.";
   }
-}
-
-function instructionTail(mode: GuardianQuestionInstructionMode, requestCode: string): string {
-  const instruction = buildGuardianRequestCodeInstruction(requestCode, mode);
-  const prefix = `Reference code: ${requestCode}. `;
-  if (!instruction.startsWith(prefix)) return instruction;
-  return instruction.slice(prefix.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -726,26 +699,11 @@ function instructionTail(mode: GuardianQuestionInstructionMode, requestCode: str
 function composeCodeOnlyClarification(request: CanonicalGuardianRequest): string {
   const code = request.requestCode ?? 'unknown';
   const mode = resolveRequestInstructionMode(request);
-  if (mode === 'answer') {
-    const lines: string[] = [
-      `I found question ${code}.`,
-    ];
-    if (request.questionText) {
-      lines.push(`Question: ${request.questionText}`);
-    }
-    lines.push(instructionTail(mode, code));
-    return lines.join('\n');
-  }
-
-  const toolLabel = request.toolName ?? 'an action';
-  const lines: string[] = [
-    `I found request ${code} for ${toolLabel}.`,
-  ];
-  if (request.questionText) {
-    lines.push(`Details: ${request.questionText}`);
-  }
-  lines.push(instructionTail(mode, code));
-  return lines.join('\n');
+  return buildGuardianCodeOnlyClarification(mode, {
+    requestCode: code,
+    questionText: request.questionText,
+    toolName: request.toolName,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -775,9 +733,10 @@ function composeDisambiguationReply(
   lines.push(`You have ${pendingRequests.length} pending requests. Please specify which one:`);
 
   for (const { request, mode } of requestsWithMode) {
-    const toolLabel = mode === 'answer'
-      ? (request.questionText ?? 'question')
-      : (request.toolName ?? request.questionText ?? 'action');
+    const toolLabel = buildGuardianDisambiguationLabel(mode, {
+      questionText: request.questionText,
+      toolName: request.toolName,
+    });
     const code = request.requestCode ?? request.id.slice(0, 6).toUpperCase();
     lines.push(`  - ${code}: ${toolLabel}`);
   }
@@ -787,11 +746,11 @@ function composeDisambiguationReply(
   lines.push('');
   if (questionRequest) {
     const exampleCode = questionRequest.request.requestCode ?? questionRequest.request.id.slice(0, 6).toUpperCase();
-    lines.push(`For questions: reply "${exampleCode} <your answer>".`);
+    lines.push(buildGuardianDisambiguationExample(questionRequest.mode, exampleCode));
   }
   if (decisionRequest) {
     const exampleCode = decisionRequest.request.requestCode ?? decisionRequest.request.id.slice(0, 6).toUpperCase();
-    lines.push(`For approvals: reply "${exampleCode} approve" or "${exampleCode} reject".`);
+    lines.push(buildGuardianDisambiguationExample(decisionRequest.mode, exampleCode));
   }
 
   return lines.join('\n');

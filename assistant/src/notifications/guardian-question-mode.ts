@@ -38,13 +38,62 @@ const REQUEST_KIND_MODE_CONFIG: Record<GuardianQuestionRequestKind, GuardianRequ
 };
 
 interface GuardianQuestionPayloadBase {
-  requestKind: GuardianQuestionRequestKind;
   requestId: string;
   requestCode: string;
   questionText: string;
 }
 
-export interface PendingQuestionGuardianPayload extends GuardianQuestionPayloadBase {
+interface GuardianQuestionPayloadBaseWithDiscriminator extends GuardianQuestionPayloadBase {
+  requestKind: GuardianQuestionRequestKind;
+  [key: string]: unknown;
+}
+
+export interface GuardianRequestModeInput {
+  kind: unknown;
+  toolName?: unknown;
+}
+
+export interface GuardianRequestTextInput {
+  requestCode: string;
+  questionText?: string | null;
+  toolName?: string | null;
+}
+
+type GuardianDisambiguationCategory = 'questions' | 'approvals';
+
+interface GuardianModeTextConfig {
+  invalidActionWithCode: (requestCode: string) => string;
+  invalidActionWithoutCode: string;
+  buildCodeOnlyHeader: (request: GuardianRequestTextInput) => string;
+  buildCodeOnlyDetailLine: (request: GuardianRequestTextInput) => string | null;
+  buildDisambiguationLabel: (request: Pick<GuardianRequestTextInput, 'questionText' | 'toolName'>) => string;
+  disambiguationCategory: GuardianDisambiguationCategory;
+}
+
+const MODE_TEXT_CONFIG: Record<GuardianQuestionInstructionMode, GuardianModeTextConfig> = {
+  answer: {
+    invalidActionWithCode: (requestCode) =>
+      `I found request ${requestCode}, but I still need your answer. Reply "${requestCode} <your answer>".`,
+    invalidActionWithoutCode:
+      "I couldn't determine your answer. Reply with the request code followed by your answer (e.g., \"ABC123 3pm works\").",
+    buildCodeOnlyHeader: (request) => `I found question ${request.requestCode}.`,
+    buildCodeOnlyDetailLine: (request) => request.questionText ? `Question: ${request.questionText}` : null,
+    buildDisambiguationLabel: (request) => request.questionText ?? 'question',
+    disambiguationCategory: 'questions',
+  },
+  approval: {
+    invalidActionWithCode: (requestCode) =>
+      `I found request ${requestCode}, but I need to know your decision. Reply "${requestCode} approve" or "${requestCode} reject".`,
+    invalidActionWithoutCode:
+      "I couldn't determine your intended action. Reply with the request code followed by 'approve' or 'reject' (e.g., \"ABC123 approve\").",
+    buildCodeOnlyHeader: (request) => `I found request ${request.requestCode} for ${request.toolName ?? 'an action'}.`,
+    buildCodeOnlyDetailLine: (request) => request.questionText ? `Details: ${request.questionText}` : null,
+    buildDisambiguationLabel: (request) => request.toolName ?? request.questionText ?? 'action',
+    disambiguationCategory: 'approvals',
+  },
+};
+
+export interface PendingQuestionGuardianPayload extends GuardianQuestionPayloadBaseWithDiscriminator {
   requestKind: 'pending_question';
   callSessionId: string;
   activeGuardianRequestCount: number;
@@ -55,17 +104,17 @@ export interface PendingQuestionGuardianPayload extends GuardianQuestionPayloadB
   toolName?: string;
 }
 
-export interface ToolApprovalGuardianPayload extends GuardianQuestionPayloadBase {
+export interface ToolApprovalGuardianPayload extends GuardianQuestionPayloadBaseWithDiscriminator {
   requestKind: 'tool_approval';
   toolName: string;
 }
 
-export interface ToolGrantGuardianPayload extends GuardianQuestionPayloadBase {
+export interface ToolGrantGuardianPayload extends GuardianQuestionPayloadBaseWithDiscriminator {
   requestKind: 'tool_grant_request';
   toolName: string;
 }
 
-export interface AccessRequestGuardianPayload extends GuardianQuestionPayloadBase {
+export interface AccessRequestGuardianPayload extends GuardianQuestionPayloadBaseWithDiscriminator {
   requestKind: 'access_request';
 }
 
@@ -104,7 +153,7 @@ export function parseGuardianQuestionRequestKind(
   }
 }
 
-function parseBasePayload(payload: Record<string, unknown>): Omit<GuardianQuestionPayloadBase, 'requestKind'> | null {
+function parseBasePayload(payload: Record<string, unknown>): GuardianQuestionPayloadBase | null {
   const requestId = nonEmptyString(payload.requestId);
   const requestCode = nonEmptyString(payload.requestCode);
   const questionText = nonEmptyString(payload.questionText);
@@ -196,20 +245,81 @@ export function resolveGuardianInstructionModeFromFields(
   };
 }
 
-export function buildGuardianRequestCodeInstruction(
+export function resolveGuardianInstructionModeForRequest(
+  request?: GuardianRequestModeInput | null,
+): GuardianQuestionInstructionMode {
+  if (!request) return 'approval';
+  const modeResolution = resolveGuardianInstructionModeFromFields(request.kind, request.toolName);
+  if (!modeResolution) return 'approval';
+  return modeResolution.mode;
+}
+
+function getModeTextConfig(mode: GuardianQuestionInstructionMode): GuardianModeTextConfig {
+  return MODE_TEXT_CONFIG[mode];
+}
+
+export function buildGuardianReplyDirective(
   requestCode: string,
   mode: GuardianQuestionInstructionMode,
 ): string {
   switch (mode) {
     case 'approval':
-      return `Reference code: ${requestCode}. Reply "${requestCode} approve" or "${requestCode} reject".`;
+      return `Reply "${requestCode} approve" or "${requestCode} reject".`;
     case 'answer':
-      return `Reference code: ${requestCode}. Reply "${requestCode} <your answer>".`;
+      return `Reply "${requestCode} <your answer>".`;
     default: {
       const _never: never = mode;
       return _never;
     }
   }
+}
+
+export function buildGuardianRequestCodeInstruction(
+  requestCode: string,
+  mode: GuardianQuestionInstructionMode,
+): string {
+  return `Reference code: ${requestCode}. ${buildGuardianReplyDirective(requestCode, mode)}`;
+}
+
+export function buildGuardianInvalidActionReply(
+  mode: GuardianQuestionInstructionMode,
+  requestCode?: string,
+): string {
+  const config = getModeTextConfig(mode);
+  if (requestCode) return config.invalidActionWithCode(requestCode);
+  return config.invalidActionWithoutCode;
+}
+
+export function buildGuardianCodeOnlyClarification(
+  mode: GuardianQuestionInstructionMode,
+  request: GuardianRequestTextInput,
+): string {
+  const config = getModeTextConfig(mode);
+  const lines = [
+    config.buildCodeOnlyHeader(request),
+  ];
+  const detailLine = config.buildCodeOnlyDetailLine(request);
+  if (detailLine) {
+    lines.push(detailLine);
+  }
+  lines.push(buildGuardianReplyDirective(request.requestCode, mode));
+  return lines.join('\n');
+}
+
+export function buildGuardianDisambiguationLabel(
+  mode: GuardianQuestionInstructionMode,
+  request: Pick<GuardianRequestTextInput, 'questionText' | 'toolName'>,
+): string {
+  return getModeTextConfig(mode).buildDisambiguationLabel(request);
+}
+
+export function buildGuardianDisambiguationExample(
+  mode: GuardianQuestionInstructionMode,
+  requestCode: string,
+): string {
+  const category = getModeTextConfig(mode).disambiguationCategory;
+  const replyDirective = buildGuardianReplyDirective(requestCode, mode);
+  return `For ${category}: ${replyDirective.replace(/^Reply/, 'reply')}`;
 }
 
 export function hasGuardianRequestCodeInstruction(
@@ -247,7 +357,7 @@ export function resolveGuardianQuestionInstructionMode(
 ): GuardianQuestionModeResolution {
   const parsed = parseGuardianQuestionPayload(payload);
   if (parsed) {
-    const parsedToolName = 'toolName' in parsed ? parsed.toolName : null;
+    const parsedToolName = nonEmptyString('toolName' in parsed ? parsed.toolName : null);
     return {
       mode: resolveGuardianInstructionModeForRequestKind(parsed.requestKind, parsedToolName),
       requestKind: parsed.requestKind,
