@@ -265,25 +265,18 @@ export class AgentLoop {
           streamingPending = '';
         }
 
-        // Build the assistant message for provider history (placeholder-only,
-        // so the model never sees real sensitive values on subsequent turns).
+        // Build the assistant message with placeholder-only text.
+        // Both provider history and persisted conversation store must retain
+        // placeholders so the model never sees real sensitive values — neither
+        // on subsequent loop turns nor on session reload from the database.
+        // Substitution to real values happens only in streamed text_delta events.
         const assistantMessage: Message = {
           role: 'assistant',
           content: response.content,
         };
         history.push(assistantMessage);
 
-        // Apply sensitive-output placeholder substitution for the client-facing
-        // message_complete event. The history retains placeholders; the emitted
-        // event carries the resolved real values.
-        const clientContent = substitutionMap.size > 0
-          ? response.content.map((block) =>
-              block.type === 'text'
-                ? { ...block, text: applySubstitutions(block.text, substitutionMap) }
-                : block)
-          : response.content;
-
-        await onEvent({ type: 'message_complete', message: { role: 'assistant', content: clientContent } });
+        await onEvent({ type: 'message_complete', message: assistantMessage });
 
         // Check for tool use
         toolUseBlocks = response.content.filter(

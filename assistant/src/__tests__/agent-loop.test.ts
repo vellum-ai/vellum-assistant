@@ -1205,8 +1205,8 @@ describe('AgentLoop', () => {
     expect(historyTextBlock!.text).toContain(placeholder);
     expect(historyTextBlock!.text).not.toContain(realToken);
 
-    // The message_complete EVENT should contain the resolved real token
-    // (client-facing emissions carry the substituted values)
+    // The message_complete EVENT should also retain placeholders (persisted
+    // to conversation store; real values leak on session reload otherwise)
     const completeEvents = events.filter(
       (e): e is Extract<AgentEvent, { type: 'message_complete' }> => e.type === 'message_complete',
     );
@@ -1214,8 +1214,8 @@ describe('AgentLoop', () => {
     const completeText = lastComplete.message.content.find(
       (b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text',
     );
-    expect(completeText!.text).toContain(realToken);
-    expect(completeText!.text).not.toContain(placeholder);
+    expect(completeText!.text).toContain(placeholder);
+    expect(completeText!.text).not.toContain(realToken);
 
     // The tool result content in provider history should contain the PLACEHOLDER,
     // NOT the raw token (model never sees the real value)
