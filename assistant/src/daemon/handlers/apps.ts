@@ -104,14 +104,13 @@ export function handleAppOpenRequest(msg: { appId: string }, socket: net.Socket,
     for (const session of ctx.sessions.values()) {
       const cached = session.surfaceState.get(appId);
       if (cached && cached.surfaceType === 'dynamic_page') {
-        const data = cached.data as { preview?: { title?: string } };
         const newSurfaceId = `app-open-${uuid()}`;
         ctx.send(socket, {
           type: 'ui_surface_show',
           sessionId: 'app-panel',
           surfaceId: newSurfaceId,
           surfaceType: 'dynamic_page',
-          title: data.preview?.title,
+          title: cached.title ?? (cached.data as { preview?: { title?: string } }).preview?.title,
           data: cached.data,
           display: 'panel',
         } as UiSurfaceShow);

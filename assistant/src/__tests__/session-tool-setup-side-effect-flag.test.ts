@@ -49,7 +49,7 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
-    surfaceState: new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>(),
+    surfaceState: new Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>(),
     surfaceUndoStacks: new Map(),
     currentTurnSurfaces: [],
     isProcessing: () => false,

@@ -79,7 +79,7 @@ export class ComputerUseSession {
   private pendingSurfaceActions = new Map<string, {
     resolve: (result: ToolExecutionResult) => void;
   }>();
-  private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
+  private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>();
   private terminalNotified = false;
   private prompter: PermissionPrompter | null = null;
 
@@ -337,7 +337,7 @@ export class ComputerUseSession {
         const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
         // Track surface state for ui_update merging
-        this.surfaceState.set(surfaceId, { surfaceType, data });
+        this.surfaceState.set(surfaceId, { surfaceType, data, title });
 
         this.sendToClient({
           type: 'ui_surface_show',
