@@ -683,6 +683,30 @@ describe('entropy-based detection', () => {
     expect(matches).toHaveLength(0);
     expect(redactSecrets(input)).toBe(input);
   });
+
+  test('does not redact ingress invite token in create response JSON', () => {
+    const token = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_ABCDE';
+    const input = JSON.stringify({
+      ok: true,
+      invite: {
+        sourceChannel: 'telegram',
+        token,
+      },
+    }, null, 2);
+    const entropyMatches = scanText(input).filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropyMatches).toHaveLength(0);
+    expect(redactSecrets(input)).toBe(input);
+  });
+
+  test('still redacts high-entropy token field outside invite context', () => {
+    const token = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_ABCDE';
+    const input = JSON.stringify({
+      service: 'payments',
+      token,
+    }, null, 2);
+    const entropyMatches = scanText(input).filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropyMatches.length).toBeGreaterThan(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

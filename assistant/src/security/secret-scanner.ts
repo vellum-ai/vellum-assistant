@@ -365,6 +365,41 @@ function hasSecretContext(text: string, matchStart: number): boolean {
   return SECRET_CONTEXT_RES.some((re) => re.test(prefix));
 }
 
+const INVITE_TOKEN_PREFIXES = new Set(['iv_', 'gv_']);
+const INVITE_OBJECT_RE = /"invite"\s*:\s*\{/i;
+const INVITE_CHANNEL_RE = /"sourceChannel"\s*:\s*"(telegram|sms|whatsapp|voice)"/i;
+const TOKEN_FIELD_PREFIX_RE = /"token"\s*:\s*"$/i;
+
+/**
+ * Skip entropy matches for ingress invite tokens.
+ *
+ * Invite tokens are intentionally shareable values. Redacting them in create-
+ * invite responses degrades UX (the assistant can't present a usable link).
+ * Keep this narrowly scoped to known invite contexts.
+ */
+function isInviteFlowToken(text: string, startIndex: number, endIndex: number): boolean {
+  const candidate = text.slice(startIndex, endIndex);
+  if (INVITE_TOKEN_PREFIXES.has(candidate.slice(0, 3))) {
+    return true;
+  }
+
+  const directPrefix = text.slice(Math.max(0, startIndex - 3), startIndex);
+  if (INVITE_TOKEN_PREFIXES.has(directPrefix)) {
+    return true;
+  }
+
+  const beforeTail = text.slice(Math.max(0, startIndex - 48), startIndex);
+  if (!TOKEN_FIELD_PREFIX_RE.test(beforeTail)) {
+    return false;
+  }
+
+  const windowStart = Math.max(0, startIndex - 260);
+  const windowEnd = Math.min(text.length, endIndex + 260);
+  const contextWindow = text.slice(windowStart, windowEnd);
+
+  return INVITE_OBJECT_RE.test(contextWindow) && INVITE_CHANNEL_RE.test(contextWindow);
+}
+
 /**
  * Check if a string is purely hex characters.
  */
@@ -409,6 +444,7 @@ function scanEntropy(
     // Skip placeholders and allowlisted values
     if (isPlaceholder(value)) continue;
     if (isAllowlisted(value)) continue;
+    if (isInviteFlowToken(text, startIndex, endIndex)) continue;
 
     const entropy = shannonEntropy(value);
     if (entropy < config.hexThreshold) continue;
@@ -442,6 +478,7 @@ function scanEntropy(
 
     if (isPlaceholder(value)) continue;
     if (isAllowlisted(value)) continue;
+    if (isInviteFlowToken(text, startIndex, endIndex)) continue;
 
     const entropy = shannonEntropy(value);
     if (entropy < config.base64Threshold) continue;
