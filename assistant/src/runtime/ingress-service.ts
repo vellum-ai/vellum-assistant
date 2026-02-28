@@ -22,6 +22,7 @@ import {
   revokeMember,
   upsertMember,
 } from '../memory/ingress-member-store.js';
+import { isValidE164 } from '../util/phone.js';
 import { generateVoiceCode, hashVoiceCode } from '../util/voice-code.js';
 import {
   type InviteRedemptionOutcome,
@@ -136,6 +137,9 @@ export function createIngressInvite(params: {
   if (isVoice) {
     if (!params.expectedExternalUserId) {
       return { ok: false, error: 'expectedExternalUserId is required for voice invites' };
+    }
+    if (!isValidE164(params.expectedExternalUserId)) {
+      return { ok: false, error: 'expectedExternalUserId must be in E.164 format (e.g., +15551234567)' };
     }
     const digits = params.voiceCodeDigits ?? 6;
     if (!Number.isInteger(digits) || digits < 4 || digits > 10) {
