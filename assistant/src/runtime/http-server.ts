@@ -133,7 +133,6 @@ import {
   handleListInvites,
   handleListMembers,
   handleRedeemInvite,
-  handleRedeemVoiceInvite,
   handleRevokeInvite,
   handleRevokeMember,
   handleUpsertMember,
@@ -746,7 +745,6 @@ export class RuntimeHttpServer {
       if (endpoint === 'ingress/invites' && req.method === 'GET') return handleListInvites(url);
       if (endpoint === 'ingress/invites' && req.method === 'POST') return await handleCreateInvite(req);
       if (endpoint === 'ingress/invites/redeem' && req.method === 'POST') return await handleRedeemInvite(req);
-      if (endpoint === 'ingress/invites/redeem-voice' && req.method === 'POST') return await handleRedeemVoiceInvite(req);
       const inviteMatch = endpoint.match(/^ingress\/invites\/([^/]+)$/);
       if (inviteMatch && req.method === 'DELETE') return handleRevokeInvite(inviteMatch[1]);
 

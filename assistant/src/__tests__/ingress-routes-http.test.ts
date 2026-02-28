@@ -31,7 +31,6 @@ import {
   handleListInvites,
   handleListMembers,
   handleRedeemInvite,
-  handleRedeemVoiceInvite,
   handleRevokeInvite,
   handleRevokeMember,
   handleUpsertMember,
@@ -557,7 +556,7 @@ describe('voice invite HTTP routes', () => {
     expect(invite.token).toBeUndefined();
   });
 
-  test('POST /v1/ingress/invites/redeem-voice — redeems a voice invite code', async () => {
+  test('POST /v1/ingress/invites/redeem — redeems a voice invite code via unified endpoint', async () => {
     // Create a voice invite
     const createRes = await handleCreateInvite(new Request('http://localhost/v1/ingress/invites', {
       method: 'POST',
@@ -570,8 +569,8 @@ describe('voice invite HTTP routes', () => {
     }));
     const created = await createRes.json() as { invite: { voiceCode: string } };
 
-    // Redeem the voice code
-    const redeemReq = new Request('http://localhost/v1/ingress/invites/redeem-voice', {
+    // Redeem the voice code via the unified /redeem endpoint
+    const redeemReq = new Request('http://localhost/v1/ingress/invites/redeem', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -580,7 +579,7 @@ describe('voice invite HTTP routes', () => {
       }),
     });
 
-    const res = await handleRedeemVoiceInvite(redeemReq);
+    const res = await handleRedeemInvite(redeemReq);
     const body = await res.json() as Record<string, unknown>;
 
     expect(res.status).toBe(200);
@@ -590,21 +589,22 @@ describe('voice invite HTTP routes', () => {
     expect(typeof body.inviteId).toBe('string');
   });
 
-  test('POST /v1/ingress/invites/redeem-voice — missing fields returns 400', async () => {
-    const req = new Request('http://localhost/v1/ingress/invites/redeem-voice', {
+  test('POST /v1/ingress/invites/redeem — voice code missing fields returns 400', async () => {
+    const req = new Request('http://localhost/v1/ingress/invites/redeem', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ callerExternalUserId: '+15551234567' }),
     });
 
-    const res = await handleRedeemVoiceInvite(req);
+    const res = await handleRedeemInvite(req);
     const body = await res.json() as Record<string, unknown>;
 
+    // No `code` and no `token` → falls through to token-based path which requires token
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
   });
 
-  test('POST /v1/ingress/invites/redeem-voice — wrong code returns 400', async () => {
+  test('POST /v1/ingress/invites/redeem — wrong voice code returns 400', async () => {
     // Create a voice invite
     await handleCreateInvite(new Request('http://localhost/v1/ingress/invites', {
       method: 'POST',
@@ -616,7 +616,7 @@ describe('voice invite HTTP routes', () => {
       }),
     }));
 
-    const req = new Request('http://localhost/v1/ingress/invites/redeem-voice', {
+    const req = new Request('http://localhost/v1/ingress/invites/redeem', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -625,7 +625,7 @@ describe('voice invite HTTP routes', () => {
       }),
     });
 
-    const res = await handleRedeemVoiceInvite(req);
+    const res = await handleRedeemInvite(req);
     const body = await res.json() as Record<string, unknown>;
 
     expect(res.status).toBe(400);

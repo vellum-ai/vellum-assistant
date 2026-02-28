@@ -8,11 +8,10 @@
  *   POST   /v1/ingress/members/:id/block — block a member
  *
  * Invites:
- *   GET    /v1/ingress/invites              — list invites
- *   POST   /v1/ingress/invites              — create an invite (supports voice)
- *   DELETE /v1/ingress/invites/:id          — revoke an invite
- *   POST   /v1/ingress/invites/redeem       — redeem an invite (token-based)
- *   POST   /v1/ingress/invites/redeem-voice — redeem a voice invite code
+ *   GET    /v1/ingress/invites        — list invites
+ *   POST   /v1/ingress/invites        — create an invite (supports voice)
+ *   DELETE /v1/ingress/invites/:id    — revoke an invite
+ *   POST   /v1/ingress/invites/redeem — redeem an invite (token or voice code)
  */
 
 import {
@@ -170,10 +169,50 @@ export function handleRevokeInvite(inviteId: string): Response {
 
 /**
  * POST /v1/ingress/invites/redeem
+ *
+ * Unified invite redemption endpoint. Supports two modes:
+ *
+ * 1. **Token-based** (existing): pass `token`, `sourceChannel`, `externalUserId`, etc.
+ * 2. **Voice code** (new): pass `code` and `callerExternalUserId` (E.164 phone).
+ *    Optionally pass `assistantId`.
+ *
+ * The presence of `code` in the body selects voice-code redemption.
  */
 export async function handleRedeemInvite(req: Request): Promise<Response> {
   const body = (await req.json()) as Record<string, unknown>;
 
+  // Voice-code redemption path: triggered when `code` is present
+  if (body.code != null) {
+    const callerExternalUserId = body.callerExternalUserId as string | undefined;
+    const code = body.code as string | undefined;
+
+    if (!callerExternalUserId || !code) {
+      return Response.json(
+        { ok: false, error: 'callerExternalUserId and code are required' },
+        { status: 400 },
+      );
+    }
+
+    const result = redeemVoiceInviteCode({
+      assistantId: body.assistantId as string | undefined,
+      callerExternalUserId,
+      sourceChannel: 'voice',
+      code,
+    });
+
+    if (!result.ok) {
+      return Response.json({ ok: false, error: result.reason }, { status: 400 });
+    }
+
+    return Response.json({
+      ok: true,
+      type: result.type,
+      memberId: result.memberId,
+      ...(result.type === 'redeemed' ? { inviteId: result.inviteId } : {}),
+    });
+  }
+
+  // Token-based redemption path (default)
   const result = redeemIngressInvite({
     token: body.token as string | undefined,
     externalUserId: body.externalUserId as string | undefined,
@@ -185,44 +224,4 @@ export async function handleRedeemInvite(req: Request): Promise<Response> {
     return Response.json({ ok: false, error: result.error }, { status: 400 });
   }
   return Response.json({ ok: true, invite: result.data });
-}
-
-/**
- * POST /v1/ingress/invites/redeem-voice
- *
- * Redeem a voice invite code. Requires:
- * - callerExternalUserId: E.164 phone number of the caller
- * - code: the short numeric voice code
- * - assistantId (optional)
- */
-export async function handleRedeemVoiceInvite(req: Request): Promise<Response> {
-  const body = (await req.json()) as Record<string, unknown>;
-
-  const callerExternalUserId = body.callerExternalUserId as string | undefined;
-  const code = body.code as string | undefined;
-
-  if (!callerExternalUserId || !code) {
-    return Response.json(
-      { ok: false, error: 'callerExternalUserId and code are required' },
-      { status: 400 },
-    );
-  }
-
-  const result = redeemVoiceInviteCode({
-    assistantId: body.assistantId as string | undefined,
-    callerExternalUserId,
-    sourceChannel: 'voice',
-    code,
-  });
-
-  if (!result.ok) {
-    return Response.json({ ok: false, error: result.reason }, { status: 400 });
-  }
-
-  return Response.json({
-    ok: true,
-    type: result.type,
-    memberId: result.memberId,
-    ...(result.type === 'redeemed' ? { inviteId: result.inviteId } : {}),
-  });
 }
