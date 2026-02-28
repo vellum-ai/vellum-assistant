@@ -65,18 +65,6 @@ jobs:
 
       # ── Download released DMG (when release version is provided) ──
 
-      - name: Remove all source files except playwright
-        if: ${{ inputs.release_version }}
-        run: |
-          # Move playwright directory to a safe location
-          mv playwright /tmp/playwright-tests
-
-          # Remove everything in the repo except .git
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-
-          # Restore only the playwright directory
-          mv /tmp/playwright-tests playwright
-
       - name: Download released DMG
         if: ${{ inputs.release_version }}
         env:
@@ -101,16 +89,33 @@ jobs:
           hdiutil detach "$MOUNT_DIR"
           rm -f /tmp/vellum-assistant.dmg
 
+      # ── Common steps ──
+
+      - name: Remove all source files except playwright and app
+        run: |
+          # Move playwright and built app to safe locations
+          mv playwright /tmp/playwright-tests
+          if [ -d clients/macos/dist ]; then
+            mv clients/macos/dist /tmp/app-dist
+          fi
+
+          # Remove everything in the repo except .git
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+
+          # Restore playwright and app
+          mv /tmp/playwright-tests playwright
+          if [ -d /tmp/app-dist ]; then
+            mkdir -p clients/macos
+            mv /tmp/app-dist clients/macos/dist
+          fi
+
       - name: Verify no source files present
-        if: ${{ inputs.release_version }}
         run: |
           echo "=== Repository contents ==="
           ls -la
           echo ""
-          echo "Only playwright/ and clients/macos/dist/ (from DMG) should exist:"
+          echo "Only playwright/ and clients/macos/dist/ should exist:"
           find . -mindepth 1 -maxdepth 2 ! -path './.git*' ! -path './playwright*' ! -path './clients*' | head -20 || true
-
-      # ── Common steps ──
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
