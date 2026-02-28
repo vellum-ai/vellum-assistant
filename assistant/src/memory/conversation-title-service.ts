@@ -326,7 +326,7 @@ function stripMarkdown(text: string): string {
     .replace(/\*\*(.+?)\*\*/g, '$1')   // **bold**
     .replace(/__(.+?)__/g, '$1')        // __bold__
     .replace(/\*(.+?)\*/g, '$1')        // *italic*
-    .replace(/_(.+?)_/g, '$1')          // _italic_
+    .replace(/(?<!\w)_(.+?)_(?!\w)/g, '$1') // _italic_ (word-boundary-aware to preserve snake_case)
     .replace(/~~(.+?)~~/g, '$1')        // ~~strikethrough~~
     .replace(/`(.+?)`/g, '$1')          // `code`
     .replace(/\[(.+?)\]\(.+?\)/g, '$1') // [link](url)
