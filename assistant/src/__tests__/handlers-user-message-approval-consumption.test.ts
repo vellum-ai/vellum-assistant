@@ -14,6 +14,7 @@ const routeGuardianReplyMock = mock(async () => ({
 })) as any;
 const listPendingByDestinationMock = mock(() => [] as Array<{ id: string }>);
 const listCanonicalMock = mock(() => [] as Array<{ id: string }>);
+const addMessageMock = mock(async () => ({ id: 'persisted-message-id' }));
 const getConfigMock = mock(() => ({
   daemon: { standaloneRecording: false },
   secretDetection: { customPatterns: [], entropyThreshold: 3.5 },
@@ -26,6 +27,10 @@ mock.module('../runtime/guardian-reply-router.js', () => ({
 mock.module('../memory/canonical-guardian-store.js', () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: listPendingByDestinationMock,
   listCanonicalGuardianRequests: listCanonicalMock,
+}));
+
+mock.module('../memory/conversation-store.js', () => ({
+  addMessage: addMessageMock,
 }));
 
 mock.module('../config/loader.js', () => ({
@@ -129,6 +134,7 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     routeGuardianReplyMock.mockClear();
     listPendingByDestinationMock.mockClear();
     listCanonicalMock.mockClear();
+    addMessageMock.mockClear();
     getConfigMock.mockClear();
   });
 
@@ -153,6 +159,19 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     expect(typeof routeCall.approvalConversationGenerator).toBe('function');
     expect((session.denyAllPendingConfirmations as any).mock.calls.length).toBe(0);
     expect((session.enqueueMessage as any).mock.calls.length).toBe(0);
+    expect(addMessageMock).toHaveBeenCalledTimes(1);
+    expect(addMessageMock).toHaveBeenCalledWith(
+      'conv-1',
+      'user',
+      expect.any(String),
+      expect.objectContaining({
+        userMessageChannel: 'vellum',
+        assistantMessageChannel: 'vellum',
+        userMessageInterface: 'macos',
+        assistantMessageInterface: 'macos',
+        provenanceActorRole: 'guardian',
+      }),
+    );
     expect(sent.map((msg) => msg.type)).toEqual([
       'message_queued',
       'message_dequeued',
@@ -179,6 +198,7 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
     expect((session.denyAllPendingConfirmations as any).mock.calls.length).toBe(1);
     expect((session.enqueueMessage as any).mock.calls.length).toBe(1);
+    expect(addMessageMock).toHaveBeenCalledTimes(0);
     expect(sent.some((msg) => msg.type === 'message_queued')).toBe(true);
     expect(sent.some((msg) => msg.type === 'message_dequeued')).toBe(false);
   });

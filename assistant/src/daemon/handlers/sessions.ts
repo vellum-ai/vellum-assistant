@@ -2,6 +2,7 @@ import * as net from 'node:net';
 
 import { v4 as uuid } from 'uuid';
 
+import { createAssistantMessage, createUserMessage } from '../../agent/message-types.js';
 import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbnail } from '../../memory/attachments-store.js';
@@ -490,6 +491,33 @@ export async function handleUserMessage(
           });
 
           if (routerResult.consumed && routerResult.type !== 'nl_keep_pending') {
+            const consumedChannelMeta = {
+              userMessageChannel: ipcChannel,
+              assistantMessageChannel: ipcChannel,
+              userMessageInterface: ipcInterface,
+              assistantMessageInterface: ipcInterface,
+              provenanceActorRole: 'guardian' as const,
+            };
+
+            const consumedUserMessage = createUserMessage(messageText, msg.attachments ?? []);
+            await conversationStore.addMessage(
+              msg.sessionId,
+              'user',
+              JSON.stringify(consumedUserMessage.content),
+              consumedChannelMeta,
+            );
+
+            const replyText = routerResult.replyText?.trim();
+            if (replyText && replyText.length > 0) {
+              const consumedAssistantMessage = createAssistantMessage(replyText);
+              await conversationStore.addMessage(
+                msg.sessionId,
+                'assistant',
+                JSON.stringify(consumedAssistantMessage.content),
+                consumedChannelMeta,
+              );
+            }
+
             // Mirror the normal queued/dequeued lifecycle so desktop clients can
             // reconcile queued bubble state for this just-sent user message.
             ctx.send(socket, {
@@ -504,10 +532,10 @@ export async function handleUserMessage(
               requestId,
             });
 
-            if (routerResult.replyText && routerResult.replyText.trim().length > 0) {
+            if (replyText && replyText.length > 0) {
               ctx.send(socket, {
                 type: 'assistant_text_delta',
-                text: routerResult.replyText,
+                text: replyText,
                 sessionId: msg.sessionId,
               });
             }
