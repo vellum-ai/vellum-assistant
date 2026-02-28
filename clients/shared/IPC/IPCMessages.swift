@@ -2004,8 +2004,7 @@ extension IPCTwilioConfigRequest {
         authToken: String? = nil,
         phoneNumber: String? = nil,
         areaCode: String? = nil,
-        country: String? = nil,
-        assistantId: String? = nil
+        country: String? = nil
     ) {
         self.init(
             type: "twilio_config",
@@ -2014,8 +2013,7 @@ extension IPCTwilioConfigRequest {
             authToken: authToken,
             phoneNumber: phoneNumber,
             areaCode: areaCode,
-            country: country,
-            assistantId: assistantId
+            country: country
         )
     }
 }
@@ -2041,18 +2039,18 @@ extension IPCGuardianVerificationRequest {
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
-        assistantId: String? = nil,
         rebind: Bool? = nil,
-        destination: String? = nil
+        destination: String? = nil,
+        originConversationId: String? = nil
     ) {
         self.init(
             type: "guardian_verification",
             action: action,
             channel: channel,
             sessionId: sessionId,
-            assistantId: assistantId,
             rebind: rebind,
-            destination: destination
+            destination: destination,
+            originConversationId: originConversationId
         )
     }
 }
