@@ -143,7 +143,11 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
   // In group chats, findMember may match on externalChatId and return a
   // record for a different user. Only use member metadata when the record's
   // externalUserId matches the current sender to avoid misidentification.
-  const memberMatchesSender = memberRecord?.externalUserId === canonicalSenderId;
+  // Canonicalize the stored member ID to handle formatting variance (e.g.
+  // phone numbers stored without E.164 normalization).
+  const memberMatchesSender = memberRecord
+    ? canonicalizeInboundIdentity(input.sourceChannel, memberRecord.externalUserId) === canonicalSenderId
+    : false;
 
   const memberUsername = memberMatchesSender && typeof memberRecord?.username === 'string' && memberRecord.username.trim().length > 0
     ? memberRecord.username.trim()
