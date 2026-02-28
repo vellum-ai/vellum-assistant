@@ -44,33 +44,34 @@ public struct VDropdown<T: Hashable>: View {
             }
         } label: {
             HStack {
-                if let label = selectedLabel {
-                    Text(label)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                } else {
-                    Text(placeholder)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textMuted)
+                Group {
+                    if let label = selectedLabel {
+                        Text(label)
+                            .foregroundColor(VColor.textPrimary)
+                    } else {
+                        Text(placeholder)
+                            .foregroundColor(VColor.textMuted)
+                    }
                 }
-
-                Spacer()
+                .font(VFont.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Image(systemName: "chevron.down")
                     .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 12))
+                    .font(.system(size: 12, weight: .medium))
             }
             .padding(VSpacing.md)
             .background(VColor.inputBackground)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
             )
+            .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity)
     }
 }
 
