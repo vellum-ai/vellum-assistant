@@ -15,12 +15,12 @@ public struct VSlider: View {
 
     // MARK: - Layout Constants
 
-    private let trackHeight: CGFloat = 24
-    private let thumbWidth: CGFloat = 20
+    private let trackHeight: CGFloat = 28
+    private let thumbWidth: CGFloat = 28
     private let tickMarkWidth: CGFloat = 1
     private let gripLineCount: Int = 3
     private let gripLineWidth: CGFloat = 1
-    private let gripLineHeight: CGFloat = 12
+    private let gripLineHeight: CGFloat = 14
     private let gripLineSpacing: CGFloat = 2.5
 
     // MARK: - State
@@ -74,15 +74,15 @@ public struct VSlider: View {
         ZStack(alignment: .leading) {
             // Unfilled track (edge-to-edge)
             Rectangle()
-                .fill(VColor.ghostHover)
+                .fill(adaptiveColor(light: Moss._100, dark: Moss._700))
                 .frame(height: trackHeight)
 
             // Filled track (from left edge to thumb center)
             Rectangle()
-                .fill(VColor.accent)
+                .fill(adaptiveColor(light: Forest._300, dark: Forest._500))
                 .frame(width: thumbOffset + thumbWidth / 2, height: trackHeight)
         }
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
     }
 
     // MARK: - Thumb
