@@ -286,12 +286,20 @@ export function redeemVoiceInviteCode(params: {
   const STALE_INVITE = Symbol('stale_invite');
   let memberId: string | undefined;
 
+  // Reactivation should not overwrite a guardian-managed nickname (same
+  // protection as the token-based redemption path above).
+  const preservedDisplayName = existingMember?.displayName?.trim().length
+    ? existingMember.displayName
+    : (invite.friendName ?? undefined);
+
   try {
     getSqlite().transaction(() => {
       const member = upsertMember({
         assistantId: invite.assistantId,
         sourceChannel: 'voice',
         externalUserId: callerExternalUserId,
+        externalChatId: callerExternalUserId,
+        displayName: preservedDisplayName,
         status: 'active',
         policy: 'allow',
         inviteId: invite.id,
