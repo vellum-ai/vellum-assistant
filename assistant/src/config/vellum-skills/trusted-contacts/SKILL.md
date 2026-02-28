@@ -20,7 +20,7 @@ You are helping your user manage trusted contacts and invite links for the Vellu
 - **Status**: The member's lifecycle state — `active` (currently effective), `revoked` (access removed), or `blocked` (explicitly denied).
 - **Source channel**: The messaging platform the contact uses (e.g., `telegram`, `sms`, `voice`).
 - **Invite link**: A shareable Telegram deep link that, when opened by someone, automatically grants them trusted-contact access. Each invite has a token, usage limits, and optional expiration.
-- **Voice invite**: An invite bound to a specific phone number for phone-call access. The guardian provides the invitee's phone number (E.164 format, e.g., `+15551234567`), and the system generates a numeric code. The invitee must call from that exact phone number AND enter the code when prompted. Both conditions must be met — the call must originate from the bound number, and the correct code must be entered. SMS-based invites are not supported.
+- **Voice invite**: An invite bound to a specific phone number for phone-call access. The guardian provides the invitee's phone number (E.164 format, e.g., `+15551234567`), and the system generates a numeric code. The invitee must call from that exact phone number AND enter the code when prompted. Both conditions must be met — the call must originate from the bound number, and the correct code must be entered. Voice invites do not have a Telegram-style deep link and do not use `/start` payload tokens. SMS-based invites are not supported.
 
 ## Available Actions
 
@@ -270,7 +270,9 @@ Optional fields:
 - ~~`voiceCodeDigits`~~ — always 6 digits; this parameter is accepted but ignored
 - `note` — a human-readable label for the invite (e.g., "For Mom", "Dr. Smith")
 
-The create response contains `{ ok: true, invite: { id, voiceCode, expectedExternalUserId, ... } }`. The `voiceCode` is the numeric code the invitee must enter — it is only returned at creation time.
+The create response contains `{ ok: true, invite: { id, voiceCode, expectedExternalUserId, ... } }`.
+- `voiceCode` is the numeric code the invitee must enter and is only returned at creation time.
+- Voice invite responses do **not** include `token` or `share.url`. Do not try to build or send a deep link for voice invites.
 
 **Presenting to the guardian**: Give the guardian clear instructions to relay to the invitee:
 
@@ -284,6 +286,8 @@ The create response contains `{ ok: true, invite: { id, voiceCode, expectedExter
 > 3. Once verified, they will be added as a trusted contact and can call the assistant directly in the future
 >
 > This code can be used <maxUses> time(s)<and expires in X hours/days if applicable>.
+
+There is no "open link" step for voice invites. The invite is redeemed only during a live phone call from the bound number.
 
 If the user provides a phone number without the `+` country code prefix, ask them to confirm the full E.164 number (e.g., US numbers should be `+1XXXXXXXXXX`).
 
@@ -305,6 +309,7 @@ Optional query parameters:
 The response format is the same as regular invites but voice invites also include:
 - `expectedExternalUserId` — the bound phone number
 - `voiceCodeDigits` — always 6 (the code itself is not retrievable after creation)
+- `token` and `share` are not present for voice invites
 
 **Presenting results**: Format as a readable list. Show the note (or "unnamed" as fallback), bound phone number, status, uses remaining, and expiration. Highlight which invites are still active.
 
