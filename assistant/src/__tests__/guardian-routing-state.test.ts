@@ -93,7 +93,7 @@ function resetTables(): void {
   db.run('DELETE FROM conversation_keys');
   db.run('DELETE FROM messages');
   db.run('DELETE FROM conversations');
-  db.run('DELETE FROM ingress_members');
+  db.run('DELETE FROM assistant_ingress_members');
   db.run('DELETE FROM external_conversation_bindings');
 }
 

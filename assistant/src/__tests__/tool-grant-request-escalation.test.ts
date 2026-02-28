@@ -583,6 +583,9 @@ describe('inline wait-and-resume', () => {
         inputDigest: 'sha256:waitgrant',
         consumingRequestId: 'consume-1',
         assistantId: 'self',
+        conversationId: 'conv-1',
+        requesterExternalUserId: 'requester-1',
+        executionChannel: 'telegram',
       },
       { maxWaitMs: 2_000, intervalMs: 20 },
     );

@@ -742,18 +742,18 @@ export async function handleApprovalInterception(
         return { handled: true, type: 'decision_applied' };
       }
 
-      // Guard: trusted contacts with a guardian binding must not self-approve
+      // Guard: non-guardian actors with a guardian binding must not self-approve
       // even when no guardian approval row exists yet. The guardian approval
       // row is created asynchronously when the approval prompt is delivered
       // to the guardian. In the window between the pending confirmation being
       // created (isInteractive=true) and the guardian approval row being
-      // persisted, the trusted contact could otherwise fall through to the
+      // persisted, any non-guardian actor could otherwise fall through to the
       // standard conversational engine / legacy parser and resolve their own
       // pending request via handleChannelDecision.
-      if (guardianCtx.trustClass === 'trusted_contact' && guardianCtx.guardianExternalUserId) {
+      if (guardianCtx.trustClass !== 'guardian' && guardianCtx.guardianExternalUserId) {
         log.info(
           { conversationId, externalChatId, guardianExternalUserId: guardianCtx.guardianExternalUserId },
-          'Blocking trusted-contact self-approval: pending confirmation exists but guardian approval row not yet created',
+          'Blocking non-guardian self-approval: pending confirmation exists but guardian approval row not yet created',
         );
         try {
           const pendingText = await composeApprovalMessageGenerative({
@@ -766,7 +766,7 @@ export async function handleApprovalInterception(
             assistantId,
           }, bearerToken);
         } catch (err) {
-          log.error({ err, conversationId }, 'Failed to deliver guardian-pending notice to trusted contact (pre-row guard)');
+          log.error({ err, conversationId }, 'Failed to deliver guardian-pending notice to non-guardian actor (pre-row guard)');
         }
         return { handled: true, type: 'assistant_turn' };
       }
