@@ -13,7 +13,6 @@ import {
 import { addMessage, getMessages } from '../../memory/conversation-store.js';
 import { getBindingByConversation } from '../../memory/external-conversation-store.js';
 import { deliverChannelReply } from '../../runtime/gateway-client.js';
-import { resolveLocalIpcGuardianContext } from '../../runtime/local-actor-identity.js';
 import {
   blockIngressMember,
   createIngressInvite,
@@ -306,11 +305,15 @@ async function executeApprove(
     }
   }
   session.setAssistantId(assistantId);
-  // Resolve local actor identity through the unified trust pipeline.
-  // The guardian approved this escalation, so the resolved context tags
-  // the message as guardian provenance (avoiding unknown-provenance
-  // memory gating).
-  session.setGuardianContext(resolveLocalIpcGuardianContext(sourceChannel ?? 'vellum'));
+  // The guardian already approved this escalation via the inbox, so we
+  // directly set guardian trust. Going through resolveLocalIpcGuardianContext
+  // would look up the vellum binding's guardian ID and compare it against
+  // a different channel's binding (e.g. telegram/sms), misclassifying the
+  // actor as 'unknown'.
+  session.setGuardianContext({
+    sourceChannel: sourceChannel ?? 'vellum',
+    trustClass: 'guardian',
+  });
   session.setCommandIntent(null);
 
   // Process the message through the agent loop (no IPC event callback

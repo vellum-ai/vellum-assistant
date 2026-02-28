@@ -57,16 +57,20 @@ export function resolveLocalIpcGuardianContext(
 
   const guardianPrincipalId = binding.guardianExternalUserId;
 
-  // Route through the shared trust resolution pipeline. The sender
-  // identity is the guardianPrincipalId from the vellum binding, so
-  // resolveGuardianContext will match it against the binding and
-  // classify the actor as 'guardian'.
+  // Route through the shared trust resolution pipeline using 'vellum'
+  // as the channel for binding lookup. The guardianPrincipalId comes
+  // from the vellum binding, so the binding lookup must also target
+  // 'vellum' — otherwise resolveActorTrust would look up a different
+  // channel's binding (e.g. telegram/sms) and the IDs wouldn't match,
+  // causing a 'unknown' trust classification.
   const guardianCtx = resolveGuardianContext({
     assistantId,
-    sourceChannel,
+    sourceChannel: 'vellum',
     externalChatId: 'local',
     senderExternalUserId: guardianPrincipalId,
   });
 
+  // Overlay the caller's actual sourceChannel onto the resolved context
+  // so downstream consumers see the correct channel provenance.
   return toGuardianRuntimeContext(sourceChannel, guardianCtx);
 }
