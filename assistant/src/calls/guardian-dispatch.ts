@@ -167,7 +167,6 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
         requestCode: request.requestCode,
         callSessionId,
         questionText: pendingQuestion.questionText,
-        pendingQuestionId: pendingQuestion.id,
         activeGuardianRequestCount,
       },
       conversationAffinityHint,

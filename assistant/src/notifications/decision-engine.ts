@@ -452,7 +452,16 @@ function enforceGuardianRequestCode(
   if (typeof rawCode !== 'string' || rawCode.trim().length === 0) return decision;
 
   const requestCode = rawCode.trim().toUpperCase();
-  const mode = resolveGuardianQuestionInstructionMode(signal.contextPayload);
+  const modeResolution = resolveGuardianQuestionInstructionMode(signal.contextPayload);
+  if (modeResolution.legacyFallbackUsed) {
+    log.warn(
+      {
+        signalId: signal.signalId,
+        requestKind: modeResolution.requestKind,
+      },
+      'guardian.question payload missing/invalid typed fields; using legacy instruction-mode fallback',
+    );
+  }
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
   };
@@ -460,7 +469,7 @@ function enforceGuardianRequestCode(
   for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
     const copy = nextCopy[channel];
     if (!copy) continue;
-    nextCopy[channel] = ensureGuardianRequestCodeInCopy(copy, requestCode, mode);
+    nextCopy[channel] = ensureGuardianRequestCodeInCopy(copy, requestCode, modeResolution.mode);
   }
 
   return {

@@ -49,8 +49,8 @@ const TEMPLATES: Record<string, CopyTemplate> = {
     }
 
     const normalizedCode = requestCode.toUpperCase();
-    const instructionMode = resolveGuardianQuestionInstructionMode(payload);
-    const instruction = instructionMode === 'approval'
+    const modeResolution = resolveGuardianQuestionInstructionMode(payload);
+    const instruction = modeResolution.mode === 'approval'
       ? `Reference code: ${normalizedCode}. Reply "${normalizedCode} approve" or "${normalizedCode} reject".`
       : `Reference code: ${normalizedCode}. Reply "${normalizedCode} <your answer>".`;
     return {

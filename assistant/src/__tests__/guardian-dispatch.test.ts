@@ -423,6 +423,7 @@ describe('guardian-dispatch', () => {
     expect(payload.activeGuardianRequestCount).toBe(1);
     expect(payload.callSessionId).toBe(session.id);
     expect(payload.requestKind).toBe('pending_question');
+    expect(payload.pendingQuestionId).toBeUndefined();
   });
 
   test('repeated guardian questions in the same call each create per-request delivery rows even when sharing a conversation', async () => {

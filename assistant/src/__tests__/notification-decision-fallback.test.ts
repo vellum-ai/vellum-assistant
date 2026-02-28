@@ -99,9 +99,12 @@ describe('notification decision fallback copy', () => {
   test('enforces free-text answer instructions for guardian.question when requestCode exists', async () => {
     const signal = makeSignal({
       contextPayload: {
+        requestId: 'req-pending-1',
         questionText: 'What is the gate code?',
         requestCode: 'A1B2C3',
         requestKind: 'pending_question',
+        callSessionId: 'call-1',
+        activeGuardianRequestCount: 1,
       },
     });
     const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
@@ -136,9 +139,12 @@ describe('notification decision fallback copy', () => {
 
     const signal = makeSignal({
       contextPayload: {
+        requestId: 'req-pending-1',
         questionText: 'What is the gate code?',
         requestCode: 'A1B2C3',
         requestKind: 'pending_question',
+        callSessionId: 'call-1',
+        activeGuardianRequestCount: 1,
       },
     });
 
@@ -171,9 +177,11 @@ describe('notification decision fallback copy', () => {
 
     const signal = makeSignal({
       contextPayload: {
+        requestId: 'req-grant-1',
         questionText: 'Allow running host_bash?',
         requestCode: 'A1B2C3',
         requestKind: 'tool_grant_request',
+        toolName: 'host_bash',
       },
     });
 

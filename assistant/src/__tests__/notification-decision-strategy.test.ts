@@ -59,9 +59,12 @@ describe('notification decision strategy', () => {
       const signal = makeSignal({
         sourceEventName: 'guardian.question',
         contextPayload: {
+          requestId: 'req-pending-1',
           questionText: 'What is the gate code?',
           requestCode: 'A1B2C3',
           requestKind: 'pending_question',
+          callSessionId: 'call-1',
+          activeGuardianRequestCount: 1,
         },
       });
 
@@ -78,9 +81,11 @@ describe('notification decision strategy', () => {
       const signal = makeSignal({
         sourceEventName: 'guardian.question',
         contextPayload: {
+          requestId: 'req-grant-1',
           questionText: 'Allow running host_bash?',
           requestCode: 'D4E5F6',
           requestKind: 'tool_grant_request',
+          toolName: 'host_bash',
         },
       });
 
