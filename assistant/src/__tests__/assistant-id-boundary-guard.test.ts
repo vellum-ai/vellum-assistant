@@ -401,8 +401,12 @@ describe('assistant ID boundary', () => {
       ).toBe(false);
     }
 
-    // ChannelProbeContext must not have assistantId
-    const probeContextMatch = content.match(/interface\s+ChannelProbeContext\s*\{([^}]*)\}/);
+    // ChannelProbeContext must not have assistantId — read from the types file
+    // where the interface is actually declared.
+    const typesPath = join(import.meta.dir, '..', 'runtime', 'channel-readiness-types.ts');
+    const typesContent = readFileSync(typesPath, 'utf-8');
+    const probeContextMatch = typesContent.match(/interface\s+ChannelProbeContext\s*\{([^}]*)\}/);
+    expect(probeContextMatch, 'Expected to find ChannelProbeContext in channel-readiness-types.ts').not.toBeNull();
     if (probeContextMatch) {
       expect(
         probeContextMatch[1],
