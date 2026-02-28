@@ -582,9 +582,8 @@ struct MainWindowView: View {
             // Without this, archiving the active thread while viewing a panel
             // leaves persistentThreadId pointing at the archived (invisible) thread
             // and the sidebar shows no active highlight.
-            if let newId {
-                windowState.persistentThreadId = newId
-            }
+            // Clear it when entering draft mode (nil) so no thread appears active.
+            windowState.persistentThreadId = newId
             if case .panel(.intelligence) = windowState.selection {
                 windowState.selection = nil
             }
