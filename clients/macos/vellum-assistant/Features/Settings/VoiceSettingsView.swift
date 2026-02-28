@@ -365,8 +365,16 @@ struct VoiceSettingsView: View {
 
     // MARK: - Timeout
 
+    private let timeoutOptions: [(label: String, value: Int)] = [
+        (label: "5 seconds", value: 5),
+        (label: "10 seconds", value: 10),
+        (label: "15 seconds", value: 15),
+        (label: "30 seconds", value: 30),
+        (label: "60 seconds", value: 60),
+    ]
+
     private var timeoutSection: some View {
-        HStack {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Conversation timeout")
                     .font(VFont.body)
@@ -375,16 +383,11 @@ struct VoiceSettingsView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
             }
-            Spacer()
-            Picker("", selection: $wakeWordTimeoutSeconds) {
-                Text("5 seconds").tag(5)
-                Text("10 seconds").tag(10)
-                Text("15 seconds").tag(15)
-                Text("30 seconds").tag(30)
-                Text("60 seconds").tag(60)
-            }
-            .pickerStyle(.menu)
-            .frame(width: 140)
+            VDropdown(
+                placeholder: "Select timeout\u{2026}",
+                selection: $wakeWordTimeoutSeconds,
+                options: timeoutOptions
+            )
             .accessibilityLabel("Conversation timeout duration")
         }
         .padding(VSpacing.lg)
