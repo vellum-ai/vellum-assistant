@@ -8,6 +8,7 @@
 import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getConversationByKey, getOrCreateConversation, setConversationKeyIfAbsent } from './conversation-key-store.js';
 import { getDb } from './db.js';
 import { channelInboundEvents, conversations } from './schema.js';
@@ -73,7 +74,7 @@ export function recordInbound(
   const scopedMapping = assistantId ? getConversationByKey(scopedKey) : null;
   if (scopedMapping) {
     mapping = { conversationId: scopedMapping.conversationId, created: false };
-  } else if (assistantId === 'self') {
+  } else if (assistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
     const legacyMapping = getConversationByKey(legacyKey);
     if (legacyMapping) {
       mapping = { conversationId: legacyMapping.conversationId, created: false };

@@ -12,12 +12,10 @@ import { httpError } from '../http-errors.js';
 const log = getLogger('runtime-http');
 
 /**
- * Regex to extract the Twilio webhook subpath from both top-level and
- * assistant-scoped route shapes:
+ * Regex to extract the Twilio webhook subpath:
  *   /v1/calls/twilio/<subpath>
- *   /v1/assistants/<id>/calls/twilio/<subpath>
  */
-export const TWILIO_WEBHOOK_RE = /^\/v1\/(?:assistants\/[^/]+\/)?calls\/twilio\/(.+)$/;
+export const TWILIO_WEBHOOK_RE = /^\/v1\/calls\/twilio\/(.+)$/;
 
 /**
  * Gateway-compatible Twilio webhook paths:

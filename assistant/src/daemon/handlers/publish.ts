@@ -4,15 +4,13 @@ import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
 
 import { createPublishedPage, getPublishedPageByDeploymentId, getPublishedPageByHash, markDeleted, updatePublishedPage } from '../../memory/published-pages-store.js';
-import { setSecureKey } from '../../security/secure-keys.js';
 import { deleteVercelDeployment,deployHtmlToVercel } from '../../services/vercel-deploy.js';
 import { credentialBroker } from '../../tools/credentials/broker.js';
-import { getCredentialMetadata, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import type {
   PublishPageRequest,
   UnpublishPageRequest,
 } from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext,log, requestSecretStandalone } from './shared.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 export async function handlePublishPage(
   msg: PublishPageRequest,
@@ -60,57 +58,24 @@ export async function handlePublishPage(
       return { url: result.url, deploymentId: result.deploymentId };
     };
 
-    let useResult = await credentialBroker.serverUse({
+    const useResult = await credentialBroker.serverUse({
       service: 'vercel',
       field: 'api_token',
       toolName: 'publish_page',
       execute: publishExecute,
     });
 
-    // If no credential found, prompt the user and retry
+    // If no credential found, return a structured error so the client can
+    // trigger the assistant-driven token setup flow instead of blocking on
+    // a vault dialog.
     if (!useResult.success && useResult.reason?.includes('No credential found')) {
-      const allowedTools = ['publish_page', 'unpublish_page'];
-      const secretResult = await requestSecretStandalone(socket, ctx, {
-        service: 'vercel',
-        field: 'api_token',
-        label: 'Vercel API Token',
-        description: 'Required to publish site apps to the web. Create a token at vercel.com/account/tokens.',
-        placeholder: 'Enter your Vercel API token',
-        purpose: 'Publish site apps to the web',
-        allowedTools,
-        allowedDomains: ['api.vercel.com'],
+      ctx.send(socket, {
+        type: 'publish_page_response',
+        success: false,
+        error: 'Vercel API token not configured',
+        errorCode: 'credentials_missing',
       });
-
-      if (!secretResult.value) {
-        ctx.send(socket, {
-          type: 'publish_page_response',
-          success: false,
-          error: 'Cancelled',
-        });
-        return;
-      }
-
-      if (secretResult.delivery === 'transient_send') {
-        // One-time send: inject for single use without persisting to keychain.
-        // Metadata must exist for broker policy checks.
-        if (!getCredentialMetadata('vercel', 'api_token')) {
-          upsertCredentialMetadata('vercel', 'api_token', { allowedTools });
-        }
-        credentialBroker.injectTransient('vercel', 'api_token', secretResult.value);
-      } else {
-        // Default: persist to keychain
-        const storageKey = `credential:vercel:api_token`;
-        setSecureKey(storageKey, secretResult.value);
-        upsertCredentialMetadata('vercel', 'api_token', { allowedTools });
-      }
-
-      // Retry with the newly stored credential
-      useResult = await credentialBroker.serverUse({
-        service: 'vercel',
-        field: 'api_token',
-        toolName: 'publish_page',
-        execute: publishExecute,
-      });
+      return;
     }
 
     if (useResult.success && useResult.result) {

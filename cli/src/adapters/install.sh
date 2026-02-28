@@ -14,13 +14,23 @@ success() { printf "${GREEN}${BOLD}==>${RESET} ${BOLD}%s${RESET}\n" "$1"; }
 error() { printf "${RED}error:${RESET} %s\n" "$1" >&2; }
 
 ensure_git() {
-    if command -v git >/dev/null 2>&1; then
+    # On macOS, /usr/bin/git is a shim that triggers an "Install Command Line
+    # Developer Tools" popup instead of running git. Check that git actually
+    # works, not just that the binary exists.
+    if command -v git >/dev/null 2>&1 && git --version >/dev/null 2>&1; then
         success "git already installed ($(git --version))"
         return
     fi
 
     info "Installing git..."
-    if command -v apt-get >/dev/null 2>&1; then
+    if [ "$(uname -s)" = "Darwin" ]; then
+        if command -v brew >/dev/null 2>&1; then
+            brew install git
+        else
+            error "git is required. Install Homebrew (https://brew.sh) then run: brew install git"
+            exit 1
+        fi
+    elif command -v apt-get >/dev/null 2>&1; then
         sudo apt-get update -qq && sudo apt-get install -y -qq git
     elif command -v yum >/dev/null 2>&1; then
         sudo yum install -y git
@@ -31,7 +41,11 @@ ensure_git() {
         exit 1
     fi
 
-    if ! command -v git >/dev/null 2>&1; then
+    # Clear bash's command hash so it finds the newly installed git binary
+    # instead of the cached path to the macOS /usr/bin/git shim.
+    hash -r 2>/dev/null || true
+
+    if ! git --version >/dev/null 2>&1; then
         error "git installation failed. Please install manually."
         exit 1
     fi
@@ -79,6 +93,82 @@ ensure_bun() {
     success "bun installed ($(bun --version))"
 }
 
+# Ensure ~/.bun/bin is in the user's shell profile so bun and vellum are
+# available in new terminal sessions. The bun installer sometimes skips
+# this (e.g. when stdin is piped via curl | bash).
+configure_shell_profile() {
+    local bun_line='export BUN_INSTALL="$HOME/.bun"'
+    local path_line='export PATH="$BUN_INSTALL/bin:$PATH"'
+    local snippet
+    snippet=$(printf '\n# bun\n%s\n%s\n' "$bun_line" "$path_line")
+
+    local profiles=()
+    local shell_name="${SHELL:-}"
+
+    if [[ "$shell_name" == */zsh ]]; then
+        profiles+=("$HOME/.zshrc")
+    elif [[ "$shell_name" == */bash ]]; then
+        # Write to both .bashrc (non-login shells, e.g. new terminal on Linux)
+        # and .bash_profile (login shells, e.g. macOS Terminal.app)
+        profiles+=("$HOME/.bashrc")
+        [ -f "$HOME/.bash_profile" ] && profiles+=("$HOME/.bash_profile")
+    else
+        # Unknown shell — try both
+        profiles+=("$HOME/.bashrc")
+        [ -f "$HOME/.zshrc" ] && profiles+=("$HOME/.zshrc")
+    fi
+
+    for profile in "${profiles[@]}"; do
+        if [ -f "$profile" ] && grep -q 'BUN_INSTALL' "$profile" 2>/dev/null; then
+            continue
+        fi
+        printf '%s\n' "$snippet" >> "$profile"
+        success "Added bun to PATH in $profile"
+    done
+}
+
+# Create a symlink so `vellum` is available without ~/.bun/bin in PATH.
+# Tries /usr/local/bin first (works on most systems), falls back to
+# ~/.local/bin (user-writable, no sudo needed).
+# This is best-effort — failure must not abort the install script.
+symlink_vellum() {
+    local vellum_bin="$HOME/.bun/bin/vellum"
+    if [ ! -f "$vellum_bin" ]; then
+        return 0
+    fi
+
+    # Skip if vellum is already resolvable outside of ~/.bun/bin
+    local resolved
+    resolved=$(command -v vellum 2>/dev/null || true)
+    if [ -n "$resolved" ] && [ "$resolved" != "$vellum_bin" ]; then
+        return 0
+    fi
+
+    # Try /usr/local/bin (may need sudo on some systems)
+    if [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
+        if ln -sf "$vellum_bin" /usr/local/bin/vellum 2>/dev/null; then
+            success "Symlinked /usr/local/bin/vellum → $vellum_bin"
+            return 0
+        fi
+    fi
+
+    # Fallback: ~/.local/bin
+    local local_bin="$HOME/.local/bin"
+    mkdir -p "$local_bin" 2>/dev/null || true
+    if ln -sf "$vellum_bin" "$local_bin/vellum" 2>/dev/null; then
+        success "Symlinked $local_bin/vellum → $vellum_bin"
+        # Ensure ~/.local/bin is in PATH in shell profile
+        for profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
+            if [ -f "$profile" ] && ! grep -q "$local_bin" "$profile" 2>/dev/null; then
+                printf '\nexport PATH="%s:$PATH"\n' "$local_bin" >> "$profile"
+            fi
+        done
+        return 0
+    fi
+
+    return 0
+}
+
 install_vellum() {
     if command -v vellum >/dev/null 2>&1; then
         info "Updating vellum to latest..."
@@ -103,7 +193,15 @@ main() {
 
     ensure_git
     ensure_bun
+    configure_shell_profile
     install_vellum
+    symlink_vellum
+
+    # Source the shell profile so vellum hatch runs with the correct PATH
+    # in this session (the profile changes only take effect in new shells
+    # otherwise).
+    export BUN_INSTALL="$HOME/.bun"
+    export PATH="$BUN_INSTALL/bin:$PATH"
 
     info "Running vellum hatch..."
     printf "\n"

@@ -26,6 +26,7 @@ import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { ContentBlock,Message } from '../providers/types.js';
 import type { Provider } from '../providers/types.js';
 import { resolveActorTrust } from '../runtime/actor-trust-resolver.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import type { UsageActor } from '../usage/actors.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
@@ -395,7 +396,7 @@ export async function runAgentLoopImpl(
       const gc = ctx.guardianContext;
       if (gc.requesterExternalUserId && gc.requesterChatId) {
         const actorTrust = resolveActorTrust({
-          assistantId: ctx.assistantId ?? 'self',
+          assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
           sourceChannel: gc.sourceChannel,
           externalChatId: gc.requesterChatId,
           senderExternalUserId: gc.requesterExternalUserId,

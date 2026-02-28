@@ -25,6 +25,7 @@ import { getConfiguredProvider } from '../../providers/provider-send-message.js'
 import type { Provider } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
 import { buildAssistantEvent } from '../assistant-event.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
 import type {
@@ -103,12 +104,12 @@ async function tryConsumeInlineApprovalReply(params: {
   } = params;
   const trimmedContent = content.trim();
 
-  // Only consume inline replies when there are no queued turns, matching
-  // the IPC path guard. With queued messages, "approve"/"no" should be
-  // processed in queue order rather than treated as a confirmation reply.
+  // Try inline approval interception whenever a pending confirmation exists.
+  // We intentionally do not block on queue depth: after an auto-deny, users
+  // often retry with "approve"/"yes" while the queue is still draining, and
+  // requiring an empty queue can create a deny/retry cascade.
   if (
     !session.hasAnyPendingConfirmation()
-    || session.getQueueDepth() > 0
     || trimmedContent.length === 0
   ) {
     return { consumed: false };
@@ -376,7 +377,7 @@ function makeHubPublisher(
         ? (msg as { sessionId: string }).sessionId
         : undefined;
     const resolvedSessionId = msgSessionId ?? conversationId;
-    const event = buildAssistantEvent('self', msg, resolvedSessionId);
+    const event = buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg, resolvedSessionId);
     hubChain = (async () => {
       await hubChain;
       try {

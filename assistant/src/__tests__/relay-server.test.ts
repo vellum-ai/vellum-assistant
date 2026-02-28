@@ -56,6 +56,8 @@ const mockConfig = {
     provider: 'twilio',
     maxDurationSeconds: 3600,
     userConsultTimeoutSeconds: 120,
+    ttsPlaybackDelayMs: 0,
+    accessRequestPollIntervalMs: 50,
     disclosure: { enabled: false, text: '' },
     safety: { denyCategories: [] },
     callerIdentity: {
@@ -135,15 +137,18 @@ import {
 import type { RelayWebSocketData } from '../calls/relay-server.js';
 import { activeRelayConnections,RelayConnection } from '../calls/relay-server.js';
 import { setVoiceBridgeDeps } from '../calls/voice-session-bridge.js';
+import { listCanonicalGuardianRequests, resolveCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { createBinding, createChallenge } from '../memory/channel-guardian-store.js';
 import { addMessage, getMessages } from '../memory/conversation-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { createInvite } from '../memory/ingress-invite-store.js';
 import { upsertMember } from '../memory/ingress-member-store.js';
 import { conversations } from '../memory/schema.js';
 import {
   createOutboundSession,
   getGuardianBinding,
 } from '../runtime/channel-guardian-service.js';
+import { generateVoiceCode, hashVoiceCode } from '../util/voice-code.js';
 
 initializeDb();
 
@@ -205,9 +210,12 @@ function resetTables() {
   db.run('DELETE FROM messages');
   db.run('DELETE FROM conversations');
   db.run('DELETE FROM assistant_ingress_members');
+  db.run('DELETE FROM assistant_ingress_invites');
   db.run('DELETE FROM channel_guardian_verification_challenges');
   db.run('DELETE FROM channel_guardian_bindings');
   db.run('DELETE FROM channel_guardian_rate_limits');
+  db.run('DELETE FROM canonical_guardian_requests');
+  db.run('DELETE FROM canonical_guardian_deliveries');
   ensuredConvIds = new Set();
 }
 
@@ -733,7 +741,7 @@ describe('relay-server', () => {
     expect(getLatestAssistantText('conv-relay-verify-race')).toContain('**Call failed**');
 
     // Let the delayed endSession callback flush to avoid timer bleed across tests.
-    await new Promise((resolve) => setTimeout(resolve, 2100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     const finalState = getCallSession(session.id);
     expect(finalState).not.toBeNull();
@@ -1546,7 +1554,7 @@ describe('relay-server', () => {
     expect(events.some((e) => e.eventType === 'guardian_voice_verification_failed')).toBe(true);
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 2100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Verify end message was sent
     const endMessages = ws.sentMessages
@@ -1687,7 +1695,7 @@ describe('relay-server', () => {
     expect(originText).toContain('succeeded');
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 3100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     relay.destroy();
   });
@@ -1740,7 +1748,639 @@ describe('relay-server', () => {
     expect(originText).toContain('failed');
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 2100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    relay.destroy();
+  });
+
+  // ── Inbound voice invite redemption ──────────────────────────────────
+
+  test('inbound voice invite redemption: personalized welcome prompt with friend/guardian names', async () => {
+    ensureConversation('conv-invite-welcome');
+    const session = createCallSession({
+      conversationId: 'conv-invite-welcome',
+      provider: 'twilio',
+      fromNumber: '+15558887777',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    // Create a voice invite with friend/guardian names
+    const code = generateVoiceCode(6);
+    const codeHash = hashVoiceCode(code);
+    createInvite({
+      assistantId: 'self',
+      sourceChannel: 'voice',
+      maxUses: 1,
+      expectedExternalUserId: '+15558887777',
+      voiceCodeHash: codeHash,
+      voiceCodeDigits: 6,
+      friendName: 'Alice',
+      guardianName: 'Bob',
+    });
+
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, how can I help?']));
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_invite_welcome',
+      from: '+15558887777',
+      to: '+15551111111',
+    }));
+
+    // Should be in verification-pending state for invite redemption
+    expect(relay.getConnectionState()).toBe('verification_pending');
+
+    // Check that the welcome prompt includes friend/guardian names
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('Welcome Alice'))).toBe(true);
+    expect(textMessages.some((m) => (m.token ?? '').includes('Bob provided you'))).toBe(true);
+
+    // Enter the correct code via DTMF
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit }));
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Should have transitioned to connected
+    expect(relay.getConnectionState()).toBe('connected');
+
+    // Verify events
+    const events = getCallEvents(session.id);
+    expect(events.some((e) => e.eventType === 'invite_redemption_started')).toBe(true);
+    expect(events.some((e) => e.eventType === 'invite_redemption_succeeded')).toBe(true);
+
+    relay.destroy();
+  });
+
+  test('inbound voice invite redemption: invalid code gets exact failure copy with guardian name and call ends', async () => {
+    ensureConversation('conv-invite-fail');
+    const session = createCallSession({
+      conversationId: 'conv-invite-fail',
+      provider: 'twilio',
+      fromNumber: '+15558886666',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    // Create a voice invite with friend/guardian names
+    const code = generateVoiceCode(6);
+    const codeHash = hashVoiceCode(code);
+    createInvite({
+      assistantId: 'self',
+      sourceChannel: 'voice',
+      maxUses: 1,
+      expectedExternalUserId: '+15558886666',
+      voiceCodeHash: codeHash,
+      voiceCodeDigits: 6,
+      friendName: 'Carol',
+      guardianName: 'Dave',
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_invite_fail',
+      from: '+15558886666',
+      to: '+15551111111',
+    }));
+
+    expect(relay.getConnectionState()).toBe('verification_pending');
+
+    // Enter a wrong code
+    for (const digit of '000000') {
+      await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit }));
+    }
+
+    // Call should be marked as failed immediately
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('failed');
+
+    // Should have sent the exact deterministic failure copy with guardian name
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('Sorry, the code you provided is incorrect or has since expired'))).toBe(true);
+    expect(textMessages.some((m) => (m.token ?? '').includes('Please ask Dave for a new code'))).toBe(true);
+
+    // Verify events
+    const events = getCallEvents(session.id);
+    expect(events.some((e) => e.eventType === 'invite_redemption_failed')).toBe(true);
+
+    // Let the delayed endSession callback flush
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Verify end message was sent
+    const endMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string })
+      .filter((m) => m.type === 'end');
+    expect(endMessages.length).toBe(1);
+
+    relay.destroy();
+  });
+
+  test('inbound voice: unknown caller with no active invite enters name capture flow', async () => {
+    ensureConversation('conv-invite-no-invite');
+    const session = createCallSession({
+      conversationId: 'conv-invite-no-invite',
+      provider: 'twilio',
+      fromNumber: '+15558885555',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    // No voice invite created for this caller
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_invite_no_invite',
+      from: '+15558885555',
+      to: '+15551111111',
+    }));
+
+    // Should be in the name capture state (not denied)
+    expect(relay.getConnectionState()).toBe('awaiting_name');
+
+    // Should have sent the name capture prompt
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes("don't recognize this number"))).toBe(true);
+    expect(textMessages.some((m) => (m.token ?? '').includes('Can I get your name'))).toBe(true);
+
+    // Verify event was recorded
+    const events = getCallEvents(session.id);
+    expect(events.some((e) => e.eventType === 'inbound_acl_name_capture_started')).toBe(true);
+
+    relay.destroy();
+  });
+
+  // ── Friend-initiated in-call guardian approval flow ────────────────────
+
+  test('name capture flow: caller provides name and enters guardian decision wait', async () => {
+    ensureConversation('conv-name-capture');
+    const session = createCallSession({
+      conversationId: 'conv-name-capture',
+      provider: 'twilio',
+      fromNumber: '+15558884444',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_name_capture',
+      from: '+15558884444',
+      to: '+15551111111',
+    }));
+
+    // Should be in name capture state
+    expect(relay.getConnectionState()).toBe('awaiting_name');
+
+    // Caller speaks their name
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'My name is John',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Should have transitioned to awaiting guardian decision
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+
+    // Should have sent the hold message
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes("I've let my guardian know"))).toBe(true);
+    expect(textMessages.some((m) => (m.token ?? '').includes('Please hold'))).toBe(true);
+
+    // Verify events were recorded
+    const events = getCallEvents(session.id);
+    expect(events.some((e) => e.eventType === 'inbound_acl_name_captured')).toBe(true);
+
+    // Session should be in waiting_on_user status
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('waiting_on_user');
+
+    relay.destroy();
+  });
+
+  test('name capture flow: DTMF input is ignored during awaiting_name state', async () => {
+    ensureConversation('conv-name-dtmf-ignore');
+    const session = createCallSession({
+      conversationId: 'conv-name-dtmf-ignore',
+      provider: 'twilio',
+      fromNumber: '+15558883333',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_name_dtmf_ignore',
+      from: '+15558883333',
+      to: '+15551111111',
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_name');
+    const msgCountBefore = ws.sentMessages.length;
+
+    // DTMF should be ignored during name capture
+    await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit: '5' }));
+
+    // No new messages should be sent (DTMF is ignored)
+    expect(ws.sentMessages.length).toBe(msgCountBefore);
+    expect(relay.getConnectionState()).toBe('awaiting_name');
+
+    relay.destroy();
+  });
+
+  test('name capture flow: voice prompts ignored during guardian decision wait', async () => {
+    ensureConversation('conv-wait-prompt-ignore');
+    const session = createCallSession({
+      conversationId: 'conv-wait-prompt-ignore',
+      provider: 'twilio',
+      fromNumber: '+15558882222',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_wait_prompt_ignore',
+      from: '+15558882222',
+      to: '+15551111111',
+    }));
+
+    // Provide name to enter guardian decision wait
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Jane Doe',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+    const msgCountBefore = ws.sentMessages.length;
+
+    // Voice prompts during guardian wait should be ignored
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Are you still there?',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // No new messages sent
+    expect(ws.sentMessages.length).toBe(msgCountBefore);
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+
+    relay.destroy();
+  });
+
+  test('blocked caller gets immediate denial even with name capture flow', async () => {
+    ensureConversation('conv-blocked-deny');
+    const session = createCallSession({
+      conversationId: 'conv-blocked-deny',
+      provider: 'twilio',
+      fromNumber: '+15558881111',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    // Create a blocked member
+    upsertMember({
+      assistantId: 'self',
+      sourceChannel: 'voice',
+      externalUserId: '+15558881111',
+      externalChatId: '+15558881111',
+      status: 'blocked',
+      policy: 'allow',
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_blocked_deny',
+      from: '+15558881111',
+      to: '+15551111111',
+    }));
+
+    // Blocked callers should NOT enter name capture — they get immediate denial
+    expect(relay.getConnectionState()).toBe('disconnecting');
+
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('failed');
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('not authorized'))).toBe(true);
+
+    // Let delayed endSession callback flush
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    relay.destroy();
+  });
+
+  test('name capture flow: access request creates canonical request for guardian', async () => {
+    ensureConversation('conv-access-req-canonical');
+    const session = createCallSession({
+      conversationId: 'conv-access-req-canonical',
+      provider: 'twilio',
+      fromNumber: '+15557770001',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_access_req_canonical',
+      from: '+15557770001',
+      to: '+15551111111',
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_name');
+
+    // Provide name
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Sarah Connor',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+
+    // A canonical access request should have been created
+    const pending = listCanonicalGuardianRequests({
+      status: 'pending',
+      requesterExternalUserId: '+15557770001',
+      sourceChannel: 'voice',
+      kind: 'access_request',
+    });
+    expect(pending.length).toBe(1);
+    expect(pending[0].requesterExternalUserId).toBe('+15557770001');
+
+    relay.destroy();
+  });
+
+  test('name capture flow: approved access request activates caller and continues call', async () => {
+    ensureConversation('conv-access-approved');
+    const session = createCallSession({
+      conversationId: 'conv-access-approved',
+      provider: 'twilio',
+      fromNumber: '+15557770002',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    mockSendMessage.mockImplementation(createMockProviderResponse(['I can help you with that.']));
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_access_approved',
+      from: '+15557770002',
+      to: '+15551111111',
+    }));
+
+    // Provide name to enter wait state
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Bob Smith',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+
+    // Find the canonical request and simulate guardian approval
+    const pending = listCanonicalGuardianRequests({
+      status: 'pending',
+      requesterExternalUserId: '+15557770002',
+      sourceChannel: 'voice',
+      kind: 'access_request',
+    });
+    expect(pending.length).toBe(1);
+
+    // Resolve the request to approved status
+    resolveCanonicalGuardianRequest(pending[0].id, 'pending', {
+      status: 'approved',
+      answerText: undefined,
+      decidedByExternalUserId: undefined,
+    });
+
+    // Wait for the poll interval to detect the approval
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // Should have transitioned to connected state
+    expect(relay.getConnectionState()).toBe('connected');
+
+    // Verify events
+    const events = getCallEvents(session.id);
+    expect(events.some((e) => e.eventType === 'inbound_acl_access_approved')).toBe(true);
+
+    // Session should be in_progress
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('in_progress');
+
+    relay.destroy();
+  });
+
+  test('name capture flow: denied access request ends call with deterministic copy', async () => {
+    ensureConversation('conv-access-denied');
+    const session = createCallSession({
+      conversationId: 'conv-access-denied',
+      provider: 'twilio',
+      fromNumber: '+15557770003',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_access_denied',
+      from: '+15557770003',
+      to: '+15551111111',
+    }));
+
+    // Provide name
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Eve',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+
+    // Simulate guardian denial
+    const pending = listCanonicalGuardianRequests({
+      status: 'pending',
+      requesterExternalUserId: '+15557770003',
+      sourceChannel: 'voice',
+      kind: 'access_request',
+    });
+    expect(pending.length).toBe(1);
+
+    resolveCanonicalGuardianRequest(pending[0].id, 'pending', {
+      status: 'denied',
+      answerText: undefined,
+      decidedByExternalUserId: undefined,
+    });
+
+    // Wait for poll to detect the denial
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // Should be disconnecting
+    expect(relay.getConnectionState()).toBe('disconnecting');
+
+    // Should have sent the denial message
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes("my guardian says I'm not allowed"))).toBe(true);
+
+    // Session should be failed
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('failed');
+
+    // Verify event
+    const events = getCallEvents(session.id);
+    expect(events.some((e) => e.eventType === 'inbound_acl_access_denied')).toBe(true);
+
+    // Let the delayed endSession callback flush
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    relay.destroy();
+  });
+
+  test('name capture flow: timeout ends call with deterministic copy', async () => {
+    // Override the consultation timeout to a very short value for testing
+    mockConfig.calls.userConsultTimeoutSeconds = 2; // 2 seconds
+
+    ensureConversation('conv-access-timeout');
+    const session = createCallSession({
+      conversationId: 'conv-access-timeout',
+      provider: 'twilio',
+      fromNumber: '+15557770004',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_access_timeout',
+      from: '+15557770004',
+      to: '+15551111111',
+    }));
+
+    // Provide name
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Timeout Tester',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+
+    // Wait for timeout (2 seconds + buffer)
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+
+    // Should be disconnecting after timeout
+    expect(relay.getConnectionState()).toBe('disconnecting');
+
+    // Should have sent the timeout message
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes("can't get ahold of my guardian"))).toBe(true);
+    expect(textMessages.some((m) => (m.token ?? '').includes("let them know you called"))).toBe(true);
+
+    // Session should be failed
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('failed');
+
+    // Verify event
+    const events = getCallEvents(session.id);
+    expect(events.some((e) => e.eventType === 'inbound_acl_access_timeout')).toBe(true);
+
+    // Let the delayed endSession callback flush
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Restore default timeout
+    mockConfig.calls.userConsultTimeoutSeconds = 120;
+
+    relay.destroy();
+  });
+
+  test('name capture flow: transport close during guardian wait cleans up timers', async () => {
+    ensureConversation('conv-access-transport-close');
+    const session = createCallSession({
+      conversationId: 'conv-access-transport-close',
+      provider: 'twilio',
+      fromNumber: '+15557770005',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_access_transport_close',
+      from: '+15557770005',
+      to: '+15551111111',
+    }));
+
+    // Provide name
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Disconnector',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+
+    // Simulate transport close while waiting for guardian
+    relay.handleTransportClosed(1000, 'caller hung up');
+
+    // Session should be completed (normal close)
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('completed');
 
     relay.destroy();
   });

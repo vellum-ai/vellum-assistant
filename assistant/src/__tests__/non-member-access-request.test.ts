@@ -30,7 +30,6 @@ mock.module('../util/platform.js', () => ({
   getDbPath: () => join(testDir, 'test.db'),
   getLogPath: () => join(testDir, 'test.log'),
   ensureDataDir: () => {},
-  normalizeAssistantId: (id: string) => id === 'self' ? 'self' : id,
   readHttpToken: () => 'test-bearer-token',
 }));
 
@@ -435,6 +434,34 @@ describe('access-request-helper unit tests', () => {
 
     const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
     expect(payload.guardianBindingChannel).toBe('telegram');
+  });
+
+  test('notifyGuardianOfAccessRequest for voice channel includes senderName in contextPayload', () => {
+    const result = notifyGuardianOfAccessRequest({
+      canonicalAssistantId: 'self',
+      sourceChannel: 'voice',
+      externalChatId: '+15559998888',
+      senderExternalUserId: '+15559998888',
+      senderName: 'Alice Caller',
+    });
+
+    expect(result.notified).toBe(true);
+    expect(emitSignalCalls.length).toBe(1);
+
+    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
+    expect(payload.sourceChannel).toBe('voice');
+    expect(payload.senderName).toBe('Alice Caller');
+    expect(payload.senderExternalUserId).toBe('+15559998888');
+    expect(payload.senderIdentifier).toBe('Alice Caller');
+
+    // Canonical request should exist
+    const pending = listCanonicalGuardianRequests({
+      status: 'pending',
+      requesterExternalUserId: '+15559998888',
+      sourceChannel: 'voice',
+      kind: 'access_request',
+    });
+    expect(pending.length).toBe(1);
   });
 
   test('notifyGuardianOfAccessRequest includes requestCode in contextPayload', () => {

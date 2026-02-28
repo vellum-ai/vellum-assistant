@@ -121,6 +121,20 @@ function parseSource(): string | undefined {
 }
 
 export async function retire(): Promise<void> {
+  const args = process.argv.slice(3);
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("Usage: vellum retire <name> [--source <source>]");
+    console.log("");
+    console.log("Delete an assistant instance and archive its data.");
+    console.log("");
+    console.log("Arguments:");
+    console.log("  <name>               Name of the assistant to retire");
+    console.log("");
+    console.log("Options:");
+    console.log("  --source <source>    Source identifier for the retirement");
+    process.exit(0);
+  }
+
   const name = process.argv[3];
 
   if (!name) {

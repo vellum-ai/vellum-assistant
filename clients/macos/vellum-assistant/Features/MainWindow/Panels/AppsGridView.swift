@@ -71,7 +71,6 @@ struct AppsGridView: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .tracking(1.2)
-                .padding(.leading, VSpacing.xs)
 
             LazyVGrid(columns: columns, spacing: VSpacing.xl) {
                 ForEach(filteredPinnedApps) { app in
@@ -87,7 +86,6 @@ struct AppsGridView: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .tracking(1.2)
-                .padding(.leading, VSpacing.xs)
 
             LazyVGrid(columns: columns, spacing: VSpacing.xl) {
                 ForEach(apps) { app in
@@ -103,7 +101,6 @@ struct AppsGridView: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .tracking(1.2)
-                .padding(.leading, VSpacing.xs)
 
             let visibleRecent = Array(filteredRecentApps.prefix(recentVisibleCount))
 
@@ -159,9 +156,8 @@ struct AppsGridView: View {
                     .foregroundColor(VColor.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(maxWidth: .infinity)
-                    .multilineTextAlignment(.center)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
         .scaleEffect(isHovered ? 1.05 : 1.0)

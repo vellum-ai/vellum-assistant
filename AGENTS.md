@@ -167,6 +167,16 @@ All assistant API requests from clients, CLI, skills, and user-facing tooling **
 
 **SKILL.md gateway URL pattern:** For local gateway API calls in skills, use `$INTERNAL_GATEWAY_BASE_URL` (injected by `bash` and `host_bash`). `$GATEWAY_BASE_URL` is also injected and resolves to the configured public ingress URL when set (falling back to the internal gateway target). Do not hardcode `localhost`/ports in skill examples, and do not instruct users/agents to manually export either variable from Settings.
 
+## Assistant Identity Boundary
+
+The daemon uses a single fixed internal scope constant — `DAEMON_INTERNAL_ASSISTANT_ID` (`'self'`), exported from `assistant/src/runtime/assistant-scope.ts` — for all assistant-scoped storage and routing. Public/external assistant IDs (assigned during hatch, invite links, or platform registration) are an **edge concern** owned by the gateway and platform layers.
+
+**Rules:**
+- Daemon code (`assistant/src/runtime/`, `assistant/src/daemon/`, `assistant/src/memory/`, `assistant/src/approvals/`, `assistant/src/calls/`, `assistant/src/tools/`) must never derive internal scoping from externally-provided assistant IDs. Use `DAEMON_INTERNAL_ASSISTANT_ID` instead.
+- The `normalizeAssistantId()` function (in `util/platform.ts`) is for gateway/platform use only — do not import or call it in daemon scoping modules.
+- The daemon HTTP server uses flat `/v1/<endpoint>` paths. Do not add assistant-scoped routes (`/v1/assistants/:assistantId/...`) to the daemon.
+- Guard tests in `assistant/src/__tests__/assistant-id-boundary-guard.test.ts` enforce these rules.
+
 ## Assistant Feature Flags
 
 Assistant feature flags are the canonical assistant-scoped flagging mechanism for enabling/disabling assistant behavior across the system. They are declaration-driven and not limited to skills.

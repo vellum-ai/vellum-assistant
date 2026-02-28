@@ -2,6 +2,7 @@ import * as net from 'node:net';
 
 import { type Confidence, recordConversationSeenSignal, type SignalType } from '../../memory/conversation-attention-store.js';
 import { updateDeliveryClientOutcome } from '../../notifications/deliveries-store.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
 import type { ClientMessage } from '../ipc-protocol.js';
 import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
@@ -104,7 +105,7 @@ const inlineHandlers = defineHandlers({
     try {
       recordConversationSeenSignal({
         conversationId: msg.conversationId,
-        assistantId: 'self',
+        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         sourceChannel: msg.sourceChannel,
         signalType: msg.signalType as SignalType,
         confidence: msg.confidence as Confidence,

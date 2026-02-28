@@ -492,6 +492,8 @@ describe('voice invite HTTP routes', () => {
       body: JSON.stringify({
         sourceChannel: 'voice',
         expectedExternalUserId: '+15551234567',
+        friendName: 'Alice',
+        guardianName: 'Bob',
         maxUses: 3,
       }),
     });
@@ -514,6 +516,9 @@ describe('voice invite HTTP routes', () => {
     expect(invite.voiceCodeDigits).toBe(6);
     // expectedExternalUserId should be recorded
     expect(invite.expectedExternalUserId).toBe('+15551234567');
+    // friendName and guardianName should be recorded
+    expect(invite.friendName).toBe('Alice');
+    expect(invite.guardianName).toBe('Bob');
   });
 
   test('voice invite creation requires expectedExternalUserId', async () => {
@@ -522,6 +527,8 @@ describe('voice invite HTTP routes', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sourceChannel: 'voice',
+        friendName: 'Alice',
+        guardianName: 'Bob',
       }),
     });
 
@@ -540,6 +547,8 @@ describe('voice invite HTTP routes', () => {
       body: JSON.stringify({
         sourceChannel: 'voice',
         expectedExternalUserId: 'not-a-phone-number',
+        friendName: 'Alice',
+        guardianName: 'Bob',
       }),
     });
 
@@ -551,6 +560,44 @@ describe('voice invite HTTP routes', () => {
     expect(body.error).toContain('E.164');
   });
 
+  test('voice invite creation requires friendName', async () => {
+    const req = new Request('http://localhost/v1/ingress/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'voice',
+        expectedExternalUserId: '+15551234567',
+        guardianName: 'Bob',
+      }),
+    });
+
+    const res = await handleCreateInvite(req);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain('friendName');
+  });
+
+  test('voice invite creation requires guardianName', async () => {
+    const req = new Request('http://localhost/v1/ingress/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'voice',
+        expectedExternalUserId: '+15551234567',
+        friendName: 'Alice',
+      }),
+    });
+
+    const res = await handleCreateInvite(req);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain('guardianName');
+  });
+
   test('voiceCodeDigits is always 6 — custom values are ignored', async () => {
     const req = new Request('http://localhost/v1/ingress/invites', {
       method: 'POST',
@@ -558,6 +605,8 @@ describe('voice invite HTTP routes', () => {
       body: JSON.stringify({
         sourceChannel: 'voice',
         expectedExternalUserId: '+15551234567',
+        friendName: 'Alice',
+        guardianName: 'Bob',
         voiceCodeDigits: 8,
       }),
     });
@@ -579,6 +628,8 @@ describe('voice invite HTTP routes', () => {
       body: JSON.stringify({
         sourceChannel: 'voice',
         expectedExternalUserId: '+15551234567',
+        friendName: 'Alice',
+        guardianName: 'Bob',
       }),
     });
 
@@ -600,6 +651,8 @@ describe('voice invite HTTP routes', () => {
       body: JSON.stringify({
         sourceChannel: 'voice',
         expectedExternalUserId: '+15551234567',
+        friendName: 'Alice',
+        guardianName: 'Bob',
         maxUses: 1,
       }),
     }));
@@ -648,6 +701,8 @@ describe('voice invite HTTP routes', () => {
       body: JSON.stringify({
         sourceChannel: 'voice',
         expectedExternalUserId: '+15551234567',
+        friendName: 'Alice',
+        guardianName: 'Bob',
         maxUses: 1,
       }),
     }));

@@ -34,7 +34,6 @@ mock.module('../util/platform.js', () => ({
   getDbPath: () => join(testDir, 'test.db'),
   getLogPath: () => join(testDir, 'test.log'),
   ensureDataDir: () => {},
-  normalizeAssistantId: (id: string) => id === 'self' ? 'self' : id,
   readHttpToken: () => 'test-bearer-token',
 }));
 
@@ -82,6 +81,7 @@ mock.module('../runtime/approval-message-composer.js', () => ({
   composeApprovalMessageGenerative: async () => 'mock generative message',
 }));
 
+import { getResolver } from '../approvals/guardian-request-resolvers.js';
 import {
   createApprovalRequest,
   createBinding,
@@ -487,6 +487,16 @@ describe('trusted contact activated notification signal', () => {
       (c) => c.sourceEventName === 'ingress.trusted_contact.activated',
     );
     expect(activatedSignals.length).toBe(0);
+  });
+
+  test('voice access_request resolver has registered handler for access_request kind', () => {
+    // The access_request resolver is registered during module load. When the
+    // source channel is 'voice', it should directly activate the member via
+    // upsertMember (no verification session). This test validates the resolver
+    // is registered and accessible.
+    const resolver = getResolver('access_request');
+    expect(resolver).toBeDefined();
+    expect(resolver!.kind).toBe('access_request');
   });
 
   test('member is persisted BEFORE activated signal is emitted', async () => {

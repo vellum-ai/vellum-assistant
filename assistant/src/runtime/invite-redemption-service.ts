@@ -13,6 +13,7 @@ import { findActiveVoiceInvites,findByTokenHash, hashToken, markInviteExpired, r
 import { findMember, upsertMember } from '../memory/ingress-member-store.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { hashVoiceCode } from '../util/voice-code.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 
 // ---------------------------------------------------------------------------
 // Outcome type
@@ -223,7 +224,7 @@ export function redeemVoiceInviteCode(params: {
   sourceChannel: 'voice';
   code: string;
 }): VoiceRedemptionOutcome {
-  const { assistantId = 'self', callerExternalUserId, code } = params;
+  const { assistantId = DAEMON_INTERNAL_ASSISTANT_ID, callerExternalUserId, code } = params;
 
   if (!callerExternalUserId) {
     return { ok: false, reason: 'invalid_or_expired' };

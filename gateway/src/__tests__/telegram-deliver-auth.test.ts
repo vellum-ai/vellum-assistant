@@ -133,12 +133,12 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
     expect(telegramCall).toBeDefined();
   });
 
-  test("delivers attachments with assistantId using legacy download path", async () => {
+  test("delivers attachments with assistantId using flat download path", async () => {
     const calls: string[] = [];
     fetchMock = mock(async (input: string | URL | Request) => {
       const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(urlStr);
-      // Runtime attachment download (legacy path)
+      // Runtime attachment download (flat path)
       if (urlStr.includes("/attachments/att-2")) {
         return new Response(
           JSON.stringify({
@@ -177,10 +177,10 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
 
-    // Should have downloaded via legacy /v1/assistants/my-assistant/attachments/att-2
+    // Should have downloaded via flat /v1/attachments/att-2 (assistantId is ignored)
     const downloadCall = calls.find((u) => u.includes("/attachments/att-2"));
     expect(downloadCall).toBeDefined();
-    expect(downloadCall).toContain("/assistants/my-assistant/");
+    expect(downloadCall).not.toContain("/assistants/");
   });
 });
 

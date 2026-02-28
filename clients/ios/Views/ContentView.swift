@@ -235,7 +235,8 @@ struct ContentView: View {
                     Label("Home", systemImage: "house")
                 }
 
-            ThreadListView(store: threadStore)
+            ChatsTabView(store: threadStore, onConnectTapped: navigateToConnectSettings)
+                .environmentObject(clientProvider)
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.chats)
                 .tabItem {

@@ -192,22 +192,24 @@ extension MainWindowView {
                     .background(VColor.backgroundSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             } else {
-                // Gallery mode fallback
-                GeneratedPanel(
-                    onClose: { sharing.showSharePicker = false; windowState.closeDynamicPanel() },
-                    isExpanded: Binding(
-                        get: { windowState.isDynamicExpanded },
-                        set: { windowState.isDynamicExpanded = $0 }
-                    ),
-                    daemonClient: daemonClient,
-                    onOpenApp: { surfaceMsg in
-                        windowState.activeDynamicSurface = surfaceMsg
-                        windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                // Loading state while waiting for daemon to send surface data
+                // via ui_surface_show in response to app_open_request.
+                AppLoadingView(
+                    appId: {
+                        if case .app(let id) = windowState.selection { return id }
+                        return nil
+                    }(),
+                    onRetry: { appId in
+                        try? daemonClient.sendAppOpen(appId: appId)
                     },
-                    onRecordAppOpen: { id, name, icon, appType in
-                        appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
+                    onClose: {
+                        windowState.closeDynamicPanel()
                     }
                 )
+                .id({
+                    if case .app(let id) = windowState.selection { return id }
+                    return nil
+                }() as String?)
             }
         case .appEditing:
             // VSplitView: ChatView (left) + workspace (right)
@@ -836,6 +838,7 @@ struct DynamicWorkspaceWrapper: View {
     let onMicrophoneToggle: () -> Void
 
     @State private var showVersionHistory = false
+    @State private var publishUrlCopied = false
 
     var body: some View {
         ZStack {
@@ -929,11 +932,7 @@ struct DynamicWorkspaceWrapper: View {
                                 .controlSize(.small)
                                 .frame(height: 24)
                         } else if let url = sharing.publishedUrl {
-                            VButton(label: "Copied!", icon: "checkmark", style: .tertiary) {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(url, forType: .string)
-                            }
-                            .controlSize(.small)
+                            PublishedButton(url: url, copied: $publishUrlCopied)
                         } else {
                             VButton(label: "Publish", icon: "arrow.up.right", style: .tertiary) {
                                 onPublishPage(data.html, data.preview?.title, data.appId)
@@ -976,6 +975,134 @@ struct DynamicWorkspaceWrapper: View {
                 Spacer()
             }
             } // else (not showing version history)
+        }
+    }
+}
+
+/// Shows "Published ✓" with an inline copy-to-clipboard button.
+/// Tapping the copy icon copies the URL and briefly shows a checkmark.
+private struct PublishedButton: View {
+    let url: String
+    @Binding var copied: Bool
+
+    @State private var isHovered = false
+    @State private var resetTimer: DispatchWorkItem?
+
+    var body: some View {
+        Button {
+            resetTimer?.cancel()
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(url, forType: .string)
+            copied = true
+            let timer = DispatchWorkItem { copied = false }
+            resetTimer = timer
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(VColor.success)
+                Text("Published")
+                    .font(VFont.caption)
+                Divider()
+                    .frame(height: 12)
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(copied ? VColor.success : VColor.buttonSecondaryText)
+                    .animation(VAnimation.fast, value: copied)
+            }
+            .foregroundColor(VColor.buttonSecondaryText)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.buttonV)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(isHovered ? VColor.ghostHover : .clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(VColor.buttonSecondaryBorder, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.set() }
+            else { NSCursor.arrow.set() }
+        }
+        .controlSize(.small)
+        .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
+    }
+}
+
+// MARK: - App Loading View
+
+/// Shows a loading spinner while waiting for the daemon to send surface data,
+/// with a timeout that transitions to an error state so the user isn't stuck
+/// on an infinite spinner when the daemon fails to respond.
+private struct AppLoadingView: View {
+    let appId: String?
+    let onRetry: (String) -> Void
+    let onClose: () -> Void
+
+    private static let timeoutSeconds: UInt64 = 8
+
+    @State private var timedOut = false
+
+    var body: some View {
+        VStack(spacing: VSpacing.md) {
+            Spacer()
+            if timedOut {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundColor(VColor.warning)
+                Text("Failed to load app")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Text("The app didn't respond in time. It may be unavailable or still starting up.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 280)
+                HStack(spacing: VSpacing.sm) {
+                    if let appId {
+                        VButton(label: "Retry", icon: "arrow.clockwise", style: .secondary) {
+                            timedOut = false
+                            onRetry(appId)
+                        }
+                        .controlSize(.small)
+                    }
+                    VButton(label: "Close", style: .tertiary) {
+                        onClose()
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.top, VSpacing.xs)
+            } else {
+                ProgressView()
+                    .controlSize(.regular)
+                Text("Loading app\u{2026}")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(VColor.backgroundSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .overlay(alignment: .topTrailing) {
+            VIconButton(label: "Close", icon: "xmark", iconOnly: true) {
+                onClose()
+            }
+            .padding(VSpacing.lg)
+        }
+        .task(id: timedOut) {
+            guard !timedOut else { return }
+            try? await Task.sleep(nanoseconds: Self.timeoutSeconds * 1_000_000_000)
+            if !Task.isCancelled {
+                timedOut = true
+            }
         }
     }
 }

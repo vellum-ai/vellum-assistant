@@ -238,6 +238,28 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     expect(requestComplete?.runStillActive).toBe(false);
   });
 
+  test('consumes decision replies even when queue depth is non-zero', async () => {
+    listPendingByDestinationMock.mockReturnValue([{ id: 'req-1', kind: 'tool_approval' }]);
+    listCanonicalMock.mockReturnValue([{ id: 'req-1' }]);
+    routeGuardianReplyMock.mockResolvedValue({
+      consumed: true,
+      decisionApplied: true,
+      type: 'canonical_decision_applied',
+      requestId: 'req-1',
+    });
+
+    const session = makeSession({
+      getQueueDepth: () => 2,
+    });
+    const { ctx } = createContext(session);
+
+    await handleUserMessage(makeMessage('approve'), {} as net.Socket, ctx);
+
+    expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
+    expect((session.denyAllPendingConfirmations as any).mock.calls.length).toBe(0);
+    expect((session.enqueueMessage as any).mock.calls.length).toBe(0);
+  });
+
   test('does not mutate in-memory history while processing', async () => {
     listPendingByDestinationMock.mockReturnValue([{ id: 'req-1', kind: 'tool_approval' }]);
     listCanonicalMock.mockReturnValue([{ id: 'req-1' }]);

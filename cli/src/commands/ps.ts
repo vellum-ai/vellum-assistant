@@ -409,6 +409,17 @@ async function listAllAssistants(): Promise<void> {
 // ── Entry point ─────────────────────────────────────────────────
 
 export async function ps(): Promise<void> {
+  const args = process.argv.slice(3);
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("Usage: vellum ps [<name>]");
+    console.log("");
+    console.log("List all assistants, or show processes for a specific assistant.");
+    console.log("");
+    console.log("Arguments:");
+    console.log("  <name>    Show processes for the named assistant");
+    process.exit(0);
+  }
+
   const assistantId = process.argv[3];
 
   if (!assistantId) {

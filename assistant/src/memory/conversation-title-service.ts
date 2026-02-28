@@ -286,7 +286,7 @@ function buildTitlePrompt(
   assistantResponse?: string,
 ): string {
   const parts: string[] = [
-    'Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes.',
+    'Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting.',
   ];
 
   if (context) {
@@ -313,10 +313,24 @@ function buildTitlePrompt(
 
 function normalizeTitle(raw: string): string {
   let title = raw.trim().replace(/^["']|["']$/g, '');
+  title = stripMarkdown(title);
   const words = title.split(/\s+/);
   if (words.length > 5) title = words.slice(0, 5).join(' ');
   if (title.length > 40) title = title.slice(0, 40).trimEnd();
   return title;
+}
+
+/** Strip common markdown formatting so titles render as plain text. */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')   // **bold**
+    .replace(/__(.+?)__/g, '$1')        // __bold__
+    .replace(/\*(.+?)\*/g, '$1')        // *italic*
+    .replace(/(?<!\w)_(.+?)_(?!\w)/g, '$1') // _italic_ (word-boundary-aware to preserve snake_case)
+    .replace(/~~(.+?)~~/g, '$1')        // ~~strikethrough~~
+    .replace(/`(.+?)`/g, '$1')          // `code`
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1') // [link](url)
+    .replace(/^#{1,6}\s+/gm, '');       // # headings
 }
 
 function deriveFallbackTitle(context?: TitleContext): string | null {
@@ -328,7 +342,7 @@ function deriveFallbackTitle(context?: TitleContext): string | null {
 
 function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
   const parts: string[] = [
-    'Generate a very short title for this conversation based on the recent messages below. Rules: at most 5 words, at most 40 characters, no quotes.',
+    'Generate a very short title for this conversation based on the recent messages below. Rules: at most 5 words, at most 40 characters, no quotes, no markdown formatting.',
     '',
     'Recent messages:',
   ];

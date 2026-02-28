@@ -28,6 +28,7 @@ import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import { readHttpToken } from '../../util/platform.js';
 import { notifyGuardianOfAccessRequest } from '../access-request-helper.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import {
   buildApprovalUIMetadata,
   getApprovalInfoByConversation,
@@ -97,7 +98,7 @@ export async function handleChannelInbound(
   req: Request,
   processMessage?: MessageProcessor,
   bearerToken?: string,
-  assistantId: string = 'self',
+  assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
   gatewayOriginSecret?: string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
   approvalConversationGenerator?: ApprovalConversationGenerator,
@@ -580,7 +581,7 @@ export async function handleChannelInbound(
   // external_conversation_bindings is assistant-agnostic. Restrict writes to
   // self so assistant-scoped legacy routes do not overwrite each other's
   // channel binding metadata for the same chat.
-  if (canonicalAssistantId === 'self') {
+  if (canonicalAssistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
     externalConversationStore.upsertBinding({
       conversationId: result.conversationId,
       sourceChannel,
@@ -1454,7 +1455,7 @@ function startPendingApprovalPromptWatcher(params: {
             replyCallbackUrl,
             chatId: externalChatId,
             sourceChannel,
-            assistantId: assistantId ?? 'self',
+            assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             bearerToken,
             prompt,
             uiMetadata: buildApprovalUIMetadata(prompt, info),

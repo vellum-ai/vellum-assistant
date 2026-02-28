@@ -10,6 +10,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import { and, desc, eq } from 'drizzle-orm';
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getDb } from './db.js';
 import { assistantIngressInvites, assistantIngressMembers } from './schema.js';
 
@@ -37,6 +38,9 @@ export interface IngressInvite {
   expectedExternalUserId: string | null;
   voiceCodeHash: string | null;
   voiceCodeDigits: number | null;
+  // Display metadata for personalized voice prompts (null for non-voice invites)
+  friendName: string | null;
+  guardianName: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -97,6 +101,8 @@ function rowToInvite(row: typeof assistantIngressInvites.$inferSelect): IngressI
     expectedExternalUserId: row.expectedExternalUserId,
     voiceCodeHash: row.voiceCodeHash,
     voiceCodeDigits: row.voiceCodeDigits,
+    friendName: row.friendName,
+    guardianName: row.guardianName,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -138,6 +144,8 @@ export function createInvite(params: {
   expectedExternalUserId?: string;
   voiceCodeHash?: string;
   voiceCodeDigits?: number;
+  friendName?: string;
+  guardianName?: string;
 }): { invite: IngressInvite; rawToken: string } {
   const db = getDb();
   const now = Date.now();
@@ -147,7 +155,7 @@ export function createInvite(params: {
 
   const row = {
     id,
-    assistantId: params.assistantId ?? 'self',
+    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     sourceChannel: params.sourceChannel,
     tokenHash: tokenH,
     createdBySessionId: params.createdBySessionId ?? null,
@@ -162,6 +170,8 @@ export function createInvite(params: {
     expectedExternalUserId: params.expectedExternalUserId ?? null,
     voiceCodeHash: params.voiceCodeHash ?? null,
     voiceCodeDigits: params.voiceCodeDigits ?? null,
+    friendName: params.friendName ?? null,
+    guardianName: params.guardianName ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -183,7 +193,7 @@ export function listInvites(params: {
   offset?: number;
 }): IngressInvite[] {
   const db = getDb();
-  const assistantId = params.assistantId ?? 'self';
+  const assistantId = params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
   const conditions = [eq(assistantIngressInvites.assistantId, assistantId)];
 
