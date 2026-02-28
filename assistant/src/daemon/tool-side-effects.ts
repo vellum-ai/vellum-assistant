@@ -70,11 +70,14 @@ function registerHook(toolNames: string | string[], hook: PostExecutionHook): vo
 
 // Broadcast app_files_changed when a new app is created so clients
 // (e.g. macOS "Things" sidebar) refresh their app list immediately.
-registerHook('app_create', (_name, _input, result, { ctx, broadcastToAllClients }) => {
+// Only broadcast — do not call handleAppChange, which would auto-open
+// the app and regress auto_open:false semantics. The app_create executor
+// already handles auto-open when appropriate.
+registerHook('app_create', (_name, _input, result, { broadcastToAllClients }) => {
   try {
     const parsed = JSON.parse(result.content) as { id?: string };
     if (parsed.id) {
-      handleAppChange(ctx, parsed.id, broadcastToAllClients);
+      broadcastToAllClients?.({ type: 'app_files_changed', appId: parsed.id });
     }
   } catch {
     // Result wasn't valid JSON — skip the broadcast.
