@@ -230,17 +230,15 @@ export function redeemVoiceInviteCode(params: {
     return { ok: false, reason: 'invalid_or_expired' };
   }
 
+  const codeHash = hashVoiceCode(code);
   const now = Date.now();
 
-  // Search for a matching invite: hash the appropriate-length prefix of
-  // the input for each candidate (supports mixed code lengths).
+  // Search for a matching invite: code hash match, not expired, uses remaining
   const invite = candidates.find((inv) => {
+    if (inv.voiceCodeHash !== codeHash) return false;
     if (inv.expiresAt <= now) return false;
     if (inv.useCount >= inv.maxUses) return false;
-    const digits = inv.voiceCodeDigits ?? 6;
-    const codePrefix = code.length > digits ? code.slice(0, digits) : code;
-    if (codePrefix.length !== digits) return false;
-    return inv.voiceCodeHash === hashVoiceCode(codePrefix);
+    return true;
   });
 
   if (!invite) {

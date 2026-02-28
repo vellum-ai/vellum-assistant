@@ -141,11 +141,7 @@ export function createIngressInvite(params: {
     if (!isValidE164(params.expectedExternalUserId)) {
       return { ok: false, error: 'expectedExternalUserId must be in E.164 format (e.g., +15551234567)' };
     }
-    const digits = params.voiceCodeDigits ?? 6;
-    if (!Number.isInteger(digits) || digits < 4 || digits > 10) {
-      return { ok: false, error: 'voiceCodeDigits must be an integer between 4 and 10' };
-    }
-    voiceCode = generateVoiceCode(digits);
+    voiceCode = generateVoiceCode(6);
     voiceCodeHash = hashVoiceCode(voiceCode);
   }
 
@@ -157,7 +153,7 @@ export function createIngressInvite(params: {
     ...(isVoice ? {
       expectedExternalUserId: params.expectedExternalUserId,
       voiceCodeHash,
-      voiceCodeDigits: params.voiceCodeDigits ?? 6,
+      voiceCodeDigits: 6,
     } : {}),
   });
   // Voice invites must not expose the token — callers must redeem via the

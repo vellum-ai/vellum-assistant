@@ -180,8 +180,7 @@ export class RelayConnection {
   private inviteRedemptionActive = false;
   private inviteRedemptionAssistantId: string | null = null;
   private inviteRedemptionFromNumber: string | null = null;
-  private inviteRedemptionCodeLengths: number[] = [];
-  private inviteRedemptionMaxCodeLength = 6;
+  private inviteRedemptionCodeLength = 6;
 
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
@@ -534,8 +533,7 @@ export class RelayConnection {
               { callSessionId: this.callSessionId, from: msg.from },
               'Inbound voice ACL: unknown caller has active voice invite — entering redemption flow',
             );
-            const codeLengths = [...new Set(nonExpiredInvites.map(i => i.voiceCodeDigits ?? 6))].sort((a, b) => a - b);
-            this.startInviteRedemption(assistantId, msg.from, codeLengths);
+            this.startInviteRedemption(assistantId, msg.from);
             return;
           }
         }
@@ -1011,25 +1009,24 @@ export class RelayConnection {
    * who has an active voice invite. Prompts the caller to enter their
    * invite code via DTMF or speech.
    */
-  private startInviteRedemption(assistantId: string, fromNumber: string, codeLengths: number[]): void {
+  private startInviteRedemption(assistantId: string, fromNumber: string): void {
     this.inviteRedemptionActive = true;
     this.inviteRedemptionAssistantId = assistantId;
     this.inviteRedemptionFromNumber = fromNumber;
     this.connectionState = 'verification_pending';
     this.verificationAttempts = 0;
     this.verificationMaxAttempts = 3;
-    this.inviteRedemptionCodeLengths = codeLengths;
-    this.inviteRedemptionMaxCodeLength = Math.max(...codeLengths);
+    this.inviteRedemptionCodeLength = 6;
     this.dtmfBuffer = '';
 
     recordCallEvent(this.callSessionId, 'invite_redemption_started', {
       assistantId,
-      codeLengths,
+      codeLength: 6,
       maxAttempts: this.verificationMaxAttempts,
     });
 
     this.sendTextToken(
-      'Please enter your invite code using your keypad, or speak the digits now.',
+      'Please enter your 6-digit invite code using your keypad, or speak the digits now.',
       true,
     );
 
@@ -1040,13 +1037,13 @@ export class RelayConnection {
   }
 
   /**
-   * Try to redeem a voice invite code without counting towards retry limits.
-   * Returns 'success' if redemption succeeded (call flow transitions to
-   * connected), or 'failure' if the code did not match any invite.
+   * Validate an entered invite code against active voice invites for the
+   * caller. On success, create/activate the ingress member and transition
+   * to the normal call flow. On failure, allow retries up to max attempts.
    */
-  private tryInviteCodeRedemption(enteredCode: string): 'success' | 'failure' {
+  private attemptInviteCodeRedemption(enteredCode: string): void {
     if (!this.inviteRedemptionAssistantId || !this.inviteRedemptionFromNumber) {
-      return 'failure';
+      return;
     }
 
     const result = redeemVoiceInviteCode({
@@ -1056,83 +1053,76 @@ export class RelayConnection {
       code: enteredCode,
     });
 
-    if (!result.ok) return 'failure';
-
-    this.connectionState = 'connected';
-    this.inviteRedemptionActive = false;
-    this.verificationAttempts = 0;
-    this.dtmfBuffer = '';
-
-    recordCallEvent(this.callSessionId, 'invite_redemption_succeeded', {
-      memberId: result.memberId,
-      ...(result.type === 'redeemed' ? { inviteId: result.inviteId } : {}),
-    });
-    log.info(
-      { callSessionId: this.callSessionId, memberId: result.memberId, type: result.type },
-      'Voice invite redemption succeeded',
-    );
-
-    if (this.controller) {
-      this.controller.setGuardianContext(
-        toGuardianRuntimeContext(
-          'voice',
-          resolveGuardianContext({
-            assistantId: this.inviteRedemptionAssistantId,
-            sourceChannel: 'voice',
-            externalChatId: this.inviteRedemptionFromNumber,
-            senderExternalUserId: this.inviteRedemptionFromNumber,
-          }),
-        ),
-      );
-      this.startNormalCallFlow(this.controller, true);
-    }
-    return 'success';
-  }
-
-  /**
-   * Handle a failed invite code redemption attempt. Increments the retry
-   * counter and either prompts for another attempt or terminates the call.
-   */
-  private handleInviteRedemptionFailure(): void {
-    this.verificationAttempts++;
-
-    if (this.verificationAttempts >= this.verificationMaxAttempts) {
+    if (result.ok) {
+      this.connectionState = 'connected';
       this.inviteRedemptionActive = false;
+      this.verificationAttempts = 0;
+      this.dtmfBuffer = '';
 
-      recordCallEvent(this.callSessionId, 'invite_redemption_failed', {
-        attempts: this.verificationAttempts,
+      recordCallEvent(this.callSessionId, 'invite_redemption_succeeded', {
+        memberId: result.memberId,
+        ...(result.type === 'redeemed' ? { inviteId: result.inviteId } : {}),
       });
-      log.warn(
-        { callSessionId: this.callSessionId, attempts: this.verificationAttempts },
-        'Voice invite redemption failed — max attempts reached',
-      );
-
-      this.sendTextToken('Too many invalid attempts. Goodbye.', true);
-
-      updateCallSession(this.callSessionId, {
-        status: 'failed',
-        endedAt: Date.now(),
-        lastError: 'Voice invite redemption failed — max attempts exceeded',
-      });
-
-      const failSession = getCallSession(this.callSessionId);
-      if (failSession) {
-        expirePendingQuestions(this.callSessionId);
-        persistCallCompletionMessage(failSession.conversationId, this.callSessionId).catch((err) => {
-          log.error({ err, conversationId: failSession.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
-        });
-        fireCallCompletionNotifier(failSession.conversationId, this.callSessionId);
-      }
-
-      setTimeout(() => {
-        this.endSession('Invite redemption failed');
-      }, 2000);
-    } else {
       log.info(
-        { callSessionId: this.callSessionId, attempt: this.verificationAttempts, maxAttempts: this.verificationMaxAttempts },
-        'Voice invite redemption attempt failed — retrying',
+        { callSessionId: this.callSessionId, memberId: result.memberId, type: result.type },
+        'Voice invite redemption succeeded',
       );
-      this.sendTextToken('Invalid code. Please try again.', true);
+
+      if (this.controller) {
+        this.controller.setGuardianContext(
+          toGuardianRuntimeContext(
+            'voice',
+            resolveGuardianContext({
+              assistantId: this.inviteRedemptionAssistantId,
+              sourceChannel: 'voice',
+              externalChatId: this.inviteRedemptionFromNumber,
+              senderExternalUserId: this.inviteRedemptionFromNumber,
+            }),
+          ),
+        );
+        this.startNormalCallFlow(this.controller, true);
+      }
+    } else {
+      this.verificationAttempts++;
+
+      if (this.verificationAttempts >= this.verificationMaxAttempts) {
+        this.inviteRedemptionActive = false;
+
+        recordCallEvent(this.callSessionId, 'invite_redemption_failed', {
+          attempts: this.verificationAttempts,
+        });
+        log.warn(
+          { callSessionId: this.callSessionId, attempts: this.verificationAttempts },
+          'Voice invite redemption failed — max attempts reached',
+        );
+
+        this.sendTextToken('Too many invalid attempts. Goodbye.', true);
+
+        updateCallSession(this.callSessionId, {
+          status: 'failed',
+          endedAt: Date.now(),
+          lastError: 'Voice invite redemption failed — max attempts exceeded',
+        });
+
+        const failSession = getCallSession(this.callSessionId);
+        if (failSession) {
+          expirePendingQuestions(this.callSessionId);
+          persistCallCompletionMessage(failSession.conversationId, this.callSessionId).catch((err) => {
+            log.error({ err, conversationId: failSession.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+          });
+          fireCallCompletionNotifier(failSession.conversationId, this.callSessionId);
+        }
+
+        setTimeout(() => {
+          this.endSession('Invite redemption failed');
+        }, 2000);
+      } else {
+        log.info(
+          { callSessionId: this.callSessionId, attempt: this.verificationAttempts, maxAttempts: this.verificationMaxAttempts },
+          'Voice invite redemption attempt failed — retrying',
+        );
+        this.sendTextToken('Invalid code. Please try again.', true);
+      }
     }
   }
 
@@ -1168,27 +1158,18 @@ export class RelayConnection {
 
     // During invite redemption, attempt to parse spoken digits from the
     // transcript and validate against the caller's active voice invite.
-    // Try each candidate code length (longest first) to support mixed-
-    // length invites for the same caller.
     if (this.connectionState === 'verification_pending' && this.inviteRedemptionActive) {
       const spokenDigits = RelayConnection.parseDigitsFromSpeech(msg.voicePrompt);
       log.info(
         { callSessionId: this.callSessionId, transcript: msg.voicePrompt, spokenDigits },
         'Speech received during invite redemption',
       );
-      const minLength = this.inviteRedemptionCodeLengths[0] ?? this.inviteRedemptionMaxCodeLength;
-      if (spokenDigits.length >= minLength) {
-        // Try each candidate length from longest to shortest
-        for (const len of [...this.inviteRedemptionCodeLengths].reverse()) {
-          if (spokenDigits.length < len) continue;
-          const result = this.tryInviteCodeRedemption(spokenDigits.slice(0, len));
-          if (result === 'success') return;
-        }
-        // All lengths tried, none matched — count as a failed attempt
-        this.handleInviteRedemptionFailure();
+      if (spokenDigits.length >= this.inviteRedemptionCodeLength) {
+        const enteredCode = spokenDigits.slice(0, this.inviteRedemptionCodeLength);
+        this.attemptInviteCodeRedemption(enteredCode);
       } else if (spokenDigits.length > 0) {
         this.sendTextToken(
-          `I heard ${spokenDigits.length} digits. Please speak all digits of your invite code.`,
+          `I heard ${spokenDigits.length} digits. Please enter all ${this.inviteRedemptionCodeLength} digits of your code.`,
           true,
         );
       }
@@ -1308,27 +1289,14 @@ export class RelayConnection {
     }
 
     // If invite redemption is pending, accumulate digits and validate
-    // the code against the caller's active voice invite. When multiple
-    // invites exist with different code lengths, try redemption at each
-    // candidate length as digits accumulate. Only count as a failed
-    // attempt when the maximum length is reached.
+    // the code against the caller's active voice invite.
     if (this.connectionState === 'verification_pending' && this.inviteRedemptionActive) {
       this.dtmfBuffer += msg.digit;
 
-      const bufLen = this.dtmfBuffer.length;
-      const isCandidate = this.inviteRedemptionCodeLengths.includes(bufLen);
-      const isMaxLength = bufLen >= this.inviteRedemptionMaxCodeLength;
-
-      if (isCandidate || isMaxLength) {
-        const enteredCode = this.dtmfBuffer.slice(0, isMaxLength ? this.inviteRedemptionMaxCodeLength : bufLen);
-        const result = this.tryInviteCodeRedemption(enteredCode);
-        if (result === 'success') return;
-        if (isMaxLength) {
-          // Exhausted all candidate lengths — count as a failed attempt
-          this.dtmfBuffer = '';
-          this.handleInviteRedemptionFailure();
-        }
-        // Otherwise keep accumulating digits for longer candidate lengths
+      if (this.dtmfBuffer.length >= this.inviteRedemptionCodeLength) {
+        const enteredCode = this.dtmfBuffer.slice(0, this.inviteRedemptionCodeLength);
+        this.dtmfBuffer = '';
+        this.attemptInviteCodeRedemption(enteredCode);
       }
       return;
     }

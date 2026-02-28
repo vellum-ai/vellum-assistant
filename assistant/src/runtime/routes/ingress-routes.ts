@@ -134,7 +134,7 @@ export function handleListInvites(url: URL): Response {
  * POST /v1/ingress/invites
  *
  * For voice invites, pass `sourceChannel: "voice"` with required
- * `expectedExternalUserId` (E.164 phone) and optional `voiceCodeDigits`.
+ * `expectedExternalUserId` (E.164 phone). Voice codes are always 6 digits.
  * The response will include a one-time `voiceCode` field that must be
  * communicated to the invited user out-of-band.
  */

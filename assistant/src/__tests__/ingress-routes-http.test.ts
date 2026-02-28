@@ -516,45 +516,7 @@ describe('voice invite HTTP routes', () => {
     expect(body.error).toContain('E.164');
   });
 
-  test('voiceCodeDigits validation — rejects values below 4', async () => {
-    const req = new Request('http://localhost/v1/ingress/invites', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sourceChannel: 'voice',
-        expectedExternalUserId: '+15551234567',
-        voiceCodeDigits: 3,
-      }),
-    });
-
-    const res = await handleCreateInvite(req);
-    const body = await res.json() as Record<string, unknown>;
-
-    expect(res.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error).toContain('voiceCodeDigits');
-  });
-
-  test('voiceCodeDigits validation — rejects values above 10', async () => {
-    const req = new Request('http://localhost/v1/ingress/invites', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sourceChannel: 'voice',
-        expectedExternalUserId: '+15551234567',
-        voiceCodeDigits: 11,
-      }),
-    });
-
-    const res = await handleCreateInvite(req);
-    const body = await res.json() as Record<string, unknown>;
-
-    expect(res.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error).toContain('voiceCodeDigits');
-  });
-
-  test('voiceCodeDigits validation — accepts custom digit count within range', async () => {
+  test('voiceCodeDigits is always 6 — custom values are ignored', async () => {
     const req = new Request('http://localhost/v1/ingress/invites', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -571,8 +533,8 @@ describe('voice invite HTTP routes', () => {
     expect(res.status).toBe(201);
     expect(body.ok).toBe(true);
     const invite = body.invite as Record<string, unknown>;
-    expect((invite.voiceCode as string).length).toBe(8);
-    expect(invite.voiceCodeDigits).toBe(8);
+    expect((invite.voiceCode as string).length).toBe(6);
+    expect(invite.voiceCodeDigits).toBe(6);
   });
 
   test('voice invites do NOT return token in response', async () => {
