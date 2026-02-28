@@ -279,6 +279,42 @@ describe('ingress invite HTTP routes', () => {
     expect((invite.token as string).length).toBeGreaterThan(0);
   });
 
+  test('POST /v1/ingress/invites — includes canonical share URL when bot username is configured', async () => {
+    const prevBotUsername = process.env.TELEGRAM_BOT_USERNAME;
+    process.env.TELEGRAM_BOT_USERNAME = 'test_invite_bot';
+
+    try {
+      const req = new Request('http://localhost/v1/ingress/invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceChannel: 'telegram',
+          note: 'Share link test',
+        }),
+      });
+
+      const res = await handleCreateInvite(req);
+      const body = await res.json() as Record<string, unknown>;
+      const invite = body.invite as Record<string, unknown>;
+      const token = invite.token as string;
+      const share = invite.share as Record<string, unknown>;
+
+      expect(res.status).toBe(201);
+      expect(body.ok).toBe(true);
+      expect(typeof token).toBe('string');
+      expect(token.length).toBeGreaterThan(0);
+      expect(share).toBeDefined();
+      expect(share.url).toBe(`https://t.me/test_invite_bot?start=iv_${token}`);
+      expect(typeof share.displayText).toBe('string');
+    } finally {
+      if (prevBotUsername === undefined) {
+        delete process.env.TELEGRAM_BOT_USERNAME;
+      } else {
+        process.env.TELEGRAM_BOT_USERNAME = prevBotUsername;
+      }
+    }
+  });
+
   test('POST /v1/ingress/invites — missing sourceChannel returns 400', async () => {
     const req = new Request('http://localhost/v1/ingress/invites', {
       method: 'POST',

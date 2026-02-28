@@ -230,7 +230,7 @@ export async function handleChannelInbound(
     typeof (rawCommandIntentForAcl as Record<string, unknown>).payload === 'string' &&
     ((rawCommandIntentForAcl as Record<string, unknown>).payload as string).startsWith('gv_');
 
-  // Parse invite token from /start iv_<token> commands using the transport
+  // Parse invite token from /start payloads using the channel transport
   // adapter. The token is extracted once here so both the ACL bypass and
   // the intercept handler can reference it without re-parsing.
   const commandIntentForAcl = rawCommandIntentForAcl && typeof rawCommandIntentForAcl === 'object' && !Array.isArray(rawCommandIntentForAcl)
@@ -292,7 +292,7 @@ export async function handleChannelInbound(
       }
 
       // ── Invite token intercept (non-member) ──
-      // /start iv_<token> deep links grant access without guardian approval.
+      // /start invite deep links grant access without guardian approval.
       // Intercept here — before the deny gate — so valid invites short-circuit
       // the ACL rejection and never reach the agent pipeline.
       if (inviteToken && denyNonMember) {

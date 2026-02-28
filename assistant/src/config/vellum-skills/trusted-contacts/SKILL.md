@@ -129,14 +129,6 @@ Use this when the guardian wants to invite someone to message the assistant on T
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
 
-BOT_CONFIG_JSON=$(curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/config" \
-  -H "Authorization: Bearer $TOKEN")
-BOT_USERNAME=$(printf '%s' "$BOT_CONFIG_JSON" | tr -d '\n' | sed -n 's/.*"botUsername"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-if [ -z "$BOT_USERNAME" ]; then
-  echo "error:no_bot_username"
-  exit 1
-fi
-
 INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
@@ -145,14 +137,40 @@ INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites" \
     "maxUses": 1,
     "note": "<optional note, e.g. the person it is for>"
   }')
-INVITE_TOKEN=$(printf '%s' "$INVITE_JSON" | tr -d '\n' | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+
+INVITE_TOKEN=$(printf '%s' "$INVITE_JSON" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+invite = data.get('invite', {})
+print(invite.get('token', ''), end='')
+")
+INVITE_URL=$(printf '%s' "$INVITE_JSON" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+invite = data.get('invite', {})
+share = invite.get('share') or {}
+print(share.get('url', ''), end='')
+")
+
 if [ -z "$INVITE_TOKEN" ]; then
   printf '%s\n' "$INVITE_JSON"
   exit 1
 fi
 
+# Prefer backend-provided canonical link when available.
+if [ -z "$INVITE_URL" ]; then
+  BOT_CONFIG_JSON=$(curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/config" \
+    -H "Authorization: Bearer $TOKEN")
+  BOT_USERNAME=$(printf '%s' "$BOT_CONFIG_JSON" | tr -d '\n' | sed -n 's/.*"botUsername"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  if [ -z "$BOT_USERNAME" ]; then
+    echo "error:no_share_url_or_bot_username"
+    exit 1
+  fi
+  INVITE_URL="https://t.me/$BOT_USERNAME?start=iv_$INVITE_TOKEN"
+fi
+
 echo "<vellum-sensitive-output kind=\"invite_code\" value=\"$INVITE_TOKEN\" />"
-echo "https://t.me/$BOT_USERNAME?start=iv_$INVITE_TOKEN"
+echo "$INVITE_URL"
 ```
 
 Optional fields:
@@ -160,7 +178,11 @@ Optional fields:
 - `expiresInMs` — expiration time in milliseconds from now (e.g., `86400000` for 24 hours). Defaults to 7 days (`604800000`) if omitted.
 - `note` — a human-readable label for the invite (e.g., "For Mom", "Family group").
 
-The create response contains `{ ok: true, invite: { id, token, ... } }`. The `token` field is the raw invite token — it is only returned at creation time and cannot be retrieved later.
+The create response contains `{ ok: true, invite: { id, token, share?, ... } }`.
+- `token` is the raw invite token and is only returned at creation time.
+- `share.url` is the canonical shareable deep link (when channel transport config is available).
+
+Always use `invite.share.url` when present. Do not manually construct `?start=` links if the API already provided one.
 
 **Presenting to the guardian**: Give the guardian the link with clear copy-paste instructions:
 

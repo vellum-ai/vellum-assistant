@@ -5,6 +5,7 @@
  * both the HTTP routes and the IPC handlers call the same logic.
  */
 
+import { isChannelId } from '../channels/types.js';
 import {
   createInvite,
   type IngressInvite,
@@ -30,6 +31,8 @@ import {
   redeemInvite as redeemInviteTyped,
   redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
 } from './invite-redemption-service.js';
+import { getTransport } from './channel-invite-transport.js';
+import './channel-invite-transports/telegram.js';
 
 // ---------------------------------------------------------------------------
 // Response shapes — used by both HTTP routes and IPC handlers
@@ -39,6 +42,10 @@ export interface InviteResponseData {
   id: string;
   sourceChannel: string;
   token?: string;
+  share?: {
+    url: string;
+    displayText: string;
+  };
   tokenHash: string;
   maxUses: number;
   useCount: number;
@@ -69,11 +76,30 @@ export interface MemberResponseData {
 // Mappers
 // ---------------------------------------------------------------------------
 
+function buildSharePayload(sourceChannel: string, rawToken?: string): InviteResponseData['share'] | undefined {
+  if (!rawToken || !isChannelId(sourceChannel)) return undefined;
+  const transport = getTransport(sourceChannel);
+  if (!transport?.buildShareableInvite) return undefined;
+
+  try {
+    return transport.buildShareableInvite({
+      rawToken,
+      sourceChannel,
+    });
+  } catch {
+    // Missing channel-specific config (e.g. Telegram bot username) should
+    // not fail invite creation — callers can still use the raw token.
+    return undefined;
+  }
+}
+
 function inviteToResponse(inv: IngressInvite, opts?: { rawToken?: string; voiceCode?: string }): InviteResponseData {
+  const share = buildSharePayload(inv.sourceChannel, opts?.rawToken);
   return {
     id: inv.id,
     sourceChannel: inv.sourceChannel,
     ...(opts?.rawToken ? { token: opts.rawToken } : {}),
+    ...(share ? { share } : {}),
     tokenHash: inv.tokenHash,
     maxUses: inv.maxUses,
     useCount: inv.useCount,
