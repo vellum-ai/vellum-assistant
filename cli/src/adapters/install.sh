@@ -178,7 +178,10 @@ write_env_file() {
     mkdir -p "$env_dir"
     cat > "$env_file" <<'ENVEOF'
 export BUN_INSTALL="$HOME/.bun"
-export PATH="$BUN_INSTALL/bin:$PATH"
+case ":$PATH:" in
+  *":$BUN_INSTALL/bin:"*) ;;
+  *) export PATH="$BUN_INSTALL/bin:$PATH" ;;
+esac
 ENVEOF
 }
 
