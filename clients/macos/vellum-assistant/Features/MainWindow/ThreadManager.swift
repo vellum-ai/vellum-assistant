@@ -172,7 +172,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // If we're in draft mode, promote the draft to a real thread so callers
         // get a guaranteed activeThreadId.
         if draftViewModel != nil, activeThreadId == nil {
-            promoteDraft()
+            promoteDraft(fromUserSend: false)
             return
         }
 
@@ -222,7 +222,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // onUserMessageSent fires for all send types unlike onFirstUserMessage
         // which skips empty text and slash commands.
         viewModel.onUserMessageSent = { [weak self] in
-            self?.promoteDraft()
+            self?.promoteDraft(fromUserSend: true)
         }
         draftViewModel = viewModel
         activeThreadId = nil
@@ -230,8 +230,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         log.info("Entered draft mode")
     }
 
-    /// Promote the draft view model to a real thread (called on first user message).
-    private func promoteDraft() {
+    /// Promote the draft view model to a real thread.
+    /// - Parameter fromUserSend: true when triggered by a user message send,
+    ///   false when triggered by `createThread()` needing a guaranteed `activeThreadId`.
+    private func promoteDraft(fromUserSend: Bool) {
         guard let viewModel = draftViewModel else { return }
 
         let thread = ThreadModel(title: "Untitled")
@@ -245,12 +247,21 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         evictStaleCachedViewModels()
         draftViewModel = nil
 
+        // Increment only on actual user sends, not programmatic createThread() calls.
+        if fromUserSend {
+            completedConversationCount += 1
+        }
+
         // Wire up callbacks now that we have a real thread.
-        // completedConversationCount is incremented via onFirstUserMessage
-        // (not here) so createThread()-triggered promotions don't inflate it.
-        viewModel.onFirstUserMessage = { [weak self] _ in
-            self?.completedConversationCount += 1
-            self?.updateThreadTitle(id: threadId, title: "Untitled")
+        // onFirstUserMessage is already consumed for user-send promotions
+        // (it fires before onUserMessageSent in sendMessage), so only set it
+        // for createThread()-triggered promotions where no message was sent yet.
+        if !fromUserSend {
+            viewModel.onFirstUserMessage = { [weak self] _ in
+                self?.completedConversationCount += 1
+                self?.updateThreadTitle(id: threadId, title: "Untitled")
+                self?.updateLastInteracted(threadId: threadId)
+            }
         }
         viewModel.onUserMessageSent = { [weak self] in
             self?.updateLastInteracted(threadId: threadId)
