@@ -30,6 +30,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @Published var activeThreadId: UUID? {
         didSet {
             if let activeThreadId {
+                // Switching to a real thread discards any draft
+                draftViewModel = nil
+
                 let activeViewModel = getOrCreateViewModel(for: activeThreadId)
                 activeViewModel?.ensureMessageLoopStarted()
                 sessionRestorer.loadHistoryIfNeeded(threadId: activeThreadId)
@@ -57,6 +60,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
     }
 
+    @Published private(set) var draftViewModel: ChatViewModel?
     private var chatViewModels: [UUID: ChatViewModel] = [:]
     /// Maximum number of ChatViewModels to keep in memory. When this limit is
     /// exceeded, the least-recently-accessed VM (that isn't the active thread) is
@@ -136,6 +140,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     var activeViewModel: ChatViewModel? {
+        if activeThreadId == nil, let draftViewModel {
+            return draftViewModel
+        }
         guard let activeThreadId else { return nil }
         return getOrCreateViewModel(for: activeThreadId)
     }
@@ -150,13 +157,21 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // On normal launches, suppress writes during restoration so the saved
         // value isn't overwritten before restoreLastActiveThread() reads it.
         self.isRestoringThreads = !isFirstLaunch
-        // Create one default thread so the window is never empty
-        createThread()
+        // Enter draft mode so the window shows an empty chat without a sidebar entry
+        enterDraftMode()
         sessionRestorer.delegate = self
         sessionRestorer.startObserving(skipInitialFetch: isFirstLaunch)
     }
 
     func createThread() {
+        // If we're in draft mode with an empty draft, just reuse it.
+        if let draftVM = draftViewModel, draftVM.messages.isEmpty, activeThreadId == nil {
+            return
+        }
+
+        // Discard any existing draft when creating a real thread
+        draftViewModel = nil
+
         // If the active thread is still empty, just keep it instead of creating another.
         // Only reuse when the thread is truly fresh: no messages at all, no persisted
         // session, and not a private thread (which have different persistence semantics).
@@ -187,6 +202,44 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         evictStaleCachedViewModels()
         activeThreadId = thread.id
         log.info("Created thread \(thread.id) with title \"\(thread.title)\"")
+    }
+
+    /// Enter draft mode: show an empty chat without creating a sidebar thread.
+    /// The thread is only created when the user sends their first message.
+    func enterDraftMode() {
+        // If already in draft mode with an empty draft, no-op (reuse existing draft)
+        if let draftVM = draftViewModel, draftVM.messages.isEmpty, activeThreadId == nil {
+            return
+        }
+
+        let viewModel = makeViewModel()
+        viewModel.isHistoryLoaded = true  // No session yet — nothing to load
+        viewModel.onFirstUserMessage = { [weak self] _ in
+            self?.promoteDraft()
+        }
+        draftViewModel = viewModel
+        activeThreadId = nil
+        subscribeToActiveViewModel()
+        log.info("Entered draft mode")
+    }
+
+    /// Promote the draft view model to a real thread (called on first user message).
+    private func promoteDraft() {
+        guard let viewModel = draftViewModel else { return }
+
+        let thread = ThreadModel(title: "Untitled")
+        threads.insert(thread, at: 0)
+        chatViewModels[thread.id] = viewModel
+        subscribeToBusyState(for: thread.id, viewModel: viewModel)
+        subscribeToAssistantActivity(for: thread.id, viewModel: viewModel)
+        subscribeToInteractionState(for: thread.id, viewModel: viewModel)
+        touchVMAccessOrder(thread.id)
+        evictStaleCachedViewModels()
+        draftViewModel = nil
+        completedConversationCount += 1
+        activeThreadId = thread.id
+        updateLastInteracted(threadId: thread.id)
+        log.info("Promoted draft to thread \(thread.id)")
     }
 
     func createPrivateThread() {
