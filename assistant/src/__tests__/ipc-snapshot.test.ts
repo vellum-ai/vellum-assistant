@@ -830,6 +830,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       { filename: 'chart.png', mimeType: 'image/png', data: 'iVBORw0K' },
     ],
   },
+  message_request_complete: {
+    type: 'message_request_complete',
+    sessionId: 'sess-001',
+    requestId: 'req-inline-001',
+    runStillActive: true,
+  },
   session_info: {
     type: 'session_info',
     sessionId: 'sess-001',
@@ -2178,6 +2184,13 @@ describe('IPC message snapshots', () => {
     test('message_complete has type field and optional sessionId', () => {
       const complete = serverMessages.message_complete;
       expect(complete.type).toBe('message_complete');
+    });
+
+    test('message_request_complete has sessionId and requestId fields', () => {
+      const complete = serverMessages.message_request_complete;
+      expect(complete.type).toBe('message_request_complete');
+      expect((complete as unknown as { sessionId: string }).sessionId).toBe('sess-001');
+      expect((complete as unknown as { requestId: string }).requestId).toBe('req-inline-001');
     });
   });
 
