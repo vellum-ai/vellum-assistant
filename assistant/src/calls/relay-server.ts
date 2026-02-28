@@ -505,18 +505,22 @@ export class RelayConnection {
           denialReason: actorTrust.denialReason,
         });
 
-        // Create/dedupe canonical access request via the shared helper
+        // For revoked/pending members, notify the guardian so they can
+        // re-approve. Blocked members are intentionally excluded — the
+        // guardian already made an explicit decision to block them.
         let guardianNotified = false;
-        try {
-          const accessResult = notifyGuardianOfAccessRequest({
-            canonicalAssistantId: assistantId,
-            sourceChannel: 'voice',
-            externalChatId: msg.from,
-            senderExternalUserId: actorTrust.canonicalSenderId ?? msg.from,
-          });
-          guardianNotified = accessResult.notified;
-        } catch (err) {
-          log.error({ err, callSessionId: this.callSessionId }, 'Failed to create access request for denied voice caller');
+        if (actorTrust.memberRecord?.status !== 'blocked') {
+          try {
+            const accessResult = notifyGuardianOfAccessRequest({
+              canonicalAssistantId: assistantId,
+              sourceChannel: 'voice',
+              externalChatId: msg.from,
+              senderExternalUserId: actorTrust.canonicalSenderId ?? msg.from,
+            });
+            guardianNotified = accessResult.notified;
+          } catch (err) {
+            log.error({ err, callSessionId: this.callSessionId }, 'Failed to create access request for denied voice caller');
+          }
         }
 
         // Deny with deterministic voice copy and end the call.
