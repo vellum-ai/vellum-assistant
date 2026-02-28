@@ -146,7 +146,7 @@ export class Session {
   /** @internal */ commandIntent?: { type: string; payload?: string; languageCode?: string };
   /** @internal */ pendingSurfaceActions = new Map<string, { surfaceType: SurfaceType }>();
   /** @internal */ lastSurfaceAction = new Map<string, { actionId: string; data?: Record<string, unknown> }>();
-  /** @internal */ surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
+  /** @internal */ surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>();
   /** @internal */ surfaceUndoStacks = new Map<string, string[]>();
   /** @internal */ withSurface = createSurfaceMutex();
   /** @internal */ currentTurnSurfaces: Array<{ surfaceId: string; surfaceType: SurfaceType; title?: string; data: SurfaceData; actions?: Array<{ id: string; label: string; style?: string }>; display?: string }> = [];
