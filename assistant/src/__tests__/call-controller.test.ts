@@ -132,9 +132,9 @@ import {
 import type { RelayConnection } from '../calls/relay-server.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import {
-  getGuardianActionRequest,
-  getPendingRequestByCallSessionId,
-} from '../memory/guardian-action-store.js';
+  getCanonicalGuardianRequest,
+  getPendingCanonicalRequestByCallSessionId,
+} from '../memory/canonical-guardian-store.js';
 import { conversations } from '../memory/schema.js';
 
 initializeDb();
@@ -195,6 +195,8 @@ function ensureConversation(id: string): void {
 
 function resetTables() {
   const db = getDb();
+  db.run('DELETE FROM canonical_guardian_deliveries');
+  db.run('DELETE FROM canonical_guardian_requests');
   db.run('DELETE FROM guardian_action_deliveries');
   db.run('DELETE FROM guardian_action_requests');
   db.run('DELETE FROM call_pending_questions');
@@ -1166,7 +1168,7 @@ describe('call-controller', () => {
     await new Promise((r) => setTimeout(r, 10));
 
     // Verify a guardian action request was created
-    const pendingRequest = getPendingRequestByCallSessionId(session.id);
+    const pendingRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(pendingRequest).not.toBeNull();
     expect(pendingRequest!.status).toBe('pending');
 
@@ -1178,11 +1180,10 @@ describe('call-controller', () => {
     // Wait for the consultation timeout
     await new Promise((r) => setTimeout(r, 200));
 
-    // The guardian action request should now be expired with call_timeout reason
-    const timedOutRequest = getGuardianActionRequest(pendingRequest!.id);
+    // The canonical guardian request should now be expired
+    const timedOutRequest = getCanonicalGuardianRequest(pendingRequest!.id);
     expect(timedOutRequest).not.toBeNull();
     expect(timedOutRequest!.status).toBe('expired');
-    expect(timedOutRequest!.expiredReason).toBe('call_timeout');
 
     // Event should be recorded
     const events = getCallEvents(session.id);
@@ -1280,7 +1281,7 @@ describe('call-controller', () => {
     expect(question!.questionText).toBe('Allow send_email to bob@example.com?');
 
     // Verify the guardian action request has tool metadata
-    const pendingRequest = getPendingRequestByCallSessionId(session.id);
+    const pendingRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(pendingRequest).not.toBeNull();
     expect(pendingRequest!.toolName).toBe('send_email');
     expect(pendingRequest!.inputDigest).not.toBeNull();
@@ -1308,7 +1309,7 @@ describe('call-controller', () => {
     await controller.handleCallerUtterance('Send it');
     await new Promise((r) => setTimeout(r, 50));
 
-    const request1 = getPendingRequestByCallSessionId(session.id);
+    const request1 = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(request1).not.toBeNull();
 
     // Compute expected digest independently using the same utility
@@ -1329,7 +1330,7 @@ describe('call-controller', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // Verify the guardian action request has NO tool metadata
-    const pendingRequest = getPendingRequestByCallSessionId(session.id);
+    const pendingRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(pendingRequest).not.toBeNull();
     expect(pendingRequest!.toolName).toBeNull();
     expect(pendingRequest!.inputDigest).toBeNull();
@@ -1387,7 +1388,7 @@ describe('call-controller', () => {
     expect(question!.questionText).toBe('Allow send_message?');
 
     // Verify tool metadata was parsed correctly
-    const pendingRequest = getPendingRequestByCallSessionId(session.id);
+    const pendingRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(pendingRequest).not.toBeNull();
     expect(pendingRequest!.toolName).toBe('send_message');
     expect(pendingRequest!.inputDigest).not.toBeNull();
@@ -1414,7 +1415,7 @@ describe('call-controller', () => {
     await controller.handleCallerUtterance('Do something');
     await new Promise((r) => setTimeout(r, 50));
 
-    const pendingRequest = getPendingRequestByCallSessionId(session.id);
+    const pendingRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(pendingRequest).not.toBeNull();
     expect(pendingRequest!.questionText).toBe('Fallback question?');
     // Tool metadata should be null since the approval marker was malformed
@@ -1550,7 +1551,7 @@ describe('call-controller', () => {
 
     const firstQuestionId = controller.getPendingConsultationQuestionId();
     expect(firstQuestionId).not.toBeNull();
-    const firstRequest = getPendingRequestByCallSessionId(session.id);
+    const firstRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(firstRequest).not.toBeNull();
 
     // Repeated ASK_GUARDIAN with same informational question (no tool metadata)
@@ -1562,7 +1563,7 @@ describe('call-controller', () => {
 
     // Should coalesce: same consultation ID, same request
     expect(controller.getPendingConsultationQuestionId()).toBe(firstQuestionId);
-    const currentRequest = getPendingRequestByCallSessionId(session.id);
+    const currentRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(currentRequest).not.toBeNull();
     expect(currentRequest!.id).toBe(firstRequest!.id);
     expect(currentRequest!.status).toBe('pending');
@@ -1592,7 +1593,7 @@ describe('call-controller', () => {
 
     const firstQuestionId = controller.getPendingConsultationQuestionId();
     expect(firstQuestionId).not.toBeNull();
-    const firstRequest = getPendingRequestByCallSessionId(session.id);
+    const firstRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(firstRequest).not.toBeNull();
 
     // Repeated ASK_GUARDIAN_APPROVAL with same tool/input
@@ -1604,7 +1605,7 @@ describe('call-controller', () => {
 
     // Should coalesce: same consultation, same request
     expect(controller.getPendingConsultationQuestionId()).toBe(firstQuestionId);
-    const currentRequest = getPendingRequestByCallSessionId(session.id);
+    const currentRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(currentRequest!.id).toBe(firstRequest!.id);
     expect(currentRequest!.status).toBe('pending');
 
@@ -1626,7 +1627,7 @@ describe('call-controller', () => {
     await controller.handleCallerUtterance('Send email');
     await new Promise((r) => setTimeout(r, 50));
 
-    const firstRequest = getPendingRequestByCallSessionId(session.id);
+    const firstRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(firstRequest).not.toBeNull();
     expect(firstRequest!.toolName).toBe('send_email');
 
@@ -1643,18 +1644,15 @@ describe('call-controller', () => {
     await new Promise((r) => setTimeout(r, 100));
 
     // New consultation should be active
-    const secondRequest = getPendingRequestByCallSessionId(session.id);
+    const secondRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(secondRequest).not.toBeNull();
     expect(secondRequest!.id).not.toBe(firstRequest!.id);
     expect(secondRequest!.toolName).toBe('calendar_create');
 
-    // Old request should be expired with 'superseded' reason
-    const expiredRequest = getGuardianActionRequest(firstRequest!.id);
+    // Old request should be expired (superseded by the new one)
+    const expiredRequest = getCanonicalGuardianRequest(firstRequest!.id);
     expect(expiredRequest).not.toBeNull();
     expect(expiredRequest!.status).toBe('expired');
-    expect(expiredRequest!.expiredReason).toBe('superseded');
-    expect(expiredRequest!.supersededByRequestId).toBe(secondRequest!.id);
-    expect(expiredRequest!.supersededAt).not.toBeNull();
 
     controller.destroy();
   });
@@ -1674,7 +1672,7 @@ describe('call-controller', () => {
     await controller.handleCallerUtterance('Send email to Bob');
     await new Promise((r) => setTimeout(r, 50));
 
-    const firstRequest = getPendingRequestByCallSessionId(session.id);
+    const firstRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(firstRequest).not.toBeNull();
     expect(firstRequest!.toolName).toBe('send_email');
 
@@ -1688,7 +1686,7 @@ describe('call-controller', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // Should coalesce: the inherited tool metadata matches the existing consultation
-    const currentRequest = getPendingRequestByCallSessionId(session.id);
+    const currentRequest = getPendingCanonicalRequestByCallSessionId(session.id);
     expect(currentRequest!.id).toBe(firstRequest!.id);
     expect(currentRequest!.status).toBe('pending');
 
