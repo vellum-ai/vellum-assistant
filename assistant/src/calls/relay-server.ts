@@ -346,6 +346,10 @@ export class RelayConnection {
   handleTransportClosed(code?: number, reason?: string): void {
     // Clean up access request wait state on disconnect to stop polling
     this.clearAccessRequestWait();
+    if (this.nameCaptureTimeoutTimer) {
+      clearTimeout(this.nameCaptureTimeoutTimer);
+      this.nameCaptureTimeoutTimer = null;
+    }
 
     const session = getCallSession(this.callSessionId);
     if (!session) return;
