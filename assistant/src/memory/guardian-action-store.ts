@@ -10,6 +10,7 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getLogger } from '../util/logger.js';
 import { getDb, rawChanges } from './db.js';
 import {
@@ -160,7 +161,7 @@ export function createGuardianActionRequest(params: {
 
   const row = {
     id,
-    assistantId: params.assistantId ?? 'self',
+    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     kind: params.kind,
     sourceChannel: params.sourceChannel,
     sourceConversationId: params.sourceConversationId,

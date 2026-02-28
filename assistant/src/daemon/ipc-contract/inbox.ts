@@ -23,6 +23,10 @@ export interface IngressInviteRequest {
   externalChatId?: string;
   /** Filter by status (list only). */
   status?: string;
+  /** Invitee's first name (voice invite create only). */
+  friendName?: string;
+  /** Guardian's first name (voice invite create only). */
+  guardianName?: string;
 }
 
 export interface IngressMemberRequest {

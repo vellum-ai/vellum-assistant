@@ -581,6 +581,8 @@ describe('AssistantConfigSchema', () => {
       provider: 'twilio',
       maxDurationSeconds: 3600,
       userConsultTimeoutSeconds: 120,
+      ttsPlaybackDelayMs: 3000,
+      accessRequestPollIntervalMs: 500,
       disclosure: {
         enabled: true,
         text: 'At the very beginning of the call, introduce yourself as an assistant calling on behalf of the person you represent. Do not say "AI assistant".',

@@ -3,17 +3,17 @@
  *
  * Validates that:
  * - Inbound calls (no callSessionId) resolve the assistant by "To" phone number
- *   and forward the assistantId to the runtime.
+ *   for gateway routing decisions (reject/default/forward).
  * - When phone-number lookup misses, fallback routing (defaultAssistantId /
  *   unmapped policy) is applied instead of silently forwarding with no assistant.
  * - Outbound calls (callSessionId present) do not resolve or forward an assistantId.
  * - Validation failures are propagated as responses.
+ * - Assistant IDs are NOT forwarded to the daemon (daemon uses internal scope).
  */
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
-let lastForwardedAssistantId: string | undefined;
 let lastForwardedParams: Record<string, string> | undefined;
 let _lastForwardedOriginalUrl: string | undefined;
 let forwardCalled = false;
@@ -23,11 +23,9 @@ mock.module("../../runtime/client.js", () => ({
     _config: unknown,
     params: Record<string, string>,
     originalUrl: string,
-    assistantId?: string,
   ) => {
     lastForwardedParams = params;
     _lastForwardedOriginalUrl = originalUrl;
-    lastForwardedAssistantId = assistantId;
     forwardCalled = true;
     return {
       status: 200,
@@ -130,13 +128,12 @@ function makeVoiceRequest(
 
 describe("twilio voice webhook handler", () => {
   beforeEach(() => {
-    lastForwardedAssistantId = undefined;
     lastForwardedParams = undefined;
     _lastForwardedOriginalUrl = undefined;
     forwardCalled = false;
   });
 
-  test("inbound call resolves assistant by To number and forwards assistantId", async () => {
+  test("inbound call resolves assistant by To number and forwards to daemon", async () => {
     const handler = createTwilioVoiceWebhookHandler(baseConfig);
     const req = makeVoiceRequest({
       CallSid: "CA_inbound_1",
@@ -147,7 +144,8 @@ describe("twilio voice webhook handler", () => {
     const res = await handler(req);
 
     expect(res.status).toBe(200);
-    expect(lastForwardedAssistantId).toBe("assistant-abc");
+    // Gateway resolves assistant for routing but does NOT forward assistantId to daemon
+    expect(forwardCalled).toBe(true);
     expect(lastForwardedParams?.CallSid).toBe("CA_inbound_1");
   });
 
@@ -183,7 +181,7 @@ describe("twilio voice webhook handler", () => {
     const res = await handler(req);
 
     expect(res.status).toBe(200);
-    expect(lastForwardedAssistantId).toBe("fallback-assistant");
+    // Gateway resolves fallback for routing, forwards call to daemon without assistantId
     expect(forwardCalled).toBe(true);
   });
 
@@ -201,7 +199,7 @@ describe("twilio voice webhook handler", () => {
     const res = await handler(req);
 
     expect(res.status).toBe(200);
-    expect(lastForwardedAssistantId).toBeUndefined();
+    expect(forwardCalled).toBe(true);
   });
 
   test("empty callSessionId is treated as inbound (resolves assistant by To number)", async () => {
@@ -218,7 +216,7 @@ describe("twilio voice webhook handler", () => {
     const res = await handler(req);
 
     expect(res.status).toBe(200);
-    expect(lastForwardedAssistantId).toBe("assistant-abc");
+    expect(forwardCalled).toBe(true);
     expect(lastForwardedParams?.CallSid).toBe("CA_empty_session");
   });
 
@@ -233,7 +231,7 @@ describe("twilio voice webhook handler", () => {
     const res = await handler(req);
 
     expect(res.status).toBe(200);
-    expect(lastForwardedAssistantId).toBe("assistant-xyz");
+    expect(forwardCalled).toBe(true);
   });
 
   test("inbound call without assistantPhoneNumbers config is rejected when unmappedPolicy is reject", async () => {
@@ -270,7 +268,6 @@ describe("twilio voice webhook handler", () => {
     const res = await handler(req);
 
     expect(res.status).toBe(200);
-    expect(lastForwardedAssistantId).toBe("fallback-assistant");
     expect(forwardCalled).toBe(true);
   });
 });

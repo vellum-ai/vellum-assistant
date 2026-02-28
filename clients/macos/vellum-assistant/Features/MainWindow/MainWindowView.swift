@@ -17,6 +17,12 @@ final class SharingState {
     var publishedUrl: String?
     var publishError: String?
     var workspaceEditorContentHeight: CGFloat = 20
+    /// Saved publish params for auto-retry after credential setup completes.
+    var pendingPublish: (html: String, title: String?, appId: String?)?
+    /// Timer for polling credential availability during setup flow.
+    var credentialPollTimer: Timer?
+    /// Stashed handler so onDisappear can restore it when polling is active.
+    var previousVercelHandler: ((VercelApiConfigResponseMessage) -> Void)?
 }
 
 /// Sidebar interaction state -- hover, rename, expand/collapse lists, drawer.
@@ -148,12 +154,21 @@ struct MainWindowView: View {
         sharing.publishError = nil
 
         Task { @MainActor in
-            daemonClient.onPublishPageResponse = { response in
+            daemonClient.onPublishPageResponse = { [self] response in
                 sharing.isPublishing = false
                 if response.success, let url = response.publicUrl {
                     sharing.publishedUrl = url
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(url, forType: .string)
+                } else if response.errorCode == "credentials_missing" {
+                    // Save pending publish for auto-retry after credential setup
+                    sharing.pendingPublish = (html: html, title: title, appId: appId)
+                    // Inject message into active session to trigger assistant-driven setup
+                    if let viewModel = threadManager.activeViewModel {
+                        viewModel.inputText = "I want to publish my app but I don't have a Vercel API token set up yet. Can you help me create one and then publish my app?"
+                        viewModel.sendMessage()
+                    }
+                    startCredentialPollForPublish()
                 } else if let error = response.error, error != "Cancelled" {
                     sharing.publishError = error
                     // Auto-dismiss error after 5 seconds
@@ -169,6 +184,58 @@ struct MainWindowView: View {
                 try daemonClient.sendPublishPage(html: html, title: title, appId: appId)
             } catch {
                 sharing.isPublishing = false
+            }
+        }
+    }
+
+    /// Polls the daemon for Vercel credential availability every 3 seconds.
+    /// When the credential appears, auto-retries the pending publish.
+    /// Times out after 5 minutes.
+    private func startCredentialPollForPublish() {
+        sharing.credentialPollTimer?.invalidate()
+        let startTime = Date()
+        let timeout: TimeInterval = 300 // 5 minutes
+
+        // Preserve SettingsStore's handler so it continues receiving updates
+        // after polling ends. Without this, the poll closure permanently
+        // overwrites SettingsStore's onVercelApiConfigResponse and hasVercelKey
+        // is never updated again.
+        sharing.previousVercelHandler = daemonClient.onVercelApiConfigResponse
+        let previousHandler = sharing.previousVercelHandler
+
+        sharing.credentialPollTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [self] timer in
+            Task { @MainActor in
+                // Timeout check
+                if Date().timeIntervalSince(startTime) > timeout {
+                    timer.invalidate()
+                    sharing.credentialPollTimer = nil
+                    sharing.pendingPublish = nil
+                    daemonClient.onVercelApiConfigResponse = previousHandler
+                    sharing.previousVercelHandler = nil
+                    return
+                }
+
+                // Poll for credential
+                daemonClient.onVercelApiConfigResponse = { [self] response in
+                    // Forward to the previous handler (e.g. SettingsStore) so it
+                    // stays in sync with credential state during polling.
+                    previousHandler?(response)
+
+                    if response.success && response.hasToken, let pending = sharing.pendingPublish {
+                        timer.invalidate()
+                        sharing.credentialPollTimer = nil
+                        sharing.pendingPublish = nil
+                        daemonClient.onVercelApiConfigResponse = previousHandler
+                        sharing.previousVercelHandler = nil
+                        // Auto-retry publish with saved params
+                        publishPage(html: pending.html, title: pending.title, appId: pending.appId)
+                    }
+                }
+                do {
+                    try daemonClient.sendVercelApiConfig(action: "get")
+                } catch {
+                    // Polling failure is non-fatal; will retry on next tick
+                }
             }
         }
     }
@@ -558,6 +625,13 @@ struct MainWindowView: View {
         }
         .onDisappear {
             copyThread.cancel()
+            sharing.credentialPollTimer?.invalidate()
+            sharing.credentialPollTimer = nil
+            sharing.pendingPublish = nil
+            if let handler = sharing.previousVercelHandler {
+                daemonClient.onVercelApiConfigResponse = handler
+                sharing.previousVercelHandler = nil
+            }
             daemonClient.stopSSE()
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in

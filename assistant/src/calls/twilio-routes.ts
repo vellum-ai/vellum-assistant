@@ -147,10 +147,9 @@ function mapTwilioStatus(twilioStatus: string): CallStatus | null {
  * Supports two modes:
  * - **Outbound** (callSessionId present in query): uses the existing session
  * - **Inbound** (callSessionId absent): creates or reuses a session keyed
- *   by the Twilio CallSid. The optional `forwardedAssistantId` is resolved
- *   by the gateway from the "To" phone number.
+ *   by the Twilio CallSid. Uses daemon internal scope for assistant identity.
  */
-export async function handleVoiceWebhook(req: Request, forwardedAssistantId?: string): Promise<Response> {
+export async function handleVoiceWebhook(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const callSessionId = url.searchParams.get('callSessionId');
 
@@ -167,13 +166,12 @@ export async function handleVoiceWebhook(req: Request, forwardedAssistantId?: st
       return new Response('Missing CallSid', { status: 400 });
     }
 
-    log.info({ callSid, from: callerFrom, to: callerTo, assistantId: forwardedAssistantId }, 'Inbound voice webhook — creating/reusing session');
+    log.info({ callSid, from: callerFrom, to: callerTo }, 'Inbound voice webhook — creating/reusing session');
 
     const { session } = createInboundVoiceSession({
       callSid,
       fromNumber: callerFrom,
       toNumber: callerTo,
-      assistantId: forwardedAssistantId,
     });
 
     return buildVoiceWebhookTwiml(session.id, session.assistantId ?? undefined, session.task, session.guardianVerificationSessionId);

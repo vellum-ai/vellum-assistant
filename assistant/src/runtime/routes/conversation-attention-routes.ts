@@ -10,6 +10,7 @@ import {
 } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { truncate } from '../../util/truncate.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { httpError } from '../http-errors.js';
 
 export function handleListConversationAttention(url: URL): Response {
@@ -27,7 +28,7 @@ export function handleListConversationAttention(url: URL): Response {
   }
 
   const attentionStates = listConversationAttention({
-    assistantId: 'self',
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     state: stateParam as AttentionFilterState,
     sourceChannel: channel,
     source: sourceParam !== 'all' ? sourceParam : undefined,

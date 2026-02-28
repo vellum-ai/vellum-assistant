@@ -3,6 +3,59 @@ import SwiftUI
 import UIKit
 import VellumAssistantShared
 
+// MARK: - Tab Entry Point
+
+/// The tab-level Chats entry point. Switches between connected and disconnected
+/// states so ThreadListView only mounts when a live DaemonClient is available.
+struct ChatsTabView: View {
+    @EnvironmentObject var clientProvider: ClientProvider
+    @ObservedObject var store: IOSThreadStore
+    var onConnectTapped: (() -> Void)?
+
+    var body: some View {
+        if clientProvider.isConnected {
+            ThreadListView(store: store)
+        } else {
+            ChatsDisconnectedView(onConnectTapped: onConnectTapped)
+        }
+    }
+}
+
+// MARK: - Disconnected State
+
+struct ChatsDisconnectedView: View {
+    var onConnectTapped: (() -> Void)?
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: VSpacing.lg) {
+                Image(systemName: "message")
+                    .font(.system(size: 48))
+                    .foregroundColor(VColor.textMuted)
+                    .accessibilityHidden(true)
+                Text("Chats Require Connection")
+                    .font(VFont.title)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Connect to your Assistant to start a conversation.")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, VSpacing.xl)
+                if onConnectTapped != nil {
+                    Button {
+                        onConnectTapped?()
+                    } label: {
+                        Text("Go to Settings")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle("Chats")
+        }
+    }
+}
+
 // MARK: - ThreadListView
 
 struct ThreadListView: View {

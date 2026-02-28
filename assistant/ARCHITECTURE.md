@@ -397,7 +397,7 @@ A complementary access-granting flow where the guardian proactively creates a sh
 | Channel | Status | Prerequisites |
 |---------|--------|--------------|
 | Telegram | Shipped | Bot username resolved from credential metadata or `TELEGRAM_BOT_USERNAME` env |
-| Voice | Shipped | Identity-bound voice code redemption via DTMF/speech in the relay state machine. Gated behind `feature_flags.voice-invite-redemption.enabled` (default OFF). |
+| Voice | Shipped | Identity-bound voice code redemption via DTMF/speech in the relay state machine. Always-on canonical behavior with personalized friend/guardian name prompts. |
 | SMS | Deferred | Needs a deep-link strategy compatible with SMS (short URL or web redemption page) |
 | Slack | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing |
 
@@ -413,18 +413,16 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 
 **Call-time redemption subflow (`invite_redemption_pending`):**
 1. Unknown caller dials in. `relay-server.ts` resolves trust via `resolveActorTrust`. Caller is `unknown`, no pending guardian challenge.
-2. If `feature_flags.voice-invite-redemption.enabled` is ON, the relay checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
-3. If active, non-expired invites exist, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller to enter their invite code via DTMF or speech.
+2. The relay checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
+3. If active, non-expired invites exist, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
 4. `redeemVoiceInviteCode` validates: identity match, code hash match, expiry, use count. On success, an active member record is upserted and the call transitions to the normal call flow.
-5. On failure, the caller gets up to 3 attempts. After max attempts, the call is terminated.
+5. On invalid/expired code, the caller hears deterministic failure copy: `Sorry, the code you provided is incorrect or has since expired. Please ask <guardian-name> for a new code. Goodbye.` and the call ends immediately.
 
 **Security invariants:**
 - The plaintext voice code is returned exactly once at creation time and never stored.
 - Voice invites are identity-bound: `expectedExternalUserId` must match the caller's E.164 number. An attacker with the code but the wrong phone number cannot redeem.
 - Failure responses are intentionally generic (`invalid_or_expired`) to prevent oracle attacks.
 - Blocked members cannot bypass the guardian's explicit block via invite redemption.
-
-**Feature flag:** `feature_flags.voice-invite-redemption.enabled` (default OFF). When disabled, unknown callers with active voice invites are denied normally — the invite check is skipped entirely.
 
 **Key source files:**
 
@@ -439,9 +437,75 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 | `src/runtime/ingress-service.ts` | Shared business logic for invite/member operations (used by both HTTP routes and IPC) |
 | `src/runtime/routes/ingress-routes.ts` | HTTP API handlers for member/invite management including voice invite creation and redemption |
 | `src/runtime/routes/inbound-message-handler.ts` | Invite token intercept in the inbound flow (non-member and inactive-member branches) |
-| `src/calls/relay-server.ts` | Voice relay state machine — `invite_redemption_pending` subflow, feature flag gate |
+| `src/calls/relay-server.ts` | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior) |
 | `src/util/voice-code.ts` | Cryptographic voice code generation and SHA-256 hashing |
 | `src/memory/ingress-invite-store.ts` | Invite persistence including `findActiveVoiceInvites` for identity-bound lookup |
+
+### Voice Inbound Security Model (Canonical)
+
+The voice inbound security model determines how unknown callers are handled when they dial in. Three paths exist, evaluated in priority order by `relay-server.ts` during the `handleSetup` phase. All guardian decisions route through `applyCanonicalGuardianDecision` in the canonical guardian request system.
+
+**Decision tree for inbound unknown callers:**
+
+```
+Unknown caller dials in
+        |
+        v
+resolveActorTrust() → trustClass
+        |
+        ├── guardian / trusted_contact → normal call flow
+        ├── blocked → immediate denial + disconnect
+        ├── policy: deny → immediate denial + disconnect
+        ├── policy: escalate → denial (voice cannot hold for async approval)
+        |
+        └── unknown (no binding) ──┐
+                                   |
+              ┌────────────────────┼──────────────────────┐
+              |                    |                       |
+    pendingChallenge?     activeVoiceInvites?      no invite, no challenge
+              |                    |                       |
+              v                    v                       v
+    Guardian verification   Invite redemption     Name capture +
+    (DTMF/speech code)     (personalized code)   guardian approval wait
+```
+
+**Path 1: Voice invite code redemption (guardian-initiated)**
+
+The guardian proactively creates a voice invite bound to the caller's E.164 phone number. When the unknown caller dials in and has an active, non-expired invite, the relay enters the `invite_redemption_pending` subflow with personalized prompts using the friend's and guardian's names. This is always-on canonical behavior (no feature flag). See [Voice Invite Flow](#voice-invite-flow-invite_redemption_pending) above.
+
+**Path 2: Live in-call guardian approval (friend-initiated)**
+
+When no invite exists and no pending guardian challenge is active, the relay enters the name capture + guardian approval wait flow:
+
+1. The relay transitions to `awaiting_name` state and prompts the caller for their name with a timeout.
+2. On name capture, `notifyGuardianOfAccessRequest` creates a canonical guardian request (`kind: 'access_request'`) and notifies the guardian via the notification pipeline.
+3. The relay transitions to `awaiting_guardian_decision` and plays hold music/messaging while polling the canonical request status.
+4. The guardian approves or denies via any channel (Telegram, SMS, desktop). All decisions route through `applyCanonicalGuardianDecision`, which dispatches to the `access_request` resolver in `guardian-request-resolvers.ts`.
+5. On approval: the resolver directly activates the caller as a trusted contact (upserts member with `status: 'active'`, `policy: 'allow'`), the poll detects the approved status, the relay transitions to the normal call flow with the caller's guardian context updated.
+6. On denial or timeout: the caller hears a denial message and the call ends.
+
+**Path 3: Inbound guardian verification (pending challenge)**
+
+When a pending voice guardian challenge exists (`getPendingChallenge`), the caller enters the DTMF/speech verification flow to complete an outbound-initiated guardian binding. This path is for guardian identity verification, not trusted-contact access.
+
+**Canonical decision routing:**
+
+All guardian decisions for voice access requests flow through:
+- `applyCanonicalGuardianDecision` (canonical guardian request system)
+- `accessRequestResolver` in `guardian-request-resolvers.ts` (kind-specific resolver)
+- For voice approvals: direct trusted-contact activation (no verification session needed since the caller is already on the line)
+- For text-channel access requests: verification session creation with 6-digit code (existing `access-request-decision.ts` path for legacy `channel_guardian_approval_requests`)
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/calls/relay-server.ts` | Inbound call decision tree, name capture, guardian approval wait polling |
+| `src/runtime/access-request-helper.ts` | Creates canonical access request and notifies guardian |
+| `src/approvals/guardian-decision-primitive.ts` | `applyCanonicalGuardianDecision` — unified decision primitive |
+| `src/approvals/guardian-request-resolvers.ts` | `access_request` resolver — voice direct activation, text-channel verification session |
+| `src/runtime/actor-trust-resolver.ts` | `resolveActorTrust` — caller trust classification |
+| `src/memory/canonical-guardian-store.ts` | Canonical request persistence and CAS resolution |
 
 ### Update Bulletin System
 
@@ -1954,3 +2018,16 @@ Key files: `src/tools/sensitive-output-placeholders.ts`, `src/tools/executor.ts`
 ### Notifications
 
 For full notification developer guidance and lifecycle details, see [`assistant/src/notifications/README.md`](src/notifications/README.md).
+
+### Assistant Identity Boundary
+
+The daemon uses a single fixed internal scope constant — `DAEMON_INTERNAL_ASSISTANT_ID` (`'self'`), exported from `src/runtime/assistant-scope.ts` — for all assistant-scoped storage and routing within the daemon process. Public/external assistant IDs (e.g., those assigned during hatch, invite links, or platform registration) are an **edge concern** owned by the gateway and platform layers.
+
+**Boundary rule:** Daemon code must never derive internal scoping decisions from externally-provided assistant IDs. When a daemon path needs an assistant scope and none is provided, it defaults to `DAEMON_INTERNAL_ASSISTANT_ID`. The gateway is responsible for mapping public assistant IDs to internal routing before forwarding requests to the daemon.
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `src/runtime/assistant-scope.ts` | Exports `DAEMON_INTERNAL_ASSISTANT_ID` constant |
+| `src/__tests__/assistant-id-boundary-guard.test.ts` | Guard tests enforcing the identity boundary |

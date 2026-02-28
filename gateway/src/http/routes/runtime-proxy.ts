@@ -45,7 +45,8 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       }
     }
 
-    // Rewrite /v1/assistants/:assistantId/... → /v1/... for the upstream daemon
+    // The daemon uses flat /v1/... paths. Rewrite any legacy
+    // /v1/assistants/:assistantId/... requests from clients to flat paths.
     let upstreamPath = url.pathname;
     const assistantScopedMatch = url.pathname.match(/^\/v1\/assistants\/[^/]+\/(.+)$/);
     if (assistantScopedMatch) {

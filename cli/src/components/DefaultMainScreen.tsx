@@ -32,6 +32,51 @@ const POLL_INTERVAL_MS = 3000;
 const SEND_TIMEOUT_MS = 5000;
 const RESPONSE_POLL_INTERVAL_MS = 1000;
 
+// ── Layout constants ──────────────────────────────────────
+const MAX_TOTAL_WIDTH = 72;
+const DEFAULT_TERMINAL_COLUMNS = 80;
+const DEFAULT_TERMINAL_ROWS = 24;
+const LEFT_PANEL_WIDTH = 36;
+
+const HEADER_PREFIX = "── Vellum ";
+
+// Left panel structure: HEADER lines + art + FOOTER lines
+const LEFT_HEADER_LINES = 3; // spacer + heading + spacer
+const LEFT_FOOTER_LINES = 3; // spacer + runtimeUrl + dirName
+
+// Right panel structure
+const TIPS = ["Send a message to start chatting", "Use /help to see available commands"];
+const RIGHT_PANEL_INFO_SECTIONS = 3; // Assistant, Species, Status — each with heading + value
+const RIGHT_PANEL_SPACERS = 2; // top spacer + spacer between tips and info
+const RIGHT_PANEL_TIPS_HEADING = 1;
+const RIGHT_PANEL_LINE_COUNT =
+  RIGHT_PANEL_SPACERS + RIGHT_PANEL_TIPS_HEADING + TIPS.length + RIGHT_PANEL_INFO_SECTIONS * 2;
+
+// Header chrome (borders around panel content)
+const HEADER_TOP_BORDER_LINES = 1; // "── Vellum ───..." line
+const HEADER_BOTTOM_BORDER_LINES = 2; // bottom rule + blank line
+const HEADER_CHROME_LINES = HEADER_TOP_BORDER_LINES + HEADER_BOTTOM_BORDER_LINES;
+
+// Selection / Secret windows
+const DIALOG_WINDOW_WIDTH = 60;
+const DIALOG_TITLE_CHROME = 5; // "┌─ " (3) + " " (1) + "┐" (1)
+const DIALOG_BORDER_CORNERS = 2; // └ and ┘
+const SELECTION_OPTION_CHROME = 6; // "│ " (2) + marker (1) + " " (1) + padding‐adjust + "│" (1)
+const SECRET_CONTENT_CHROME = 4; // "│ " (2) + padding + "│" (1) + adjustment
+
+// Chat area heights
+const TOOLTIP_HEIGHT = 3;
+const INPUT_AREA_HEIGHT = 4; // separator + input row + separator + hint
+const SELECTION_CHROME_LINES = 3; // title bar + bottom border + spacing
+const SECRET_INPUT_HEIGHT = 5; // title bar + content row + bottom border + tooltip chrome
+const SPINNER_HEIGHT = 1;
+const MIN_FEED_ROWS = 3;
+
+// Feed item height estimation
+const TOOL_CALL_CHROME_LINES = 2; // header (┌) + footer (└)
+const MESSAGE_SPACING = 1;
+const HELP_DISPLAY_HEIGHT = 6;
+
 interface ListMessagesResponse {
   messages: RuntimeMessage[];
   nextCursor?: string;
@@ -598,11 +643,9 @@ function DefaultMainScreen({
   const accentColor = species === "openclaw" ? "red" : "magenta";
 
   const { stdout } = useStdout();
-  const terminalColumns = stdout.columns || 80;
-  const totalWidth = Math.min(72, terminalColumns);
+  const terminalColumns = stdout.columns || DEFAULT_TERMINAL_COLUMNS;
+  const totalWidth = Math.min(MAX_TOTAL_WIDTH, terminalColumns);
   const rightPanelWidth = Math.max(1, totalWidth - LEFT_PANEL_WIDTH);
-
-  const tips = ["Send a message to start chatting", "Use /help to see available commands"];
 
   const leftLines = [
     " ",
@@ -617,7 +660,7 @@ function DefaultMainScreen({
   const rightLines: StyledLine[] = [
     { text: " ", style: "normal" },
     { text: "Tips for getting started", style: "heading" },
-    ...tips.map((t) => ({ text: t, style: "normal" as const })),
+    ...TIPS.map((t) => ({ text: t, style: "normal" as const })),
     { text: " ", style: "normal" },
     { text: "Assistant", style: "heading" },
     { text: assistantId, style: "dim" },
@@ -631,7 +674,7 @@ function DefaultMainScreen({
 
   return (
     <Box flexDirection="column" width={totalWidth}>
-      <Text dimColor>{"── Vellum " + "─".repeat(Math.max(0, totalWidth - 10))}</Text>
+      <Text dimColor>{HEADER_PREFIX + "─".repeat(Math.max(0, totalWidth - HEADER_PREFIX.length))}</Text>
       <Box flexDirection="row">
         <Box flexDirection="column" width={LEFT_PANEL_WIDTH}>
           {Array.from({ length: maxLines }, (_, i) => {
@@ -684,15 +727,10 @@ function DefaultMainScreen({
       </Box>
       <Text dimColor>{"─".repeat(totalWidth)}</Text>
       <Text> </Text>
-      <Tooltip text="Type ? or /help for available commands" delay={1000}>
-        <Text dimColor> ? for shortcuts</Text>
-      </Tooltip>
-      <Text> </Text>
     </Box>
   );
 }
 
-const LEFT_PANEL_WIDTH = 36;
 
 export interface SelectionRequest {
   title: string;
@@ -737,13 +775,21 @@ function estimateItemHeight(item: FeedItem, terminalColumns: number): number {
       for (const tc of item.toolCalls) {
         const paramCount =
           typeof tc.input === "object" && tc.input ? Object.keys(tc.input).length : 0;
-        lines += 2 + paramCount + (tc.result !== undefined ? 1 : 0);
+        lines += TOOL_CALL_CHROME_LINES + paramCount + (tc.result !== undefined ? 1 : 0);
       }
     }
-    return lines + 1;
+    return lines + MESSAGE_SPACING;
   }
   if (item.type === "help") {
-    return 6;
+    return HELP_DISPLAY_HEIGHT;
+  }
+  if (item.type === "status" || item.type === "error") {
+    const cols = Math.max(1, terminalColumns);
+    let lines = 0;
+    for (const line of item.text.split("\n")) {
+      lines += Math.max(1, Math.ceil(line.length / cols));
+    }
+    return lines;
   }
   return 1;
 }
@@ -751,10 +797,9 @@ function estimateItemHeight(item: FeedItem, terminalColumns: number): number {
 function calculateHeaderHeight(species: Species): number {
   const config = SPECIES_CONFIG[species];
   const artLength = config.art.length;
-  const leftLineCount = 3 + artLength + 3;
-  const rightLineCount = 11;
-  const maxLines = Math.max(leftLineCount, rightLineCount);
-  return maxLines + 5;
+  const leftLineCount = LEFT_HEADER_LINES + artLength + LEFT_FOOTER_LINES;
+  const maxLines = Math.max(leftLineCount, RIGHT_PANEL_LINE_COUNT);
+  return maxLines + HEADER_CHROME_LINES;
 }
 
 const SCROLL_STEP = 5;
@@ -763,9 +808,8 @@ export function render(runtimeUrl: string, assistantId: string, species: Species
   const config = SPECIES_CONFIG[species];
   const art = config.art;
 
-  const leftLineCount = 3 + art.length + 3;
-  const rightLineCount = 11;
-  const maxLines = Math.max(leftLineCount, rightLineCount);
+  const leftLineCount = LEFT_HEADER_LINES + art.length + LEFT_FOOTER_LINES;
+  const maxLines = Math.max(leftLineCount, RIGHT_PANEL_LINE_COUNT);
 
   const { unmount } = inkRender(
     <DefaultMainScreen runtimeUrl={runtimeUrl} assistantId={assistantId} species={species} />,
@@ -773,7 +817,7 @@ export function render(runtimeUrl: string, assistantId: string, species: Species
   );
   unmount();
 
-  const statusCanvasLine = rightLineCount + 1;
+  const statusCanvasLine = RIGHT_PANEL_LINE_COUNT + HEADER_TOP_BORDER_LINES;
   const statusCol = LEFT_PANEL_WIDTH + 1;
   checkHealth(runtimeUrl)
     .then((health) => {
@@ -784,7 +828,7 @@ export function render(runtimeUrl: string, assistantId: string, species: Species
     })
     .catch(() => {});
 
-  return 1 + maxLines + 4;
+  return maxLines + HEADER_CHROME_LINES;
 }
 
 interface SelectionWindowProps {
@@ -825,15 +869,14 @@ function SelectionWindow({
     },
   );
 
-  const windowWidth = 60;
-  const borderH = "\u2500".repeat(Math.max(0, windowWidth - title.length - 5));
+  const borderH = "\u2500".repeat(Math.max(0, DIALOG_WINDOW_WIDTH - title.length - DIALOG_TITLE_CHROME));
 
   return (
-    <Box flexDirection="column" width={windowWidth}>
+    <Box flexDirection="column" width={DIALOG_WINDOW_WIDTH}>
       <Text>{"\u250C\u2500 " + title + " " + borderH + "\u2510"}</Text>
       {options.map((option, i) => {
         const marker = i === selectedIndex ? "\u276F" : " ";
-        const padding = " ".repeat(Math.max(0, windowWidth - option.length - 6));
+        const padding = " ".repeat(Math.max(0, DIALOG_WINDOW_WIDTH - option.length - SELECTION_OPTION_CHROME));
         return (
           <Text key={i}>
             {"\u2502 "}
@@ -844,7 +887,7 @@ function SelectionWindow({
           </Text>
         );
       })}
-      <Text>{"\u2514" + "\u2500".repeat(windowWidth - 2) + "\u2518"}</Text>
+      <Text>{"\u2514" + "\u2500".repeat(DIALOG_WINDOW_WIDTH - DIALOG_BORDER_CORNERS) + "\u2518"}</Text>
       <Tooltip text="\u2191/\u2193 navigate  Enter select  Esc cancel" delay={1000} />
     </Box>
   );
@@ -888,15 +931,14 @@ function SecretInputWindow({
     },
   );
 
-  const windowWidth = 60;
-  const borderH = "\u2500".repeat(Math.max(0, windowWidth - label.length - 5));
+  const borderH = "\u2500".repeat(Math.max(0, DIALOG_WINDOW_WIDTH - label.length - DIALOG_TITLE_CHROME));
   const masked = "\u2022".repeat(value.length);
   const displayText = value.length > 0 ? masked : (placeholder ?? "Enter secret...");
   const displayColor = value.length > 0 ? undefined : "gray";
-  const contentPad = " ".repeat(Math.max(0, windowWidth - displayText.length - 4));
+  const contentPad = " ".repeat(Math.max(0, DIALOG_WINDOW_WIDTH - displayText.length - SECRET_CONTENT_CHROME));
 
   return (
-    <Box flexDirection="column" width={windowWidth}>
+    <Box flexDirection="column" width={DIALOG_WINDOW_WIDTH}>
       <Text>{"\u250C\u2500 " + label + " " + borderH + "\u2510"}</Text>
       <Text>
         {"\u2502 "}
@@ -904,7 +946,7 @@ function SecretInputWindow({
         {contentPad}
         {"\u2502"}
       </Text>
-      <Text>{"\u2514" + "\u2500".repeat(windowWidth - 2) + "\u2518"}</Text>
+      <Text>{"\u2514" + "\u2500".repeat(DIALOG_WINDOW_WIDTH - DIALOG_BORDER_CORNERS) + "\u2518"}</Text>
       <Tooltip text="Enter submit  Esc cancel" delay={1000} />
     </Box>
   );
@@ -985,20 +1027,18 @@ function ChatApp({
   const handleRef_ = useRef<ChatAppHandle | null>(null);
 
   const { stdout } = useStdout();
-  const terminalRows = stdout.rows || 24;
-  const terminalColumns = stdout.columns || 80;
+  const terminalRows = stdout.rows || DEFAULT_TERMINAL_ROWS;
+  const terminalColumns = stdout.columns || DEFAULT_TERMINAL_COLUMNS;
   const headerHeight = calculateHeaderHeight(species);
-  const tooltipBubbleHeight = 3;
-  const showTooltip = inputFocused && inputValue.length === 0;
-  const tooltipHeight = showTooltip ? tooltipBubbleHeight : 0;
+
   const bottomHeight = selection
-    ? selection.options.length + 3 + tooltipBubbleHeight
+    ? selection.options.length + SELECTION_CHROME_LINES + TOOLTIP_HEIGHT
     : secretInput
-      ? 5 + tooltipBubbleHeight
+      ? SECRET_INPUT_HEIGHT + TOOLTIP_HEIGHT
       : spinnerText
-        ? 4
-        : 3 + tooltipHeight;
-  const availableRows = Math.max(3, terminalRows - headerHeight - bottomHeight);
+        ? SPINNER_HEIGHT + INPUT_AREA_HEIGHT
+        : INPUT_AREA_HEIGHT;
+  const availableRows = Math.max(MIN_FEED_ROWS, terminalRows - headerHeight - bottomHeight);
 
   const addMessage = useCallback((msg: RuntimeMessage) => {
     setFeed((prev) => [...prev, msg]);
@@ -1823,12 +1863,6 @@ function ChatApp({
 
       {!selection && !secretInput ? (
         <Box flexDirection="column">
-          <Tooltip
-            text="Type a message or /help for commands"
-            visible={inputFocused && inputValue.length === 0}
-            position="above"
-            delay={1000}
-          />
           <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
           <Box paddingLeft={1}>
             <Text color="green" bold>
@@ -1843,6 +1877,7 @@ function ChatApp({
           />
           </Box>
           <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
+          <Text dimColor> ? for shortcuts</Text>
         </Box>
       ) : null}
     </Box>

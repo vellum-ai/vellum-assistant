@@ -130,7 +130,7 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
     }
 
     if (attachments && attachments.length > 0) {
-      const result = await sendWhatsAppAttachments(config, to, assistantId, attachments);
+      const result = await sendWhatsAppAttachments(config, to, attachments);
 
       if (result.allFailed && !textSent) {
         // Nothing was delivered at all -- signal failure so the caller can retry

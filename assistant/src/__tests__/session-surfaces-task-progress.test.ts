@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import type {
   CardSurfaceData,
+  DynamicPageSurfaceData,
   ServerMessage,
   SurfaceData,
   SurfaceType,
@@ -94,6 +95,48 @@ describe('task_progress surface compatibility', () => {
     expect(card.title).toBe('Ordering from DoorDash');
     expect(card.body).toBe('');
     expect((card.templateData as Record<string, unknown>).status).toBe('in_progress');
+  });
+
+  test('ui_show normalizes top-level dynamic_page fields into data', async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, 'ui_show', {
+      surface_type: 'dynamic_page',
+      title: 'My Slides',
+      html: '<h1>Hello</h1>',
+      preview: { title: 'Slides', subtitle: '3 slides about Apple' },
+    });
+
+    expect(result.isError).toBe(false);
+
+    const showMessage = sent.find((msg): msg is UiSurfaceShow => msg.type === 'ui_surface_show');
+    expect(showMessage).toBeDefined();
+    if (!showMessage || showMessage.surfaceType !== 'dynamic_page') return;
+
+    const page = showMessage.data as DynamicPageSurfaceData;
+    expect(page.html).toBe('<h1>Hello</h1>');
+    expect(page.preview).toEqual({ title: 'Slides', subtitle: '3 slides about Apple' });
+  });
+
+  test('ui_show dynamic_page uses data.html when properly nested', async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, 'ui_show', {
+      surface_type: 'dynamic_page',
+      title: 'My Slides',
+      data: { html: '<h1>Nested</h1>' },
+    });
+
+    expect(result.isError).toBe(false);
+
+    const showMessage = sent.find((msg): msg is UiSurfaceShow => msg.type === 'ui_surface_show');
+    expect(showMessage).toBeDefined();
+    if (!showMessage || showMessage.surfaceType !== 'dynamic_page') return;
+
+    const page = showMessage.data as DynamicPageSurfaceData;
+    expect(page.html).toBe('<h1>Nested</h1>');
   });
 
   test('ui_update normalizes top-level task_progress fields into templateData', async () => {

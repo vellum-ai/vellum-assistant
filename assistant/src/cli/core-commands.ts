@@ -107,8 +107,9 @@ export function registerDaemonCommand(program: Command): void {
 export function registerDevCommand(program: Command): void {
   program
     .command('dev')
-    .description('Run the daemon in dev mode with auto-restart on file changes')
-    .action(async () => {
+    .description('Run the daemon in dev mode')
+    .option('--watch', 'Auto-restart on source file changes (disruptive during Claude Code sessions)')
+    .action(async (opts: { watch?: boolean }) => {
       let status = await getDaemonStatus();
       if (status.running) {
         log.info('Stopping existing daemon...');
@@ -161,10 +162,12 @@ export function registerDevCommand(program: Command): void {
 
       const mainPath = `${import.meta.dirname}/../daemon/main.ts`;
 
-      log.info('Starting daemon in dev mode (Ctrl+C to stop)');
+      const useWatch = opts.watch === true;
+      log.info(`Starting daemon in dev mode${useWatch ? ' with file watching' : ''} (Ctrl+C to stop)`);
 
       const repoRoot = join(import.meta.dirname, '..', '..', '..');
-      const child = spawn('bun', ['--watch', 'run', mainPath], {
+      const args = useWatch ? ['--watch', 'run', mainPath] : ['run', mainPath];
+      const child = spawn('bun', args, {
         stdio: 'inherit',
         env: {
           ...process.env,

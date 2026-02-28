@@ -4,7 +4,7 @@
 import { timingSafeEqual } from 'node:crypto';
 
 import type { ChannelId } from '../../channels/types.js';
-import { normalizeAssistantId } from '../../util/platform.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
@@ -15,8 +15,8 @@ export type { ActorTrustClass, DenialReason, GuardianContext } from '../guardian
 export { toGuardianRuntimeContext } from '../guardian-context-resolver.js';
 
 /** Canonicalize assistantId for channel ingress paths. */
-export function canonicalChannelAssistantId(assistantId: string): string {
-  return normalizeAssistantId(assistantId);
+export function canonicalChannelAssistantId(_assistantId: string): string {
+  return DAEMON_INTERNAL_ASSISTANT_ID;
 }
 
 // ---------------------------------------------------------------------------

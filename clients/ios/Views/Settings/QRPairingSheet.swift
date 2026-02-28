@@ -18,6 +18,7 @@ struct QRPairingSheet: View {
     @State private var phase: PairingPhase = .scanning
     @State private var scannedPayload: DaemonQRPayloadV4?
     @State private var errorMessage: String?
+    @State private var failureReason: String?
     @State private var pollTimer: Timer?
     @State private var pairingTask: Task<Void, Never>?
 
@@ -200,6 +201,32 @@ struct QRPairingSheet: View {
                     .padding(.horizontal, VSpacing.xl)
             }
 
+            if let payload = scannedPayload {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Debug Info")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    Group {
+                        if let reason = failureReason {
+                            Text("Reason: \(reason)")
+                        }
+                        Text("Gateway: \(payload.gatewayURL)")
+                        Text("LAN: \(payload.localLanUrl ?? "none")")
+                        Text("Host ID: \(String(payload.hostId.prefix(12)))…")
+                        Text("Request ID: \(String(payload.pairingRequestId.prefix(8)))…")
+                    }
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(VColor.textSecondary)
+                }
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.vertical, VSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(.systemGray6))
+                )
+                .padding(.horizontal, VSpacing.xl)
+            }
+
             Spacer()
 
             VStack(spacing: VSpacing.md) {
@@ -207,6 +234,7 @@ struct QRPairingSheet: View {
                     phase = .scanning
                     scannedPayload = nil
                     errorMessage = nil
+                    failureReason = nil
                 }
                 .buttonStyle(.borderedProminent)
 
@@ -288,18 +316,21 @@ struct QRPairingSheet: View {
         }
 
         pairingTask = Task {
+            var lastFailureReason: String?
+
             // Try LAN first if available
             if let lanUrl = payload.localLanUrl,
                isAllowedLocalHttp(urlString: lanUrl, payload: payload) {
-                let result = await attemptPairingRequest(
+                let (json, reason) = await attemptPairingRequest(
                     baseURL: lanUrl,
                     jsonData: jsonData,
                     timeoutSeconds: 3
                 )
-                if let result = result {
-                    handlePairingResponse(result, payload: payload, effectiveBaseURL: lanUrl)
+                if let json = json {
+                    handlePairingResponse(json, payload: payload, effectiveBaseURL: lanUrl)
                     return
                 }
+                lastFailureReason = reason.map { "LAN: \($0)" }
                 // LAN failed — but if we were cancelled while waiting, stop here
                 // instead of falling through to the gateway path.
                 guard !Task.isCancelled else { return }
@@ -307,24 +338,29 @@ struct QRPairingSheet: View {
             }
 
             // Cloud gateway
-            let result = await attemptPairingRequest(
+            let (json, reason) = await attemptPairingRequest(
                 baseURL: payload.gatewayURL,
                 jsonData: jsonData,
                 timeoutSeconds: 15
             )
-            if let result = result {
-                handlePairingResponse(result, payload: payload, effectiveBaseURL: payload.gatewayURL)
+            if let json = json {
+                handlePairingResponse(json, payload: payload, effectiveBaseURL: payload.gatewayURL)
             } else if !Task.isCancelled {
+                let gatewayReason = reason.map { "Gateway: \($0)" }
+                let combinedReason = [lastFailureReason, gatewayReason].compactMap { $0 }.joined(separator: "\n")
                 await MainActor.run {
                     errorMessage = "Could not reach your Assistant. Make sure your Assistant is online and try again."
+                    failureReason = combinedReason.isEmpty ? nil : combinedReason
                     phase = .error
                 }
             }
         }
     }
 
-    private func attemptPairingRequest(baseURL: String, jsonData: Data, timeoutSeconds: TimeInterval) async -> [String: Any]? {
-        guard let url = URL(string: "\(baseURL)/pairing/request") else { return nil }
+    private func attemptPairingRequest(baseURL: String, jsonData: Data, timeoutSeconds: TimeInterval) async -> (json: [String: Any]?, failureReason: String?) {
+        guard let url = URL(string: "\(baseURL)/pairing/request") else {
+            return (nil, "Invalid URL: \(baseURL)/pairing/request")
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -334,14 +370,19 @@ struct QRPairingSheet: View {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200..<300).contains(httpResponse.statusCode),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return nil
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return (nil, "Non-HTTP response from \(baseURL)")
             }
-            return json
+            guard (200..<300).contains(httpResponse.statusCode) else {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                return (nil, "HTTP \(httpResponse.statusCode) from \(baseURL): \(body)")
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return (nil, "Invalid JSON response from \(baseURL)")
+            }
+            return (json, nil)
         } catch {
-            return nil
+            return (nil, "\(error.localizedDescription)")
         }
     }
 
@@ -496,7 +537,8 @@ struct QRPairingSheet: View {
                 }
             } catch {
                 await MainActor.run {
-                    errorMessage = "Couldn't connect: \(error.localizedDescription)"
+                    errorMessage = "Couldn't connect to your Assistant."
+                    failureReason = error.localizedDescription
                     phase = .error
                 }
             }

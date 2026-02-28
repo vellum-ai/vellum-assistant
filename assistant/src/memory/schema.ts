@@ -1,5 +1,7 @@
 import { blob, index,integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
+
 export const conversations = sqliteTable('conversations', {
   id: text('id').primaryKey(),
   title: text('title'),
@@ -683,7 +685,7 @@ export const channelGuardianApprovalRequests = sqliteTable('channel_guardian_app
   runId: text('run_id').notNull(),
   requestId: text('request_id'),
   conversationId: text('conversation_id').notNull(),
-  assistantId: text('assistant_id').notNull().default('self'),
+  assistantId: text('assistant_id').notNull().default(DAEMON_INTERNAL_ASSISTANT_ID),
   channel: text('channel').notNull(),
   requesterExternalUserId: text('requester_external_user_id').notNull(),
   requesterChatId: text('requester_chat_id').notNull(),
@@ -819,7 +821,7 @@ export const mediaEventFeedback = sqliteTable('media_event_feedback', {
 
 export const guardianActionRequests = sqliteTable('guardian_action_requests', {
   id: text('id').primaryKey(),
-  assistantId: text('assistant_id').notNull().default('self'),
+  assistantId: text('assistant_id').notNull().default(DAEMON_INTERNAL_ASSISTANT_ID),
   kind: text('kind').notNull(),                                  // 'ask_guardian'
   sourceChannel: text('source_channel').notNull(),               // 'voice'
   sourceConversationId: text('source_conversation_id').notNull(),
@@ -930,7 +932,7 @@ export const canonicalGuardianDeliveries = sqliteTable('canonical_guardian_deliv
 
 export const assistantIngressInvites = sqliteTable('assistant_ingress_invites', {
   id: text('id').primaryKey(),
-  assistantId: text('assistant_id').notNull().default('self'),
+  assistantId: text('assistant_id').notNull().default(DAEMON_INTERNAL_ASSISTANT_ID),
   sourceChannel: text('source_channel').notNull(),
   tokenHash: text('token_hash').notNull(),
   createdBySessionId: text('created_by_session_id'),
@@ -946,13 +948,16 @@ export const assistantIngressInvites = sqliteTable('assistant_ingress_invites', 
   expectedExternalUserId: text('expected_external_user_id'),
   voiceCodeHash: text('voice_code_hash'),
   voiceCodeDigits: integer('voice_code_digits'),
+  // Display metadata for personalized voice prompts (nullable — non-voice invites leave these NULL)
+  friendName: text('friend_name'),
+  guardianName: text('guardian_name'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
 
 export const assistantIngressMembers = sqliteTable('assistant_ingress_members', {
   id: text('id').primaryKey(),
-  assistantId: text('assistant_id').notNull().default('self'),
+  assistantId: text('assistant_id').notNull().default(DAEMON_INTERNAL_ASSISTANT_ID),
   sourceChannel: text('source_channel').notNull(),
   externalUserId: text('external_user_id'),
   externalChatId: text('external_chat_id'),
@@ -974,7 +979,7 @@ export const assistantInboxThreadState = sqliteTable('assistant_inbox_thread_sta
   conversationId: text('conversation_id')
     .primaryKey()
     .references(() => conversations.id, { onDelete: 'cascade' }),
-  assistantId: text('assistant_id').notNull().default('self'),
+  assistantId: text('assistant_id').notNull().default(DAEMON_INTERNAL_ASSISTANT_ID),
   sourceChannel: text('source_channel').notNull(),
   externalChatId: text('external_chat_id').notNull(),
   externalUserId: text('external_user_id'),

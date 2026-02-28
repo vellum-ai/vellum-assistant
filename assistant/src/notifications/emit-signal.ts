@@ -12,6 +12,7 @@
 import { v4 as uuid } from 'uuid';
 
 import { getDeliverableChannels } from '../channels/config.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import { getLogger } from '../util/logger.js';
 import { type BroadcastFn, VellumAdapter } from './adapters/macos.js';
@@ -170,7 +171,7 @@ export interface EmitSignalResult {
  */
 export async function emitNotificationSignal(params: EmitSignalParams): Promise<EmitSignalResult> {
   const signalId = uuid();
-  const assistantId = params.assistantId ?? 'self';
+  const assistantId = params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
   const signal: NotificationSignal = {
     signalId,

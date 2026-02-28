@@ -14,13 +14,23 @@ success() { printf "${GREEN}${BOLD}==>${RESET} ${BOLD}%s${RESET}\n" "$1"; }
 error() { printf "${RED}error:${RESET} %s\n" "$1" >&2; }
 
 ensure_git() {
-    if command -v git >/dev/null 2>&1; then
+    # On macOS, /usr/bin/git is a shim that triggers an "Install Command Line
+    # Developer Tools" popup instead of running git. Check that git actually
+    # works, not just that the binary exists.
+    if command -v git >/dev/null 2>&1 && git --version >/dev/null 2>&1; then
         success "git already installed ($(git --version))"
         return
     fi
 
     info "Installing git..."
-    if command -v apt-get >/dev/null 2>&1; then
+    if [ "$(uname -s)" = "Darwin" ]; then
+        if command -v brew >/dev/null 2>&1; then
+            brew install git
+        else
+            error "git is required. Install Homebrew (https://brew.sh) then run: brew install git"
+            exit 1
+        fi
+    elif command -v apt-get >/dev/null 2>&1; then
         sudo apt-get update -qq && sudo apt-get install -y -qq git
     elif command -v yum >/dev/null 2>&1; then
         sudo yum install -y git
@@ -31,7 +41,11 @@ ensure_git() {
         exit 1
     fi
 
-    if ! command -v git >/dev/null 2>&1; then
+    # Clear bash's command hash so it finds the newly installed git binary
+    # instead of the cached path to the macOS /usr/bin/git shim.
+    hash -r 2>/dev/null || true
+
+    if ! git --version >/dev/null 2>&1; then
         error "git installation failed. Please install manually."
         exit 1
     fi

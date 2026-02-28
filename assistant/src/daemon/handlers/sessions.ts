@@ -3,6 +3,7 @@ import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
 
 import { createAssistantMessage, createUserMessage } from '../../agent/message-types.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
 import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbnail } from '../../memory/attachments-store.js';
@@ -271,7 +272,7 @@ export async function handleUserMessage(
         userMessageInterface: ipcInterface,
         assistantMessageInterface: ipcInterface,
       });
-      session.setAssistantId('self');
+      session.setAssistantId(DAEMON_INTERNAL_ASSISTANT_ID);
       // IPC/desktop user IS the guardian — default to guardian trust so
       // messages are not tagged as unknown provenance.
       session.setGuardianContext({ trustClass: 'guardian', sourceChannel: ipcChannel });
@@ -1154,7 +1155,15 @@ export function handleHistoryRequest(
           surfaceId: s.surfaceId,
           surfaceType: s.surfaceType,
           title: s.title,
-          data: {} as Record<string, unknown>,
+          data: {
+            ...(s.surfaceType === 'dynamic_page'
+              ? {
+                  ...(s.data.preview ? { preview: s.data.preview } : {}),
+                  ...(s.data.appId ? { appId: s.data.appId } : {}),
+                  ...(s.data.appType ? { appType: s.data.appType } : {}),
+                }
+              : {}),
+          } as Record<string, unknown>,
           ...(s.actions ? { actions: s.actions } : {}),
           ...(s.display ? { display: s.display } : {}),
         })))

@@ -39,6 +39,7 @@ import * as externalConversationStore from '../memory/external-conversation-stor
 import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
 import { getLogger } from '../util/logger.js';
 import { buildAssistantEvent } from './assistant-event.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { assistantEventHub } from './assistant-event-hub.js';
 import { sweepFailedEvents } from './channel-retry-sweep.js';
 import { httpError } from './http-errors.js';
@@ -97,7 +98,6 @@ import {
   startCanonicalGuardianExpirySweep,
   stopCanonicalGuardianExpirySweep,
 } from './routes/canonical-guardian-expiry-sweep.js';
-import { canonicalChannelAssistantId } from './routes/channel-route-shared.js';
 import {
   handleChannelDeliveryAck,
   handleChannelInbound,
@@ -271,7 +271,7 @@ export class RuntimeHttpServer {
             ipcBroadcast(msg);
             // Also publish to the event hub so HTTP/SSE clients (e.g. macOS
             // app with localHttpEnabled) receive pairing approval requests.
-            void assistantEventHub.publish(buildAssistantEvent('self', msg));
+            void assistantEventHub.publish(buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg));
           }
         : undefined,
     };
@@ -522,22 +522,13 @@ export class RuntimeHttpServer {
       }
     }
 
-    // New assistant-less runtime routes: /v1/<endpoint>
-    const newRouteMatch = path.match(/^\/v1\/(?!assistants\/)(.+)$/);
-    if (newRouteMatch) {
-      return this.dispatchEndpoint(newRouteMatch[1], req, url);
+    // Runtime routes: /v1/<endpoint>
+    const routeMatch = path.match(/^\/v1\/(.+)$/);
+    if (routeMatch) {
+      return this.dispatchEndpoint(routeMatch[1], req, url);
     }
 
-    // Legacy: /v1/assistants/:assistantId/<endpoint>
-    const match = path.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/);
-    if (!match) {
-      return httpError('NOT_FOUND', 'Not found', 404);
-    }
-
-    const assistantId = canonicalChannelAssistantId(match[1]);
-    const endpoint = match[2];
-    log.warn({ endpoint, assistantId }, '[deprecated] /v1/assistants/:assistantId/... route used; migrate to /v1/...');
-    return this.dispatchEndpoint(endpoint, req, url, assistantId);
+    return httpError('NOT_FOUND', 'Not found', 404);
   }
 
   private handleBrowserRelayUpgrade(req: Request, server: ReturnType<typeof Bun.serve>): Response {
@@ -617,8 +608,8 @@ export class RuntimeHttpServer {
     endpoint: string,
     req: Request,
     url: URL,
-    assistantId: string = 'self',
   ): Promise<Response> {
+    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     return withErrorHandling(endpoint, async () => {
       if (endpoint === 'health' && req.method === 'GET') return handleHealth();
       if (endpoint === 'debug' && req.method === 'GET') return handleDebug();
@@ -691,7 +682,7 @@ export class RuntimeHttpServer {
         try {
           recordConversationSeenSignal({
             conversationId,
-            assistantId: 'self',
+            assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
             sourceChannel: (body.sourceChannel as string) ?? 'vellum',
             signalType: (body.signalType as string ?? 'macos_conversation_opened') as SignalType,
             confidence: (body.confidence as string ?? 'explicit') as Confidence,
@@ -817,11 +808,11 @@ export class RuntimeHttpServer {
 
       // Internal Twilio forwarding endpoints (gateway -> runtime)
       if (endpoint === 'internal/twilio/voice-webhook' && req.method === 'POST') {
-        const json = await req.json() as { params: Record<string, string>; originalUrl?: string; assistantId?: string };
+        const json = await req.json() as { params: Record<string, string>; originalUrl?: string };
         const formBody = new URLSearchParams(json.params).toString();
         const reconstructedUrl = json.originalUrl ?? req.url;
         const fakeReq = new Request(reconstructedUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formBody });
-        return await handleVoiceWebhook(fakeReq, json.assistantId);
+        return await handleVoiceWebhook(fakeReq);
       }
 
       if (endpoint === 'internal/twilio/status' && req.method === 'POST') {

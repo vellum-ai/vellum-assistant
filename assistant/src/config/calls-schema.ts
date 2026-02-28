@@ -125,6 +125,18 @@ export const CallsConfigSchema = z.object({
     .positive('calls.userConsultTimeoutSeconds must be a positive integer')
     .max(2_147_483, 'calls.userConsultTimeoutSeconds must be at most 2147483 (setTimeout-safe limit)')
     .default(120),
+  ttsPlaybackDelayMs: z
+    .number({ error: 'calls.ttsPlaybackDelayMs must be a number' })
+    .int('calls.ttsPlaybackDelayMs must be an integer')
+    .min(0, 'calls.ttsPlaybackDelayMs must be >= 0')
+    .max(10_000, 'calls.ttsPlaybackDelayMs must be at most 10000')
+    .default(3000),
+  accessRequestPollIntervalMs: z
+    .number({ error: 'calls.accessRequestPollIntervalMs must be a number' })
+    .int('calls.accessRequestPollIntervalMs must be an integer')
+    .min(50, 'calls.accessRequestPollIntervalMs must be >= 50')
+    .max(10_000, 'calls.accessRequestPollIntervalMs must be at most 10000')
+    .default(500),
   disclosure: CallsDisclosureConfigSchema.default(CallsDisclosureConfigSchema.parse({})),
   safety: CallsSafetyConfigSchema.default(CallsSafetyConfigSchema.parse({})),
   voice: CallsVoiceConfigSchema.default(CallsVoiceConfigSchema.parse({})),

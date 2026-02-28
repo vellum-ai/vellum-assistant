@@ -124,7 +124,7 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       }
 
       if (attachments && attachments.length > 0) {
-        await sendTelegramAttachments(config, chatId, assistantId, attachments);
+        await sendTelegramAttachments(config, chatId, attachments);
       }
     } catch (err) {
       tlog.error({ err, chatId }, "Failed to deliver Telegram reply");

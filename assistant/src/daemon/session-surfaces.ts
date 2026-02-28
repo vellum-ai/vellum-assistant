@@ -25,6 +25,32 @@ const log = getLogger('session-surfaces');
 const MAX_UNDO_DEPTH = 10;
 const TASK_PROGRESS_TEMPLATE_FIELDS = ['title', 'status', 'steps'] as const;
 
+/**
+ * Migrate dynamic_page fields from the top-level tool input into `data`.
+ *
+ * The LLM sometimes sends `html`, `width`, `height`, or `preview` at the
+ * top level instead of nested inside `data`. Without this normalization the
+ * surface opens blank because `rawData` is `{}`.
+ */
+function normalizeDynamicPageShowData(input: Record<string, unknown>, rawData: Record<string, unknown>): DynamicPageSurfaceData {
+  const normalized: Record<string, unknown> = { ...rawData };
+
+  if (typeof normalized.html !== 'string' && typeof input.html === 'string') {
+    normalized.html = input.html;
+  }
+  if (normalized.width == null && input.width != null) {
+    normalized.width = input.width;
+  }
+  if (normalized.height == null && input.height != null) {
+    normalized.height = input.height;
+  }
+  if (!isPlainObject(normalized.preview) && isPlainObject(input.preview)) {
+    normalized.preview = input.preview;
+  }
+
+  return normalized as unknown as DynamicPageSurfaceData;
+}
+
 function normalizeCardShowData(input: Record<string, unknown>, rawData: Record<string, unknown>): CardSurfaceData {
   const normalized: Record<string, unknown> = { ...rawData };
 
@@ -592,7 +618,9 @@ export async function surfaceProxyResolver(
     const rawData = isPlainObject(input.data) ? input.data : {};
     const data = (surfaceType === 'card'
       ? normalizeCardShowData(input, rawData)
-      : rawData) as SurfaceData;
+      : surfaceType === 'dynamic_page'
+        ? normalizeDynamicPageShowData(input, rawData)
+        : rawData) as SurfaceData;
     const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
     // Interactive surfaces default to awaiting user action.
     const hasActions = Array.isArray(actions) && actions.length > 0;
