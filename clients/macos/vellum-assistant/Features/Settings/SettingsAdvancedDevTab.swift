@@ -155,7 +155,7 @@ struct SettingsAdvancedDevTab: View {
                 .accessibilityLabel(flag.displayName)
         }
         .contentShape(Rectangle())
-        .onTapGesture { flagBinding.wrappedValue.toggle() }
+        .onTapGesture { withAnimation { flagBinding.wrappedValue.toggle() } }
     }
 
     private func macOSFlagRow(index: Int, entry: MacOSFeatureFlagState) -> some View {
@@ -182,7 +182,7 @@ struct SettingsAdvancedDevTab: View {
                 .accessibilityLabel(entry.label)
         }
         .contentShape(Rectangle())
-        .onTapGesture { flagBinding.wrappedValue.toggle() }
+        .onTapGesture { withAnimation { flagBinding.wrappedValue.toggle() } }
     }
 
     // MARK: - macOS Feature Flags
