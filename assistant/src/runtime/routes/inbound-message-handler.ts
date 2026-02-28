@@ -914,7 +914,7 @@ export async function handleChannelInbound(
       messageText: trimmedContent,
       channel: sourceChannel,
       actor: {
-        externalUserId: rawSenderId!,
+        externalUserId: canonicalSenderId ?? rawSenderId!,
         channel: sourceChannel,
         isTrusted: false,
       },
@@ -965,7 +965,7 @@ export async function handleChannelInbound(
       content: trimmedContent,
       externalChatId,
       sourceChannel,
-      senderExternalUserId: rawSenderId,
+      senderExternalUserId: canonicalSenderId ?? rawSenderId,
       replyCallbackUrl,
       bearerToken,
       guardianCtx,

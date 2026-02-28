@@ -77,7 +77,7 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     const hasUpdatedAt = !!raw.query(
       `SELECT 1 FROM pragma_table_info(?) WHERE name = 'updated_at'`,
     ).get(table);
-    const orderBy = hasUpdatedAt ? 'updated_at DESC' : 'rowid DESC';
+    const orderBy = hasUpdatedAt ? 'updated_at DESC, rowid DESC' : 'rowid DESC';
 
     const selectColumns = [`id`, column];
     if (uniqueKeyScope) {
@@ -148,7 +148,7 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     const hasUpdatedAt = !!raw.query(
       `SELECT 1 FROM pragma_table_info(?) WHERE name = 'updated_at'`,
     ).get(table);
-    const orderBy = hasUpdatedAt ? 'updated_at DESC' : 'rowid DESC';
+    const orderBy = hasUpdatedAt ? 'updated_at DESC, rowid DESC' : 'rowid DESC';
 
     const selectColumns = [`id`, column];
     if (uniqueKeyScope) {

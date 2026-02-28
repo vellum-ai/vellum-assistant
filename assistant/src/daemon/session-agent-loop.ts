@@ -55,10 +55,12 @@ import { raceWithTimeout,stripMediaPayloadsForRetry } from './session-media-retr
 import { prepareMemoryContext } from './session-memory.js';
 import type { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
-import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, GuardianRuntimeContext,InterfaceTurnContextParams } from './session-runtime-assembly.js';
+import { resolveActorTrust } from '../runtime/actor-trust-resolver.js';
+import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, GuardianRuntimeContext, InboundActorContext, InterfaceTurnContextParams } from './session-runtime-assembly.js';
 import {
   applyRuntimeInjections,
   inboundActorContextFromGuardian,
+  inboundActorContextFromTrust,
   stripInjectedContext,
 } from './session-runtime-assembly.js';
 import type { SkillProjectionCache } from './session-skill-tools.js';
@@ -103,6 +105,7 @@ export interface AgentLoopSessionContext {
   channelCapabilities?: ChannelCapabilities;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   guardianContext?: GuardianRuntimeContext;
+  assistantId?: string;
   voiceCallControlPrompt?: string;
 
   readonly coreToolNames: Set<string>;
@@ -350,6 +353,28 @@ export async function runAgentLoopImpl(
       conversationOriginInterface: getConversationOriginInterface(ctx.conversationId),
     };
 
+    // Resolve the inbound actor context for the model's <inbound_actor_context>
+    // block. When the session carries enough identity info, use the unified
+    // actor trust resolver so trusted_contact classifications propagate
+    // correctly (the legacy guardian-context path collapses non-guardian to
+    // 'unknown'). The guardian context is still used for policy gating — only
+    // the model context block uses the trust-resolved output.
+    let resolvedInboundActorContext: InboundActorContext | null = null;
+    if (ctx.guardianContext) {
+      const gc = ctx.guardianContext;
+      if (gc.requesterExternalUserId && gc.requesterChatId) {
+        const actorTrust = resolveActorTrust({
+          assistantId: ctx.assistantId ?? 'self',
+          sourceChannel: gc.sourceChannel,
+          externalChatId: gc.requesterChatId,
+          senderExternalUserId: gc.requesterExternalUserId,
+        });
+        resolvedInboundActorContext = inboundActorContextFromTrust(actorTrust);
+      } else {
+        resolvedInboundActorContext = inboundActorContextFromGuardian(gc);
+      }
+    }
+
     const isInteractiveResolved = options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
     runMessages = applyRuntimeInjections(runMessages, {
       softConflictInstruction,
@@ -359,7 +384,7 @@ export async function runAgentLoopImpl(
       channelCommandContext: ctx.commandIntent ?? null,
       channelTurnContext,
       interfaceTurnContext,
-      inboundActorContext: ctx.guardianContext ? inboundActorContextFromGuardian(ctx.guardianContext) : null,
+      inboundActorContext: resolvedInboundActorContext,
       temporalContext,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       isNonInteractive: !isInteractiveResolved,
@@ -478,7 +503,7 @@ export async function runAgentLoopImpl(
           channelCommandContext: ctx.commandIntent ?? null,
           channelTurnContext,
           interfaceTurnContext,
-          inboundActorContext: ctx.guardianContext ? inboundActorContextFromGuardian(ctx.guardianContext) : null,
+          inboundActorContext: resolvedInboundActorContext,
           temporalContext,
           voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
           isNonInteractive: !isInteractiveResolved,
@@ -516,7 +541,7 @@ export async function runAgentLoopImpl(
             channelCommandContext: ctx.commandIntent ?? null,
             channelTurnContext,
             interfaceTurnContext,
-            inboundActorContext: ctx.guardianContext ? inboundActorContextFromGuardian(ctx.guardianContext) : null,
+            inboundActorContext: resolvedInboundActorContext,
             temporalContext,
             voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
             isNonInteractive: !isInteractiveResolved,

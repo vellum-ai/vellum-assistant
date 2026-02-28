@@ -61,8 +61,11 @@ export function resolveGuardianContext(input: ResolveGuardianContextInput): Guar
     : undefined;
 
   // Canonicalize sender identity for normalization-safe comparisons.
+  // canonicalizeInboundIdentity returns string | null; coerce to
+  // string | undefined so assignments to optional (string | undefined)
+  // fields in GuardianContext don't produce a type mismatch.
   const canonicalSenderId = rawUserId
-    ? canonicalizeInboundIdentity(input.sourceChannel, rawUserId)
+    ? (canonicalizeInboundIdentity(input.sourceChannel, rawUserId) ?? undefined)
     : undefined;
 
   const requesterIdentifier = senderUsername ? `@${senderUsername}` : canonicalSenderId;
@@ -93,7 +96,7 @@ export function resolveGuardianContext(input: ResolveGuardianContextInput): Guar
   const canonicalGuardianId = canonicalizeInboundIdentity(
     input.sourceChannel,
     binding.guardianExternalUserId,
-  );
+  ) ?? undefined;
 
   if (canonicalGuardianId === canonicalSenderId) {
     return {
