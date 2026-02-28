@@ -827,6 +827,7 @@ jobs:
         working-directory: gateway
 
   ci-playwright:
+    needs: [bump-and-tag, build-macos]
     runs-on: macos-14
     timeout-minutes: 60
     permissions:
@@ -838,9 +839,49 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Download DMG artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: /tmp/macos-artifacts
+
+      - name: Remove all source files except playwright
+        run: |
+          # Move playwright directory to a safe location
+          mv playwright /tmp/playwright-tests
+
+          # Remove everything in the repo except .git
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+
+          # Restore only the playwright directory
+          mv /tmp/playwright-tests playwright
+
+      - name: Install app from DMG
+        run: |
+          DMG_PATH=$(find /tmp/macos-artifacts -name "*.dmg" -type f | head -1)
+          echo "Found DMG at: $DMG_PATH"
+
+          MOUNT_DIR=$(hdiutil attach "$DMG_PATH" -nobrowse | tail -1 | awk '{print $NF}')
+          echo "Mounted at: $MOUNT_DIR"
+
+          # Copy the .app to the expected location for tests
+          mkdir -p clients/macos/dist
+          cp -R "$MOUNT_DIR/${APP_DISPLAY_NAME}.app" "clients/macos/dist/${APP_DISPLAY_NAME}.app"
+          echo "App installed at: clients/macos/dist/${APP_DISPLAY_NAME}.app"
+
+          hdiutil detach "$MOUNT_DIR"
+          rm -rf /tmp/macos-artifacts
+
+      - name: Verify no source files present
+        run: |
+          echo "=== Repository contents ==="
+          ls -la
+          echo ""
+          echo "Only playwright/ and clients/macos/dist/ (from DMG) should exist:"
+          find . -mindepth 1 -maxdepth 2 ! -path './.git*' ! -path './playwright*' ! -path './clients*' | head -20 || true
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -858,31 +899,10 @@ jobs:
       - name: Set Anthropic API key in env
         run: echo "ANTHROPIC_API_KEY=${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}" >> "$GITHUB_ENV"
 
-      - name: Cache SPM build artifacts
-        uses: actions/cache@v4
-        with:
-          path: clients/.build
-          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
-          restore-keys: |
-            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
-            macos-spm-
-
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-
-      - name: Build binaries
-        working-directory: clients/macos
-        run: ./build.sh binaries
-
-      - name: Build macOS app
-        working-directory: clients/macos
-        run: |
-          SKIP_CLEAN=1 \
-          BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
-          SIGN_IDENTITY="-" \
-          ./build.sh build
 
       - name: Install Playwright dependencies
         working-directory: playwright
