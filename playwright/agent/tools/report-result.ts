@@ -21,10 +21,15 @@ export const definition: Anthropic.Tool = {
       message: {
         type: "string",
         description:
-          "Explanation of why the test passed or failed, including any relevant details",
+          "A short summary of the test outcome (e.g. 'All steps completed successfully' or 'Button not found').",
+      },
+      reasoning: {
+        type: "string",
+        description:
+          "Detailed step-by-step reasoning for why the test passed or failed. Include what you observed at each step, what you expected to see, and where things diverged if the test failed.",
       },
     },
-    required: ["passed", "message"],
+    required: ["passed", "message", "reasoning"],
   },
 };
 
@@ -38,6 +43,7 @@ export async function execute(
     testResult: {
       passed: input.passed as boolean,
       message: input.message as string,
+      reasoning: input.reasoning as string,
     },
   };
 }

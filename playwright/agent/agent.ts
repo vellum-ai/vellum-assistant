@@ -102,6 +102,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
       return {
         passed: false,
         message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+        reasoning: `The agent did not complete within the ${MAX_TEST_DURATION_MS / 1000}s time limit. The test was aborted before the agent could call report_result.`,
       };
     }
 
@@ -133,6 +134,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
           return {
             passed: false,
             message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+            reasoning: `The agent timed out during an API call on iteration ${iteration + 1}. The test was aborted before completion.`,
           };
         }
         const isRetryable =
@@ -166,9 +168,14 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
 
     // If the model stopped without tool use, the test didn't report a result
     if (response.stop_reason !== "tool_use") {
+      const lastText = assistantContent
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join("\n");
       return {
         passed: false,
         message: "Agent stopped without reporting a test result (no report_result call).",
+        reasoning: lastText || "The model produced no text before stopping.",
       };
     }
 
@@ -183,6 +190,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
         return {
           passed: false,
           message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+          reasoning: `The agent timed out while processing tool call '${block.name}' on iteration ${iteration + 1}.`,
         };
       }
 
@@ -225,5 +233,6 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
   return {
     passed: false,
     message: `Agent exceeded maximum iterations (${MAX_ITERATIONS}) without reporting a result.`,
+    reasoning: `The agent ran for ${MAX_ITERATIONS} iterations without calling report_result. This likely indicates an infinite loop or the agent getting stuck.`,
   };
 }

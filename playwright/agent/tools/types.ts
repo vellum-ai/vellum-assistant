@@ -13,6 +13,7 @@ export interface ToolResult {
 export interface TestResult {
   passed: boolean;
   message: string;
+  reasoning: string;
 }
 
 export interface ToolContext {

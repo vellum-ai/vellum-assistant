@@ -36,6 +36,7 @@ interface TestCaseResult {
   name: string;
   passed: boolean;
   message: string;
+  reasoning: string;
   durationMs: number;
 }
 
@@ -177,6 +178,7 @@ async function runTestCase(
       name: testCase.name,
       passed: result.passed,
       message: result.message,
+      reasoning: result.reasoning,
       durationMs: Date.now() - startTime,
     };
   } catch (error) {
@@ -185,6 +187,7 @@ async function runTestCase(
       name: testCase.name,
       passed: false,
       message: `Runner error: ${message}`,
+      reasoning: "An unexpected error occurred in the runner before the agent could report a result.",
       durationMs: Date.now() - startTime,
     };
   } finally {
@@ -232,6 +235,9 @@ async function main(): Promise<void> {
       console.log(`  ${icon} ${result.name} (${duration}s)`);
       if (!result.passed) {
         console.log(`    ${result.message}`);
+        if (result.reasoning) {
+          console.log(`    Reasoning: ${result.reasoning}`);
+        }
       }
       console.log();
     }
@@ -260,6 +266,7 @@ async function main(): Promise<void> {
       name: r.name,
       passed: r.passed,
       message: r.message,
+      reasoning: r.reasoning,
       durationMs: r.durationMs,
       duration: formatDuration(r.durationMs),
     })),

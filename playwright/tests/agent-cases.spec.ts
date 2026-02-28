@@ -149,11 +149,20 @@ for (const file of caseFiles) {
         // video file may not exist or be empty
       }
 
+      // Attach the agent's reasoning to the Playwright report
+      if (result.reasoning) {
+        await testInfo.attach("agent-reasoning", {
+          body: result.reasoning,
+          contentType: "text/plain",
+        });
+      }
+
       // Assert the agent's test result
-      expect(
-        result.passed,
+      const failureDetails = [
         `Agent test failed: ${result.message}`,
-      ).toBe(true);
+        result.reasoning ? `\nReasoning:\n${result.reasoning}` : "",
+      ].join("");
+      expect(result.passed, failureDetails).toBe(true);
     } finally {
       await stopScreenRecording(recorder);
       if (fixtureCtx) await fixtureCtx.teardown().catch(() => {});
