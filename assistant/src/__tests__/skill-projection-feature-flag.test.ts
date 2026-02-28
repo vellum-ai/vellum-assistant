@@ -41,8 +41,17 @@ mock.module('../config/loader.js', () => ({
 }));
 
 mock.module('../config/assistant-feature-flags.js', () => ({
-  isAssistantFeatureFlagEnabled: () => true,
+  isAssistantFeatureFlagEnabled: (key: string, config: Record<string, unknown>) => {
+    const vals = (config as { assistantFeatureFlagValues?: Record<string, boolean> }).assistantFeatureFlagValues;
+    if (vals && typeof vals[key] === 'boolean') return vals[key];
+    // Check legacy featureFlags too
+    const legacy = (config as { featureFlags?: Record<string, boolean> }).featureFlags;
+    if (legacy && typeof legacy[key] === 'boolean') return legacy[key];
+    return true; // default enabled
+  },
   loadDefaultsRegistry: () => ({}),
+  getAssistantFeatureFlagDefaults: () => ({}),
+  _resetDefaultsCache: () => {},
 }));
 
 mock.module('../config/skill-state.js', () => ({

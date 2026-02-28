@@ -44,7 +44,7 @@ describe('AgentLoop thinking budget clamping', () => {
     const config = lastConfig()!;
     const thinking = config.thinking as { type: string; budget_tokens: number };
     expect(thinking.type).toBe('enabled');
-    expect(thinking.budget_tokens).toBe(4095); // clamped to maxTokens - 1
+    expect(thinking.budget_tokens).toBe(3072); // clamped to floor(maxTokens * 0.75)
   });
 
   test('does not clamp when budget_tokens is within max_tokens', async () => {

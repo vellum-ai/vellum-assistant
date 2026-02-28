@@ -125,9 +125,18 @@ describe('Invariant 1: secrets never enter LLM context', () => {
   test('user message containing secret is blocked from entering history', () => {
     // Mock config to enable block mode
     mock.module('../config/loader.js', () => ({
+      applyNestedDefaults: (config: unknown) => config,
       getConfig: () => ({
-    ui: {},
-    
+        ui: {},
+        secretDetection: {
+          enabled: true,
+          action: 'block',
+          blockIngress: true,
+        },
+      }),
+      invalidateConfigCache: () => {},
+      loadConfig: () => ({
+        ui: {},
         secretDetection: {
           enabled: true,
           action: 'block',
