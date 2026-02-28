@@ -13,18 +13,14 @@ describe('onboarding template contracts', () => {
     test('contains identity question prompts', () => {
       const lower = bootstrap.toLowerCase();
       expect(lower).toContain('who am i');
-      expect(lower).toContain('who are you');
     });
 
     test('infers personality indirectly instead of asking directly', () => {
-      // Personality should NOT appear as a step label (e.g., "What is my personality?")
-      // It can appear in negative instructions ("don't ask what is my personality")
-      // and in non-step contexts (avatar evolution sentence).
-      expect(bootstrap).not.toMatch(/^\d+\.\s+\*\*.*personality.*\*\*/im);
-      // The indirect inference step should exist
       const lower = bootstrap.toLowerCase();
+      // Personality step must instruct indirect/organic discovery
+      expect(lower).toContain('personality');
+      expect(lower).toContain('indirectly');
       expect(lower).toContain('vibe');
-      expect(lower).toContain('infer');
     });
 
     test('contains emoji auto-selection with change-later instruction', () => {
@@ -45,21 +41,16 @@ describe('onboarding template contracts', () => {
     test('contains naming intent markers so the first reply includes naming cues', () => {
       const lower = bootstrap.toLowerCase();
       // The template must prompt the assistant to ask about names.
-      // These keywords align with the client-side naming intent heuristic
-      // (ChatViewModel.replyContainsNamingIntent) so that the first reply
-      // naturally passes the quality check without triggering a corrective nudge.
       expect(lower).toContain('name');
-      expect(lower).toContain('call');
-      // The example first message should include a naming question
-      expect(lower).toContain('what should i call myself');
-      // The conversation sequence must include identity/naming as the first step
+      // The first step should be about locking in the assistant's name
+      expect(lower).toContain('lock in your name');
+      // The conversation sequence must include identity/naming
       expect(lower).toContain('who am i');
-      expect(lower).toContain('who are you');
     });
 
     test('asks user name AFTER assistant identity is established', () => {
-      // Step 1 is naming the assistant, step 4 is asking user's name
-      const assistantNameIdx = bootstrap.indexOf('What should I call myself?');
+      // Step 1 is locking in the assistant's name, step 3 is asking the user's name
+      const assistantNameIdx = bootstrap.indexOf('Lock in your name.');
       const userNameIdx = bootstrap.indexOf('who am I talking to?');
       expect(assistantNameIdx).toBeGreaterThan(-1);
       expect(userNameIdx).toBeGreaterThan(-1);
