@@ -77,9 +77,9 @@ public struct VDropdown<T: Hashable>: View {
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
+            .accessibilityLabel(selectedLabel ?? placeholder)
         }
         .frame(maxWidth: .infinity)
-        .accessibilityLabel(selectedLabel ?? placeholder)
     }
 }
 
