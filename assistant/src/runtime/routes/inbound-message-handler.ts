@@ -298,7 +298,7 @@ export async function handleChannelInbound(
           sourceChannel,
           externalChatId,
           externalMessageId,
-          senderExternalUserId: canonicalSenderId ?? body.senderExternalUserId,
+          senderExternalUserId: canonicalSenderId ?? rawSenderId,
           senderName: body.senderName,
           senderUsername: body.senderUsername,
           replyCallbackUrl: body.replyCallbackUrl,
@@ -321,7 +321,7 @@ export async function handleChannelInbound(
             canonicalAssistantId,
             sourceChannel,
             externalChatId,
-            senderExternalUserId: canonicalSenderId ?? body.senderExternalUserId,
+            senderExternalUserId: canonicalSenderId ?? rawSenderId,
             senderName: body.senderName,
             senderUsername: body.senderUsername,
           });
@@ -384,7 +384,7 @@ export async function handleChannelInbound(
             sourceChannel,
             externalChatId,
             externalMessageId,
-            senderExternalUserId: canonicalSenderId ?? body.senderExternalUserId,
+            senderExternalUserId: canonicalSenderId ?? rawSenderId,
             senderName: body.senderName,
             senderUsername: body.senderUsername,
             replyCallbackUrl: body.replyCallbackUrl,
@@ -408,7 +408,7 @@ export async function handleChannelInbound(
                 canonicalAssistantId,
                 sourceChannel,
                 externalChatId,
-                senderExternalUserId: canonicalSenderId ?? body.senderExternalUserId,
+                senderExternalUserId: canonicalSenderId ?? rawSenderId,
                 senderName: body.senderName,
                 senderUsername: body.senderUsername,
               });
@@ -582,7 +582,7 @@ export async function handleChannelInbound(
       conversationId: result.conversationId,
       sourceChannel,
       externalChatId,
-      externalUserId: canonicalSenderId ?? body.senderExternalUserId ?? null,
+      externalUserId: canonicalSenderId ?? rawSenderId ?? null,
       displayName: body.senderName ?? null,
       username: body.senderUsername ?? null,
     });
@@ -617,7 +617,7 @@ export async function handleChannelInbound(
       sourceType: 'channel',
       sourceChannel,
       conversationId: result.conversationId,
-      requesterExternalUserId: canonicalSenderId ?? body.senderExternalUserId ?? undefined,
+      requesterExternalUserId: canonicalSenderId ?? rawSenderId ?? undefined,
       guardianExternalUserId: binding.guardianExternalUserId,
       toolName: 'ingress_message',
       questionText: 'Ingress policy requires guardian approval',
@@ -642,7 +642,7 @@ export async function handleChannelInbound(
         conversationId: result.conversationId,
         sourceChannel,
         externalChatId,
-        senderIdentifier: body.senderName || body.senderUsername || body.senderExternalUserId || 'Unknown sender',
+        senderIdentifier: body.senderName || body.senderUsername || rawSenderId || 'Unknown sender',
         eventId: result.eventId,
       },
       dedupeKey: `escalation:${result.eventId}`,
@@ -688,14 +688,14 @@ export async function handleChannelInbound(
     commandIntent?.type === 'start' &&
     typeof commandIntent.payload === 'string' &&
     (commandIntent.payload as string).startsWith('gv_') &&
-    body.senderExternalUserId
+    rawSenderId
   ) {
     const bootstrapToken = (commandIntent.payload as string).slice(3);
     const bootstrapSession = resolveBootstrapToken(canonicalAssistantId, sourceChannel, bootstrapToken);
 
     if (bootstrapSession && bootstrapSession.status === 'pending_bootstrap') {
       // Bind the pending_bootstrap session to the sender's identity
-      bindSessionIdentity(bootstrapSession.id, body.senderExternalUserId, externalChatId);
+      bindSessionIdentity(bootstrapSession.id, rawSenderId!, externalChatId);
 
       // Transition bootstrap session to awaiting_response
       updateSessionStatus(bootstrapSession.id, 'awaiting_response');
@@ -705,7 +705,7 @@ export async function handleChannelInbound(
       const newSession = createOutboundSession({
         assistantId: canonicalAssistantId,
         channel: sourceChannel,
-        expectedExternalUserId: body.senderExternalUserId,
+        expectedExternalUserId: rawSenderId!,
         expectedChatId: externalChatId,
         identityBindingStatus: 'bound',
         destinationAddress: externalChatId,
@@ -757,13 +757,13 @@ export async function handleChannelInbound(
     !result.duplicate &&
     shouldInterceptVerification &&
     guardianVerifyCode !== undefined &&
-    body.senderExternalUserId
+    rawSenderId
   ) {
     const verifyResult = validateAndConsumeChallenge(
       canonicalAssistantId,
       sourceChannel,
       guardianVerifyCode,
-      body.senderExternalUserId,
+      canonicalSenderId ?? rawSenderId!,
       externalChatId,
       body.senderUsername,
       body.senderName,
@@ -775,7 +775,7 @@ export async function handleChannelInbound(
       upsertMember({
         assistantId: canonicalAssistantId,
         sourceChannel,
-        externalUserId: canonicalSenderId ?? body.senderExternalUserId,
+        externalUserId: canonicalSenderId ?? rawSenderId!,
         externalChatId,
         status: 'active',
         policy: 'allow',
@@ -805,12 +805,12 @@ export async function handleChannelInbound(
           },
           contextPayload: {
             sourceChannel,
-            externalUserId: canonicalSenderId ?? body.senderExternalUserId,
+            externalUserId: canonicalSenderId ?? rawSenderId!,
             externalChatId,
             senderName: body.senderName ?? null,
             senderUsername: body.senderUsername ?? null,
           },
-          dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${canonicalSenderId ?? body.senderExternalUserId}`,
+          dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${canonicalSenderId ?? rawSenderId!}`,
         });
       }
     }
@@ -894,7 +894,7 @@ export async function handleChannelInbound(
     assistantId: canonicalAssistantId,
     sourceChannel,
     externalChatId,
-    senderExternalUserId: rawSenderId ?? body.senderExternalUserId,
+    senderExternalUserId: rawSenderId,
     senderUsername: body.senderUsername,
   });
 
@@ -907,14 +907,14 @@ export async function handleChannelInbound(
     !result.duplicate &&
     replyCallbackUrl &&
     (trimmedContent.length > 0 || hasCallbackData) &&
-    body.senderExternalUserId &&
+    rawSenderId &&
     guardianCtx.actorRole === 'guardian'
   ) {
     const routerResult = await routeGuardianReply({
       messageText: trimmedContent,
       channel: sourceChannel,
       actor: {
-        externalUserId: body.senderExternalUserId,
+        externalUserId: rawSenderId!,
         channel: sourceChannel,
         isTrusted: false,
       },
@@ -959,7 +959,7 @@ export async function handleChannelInbound(
       content: trimmedContent,
       externalChatId,
       sourceChannel,
-      senderExternalUserId: body.senderExternalUserId,
+      senderExternalUserId: rawSenderId,
       replyCallbackUrl,
       bearerToken,
       guardianCtx,
