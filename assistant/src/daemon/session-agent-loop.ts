@@ -58,6 +58,7 @@ import type { QueueDrainReason } from './session-queue-manager.js';
 import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, GuardianRuntimeContext,InterfaceTurnContextParams } from './session-runtime-assembly.js';
 import {
   applyRuntimeInjections,
+  inboundActorContextFromGuardian,
   stripInjectedContext,
 } from './session-runtime-assembly.js';
 import type { SkillProjectionCache } from './session-skill-tools.js';
@@ -358,7 +359,7 @@ export async function runAgentLoopImpl(
       channelCommandContext: ctx.commandIntent ?? null,
       channelTurnContext,
       interfaceTurnContext,
-      guardianContext: ctx.guardianContext ?? null,
+      inboundActorContext: ctx.guardianContext ? inboundActorContextFromGuardian(ctx.guardianContext) : null,
       temporalContext,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       isNonInteractive: !isInteractiveResolved,
@@ -477,7 +478,7 @@ export async function runAgentLoopImpl(
           channelCommandContext: ctx.commandIntent ?? null,
           channelTurnContext,
           interfaceTurnContext,
-          guardianContext: ctx.guardianContext ?? null,
+          inboundActorContext: ctx.guardianContext ? inboundActorContextFromGuardian(ctx.guardianContext) : null,
           temporalContext,
           voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
           isNonInteractive: !isInteractiveResolved,
@@ -515,7 +516,7 @@ export async function runAgentLoopImpl(
             channelCommandContext: ctx.commandIntent ?? null,
             channelTurnContext,
             interfaceTurnContext,
-            guardianContext: ctx.guardianContext ?? null,
+            inboundActorContext: ctx.guardianContext ? inboundActorContextFromGuardian(ctx.guardianContext) : null,
             temporalContext,
             voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
             isNonInteractive: !isInteractiveResolved,
