@@ -1021,7 +1021,7 @@ async function handleBulk(action) {
 }
 ```
 
-**Presentation slideshow** — multi-slide deck with 8 layout variants (title, stats, bullets, quote, comparison, visual, timeline, closing). Use the slideshow widget for presentations, pitch decks, and multi-slide educational content. The model provides slide content; the widget handles navigation, transitions, and keyboard support.
+**Presentation slideshow** — multi-slide deck with 8 layout variants (title, stats, bullets, quote, comparison, visual, timeline, closing). Use the slideshow widget for presentations, pitch decks, and multi-slide educational content. The model provides slide content; the widget handles navigation, transitions, and keyboard support. Never tell the user how to navigate slides — the UI is self-explanatory.
 
 ```html
 <!DOCTYPE html>
