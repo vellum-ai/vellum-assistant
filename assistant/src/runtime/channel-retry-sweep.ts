@@ -129,7 +129,7 @@ export async function sweepFailedEvents(
           },
           assistantId,
           guardianContext,
-          isInteractive: guardianContext?.trustClass === 'guardian',
+          isInteractive: guardianContext?.trustClass === 'guardian' || guardianContext?.trustClass === 'trusted_contact',
         },
         sourceChannel,
         sourceInterface,

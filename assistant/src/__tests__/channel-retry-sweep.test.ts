@@ -88,7 +88,7 @@ describe('channel-retry-sweep', () => {
       expectedInteractive: boolean;
     }> = [
       { actorRole: 'guardian', expectedTrustClass: 'guardian', expectedInteractive: true },
-      { actorRole: 'non-guardian', expectedTrustClass: 'trusted_contact', expectedInteractive: false },
+      { actorRole: 'non-guardian', expectedTrustClass: 'trusted_contact', expectedInteractive: true },
       { actorRole: 'unverified_channel', expectedTrustClass: 'unknown', expectedInteractive: false },
     ];
 

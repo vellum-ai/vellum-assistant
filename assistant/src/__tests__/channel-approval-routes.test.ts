@@ -2665,8 +2665,8 @@ describe('background channel processing approval prompts', () => {
     deliverPromptSpy.mockRestore();
   });
 
-  test('non-guardian channel turns are not interactive to prevent self-approval', async () => {
-    // Set up a guardian binding for a DIFFERENT user so the sender is non-guardian
+  test('trusted-contact channel turns are interactive but never receive approval prompt broadcasts', async () => {
+    // Set up a guardian binding for a DIFFERENT user so the sender is a trusted contact.
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -2674,16 +2674,21 @@ describe('background channel processing approval prompts', () => {
       guardianDeliveryChatId: 'guardian-chat-other',
     });
 
+    const deliverPromptSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
     const processCalls: Array<{ options?: Record<string, unknown> }> = [];
 
     const processMessage = mock(async (
-      _conversationId: string,
+      conversationId: string,
       _content: string,
       _attachmentIds?: string[],
       options?: Record<string, unknown>,
     ) => {
       processCalls.push({ options });
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      registerPendingInteraction('req-bg-trusted-1', conversationId, 'host_bash', {
+        input: { command: 'ls -la' },
+        riskLevel: 'medium',
+      });
+      await new Promise((resolve) => setTimeout(resolve, 350));
       return { messageId: 'msg-ng-1' };
     });
 
@@ -2698,14 +2703,19 @@ describe('background channel processing approval prompts', () => {
     const body = await res.json() as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 700));
 
     expect(processCalls.length).toBeGreaterThan(0);
-    expect(processCalls[0].options?.isInteractive).toBe(false);
+    expect(processCalls[0].options?.isInteractive).toBe(true);
+    expect(deliverPromptSpy).not.toHaveBeenCalled();
+
+    deliverPromptSpy.mockRestore();
   });
 
-  test('unverified channel turns never broadcast approval prompts', async () => {
-    // No guardian binding is created, so the sender resolves to unverified_channel.
+  test('trusted-contact turns without guardian binding never broadcast approval prompts', async () => {
+    // No guardian binding is created. In this test harness, ingress member lookup
+    // resolves the sender as trusted_contact; prompt delivery must still remain
+    // guardian-only.
     const deliverPromptSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
     const processCalls: Array<{ options?: Record<string, unknown> }> = [];
 
@@ -2742,7 +2752,7 @@ describe('background channel processing approval prompts', () => {
     await new Promise((resolve) => setTimeout(resolve, 700));
 
     expect(processCalls.length).toBeGreaterThan(0);
-    expect(processCalls[0].options?.isInteractive).toBe(false);
+    expect(processCalls[0].options?.isInteractive).toBe(true);
     expect(deliverPromptSpy).not.toHaveBeenCalled();
 
     deliverPromptSpy.mockRestore();

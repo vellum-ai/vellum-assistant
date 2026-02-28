@@ -1536,7 +1536,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           },
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
-          isInteractive: guardianCtx.trustClass === 'guardian',
+          isInteractive: guardianCtx.trustClass === 'guardian' || guardianCtx.trustClass === 'trusted_contact',
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,

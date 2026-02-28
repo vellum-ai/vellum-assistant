@@ -615,7 +615,9 @@ describe('injectInboundActorContext', () => {
 
     const result = injectInboundActorContext(baseUserMessage, ctx);
     const text = (result.content[0] as { type: 'text'; text: string }).text;
-    expect(text).toContain('non-guardian account');
+    expect(text).toContain('trusted contact (not the guardian)');
+    expect(text).toContain('approval from guardian-user-1 is required before continuing');
+    expect(text).toContain('Do not claim the action is impossible');
     expect(text).toContain('Do not explain the verification system');
     expect(text).toContain('member_status: active');
     expect(text).toContain('member_policy: default');
