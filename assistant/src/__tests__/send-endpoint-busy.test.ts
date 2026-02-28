@@ -85,6 +85,7 @@ function makeCompletingSession(): Session {
     },
     handleConfirmationResponse: () => {},
     handleSecretResponse: () => {},
+    hasAnyPendingConfirmation: () => false,
   } as unknown as Session;
 }
 
@@ -116,6 +117,7 @@ function makeHangingSession(): Session {
     },
     handleConfirmationResponse: () => {},
     handleSecretResponse: () => {},
+    hasAnyPendingConfirmation: () => false,
     _enqueuedMessages: enqueuedMessages,
   } as unknown as Session;
 }

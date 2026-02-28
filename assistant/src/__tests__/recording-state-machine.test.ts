@@ -428,7 +428,7 @@ describe('stale completion guard (operation token)', () => {
     expect(getActiveRestartToken()).toBeNull();
   });
 
-  test('allows tokenless recording_status during active restart (old recording ack)', () => {
+  test('allows tokenless recording_status during active restart (old recording ack)', async () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = 'conv-tokenless-1';
     ctx.socketToSession.set(fakeSocket, conversationId);
@@ -453,7 +453,7 @@ describe('stale completion guard (operation token)', () => {
       attachToConversationId: conversationId,
       // No operationToken — from old recording, should be allowed
     };
-    recordingHandlers.recording_status(tokenlessStatus, fakeSocket, ctx);
+    await recordingHandlers.recording_status(tokenlessStatus, fakeSocket, ctx);
 
     // Should have triggered the deferred restart start
     const newStartMsgs = sent.filter((m) => m.type === 'recording_start');

@@ -81,8 +81,11 @@ function makeIdleSession(opts?: {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
     updateClient: () => {},
     enqueueMessage: () => ({ queued: false, requestId: 'noop' }),
+    hasAnyPendingConfirmation: () => false,
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent({ type: 'assistant_text_delta', text: 'Hello!' });
       onEvent({ type: 'message_complete', sessionId: 'test-session' });
@@ -120,8 +123,11 @@ function makeConfirmationEmittingSession(opts?: {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
     updateClient: () => {},
     enqueueMessage: () => ({ queued: false, requestId: 'noop' }),
+    hasAnyPendingConfirmation: () => false,
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       // Emit confirmation_request — this triggers the hub publisher to register
       // the pending interaction

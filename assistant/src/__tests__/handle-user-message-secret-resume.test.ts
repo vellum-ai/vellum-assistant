@@ -37,6 +37,7 @@ describe('handleUserMessage secret redirect continuation', () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setAssistantId: () => {},
+      setChannelCapabilities: () => {},
       setGuardianContext: () => {},
       setCommandIntent: () => {},
       processMessage: (content: string, _attachments: unknown[], _onEvent: unknown, requestId: string) => {

@@ -279,6 +279,7 @@ mock.module('../security/secret-ingress.js', () => ({
 
 mock.module('../security/secret-scanner.js', () => ({
   redactSecrets: (text: string) => text,
+  compileCustomPatterns: () => [],
 }));
 
 // ── Mock classifier (for task_submit fallthrough) ──────────────────────────
@@ -387,6 +388,7 @@ function createCtx(overrides?: Partial<HandlerContext>): {
     setTurnChannelContext: noop,
     setTurnInterfaceContext: noop,
     setAssistantId: noop,
+    setChannelCapabilities: noop,
     setGuardianContext: noop,
     setCommandIntent: noop,
     processMessage: async () => {},
@@ -397,6 +399,8 @@ function createCtx(overrides?: Partial<HandlerContext>): {
     dispose: noop,
     hasPendingConfirmation: () => false,
     hasPendingSecret: () => false,
+    isProcessing: () => false,
+    messages: [] as any[],
   };
 
   const sessions = new Map<string, any>();

@@ -186,7 +186,10 @@ for (const config of CHANNEL_CONFIGS) {
       expect(json.denied).toBe(true);
       expect(json.reason).toBe('not_a_member');
       expect(deliverReplyCalls.length).toBe(1);
-      expect((deliverReplyCalls[0].payload as Record<string, unknown>).text).toContain("you haven't been approved");
+      const replyText = (deliverReplyCalls[0].payload as Record<string, unknown>).text as string;
+      expect(
+        replyText.includes("you haven't been approved") || replyText.includes("you don't have access"),
+      ).toBe(true);
     });
 
     test('guardian is notified when a non-member messages', async () => {

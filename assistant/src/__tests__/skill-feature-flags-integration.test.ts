@@ -20,7 +20,7 @@ let currentConfig: Record<string, unknown> = {
 };
 
 const DECLARED_SKILL_ID = 'hatch-new-assistant';
-const DECLARED_LEGACY_KEY = 'skills.hatch-new-assistant.enabled';
+const DECLARED_FLAG_KEY = 'feature_flags.hatch-new-assistant.enabled';
 
 mock.module('../util/platform.js', () => ({
   getRootDir: () => TEST_DIR,
@@ -121,7 +121,7 @@ describe('buildSystemPrompt feature flag filtering', () => {
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
-      featureFlags: { [DECLARED_LEGACY_KEY]: false },
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     };
 
     const result = buildSystemPrompt();
@@ -137,7 +137,7 @@ describe('buildSystemPrompt feature flag filtering', () => {
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
-      featureFlags: {},
+      assistantFeatureFlagValues: {},
     };
 
     const result = buildSystemPrompt();
@@ -152,9 +152,9 @@ describe('buildSystemPrompt feature flag filtering', () => {
 
     currentConfig = {
       sandbox: { enabled: false, backend: 'native' },
-      featureFlags: {
-        [DECLARED_LEGACY_KEY]: false,
-        'skills.twitter.enabled': false,
+      assistantFeatureFlagValues: {
+        [DECLARED_FLAG_KEY]: false,
+        'feature_flags.twitter.enabled': false,
       },
     };
 

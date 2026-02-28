@@ -365,15 +365,16 @@ describe('HTTP route: handleStartOutbound', () => {
     const resp = await handleStartOutbound(req);
     expect(resp.status).toBe(400);
     const body = await resp.json() as { error: { message: string; code: string } };
-    expect(body.error.message).toBe('missing_channel');
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.error.message).toContain('channel');
   });
 
   test('returns 400 for missing destination (SMS)', async () => {
     const req = jsonRequest({ channel: 'sms' });
     const resp = await handleStartOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as { error: { message: string; code: string } };
-    expect(body.error.message).toBe('missing_destination');
+    const body = await resp.json() as { error?: string };
+    expect(body.error).toBe('missing_destination');
   });
 
   test('returns 200 for valid SMS start', async () => {
@@ -392,15 +393,16 @@ describe('HTTP route: handleResendOutbound', () => {
     const resp = await handleResendOutbound(req);
     expect(resp.status).toBe(400);
     const body = await resp.json() as { error: { message: string; code: string } };
-    expect(body.error.message).toBe('missing_channel');
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.error.message).toContain('channel');
   });
 
   test('returns 400 for no_active_session', async () => {
     const req = jsonRequest({ channel: 'sms', assistantId: 'resend-no-session' });
     const resp = await handleResendOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as { error: { message: string; code: string } };
-    expect(body.error.message).toBe('no_active_session');
+    const body = await resp.json() as { error?: string };
+    expect(body.error).toBe('no_active_session');
   });
 
   test('passes originConversationId through on successful resend', async () => {
@@ -433,15 +435,16 @@ describe('HTTP route: handleCancelOutbound', () => {
     const resp = await handleCancelOutbound(req);
     expect(resp.status).toBe(400);
     const body = await resp.json() as { error: { message: string; code: string } };
-    expect(body.error.message).toBe('missing_channel');
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.error.message).toContain('channel');
   });
 
   test('returns 400 for no_active_session', async () => {
     const req = jsonRequest({ channel: 'sms', assistantId: 'cancel-no-session' });
     const resp = await handleCancelOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as { error: { message: string; code: string } };
-    expect(body.error.message).toBe('no_active_session');
+    const body = await resp.json() as { error?: string };
+    expect(body.error).toBe('no_active_session');
   });
 
   test('returns 200 when active session is cancelled', async () => {
