@@ -226,7 +226,9 @@ export async function runAgentLoopImpl(
     // delay of waiting for the full assistant response. The second-pass
     // regeneration at turn 3 will refine the title with more context.
     // Deferred via setTimeout so the main agent loop LLM call is queued
-    // first, avoiding rate-limit slot contention.
+    // first, avoiding rate-limit slot contention. No abort signal — title
+    // generation should complete even if the user cancels the response,
+    // since the user message is already persisted.
     const currentConvForTitle = conversationStore.getConversation(ctx.conversationId);
     if (isReplaceableTitle(currentConvForTitle?.title ?? null)) {
       setTimeout(() => {
@@ -241,7 +243,6 @@ export async function runAgentLoopImpl(
               title,
             });
           },
-          signal: abortController.signal,
         });
       }, 0);
     }

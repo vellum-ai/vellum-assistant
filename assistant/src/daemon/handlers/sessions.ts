@@ -12,7 +12,7 @@ import {
 } from '../../memory/canonical-guardian-store.js';
 import { getAttentionStateByConversationIds } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
-import { GENERATING_TITLE, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { routeGuardianReply } from '../../runtime/guardian-reply-router.js';
 import * as pendingInteractions from '../../runtime/pending-interactions.js';
@@ -780,8 +780,25 @@ export async function handleSessionCreate(
 
   // Auto-send the initial message if provided, kick-starting the skill.
   if (msg.initialMessage) {
-    // Title generation is handled early in the agent loop (before the main
-    // LLM call), so no need to duplicate it here.
+    // Queue title generation eagerly — some processMessage paths (guardian
+    // replies, unknown slash commands) bypass the agent loop entirely, so
+    // we can't rely on the agent loop's early title generation alone.
+    // The agent loop also queues title generation, but isReplaceableTitle
+    // prevents double-writes since the first to complete sets a real title.
+    if (title === GENERATING_TITLE) {
+      queueGenerateConversationTitle({
+        conversationId: conversation.id,
+        context: { origin: 'ipc' },
+        userMessage: msg.initialMessage,
+        onTitleUpdated: (newTitle) => {
+          ctx.send(socket, {
+            type: 'session_title_updated',
+            sessionId: conversation.id,
+            title: newTitle,
+          });
+        },
+      });
+    }
 
     ctx.socketToSession.set(socket, conversation.id);
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
