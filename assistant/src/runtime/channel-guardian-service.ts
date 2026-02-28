@@ -231,11 +231,19 @@ export function validateAndConsumeChallenge(
       }
     }
 
-    // For Telegram: verify actorChatId matches expectedChatId
-    // AND/OR actorExternalUserId matches expectedExternalUserId
+    // For chat-based channels (Telegram, Slack, etc.): when both
+    // expectedExternalUserId and expectedChatId are set, require the
+    // externalUserId match — chatId alone is insufficient because chat IDs
+    // can be shared (e.g. Slack channel IDs, Telegram group chat IDs) and
+    // would let any participant in the same chat satisfy identity binding.
+    // Fall back to chatId-only match only when expectedExternalUserId is
+    // not available (legacy sessions or channels without user-level identity).
     if (challenge.expectedChatId != null) {
-      if (actorChatId === challenge.expectedChatId ||
-          actorExternalUserId === challenge.expectedExternalUserId) {
+      if (challenge.expectedExternalUserId != null) {
+        if (actorExternalUserId === challenge.expectedExternalUserId) {
+          identityMatch = true;
+        }
+      } else if (actorChatId === challenge.expectedChatId) {
         identityMatch = true;
       }
     }
