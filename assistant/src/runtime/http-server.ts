@@ -137,6 +137,7 @@ import {
   handleRevokeMember,
   handleUpsertMember,
 } from './routes/ingress-routes.js';
+import { handleGuardianBootstrap } from './routes/guardian-bootstrap-routes.js';
 import {
   handleCancelOutbound,
   handleClearSlackChannelConfig,
@@ -767,6 +768,9 @@ export class RuntimeHttpServer {
       if (endpoint === 'integrations/guardian/outbound/start' && req.method === 'POST') return await handleStartOutbound(req);
       if (endpoint === 'integrations/guardian/outbound/resend' && req.method === 'POST') return await handleResendOutbound(req);
       if (endpoint === 'integrations/guardian/outbound/cancel' && req.method === 'POST') return await handleCancelOutbound(req);
+
+      // Guardian vellum channel bootstrap
+      if (endpoint === 'integrations/guardian/vellum/bootstrap' && req.method === 'POST') return await handleGuardianBootstrap(req);
 
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);
