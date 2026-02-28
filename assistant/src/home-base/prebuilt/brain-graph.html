@@ -8,6 +8,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+    }
+  }
+  </script>
   <style>
     :root {
       --v-slate-950: #070D19;
@@ -257,49 +265,17 @@
 
     /* ── 3D Panel ─────────────────────────────────────────────── */
     #panel-3d {
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      gap: 16px;
+      align-items: stretch;
+      justify-content: stretch;
+      position: relative;
     }
 
-    .placeholder-3d {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 12px;
-      padding: 48px;
-    }
-
-    .placeholder-3d .icon {
-      font-size: 56px;
-      line-height: 1;
-    }
-
-    .placeholder-3d h3 {
-      font-size: 20px;
-      font-weight: 700;
-      color: var(--text);
-    }
-
-    .placeholder-3d p {
-      font-size: 14px;
-      color: var(--text-muted);
-      max-width: 300px;
-      line-height: 1.5;
-    }
-
-    .placeholder-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 14px;
-      background: var(--accent-dim);
-      border: 1px solid rgba(138, 91, 224, 0.25);
-      border-radius: 999px;
-      font-size: 12px;
-      color: var(--v-violet-400);
-      font-weight: 600;
+    #brain-canvas-3d {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 460px;
+      border-radius: 16px;
     }
 
     /* ── Empty / Error states ─────────────────────────────────── */
@@ -513,12 +489,7 @@
 
     <!-- 3D Panel -->
     <div class="viz-panel" id="panel-3d">
-      <div class="placeholder-3d">
-        <div class="icon">🔮</div>
-        <h3>3D mode</h3>
-        <p>3D mode — coming in the next milestone</p>
-        <div class="placeholder-badge">Coming in M3</div>
-      </div>
+      <canvas id="brain-canvas-3d"></canvas>
     </div>
 
     <!-- Legend -->
@@ -562,6 +533,9 @@
       document.getElementById('panel-3d').classList.toggle('active', mode === '3d');
       document.getElementById('btn-2d').classList.toggle('active', mode === '2d');
       document.getElementById('btn-3d').classList.toggle('active', mode === '3d');
+      if (mode === '3d' && window.brainData && typeof window.initThreeD === 'function') {
+        window.initThreeD(window.brainData);
+      }
     }
     window.switchMode = switchMode;
 
@@ -939,6 +913,7 @@
         var res = await fetch('/v1/brain-graph', { headers });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         var data = await res.json();
+        window.brainData = data;
         updateStats(data);
         renderBrain(data);
       } catch (err) {
@@ -958,6 +933,281 @@
     // Kick off on load
     loadBrainData();
   })();
+  </script>
+
+  <script type="module">
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+  // Lobe region → scatter bounds in 3D space
+  const LOBE_BOUNDS = {
+    'right-social':   { xMin: 0.5,  xMax: 1.5,  yMin: 0.5,  yMax: 1.5,  zMin: -1, zMax: 1 },
+    'left-planning':  { xMin: -1.5, xMax: -0.5, yMin: 0.5,  yMax: 1.5,  zMin: -1, zMax: 1 },
+    'left-technical': { xMin: -1.5, xMax: -0.5, yMin: -0.5, yMax: 0.5,  zMin: -1, zMax: 1 },
+    'right-creative': { xMin: 0.5,  xMax: 1.5,  yMin: -0.5, yMax: 0.5,  zMin: -1, zMax: 1 },
+    'right-spatial':  { xMin: 0.5,  xMax: 1.5,  yMin: -1.5, yMax: -0.5, zMin: -1, zMax: 1 },
+    'center':         { xMin: -0.5, xMax: 0.5,  yMin: -0.5, yMax: 0.5,  zMin: -0.5, zMax: 0.5 },
+  };
+
+  function rand(min, max) {
+    return min + Math.random() * (max - min);
+  }
+
+  function nodePosition(lobeRegion) {
+    const b = LOBE_BOUNDS[lobeRegion] || LOBE_BOUNDS['center'];
+    return new THREE.Vector3(
+      rand(b.xMin, b.xMax) + rand(-0.2, 0.2),
+      rand(b.yMin, b.yMax) + rand(-0.2, 0.2),
+      rand(b.zMin, b.zMax) + rand(-0.2, 0.2)
+    );
+  }
+
+  function hexStringToInt(hex) {
+    // Accepts strings like '#22c55e' or '22c55e'
+    return parseInt(hex.replace('#', ''), 16);
+  }
+
+  let initialized = false;
+  let animFrameId = null;
+  let renderer = null;
+
+  window.initThreeD = function initThreeD(data) {
+    // Avoid double-initialisation if already running
+    if (initialized) return;
+    initialized = true;
+
+    const canvas = document.getElementById('brain-canvas-3d');
+    const panel = document.getElementById('panel-3d');
+
+    const entities = (data && data.entities) || [];
+    const relations = (data && data.relations) || [];
+    const memorySummary = (data && data.memorySummary) || [];
+    const totalKnowledgeCount = (data && data.totalKnowledgeCount) || (entities.length + memorySummary.reduce((s, m) => s + (m.count || 0), 0));
+
+    // ── Empty state ──────────────────────────────────────────────
+    if (entities.length === 0 && memorySummary.length === 0) {
+      const overlay = document.createElement('div');
+      overlay.className = 'state-overlay';
+      overlay.innerHTML = '<div class="icon">🌱</div><h3>No knowledge yet</h3><p>Start a conversation to grow it!</p>';
+      panel.appendChild(overlay);
+      return;
+    }
+
+    // ── Renderer ─────────────────────────────────────────────────
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setClearColor(0x000000, 0);
+
+    function getSize() {
+      return { w: panel.clientWidth || 800, h: panel.clientHeight || 500 };
+    }
+    const { w, h } = getSize();
+    renderer.setSize(w, h);
+
+    // ── Scene ────────────────────────────────────────────────────
+    const scene = new THREE.Scene();
+
+    // ── Camera ───────────────────────────────────────────────────
+    const camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 100);
+    camera.position.z = 8;
+
+    // ── Lights ───────────────────────────────────────────────────
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(10, 10, 10);
+    scene.add(dirLight);
+    const pointLight = new THREE.PointLight(0x8a5be0, 1.5, 15);
+    pointLight.position.set(0, 3, 3);
+    scene.add(pointLight);
+
+    // ── Brain mesh ───────────────────────────────────────────────
+    const brainGeo = new THREE.SphereGeometry(2.5, 64, 64);
+
+    // Deform to brain-like shape
+    const positions = brainGeo.attributes.position;
+    for (let i = 0; i < positions.count; i++) {
+      const x = positions.getX(i), y = positions.getY(i), z = positions.getZ(i);
+      const noise = 0.3 * Math.sin(3 * x) * Math.cos(3 * y) + 0.1 * Math.sin(7 * z);
+      const scale = 1 + noise;
+      positions.setXYZ(i, x * scale, y * scale, z * scale);
+    }
+    brainGeo.computeVertexNormals();
+
+    // Scale based on knowledge count
+    const rawScale = 0.5 + Math.log10(Math.max(totalKnowledgeCount, 1)) * 0.5;
+    const brainScale = Math.min(rawScale, 2.0);
+
+    // Wireframe shell (outer visual)
+    const wireMat = new THREE.MeshBasicMaterial({
+      color: 0x8a5be0,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.25,
+    });
+    const brainMesh = new THREE.Mesh(brainGeo, wireMat);
+    brainMesh.scale.setScalar(brainScale);
+    scene.add(brainMesh);
+
+    // Solid inner fill (BackSide for depth effect)
+    const solidMat = new THREE.MeshPhongMaterial({
+      color: 0x321669,
+      transparent: true,
+      opacity: 0.15,
+      side: THREE.BackSide,
+    });
+    const solidMesh = new THREE.Mesh(brainGeo, solidMat);
+    solidMesh.scale.setScalar(brainScale);
+    scene.add(solidMesh);
+
+    // ── Build nodes ───────────────────────────────────────────────
+    const nodeMeshes = [];   // for raycasting
+    const nodeEntityMap = new WeakMap(); // mesh → entity data
+
+    // Entity nodes
+    entities.forEach(function(entity) {
+      const radius = 0.04 + 0.02 * Math.min(entity.mentionCount || 1, 10);
+      const geo = new THREE.SphereGeometry(radius, 16, 16);
+      const color = hexStringToInt(entity.color || '#8a5be0');
+      const mat = new THREE.MeshPhongMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.3,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      const pos = nodePosition(entity.lobeRegion || 'center');
+      mesh.position.copy(pos);
+      scene.add(mesh);
+      nodeMeshes.push(mesh);
+      nodeEntityMap.set(mesh, entity);
+    });
+
+    // Memory summary nodes (center, smaller)
+    memorySummary.forEach(function(m, i) {
+      const geo = new THREE.SphereGeometry(0.06, 16, 16);
+      const color = hexStringToInt(m.color || '#8b5cf6');
+      const mat = new THREE.MeshPhongMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.3,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      const pos = nodePosition('center');
+      mesh.position.copy(pos);
+      scene.add(mesh);
+      nodeMeshes.push(mesh);
+      nodeEntityMap.set(mesh, {
+        name: m.kind,
+        type: 'Memory',
+        kind: m.kind,
+        lobeRegion: 'center',
+        color: m.color || '#8b5cf6',
+        mentionCount: m.count || 0,
+        count: m.count || 0,
+      });
+    });
+
+    // Build a position lookup by entity id for relation lines
+    const entityPositions = {};
+    let meshIdx = 0;
+    entities.forEach(function(entity) {
+      entityPositions[entity.id] = nodeMeshes[meshIdx].position;
+      meshIdx++;
+    });
+
+    // ── Relation lines ────────────────────────────────────────────
+    relations.forEach(function(rel) {
+      const srcPos = entityPositions[rel.sourceId];
+      const tgtPos = entityPositions[rel.targetId];
+      if (!srcPos || !tgtPos) return;
+
+      const srcEntity = entities.find(function(e) { return e.id === rel.sourceId; });
+      const color = hexStringToInt((srcEntity && srcEntity.color) || '#8a5be0');
+
+      const points = [srcPos.clone(), tgtPos.clone()];
+      const geo = new THREE.BufferGeometry().setFromPoints(points);
+      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.15 });
+      scene.add(new THREE.Line(geo, mat));
+    });
+
+    // ── Controls ──────────────────────────────────────────────────
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.5;
+
+    // Pause auto-rotate while hovering
+    canvas.addEventListener('mouseenter', function() { controls.autoRotate = false; });
+    canvas.addEventListener('mouseleave', function() { controls.autoRotate = true; });
+
+    // ── Tooltip via raycasting ────────────────────────────────────
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const tooltip = document.getElementById('tooltip');
+
+    canvas.addEventListener('mousemove', function(event) {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(nodeMeshes);
+      if (intersects.length > 0) {
+        const entity = nodeEntityMap.get(intersects[0].object);
+        if (entity) {
+          document.getElementById('tt-name').textContent = entity.name || '';
+          document.getElementById('tt-type').textContent = entity.type || entity.kind || 'memory';
+          document.getElementById('tt-dot').style.background = entity.color || '#8A5BE0';
+          document.getElementById('tt-lobe').textContent = entity.lobeRegion || 'center';
+          document.getElementById('tt-connections').textContent = '— connections';
+          document.getElementById('tt-mentions').textContent = (entity.mentionCount || entity.count || 0) + ' mentions';
+          tooltip.classList.add('visible');
+          // Position near cursor
+          let x = event.clientX + 14;
+          let y = event.clientY - 10;
+          const tw = tooltip.offsetWidth || 200;
+          const th = tooltip.offsetHeight || 100;
+          if (x + tw > window.innerWidth - 8) x = event.clientX - tw - 14;
+          if (y + th > window.innerHeight - 8) y = event.clientY - th - 14;
+          tooltip.style.left = x + 'px';
+          tooltip.style.top = y + 'px';
+        }
+      } else {
+        tooltip.classList.remove('visible');
+      }
+    });
+
+    canvas.addEventListener('mouseleave', function() {
+      tooltip.classList.remove('visible');
+    });
+
+    // ── Resize handler ────────────────────────────────────────────
+    function onResize() {
+      const { w, h } = getSize();
+      if (w === 0 || h === 0) return;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+    window.addEventListener('resize', onResize);
+
+    // ── Animation loop ────────────────────────────────────────────
+    function animate() {
+      animFrameId = requestAnimationFrame(animate);
+      controls.update();
+
+      // Slow y-rotation of the brain mesh
+      brainMesh.rotation.y += 0.001;
+      solidMesh.rotation.y += 0.001;
+
+      // Gentle breathing pulse
+      const pulse = brainScale * (1 + 0.02 * Math.sin(Date.now() / 1000));
+      brainMesh.scale.setScalar(pulse);
+      solidMesh.scale.setScalar(pulse);
+
+      renderer.render(scene, camera);
+    }
+    animate();
+  };
   </script>
 </body>
 </html>
