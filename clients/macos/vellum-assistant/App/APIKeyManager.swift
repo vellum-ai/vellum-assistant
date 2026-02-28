@@ -42,7 +42,12 @@ enum APIKeyManager {
     // MARK: - Generic provider access
 
     static func getKey(for provider: String) -> String? {
-        if provider == "anthropic" { migrateIfNeeded() }
+        if provider == "anthropic" {
+            // migrateIfNeeded returns the key if it was already read during
+            // the migration check, avoiding a redundant security CLI spawn
+            // (each spawn triggers a macOS keychain authorization prompt).
+            if let cached = migrateIfNeeded() { return cached }
+        }
         return cliGetKey(service: service, account: provider)
     }
 
@@ -102,9 +107,12 @@ enum APIKeyManager {
     // MARK: - Migration
 
     /// One-time migration from the legacy keychain entry to the daemon-shared entry.
-    private static func migrateIfNeeded() {
-        // Skip if new entry already exists
-        if cliGetKey(service: service, account: "anthropic") != nil { return }
+    /// Returns the current anthropic key if it was read during the check, so the
+    /// caller can reuse it without a second CLI invocation.
+    @discardableResult
+    private static func migrateIfNeeded() -> String? {
+        // Skip if new entry already exists — return the value we just read
+        if let existing = cliGetKey(service: service, account: "anthropic") { return existing }
 
         // Read from legacy entry (uses Security.framework since the old entry was created with SecItemAdd)
         let legacyQuery: [String: Any] = [
@@ -117,7 +125,7 @@ enum APIKeyManager {
         var result: AnyObject?
         guard SecItemCopyMatching(legacyQuery as CFDictionary, &result) == errSecSuccess,
               let data = result as? Data,
-              let key = String(data: data, encoding: .utf8) else { return }
+              let key = String(data: data, encoding: .utf8) else { return nil }
 
         // Write to new entry via CLI (no ACL restrictions)
         cliSetKey(service: service, account: "anthropic", value: key)
@@ -129,6 +137,8 @@ enum APIKeyManager {
             kSecAttrAccount as String: legacyAccount
         ]
         SecItemDelete(deleteQuery as CFDictionary)
+
+        return key
     }
 
     private static func notifyKeyDidChange() {
