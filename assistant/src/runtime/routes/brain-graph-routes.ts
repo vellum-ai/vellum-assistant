@@ -145,14 +145,28 @@ export function handleGetBrainGraph(): Response {
   }
 }
 
-export function handleServeBrainGraphUI(): Response {
+export function handleServeBrainGraphUI(bearerToken?: string): Response {
   try {
     const prebuiltDir = resolveBundledDir(
       import.meta.dirname ?? __dirname,
       '../../home-base/prebuilt',
       'prebuilt',
     );
-    const html = readFileSync(join(prebuiltDir, 'brain-graph.html'), 'utf-8');
+    let html = readFileSync(join(prebuiltDir, 'brain-graph.html'), 'utf-8');
+    if (bearerToken) {
+      // Inject token as a meta tag for client-side fetch authentication.
+      // HTML-escape the token value to guard against injection if the token
+      // comes from an environment variable with special characters.
+      const escapedToken = bearerToken
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      html = html.replace(
+        '</head>',
+        `  <meta name="api-token" content="${escapedToken}">\n</head>`,
+      );
+    }
     return new Response(html, {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     });
