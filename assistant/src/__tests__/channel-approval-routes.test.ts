@@ -2665,8 +2665,10 @@ describe('background channel processing approval prompts', () => {
     deliverPromptSpy.mockRestore();
   });
 
-  test('non-guardian channel turns are not interactive to prevent self-approval', async () => {
-    // Set up a guardian binding for a DIFFERENT user so the sender is non-guardian
+  test('trusted-contact channel turns with resolvable guardian route are interactive', async () => {
+    // Set up a guardian binding for a DIFFERENT user so the sender is a
+    // trusted contact (not the guardian). The guardian route is resolvable
+    // because the binding exists — approval notifications can be delivered.
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -2701,7 +2703,9 @@ describe('background channel processing approval prompts', () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
 
     expect(processCalls.length).toBeGreaterThan(0);
-    expect(processCalls[0].options?.isInteractive).toBe(false);
+    // Trusted contacts with a resolvable guardian route should be interactive
+    // so approval prompts can be routed to the guardian for decision.
+    expect(processCalls[0].options?.isInteractive).toBe(true);
   });
 
   test('unverified channel turns never broadcast approval prompts', async () => {
@@ -2867,5 +2871,120 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
     const unchanged = getCanonicalGuardianRequest(canonicalReq.id);
     expect(unchanged).not.toBeNull();
     expect(unchanged!.status).toBe('pending');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Trusted-contact self-approval guard (pre-row)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('trusted-contact self-approval blocked before guardian approval row exists', () => {
+  beforeEach(() => {
+    // Create a guardian binding so the requester resolves as trusted_contact
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-tc-selfapproval',
+      guardianDeliveryChatId: 'guardian-tc-selfapproval-chat',
+    });
+  });
+
+  test('trusted contact cannot self-approve via conversational engine when no guardian approval row exists', async () => {
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Create the requester conversation (different user than guardian)
+    const initReq = makeInboundRequest({
+      content: 'init',
+      externalChatId: 'tc-selfapproval-chat',
+      senderExternalUserId: 'tc-selfapproval-user',
+    });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    // Register a pending interaction — but do NOT create a guardian approval
+    // row in channelGuardianApprovalRequests. This simulates the window
+    // between the pending confirmation being created (isInteractive=true)
+    // and the guardian approval prompt being delivered.
+    const sessionMock = registerPendingInteraction('req-tc-selfapproval-1', conversationId!, 'shell');
+
+    deliverSpy.mockClear();
+
+    // The conversational engine would normally classify "yes" as approve_once,
+    // but the guard should intercept before the engine runs.
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'approve_once' as const,
+      replyText: 'Approved!',
+    }));
+
+    // Trusted contact sends "yes" to try to self-approve
+    const req = makeInboundRequest({
+      content: 'yes',
+      externalChatId: 'tc-selfapproval-chat',
+      senderExternalUserId: 'tc-selfapproval-user',
+    });
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', 'self', undefined,
+      undefined, mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    // Should be blocked with assistant_turn (pending guardian notice),
+    // NOT decision_applied
+    expect(body.approval).toBe('assistant_turn');
+    // The session should NOT have been resolved
+    expect(sessionMock).not.toHaveBeenCalled();
+
+    // The pending interaction should still be registered (not consumed)
+    const stillPending = pendingInteractions.get('req-tc-selfapproval-1');
+    expect(stillPending).toBeDefined();
+
+    deliverSpy.mockRestore();
+  });
+
+  test('trusted contact cannot self-approve via legacy parser when no guardian approval row exists', async () => {
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeInboundRequest({
+      content: 'init',
+      externalChatId: 'tc-selfapproval-chat',
+      senderExternalUserId: 'tc-selfapproval-user',
+    });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    // Register pending interaction without guardian approval row
+    const sessionMock = registerPendingInteraction('req-tc-selfapproval-2', conversationId!, 'shell');
+
+    deliverSpy.mockClear();
+
+    // No conversational engine — falls through to legacy parser path.
+    // "approve" would normally be parsed as an approval decision.
+    const req = makeInboundRequest({
+      content: 'approve',
+      externalChatId: 'tc-selfapproval-chat',
+      senderExternalUserId: 'tc-selfapproval-user',
+    });
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    // Should be blocked, not decision_applied
+    expect(body.approval).toBe('assistant_turn');
+    expect(sessionMock).not.toHaveBeenCalled();
+
+    // Pending interaction should still exist
+    const stillPending = pendingInteractions.get('req-tc-selfapproval-2');
+    expect(stillPending).toBeDefined();
+
+    deliverSpy.mockRestore();
   });
 });

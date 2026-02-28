@@ -7,6 +7,7 @@ import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import { getLogger } from '../util/logger.js';
 import { deliverReplyViaCallback } from './channel-reply-delivery.js';
+import { resolveRoutingStateFromRuntime } from './guardian-context-resolver.js';
 import type { MessageProcessor } from './http-types.js';
 
 const log = getLogger('runtime-http');
@@ -129,7 +130,9 @@ export async function sweepFailedEvents(
           },
           assistantId,
           guardianContext,
-          isInteractive: guardianContext?.trustClass === 'guardian',
+          isInteractive: guardianContext
+            ? resolveRoutingStateFromRuntime(guardianContext).promptWaitingAllowed
+            : false,
         },
         sourceChannel,
         sourceInterface,
