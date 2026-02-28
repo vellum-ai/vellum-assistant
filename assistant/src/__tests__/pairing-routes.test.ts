@@ -8,21 +8,6 @@
 
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
-// ── Mocks — declared before imports that depend on them ─────────────
-
-mock.module('../util/logger.js', () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module('../daemon/approved-devices-store.js', () => ({
-  hashDeviceId: (id: string) => `hashed-${id}`,
-  isDeviceApproved: () => false,
-  refreshDevice: () => {},
-}));
-
 import { PairingStore } from '../daemon/pairing-store.js';
 import type { PairingHandlerContext } from '../runtime/routes/pairing-routes.js';
 import { handlePairingRequest } from '../runtime/routes/pairing-routes.js';
