@@ -546,6 +546,9 @@
         if (typeof window.stopThreeD === 'function') {
           window.stopThreeD();
         }
+        // Hide any lingering 3D tooltip - mouseleave is never fired when the
+        // parent panel is hidden via display:none, so we clear it explicitly.
+        document.getElementById('tooltip').classList.remove('visible');
       }
     }
     window.switchMode = switchMode;
@@ -1011,7 +1014,6 @@
   window.initThreeD = function initThreeD(data) {
     // Avoid double-initialisation if already running
     if (initialized) return;
-    initialized = true;
 
     const canvas = document.getElementById('brain-canvas-3d');
     const panel = document.getElementById('panel-3d');
@@ -1029,6 +1031,10 @@
       panel.appendChild(overlay);
       return;
     }
+
+    // Mark as initialized only after all early returns, so empty-data calls
+    // don't permanently block a subsequent call with real data.
+    initialized = true;
 
     // ── Renderer ─────────────────────────────────────────────────
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
