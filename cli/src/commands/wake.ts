@@ -7,6 +7,14 @@ import { isProcessAlive } from "../lib/process";
 import { startLocalDaemon, startGateway } from "../lib/local";
 
 export async function wake(): Promise<void> {
+  const args = process.argv.slice(3);
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("Usage: vellum wake");
+    console.log("");
+    console.log("Start the daemon and gateway processes.");
+    process.exit(0);
+  }
+
   const assistants = loadAllAssistants();
   const hasLocal = assistants.some((a) => a.cloud === "local");
   if (!hasLocal) {
