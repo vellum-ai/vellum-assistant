@@ -401,6 +401,112 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     await stopServer();
   });
 
+  test('consumes explicit rejection text when a single pending confirmation exists (idle)', async () => {
+    const conversationKey = 'conv-inline-reject';
+    const { conversationId } = getOrCreateConversation(conversationKey);
+    const requestId = 'req-inline-reject';
+    const {
+      session,
+      runAgentLoopMock,
+      enqueueMessageMock,
+      denyAllPendingConfirmationsMock,
+      handleConfirmationResponseMock,
+    } = makePendingApprovalSession(requestId, false);
+
+    pendingInteractions.register(requestId, {
+      session,
+      conversationId,
+      kind: 'confirmation',
+    });
+    createCanonicalGuardianRequest({
+      id: requestId,
+      kind: 'tool_approval',
+      sourceType: 'desktop',
+      sourceChannel: 'vellum',
+      conversationId,
+      toolName: 'call_start',
+      status: 'pending',
+      requestCode: 'GHI789',
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    });
+
+    await startServer(() => session);
+
+    const res = await fetch(messagesUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({
+        conversationKey,
+        content: 'no',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
+    });
+    const body = await res.json() as { accepted: boolean; messageId?: string; queued?: boolean };
+
+    expect(res.status).toBe(202);
+    expect(body.accepted).toBe(true);
+    expect(body.messageId).toBeDefined();
+    expect(body.queued).toBeUndefined();
+    // Rejection still flows through handleConfirmationResponse (with reject action)
+    expect(handleConfirmationResponseMock).toHaveBeenCalledTimes(1);
+    expect(denyAllPendingConfirmationsMock).toHaveBeenCalledTimes(0);
+    expect(enqueueMessageMock).toHaveBeenCalledTimes(0);
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(0);
+
+    await stopServer();
+  });
+
+  test('does not consume ambiguous text — falls through to normal message handling', async () => {
+    const conversationKey = 'conv-inline-ambiguous';
+    const { conversationId } = getOrCreateConversation(conversationKey);
+    const requestId = 'req-inline-ambiguous';
+    const {
+      session,
+      runAgentLoopMock,
+    } = makePendingApprovalSession(requestId, false);
+
+    pendingInteractions.register(requestId, {
+      session,
+      conversationId,
+      kind: 'confirmation',
+    });
+    createCanonicalGuardianRequest({
+      id: requestId,
+      kind: 'tool_approval',
+      sourceType: 'desktop',
+      sourceChannel: 'vellum',
+      conversationId,
+      toolName: 'call_start',
+      status: 'pending',
+      requestCode: 'JKL012',
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    });
+
+    await startServer(() => session);
+
+    const res = await fetch(messagesUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({
+        conversationKey,
+        content: 'What is the weather today?',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
+    });
+    const body = await res.json() as { accepted: boolean; messageId?: string; queued?: boolean };
+
+    // Ambiguous text should NOT be consumed — falls through to normal send path
+    expect(res.status).toBe(202);
+    expect(body.accepted).toBe(true);
+    expect(body.messageId).toBeDefined();
+    // The normal idle send path fires runAgentLoop
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+
+    await stopServer();
+  });
+
   // ── Busy session: queue-if-busy ─────────────────────────────────────
 
   test('returns 202 with queued: true when session is busy (not 409)', async () => {

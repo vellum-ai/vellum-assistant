@@ -39,30 +39,6 @@ const log = getLogger('conversation-routes');
 
 const SUGGESTION_CACHE_MAX = 100;
 
-function hasAnyPendingConfirmation(session: import('../../daemon/session.js').Session): boolean {
-  const maybeMethod = (session as { hasAnyPendingConfirmation?: () => boolean }).hasAnyPendingConfirmation;
-  return typeof maybeMethod === 'function' ? maybeMethod.call(session) : false;
-}
-
-function hasPendingConfirmation(
-  session: import('../../daemon/session.js').Session,
-  requestId: string,
-): boolean {
-  const maybeMethod = (session as { hasPendingConfirmation?: (id: string) => boolean }).hasPendingConfirmation;
-  return typeof maybeMethod === 'function' ? maybeMethod.call(session, requestId) : false;
-}
-
-function pushSessionMessageIfAvailable(
-  session: import('../../daemon/session.js').Session,
-  message: ReturnType<typeof createUserMessage> | ReturnType<typeof createAssistantMessage>,
-): void {
-  const maybeGetMessages = (session as { getMessages?: () => Array<typeof message> }).getMessages;
-  if (typeof maybeGetMessages !== 'function') {
-    return;
-  }
-  maybeGetMessages.call(session).push(message);
-}
-
 function collectLivePendingConfirmationRequestIds(
   conversationId: string,
   sourceChannel: string,
@@ -74,10 +50,13 @@ function collectLivePendingConfirmationRequestIds(
       (interaction) =>
         interaction.kind === 'confirmation'
         && interaction.session === session
-        && hasPendingConfirmation(session, interaction.requestId),
+        && session.hasPendingConfirmation(interaction.requestId),
     )
     .map((interaction) => interaction.requestId);
 
+  // Query both by destination conversation (via deliveries table) and by
+  // source conversation (direct field). For desktop/HTTP sessions these
+  // often overlap, but the Set dedup below handles that.
   const pendingCanonicalRequestIds = [
     ...listPendingCanonicalGuardianRequestsByDestinationConversation(conversationId, sourceChannel)
       .filter((request) => request.kind === 'tool_approval')
@@ -87,7 +66,7 @@ function collectLivePendingConfirmationRequestIds(
       conversationId,
       kind: 'tool_approval',
     }).map((request) => request.id),
-  ].filter((requestId) => hasPendingConfirmation(session, requestId));
+  ].filter((requestId) => session.hasPendingConfirmation(requestId));
 
   return Array.from(new Set([
     ...pendingInteractionRequestIds,
@@ -120,7 +99,7 @@ async function tryConsumeInlineApprovalReply(params: {
   } = params;
   const trimmedContent = content.trim();
 
-  if (!hasAnyPendingConfirmation(session) || trimmedContent.length === 0) {
+  if (!session.hasAnyPendingConfirmation() || trimmedContent.length === 0) {
     return { consumed: false };
   }
 
@@ -173,8 +152,7 @@ async function tryConsumeInlineApprovalReply(params: {
 
   // Avoid mutating in-memory history / emitting stream deltas while a run is active.
   if (!session.isProcessing()) {
-    pushSessionMessageIfAvailable(session, userMessage);
-    pushSessionMessageIfAvailable(session, assistantMessage);
+    session.getMessages().push(userMessage, assistantMessage);
     onEvent({ type: 'assistant_text_delta', text: replyText, sessionId: conversationId });
     onEvent({ type: 'message_complete', sessionId: conversationId });
   }
@@ -456,7 +434,7 @@ export async function handleSendMessage(
     if (session.isProcessing()) {
       // If a tool confirmation is pending, auto-deny it so the agent
       // can finish the current turn and process this queued message.
-      if (hasAnyPendingConfirmation(session)) {
+      if (session.hasAnyPendingConfirmation()) {
         session.denyAllPendingConfirmations();
         pendingInteractions.removeBySession(session);
       }
