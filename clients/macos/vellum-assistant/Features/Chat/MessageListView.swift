@@ -262,7 +262,7 @@ struct MessageListView: View {
                     }
 
                     let lastVisible = displayMessages.last
-                    let hasPendingConfirmation = lastVisible?.confirmation?.state == .pending
+                    let hasPendingConfirmation = displayMessages.contains(where: { $0.confirmation?.state == .pending })
                     let currentTurnMessages: ArraySlice<ChatMessage> = {
                         if isSending, let last = displayMessages.last, last.role == .user {
                             let lastNonUser = displayMessages.last(where: {
