@@ -225,6 +225,8 @@ describe('ToolApprovalHandler / grant-miss escalation', () => {
     // Notification signal should have been emitted
     expect(emittedSignals.length).toBe(1);
     expect(emittedSignals[0].sourceEventName).toBe('guardian.question');
+    const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
+    expect(payload.requestKind).toBe('tool_grant_request');
   });
 
   test('non-guardian grant-miss response includes request code', async () => {

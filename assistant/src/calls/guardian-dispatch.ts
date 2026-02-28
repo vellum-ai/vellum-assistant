@@ -163,6 +163,7 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
       },
       contextPayload: {
         requestId: request.id,
+        requestKind: request.kind,
         requestCode: request.requestCode,
         callSessionId,
         questionText: pendingQuestion.questionText,

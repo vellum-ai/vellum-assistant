@@ -61,6 +61,7 @@ describe('notification decision strategy', () => {
         contextPayload: {
           questionText: 'What is the gate code?',
           requestCode: 'A1B2C3',
+          requestKind: 'pending_question',
         },
       });
 
@@ -73,13 +74,13 @@ describe('notification decision strategy', () => {
       expect(copy.telegram!.deliveryText).toContain('A1B2C3');
     });
 
-    test('guardian.question template uses approve/reject instructions when toolName is present', () => {
+    test('guardian.question template uses approve/reject instructions for approval-kind request', () => {
       const signal = makeSignal({
         sourceEventName: 'guardian.question',
         contextPayload: {
           questionText: 'Allow running host_bash?',
           requestCode: 'D4E5F6',
-          toolName: 'host_bash',
+          requestKind: 'tool_grant_request',
         },
       });
 

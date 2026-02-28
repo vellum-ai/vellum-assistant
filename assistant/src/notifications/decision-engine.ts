@@ -17,6 +17,7 @@ import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } fro
 import type { ModelIntent } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import { composeFallbackCopy } from './copy-composer.js';
+import { resolveGuardianQuestionInstructionMode } from './guardian-question-mode.js';
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal, RoutingIntent } from './signal.js';
@@ -451,13 +452,7 @@ function enforceGuardianRequestCode(
   if (typeof rawCode !== 'string' || rawCode.trim().length === 0) return decision;
 
   const requestCode = rawCode.trim().toUpperCase();
-  const mode: 'approval' | 'answer' = (() => {
-    const rawToolName = signal.contextPayload.toolName;
-    if (typeof rawToolName === 'string' && rawToolName.trim().length > 0) {
-      return 'approval';
-    }
-    return 'answer';
-  })();
+  const mode = resolveGuardianQuestionInstructionMode(signal.contextPayload);
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
   };

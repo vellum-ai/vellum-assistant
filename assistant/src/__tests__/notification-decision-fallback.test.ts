@@ -101,6 +101,7 @@ describe('notification decision fallback copy', () => {
       contextPayload: {
         questionText: 'What is the gate code?',
         requestCode: 'A1B2C3',
+        requestKind: 'pending_question',
       },
     });
     const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
@@ -137,6 +138,7 @@ describe('notification decision fallback copy', () => {
       contextPayload: {
         questionText: 'What is the gate code?',
         requestCode: 'A1B2C3',
+        requestKind: 'pending_question',
       },
     });
 
@@ -171,7 +173,7 @@ describe('notification decision fallback copy', () => {
       contextPayload: {
         questionText: 'Allow running host_bash?',
         requestCode: 'A1B2C3',
-        toolName: 'host_bash',
+        requestKind: 'tool_grant_request',
       },
     });
 

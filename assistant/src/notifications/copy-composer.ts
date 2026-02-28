@@ -10,6 +10,7 @@
  */
 
 import type { NotificationSignal } from './signal.js';
+import { resolveGuardianQuestionInstructionMode } from './guardian-question-mode.js';
 import type { NotificationChannel, RenderedChannelCopy } from './types.js';
 
 type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
@@ -17,10 +18,6 @@ type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
 function str(value: unknown, fallback: string): string {
   if (typeof value === 'string' && value.length > 0) return value;
   return fallback;
-}
-
-function hasToolApprovalContext(payload: Record<string, unknown>): boolean {
-  return nonEmpty(typeof payload.toolName === 'string' ? payload.toolName : undefined) !== undefined;
 }
 
 export function nonEmpty(value: string | undefined): string | undefined {
@@ -52,7 +49,8 @@ const TEMPLATES: Record<string, CopyTemplate> = {
     }
 
     const normalizedCode = requestCode.toUpperCase();
-    const instruction = hasToolApprovalContext(payload)
+    const instructionMode = resolveGuardianQuestionInstructionMode(payload);
+    const instruction = instructionMode === 'approval'
       ? `Reference code: ${normalizedCode}. Reply "${normalizedCode} approve" or "${normalizedCode} reject".`
       : `Reference code: ${normalizedCode}. Reply "${normalizedCode} <your answer>".`;
     return {

@@ -181,6 +181,7 @@ describe('ASK_GUARDIAN canonical notification path', () => {
     const payload = signalParams.contextPayload as Record<string, unknown>;
     expect(payload.questionText).toBe('What is the gate code?');
     expect(payload.callSessionId).toBe(session.id);
+    expect(payload.requestKind).toBe('pending_question');
     expect(payload.requestId).toBeDefined();
     expect(payload.requestCode).toBeDefined();
   });

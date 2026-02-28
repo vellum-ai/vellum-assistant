@@ -145,6 +145,7 @@ export function createOrReuseToolGrantRequest(
     },
     contextPayload: {
       requestId: canonicalRequest.id,
+      requestKind: canonicalRequest.kind,
       requestCode: canonicalRequest.requestCode,
       sourceChannel,
       requesterExternalUserId,
