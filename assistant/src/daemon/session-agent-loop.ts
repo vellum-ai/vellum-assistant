@@ -20,7 +20,7 @@ import { commitAppTurnChanges } from '../memory/app-git-service.js';
 import { getApp, listAppFiles } from '../memory/app-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getConversationOriginChannel, getConversationOriginInterface, provenanceFromGuardianContext } from '../memory/conversation-store.js';
-import { isReplaceableTitle, queueGenerateConversationTitle, queueRegenerateConversationTitle } from '../memory/conversation-title-service.js';
+import { GENERATING_TITLE, isReplaceableTitle, queueGenerateConversationTitle, queueRegenerateConversationTitle, UNTITLED_FALLBACK } from '../memory/conversation-title-service.js';
 import { stripMemoryRecallMessages } from '../memory/retriever.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { ContentBlock,Message } from '../providers/types.js';
@@ -210,6 +210,12 @@ export async function runAgentLoopImpl(
       if (!options?.skipPreMessageRollback) {
         ctx.messages.pop();
         conversationStore.deleteMessageById(userMessageId);
+      }
+      // Replace loading placeholder so the thread isn't stuck as "Generating title..."
+      const blockedConv = conversationStore.getConversation(ctx.conversationId);
+      if (blockedConv?.title === GENERATING_TITLE) {
+        conversationStore.updateConversationTitle(ctx.conversationId, UNTITLED_FALLBACK, 1);
+        onEvent({ type: 'session_title_updated', sessionId: ctx.conversationId, title: UNTITLED_FALLBACK });
       }
       onEvent({ type: 'error', message: `Message blocked by hook "${preMessageResult.blockedBy}"` });
       return;
