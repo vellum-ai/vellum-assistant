@@ -29,6 +29,7 @@ export interface CanonicalGuardianRequest {
   sourceChannel: string | null;
   conversationId: string | null;
   requesterExternalUserId: string | null;
+  requesterChatId: string | null;
   guardianExternalUserId: string | null;
   callSessionId: string | null;
   pendingQuestionId: string | null;
@@ -114,6 +115,7 @@ function rowToRequest(row: typeof canonicalGuardianRequests.$inferSelect): Canon
     sourceChannel: row.sourceChannel,
     conversationId: row.conversationId,
     requesterExternalUserId: row.requesterExternalUserId,
+    requesterChatId: row.requesterChatId,
     guardianExternalUserId: row.guardianExternalUserId,
     callSessionId: row.callSessionId,
     pendingQuestionId: row.pendingQuestionId,
@@ -156,6 +158,7 @@ export interface CreateCanonicalGuardianRequestParams {
   sourceChannel?: string;
   conversationId?: string;
   requesterExternalUserId?: string;
+  requesterChatId?: string;
   guardianExternalUserId?: string;
   callSessionId?: string;
   pendingQuestionId?: string;
@@ -182,6 +185,7 @@ export function createCanonicalGuardianRequest(params: CreateCanonicalGuardianRe
     sourceChannel: params.sourceChannel ?? null,
     conversationId: params.conversationId ?? null,
     requesterExternalUserId: params.requesterExternalUserId ?? null,
+    requesterChatId: params.requesterChatId ?? null,
     guardianExternalUserId: params.guardianExternalUserId ?? null,
     callSessionId: params.callSessionId ?? null,
     pendingQuestionId: params.pendingQuestionId ?? null,

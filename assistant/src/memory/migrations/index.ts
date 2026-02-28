@@ -59,6 +59,7 @@ export { migrateReminderRoutingIntent } from './118-reminder-routing-intent.js';
 export { migrateSchemaIndexesAndColumns } from './119-schema-indexes-and-columns.js';
 export { migrateFkCascadeRebuilds } from './120-fk-cascade-rebuilds.js';
 export { createCanonicalGuardianTables } from './121-canonical-guardian-requests.js';
+export { migrateCanonicalGuardianRequesterChatId } from './122-canonical-guardian-requester-chat-id.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

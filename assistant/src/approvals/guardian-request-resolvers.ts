@@ -276,7 +276,7 @@ const accessRequestResolver: GuardianRequestResolver = {
     const { request, decision, channelDeliveryContext } = ctx;
     const channel = request.sourceChannel ?? 'unknown';
     const requesterExternalUserId = request.requesterExternalUserId ?? '';
-    const requesterChatId = request.requesterExternalUserId ?? '';
+    const requesterChatId = request.requesterChatId ?? request.requesterExternalUserId ?? '';
     const decidedByExternalUserId = ctx.actor.externalUserId ?? '';
     const assistantId = channelDeliveryContext?.assistantId ?? 'self';
 

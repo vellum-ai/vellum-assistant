@@ -4,6 +4,7 @@ import {
   createAssistantInboxTables,
   createCallSessionsTables,
   createCanonicalGuardianTables,
+  migrateCanonicalGuardianRequesterChatId,
   createChannelGuardianTables,
   createContactsAndTriageTables,
   createConversationAttentionTables,
@@ -148,6 +149,9 @@ export function initializeDb(): void {
 
   // 24. Canonical guardian requests and deliveries (unified cross-source guardian domain)
   createCanonicalGuardianTables(database);
+
+  // 24b. Add requester_chat_id to canonical_guardian_requests (chat ID != user ID on some channels)
+  migrateCanonicalGuardianRequesterChatId(database);
 
   validateMigrationState(database);
 }

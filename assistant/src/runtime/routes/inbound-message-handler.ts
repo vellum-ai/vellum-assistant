@@ -1288,6 +1288,7 @@ function notifyGuardianOfAccessRequest(params: {
     sourceChannel,
     conversationId: `access-req-${sourceChannel}-${senderExternalUserId}`,
     requesterExternalUserId: senderExternalUserId,
+    requesterChatId: externalChatId,
     guardianExternalUserId: binding.guardianExternalUserId,
     toolName: 'ingress_access_request',
     questionText: `${senderIdentifier} is requesting access to the assistant`,

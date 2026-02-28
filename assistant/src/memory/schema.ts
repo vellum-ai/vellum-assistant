@@ -883,6 +883,7 @@ export const canonicalGuardianRequests = sqliteTable('canonical_guardian_request
   sourceChannel: text('source_channel'),
   conversationId: text('conversation_id'),
   requesterExternalUserId: text('requester_external_user_id'),
+  requesterChatId: text('requester_chat_id'),
   guardianExternalUserId: text('guardian_external_user_id'),
   callSessionId: text('call_session_id'),
   pendingQuestionId: text('pending_question_id'),
