@@ -10,7 +10,6 @@
  *   - tool_input_delta
  *   - tool_output_chunk
  *   - tool_result
- *   - message_request_complete (request-level terminal)
  *   - message_complete   (terminal)
  *   - generation_handoff (terminal)
  *   - generation_cancelled (terminal)
@@ -273,24 +272,6 @@ describe('SSE IPC parity — streaming/delta message types', () => {
     const event = await publishAndReadFrame('parity-message-complete-nosession', msg);
 
     expect(event.message.type).toBe('message_complete');
-  });
-
-  // ── message_request_complete (request-level terminal) ───────────────────
-
-  test('preserves message_request_complete payload', async () => {
-    const msg = {
-      type: 'message_request_complete' as const,
-      sessionId: 'conv-msg-request-complete',
-      requestId: 'req-123',
-      runStillActive: true,
-    };
-    const event = await publishAndReadFrame('parity-message-request-complete', msg);
-
-    expect(event.message.type).toBe('message_request_complete');
-    const m = event.message as typeof msg;
-    expect(m.sessionId).toBe('conv-msg-request-complete');
-    expect(m.requestId).toBe('req-123');
-    expect(m.runStillActive).toBe(true);
   });
 
   // ── generation_handoff (terminal) ────────────────────────────────────────

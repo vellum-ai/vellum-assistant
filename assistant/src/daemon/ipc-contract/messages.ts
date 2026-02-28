@@ -173,21 +173,6 @@ export interface MessageDequeued {
   requestId: string;
 }
 
-/**
- * Request-level terminal signal for a user message lifecycle.
- *
- * Unlike `message_complete`, this does not imply the active assistant turn
- * has completed. It is used for paths that consume a request inline while a
- * separate in-flight turn may still be running.
- */
-export interface MessageRequestComplete {
-  type: 'message_request_complete';
-  sessionId: string;
-  requestId: string;
-  /** True when an existing turn is still running after this request is finalized. */
-  runStillActive?: boolean;
-}
-
 export interface MessageQueuedDeleted {
   type: 'message_queued_deleted';
   sessionId: string;
@@ -256,7 +241,6 @@ export type _MessagesServerMessages =
   | SecretDetected
   | MessageQueued
   | MessageDequeued
-  | MessageRequestComplete
   | MessageQueuedDeleted
   | SuggestionResponse
   | TraceEvent;

@@ -2,26 +2,18 @@ import * as net from 'node:net';
 
 import { v4 as uuid } from 'uuid';
 
-import { createAssistantMessage, createUserMessage } from '../../agent/message-types.js';
 import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbnail } from '../../memory/attachments-store.js';
 import { getAttentionStateByConversationIds } from '../../memory/conversation-attention-store.js';
-import {
-  listCanonicalGuardianRequests,
-  listPendingCanonicalGuardianRequestsByDestinationConversation,
-} from '../../memory/canonical-guardian-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
-import { routeGuardianReply } from '../../runtime/guardian-reply-router.js';
-import * as pendingInteractions from '../../runtime/pending-interactions.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { compileCustomPatterns, redactSecrets } from '../../security/secret-scanner.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { truncate } from '../../util/truncate.js';
-import { createApprovalConversationGenerator } from '../approval-generators.js';
 import { getAssistantName } from '../identity-helpers.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
 import type {
@@ -63,8 +55,6 @@ import {
   renderHistoryContent,
   wireEscalationHandler,
 } from './shared.js';
-
-const desktopApprovalConversationGenerator = createApprovalConversationGenerator();
 
 export async function handleUserMessage(
   msg: UserMessage,
@@ -461,126 +451,8 @@ export async function handleUserMessage(
       }
     }
 
-    // If exactly one live turn is waiting on confirmation (no queued turns),
-    // try to consume this text as an inline approval decision first.
-    if (
-      session.hasAnyPendingConfirmation()
-      && session.getQueueDepth() === 0
-      && messageText.trim().length > 0
-    ) {
-      try {
-        const pendingInteractionRequestIdsForConversation = pendingInteractions
-          .getByConversation(msg.sessionId)
-          .filter((interaction) => interaction.kind === 'confirmation')
-          .map((interaction) => interaction.requestId);
-
-        const pendingCanonicalRequestIdsForConversation = Array.from(new Set([
-          ...pendingInteractionRequestIdsForConversation,
-          ...listPendingCanonicalGuardianRequestsByDestinationConversation(msg.sessionId, ipcChannel)
-            .filter((request) => request.kind === 'tool_approval')
-            .map((request) => request.id),
-          ...listCanonicalGuardianRequests({
-            status: 'pending',
-            conversationId: msg.sessionId,
-            kind: 'tool_approval',
-          }).map((request) => request.id),
-        ]));
-
-        if (pendingCanonicalRequestIdsForConversation.length > 0) {
-          const routerResult = await routeGuardianReply({
-            messageText: messageText.trim(),
-            channel: ipcChannel,
-            actor: {
-              externalUserId: undefined,
-              channel: ipcChannel,
-              isTrusted: true,
-            },
-            conversationId: msg.sessionId,
-            pendingRequestIds: pendingCanonicalRequestIdsForConversation,
-            approvalConversationGenerator: desktopApprovalConversationGenerator,
-          });
-
-          if (routerResult.consumed && routerResult.type !== 'nl_keep_pending') {
-            const consumedChannelMeta = {
-              userMessageChannel: ipcChannel,
-              assistantMessageChannel: ipcChannel,
-              userMessageInterface: ipcInterface,
-              assistantMessageInterface: ipcInterface,
-              provenanceActorRole: 'guardian' as const,
-            };
-
-            const consumedUserMessage = createUserMessage(messageText, msg.attachments ?? []);
-            await conversationStore.addMessage(
-              msg.sessionId,
-              'user',
-              JSON.stringify(consumedUserMessage.content),
-              consumedChannelMeta,
-            );
-
-            const replyText = (routerResult.replyText?.trim())
-              || (routerResult.decisionApplied ? 'Decision applied.' : 'Request already resolved.');
-            const consumedAssistantMessage = createAssistantMessage(replyText);
-            await conversationStore.addMessage(
-              msg.sessionId,
-              'assistant',
-              JSON.stringify(consumedAssistantMessage.content),
-              consumedChannelMeta,
-            );
-            // Avoid mutating in-memory history while an agent loop is active;
-            // the loop owns history reconstruction for the in-flight turn.
-            if (!session.isProcessing()) {
-              // Keep in-memory history aligned with persisted transcript so
-              // session-history operations (undo/regenerate) target the same turn.
-              session.messages.push(consumedUserMessage, consumedAssistantMessage);
-            }
-
-            // Mirror the normal queued/dequeued lifecycle so desktop clients can
-            // reconcile queued bubble state for this just-sent user message.
-            ctx.send(socket, {
-              type: 'message_queued',
-              sessionId: msg.sessionId,
-              requestId,
-              position: 0,
-            });
-            ctx.send(socket, {
-              type: 'message_dequeued',
-              sessionId: msg.sessionId,
-              requestId,
-            });
-
-            // Only emit the reply delta when no agent turn is in-flight.
-            // When the agent is active, currentAssistantMessageId on the client
-            // points to the agent's streaming message and this delta would
-            // contaminate it.  The reply is already persisted to the DB, so the
-            // client will see it on the next transcript reload / session switch.
-            if (!session.isProcessing()) {
-              ctx.send(socket, {
-                type: 'assistant_text_delta',
-                text: replyText,
-                sessionId: msg.sessionId,
-              });
-            }
-            ctx.send(socket, {
-              type: 'message_request_complete',
-              sessionId: msg.sessionId,
-              requestId,
-              runStillActive: session.isProcessing(),
-            });
-
-            rlog.info(
-              { routerType: routerResult.type, decisionApplied: routerResult.decisionApplied, routerRequestId: routerResult.requestId },
-              'Consumed pending-confirmation reply before auto-deny',
-            );
-            return;
-          }
-        }
-      } catch (err) {
-        rlog.warn({ err }, 'Failed to process pending-confirmation reply; falling back to auto-deny behavior');
-      }
-    }
-
     // If the session has a pending tool confirmation, auto-deny it so the
-    // agent can process the user's follow-up message instead. The agent
+    // agent can process the user's follow-up message instead.  The agent
     // will see the denial and can re-request the tool if still needed.
     if (session.hasAnyPendingConfirmation()) {
       rlog.info('Auto-denying pending confirmation(s) due to new user message');

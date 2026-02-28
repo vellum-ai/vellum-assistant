@@ -492,18 +492,6 @@ export async function startCli(): Promise<void> {
         break;
       }
 
-      case 'message_request_complete': {
-        // Request-level terminal for inline approval consumption.
-        // When no agent turn remains active, clear busy state and re-prompt.
-        if (msg.runStillActive === false) {
-          spinner.stop();
-          generating = false;
-          process.stdout.write('\n\n');
-          prompt();
-        }
-        break;
-      }
-
       case 'generation_handoff': {
         // The current request's generation is done; show usage and re-prompt.
         // Always clear `generating` — this CLI client's generation is finished

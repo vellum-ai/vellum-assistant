@@ -3026,20 +3026,6 @@ public struct IPCMessageDequeued: Codable, Sendable {
     }
 }
 
-public struct IPCMessageRequestComplete: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let requestId: String
-    public let runStillActive: Bool?
-
-    public init(type: String, sessionId: String, requestId: String, runStillActive: Bool? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.requestId = requestId
-        self.runStillActive = runStillActive
-    }
-}
-
 public struct IPCMessageQueued: Codable, Sendable {
     public let type: String
     public let sessionId: String
