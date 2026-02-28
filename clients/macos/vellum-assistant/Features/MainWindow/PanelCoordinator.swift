@@ -194,24 +194,18 @@ extension MainWindowView {
             } else {
                 // Loading state while waiting for daemon to send surface data
                 // via ui_surface_show in response to app_open_request.
-                VStack(spacing: VSpacing.md) {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.regular)
-                    Text("Loading app…")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textMuted)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(VColor.backgroundSubtle)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                .overlay(alignment: .topTrailing) {
-                    VIconButton(label: "Close", icon: "xmark", iconOnly: true) {
+                AppLoadingView(
+                    appId: {
+                        if case .app(let id) = windowState.selection { return id }
+                        return nil
+                    }(),
+                    onRetry: { appId in
+                        try? daemonClient.sendAppOpen(appId: appId)
+                    },
+                    onClose: {
                         windowState.closeDynamicPanel()
                     }
-                    .padding(VSpacing.lg)
-                }
+                )
             }
         case .appEditing:
             // VSplitView: ChatView (left) + workspace (right)
@@ -1035,6 +1029,77 @@ private struct PublishedButton: View {
         }
         .controlSize(.small)
         .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
+    }
+}
+
+// MARK: - App Loading View
+
+/// Shows a loading spinner while waiting for the daemon to send surface data,
+/// with a timeout that transitions to an error state so the user isn't stuck
+/// on an infinite spinner when the daemon fails to respond.
+private struct AppLoadingView: View {
+    let appId: String?
+    let onRetry: (String) -> Void
+    let onClose: () -> Void
+
+    private static let timeoutSeconds: UInt64 = 8
+
+    @State private var timedOut = false
+
+    var body: some View {
+        VStack(spacing: VSpacing.md) {
+            Spacer()
+            if timedOut {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundColor(VColor.warning)
+                Text("Failed to load app")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Text("The app didn't respond in time. It may be unavailable or still starting up.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 280)
+                HStack(spacing: VSpacing.sm) {
+                    if let appId {
+                        VButton(label: "Retry", icon: "arrow.clockwise", style: .secondary) {
+                            timedOut = false
+                            onRetry(appId)
+                        }
+                        .controlSize(.small)
+                    }
+                    VButton(label: "Close", style: .tertiary) {
+                        onClose()
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.top, VSpacing.xs)
+            } else {
+                ProgressView()
+                    .controlSize(.regular)
+                Text("Loading app\u{2026}")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(VColor.backgroundSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .overlay(alignment: .topTrailing) {
+            VIconButton(label: "Close", icon: "xmark", iconOnly: true) {
+                onClose()
+            }
+            .padding(VSpacing.lg)
+        }
+        .task(id: timedOut) {
+            guard !timedOut else { return }
+            try? await Task.sleep(nanoseconds: Self.timeoutSeconds * 1_000_000_000)
+            if !Task.isCancelled {
+                timedOut = true
+            }
+        }
     }
 }
 
