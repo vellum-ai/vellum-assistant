@@ -119,7 +119,8 @@ export function redeemInvite(params: {
     // Sentinel error used to trigger a transaction rollback when the invite
     // was concurrently revoked/expired between pre-validation and write time.
     const STALE_INVITE = Symbol('stale_invite');
-    const preservedDisplayName = existingMember.displayName?.trim().length
+    const memberMatchesSender = existingMember.externalUserId === externalUserId;
+    const preservedDisplayName = memberMatchesSender && existingMember.displayName?.trim().length
       ? existingMember.displayName
       : displayName;
 

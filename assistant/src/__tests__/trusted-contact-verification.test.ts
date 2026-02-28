@@ -224,7 +224,9 @@ describe('trusted contact verification → member activation', () => {
     });
 
     // The member record returned by findMember matched on chatId but belongs
-    // to a different user, so member metadata should NOT be used.
+    // to a different user, so member metadata should NOT be used and trust
+    // should NOT be elevated to trusted_contact.
+    expect(trust.trustClass).toBe('unknown');
     expect(trust.actorMetadata.displayName).toBe('Actual Sender');
     expect(trust.actorMetadata.senderDisplayName).toBe('Actual Sender');
     expect(trust.actorMetadata.memberDisplayName).toBeUndefined();

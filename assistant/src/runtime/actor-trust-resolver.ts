@@ -162,7 +162,7 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
   let trustClass: TrustClass;
   if (isGuardian) {
     trustClass = 'guardian';
-  } else if (memberRecord && memberRecord.status === 'active') {
+  } else if (memberMatchesSender && memberRecord && memberRecord.status === 'active') {
     trustClass = 'trusted_contact';
   } else {
     trustClass = 'unknown';

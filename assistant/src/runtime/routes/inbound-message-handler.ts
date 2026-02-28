@@ -783,7 +783,8 @@ export async function handleChannelInbound(
           externalChatId,
         })
         : null;
-      const preservedDisplayName = existingMember?.displayName?.trim().length
+      const memberMatchesSender = existingMember?.externalUserId === (canonicalSenderId ?? rawSenderId);
+      const preservedDisplayName = memberMatchesSender && existingMember?.displayName?.trim().length
         ? existingMember.displayName
         : body.senderName;
 
