@@ -17,7 +17,8 @@ import { setupFixture, type FixtureContext } from "../agent/fixtures";
 
 // ── Markdown Parsing ────────────────────────────────────────────────
 
-function parseFrontmatter(content: string): { fixture?: string; body: string } {
+// `required_env` accepts comma-separated env var names (e.g. "FOO, BAR")
+function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: string[]; body: string } {
   const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!frontmatterMatch) {
     return { body: content };
@@ -26,15 +27,20 @@ function parseFrontmatter(content: string): { fixture?: string; body: string } {
   const frontmatterBlock = frontmatterMatch[1];
   const body = frontmatterMatch[2];
   let fixture: string | undefined;
+  let requiredEnv: string[] | undefined;
 
   for (const line of frontmatterBlock.split("\n")) {
     const [key, ...valueParts] = line.split(":");
-    if (key.trim() === "fixture") {
-      fixture = valueParts.join(":").trim();
+    const trimmedKey = key.trim();
+    const value = valueParts.join(":").trim();
+    if (trimmedKey === "fixture") {
+      fixture = value;
+    } else if (trimmedKey === "required_env") {
+      requiredEnv = value.split(",").map((v) => v.trim()).filter(Boolean);
     }
   }
 
-  return { fixture, body };
+  return { fixture, requiredEnv, body };
 }
 
 // ── macOS Screen Recording ──────────────────────────────────────────
@@ -71,10 +77,18 @@ const caseFiles = readdirSync(casesDir).filter((f) => f.endsWith(".md"));
 for (const file of caseFiles) {
   const filePath = path.join(casesDir, file);
   const rawContent = readFileSync(filePath, "utf-8");
-  const { fixture, body } = parseFrontmatter(rawContent);
+  const { fixture, requiredEnv, body } = parseFrontmatter(rawContent);
   const testName = file.replace(/\.md$/, "");
 
   test(testName, async ({ page }, testInfo) => {
+    // Skip when required env vars are missing
+    if (requiredEnv && requiredEnv.length > 0) {
+      const missing = requiredEnv.filter((v) => !process.env[v]);
+      if (missing.length > 0) {
+        test.skip(true, `Missing required env vars: ${missing.join(", ")}`);
+      }
+    }
+
     let fixtureCtx: FixtureContext | undefined;
     let recorder: ChildProcess | undefined;
 
