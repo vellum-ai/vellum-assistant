@@ -525,8 +525,12 @@ struct QRPairingSheet: View {
 
         // Persist the actor token received during pairing so subsequent HTTP
         // requests include the X-Actor-Token header immediately.
+        // When re-pairing to an assistant that omits the token, clear the
+        // previous value so the old credential is never sent to the new gateway.
         if let actorToken = actorToken, !actorToken.isEmpty {
             ActorTokenManager.setToken(actorToken)
+        } else {
+            ActorTokenManager.deleteToken()
         }
 
         // Generate conversation key if missing
