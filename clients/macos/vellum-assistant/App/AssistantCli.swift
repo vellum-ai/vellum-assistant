@@ -442,9 +442,6 @@ final class AssistantCli {
 
         proc.environment = env
 
-        try proc.run()
-        log.info("CLI remote hatch launched with pid \(proc.processIdentifier)")
-
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
@@ -470,12 +467,20 @@ final class AssistantCli {
             }
         }
 
-        proc.waitUntilExit()
+        try proc.run()
+        log.info("CLI remote hatch launched with pid \(proc.processIdentifier)")
 
-        stdoutHandle.readabilityHandler = nil
-        stderrHandle.readabilityHandler = nil
+        // Use terminationHandler + continuation instead of waitUntilExit()
+        // so the MainActor is suspended (not blocked), allowing queued
+        // onOutput callbacks to update the UI while the process runs.
+        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
+            proc.terminationHandler = { finished in
+                stdoutHandle.readabilityHandler = nil
+                stderrHandle.readabilityHandler = nil
+                continuation.resume(returning: finished.terminationStatus)
+            }
+        }
 
-        let status = proc.terminationStatus
         if status != 0 {
             log.error("CLI remote hatch failed with exit code \(status)")
             throw CLIError.executionFailed("Hatch process exited with code \(status)")
@@ -536,12 +541,14 @@ final class AssistantCli {
             if !trimmed.isEmpty { onOutput(trimmed) }
         }
 
-        proc.waitUntilExit()
+        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
+            proc.terminationHandler = { finished in
+                stdoutHandle.readabilityHandler = nil
+                stderrHandle.readabilityHandler = nil
+                continuation.resume(returning: finished.terminationStatus)
+            }
+        }
 
-        stdoutHandle.readabilityHandler = nil
-        stderrHandle.readabilityHandler = nil
-
-        let status = proc.terminationStatus
         if status != 0 {
             log.error("CLI pair failed with exit code \(status)")
             throw CLIError.executionFailed("Pair process exited with code \(status)")

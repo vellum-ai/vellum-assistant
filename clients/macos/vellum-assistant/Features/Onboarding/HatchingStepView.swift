@@ -193,7 +193,7 @@ struct HatchingStepView: View {
             anthropicApiKey: apiKey
         )
 
-        Task.detached { [config] in
+        Task {
             do {
                 try await cliLauncher.runRemoteHatch(config: config) { line in
                     Task { @MainActor in
@@ -205,14 +205,10 @@ struct HatchingStepView: View {
                         }
                     }
                 }
-                await MainActor.run {
-                    state.hatchCompleted = true
-                }
+                state.hatchCompleted = true
             } catch {
-                await MainActor.run {
-                    state.hatchLogLines.append("Error: \(error.localizedDescription)")
-                    state.hatchFailed = true
-                }
+                state.hatchLogLines.append("Error: \(error.localizedDescription)")
+                state.hatchFailed = true
             }
         }
     }
