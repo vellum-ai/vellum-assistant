@@ -28,7 +28,6 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/genai": "^1.40.0",
     "@modelcontextprotocol/sdk": "^1.15.1",
-    "@huggingface/transformers": "^3.8.1",
     "@qdrant/js-client-rest": "^1.16.2",
     "@sentry/node": "^10.38.0",
     "agentmail": "^0.1.0",
@@ -68,6 +67,7 @@
     "quicktype-core": "^23.2.6",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.54.0",
-    "typescript-json-schema": "^0.67.1"
+    "typescript-json-schema": "^0.67.1",
+    "@huggingface/transformers": "^3.8.1"
   }
 }

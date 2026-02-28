@@ -103,9 +103,9 @@ CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 
 # Packages that must stay external in the compiled daemon binary. Native
-# modules (.node/.dylib) can't be embedded, and @huggingface/transformers
-# plus its JS deps are pre-bundled into transformers-bundle.mjs separately.
-DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external onnxruntime-node --external @huggingface/transformers --external sharp --external onnxruntime-web --external onnxruntime-common)
+# modules (.node/.dylib) can't be embedded. Embedding runtime (onnxruntime-node,
+# @huggingface/transformers) is downloaded post-hatch by EmbeddingRuntimeManager.
+DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
 
 # ---------------------------------------------------------------------------
 # build_bun_binary — compile a TypeScript project to a native binary via Bun.
@@ -161,37 +161,10 @@ build_binaries() {
     # Copy WASM assets (not bundled by bun --compile)
     cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
     cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
-    # Copy onnxruntime-node package (native .node/.dylib can't be embedded in compiled binary;
-    # --external makes the compiled binary resolve it via node_modules/ at runtime).
-    # Wipe the entire node_modules to remove stale packages from previous builds.
+    # Embedding runtime (onnxruntime-node + @huggingface/transformers) is no longer
+    # shipped with the app. It's downloaded post-hatch by EmbeddingRuntimeManager
+    # into ~/.vellum/workspace/embedding-models/.
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules"
-    mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules"
-    cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/"
-    cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-common" "$SCRIPT_DIR/daemon-bin/node_modules/"
-    # Strip non-runtime files to reduce bundle size (source, docs, sourcemaps, type declarations)
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/script"
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/lib"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/README.md"
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common/lib"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common/README.md"
-    find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
-    # Strip non-native-platform binaries to save space (keep all darwin archs —
-    # uname -m is unreliable under Rosetta, returning x86_64 on Apple Silicon)
-    local onnx_bin="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/bin/napi-v3"
-    if [ -d "$onnx_bin" ]; then
-        find "$onnx_bin" -mindepth 1 -maxdepth 1 -not -name darwin -exec rm -rf {} +
-    fi
-    # Pre-bundle @huggingface/transformers + all JS deps (onnxruntime-common, sharp,
-    # detect-libc, etc.) into a single file. This avoids Bun compiled binary bugs
-    # with subdirectory entry points and CJS/ESM dual-instance issues.
-    # Native .node binaries are left external. The bundle is placed inside
-    # onnxruntime-node/dist/ so native binary relative paths resolve correctly.
-    echo 'export * from "@huggingface/transformers";' > "$ASSISTANT_SRC_DIR/_bundle-entry.js"
-    bun build "$ASSISTANT_SRC_DIR/_bundle-entry.js" \
-        --outfile "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/dist/transformers-bundle.mjs" \
-        --target node --format esm --external "*.node"
-    rm -f "$ASSISTANT_SRC_DIR/_bundle-entry.js"
-    find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
     # Copy bundled skills
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
@@ -335,31 +308,9 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${local_daemon_flags[@]}"
     cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
     cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
-    # Copy onnxruntime-node package (native .node/.dylib can't be embedded in compiled binary).
-    # Wipe the entire node_modules to remove stale packages from previous builds.
+    # Embedding runtime (onnxruntime-node + @huggingface/transformers) is no longer
+    # shipped with the app. It's downloaded post-hatch by EmbeddingRuntimeManager.
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules"
-    mkdir -p "$SCRIPT_DIR/daemon-bin/node_modules"
-    cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-node" "$SCRIPT_DIR/daemon-bin/node_modules/"
-    cp -R "$ASSISTANT_SRC_DIR/node_modules/onnxruntime-common" "$SCRIPT_DIR/daemon-bin/node_modules/"
-    # Strip non-runtime files to reduce bundle size (source, docs, sourcemaps, type declarations)
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/script"
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/lib"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/README.md"
-    rm -rf "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common/lib"
-    rm -f  "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-common/README.md"
-    find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
-    # Strip non-native-platform binaries (keep all darwin archs — uname -m unreliable under Rosetta)
-    onnx_bin="$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/bin/napi-v3"
-    if [ -d "$onnx_bin" ]; then
-        find "$onnx_bin" -mindepth 1 -maxdepth 1 -not -name darwin -exec rm -rf {} +
-    fi
-    # Pre-bundle @huggingface/transformers + all JS deps into a single file
-    echo 'export * from "@huggingface/transformers";' > "$ASSISTANT_SRC_DIR/_bundle-entry.js"
-    bun build "$ASSISTANT_SRC_DIR/_bundle-entry.js" \
-        --outfile "$SCRIPT_DIR/daemon-bin/node_modules/onnxruntime-node/dist/transformers-bundle.mjs" \
-        --target node --format esm --external "*.node"
-    rm -f "$ASSISTANT_SRC_DIR/_bundle-entry.js"
-    find "$SCRIPT_DIR/daemon-bin/node_modules" \( -name "*.ts" -o -name "*.map" -o -name "*.d.ts" \) -delete 2>/dev/null || true
 fi
 
 # Always refresh bundled skills from source (skill assets like SKILL.md aren't
@@ -461,11 +412,8 @@ if [ "$NEEDS_REBUILD" = true ]; then
         for wasm in "$SCRIPT_DIR/daemon-bin/"*.wasm; do
             [ -f "$wasm" ] && cp "$wasm" "$RESOURCES_DIR/"
         done
-        # Bundle externalized node_modules (onnxruntime + pre-bundled transformers)
-        if [ -d "$SCRIPT_DIR/daemon-bin/node_modules" ]; then
-            rm -rf "$MACOS_DIR/node_modules"
-            cp -R "$SCRIPT_DIR/daemon-bin/node_modules" "$MACOS_DIR/node_modules"
-        fi
+        # Embedding runtime is now downloaded post-hatch (no bundled node_modules)
+        rm -rf "$MACOS_DIR/node_modules"
     else
         echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
     fi
@@ -757,18 +705,7 @@ if [ -f "$MACOS_DIR/vellum-gateway" ]; then
     echo "Gateway binary signed"
 fi
 
-# Sign all files in bundled node_modules (must sign before daemon binary).
-# codesign treats everything under Contents/MacOS/ as code objects, so all
-# files — native binaries, JS, JSON, etc. — must carry a valid signature.
-if [ -d "$MACOS_DIR/node_modules" ]; then
-    NATIVE_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        NATIVE_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
-    find "$MACOS_DIR/node_modules" -type f -exec \
-        codesign "${NATIVE_SIGN_FLAGS[@]}" {} \;
-    echo "Bundled node_modules signed"
-fi
+# Embedding runtime node_modules are no longer bundled (downloaded post-hatch).
 
 # Sign any additional regular files directly under Contents/MacOS.
 # This protects against future unsigned loose files in incremental dev builds.

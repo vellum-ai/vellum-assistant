@@ -122,6 +122,15 @@ export function getDataDir(): string {
 }
 
 /**
+ * Returns the embedding models directory (~/.vellum/workspace/embedding-models).
+ * Downloaded embedding runtime (onnxruntime-node, transformers bundle, model weights)
+ * is stored here, downloaded post-hatch rather than shipped with the app.
+ */
+export function getEmbeddingModelsDir(): string {
+  return join(getWorkspaceDir(), 'embedding-models');
+}
+
+/**
  * Returns the IPC blob directory (~/.vellum/workspace/data/ipc-blobs).
  * Temporary blob files for zero-copy IPC payloads live here.
  */
@@ -357,6 +366,7 @@ export function ensureDataDir(): void {
     workspace,
     join(workspace, 'hooks'),
     join(workspace, 'skills'),
+    join(workspace, 'embedding-models'),
     // Data sub-dirs under workspace
     wsData,
     join(wsData, 'db'),

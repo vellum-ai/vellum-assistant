@@ -377,6 +377,22 @@ export async function runDaemon(): Promise<void> {
       socketPath: getSocketPath(),
     });
 
+    // Download embedding runtime in background (non-blocking).
+    // If download fails, local embeddings gracefully fall back to cloud backends.
+    void (async () => {
+      try {
+        const { EmbeddingRuntimeManager } = await import('../memory/embedding-runtime-manager.js');
+        const runtimeManager = new EmbeddingRuntimeManager();
+        if (!runtimeManager.isReady()) {
+          log.info('Downloading embedding runtime in background...');
+          await runtimeManager.ensureInstalled();
+          log.info('Embedding runtime download complete');
+        }
+      } catch (err) {
+        log.warn({ err }, 'Embedding runtime download failed — local embeddings will use cloud fallback');
+      }
+    })();
+
     if (config.auditLog.retentionDays > 0) {
       try {
         rotateToolInvocations(config.auditLog.retentionDays);
