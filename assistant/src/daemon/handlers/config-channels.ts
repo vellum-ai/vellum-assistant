@@ -17,7 +17,7 @@ import {
   resendOutbound,
   startOutbound,
 } from '../../runtime/guardian-outbound-actions.js';
-import { normalizeAssistantId } from '../../util/platform.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
 import type {
   ChannelReadinessRequest,
   GuardianVerificationRequest,
@@ -64,7 +64,7 @@ export function createGuardianChallenge(
   rebind?: boolean,
   sessionId?: string,
 ): GuardianVerificationResult {
-  const resolvedAssistantId = normalizeAssistantId(assistantId ?? 'self');
+  const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? 'telegram';
 
   const existingBinding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
@@ -91,7 +91,7 @@ export function getGuardianStatus(
   channel?: ChannelId,
   assistantId?: string,
 ): GuardianVerificationResult {
-  const resolvedAssistantId = normalizeAssistantId(assistantId ?? 'self');
+  const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? 'telegram';
 
   const binding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
@@ -161,9 +161,7 @@ export function handleGuardianVerification(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  // Normalize the assistant ID so challenges are always stored under the
-  // same key the inbound-call path will use for lookups (typically "self").
-  const assistantId = normalizeAssistantId(msg.assistantId ?? 'self');
+  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const channel = msg.channel ?? 'telegram';
 
   try {

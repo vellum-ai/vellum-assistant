@@ -31,7 +31,7 @@ import { redeemVoiceInviteCode } from '../runtime/ingress-service.js';
 import { findActiveVoiceInvites } from '../memory/ingress-invite-store.js';
 import { parseJsonSafe } from '../util/json.js';
 import { getLogger } from '../util/logger.js';
-import { normalizeAssistantId } from '../util/platform.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { CallController } from './call-controller.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
@@ -427,7 +427,7 @@ export class RelayConnection {
     // calls (created via createInboundVoiceSession) never do. Relying on
     // task == null is unreliable: task-less outbound sessions would
     // incorrectly bypass outbound verification.
-    const assistantId = normalizeAssistantId(session?.assistantId ?? 'self');
+    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     const isInbound = session?.initiatedFromConversationId == null;
 
     // Create and attach the session-backed voice controller. Seed guardian
