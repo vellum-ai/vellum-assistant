@@ -1346,11 +1346,12 @@ interface BackgroundProcessingParams {
 const TELEGRAM_TYPING_INTERVAL_MS = 4_000;
 const PENDING_APPROVAL_POLL_INTERVAL_MS = 300;
 
-// Module-level set tracking which approval requestIds have already been
-// notified to trusted contacts. Since requestIds are globally unique, a flat
-// set suffices. Entries are cleaned up when the notifier detects the request
-// has been resolved (no longer pending).
-const globalNotifiedApprovalRequestIds = new Set<string>();
+// Module-level map tracking which approval requestIds have already been
+// notified to trusted contacts. Maps requestId -> conversationId so that
+// cleanup can be scoped to the owning conversation's poller, preventing
+// concurrent pollers from different conversations from evicting each
+// other's entries.
+const globalNotifiedApprovalRequestIds = new Map<string, string>();
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1549,19 +1550,20 @@ function startTrustedContactApprovalNotifier(params: {
         const pending = getApprovalInfoByConversation(conversationId);
         const info = pending[0];
 
-        // Clean up resolved requests from the module-level dedupe set.
-        // Pending request IDs that were previously notified but are no longer
-        // in the pending list have been resolved — remove them so they don't
-        // accumulate indefinitely.
+        // Clean up resolved requests from the module-level dedupe map.
+        // Only remove entries that belong to THIS conversation — other
+        // conversations' pollers own their own entries. Without this
+        // scoping, concurrent pollers would evict each other's request
+        // IDs and cause duplicate notifications.
         const currentPendingIds = new Set(pending.map(p => p.requestId));
-        for (const rid of globalNotifiedApprovalRequestIds) {
-          if (!currentPendingIds.has(rid)) {
+        for (const [rid, cid] of globalNotifiedApprovalRequestIds) {
+          if (cid === conversationId && !currentPendingIds.has(rid)) {
             globalNotifiedApprovalRequestIds.delete(rid);
           }
         }
 
         if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
-          globalNotifiedApprovalRequestIds.add(info.requestId);
+          globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
           const guardianName = resolveGuardianDisplayName(
             assistantId ?? 'self',
             sourceChannel,

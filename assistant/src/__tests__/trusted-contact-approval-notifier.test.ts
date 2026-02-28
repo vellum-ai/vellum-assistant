@@ -137,6 +137,10 @@ import type { GuardianContext } from '../runtime/guardian-context-resolver.js';
 /**
  * Simulates the core logic of the trusted-contact approval notifier.
  * This mirrors the implementation in inbound-message-handler.ts.
+ *
+ * Uses a Map<requestId, conversationId> for deduplication so that cleanup
+ * is scoped to the owning conversation — concurrent pollers for different
+ * conversations will not evict each other's entries.
  */
 async function simulateNotifierPoll(params: {
   conversationId: string;
@@ -147,9 +151,10 @@ async function simulateNotifierPoll(params: {
   replyCallbackUrl: string;
   bearerToken?: string;
   assistantId?: string;
-  notifiedRequestIds: Set<string>;
+  notifiedRequestIds: Map<string, string>;
 }): Promise<boolean> {
   const {
+    conversationId,
     guardianTrustClass,
     guardianExternalUserId,
     notifiedRequestIds,
@@ -166,11 +171,20 @@ async function simulateNotifierPoll(params: {
 
   const pending = getApprovalInfoByConversation(params.conversationId);
   const info = pending[0];
+
+  // Clean up resolved requests — only for THIS conversation's entries.
+  const currentPendingIds = new Set(pending.map(p => p.requestId));
+  for (const [rid, cid] of notifiedRequestIds) {
+    if (cid === conversationId && !currentPendingIds.has(rid)) {
+      notifiedRequestIds.delete(rid);
+    }
+  }
+
   if (!info || notifiedRequestIds.has(info.requestId)) {
     return false;
   }
 
-  notifiedRequestIds.add(info.requestId);
+  notifiedRequestIds.set(info.requestId, conversationId);
 
   // Resolve guardian name
   let guardianName: string | undefined;
@@ -238,7 +252,7 @@ describe('trusted-contact pending-approval notifier', () => {
       metadataJson: JSON.stringify({ displayName: 'Mom' }),
     };
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     const sent = await simulateNotifierPoll({
       conversationId: 'conv-1',
       sourceChannel: 'telegram',
@@ -271,7 +285,7 @@ describe('trusted-contact pending-approval notifier', () => {
       metadataJson: JSON.stringify({ username: 'guardian_user' }),
     };
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     await simulateNotifierPoll({
       conversationId: 'conv-1',
       sourceChannel: 'telegram',
@@ -300,7 +314,7 @@ describe('trusted-contact pending-approval notifier', () => {
       metadataJson: null,
     };
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     await simulateNotifierPoll({
       conversationId: 'conv-1',
       sourceChannel: 'telegram',
@@ -325,7 +339,7 @@ describe('trusted-contact pending-approval notifier', () => {
 
     mockGuardianBinding = null;
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     await simulateNotifierPoll({
       conversationId: 'conv-1',
       sourceChannel: 'telegram',
@@ -353,7 +367,7 @@ describe('trusted-contact pending-approval notifier', () => {
       metadataJson: JSON.stringify({ displayName: 'Guardian' }),
     };
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     const baseParams = {
       conversationId: 'conv-1',
       sourceChannel: 'telegram' as ChannelId,
@@ -381,7 +395,7 @@ describe('trusted-contact pending-approval notifier', () => {
       metadataJson: JSON.stringify({ displayName: 'Guardian' }),
     };
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     const baseParams = {
       conversationId: 'conv-1',
       sourceChannel: 'telegram' as ChannelId,
@@ -413,6 +427,71 @@ describe('trusted-contact pending-approval notifier', () => {
     expect(deliveredReplies).toHaveLength(2);
   });
 
+  test('concurrent pollers for different conversations do not evict each other', async () => {
+    mockGuardianBinding = {
+      id: 'binding-1',
+      metadataJson: JSON.stringify({ displayName: 'Guardian' }),
+    };
+
+    // Shared dedupe map simulating the module-level global
+    const notified = new Map<string, string>();
+
+    // Conversation A gets a pending approval and notifies
+    mockPendingApprovals = [{
+      requestId: 'req-convA',
+      toolName: 'bash',
+      input: {},
+      riskLevel: 'medium',
+    }];
+    const sentA = await simulateNotifierPoll({
+      conversationId: 'conv-A',
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-A',
+      guardianTrustClass: 'trusted_contact',
+      guardianExternalUserId: 'guardian-1',
+      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      notifiedRequestIds: notified,
+    });
+    expect(sentA).toBe(true);
+    expect(deliveredReplies).toHaveLength(1);
+
+    // Conversation B polls with no pending approvals — its cleanup must
+    // NOT evict conv-A's entry from the shared map.
+    mockPendingApprovals = [];
+    await simulateNotifierPoll({
+      conversationId: 'conv-B',
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-B',
+      guardianTrustClass: 'trusted_contact',
+      guardianExternalUserId: 'guardian-1',
+      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      notifiedRequestIds: notified,
+    });
+
+    // req-convA should still be in the notified map (not evicted by conv-B)
+    expect(notified.has('req-convA')).toBe(true);
+
+    // Re-poll conversation A with the same pending approval — should NOT
+    // re-send because the entry was preserved.
+    mockPendingApprovals = [{
+      requestId: 'req-convA',
+      toolName: 'bash',
+      input: {},
+      riskLevel: 'medium',
+    }];
+    const sentA2 = await simulateNotifierPoll({
+      conversationId: 'conv-A',
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-A',
+      guardianTrustClass: 'trusted_contact',
+      guardianExternalUserId: 'guardian-1',
+      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      notifiedRequestIds: notified,
+    });
+    expect(sentA2).toBe(false);
+    expect(deliveredReplies).toHaveLength(1); // Still just 1 — no duplicate
+  });
+
   test('does not activate for guardian actors', async () => {
     mockPendingApprovals = [{
       requestId: 'req-6',
@@ -421,7 +500,7 @@ describe('trusted-contact pending-approval notifier', () => {
       riskLevel: 'medium',
     }];
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     const sent = await simulateNotifierPoll({
       conversationId: 'conv-1',
       sourceChannel: 'telegram',
@@ -444,7 +523,7 @@ describe('trusted-contact pending-approval notifier', () => {
       riskLevel: 'medium',
     }];
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     const sent = await simulateNotifierPoll({
       conversationId: 'conv-1',
       sourceChannel: 'telegram',
@@ -466,7 +545,7 @@ describe('trusted-contact pending-approval notifier', () => {
       riskLevel: 'medium',
     }];
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     const sent = await simulateNotifierPoll({
       conversationId: 'conv-1',
       sourceChannel: 'telegram',
@@ -494,7 +573,7 @@ describe('trusted-contact pending-approval notifier', () => {
       metadataJson: JSON.stringify({ displayName: 'Guardian' }),
     };
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     const baseParams = {
       conversationId: 'conv-1',
       sourceChannel: 'telegram' as ChannelId,
@@ -522,7 +601,7 @@ describe('trusted-contact pending-approval notifier', () => {
   test('does not send when no pending approvals exist', async () => {
     mockPendingApprovals = [];
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     const sent = await simulateNotifierPoll({
       conversationId: 'conv-1',
       sourceChannel: 'telegram',
@@ -553,7 +632,7 @@ describe('trusted-contact pending-approval notifier', () => {
       }),
     };
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     await simulateNotifierPoll({
       conversationId: 'conv-1',
       sourceChannel: 'telegram',
@@ -581,7 +660,7 @@ describe('trusted-contact pending-approval notifier', () => {
       metadataJson: 'not-valid-json{{{',
     };
 
-    const notified = new Set<string>();
+    const notified = new Map<string, string>();
     await simulateNotifierPoll({
       conversationId: 'conv-1',
       sourceChannel: 'telegram',
