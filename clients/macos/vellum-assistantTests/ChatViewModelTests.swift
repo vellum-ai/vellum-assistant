@@ -764,6 +764,146 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(messageBAfterComplete.status, .sent, "Message B should be .sent after messageComplete, not .processing")
     }
 
+    func testProcessingStatusResetToSentOnMessageRequestComplete() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+
+        let messageBAfterDequeue = viewModel.messages.first(where: { $0.text == "Message B" })!
+        XCTAssertEqual(messageBAfterDequeue.status, .processing)
+        XCTAssertTrue(viewModel.isSending)
+        XCTAssertTrue(viewModel.isThinking)
+
+        viewModel.handleServerMessage(
+            .messageRequestComplete(
+                MessageRequestCompleteMessage(
+                    sessionId: "sess-1",
+                    requestId: "req-B",
+                    runStillActive: false
+                )
+            )
+        )
+
+        let messageBAfterComplete = viewModel.messages.first(where: { $0.text == "Message B" })!
+        XCTAssertEqual(messageBAfterComplete.status, .sent, "Message B should be .sent after messageRequestComplete")
+        XCTAssertFalse(viewModel.isSending, "isSending should clear when request completed and no run remains active")
+        XCTAssertFalse(viewModel.isThinking, "isThinking should clear when request completed and no run remains active")
+    }
+
+    func testMessageRequestCompleteKeepsBusyStateWhenRunStillActive() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+
+        viewModel.handleServerMessage(
+            .messageRequestComplete(
+                MessageRequestCompleteMessage(
+                    sessionId: "sess-1",
+                    requestId: "req-B",
+                    runStillActive: true
+                )
+            )
+        )
+
+        let messageBAfterComplete = viewModel.messages.first(where: { $0.text == "Message B" })!
+        XCTAssertEqual(messageBAfterComplete.status, .sent, "Message B should be finalized even while another run remains active")
+        XCTAssertTrue(viewModel.isSending, "isSending should stay true while runStillActive is true")
+        XCTAssertTrue(viewModel.isThinking, "isThinking should stay true while runStillActive is true")
+    }
+
+    func testMessageRequestCompleteFinalizesAssistantStream() {
+        // Simulates the inline approval flow: message_queued → message_dequeued →
+        // assistant_text_delta("Decision applied.") → message_request_complete.
+        // The handler must flush the streaming buffer and finalize the assistant
+        // message so it doesn't remain stuck in isStreaming state.
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.inputText = "approve"
+        viewModel.sendMessage()
+
+        // Simulate queued/dequeued lifecycle for the approval message
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-approve", position: 0)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-approve")))
+
+        // Server sends the reply text as assistant_text_delta (buffered, not yet flushed)
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Decision applied.")))
+
+        // Now message_request_complete arrives with runStillActive=false.
+        // The handler calls flushStreamingBuffer() which creates the assistant
+        // message from the buffered delta, then finalizes it.
+        viewModel.handleServerMessage(
+            .messageRequestComplete(
+                MessageRequestCompleteMessage(
+                    sessionId: "sess-1",
+                    requestId: "req-approve",
+                    runStillActive: false
+                )
+            )
+        )
+
+        // The assistant message should exist and be finalized (not streaming)
+        let finalizedMsg = viewModel.messages.last(where: { $0.role == .assistant })
+        XCTAssertNotNil(finalizedMsg, "assistant message should exist after messageRequestComplete flushes buffer")
+        XCTAssertFalse(finalizedMsg!.isStreaming, "assistant message should not be streaming after messageRequestComplete")
+        // currentAssistantMessageId should be cleared so subsequent deltas don't append here
+        XCTAssertFalse(viewModel.isSending, "isSending should clear when no run is active")
+        XCTAssertFalse(viewModel.isThinking, "isThinking should clear when no run is active")
+    }
+
+    func testMessageRequestCompletePreservesAgentStreamWhenRunStillActive() {
+        // When runStillActive=true, the agent's in-flight assistant message
+        // must NOT be finalized — the agent still owns currentAssistantMessageId.
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+
+        // Agent starts responding (sets currentAssistantMessageId via buffer flush)
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Agent is working...")))
+        viewModel.flushStreamingBuffer()
+
+        let agentMsg = viewModel.messages.last(where: { $0.role == .assistant })
+        XCTAssertNotNil(agentMsg, "flush should create the agent's assistant message")
+        let agentMsgId = agentMsg!.id
+
+        // Now an inline approval arrives while the agent is still running
+        viewModel.inputText = "approve"
+        viewModel.sendMessage()
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-approve", position: 0)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-approve")))
+
+        // Server does NOT send assistant_text_delta (gated on isProcessing on server side)
+        // message_request_complete with runStillActive=true
+        viewModel.handleServerMessage(
+            .messageRequestComplete(
+                MessageRequestCompleteMessage(
+                    sessionId: "sess-1",
+                    requestId: "req-approve",
+                    runStillActive: true
+                )
+            )
+        )
+
+        // Agent's assistant message should still exist and not be finalized
+        let agentMsgAfter = viewModel.messages.first(where: { $0.id == agentMsgId })
+        XCTAssertNotNil(agentMsgAfter, "agent message should still exist")
+        XCTAssertTrue(viewModel.isSending, "isSending should stay true while agent is active")
+    }
+
     func testProcessingStatusResetToSentOnGenerationCancelled() {
         viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
         viewModel.inputText = "Message A"
