@@ -151,6 +151,7 @@ struct SettingsAdvancedDevTab: View {
                     }
                 }
             ))
+            .accessibilityLabel(flag.displayName)
         }
     }
 
@@ -191,6 +192,7 @@ struct SettingsAdvancedDevTab: View {
                                 MacOSClientFeatureFlagManager.shared.setOverride(entry.key, enabled: newValue)
                             }
                         ))
+                        .accessibilityLabel(entry.label)
                     }
                 }
             }
