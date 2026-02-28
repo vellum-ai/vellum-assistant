@@ -37,6 +37,7 @@ export {
   createBinding,
   getActiveBinding,
   type GuardianBinding,
+  listActiveBindingsByAssistant,
   revokeBinding,
 } from './guardian-bindings.js';
 export {

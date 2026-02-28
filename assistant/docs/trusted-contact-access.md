@@ -13,8 +13,15 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 ## User Journey
 
 1. **Unknown user messages the assistant** on Telegram (or SMS, or any channel).
-2. **Assistant rejects the message** via the ingress ACL in `inbound-message-handler.ts`. The user has no `assistant_ingress_members` record, so the handler replies: *"Sorry, you haven't been approved to message this assistant. You can ask its Guardian for an invite."* and returns `{ denied: true, reason: 'not_a_member' }`.
-3. **Notification pipeline alerts the guardian.** The rejection triggers `emitNotificationSignal()` with `sourceEventName: 'ingress.access_request'`, routing through the decision engine to all connected channels (vellum macOS app, Telegram, etc.). The guardian sees who is requesting access.
+2. **Assistant rejects the message** via the ingress ACL in `inbound-message-handler.ts`. The user has no `assistant_ingress_members` record, so the handler replies: *"Hmm looks like you don't have access to talk to me. I'll let them know you tried talking to me and get back to you."* and returns `{ denied: true, reason: 'not_a_member' }`.
+3. **Notification pipeline alerts the guardian.** The rejection triggers `notifyGuardianOfAccessRequest()` which creates a canonical access request and calls `emitNotificationSignal()` with `sourceEventName: 'ingress.access_request'`. The notification routes through the decision engine to all connected channels (vellum macOS app, Telegram, etc.). The guardian sees who is requesting access, including a request code for approve/reject and an `open invite flow` option to start the Trusted Contacts invite flow.
+
+   **Guardian binding resolution for access requests** uses a fallback strategy:
+   1. Source-channel active binding first (e.g., Telegram binding for a Telegram access request).
+   2. Any active binding for the assistant on another channel (deterministic: most recently verified first, then alphabetical by channel).
+   3. No guardian identity — the notification pipeline delivers via trusted/vellum channels even when no channel binding exists.
+
+   This ensures unknown inbound access attempts always trigger guardian notification, even when the requester's source channel has no guardian binding.
 4. **Guardian approves the request.** The guardian responds to the notification (via Telegram inline button, macOS app, or IPC). On approval, the assistant creates a verification session via `createOutboundSession()` and generates a 6-digit verification code.
 5. **Guardian receives the verification code.** The assistant delivers the code to the guardian's verified channel (Telegram chat, SMS, etc.).
 6. **Guardian gives the code to the requester out-of-band** (in person, text message, phone call, etc.). This out-of-band transfer is the trust anchor: it proves the requester has a real-world relationship with the guardian.

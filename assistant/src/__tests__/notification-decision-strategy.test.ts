@@ -151,6 +151,67 @@ describe('notification decision strategy', () => {
       expect(copy.vellum!.deliveryText).toBeUndefined();
     });
 
+    test('ingress.access_request template includes requester identifier', () => {
+      const signal = makeSignal({
+        sourceEventName: 'ingress.access_request',
+        contextPayload: {
+          senderIdentifier: 'Alice',
+          requestCode: 'A1B2C3',
+        },
+      });
+
+      const copy = composeFallbackCopy(signal, channels);
+      expect(copy.vellum).toBeDefined();
+      expect(copy.vellum!.title).toBe('Access Request');
+      expect(copy.vellum!.body).toContain('Alice');
+      expect(copy.vellum!.body).toContain('requesting access');
+    });
+
+    test('ingress.access_request template includes request code instruction when present', () => {
+      const signal = makeSignal({
+        sourceEventName: 'ingress.access_request',
+        contextPayload: {
+          senderIdentifier: 'Bob',
+          requestCode: 'D4E5F6',
+        },
+      });
+
+      const copy = composeFallbackCopy(signal, channels);
+      expect(copy.vellum).toBeDefined();
+      expect(copy.vellum!.body).toContain('D4E5F6');
+      expect(copy.vellum!.body).toContain('approve');
+      expect(copy.vellum!.body).toContain('reject');
+    });
+
+    test('ingress.access_request template includes invite flow instruction', () => {
+      const signal = makeSignal({
+        sourceEventName: 'ingress.access_request',
+        contextPayload: {
+          senderIdentifier: 'Charlie',
+        },
+      });
+
+      const copy = composeFallbackCopy(signal, channels);
+      expect(copy.vellum).toBeDefined();
+      expect(copy.vellum!.body).toContain('open invite flow');
+    });
+
+    test('ingress.access_request Telegram deliveryText is concise', () => {
+      const signal = makeSignal({
+        sourceEventName: 'ingress.access_request',
+        contextPayload: {
+          senderIdentifier: 'Dave',
+          requestCode: 'ABC123',
+        },
+      });
+
+      const copy = composeFallbackCopy(signal, ['telegram']);
+      expect(copy.telegram).toBeDefined();
+      expect(copy.telegram!.deliveryText).toBeDefined();
+      expect(typeof copy.telegram!.deliveryText).toBe('string');
+      expect(copy.telegram!.deliveryText!.length).toBeGreaterThan(0);
+    });
+
     test('empty payload falls back to default text in template', () => {
       const signal = makeSignal({
         sourceEventName: 'guardian.question',

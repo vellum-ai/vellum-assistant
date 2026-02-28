@@ -952,3 +952,113 @@ describe('routing invariant: destination hints enable NL approval without guardi
     expect(unchanged!.status).toBe('pending');
   });
 });
+
+// ===========================================================================
+// SECTION 10: Invite handoff bypass for access requests
+// ===========================================================================
+
+describe('routing invariant: invite handoff bypass for access requests', () => {
+  beforeEach(() => resetTables());
+
+  test('pending access_request + message "open invite flow" returns not_consumed', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'access_request',
+      sourceType: 'channel',
+      sourceChannel: 'telegram',
+      conversationId: 'conv-access-1',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: 'INV001',
+      toolName: 'ingress_access_request',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'open invite flow',
+      conversationId: 'conv-guardian-thread',
+      pendingRequestIds: [req.id],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(false);
+    expect(result.type).toBe('not_consumed');
+    expect(result.decisionApplied).toBe(false);
+
+    // Request remains pending — not resolved by the handoff
+    const unchanged = getCanonicalGuardianRequest(req.id);
+    expect(unchanged!.status).toBe('pending');
+  });
+
+  test('invite handoff is case-insensitive and punctuation-trimmed', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'access_request',
+      sourceType: 'channel',
+      sourceChannel: 'telegram',
+      guardianExternalUserId: 'guardian-1',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    for (const phrase of ['Open Invite Flow', 'OPEN INVITE FLOW', 'open invite flow.', 'Open invite flow!']) {
+      const result = await routeGuardianReply(replyCtx({
+        messageText: phrase,
+        conversationId: 'conv-test',
+        pendingRequestIds: [req.id],
+        approvalConversationGenerator: undefined,
+      }));
+
+      expect(result.consumed).toBe(false);
+      expect(result.type).toBe('not_consumed');
+    }
+  });
+
+  test('invite handoff does NOT bypass for non-access-request kinds', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: 'TAP001',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'open invite flow',
+      conversationId: 'conv-guardian-thread',
+      pendingRequestIds: [req.id],
+      approvalConversationGenerator: undefined,
+    }));
+
+    // Should NOT return not_consumed via the invite handoff path.
+    // Without NL generator and no explicit approve/reject, it falls through
+    // to not_consumed anyway, but the key invariant is the request remains pending.
+    const unchanged = getCanonicalGuardianRequest(req.id);
+    expect(unchanged!.status).toBe('pending');
+  });
+
+  test('explicit approve/reject messages still consume with pending access_request', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'access_request',
+      sourceType: 'channel',
+      sourceChannel: 'telegram',
+      conversationId: 'conv-access-2',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: 'APP001',
+      toolName: 'ingress_access_request',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    // Code-based approve should still work
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'APP001 approve',
+      conversationId: 'conv-guardian-thread',
+      pendingRequestIds: [req.id],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(true);
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe('approved');
+  });
+});

@@ -4,6 +4,13 @@
  * Encapsulates the "create/dedupe canonical access request + emit notification"
  * logic so both text-channel and voice-channel ingress paths use identical
  * guardian notification flows.
+ *
+ * Access requests are a special case: they always create a canonical request
+ * and emit a notification signal, even when no same-channel guardian binding
+ * exists. Guardian binding resolution uses a fallback strategy:
+ *   1. Source-channel active binding first.
+ *   2. Any active binding for the assistant (deterministic, most-recently-verified).
+ *   3. No guardian identity (trusted/vellum-only resolution path).
  */
 
 import type { ChannelId } from '../channels/types.js';
@@ -11,6 +18,7 @@ import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
 } from '../memory/canonical-guardian-store.js';
+import { listActiveBindingsByAssistant } from '../memory/channel-guardian-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { getLogger } from '../util/logger.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
@@ -33,7 +41,7 @@ export interface AccessRequestParams {
 
 export type AccessRequestResult =
   | { notified: true; created: boolean; requestId: string }
-  | { notified: false; reason: 'no_sender_id' | 'no_guardian_binding' };
+  | { notified: false; reason: 'no_sender_id' };
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -45,6 +53,10 @@ export type AccessRequestResult =
  *
  * Returns a result indicating whether the guardian was notified and whether
  * a new request was created or an existing one was deduped.
+ *
+ * Guardian binding resolution: source-channel first, then any active binding
+ * for the assistant, then null (notification pipeline handles delivery via
+ * trusted/vellum channels when no binding exists).
  *
  * This is intentionally synchronous with respect to the canonical store writes
  * and fire-and-forget for the notification signal emission.
@@ -65,10 +77,32 @@ export function notifyGuardianOfAccessRequest(
     return { notified: false, reason: 'no_sender_id' };
   }
 
-  const binding = getGuardianBinding(canonicalAssistantId, sourceChannel);
-  if (!binding) {
-    log.debug({ sourceChannel, canonicalAssistantId }, 'No guardian binding for access request notification');
-    return { notified: false, reason: 'no_guardian_binding' };
+  // Resolve guardian binding with fallback strategy:
+  // 1. Source-channel active binding
+  // 2. Any active binding for the assistant (deterministic order)
+  // 3. null (no guardian identity — notification pipeline uses trusted channels)
+  const sourceBinding = getGuardianBinding(canonicalAssistantId, sourceChannel);
+  let guardianExternalUserId: string | null = null;
+  let guardianBindingChannel: string | null = null;
+
+  if (sourceBinding) {
+    guardianExternalUserId = sourceBinding.guardianExternalUserId;
+    guardianBindingChannel = sourceBinding.channel;
+  } else {
+    const allBindings = listActiveBindingsByAssistant(canonicalAssistantId);
+    if (allBindings.length > 0) {
+      guardianExternalUserId = allBindings[0].guardianExternalUserId;
+      guardianBindingChannel = allBindings[0].channel;
+      log.debug(
+        { sourceChannel, fallbackChannel: guardianBindingChannel, canonicalAssistantId },
+        'Using cross-channel guardian binding fallback for access request',
+      );
+    } else {
+      log.debug(
+        { sourceChannel, canonicalAssistantId },
+        'No guardian binding for access request — proceeding without guardian identity',
+      );
+    }
   }
 
   // Deduplicate: skip creation if there is already a pending canonical request
@@ -99,7 +133,7 @@ export function notifyGuardianOfAccessRequest(
     conversationId: `access-req-${sourceChannel}-${senderExternalUserId}`,
     requesterExternalUserId: senderExternalUserId,
     requesterChatId: externalChatId,
-    guardianExternalUserId: binding.guardianExternalUserId,
+    guardianExternalUserId: guardianExternalUserId ?? undefined,
     toolName: 'ingress_access_request',
     questionText: `${senderIdentifier} is requesting access to the assistant`,
     expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
@@ -118,18 +152,20 @@ export function notifyGuardianOfAccessRequest(
     },
     contextPayload: {
       requestId,
+      requestCode: canonicalRequest.requestCode,
       sourceChannel,
       externalChatId,
       senderExternalUserId,
       senderName: senderName ?? null,
       senderUsername: senderUsername ?? null,
       senderIdentifier,
+      guardianBindingChannel,
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
   });
 
   log.info(
-    { sourceChannel, senderExternalUserId, senderIdentifier },
+    { sourceChannel, senderExternalUserId, senderIdentifier, guardianBindingChannel },
     'Guardian notified of access request',
   );
 

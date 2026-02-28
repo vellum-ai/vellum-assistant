@@ -5,7 +5,7 @@
  * for a given (assistantId, channel) pair.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getDb } from './db.js';
@@ -101,6 +101,30 @@ export function getActiveBinding(assistantId: string, channel: string): Guardian
     .get();
 
   return row ? rowToBinding(row) : null;
+}
+
+/**
+ * List all active guardian bindings for an assistant across all channels.
+ * Deterministic ordering: verifiedAt DESC (most recently verified first),
+ * then channel ASC (alphabetical tiebreaker).
+ */
+export function listActiveBindingsByAssistant(assistantId: string): GuardianBinding[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(channelGuardianBindings)
+    .where(
+      and(
+        eq(channelGuardianBindings.assistantId, assistantId),
+        eq(channelGuardianBindings.status, 'active'),
+      ),
+    )
+    .orderBy(
+      desc(channelGuardianBindings.verifiedAt),
+      asc(channelGuardianBindings.channel),
+    )
+    .all()
+    .map(rowToBinding);
 }
 
 export function revokeBinding(assistantId: string, channel: string): boolean {

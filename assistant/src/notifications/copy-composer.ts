@@ -54,6 +54,21 @@ const TEMPLATES: Record<string, CopyTemplate> = {
     };
   },
 
+  'ingress.access_request': (payload) => {
+    const requester = str(payload.senderIdentifier, 'Someone');
+    const requestCode = nonEmpty(typeof payload.requestCode === 'string' ? payload.requestCode : undefined);
+    const lines: string[] = [`${requester} is requesting access to the assistant.`];
+    if (requestCode) {
+      const code = requestCode.toUpperCase();
+      lines.push(`Reply "${code} approve" to grant access or "${code} reject" to deny.`);
+    }
+    lines.push('Reply "open invite flow" to start Trusted Contacts invite flow.');
+    return {
+      title: 'Access Request',
+      body: lines.join('\n'),
+    };
+  },
+
   'ingress.escalation': (payload) => ({
     title: 'Escalation',
     body: str(payload.senderIdentifier, 'An incoming message') + ' needs attention',

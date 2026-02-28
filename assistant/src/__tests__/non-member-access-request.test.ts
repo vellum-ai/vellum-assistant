@@ -80,6 +80,7 @@ mock.module('../runtime/gateway-client.js', () => ({
   },
 }));
 
+import { notifyGuardianOfAccessRequest } from '../runtime/access-request-helper.js';
 import { listCanonicalGuardianRequests } from '../memory/canonical-guardian-store.js';
 import {
   createBinding,
@@ -236,8 +237,9 @@ describe('non-member access request notification', () => {
     expect(pending.length).toBe(1);
   });
 
-  test('deny works without error when no guardian binding exists', async () => {
-    // No guardian binding — should deny without notification
+  test('access request is created and signal emitted even without same-channel guardian binding', async () => {
+    // No guardian binding on any channel — access request should still be
+    // created and notification signal emitted (null guardianExternalUserId).
     const req = buildInboundRequest();
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     const json = await resp.json() as Record<string, unknown>;
@@ -245,20 +247,55 @@ describe('non-member access request notification', () => {
     expect(json.denied).toBe(true);
     expect(json.reason).toBe('not_a_member');
 
-    // Rejection reply was still delivered
+    // Rejection reply indicates guardian was notified
     expect(deliverReplyCalls.length).toBe(1);
+    expect((deliverReplyCalls[0].payload as Record<string, unknown>).text).toContain("let them know");
 
-    // No notification signal was emitted
-    expect(emitSignalCalls.length).toBe(0);
+    // Notification signal was emitted
+    expect(emitSignalCalls.length).toBe(1);
+    expect(emitSignalCalls[0].sourceEventName).toBe('ingress.access_request');
 
-    // No canonical request was created
+    // Canonical request was created with null guardianExternalUserId
     const pending = listCanonicalGuardianRequests({
       status: 'pending',
       requesterExternalUserId: 'user-unknown-456',
       sourceChannel: 'telegram',
       kind: 'access_request',
     });
-    expect(pending.length).toBe(0);
+    expect(pending.length).toBe(1);
+    expect(pending[0].guardianExternalUserId).toBeNull();
+  });
+
+  test('cross-channel fallback: SMS guardian binding resolves for Telegram access request', async () => {
+    // Only an SMS guardian binding exists — no Telegram binding
+    createBinding({
+      assistantId: 'self',
+      channel: 'sms',
+      guardianExternalUserId: 'guardian-sms-user',
+      guardianDeliveryChatId: 'guardian-sms-chat',
+    });
+
+    const req = buildInboundRequest();
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = await resp.json() as Record<string, unknown>;
+
+    expect(json.denied).toBe(true);
+    expect(json.reason).toBe('not_a_member');
+
+    // Notification signal emitted
+    expect(emitSignalCalls.length).toBe(1);
+    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
+    expect(payload.guardianBindingChannel).toBe('sms');
+
+    // Canonical request has the SMS guardian's external user ID
+    const pending = listCanonicalGuardianRequests({
+      status: 'pending',
+      requesterExternalUserId: 'user-unknown-456',
+      sourceChannel: 'telegram',
+      kind: 'access_request',
+    });
+    expect(pending.length).toBe(1);
+    expect(pending[0].guardianExternalUserId).toBe('guardian-sms-user');
   });
 
   test('no notification when senderExternalUserId is absent', async () => {
@@ -279,5 +316,141 @@ describe('non-member access request notification', () => {
 
     // No access request notification should fire (no identity to notify about)
     expect(emitSignalCalls.length).toBe(0);
+  });
+});
+
+describe('access-request-helper unit tests', () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  test('notifyGuardianOfAccessRequest returns no_sender_id when senderExternalUserId is absent', () => {
+    const result = notifyGuardianOfAccessRequest({
+      canonicalAssistantId: 'self',
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-123',
+      senderExternalUserId: undefined,
+    });
+
+    expect(result.notified).toBe(false);
+    if (!result.notified) {
+      expect(result.reason).toBe('no_sender_id');
+    }
+
+    // No canonical request created
+    const pending = listCanonicalGuardianRequests({ status: 'pending', kind: 'access_request' });
+    expect(pending.length).toBe(0);
+  });
+
+  test('notifyGuardianOfAccessRequest creates request with null guardianExternalUserId when no binding exists', () => {
+    const result = notifyGuardianOfAccessRequest({
+      canonicalAssistantId: 'self',
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-123',
+      senderExternalUserId: 'unknown-user',
+      senderName: 'Bob',
+    });
+
+    expect(result.notified).toBe(true);
+    if (result.notified) {
+      expect(result.created).toBe(true);
+    }
+
+    const pending = listCanonicalGuardianRequests({
+      status: 'pending',
+      requesterExternalUserId: 'unknown-user',
+      kind: 'access_request',
+    });
+    expect(pending.length).toBe(1);
+    expect(pending[0].guardianExternalUserId).toBeNull();
+
+    // Signal was emitted
+    expect(emitSignalCalls.length).toBe(1);
+  });
+
+  test('notifyGuardianOfAccessRequest uses cross-channel binding when source-channel binding is missing', () => {
+    // Only SMS binding exists
+    createBinding({
+      assistantId: 'self',
+      channel: 'sms',
+      guardianExternalUserId: 'guardian-sms',
+      guardianDeliveryChatId: 'sms-chat',
+    });
+
+    const result = notifyGuardianOfAccessRequest({
+      canonicalAssistantId: 'self',
+      sourceChannel: 'telegram',
+      externalChatId: 'tg-chat',
+      senderExternalUserId: 'unknown-tg-user',
+    });
+
+    expect(result.notified).toBe(true);
+
+    const pending = listCanonicalGuardianRequests({
+      status: 'pending',
+      requesterExternalUserId: 'unknown-tg-user',
+      kind: 'access_request',
+    });
+    expect(pending.length).toBe(1);
+    expect(pending[0].guardianExternalUserId).toBe('guardian-sms');
+
+    // Signal payload includes fallback channel
+    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
+    expect(payload.guardianBindingChannel).toBe('sms');
+  });
+
+  test('notifyGuardianOfAccessRequest prefers source-channel binding over cross-channel fallback', () => {
+    // Both Telegram and SMS bindings exist
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-tg',
+      guardianDeliveryChatId: 'tg-chat',
+    });
+    createBinding({
+      assistantId: 'self',
+      channel: 'sms',
+      guardianExternalUserId: 'guardian-sms',
+      guardianDeliveryChatId: 'sms-chat',
+    });
+
+    const result = notifyGuardianOfAccessRequest({
+      canonicalAssistantId: 'self',
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-123',
+      senderExternalUserId: 'unknown-user',
+    });
+
+    expect(result.notified).toBe(true);
+
+    const pending = listCanonicalGuardianRequests({
+      status: 'pending',
+      requesterExternalUserId: 'unknown-user',
+      kind: 'access_request',
+    });
+    expect(pending.length).toBe(1);
+    // Should use the Telegram binding, not SMS fallback
+    expect(pending[0].guardianExternalUserId).toBe('guardian-tg');
+
+    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
+    expect(payload.guardianBindingChannel).toBe('telegram');
+  });
+
+  test('notifyGuardianOfAccessRequest includes requestCode in contextPayload', () => {
+    const result = notifyGuardianOfAccessRequest({
+      canonicalAssistantId: 'self',
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-123',
+      senderExternalUserId: 'unknown-user',
+      senderName: 'Test User',
+    });
+
+    expect(result.notified).toBe(true);
+    expect(emitSignalCalls.length).toBe(1);
+
+    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
+    expect(payload.requestCode).toBeDefined();
+    expect(typeof payload.requestCode).toBe('string');
+    expect((payload.requestCode as string).length).toBe(6);
   });
 });
