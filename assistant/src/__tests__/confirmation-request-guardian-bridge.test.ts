@@ -366,4 +366,45 @@ describe('bridgeConfirmationRequestToGuardian', () => {
     const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
     expect(payload.requesterChatId).toBeNull();
   });
+
+  test('skips when binding guardian identity does not match canonical request guardian', () => {
+    // Create a canonical request where guardianExternalUserId differs from the
+    // binding's guardianExternalUserId ('guardian-1' in the mock).
+    const canonicalRequest = makeCanonicalRequest({
+      guardianExternalUserId: 'old-guardian-who-was-rebound',
+    });
+    const guardianContext = makeTrustedContactContext();
+
+    const result = bridgeConfirmationRequestToGuardian({
+      canonicalRequest,
+      guardianContext,
+      conversationId: 'conv-1',
+      toolName: 'bash',
+    });
+
+    expect('skipped' in result && result.skipped).toBe(true);
+    if ('skipped' in result) {
+      expect(result.reason).toBe('binding_identity_mismatch');
+    }
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test('does not skip when canonical request guardian identity is null', () => {
+    // When guardianExternalUserId is null on the canonical request (e.g. desktop
+    // flow), the identity check should be skipped and the bridge should proceed.
+    const canonicalRequest = makeCanonicalRequest({
+      guardianExternalUserId: null,
+    });
+    const guardianContext = makeTrustedContactContext();
+
+    const result = bridgeConfirmationRequestToGuardian({
+      canonicalRequest,
+      guardianContext,
+      conversationId: 'conv-1',
+      toolName: 'bash',
+    });
+
+    expect('bridged' in result && result.bridged).toBe(true);
+    expect(emittedSignals).toHaveLength(1);
+  });
 });

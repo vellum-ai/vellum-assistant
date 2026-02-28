@@ -42,7 +42,7 @@ export interface BridgeConfirmationRequestParams {
 
 export type BridgeConfirmationRequestResult =
   | { bridged: true; signalId: string }
-  | { skipped: true; reason: 'not_trusted_contact' | 'no_guardian_binding' | 'missing_guardian_identity' };
+  | { skipped: true; reason: 'not_trusted_contact' | 'no_guardian_binding' | 'missing_guardian_identity' | 'binding_identity_mismatch' };
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -90,6 +90,27 @@ export function bridgeConfirmationRequestToGuardian(
       'No guardian binding for confirmation request bridge',
     );
     return { skipped: true, reason: 'no_guardian_binding' };
+  }
+
+  // Validate that the binding's guardian identity matches the canonical request's
+  // guardian identity. A mismatch can occur if a guardian rebind happens between
+  // message ingress and confirmation emission — sending the notification to the
+  // new binding would leak requester/tool metadata to the wrong recipient.
+  if (
+    canonicalRequest.guardianExternalUserId &&
+    binding.guardianExternalUserId !== canonicalRequest.guardianExternalUserId
+  ) {
+    log.warn(
+      {
+        sourceChannel,
+        assistantId,
+        bindingGuardianId: binding.guardianExternalUserId,
+        expectedGuardianId: canonicalRequest.guardianExternalUserId,
+        requestId: canonicalRequest.id,
+      },
+      'Guardian binding identity does not match canonical request guardian — skipping notification to prevent misrouting',
+    );
+    return { skipped: true, reason: 'binding_identity_mismatch' };
   }
 
   const senderLabel = guardianContext.requesterIdentifier

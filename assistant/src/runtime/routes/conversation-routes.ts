@@ -359,6 +359,7 @@ function makeHubPublisher(
           guardianContext,
           conversationId,
           toolName: msg.toolName,
+          assistantId: session.assistantId ?? 'self',
         });
       }
     } else if (msg.type === 'secret_request') {
