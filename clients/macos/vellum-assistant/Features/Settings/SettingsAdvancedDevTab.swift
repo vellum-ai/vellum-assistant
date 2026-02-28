@@ -105,7 +105,18 @@ struct SettingsAdvancedDevTab: View {
     }
 
     private func assistantFlagRow(flag: DaemonClient.AssistantFeatureFlag) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+        HStack {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text(flag.displayName)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                if let description = flag.description, !description.isEmpty {
+                    Text(description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            Spacer()
             VToggle(isOn: Binding(
                 get: {
                     assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
@@ -139,15 +150,7 @@ struct SettingsAdvancedDevTab: View {
                         }
                     }
                 }
-            ), label: flag.displayName)
-            .font(VFont.body)
-            .foregroundColor(VColor.textSecondary)
-
-            if let description = flag.description, !description.isEmpty {
-                Text(description)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-            }
+            ))
         }
     }
 
@@ -169,22 +172,25 @@ struct SettingsAdvancedDevTab: View {
                     .foregroundColor(VColor.textMuted)
             } else {
                 ForEach(Array(macOSFlagStates.enumerated()), id: \.element.id) { index, entry in
-                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text(entry.label)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            if !entry.description.isEmpty {
+                                Text(entry.description)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                        }
+                        Spacer()
                         VToggle(isOn: Binding(
                             get: { macOSFlagStates[index].enabled },
                             set: { newValue in
                                 macOSFlagStates[index].enabled = newValue
                                 MacOSClientFeatureFlagManager.shared.setOverride(entry.key, enabled: newValue)
                             }
-                        ), label: entry.label)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-
-                        if !entry.description.isEmpty {
-                            Text(entry.description)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
+                        ))
                     }
                 }
             }
