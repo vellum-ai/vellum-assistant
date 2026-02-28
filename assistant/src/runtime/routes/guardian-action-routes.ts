@@ -4,9 +4,9 @@
  * These endpoints let desktop clients fetch pending guardian prompts and
  * submit button decisions without relying on text parsing.
  *
- * After M5 cutover: all guardian action endpoints require a valid actor
- * token via the X-Actor-Token header, and guardian decisions additionally
- * verify the actor is the bound guardian.
+ * All guardian action endpoints require a valid actor token via the
+ * X-Actor-Token header (with local CLI fallback). Guardian decisions
+ * additionally verify the actor is the bound guardian.
  */
 import {
   applyCanonicalGuardianDecision,
