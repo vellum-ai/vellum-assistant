@@ -3,11 +3,21 @@ import { join } from 'node:path';
 import { Writable } from 'node:stream';
 
 import pino from 'pino';
+import type { PrettyOptions } from 'pino-pretty';
 import pinoPretty from 'pino-pretty';
 
 import { getDebugMode, getDebugStdoutLogs,getLogStderr } from '../config/env-registry.js';
 import { logSerializers } from './log-redact.js';
 import { getLogPath } from './platform.js';
+
+/** Common pino-pretty options that inline [module] into the message prefix. */
+function prettyOpts(extra?: PrettyOptions): PrettyOptions {
+  return {
+    messageFormat: '[{module}] {msg}',
+    ignore: 'module',
+    ...extra,
+  };
+}
 
 export type LogFileConfig = {
   dir: string | undefined;
@@ -59,7 +69,7 @@ let activeLogFileConfig: LogFileConfig | null = null;
 
 function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   if (!config.dir) {
-    return pino({ name: 'assistant', serializers: logSerializers }, pinoPretty({ destination: 1 }));
+    return pino({ name: 'assistant', serializers: logSerializers }, pinoPretty(prettyOpts({ destination: 1 })));
   }
 
   if (!existsSync(config.dir)) {
@@ -71,7 +81,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   const fileDest = pino.destination({ dest: filePath, sync: false, mkdir: true, mode: 0o600 });
   // Tighten permissions on pre-existing log files that may have been created with looser modes
   try { chmodSync(filePath, 0o600); } catch { /* best-effort */ }
-  const fileStream = pinoPretty({ destination: fileDest, colorize: false });
+  const fileStream = pinoPretty(prettyOpts({ destination: fileDest, colorize: false }));
 
   activeLogDate = today;
   activeLogFileConfig = config;
@@ -79,7 +89,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   const level = getDebugMode() ? 'debug' : 'info';
 
   if (getDebugMode()) {
-    const prettyStream = pinoPretty({ destination: 2 });
+    const prettyStream = pinoPretty(prettyOpts({ destination: 2 }));
     return pino(
       { name: 'assistant', level, serializers: logSerializers },
       pino.multistream([
@@ -93,7 +103,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
     { name: 'assistant', level, serializers: logSerializers },
     pino.multistream([
       { stream: fileStream, level: 'info' as const },
-      { stream: pinoPretty({ destination: 1 }), level: 'info' as const },
+      { stream: pinoPretty(prettyOpts({ destination: 1 })), level: 'info' as const },
     ]),
   );
 }
@@ -139,10 +149,10 @@ function getRootLogger(): pino.Logger {
       const fileDest = pino.destination({ dest: logPath, sync: false, mkdir: true, mode: 0o600 });
       // Tighten permissions on pre-existing log files that may have been created with looser modes
       try { chmodSync(logPath, 0o600); } catch { /* best-effort */ }
-      const fileStream = pinoPretty({ destination: fileDest, colorize: false });
+      const fileStream = pinoPretty(prettyOpts({ destination: fileDest, colorize: false }));
 
       if (getDebugMode()) {
-        const prettyStream = pinoPretty({ destination: 2 });
+        const prettyStream = pinoPretty(prettyOpts({ destination: 2 }));
         const multi = pino.multistream([
           { stream: fileStream, level: 'info' as const },
           { stream: prettyStream, level: 'debug' as const },
@@ -153,14 +163,14 @@ function getRootLogger(): pino.Logger {
           { level: 'info', serializers: logSerializers },
           pino.multistream([
             { stream: fileStream, level: 'info' as const },
-            { stream: pinoPretty({ destination: 1 }), level: 'info' as const },
+            { stream: pinoPretty(prettyOpts({ destination: 1 })), level: 'info' as const },
           ]),
         );
       } else {
         rootLogger = pino({ level: 'info', serializers: logSerializers }, fileStream);
       }
     } catch {
-      rootLogger = pino({ level: getDebugMode() ? 'debug' : 'info', serializers: logSerializers }, pinoPretty({ destination: 2 }));
+      rootLogger = pino({ level: getDebugMode() ? 'debug' : 'info', serializers: logSerializers }, pinoPretty(prettyOpts({ destination: 2 })));
     }
   }
   return rootLogger;

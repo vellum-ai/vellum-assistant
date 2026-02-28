@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
 import { getLogger } from '../util/logger.js';
 import { getEmbeddingModelsDir } from '../util/platform.js';
@@ -14,20 +14,44 @@ type FeatureExtractionPipeline = (
   options?: { pooling?: string; normalize?: boolean },
 ) => Promise<{ tolist: () => number[][] }>;
 
+interface WorkerResponse {
+  id?: number;
+  type?: string;
+  vectors?: number[][];
+  error?: string;
+}
+
 /**
  * Local embedding backend using @huggingface/transformers (ONNX Runtime).
  * Runs BAAI/bge-small-en-v1.5 locally — no API calls, no network required.
  *
- * The embedding runtime (onnxruntime-node + transformers) is downloaded
- * post-hatch by EmbeddingRuntimeManager. Model weights are downloaded on first
- * use and cached in ~/.vellum/workspace/embedding-models/model-cache/.
+ * In production (compiled daemon binary), embeddings run in a **separate bun
+ * process** because compiled Bun binaries cannot resolve bare specifier imports
+ * in dynamically loaded files. The embed worker communicates via JSON-lines
+ * over stdin/stdout.
+ *
+ * In dev mode (running via `bun run`), falls back to direct import of
+ * @huggingface/transformers for convenience.
  *
  * Produces 384-dimensional embeddings.
  */
 export class LocalEmbeddingBackend implements EmbeddingBackend {
   readonly provider = 'local' as const;
   readonly model: string;
-  private extractor: FeatureExtractionPipeline | null = null;
+
+  // Subprocess mode — typed loosely to avoid coupling to Bun's Subprocess generics
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private workerProc: any = null;
+  private stdoutBuffer = '';
+  private requestCounter = 0;
+  private pendingRequests = new Map<number, {
+    resolve: (response: WorkerResponse) => void;
+  }>();
+  private stdoutReaderActive = false;
+
+  // Dev mode (direct import)
+  private directExtractor: FeatureExtractionPipeline | null = null;
+
   private readonly initGuard = new PromiseGuard<void>();
 
   constructor(model: string) {
@@ -40,98 +64,269 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
     await this.ensureInitialized();
 
+    if (this.directExtractor) {
+      return this.directEmbed(texts, options);
+    }
+
+    // Subprocess mode: send requests to worker
     const results: number[][] = [];
-    // Process in batches of 32 to avoid OOM with large inputs
     const batchSize = 32;
     for (let i = 0; i < texts.length; i += batchSize) {
       if (options?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       const batch = texts.slice(i, i + batchSize);
-      const output = await this.extractor!(batch, {
-        pooling: 'cls',
-        normalize: true,
-      });
-      const vectors = output.tolist();
-      results.push(...vectors);
+      const response = await this.sendRequest(batch);
+      if (response.error) {
+        throw new Error(`Embedding worker error: ${response.error}`);
+      }
+      if (!response.vectors) {
+        throw new Error('Embedding worker returned no vectors');
+      }
+      results.push(...response.vectors);
     }
-
     return results;
   }
 
+  private async directEmbed(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
+    const results: number[][] = [];
+    const batchSize = 32;
+    for (let i = 0; i < texts.length; i += batchSize) {
+      if (options?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      const batch = texts.slice(i, i + batchSize);
+      const output = await this.directExtractor!(batch, {
+        pooling: 'cls',
+        normalize: true,
+      });
+      results.push(...output.tolist());
+    }
+    return results;
+  }
+
+  private sendRequest(texts: string[]): Promise<WorkerResponse> {
+    const id = ++this.requestCounter;
+    return new Promise((resolve) => {
+      if (!this.workerProc) {
+        resolve({ id, error: 'Worker not initialized' });
+        return;
+      }
+      this.pendingRequests.set(id, { resolve });
+      this.workerProc.stdin.write(JSON.stringify({ id, texts }) + '\n');
+      this.workerProc.stdin.flush();
+    });
+  }
+
   private async ensureInitialized(): Promise<void> {
-    if (this.extractor) return;
+    if (this.workerProc || this.directExtractor) return;
     await this.initGuard.run(() => this.initialize());
   }
 
   private async initialize(): Promise<void> {
-    log.info({ model: this.model }, 'Loading local embedding model (first load downloads the model)');
+    log.info({ model: this.model }, 'Initializing local embedding backend');
 
-    // Resolution order:
-    // 1. Post-hatch download: ~/.vellum/workspace/embedding-models/
-    //    Downloaded by EmbeddingRuntimeManager after daemon startup.
-    //    If the download is still in progress, wait for it to complete.
-    // 2. Legacy bundled: execDir/node_modules/onnxruntime-node/dist/
-    //    For backward compat with builds that still bundle in the .app.
-    // 3. Dev mode: bare @huggingface/transformers import
-    //    Works when running via `bun run` with packages installed.
-
-    let transformers: typeof import('@huggingface/transformers') | undefined;
-
-    // 1. Post-hatch downloaded runtime — wait for download if in progress
-    const embeddingModelsDir = getEmbeddingModelsDir();
     const runtimeManager = new EmbeddingRuntimeManager();
+
+    // Wait for download if in progress
     if (!runtimeManager.isReady()) {
       log.info('Embedding runtime not yet available, waiting for download...');
       try {
         await runtimeManager.ensureInstalled();
       } catch (err) {
-        log.warn({ err }, 'Embedding runtime download failed during initialization');
-      }
-    }
-
-    const wrapperPath = runtimeManager.getWrapperPath();
-    if (existsSync(wrapperPath)) {
-      try {
-        transformers = await import(wrapperPath);
-      } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        log.warn({ error: msg, wrapperPath }, 'Failed to load downloaded embedding runtime, trying fallbacks');
+        log.warn({ error: msg }, 'Embedding runtime download failed');
       }
     }
 
-    // 2. Legacy bundled path (in .app bundle next to daemon binary)
-    if (!transformers) {
-      const execDir = dirname(process.execPath);
-      const bundlePath = join(execDir, 'node_modules', 'onnxruntime-node', 'dist', 'transformers-bundle.mjs');
-      try {
-        transformers = await import(bundlePath);
-      } catch {
-        // Not available — try dev mode
+    // Try subprocess approach (production mode)
+    if (runtimeManager.isReady()) {
+      const bunPath = runtimeManager.getBunPath();
+      const workerPath = runtimeManager.getWorkerPath();
+
+      if (bunPath && existsSync(workerPath)) {
+        try {
+          await this.startWorker(bunPath, workerPath);
+          return;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log.warn({ error: msg }, 'Failed to start embedding worker, trying dev mode fallback');
+        }
       }
     }
 
-    // 3. Dev mode fallback (bare specifier, works with bun run)
+    // Dev mode fallback: direct import (works with bun run, not compiled binaries)
     // String concatenation prevents Bun from bundling this at compile time.
-    if (!transformers) {
+    try {
+      const specifier = '@huggingface' + '/transformers';
+      const transformers = await import(specifier);
+
+      const embeddingModelsDir = getEmbeddingModelsDir();
+      const modelCacheDir = join(embeddingModelsDir, 'model-cache');
+      if ('env' in transformers && transformers.env) {
+        (transformers.env as { cacheDir?: string }).cacheDir = modelCacheDir;
+      }
+
+      this.directExtractor = await transformers.pipeline('feature-extraction', this.model, {
+        dtype: 'fp32',
+      }) as unknown as FeatureExtractionPipeline;
+      log.info({ model: this.model }, 'Local embedding model loaded (dev mode)');
+    } catch (err) {
+      throw new Error(
+        `Local embedding backend unavailable: failed to load @huggingface/transformers (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+  }
+
+  private async startWorker(bunPath: string, workerPath: string): Promise<void> {
+    const embeddingModelsDir = getEmbeddingModelsDir();
+    const modelCacheDir = join(embeddingModelsDir, 'model-cache');
+
+    log.info({ bunPath, workerPath, model: this.model }, 'Spawning embedding worker process');
+
+    const proc = Bun.spawn({
+      cmd: [bunPath, workerPath, this.model, modelCacheDir],
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      cwd: embeddingModelsDir,
+    });
+
+    // Type-compatible assignment
+    this.workerProc = proc;
+
+    // Log stderr output from worker
+    this.drainStderr(proc.stderr);
+
+    // Start reading stdout for responses
+    this.startStdoutReader();
+
+    // Wait for the worker to signal it's ready (model loaded)
+    await this.waitForReady();
+
+    log.info({ pid: proc.pid, model: this.model }, 'Embedding worker process started');
+  }
+
+  private drainStderr(stderr: ReadableStream<Uint8Array>): void {
+    const reader = stderr.getReader();
+    const decoder = new TextDecoder();
+    (async () => {
       try {
-        const specifier = '@huggingface' + '/transformers';
-        transformers = await import(specifier);
-      } catch (err) {
-        throw new Error(
-          `Local embedding backend unavailable: failed to load @huggingface/transformers (${err instanceof Error ? err.message : String(err)})`,
-        );
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const text = decoder.decode(value, { stream: true }).trim();
+          if (text) log.debug({ workerStderr: text }, 'Embedding worker stderr');
+        }
+      } catch {
+        // Reader cancelled or stream errored — expected on shutdown
+      }
+    })();
+  }
+
+  private startStdoutReader(): void {
+    if (this.stdoutReaderActive || !this.workerProc) return;
+    this.stdoutReaderActive = true;
+
+    const reader = this.workerProc.stdout.getReader();
+    const decoder = new TextDecoder();
+
+    (async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          this.stdoutBuffer += decoder.decode(value, { stream: true });
+          this.processStdoutBuffer();
+        }
+      } catch {
+        // Reader cancelled or stream errored
+      }
+
+      // Worker exited — reject all pending requests
+      for (const [, pending] of this.pendingRequests) {
+        pending.resolve({ error: 'Embedding worker process exited unexpectedly' });
+      }
+      this.pendingRequests.clear();
+      this.workerProc = null;
+      this.stdoutReaderActive = false;
+      this.stdoutBuffer = '';
+      // Allow re-initialization on next embed() call
+      this.initGuard.reset();
+    })();
+  }
+
+  private readyResolve: (() => void) | null = null;
+  private readyReject: ((err: Error) => void) | null = null;
+
+  private processStdoutBuffer(): void {
+    let idx: number;
+    while ((idx = this.stdoutBuffer.indexOf('\n')) !== -1) {
+      const line = this.stdoutBuffer.slice(0, idx);
+      this.stdoutBuffer = this.stdoutBuffer.slice(idx + 1);
+      if (!line.trim()) continue;
+
+      let msg: WorkerResponse;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        continue; // Skip malformed lines
+      }
+
+      // Handle ready/error signals during initialization
+      if (msg.type === 'ready') {
+        this.readyResolve?.();
+        this.readyResolve = null;
+        this.readyReject = null;
+        continue;
+      }
+      if (msg.type === 'error' && this.readyReject) {
+        this.readyReject(new Error(msg.error ?? 'Worker initialization failed'));
+        this.readyResolve = null;
+        this.readyReject = null;
+        continue;
+      }
+
+      // Handle embed responses
+      if (msg.id !== undefined) {
+        const pending = this.pendingRequests.get(msg.id);
+        if (pending) {
+          this.pendingRequests.delete(msg.id);
+          pending.resolve(msg);
+        }
       }
     }
+  }
 
-    // Point model weights cache to a stable location under the embedding
-    // models directory instead of the default ~/.cache/huggingface/
-    const modelCacheDir = join(embeddingModelsDir, 'model-cache');
-    if ('env' in transformers! && transformers!.env) {
-      (transformers!.env as { cacheDir?: string }).cacheDir = modelCacheDir;
-    }
+  private waitForReady(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.readyResolve = resolve;
+      this.readyReject = reject;
 
-    this.extractor = await transformers!.pipeline('feature-extraction', this.model, {
-      dtype: 'fp32',
-    }) as unknown as FeatureExtractionPipeline;
-    log.info({ model: this.model }, 'Local embedding model loaded');
+      // Timeout after 2 minutes (first model download can be slow)
+      const timeout = setTimeout(() => {
+        this.readyResolve = null;
+        this.readyReject = null;
+        reject(new Error('Embedding worker timed out waiting for model to load'));
+      }, 120_000);
+
+      // Clear timeout when resolved
+      const originalResolve = resolve;
+      this.readyResolve = () => {
+        clearTimeout(timeout);
+        originalResolve();
+      };
+      const originalReject = reject;
+      this.readyReject = (err: Error) => {
+        clearTimeout(timeout);
+        originalReject(err);
+      };
+
+      // Also handle early worker exit
+      this.workerProc?.exited.then(() => {
+        if (this.readyResolve) {
+          clearTimeout(timeout);
+          this.readyResolve = null;
+          this.readyReject = null;
+          reject(new Error('Embedding worker process exited before becoming ready'));
+        }
+      });
+    });
   }
 }

@@ -386,6 +386,9 @@ export async function runDaemon(): Promise<void> {
         if (!runtimeManager.isReady()) {
           log.info('Downloading embedding runtime in background...');
           await runtimeManager.ensureInstalled();
+          // Reset the localBackendBroken flag so auto mode retries local embeddings
+          const { clearEmbeddingBackendCache } = await import('../memory/embedding-backend.js');
+          clearEmbeddingBackendCache();
           log.info('Embedding runtime download complete');
         }
       } catch (err) {
