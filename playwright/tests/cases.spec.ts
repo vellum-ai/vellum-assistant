@@ -17,7 +17,6 @@ import { setupFixture, type FixtureContext } from "../agent/fixtures";
 
 // ── Markdown Parsing ────────────────────────────────────────────────
 
-// `required_env` accepts comma-separated env var names (e.g. "FOO, BAR")
 function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: string[]; body: string } {
   const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!frontmatterMatch) {
@@ -31,12 +30,10 @@ function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: st
 
   for (const line of frontmatterBlock.split("\n")) {
     const [key, ...valueParts] = line.split(":");
-    const trimmedKey = key.trim();
-    const value = valueParts.join(":").trim();
-    if (trimmedKey === "fixture") {
-      fixture = value;
-    } else if (trimmedKey === "required_env") {
-      requiredEnv = value.split(",").map((v) => v.trim()).filter(Boolean);
+    if (key.trim() === "fixture") {
+      fixture = valueParts.join(":").trim();
+    } else if (key.trim() === "required_env") {
+      requiredEnv = valueParts.join(":").trim().split(",").map((v) => v.trim()).filter(Boolean);
     }
   }
 
