@@ -1,5 +1,4 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 
 import { getLogger } from '../util/logger.js';
 import { getEmbeddingModelsDir } from '../util/platform.js';
@@ -8,11 +7,6 @@ import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-back
 import { EmbeddingRuntimeManager } from './embedding-runtime-manager.js';
 
 const log = getLogger('memory-embedding-local');
-
-type FeatureExtractionPipeline = (
-  texts: string | string[],
-  options?: { pooling?: string; normalize?: boolean },
-) => Promise<{ tolist: () => number[][] }>;
 
 interface WorkerResponse {
   id?: number;
@@ -25,13 +19,12 @@ interface WorkerResponse {
  * Local embedding backend using @huggingface/transformers (ONNX Runtime).
  * Runs BAAI/bge-small-en-v1.5 locally — no API calls, no network required.
  *
- * In production (compiled daemon binary), embeddings run in a **separate bun
- * process** because compiled Bun binaries cannot resolve bare specifier imports
- * in dynamically loaded files. The embed worker communicates via JSON-lines
- * over stdin/stdout.
+ * Embeddings run in a **separate bun process** because compiled Bun binaries
+ * cannot resolve bare specifier imports in dynamically loaded files. The embed
+ * worker communicates via JSON-lines over stdin/stdout.
  *
- * In dev mode (running via `bun run`), falls back to direct import of
- * @huggingface/transformers for convenience.
+ * The embedding runtime (onnxruntime-node + transformers + bun) is downloaded
+ * post-hatch by EmbeddingRuntimeManager.
  *
  * Produces 384-dimensional embeddings.
  */
@@ -39,7 +32,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   readonly provider = 'local' as const;
   readonly model: string;
 
-  // Subprocess mode — typed loosely to avoid coupling to Bun's Subprocess generics
+  // Subprocess — typed loosely to avoid coupling to Bun's Subprocess generics
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private workerProc: any = null;
   private stdoutBuffer = '';
@@ -48,9 +41,6 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     resolve: (response: WorkerResponse) => void;
   }>();
   private stdoutReaderActive = false;
-
-  // Dev mode (direct import)
-  private directExtractor: FeatureExtractionPipeline | null = null;
 
   private readonly initGuard = new PromiseGuard<void>();
 
@@ -64,11 +54,6 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
     await this.ensureInitialized();
 
-    if (this.directExtractor) {
-      return this.directEmbed(texts, options);
-    }
-
-    // Subprocess mode: send requests to worker
     const results: number[][] = [];
     const batchSize = 32;
     for (let i = 0; i < texts.length; i += batchSize) {
@@ -82,21 +67,6 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         throw new Error('Embedding worker returned no vectors');
       }
       results.push(...response.vectors);
-    }
-    return results;
-  }
-
-  private async directEmbed(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
-    const results: number[][] = [];
-    const batchSize = 32;
-    for (let i = 0; i < texts.length; i += batchSize) {
-      if (options?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      const batch = texts.slice(i, i + batchSize);
-      const output = await this.directExtractor!(batch, {
-        pooling: 'cls',
-        normalize: true,
-      });
-      results.push(...output.tolist());
     }
     return results;
   }
@@ -115,7 +85,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   }
 
   private async ensureInitialized(): Promise<void> {
-    if (this.workerProc || this.directExtractor) return;
+    if (this.workerProc) return;
     await this.initGuard.run(() => this.initialize());
   }
 
@@ -127,56 +97,25 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     // Wait for download if in progress
     if (!runtimeManager.isReady()) {
       log.info('Embedding runtime not yet available, waiting for download...');
-      try {
-        await runtimeManager.ensureInstalled();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        log.warn({ error: msg }, 'Embedding runtime download failed');
-      }
+      await runtimeManager.ensureInstalled();
     }
 
-    // Try subprocess approach (production mode)
-    if (runtimeManager.isReady()) {
-      const bunPath = runtimeManager.getBunPath();
-      const workerPath = runtimeManager.getWorkerPath();
+    const bunPath = runtimeManager.getBunPath();
+    const workerPath = runtimeManager.getWorkerPath();
 
-      if (bunPath && existsSync(workerPath)) {
-        try {
-          await this.startWorker(bunPath, workerPath);
-          return;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          log.warn({ error: msg }, 'Failed to start embedding worker, trying dev mode fallback');
-        }
-      }
+    if (!bunPath) {
+      throw new Error('Local embedding backend unavailable: no bun binary found');
+    }
+    if (!existsSync(workerPath)) {
+      throw new Error(`Local embedding backend unavailable: worker script not found at ${workerPath}`);
     }
 
-    // Dev mode fallback: direct import (works with bun run, not compiled binaries)
-    // String concatenation prevents Bun from bundling this at compile time.
-    try {
-      const specifier = '@huggingface' + '/transformers';
-      const transformers = await import(specifier);
-
-      const embeddingModelsDir = getEmbeddingModelsDir();
-      const modelCacheDir = join(embeddingModelsDir, 'model-cache');
-      if ('env' in transformers && transformers.env) {
-        (transformers.env as { cacheDir?: string }).cacheDir = modelCacheDir;
-      }
-
-      this.directExtractor = await transformers.pipeline('feature-extraction', this.model, {
-        dtype: 'fp32',
-      }) as unknown as FeatureExtractionPipeline;
-      log.info({ model: this.model }, 'Local embedding model loaded (dev mode)');
-    } catch (err) {
-      throw new Error(
-        `Local embedding backend unavailable: failed to load @huggingface/transformers (${err instanceof Error ? err.message : String(err)})`,
-      );
-    }
+    await this.startWorker(bunPath, workerPath);
   }
 
   private async startWorker(bunPath: string, workerPath: string): Promise<void> {
     const embeddingModelsDir = getEmbeddingModelsDir();
-    const modelCacheDir = join(embeddingModelsDir, 'model-cache');
+    const modelCacheDir = `${embeddingModelsDir}/model-cache`;
 
     log.info({ bunPath, workerPath, model: this.model }, 'Spawning embedding worker process');
 
