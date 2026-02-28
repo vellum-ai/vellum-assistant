@@ -515,12 +515,17 @@ export class RelayConnection {
           log.warn({ err, callSessionId: this.callSessionId }, 'Failed to check voice invites for unknown caller');
         }
 
-        if (voiceInvites.length > 0) {
+        // Exclude invites that are past their expiresAt even if the DB
+        // status hasn't been lazily flipped to 'expired' yet.
+        const now = Date.now();
+        const nonExpiredInvites = voiceInvites.filter(i => !i.expiresAt || i.expiresAt > now);
+
+        if (nonExpiredInvites.length > 0) {
           log.info(
             { callSessionId: this.callSessionId, from: msg.from },
             'Inbound voice ACL: unknown caller has active voice invite — entering redemption flow',
           );
-          const inviteCodeLength = Math.min(...voiceInvites.map(i => i.voiceCodeDigits ?? 6));
+          const inviteCodeLength = Math.min(...nonExpiredInvites.map(i => i.voiceCodeDigits ?? 6));
           this.startInviteRedemption(assistantId, msg.from, inviteCodeLength);
           return;
         }
