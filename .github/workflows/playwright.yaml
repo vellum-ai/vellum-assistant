@@ -8,15 +8,9 @@ on:
         required: false
         type: boolean
         default: false
-  pull_request:
-    types: [labeled, synchronize, opened, reopened]
-    paths:
-      - 'playwright/**'
-      - 'assistant/**'
-      - '.github/workflows/playwright.yaml'
 
 concurrency:
-  group: playwright-${{ github.event.pull_request.number || github.run_id }}
+  group: playwright-${{ github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -26,7 +20,7 @@ permissions:
 
 jobs:
   headless:
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !inputs.agent }}
     name: Headless Browser Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -52,7 +46,6 @@ jobs:
         run: bunx playwright test tests/signup-e2e.spec.ts
 
   playwright:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'preview')
     name: Playwright Tests
     runs-on: macos-14
     timeout-minutes: 60
