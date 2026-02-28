@@ -27,12 +27,13 @@ const log = getLogger('embedding-runtime-manager');
 const ONNXRUNTIME_NODE_VERSION = '1.21.0';
 const ONNXRUNTIME_COMMON_VERSION = '1.21.0';
 const TRANSFORMERS_VERSION = '3.8.1';
+const JINJA_VERSION = '0.5.5';
 
 /** Bun version to download when system bun is not available. */
 const BUN_VERSION = '1.2.0';
 
 /** Composite version string for cache invalidation. */
-const RUNTIME_VERSION = `ort-${ONNXRUNTIME_NODE_VERSION}_hf-${TRANSFORMERS_VERSION}`;
+const RUNTIME_VERSION = `ort-${ONNXRUNTIME_NODE_VERSION}_hf-${TRANSFORMERS_VERSION}_jinja-${JINJA_VERSION}`;
 
 const WORKER_FILENAME = 'embed-worker.mjs';
 
@@ -272,6 +273,12 @@ export class EmbeddingRuntimeManager {
     const tmpDir = join(this.baseDir, `.installing-${Date.now()}`);
     mkdirSync(tmpDir, { recursive: true });
 
+    // Declared outside try so catch/finally can reference them for cleanup
+    const modelCacheDir = join(this.baseDir, 'model-cache');
+    const existingBinDir = join(this.baseDir, 'bin');
+    let tmpModelCache: string | null = null;
+    let tmpBinDir: string | null = null;
+
     try {
       // Step 1: Download npm packages (and bun if needed) in parallel
       const nodeModules = join(tmpDir, 'node_modules');
@@ -289,6 +296,11 @@ export class EmbeddingRuntimeManager {
         downloadAndExtract(
           npmTarballUrl('@huggingface/transformers', TRANSFORMERS_VERSION),
           join(nodeModules, '@huggingface', 'transformers'),
+          signal,
+        ),
+        downloadAndExtract(
+          npmTarballUrl('@huggingface/jinja', JINJA_VERSION),
+          join(nodeModules, '@huggingface', 'jinja'),
           signal,
         ),
       ];
@@ -358,19 +370,15 @@ export class EmbeddingRuntimeManager {
 
       // Step 6: Atomic swap — remove old install and rename temp to final
       // Preserve model-cache/, bin/ (downloaded bun), and .gitignore
-      const modelCacheDir = join(this.baseDir, 'model-cache');
       const hadModelCache = existsSync(modelCacheDir);
-      let tmpModelCache: string | null = null;
       if (hadModelCache) {
         tmpModelCache = join(this.baseDir, `.model-cache-preserve-${Date.now()}`);
         renameSync(modelCacheDir, tmpModelCache);
       }
 
       // Preserve downloaded bun binary if it exists and we didn't just download a new one
-      const existingBinDir = join(this.baseDir, 'bin');
       const newBinDir = join(tmpDir, 'bin');
       const hadBinDir = existsSync(existingBinDir) && !existsSync(newBinDir);
-      let tmpBinDir: string | null = null;
       if (hadBinDir) {
         tmpBinDir = join(this.baseDir, `.bin-preserve-${Date.now()}`);
         renameSync(existingBinDir, tmpBinDir);
@@ -399,11 +407,20 @@ export class EmbeddingRuntimeManager {
 
       log.info({ runtimeVersion: RUNTIME_VERSION }, 'Embedding runtime installed successfully');
     } catch (err) {
+      // Restore preserved directories if the swap failed
+      if (tmpModelCache && existsSync(tmpModelCache) && !existsSync(modelCacheDir)) {
+        try { renameSync(tmpModelCache, modelCacheDir); } catch { /* best effort */ }
+      }
+      if (tmpBinDir && existsSync(tmpBinDir) && !existsSync(existingBinDir)) {
+        try { renameSync(tmpBinDir, existingBinDir); } catch { /* best effort */ }
+      }
       log.error({ err }, 'Failed to install embedding runtime');
       throw err;
     } finally {
-      // Clean up temp directory
+      // Clean up temp directory and any leftover preserve dirs
       rmSync(tmpDir, { recursive: true, force: true });
+      if (tmpModelCache) rmSync(tmpModelCache, { recursive: true, force: true });
+      if (tmpBinDir) rmSync(tmpBinDir, { recursive: true, force: true });
     }
   }
 

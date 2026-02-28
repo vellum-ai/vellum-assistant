@@ -81,7 +81,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       }
       this.pendingRequests.set(id, { resolve });
       this.workerProc.stdin.write(JSON.stringify({ id, texts }) + '\n');
-      this.workerProc.stdin.flush();
+      this.workerProc.stdin.flush().catch(() => {
+        // Worker may have exited — pending request will be resolved by stdout reader cleanup
+      });
     });
   }
 
@@ -138,8 +140,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       // Wait for the worker to signal it's ready (model loaded)
       await this.waitForReady();
     } catch (err) {
-      // Worker failed to start — collect stderr for diagnosis
+      // Worker failed to start — kill it to avoid deadlock, then collect stderr
       this.workerProc = null;
+      try { proc.kill(); } catch { /* may already be dead */ }
       const exitCode = await proc.exited.catch(() => undefined);
       const stderr = await new Response(proc.stderr).text().catch(() => '');
       if (stderr.trim()) {
@@ -180,7 +183,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     if (this.stdoutReaderActive || !this.workerProc) return;
     this.stdoutReaderActive = true;
 
-    const reader = this.workerProc.stdout.getReader();
+    // Capture reference to detect if a new worker was spawned during cleanup
+    const proc = this.workerProc;
+    const reader = proc.stdout.getReader();
     const decoder = new TextDecoder();
 
     (async () => {
@@ -195,17 +200,21 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         // Reader cancelled or stream errored
       }
 
-      // Worker exited — reject all pending requests and clean up
-      for (const [, pending] of this.pendingRequests) {
-        pending.resolve({ error: 'Embedding worker process exited unexpectedly' });
+      // Only clean up if this reader's proc is still the active one.
+      // A new worker may have been spawned during the async cleanup window.
+      if (this.workerProc === proc) {
+        // Worker exited — reject all pending requests and clean up
+        for (const [, pending] of this.pendingRequests) {
+          pending.resolve({ error: 'Embedding worker process exited unexpectedly' });
+        }
+        this.pendingRequests.clear();
+        this.workerProc = null;
+        this.stdoutReaderActive = false;
+        this.removePidFile();
+        this.stdoutBuffer = '';
+        // Allow re-initialization on next embed() call
+        this.initGuard.reset();
       }
-      this.pendingRequests.clear();
-      this.workerProc = null;
-      this.stdoutReaderActive = false;
-      this.removePidFile();
-      this.stdoutBuffer = '';
-      // Allow re-initialization on next embed() call
-      this.initGuard.reset();
     })();
   }
 
