@@ -12,7 +12,7 @@
  */
 
 import { answerCall } from '../calls/call-domain.js';
-import type { CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import { getCanonicalGuardianRequest, type CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { upsertMember } from '../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { addRule } from '../permissions/trust-store.js';
@@ -534,7 +534,26 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
       'Tool grant request resolver: approved (grant minting deferred to canonical primitive)',
     );
 
-    if (channelDeliveryContext && requesterChatId) {
+    // Re-read the canonical request to check whether an inline grant waiter
+    // has already claimed this request. When followupState is
+    // 'inline_wait_active', the requester's original tool call is blocking
+    // on the grant and will resume automatically — sending a "please retry"
+    // notification would be stale and confusing (and could cause duplicate
+    // attempts or one-time-grant denials).
+    const freshRequest = getCanonicalGuardianRequest(request.id);
+    const inlineWaitActive = freshRequest?.followupState === 'inline_wait_active';
+
+    if (inlineWaitActive) {
+      log.info(
+        {
+          event: 'resolver_tool_grant_request_skip_retry_notification',
+          requestId: request.id,
+          toolName: request.toolName,
+          followupState: freshRequest?.followupState,
+        },
+        'Skipping requester retry notification — inline grant wait is active and will resume the original invocation',
+      );
+    } else if (channelDeliveryContext && requesterChatId) {
       try {
         await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
           chatId: requesterChatId,

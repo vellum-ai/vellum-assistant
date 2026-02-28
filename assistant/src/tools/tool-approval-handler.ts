@@ -1,5 +1,5 @@
 import { consumeGrantForInvocation } from '../approvals/approval-primitive.js';
-import { getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import { getCanonicalGuardianRequest, updateCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { createOrReuseToolGrantRequest } from '../runtime/tool-grant-request-helper.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
@@ -420,6 +420,14 @@ export class ToolApprovalHandler {
         // If escalation failed (no binding, missing identity), fall through
         // to the generic denial path.
         if ('created' in escalation || 'deduped' in escalation) {
+          // Stamp the canonical request so the approval resolver knows an
+          // inline consumer is waiting. Without this, the resolver would
+          // send a stale "please retry" notification even though the
+          // original invocation is about to resume inline.
+          updateCanonicalGuardianRequest(escalation.requestId, {
+            followupState: 'inline_wait_active',
+          });
+
           const waitResult = await waitForInlineGrant(
             escalation.requestId,
             deferredConsumeParams!,
@@ -444,6 +452,11 @@ export class ToolApprovalHandler {
           }
 
           if (waitResult.outcome === 'aborted') {
+            // Clear the inline-wait stamp so a later guardian approval
+            // (if the request is still pending) will send the retry notification.
+            updateCanonicalGuardianRequest(escalation.requestId, {
+              followupState: null,
+            });
             const durationMs = Date.now() - startTime;
             emitLifecycleEvent({
               type: 'error',
@@ -463,6 +476,13 @@ export class ToolApprovalHandler {
             });
             return { allowed: false, result: { content: 'Cancelled', isError: true } };
           }
+
+          // Clear the inline-wait stamp so a later guardian approval
+          // (if the request is still pending after timeout) will send
+          // the retry notification as expected.
+          updateCanonicalGuardianRequest(escalation.requestId, {
+            followupState: null,
+          });
 
           const codeSuffix = escalation.requestCode
             ? ` (request code: ${escalation.requestCode})`
