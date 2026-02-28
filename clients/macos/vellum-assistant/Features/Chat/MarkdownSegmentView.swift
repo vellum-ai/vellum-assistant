@@ -13,6 +13,7 @@ struct MarkdownSegmentView: View {
     var secondaryTextColor: Color = VColor.textSecondary
     var mutedTextColor: Color = VColor.textMuted
     var tintColor: Color = VColor.accent
+    var codeTextColor: Color = VColor.codeText
     var codeBackgroundColor: Color = VColor.codeBackground
     var hrColor: Color = VColor.surfaceBorder
 
@@ -187,6 +188,7 @@ struct MarkdownSegmentView: View {
         }
         hasher.combine(secondaryTextColor.description)
         hasher.combine(textColor.description)
+        hasher.combine(codeTextColor.description)
         hasher.combine(codeBackgroundColor.description)
         hasher.combine(zoomScale)
         let cacheKey = hasher.finalize()
@@ -197,7 +199,7 @@ struct MarkdownSegmentView: View {
             return cached.value
         }
 
-        let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, codeTextColor: textColor, codeBackgroundColor: codeBackgroundColor, zoomScale: zoomScale)
+        let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, codeTextColor: codeTextColor, codeBackgroundColor: codeBackgroundColor, zoomScale: zoomScale)
 
         // Skip caching for very long segment groups to avoid a single huge
         // entry evicting many smaller, more frequently accessed entries.

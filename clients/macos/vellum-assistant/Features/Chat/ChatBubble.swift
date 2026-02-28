@@ -326,6 +326,7 @@ struct ChatBubble: View {
                             secondaryTextColor: isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary,
                             mutedTextColor: isUser ? VColor.userBubbleTextSecondary : VColor.textMuted,
                             tintColor: isUser ? VColor.userBubbleText : VColor.accent,
+                            codeTextColor: isUser ? VColor.userBubbleText : VColor.codeText,
                             codeBackgroundColor: isUser ? VColor.userBubbleText.opacity(0.1) : VColor.codeBackground,
                             hrColor: isUser ? VColor.userBubbleText.opacity(0.3) : VColor.surfaceBorder
                         )
