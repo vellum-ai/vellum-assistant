@@ -176,6 +176,10 @@ export async function handleUserMessage(
       conversationId: msg.sessionId,
       sourceChannel: ipcChannel,
     });
+    // Route prompter-originated events (confirmation_request/secret_request)
+    // through the IPC wrapper so pending-interactions + canonical tracking
+    // are updated before the message is sent to the client.
+    session.updateClient(sendEvent, false);
     const ipcInterface = parseInterfaceId(msg.interface);
     if (!ipcInterface) {
       ctx.send(socket, {
@@ -910,6 +914,7 @@ export async function handleSessionCreate(
       conversationId: conversation.id,
       sourceChannel: transportChannel,
     });
+    session.updateClient(sendEvent, false);
     session.setTurnChannelContext({
       userMessageChannel: transportChannel,
       assistantMessageChannel: transportChannel,
@@ -1260,6 +1265,7 @@ export async function handleRegenerate(
     conversationId: msg.sessionId,
     sourceChannel: regenerateChannel,
   });
+  session.updateClient(sendEvent, false);
   const requestId = uuid();
   session.traceEmitter.emit('request_received', 'Regenerate requested', {
     requestId,
