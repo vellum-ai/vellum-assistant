@@ -71,3 +71,65 @@ jobs:
           fi
 
           echo "Consecutive failures on main: $CONSECUTIVE"
+
+  notify:
+    name: Slack Notification
+    needs: [checks]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get Slack ID
+        id: slack-id
+        run: |
+          GITHUB_USER="${{ github.actor }}"
+
+          if [[ "${{ needs.checks.result }}" == "failure" ]]; then
+            STATUS="failure"
+          elif [[ "${{ needs.checks.result }}" == "cancelled" ]]; then
+            STATUS="cancelled"
+          elif [[ "${{ needs.checks.result }}" == "skipped" ]]; then
+            STATUS="skipped"
+          else
+            STATUS="success"
+          fi
+
+          SLACK_ID=$(yq ".github_to_slack_all_notifications.[\"$GITHUB_USER\"]" .github/config/github_slack_mapping.yaml)
+
+          if [ "$SLACK_ID" = "null" ]; then
+            case $STATUS in
+              failure)
+                SLACK_ID=$(yq ".github_to_slack_failure_notifications.[\"$GITHUB_USER\"]" .github/config/github_slack_mapping.yaml)
+                ;;
+              success)
+                SLACK_ID=$(yq ".github_to_slack_success_notifications.[\"$GITHUB_USER\"]" .github/config/github_slack_mapping.yaml)
+                ;;
+              cancelled)
+                SLACK_ID=$(yq ".github_to_slack_cancelled_notifications.[\"$GITHUB_USER\"]" .github/config/github_slack_mapping.yaml)
+                ;;
+            esac
+          fi
+
+          if [ "$SLACK_ID" = "null" ]; then
+            SLACK_ID="$GITHUB_USER"
+          fi
+
+          if [ "$SLACK_ID" = "$GITHUB_USER" ]; then
+            echo "should_tag=false" >> $GITHUB_OUTPUT
+          else
+            echo "should_tag=true" >> $GITHUB_OUTPUT
+          fi
+          echo "id=$SLACK_ID" >> $GITHUB_OUTPUT
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+
+      - uses: act10ns/slack@v2
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_USER_ID: ${{ steps.slack-id.outputs.id }}
+          SHOULD_TAG: ${{ steps.slack-id.outputs.should_tag }}
+        with:
+          status: ${{ steps.slack-id.outputs.status }}
+          channel: "#build-alerts"
+          config: .github/config/slack.yaml
