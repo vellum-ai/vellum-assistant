@@ -385,12 +385,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
     }
 
-    /// Waits for the daemon to become connected, with bounded retries.
-    ///
-    /// Polls daemon connection state at ~0.5s intervals. If a connection
-    /// attempt is already in flight (from `setupDaemonClient()`), waits
-    /// for it to finish. Otherwise, attempts a single `connect()` call
-    /// per loop iteration. Returns once connected or the timeout elapses.
+    /// Polls daemon connection state at ~0.5s intervals. Does NOT call
+    /// `connect()` itself — that is the sole responsibility of
+    /// `setupDaemonClient()`. This avoids a dual-connect race where two
+    /// concurrent Tasks both attempt `daemonClient.connect()`, with the
+    /// second caller's `disconnectInternal()` tearing down the first
+    /// caller's in-flight NWConnection.
     private func awaitDaemonReady(timeout: TimeInterval) async -> Bool {
         log.info("Waiting for daemon to become ready (timeout: \(timeout)s)")
         let start = CFAbsoluteTimeGetCurrent()
@@ -400,25 +400,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 log.info("Daemon is connected")
                 return true
             }
-
-            if daemonClient.isConnecting {
-                // Let the in-flight connect from setupDaemonClient() finish
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                continue
-            }
-
-            // Not connected and not connecting — try one connect attempt
-            do {
-                try await daemonClient.connect()
-            } catch {
-                log.error("awaitDaemonReady connect attempt failed: \(error)")
-            }
-
-            if daemonClient.isConnected {
-                log.info("Daemon is connected after retry")
-                return true
-            }
-
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
 
@@ -816,8 +797,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
         UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
-        // Disconnect the daemon client so the next setupDaemonClient starts clean.
+        // Kill the daemon process so ensureDaemonRunning() actually spawns
+        // a fresh instance during re-onboarding (equivalent to `vellum sleep`).
         daemonClient.disconnect()
+        assistantCli.stop()
         // Cancel any in-progress bootstrap retry so it doesn't race with the
         // new onboarding flow.
         bootstrapRetryTask?.cancel()
@@ -1199,8 +1182,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 assistantCli.startMonitoring()
             }
             // Skip connect if the bootstrap retry coordinator already connected
-            // (hatch can take a long time; the coordinator connects independently).
-            if !daemonClient.isConnected {
+            // or has a connect in flight (hatch can take a long time; the
+            // coordinator connects independently). Checking isConnecting
+            // prevents tearing down the coordinator's in-flight NWConnection
+            // via disconnectInternal().
+            if !daemonClient.isConnected && !daemonClient.isConnecting {
                 do {
                     try await daemonClient.connect()
                 } catch {
@@ -2087,8 +2073,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             var updated = json
             updated["assistants"] = filtered
             if let data = try? JSONSerialization.data(withJSONObject: updated, options: [.prettyPrinted, .sortedKeys]) {
-                try? data.write(to: LockfilePaths.primary)
-                log.info("Removed stale entry '\(assistantId, privacy: .private)' from lockfile")
+                do {
+                    try data.write(to: LockfilePaths.primary)
+                    log.info("Removed stale entry '\(assistantId, privacy: .private)' from lockfile")
+                } catch {
+                    log.error("Failed to write updated lockfile after removing '\(assistantId, privacy: .private)': \(error)")
+                }
             }
         }
     }

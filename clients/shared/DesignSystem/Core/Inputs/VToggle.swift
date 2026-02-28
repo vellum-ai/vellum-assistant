@@ -3,6 +3,7 @@ import SwiftUI
 public struct VToggle: View {
     @Binding public var isOn: Bool
     public var label: String? = nil
+    @Environment(\.isEnabled) private var isEnabled
 
     public init(isOn: Binding<Bool>, label: String? = nil) {
         self._isOn = isOn
@@ -23,15 +24,17 @@ public struct VToggle: View {
             if let label = label {
                 Text(label)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(isEnabled ? VColor.textPrimary : VColor.textMuted)
             }
         }
         .contentShape(Rectangle())
         .onTapGesture {
+            guard isEnabled else { return }
             withAnimation(VAnimation.fast) {
                 isOn.toggle()
             }
         }
+        .opacity(isEnabled ? 1.0 : 0.5)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityValue(isOn ? "On" : "Off")
