@@ -550,19 +550,10 @@ export class RelayConnection {
         const now = Date.now();
         const nonExpiredInvites = voiceInvites.filter(i => !i.expiresAt || i.expiresAt > now);
 
-        if (nonExpiredInvites.length > 0) {
-          // Use the first matching invite's metadata for personalized prompts
-          const matchedInvite = nonExpiredInvites[0];
-          log.info(
-            { callSessionId: this.callSessionId, from: msg.from },
-            'Inbound voice ACL: unknown caller has active voice invite — entering redemption flow',
-          );
-          this.startInviteRedemption(assistantId, msg.from, matchedInvite.friendName, matchedInvite.guardianName);
-          return;
-        }
-
         // Blocked members get immediate denial — the guardian already made
-        // an explicit decision to block them.
+        // an explicit decision to block them. This must be checked before
+        // invite redemption so a blocked caller cannot bypass the block by
+        // redeeming an active invite.
         if (actorTrust.memberRecord?.status === 'blocked') {
           log.info(
             { callSessionId: this.callSessionId, from: msg.from, trustClass: actorTrust.trustClass },
@@ -588,6 +579,17 @@ export class RelayConnection {
           setTimeout(() => {
             this.endSession('Inbound voice ACL denied — blocked');
           }, 3000);
+          return;
+        }
+
+        if (nonExpiredInvites.length > 0) {
+          // Use the first matching invite's metadata for personalized prompts
+          const matchedInvite = nonExpiredInvites[0];
+          log.info(
+            { callSessionId: this.callSessionId, from: msg.from },
+            'Inbound voice ACL: unknown caller has active voice invite — entering redemption flow',
+          );
+          this.startInviteRedemption(assistantId, msg.from, matchedInvite.friendName, matchedInvite.guardianName);
           return;
         }
 
@@ -1489,6 +1491,12 @@ export class RelayConnection {
     // During name capture, the caller's response is their name.
     if (this.connectionState === 'awaiting_name') {
       const callerName = msg.voicePrompt.trim();
+      if (!callerName) {
+        // Whitespace-only or empty transcript (e.g. silence/noise) —
+        // keep waiting for a real name. The name-capture timeout will
+        // still fire if the caller never provides one.
+        return;
+      }
       log.info(
         { callSessionId: this.callSessionId, callerName },
         'Name captured from unknown inbound caller',
