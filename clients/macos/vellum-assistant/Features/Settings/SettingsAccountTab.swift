@@ -462,7 +462,7 @@ struct SettingsAccountTab: View {
                             .foregroundColor(VColor.textMuted)
                     }
                     Spacer()
-                    VButton(label: "Hatch...", style: .primary) {
+                    VButton(label: "Hatch...", style: .primary, size: .large) {
                         AppDelegate.shared?.replayOnboarding()
                         onClose()
                     }
