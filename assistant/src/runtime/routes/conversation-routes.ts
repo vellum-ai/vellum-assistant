@@ -15,6 +15,7 @@ import {
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
 } from '../../memory/canonical-guardian-store.js';
+import { bridgeConfirmationRequestToGuardian } from '../confirmation-request-guardian-bridge.js';
 import {
   getConversationByKey,
   getOrCreateConversation,
@@ -335,7 +336,7 @@ function makeHubPublisher(
       // via applyCanonicalGuardianDecision.
       const guardianContext = session.guardianContext;
       const sourceChannel = guardianContext?.sourceChannel ?? 'vellum';
-      createCanonicalGuardianRequest({
+      const canonicalRequest = createCanonicalGuardianRequest({
         id: msg.requestId,
         kind: 'tool_approval',
         sourceType: resolveCanonicalRequestSourceType(sourceChannel),
@@ -349,6 +350,17 @@ function makeHubPublisher(
         requestCode: generateCanonicalRequestCode(),
         expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
       });
+
+      // For trusted-contact sessions, bridge to guardian.question so the
+      // guardian gets notified and can approve via callback/request-code.
+      if (guardianContext) {
+        bridgeConfirmationRequestToGuardian({
+          canonicalRequest,
+          guardianContext,
+          conversationId,
+          toolName: msg.toolName,
+        });
+      }
     } else if (msg.type === 'secret_request') {
       pendingInteractions.register(msg.requestId, {
         session,
