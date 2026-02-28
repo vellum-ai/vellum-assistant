@@ -46,6 +46,7 @@ function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | u
     guardianChatId: typeof raw.guardianChatId === 'string' ? raw.guardianChatId : undefined,
     guardianExternalUserId: typeof raw.guardianExternalUserId === 'string' ? raw.guardianExternalUserId : undefined,
     requesterIdentifier: typeof raw.requesterIdentifier === 'string' ? raw.requesterIdentifier : undefined,
+    requesterDisplayName: typeof raw.requesterDisplayName === 'string' ? raw.requesterDisplayName : undefined,
     requesterExternalUserId: typeof raw.requesterExternalUserId === 'string' ? raw.requesterExternalUserId : undefined,
     requesterChatId: typeof raw.requesterChatId === 'string' ? raw.requesterChatId : undefined,
     denialReason,

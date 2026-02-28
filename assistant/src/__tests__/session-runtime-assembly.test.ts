@@ -548,6 +548,7 @@ describe('injectInboundActorContext', () => {
       sourceChannel: 'sms',
       canonicalActorIdentity: 'guardian-user-1',
       actorIdentifier: '+15550001111',
+      actorDisplayName: 'Guardian Name',
       trustClass: 'guardian',
       guardianIdentity: 'guardian-user-1',
     };
@@ -561,6 +562,7 @@ describe('injectInboundActorContext', () => {
     expect(text).toContain('trust_class: guardian');
     expect(text).toContain('source_channel: sms');
     expect(text).toContain('canonical_actor_identity: guardian-user-1');
+    expect(text).toContain('actor_display_name: Guardian Name');
     expect(text).toContain('</inbound_actor_context>');
   });
 

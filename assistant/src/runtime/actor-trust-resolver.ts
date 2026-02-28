@@ -136,6 +136,16 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
     externalChatId: input.externalChatId,
   });
 
+  const memberUsername = typeof memberRecord?.username === 'string' && memberRecord.username.trim().length > 0
+    ? memberRecord.username.trim()
+    : undefined;
+  const memberDisplayName = typeof memberRecord?.displayName === 'string' && memberRecord.displayName.trim().length > 0
+    ? memberRecord.displayName.trim()
+    : undefined;
+  const resolvedUsername = senderUsername ?? memberUsername;
+  const resolvedDisplayName = senderDisplayName ?? memberDisplayName;
+  const resolvedIdentifier = resolvedUsername ? `@${resolvedUsername}` : canonicalSenderId ?? undefined;
+
   // Trust classification
   let trustClass: TrustClass;
   if (isGuardian) {
@@ -158,9 +168,9 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
     memberRecord,
     trustClass,
     actorMetadata: {
-      identifier,
-      displayName: senderDisplayName,
-      username: senderUsername,
+      identifier: resolvedIdentifier,
+      displayName: resolvedDisplayName,
+      username: resolvedUsername,
       channel: input.sourceChannel,
       trustStatus: trustClass,
     },
@@ -183,6 +193,7 @@ export function toGuardianRuntimeContextFromTrust(
       (ctx.trustClass === 'guardian' ? externalChatId : undefined),
     guardianExternalUserId: ctx.guardianBindingMatch?.guardianExternalUserId,
     requesterIdentifier: ctx.actorMetadata.identifier,
+    requesterDisplayName: ctx.actorMetadata.displayName,
     requesterExternalUserId: ctx.canonicalSenderId ?? undefined,
     requesterChatId: externalChatId,
     denialReason: ctx.denialReason,

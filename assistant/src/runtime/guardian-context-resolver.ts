@@ -24,6 +24,7 @@ export interface GuardianContext {
   guardianChatId?: string;
   guardianExternalUserId?: string;
   requesterIdentifier?: string;
+  requesterDisplayName?: string;
   requesterExternalUserId?: string;
   requesterChatId?: string;
   memberStatus?: string;
@@ -44,6 +45,7 @@ export function resolveGuardianContext(input: ResolveGuardianContextInput): Guar
       (trust.trustClass === 'guardian' ? input.externalChatId : undefined),
     guardianExternalUserId: trust.guardianBindingMatch?.guardianExternalUserId,
     requesterIdentifier: trust.actorMetadata.identifier,
+    requesterDisplayName: trust.actorMetadata.displayName,
     requesterExternalUserId: trust.canonicalSenderId ?? undefined,
     requesterChatId: input.externalChatId,
     memberStatus: trust.memberRecord?.status ?? undefined,
@@ -59,6 +61,7 @@ export function toGuardianRuntimeContext(sourceChannel: ChannelId, ctx: Guardian
     guardianChatId: ctx.guardianChatId,
     guardianExternalUserId: ctx.guardianExternalUserId,
     requesterIdentifier: ctx.requesterIdentifier,
+    requesterDisplayName: ctx.requesterDisplayName,
     requesterExternalUserId: ctx.requesterExternalUserId,
     requesterChatId: ctx.requesterChatId,
     denialReason: ctx.denialReason,

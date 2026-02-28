@@ -56,6 +56,7 @@ import {
   createOutboundSession,
   validateAndConsumeChallenge,
 } from '../runtime/channel-guardian-service.js';
+import { resolveActorTrust } from '../runtime/actor-trust-resolver.js';
 
 initializeDb();
 
@@ -141,6 +142,30 @@ describe('trusted contact verification → member activation', () => {
     expect(member!.username).toBe('requester_username');
     expect(member!.assistantId).toBe('self');
     expect(member!.sourceChannel).toBe('telegram');
+  });
+
+  test('resolveActorTrust surfaces member displayName when sender displayName is missing', () => {
+    upsertMember({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalUserId: 'requester-user-jeff',
+      externalChatId: 'requester-chat-jeff',
+      status: 'active',
+      policy: 'allow',
+      displayName: 'Jeff',
+      username: 'jeff_handle',
+    });
+
+    const trust = resolveActorTrust({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalChatId: 'requester-chat-jeff',
+      senderExternalUserId: 'requester-user-jeff',
+    });
+
+    expect(trust.trustClass).toBe('trusted_contact');
+    expect(trust.actorMetadata.displayName).toBe('Jeff');
+    expect(trust.actorMetadata.identifier).toBe('@jeff_handle');
   });
 
   test('post-verify message is accepted (ACL check passes)', () => {

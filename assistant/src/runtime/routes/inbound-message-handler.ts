@@ -899,6 +899,7 @@ export async function handleChannelInbound(
     externalChatId,
     senderExternalUserId: rawSenderId,
     senderUsername: body.senderUsername,
+    senderDisplayName: body.senderName,
   });
 
   // ── Canonical guardian reply router ──
