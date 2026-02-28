@@ -227,7 +227,7 @@ struct MainWindowView: View {
                 } else if let recent = threadManager.visibleThreads.first {
                     threadManager.selectThread(id: recent.id)
                 } else {
-                    threadManager.createThread()
+                    threadManager.enterDraftMode()
                 }
                 preTemporaryChatThreadId = nil
             } else {
