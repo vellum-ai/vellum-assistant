@@ -988,15 +988,17 @@ private struct PublishedButton: View {
     @Binding var copied: Bool
 
     @State private var isHovered = false
+    @State private var resetTimer: DispatchWorkItem?
 
     var body: some View {
         Button {
+            resetTimer?.cancel()
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(url, forType: .string)
             copied = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                copied = false
-            }
+            let timer = DispatchWorkItem { copied = false }
+            resetTimer = timer
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
         } label: {
             HStack(spacing: VSpacing.xs) {
                 Image(systemName: "checkmark")
