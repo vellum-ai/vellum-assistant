@@ -1,12 +1,13 @@
 import SwiftUI
 
-/// A generic dropdown component styled to match VTextField.
-/// Uses SwiftUI `Menu` for native macOS popup behavior.
+/// A generic dropdown that looks pixel-identical to VTextField with a trailing chevron.
+/// Uses a ZStack: the visual layer is a plain styled HStack (no Menu chrome),
+/// and the interactive layer is a transparent Menu overlay on top.
 public struct VDropdown<T: Hashable>: View {
     public let placeholder: String
     @Binding public var selection: T
     public let options: [(label: String, value: T)]
-    /// When selection equals emptyValue, the placeholder text is shown instead of a selected label.
+    /// When selection equals emptyValue, placeholder text is shown instead.
     public var emptyValue: T? = nil
 
     public init(
@@ -29,21 +30,9 @@ public struct VDropdown<T: Hashable>: View {
     }
 
     public var body: some View {
-        Menu {
-            ForEach(options, id: \.value) { option in
-                Button {
-                    selection = option.value
-                } label: {
-                    HStack {
-                        Text(option.label)
-                        if option.value == selection {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack {
+        ZStack {
+            // Visual layer — identical to VTextField(trailingIcon: "chevron.down")
+            HStack(spacing: VSpacing.md) {
                 Group {
                     if let label = selectedLabel {
                         Text(label)
@@ -58,20 +47,39 @@ public struct VDropdown<T: Hashable>: View {
 
                 Image(systemName: "chevron.down")
                     .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 14))
+                    .accessibilityHidden(true)
             }
             .padding(VSpacing.md)
             .background(VColor.inputBackground)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
             )
-            .contentShape(Rectangle())
+
+            // Interaction layer — transparent Menu, no visual chrome
+            Menu {
+                ForEach(options, id: \.value) { option in
+                    Button {
+                        selection = option.value
+                    } label: {
+                        HStack {
+                            Text(option.label)
+                            if option.value == selection {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Color.clear.contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
         .frame(maxWidth: .infinity)
+        .accessibilityLabel(selectedLabel ?? placeholder)
     }
 }
 
@@ -79,8 +87,8 @@ public struct VDropdown<T: Hashable>: View {
 struct VDropdown_Preview: PreviewProvider {
     static var previews: some View {
         VDropdownPreviewWrapper()
-            .frame(width: 350, height: 160)
-            .previewDisplayName("VDropdown")
+            .frame(width: 350, height: 200)
+            .previewDisplayName("VDropdown vs VTextField")
     }
 }
 
@@ -96,13 +104,17 @@ private struct VDropdownPreviewWrapper: View {
     var body: some View {
         ZStack {
             VColor.background.ignoresSafeArea()
-            VStack(spacing: 16) {
+            VStack(spacing: VSpacing.md) {
                 VDropdown(
-                    placeholder: "Select an option...",
+                    placeholder: "Select an option\u{2026}",
                     selection: $selection,
                     options: options,
                     emptyValue: ""
                 )
+
+                TextField("Leave empty for daemon default", text: .constant(""))
+                    .vInputStyle()
+                    .font(VFont.body)
 
                 Text("Selected: \"\(selection)\"")
                     .font(VFont.mono)
