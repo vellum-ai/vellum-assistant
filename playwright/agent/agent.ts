@@ -15,11 +15,11 @@ import { TOOL_DEFINITIONS, executeTool, type TestResult } from "./tools";
 
 // ── Constants ───────────────────────────────────────────────────────
 
-const MAX_ITERATIONS = 1000;
+const MAX_ITERATIONS = 50;
 const MAX_TEST_DURATION_MS = 5 * 60 * 1000; // 5 minutes per test
 const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY_MS = 5000;
-const MODEL = "claude-opus-4-6";
+const MODEL = "claude-sonnet-4-20250514";
 
 const SYSTEM_PROMPT = `You are a QA test automation agent for a desktop application. Your job is to execute end-to-end test cases described in markdown and verify the expected outcomes.
 
@@ -41,14 +41,23 @@ Rules:
 - After completing all steps, verify each expected outcome.
 - You MUST call report_result exactly once when done, indicating whether the test passed or failed.
 - If a step fails (tool returns an error), try to recover once. If it still fails, report the test as failed with details.
-- You have a strict 5-minute time limit. Work efficiently and avoid unnecessary retries.
+- You have a strict 5-minute time limit and a limited iteration budget. Work efficiently.
+
+Efficiency guidelines (CRITICAL — you will be killed after ~50 iterations):
+- Combine multiple actions in a single applescript call when possible (e.g., dump the tree AND click a button in one script).
+- Do NOT dump the full accessibility tree every single time. Dump it once when you first encounter a new screen, then reference the elements you found. Only re-dump if your element reference fails.
+- When waiting for the app or assistant to respond, use a SINGLE wait call of 3-5 seconds, then check. Do not use many short waits.
+- Avoid redundant screenshots — only take a screenshot when you need visual confirmation that cannot be obtained from the accessibility tree.
+- If you are stuck on a step for more than 3-4 attempts, report the test as failed rather than continuing to retry.
+- Issue the report_result call AS SOON AS you have enough evidence to make a pass/fail determination. Do not perform extra verification beyond what the test requires.
 
 AppleScript tips (avoid common errors):
-- ALWAYS dump the accessibility tree (entire contents of window 1) BEFORE trying to interact with elements. Never guess element indices.
+- Dump the accessibility tree (entire contents of window 1) the FIRST TIME you see a new screen. Cache the structure mentally and reference elements directly after that.
 - Static text elements are read-only — do not try to set their value.
 - Use "click" and "keystroke" for input, not "set value" on non-editable elements.
 - Ensure proper AppleScript syntax: use "of" for hierarchy, quote strings, and avoid bare ordinal words like "1st", "2nd", "3rd" outside of proper AppleScript context.
-- If an element reference fails with "Invalid index", re-inspect the accessibility tree to find the correct path.`;
+- If an element reference fails with "Invalid index", re-inspect the accessibility tree to find the correct path.
+- Combine inspection and action: you can dump the tree, parse it, AND click a button all in one AppleScript call.`;
 
 // ── Agent Loop ──────────────────────────────────────────────────────
 
@@ -97,17 +106,38 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
     },
   ];
 
+  const startTime = Date.now();
+
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     if (signal.aborted) {
       return {
         passed: false,
         message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
-        reasoning: `The agent did not complete within the ${MAX_TEST_DURATION_MS / 1000}s time limit. The test was aborted before the agent could call report_result.`,
+        reasoning: `The agent did not complete within the ${MAX_TEST_DURATION_MS / 1000}s time limit after ${iteration} iterations. The test was aborted before the agent could call report_result.`,
       };
     }
 
     if (verbose) {
-      console.log(`  [agent] iteration ${iteration + 1}`);
+      console.log(`  [agent] iteration ${iteration + 1}/${MAX_ITERATIONS}`);
+    }
+
+    // Inject budget awareness into the conversation at key thresholds
+    const elapsedMs = Date.now() - startTime;
+    const remainingIterations = MAX_ITERATIONS - iteration;
+    const remainingSecs = Math.max(0, Math.floor((MAX_TEST_DURATION_MS - elapsedMs) / 1000));
+
+    if (remainingIterations <= 5 || remainingSecs <= 30) {
+      // Urgent: about to run out of time/iterations
+      messages.push({
+        role: "user",
+        content: `⚠️ URGENT: You have ${remainingIterations} iterations and ~${remainingSecs}s remaining. You MUST call report_result NOW with your best assessment of pass/fail. Do not perform any more test steps.`,
+      });
+    } else if (remainingIterations <= 15 || remainingSecs <= 90) {
+      // Warning: getting close to the limit
+      messages.push({
+        role: "user",
+        content: `⏱️ Budget check: ${remainingIterations} iterations and ~${remainingSecs}s remaining. Wrap up your verification and call report_result soon.`,
+      });
     }
 
     let response: Anthropic.Message;
@@ -116,13 +146,14 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
         return {
           passed: false,
           message: `Test timed out after ${MAX_TEST_DURATION_MS / 1000}s.`,
+          reasoning: `The agent timed out during an API call on iteration ${iteration + 1}. The test was aborted before completion.`,
         };
       }
 
       try {
         const stream = client.messages.stream({
           model: MODEL,
-          max_tokens: 32000,
+          max_tokens: 16000,
           system: SYSTEM_PROMPT,
           tools: TOOL_DEFINITIONS,
           messages,
@@ -156,7 +187,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
 
     for (const block of assistantContent) {
       if (block.type === "text") {
-        traceLog(traceLogPath, `TEXT ${block.text}`);
+        traceLog(traceLogPath, `[iter ${iteration + 1}/${MAX_ITERATIONS}] TEXT ${block.text}`);
         if (verbose) console.log(`  [agent] text: ${block.text}`);
       } else if (block.type === "tool_use") {
         if (verbose) console.log(`  [agent] tool_use: ${block.name}(${JSON.stringify(block.input)})`);
@@ -194,7 +225,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
         };
       }
 
-      traceLog(traceLogPath, `CALL ${block.name}(${JSON.stringify(block.input)})`);
+      traceLog(traceLogPath, `[iter ${iteration + 1}/${MAX_ITERATIONS}] CALL ${block.name}(${JSON.stringify(block.input)})`);
 
       const { result, testResult } = await executeTool(
         page,
