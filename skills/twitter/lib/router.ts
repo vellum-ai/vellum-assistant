@@ -3,7 +3,7 @@
  * Selects OAuth or browser path based on persisted preference and capability.
  */
 
-import { loadRawConfig } from '../config/loader.js';
+import { loadRawConfig } from './shared/config.js';
 import type { PostTweetResult } from './client.js';
 import { postTweet as browserPostTweet, SessionExpiredError } from './client.js';
 import { oauthIsAvailable, oauthPostTweet, oauthSupportsOperation } from './oauth-client.js';

@@ -1,5 +1,5 @@
 /**
- * Tests for CLI error-shaping logic in the `run()` helper of twitter.ts.
+ * Tests for CLI error-shaping logic in the `run()` helper of twitter-cli.ts.
  *
  * These tests verify that structured router metadata (pathUsed,
  * suggestAlternative, oauthError) is preserved in CLI output while
@@ -7,7 +7,7 @@
  */
 import { describe, expect,test } from 'bun:test';
 
-import { SessionExpiredError } from '../twitter/client.js';
+import { SessionExpiredError } from '../lib/client.js';
 
 // ---------------------------------------------------------------------------
 // We test the error-shaping logic directly by reproducing the branching in
@@ -19,10 +19,10 @@ import { SessionExpiredError } from '../twitter/client.js';
 
 const SESSION_EXPIRED_MSG =
   'Your Twitter session has expired. Please sign in to Twitter in Chrome — ' +
-  'run `vellum twitter refresh` to capture your session automatically.';
+  'run `x refresh` to capture your session automatically.';
 
 /**
- * Replicates the error-to-payload logic from `run()` in twitter.ts.
+ * Replicates the error-to-payload logic from `run()` in twitter-cli.ts.
  * Returns the JSON payload that would be written to stdout.
  */
 function buildErrorPayload(err: unknown): Record<string, unknown> | null {
@@ -138,9 +138,6 @@ describe('CLI error shaping', () => {
   });
 
   test('auto-mode error with pathUsed and oauthError but no suggestAlternative preserves metadata', () => {
-    // This is the scenario flagged by Codex: routedPostTweet in auto mode tries
-    // OAuth (fails), then browser (fails with non-SessionExpiredError). The thrown
-    // error has pathUsed and oauthError but no suggestAlternative.
     const err = Object.assign(
       new Error('Browser automation failed: element not found'),
       {

@@ -4,7 +4,7 @@ import { afterEach,beforeEach, describe, expect, mock, test } from 'bun:test';
 
 let secureKeyStore: Record<string, string> = {};
 
-mock.module('../security/secure-keys.js', () => ({
+mock.module('../../../assistant/src/security/secure-keys.js', () => ({
   getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
   setSecureKey: (account: string, value: string) => {
     secureKeyStore[account] = value;
@@ -19,7 +19,7 @@ mock.module('../security/secure-keys.js', () => ({
 }));
 
 // withValidToken: call the callback directly with a fake token.
-mock.module('../security/token-manager.js', () => ({
+mock.module('../../../assistant/src/security/token-manager.js', () => ({
   withValidToken: async (_service: string, cb: (token: string) => Promise<unknown>) =>
     cb('fake-oauth-token'),
   TokenExpiredError: class TokenExpiredError extends Error {
@@ -30,29 +30,12 @@ mock.module('../security/token-manager.js', () => ({
   },
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    trace: () => {},
-    fatal: () => {},
-    child: () => ({
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    }),
-  }),
-}));
-
 import {
   oauthIsAvailable,
   oauthPostTweet,
   oauthSupportsOperation,
   UnsupportedOAuthOperationError,
-} from '../twitter/oauth-client.js';
+} from '../lib/oauth-client.js';
 
 // --- Global fetch mock ---
 

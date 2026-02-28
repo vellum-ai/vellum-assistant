@@ -6,9 +6,9 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync,writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { ExtractedCredential,SessionRecording } from '../tools/browser/network-recording-types.js';
-import { ConfigError } from '../util/errors.js';
-import { getDataDir } from '../util/platform.js';
+import type { ExtractedCredential, SessionRecording } from './shared/recording-types.js';
+import { ConfigError } from './shared/errors.js';
+import { getDataDir } from './shared/platform.js';
 
 export interface TwitterSession {
   cookies: ExtractedCredential[];

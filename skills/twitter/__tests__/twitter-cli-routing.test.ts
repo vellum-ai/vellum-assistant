@@ -10,27 +10,17 @@ let mockBrowserPostResult: { tweetId: string; text: string; url: string } | null
 let mockBrowserPostError: Error | null = null;
 
 // Mock the config loader to return a controllable strategy
-mock.module('../config/loader.js', () => ({
+mock.module('../lib/shared/config.js', () => ({
   loadRawConfig: () => {
     if (mockStrategy !== undefined) {
       return { twitterOperationStrategy: mockStrategy };
     }
     return {};
   },
-  loadConfig: () => ({}),
-  saveConfig: () => {},
-  saveRawConfig: () => {},
-  getConfig: () => ({
-    ui: {},
-    }),
-  invalidateConfigCache: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
 }));
 
 // Mock the OAuth client
-mock.module('../twitter/oauth-client.js', () => ({
+mock.module('../lib/oauth-client.js', () => ({
   oauthIsAvailable: () => mockOauthAvailable,
   oauthSupportsOperation: (op: string) => op === 'post' || op === 'reply',
   oauthPostTweet: async (_text: string, _opts?: { inReplyToTweetId?: string }) => {
@@ -59,7 +49,7 @@ class MockSessionExpiredError extends Error {
 }
 
 // Mock the browser client
-mock.module('../twitter/client.js', () => ({
+mock.module('../lib/client.js', () => ({
   postTweet: async (_text: string, _opts?: { inReplyToTweetId?: string }) => {
     if (mockBrowserPostError) throw mockBrowserPostError;
     if (mockBrowserPostResult) return mockBrowserPostResult;
@@ -68,25 +58,7 @@ mock.module('../twitter/client.js', () => ({
   SessionExpiredError: MockSessionExpiredError,
 }));
 
-// Mock the logger to silence output
-mock.module('../util/logger.js', () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    trace: () => {},
-    fatal: () => {},
-    child: () => ({
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    }),
-  }),
-}));
-
-import { routedPostTweet } from '../twitter/router.js';
+import { routedPostTweet } from '../lib/router.js';
 
 beforeEach(() => {
   mockStrategy = undefined;

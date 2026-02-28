@@ -28,7 +28,6 @@ import { registerInfluencerCommand } from './cli/influencer.js';
 import { registerMapCommand } from './cli/map.js';
 import { registerMcpCommand } from './cli/mcp.js';
 import { registerSequenceCommand } from './cli/sequence.js';
-import { registerTwitterCommand } from './cli/twitter.js';
 import { registerHooksCommand } from './hooks/cli.js';
 
 const program = new Command();
@@ -54,7 +53,6 @@ registerEmailCommand(program);
 registerAmazonCommand(program);
 registerCompletionsCommand(program);
 
-registerTwitterCommand(program);
 registerMapCommand(program);
 registerInfluencerCommand(program);
 registerSequenceCommand(program);

@@ -4,7 +4,7 @@
  * go through the browser's authenticated session.
  */
 
-import { ProviderError } from '../util/errors.js';
+import { ProviderError } from './shared/errors.js';
 import {
   loadSession,
   type TwitterSession,

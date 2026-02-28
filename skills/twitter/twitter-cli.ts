@@ -1,5 +1,5 @@
 /**
- * CLI command group: `vellum twitter`
+ * CLI command group: `x` (Twitter)
  *
  * Post tweets and manage Twitter sessions via the command line.
  * All commands output JSON to stdout. Use --json for machine-readable output.
@@ -12,7 +12,7 @@ import { Command } from 'commander';
 import {
   createMessageParser,
   serialize,
-} from '../daemon/ipc-protocol.js';
+} from './lib/shared/ipc.js';
 import {
   getBookmarks,
   getFollowers,
@@ -26,14 +26,14 @@ import {
   getUserTweets,
   searchTweets,
   SessionExpiredError,
-} from '../twitter/client.js';
-import { routedPostTweet } from '../twitter/router.js';
+} from './lib/client.js';
+import { routedPostTweet } from './lib/router.js';
 import {
   clearSession,
   importFromRecording,
   loadSession,
-} from '../twitter/session.js';
-import { getSocketPath, readSessionToken } from '../util/platform.js';
+} from './lib/session.js';
+import { getSocketPath, readSessionToken } from './lib/shared/platform.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -61,7 +61,7 @@ function getJson(cmd: Command): boolean {
 
 const SESSION_EXPIRED_MSG =
   'Your Twitter session has expired. Please sign in to Twitter in Chrome — ' +
-  'run `vellum twitter refresh` to capture your session automatically.';
+  'run `x refresh` to capture your session automatically.';
 
 async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
   try {
@@ -216,7 +216,7 @@ export function registerTwitterCommand(program: Command): void {
         const daemonResponse = await sendDaemonMessage({
           type: 'twitter_integration_config',
           action: 'get',
-        } as import('../daemon/ipc-protocol.js').ClientMessage, 'twitter_integration_config_response');
+        } as Record<string, unknown>, 'twitter_integration_config_response');
         const r = daemonResponse as Record<string, unknown>;
         oauthInfo = {
           oauthConnected: r.connected ?? false,
@@ -256,7 +256,7 @@ export function registerTwitterCommand(program: Command): void {
         const daemonResponse = await sendDaemonMessage({
           type: 'twitter_integration_config',
           action: 'get_strategy',
-        } as import('../daemon/ipc-protocol.js').ClientMessage, 'twitter_integration_config_response');
+        } as Record<string, unknown>, 'twitter_integration_config_response');
         const r = daemonResponse as Record<string, unknown>;
         output({ ok: true, strategy: r.strategy ?? 'auto' }, json);
       } catch (err) {
@@ -274,7 +274,7 @@ export function registerTwitterCommand(program: Command): void {
           type: 'twitter_integration_config',
           action: 'set_strategy',
           strategy: value,
-        } as import('../daemon/ipc-protocol.js').ClientMessage, 'twitter_integration_config_response');
+        } as Record<string, unknown>, 'twitter_integration_config_response');
         const r = daemonResponse as Record<string, unknown>;
         if (r.success) {
           output({ ok: true, strategy: r.strategy }, json);
@@ -482,7 +482,7 @@ export function registerTwitterCommand(program: Command): void {
 // ---------------------------------------------------------------------------
 
 function sendDaemonMessage(
-  message: import('../daemon/ipc-protocol.js').ClientMessage,
+  message: Record<string, unknown>,
   expectedResponseType: string,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -554,7 +554,7 @@ function sendDaemonMessage(
           serialize({
             type: 'auth',
             token: sessionToken,
-          } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
+          } as unknown as Record<string, unknown>),
         );
       } else {
         sendPayload();
@@ -704,7 +704,7 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
           intervalSeconds: 5,
           mode: 'learn',
           targetDomain: 'x.com',
-        } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
+        } as unknown as Record<string, unknown>),
       );
     };
 
@@ -746,7 +746,7 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
           serialize({
             type: 'auth',
             token: sessionToken,
-          } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
+          } as unknown as Record<string, unknown>),
         );
       } else {
         sendStartCommand();
