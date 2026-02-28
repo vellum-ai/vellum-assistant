@@ -840,6 +840,7 @@ struct DynamicWorkspaceWrapper: View {
     let onMicrophoneToggle: () -> Void
 
     @State private var showVersionHistory = false
+    @State private var publishUrlCopied = false
 
     var body: some View {
         ZStack {
@@ -933,11 +934,7 @@ struct DynamicWorkspaceWrapper: View {
                                 .controlSize(.small)
                                 .frame(height: 24)
                         } else if let url = sharing.publishedUrl {
-                            VButton(label: "Copied!", icon: "checkmark", style: .tertiary) {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(url, forType: .string)
-                            }
-                            .controlSize(.small)
+                            PublishedButton(url: url, copied: $publishUrlCopied)
                         } else {
                             VButton(label: "Publish", icon: "arrow.up.right", style: .tertiary) {
                                 onPublishPage(data.html, data.preview?.title, data.appId)
@@ -981,6 +978,61 @@ struct DynamicWorkspaceWrapper: View {
             }
             } // else (not showing version history)
         }
+    }
+}
+
+/// Shows "Published ✓" with an inline copy-to-clipboard button.
+/// Tapping the copy icon copies the URL and briefly shows a checkmark.
+private struct PublishedButton: View {
+    let url: String
+    @Binding var copied: Bool
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(url, forType: .string)
+            copied = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                copied = false
+            }
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(VColor.success)
+                Text("Published")
+                    .font(VFont.caption)
+                Divider()
+                    .frame(height: 12)
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(copied ? VColor.success : VColor.buttonSecondaryText)
+                    .animation(VAnimation.fast, value: copied)
+            }
+            .foregroundColor(VColor.buttonSecondaryText)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.buttonV)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(isHovered ? VColor.ghostHover : .clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(VColor.buttonSecondaryBorder, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.set() }
+            else { NSCursor.arrow.set() }
+        }
+        .controlSize(.small)
+        .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
     }
 }
 
