@@ -27,6 +27,8 @@ import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from '../runtime/guardian-verification-templates.js';
+import { redeemVoiceInviteCode } from '../runtime/ingress-service.js';
+import { findActiveVoiceInvites } from '../memory/ingress-invite-store.js';
 import { parseJsonSafe } from '../util/json.js';
 import { getLogger } from '../util/logger.js';
 import { normalizeAssistantId } from '../util/platform.js';
@@ -172,6 +174,12 @@ export class RelayConnection {
 
   // Outbound guardian verification state (system calls the guardian)
   private outboundGuardianVerificationSessionId: string | null = null;
+
+  // Inbound voice invite redemption state
+  private inviteRedemptionActive = false;
+  private inviteRedemptionAssistantId: string | null = null;
+  private inviteRedemptionFromNumber: string | null = null;
+  private inviteRedemptionCodeLength = 6;
 
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
@@ -494,6 +502,34 @@ export class RelayConnection {
       const pendingChallenge = getPendingChallenge(assistantId, 'voice');
 
       if (actorTrust.trustClass === 'unknown' && !pendingChallenge) {
+        // Before denying, check if there is an active voice invite bound
+        // to the caller's phone number. If so, enter the invite redemption
+        // subflow instead of denying the call outright.
+        let voiceInvites: ReturnType<typeof findActiveVoiceInvites> = [];
+        try {
+          voiceInvites = findActiveVoiceInvites({
+            assistantId,
+            expectedExternalUserId: msg.from,
+          });
+        } catch (err) {
+          log.warn({ err, callSessionId: this.callSessionId }, 'Failed to check voice invites for unknown caller');
+        }
+
+        // Exclude invites that are past their expiresAt even if the DB
+        // status hasn't been lazily flipped to 'expired' yet.
+        const now = Date.now();
+        const nonExpiredInvites = voiceInvites.filter(i => !i.expiresAt || i.expiresAt > now);
+
+        if (nonExpiredInvites.length > 0) {
+          log.info(
+            { callSessionId: this.callSessionId, from: msg.from },
+            'Inbound voice ACL: unknown caller has active voice invite — entering redemption flow',
+          );
+          const inviteCodeLength = Math.min(...nonExpiredInvites.map(i => i.voiceCodeDigits ?? 6));
+          this.startInviteRedemption(assistantId, msg.from, inviteCodeLength);
+          return;
+        }
+
         log.info(
           { callSessionId: this.callSessionId, from: msg.from, trustClass: actorTrust.trustClass },
           'Inbound voice ACL: unknown caller denied',
@@ -960,6 +996,130 @@ export class RelayConnection {
     }
   }
 
+  /**
+   * Enter the invite redemption subflow for an inbound unknown caller
+   * who has an active voice invite. Prompts the caller to enter their
+   * invite code via DTMF or speech.
+   */
+  private startInviteRedemption(assistantId: string, fromNumber: string, codeLength: number): void {
+    this.inviteRedemptionActive = true;
+    this.inviteRedemptionAssistantId = assistantId;
+    this.inviteRedemptionFromNumber = fromNumber;
+    this.connectionState = 'verification_pending';
+    this.verificationAttempts = 0;
+    this.verificationMaxAttempts = 3;
+    this.inviteRedemptionCodeLength = codeLength;
+    this.dtmfBuffer = '';
+
+    recordCallEvent(this.callSessionId, 'invite_redemption_started', {
+      assistantId,
+      codeLength,
+      maxAttempts: this.verificationMaxAttempts,
+    });
+
+    this.sendTextToken(
+      `Please enter your ${codeLength}-digit invite code using your keypad, or speak the digits now.`,
+      true,
+    );
+
+    log.info(
+      { callSessionId: this.callSessionId, assistantId },
+      'Inbound voice invite redemption started',
+    );
+  }
+
+  /**
+   * Validate an entered invite code against active voice invites for the
+   * caller. On success, create/activate the ingress member and transition
+   * to the normal call flow. On failure, allow retries up to max attempts.
+   */
+  private attemptInviteCodeRedemption(enteredCode: string): void {
+    if (!this.inviteRedemptionAssistantId || !this.inviteRedemptionFromNumber) {
+      return;
+    }
+
+    const result = redeemVoiceInviteCode({
+      assistantId: this.inviteRedemptionAssistantId,
+      callerExternalUserId: this.inviteRedemptionFromNumber,
+      sourceChannel: 'voice',
+      code: enteredCode,
+    });
+
+    if (result.ok) {
+      this.connectionState = 'connected';
+      this.inviteRedemptionActive = false;
+      this.verificationAttempts = 0;
+      this.dtmfBuffer = '';
+
+      recordCallEvent(this.callSessionId, 'invite_redemption_succeeded', {
+        memberId: result.memberId,
+        ...(result.type === 'redeemed' ? { inviteId: result.inviteId } : {}),
+      });
+      log.info(
+        { callSessionId: this.callSessionId, memberId: result.memberId, type: result.type },
+        'Voice invite redemption succeeded',
+      );
+
+      // Update the controller's guardian context with the now-trusted caller
+      // so downstream policy gates have accurate actor metadata.
+      if (this.controller) {
+        this.controller.setGuardianContext(
+          toGuardianRuntimeContext(
+            'voice',
+            resolveGuardianContext({
+              assistantId: this.inviteRedemptionAssistantId,
+              sourceChannel: 'voice',
+              externalChatId: this.inviteRedemptionFromNumber,
+              senderExternalUserId: this.inviteRedemptionFromNumber,
+            }),
+          ),
+        );
+        this.startNormalCallFlow(this.controller, true);
+      }
+    } else {
+      this.verificationAttempts++;
+
+      if (this.verificationAttempts >= this.verificationMaxAttempts) {
+        this.inviteRedemptionActive = false;
+
+        recordCallEvent(this.callSessionId, 'invite_redemption_failed', {
+          attempts: this.verificationAttempts,
+        });
+        log.warn(
+          { callSessionId: this.callSessionId, attempts: this.verificationAttempts },
+          'Voice invite redemption failed — max attempts reached',
+        );
+
+        this.sendTextToken('Too many invalid attempts. Goodbye.', true);
+
+        updateCallSession(this.callSessionId, {
+          status: 'failed',
+          endedAt: Date.now(),
+          lastError: 'Voice invite redemption failed — max attempts exceeded',
+        });
+
+        const failSession = getCallSession(this.callSessionId);
+        if (failSession) {
+          expirePendingQuestions(this.callSessionId);
+          persistCallCompletionMessage(failSession.conversationId, this.callSessionId).catch((err) => {
+            log.error({ err, conversationId: failSession.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+          });
+          fireCallCompletionNotifier(failSession.conversationId, this.callSessionId);
+        }
+
+        setTimeout(() => {
+          this.endSession('Invite redemption failed');
+        }, 2000);
+      } else {
+        log.info(
+          { callSessionId: this.callSessionId, attempt: this.verificationAttempts, maxAttempts: this.verificationMaxAttempts },
+          'Voice invite redemption attempt failed — retrying',
+        );
+        this.sendTextToken('Invalid code. Please try again.', true);
+      }
+    }
+  }
+
   private async handlePrompt(msg: RelayPromptMessage): Promise<void> {
     if (this.connectionState === 'disconnecting') {
       return;
@@ -984,6 +1144,26 @@ export class RelayConnection {
       } else if (spokenDigits.length > 0) {
         this.sendTextToken(
           `I heard ${spokenDigits.length} digits. Please enter all ${this.verificationCodeLength} digits of your code.`,
+          true,
+        );
+      }
+      return;
+    }
+
+    // During invite redemption, attempt to parse spoken digits from the
+    // transcript and validate against the caller's active voice invite.
+    if (this.connectionState === 'verification_pending' && this.inviteRedemptionActive) {
+      const spokenDigits = RelayConnection.parseDigitsFromSpeech(msg.voicePrompt);
+      log.info(
+        { callSessionId: this.callSessionId, transcript: msg.voicePrompt, spokenDigits },
+        'Speech received during invite redemption',
+      );
+      if (spokenDigits.length >= this.inviteRedemptionCodeLength) {
+        const enteredCode = spokenDigits.slice(0, this.inviteRedemptionCodeLength);
+        this.attemptInviteCodeRedemption(enteredCode);
+      } else if (spokenDigits.length > 0) {
+        this.sendTextToken(
+          `I heard ${spokenDigits.length} digits. Please enter all ${this.inviteRedemptionCodeLength} digits of your code.`,
           true,
         );
       }
@@ -1098,6 +1278,19 @@ export class RelayConnection {
         const enteredCode = this.dtmfBuffer.slice(0, this.verificationCodeLength);
         this.dtmfBuffer = '';
         this.attemptGuardianCodeVerification(enteredCode);
+      }
+      return;
+    }
+
+    // If invite redemption is pending, accumulate digits and validate
+    // the code against the caller's active voice invite.
+    if (this.connectionState === 'verification_pending' && this.inviteRedemptionActive) {
+      this.dtmfBuffer += msg.digit;
+
+      if (this.dtmfBuffer.length >= this.inviteRedemptionCodeLength) {
+        const enteredCode = this.dtmfBuffer.slice(0, this.inviteRedemptionCodeLength);
+        this.dtmfBuffer = '';
+        this.attemptInviteCodeRedemption(enteredCode);
       }
       return;
     }
