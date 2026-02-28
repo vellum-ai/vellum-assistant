@@ -346,6 +346,39 @@ export function hasGuardianRequestCodeInstruction(
   }
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeInstructionText(value: string): string {
+  return value
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+export function stripConflictingGuardianRequestInstructions(
+  text: string,
+  requestCode: string,
+  mode: GuardianQuestionInstructionMode,
+): string {
+  const escapedCode = escapeRegExp(requestCode);
+  const approvalInstructionPattern = new RegExp(
+    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+approve"\\s+or\\s+"${escapedCode}\\s+reject"\\.?`,
+    'ig',
+  );
+  const answerInstructionPattern = new RegExp(
+    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+<your\\s+answer>"\\.?`,
+    'ig',
+  );
+
+  const next = mode === 'answer'
+    ? text.replace(approvalInstructionPattern, '')
+    : text.replace(answerInstructionPattern, '');
+
+  return normalizeInstructionText(next);
+}
+
 /**
  * Resolve guardian reply instruction mode from request kind.
  *

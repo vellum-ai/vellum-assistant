@@ -12,6 +12,7 @@ import {
   parseGuardianQuestionPayload,
   resolveGuardianInstructionModeFromFields,
   resolveGuardianQuestionInstructionMode,
+  stripConflictingGuardianRequestInstructions,
 } from '../notifications/guardian-question-mode.js';
 
 describe('guardian-question-mode', () => {
@@ -187,5 +188,13 @@ describe('guardian-question-mode', () => {
     expect(buildGuardianDisambiguationExample('answer', 'A1B2C3')).toBe(
       'For questions: reply "A1B2C3 <your answer>".',
     );
+  });
+
+  test('stripConflictingGuardianRequestInstructions removes opposite-mode instructions', () => {
+    const approvalText = 'Reference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".';
+    const answerText = 'Reference code: A1B2C3. Reply "A1B2C3 <your answer>".';
+
+    expect(stripConflictingGuardianRequestInstructions(approvalText, 'A1B2C3', 'answer')).toBe('');
+    expect(stripConflictingGuardianRequestInstructions(answerText, 'A1B2C3', 'approval')).toBe('');
   });
 });

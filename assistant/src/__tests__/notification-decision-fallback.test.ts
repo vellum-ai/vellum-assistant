@@ -152,6 +152,8 @@ describe('notification decision fallback copy', () => {
 
     expect(decision.fallbackUsed).toBe(false);
     expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 <your answer>"');
+    expect(decision.renderedCopy.vellum?.body).not.toContain('"A1B2C3 approve"');
+    expect(decision.renderedCopy.vellum?.body).not.toContain('"A1B2C3 reject"');
   });
 
   test('enforcement appends answer instructions when LLM copy incorrectly uses approve/reject wording', async () => {
@@ -228,5 +230,44 @@ describe('notification decision fallback copy', () => {
     expect(decision.fallbackUsed).toBe(false);
     expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 approve"');
     expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
+  });
+
+  test('approval-mode enforcement removes conflicting answer-mode phrasing', async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: 'record_notification_decision',
+      input: {
+        shouldNotify: true,
+        selectedChannels: ['vellum'],
+        reasoningSummary: 'LLM decision',
+        renderedCopy: {
+          vellum: {
+            title: 'Guardian Question',
+            body: 'Reference code: A1B2C3. Reply "A1B2C3 <your answer>".',
+          },
+        },
+        dedupeKey: 'guardian-question-approval-removes-answer-test',
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeSignal({
+      contextPayload: {
+        requestId: 'req-grant-2',
+        questionText: 'Allow running host_bash?',
+        requestCode: 'A1B2C3',
+        requestKind: 'tool_grant_request',
+        toolName: 'host_bash',
+      },
+    });
+
+    const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 approve"');
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
+    expect(decision.renderedCopy.vellum?.body).not.toContain('<your answer>');
   });
 });

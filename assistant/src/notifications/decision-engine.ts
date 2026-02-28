@@ -21,6 +21,7 @@ import {
   buildGuardianRequestCodeInstruction,
   hasGuardianRequestCodeInstruction,
   resolveGuardianQuestionInstructionMode,
+  stripConflictingGuardianRequestInstructions,
 } from './guardian-question-mode.js';
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
@@ -420,8 +421,9 @@ function ensureGuardianRequestCodeInCopy(
 
   const ensureText = (text: string | undefined): string => {
     const base = typeof text === 'string' ? text.trim() : '';
-    if (hasGuardianRequestCodeInstruction(base, requestCode, mode)) return base;
-    return base.length > 0 ? `${base}\n\n${instruction}` : instruction;
+    const sanitized = stripConflictingGuardianRequestInstructions(base, requestCode, mode);
+    if (hasGuardianRequestCodeInstruction(sanitized, requestCode, mode)) return sanitized;
+    return sanitized.length > 0 ? `${sanitized}\n\n${instruction}` : instruction;
   };
 
   return {
