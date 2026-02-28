@@ -305,9 +305,15 @@ async function executeApprove(
     }
   }
   session.setAssistantId(assistantId);
-  // The guardian approved this escalation, so tag as guardian trust to avoid
-  // unknown-provenance memory gating.
-  session.setGuardianContext({ trustClass: 'guardian', sourceChannel: sourceChannel ?? 'vellum' });
+  // The guardian already approved this escalation via the inbox, so we
+  // directly set guardian trust. Going through resolveLocalIpcGuardianContext
+  // would look up the vellum binding's guardian ID and compare it against
+  // a different channel's binding (e.g. telegram/sms), misclassifying the
+  // actor as 'unknown'.
+  session.setGuardianContext({
+    sourceChannel: sourceChannel ?? 'vellum',
+    trustClass: 'guardian',
+  });
   session.setCommandIntent(null);
 
   // Process the message through the agent loop (no IPC event callback

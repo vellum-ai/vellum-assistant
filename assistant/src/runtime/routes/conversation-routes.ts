@@ -27,6 +27,7 @@ import { buildAssistantEvent } from '../assistant-event.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
+import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
 import type {
   ApprovalConversationGenerator,
   MessageProcessor,
@@ -443,9 +444,11 @@ export async function handleSendMessage(
   if (deps.sendMessageDeps) {
     const smDeps = deps.sendMessageDeps;
     const session = await smDeps.getOrCreateSession(mapping.conversationId);
-    // HTTP API is a trusted local ingress (same as IPC) — set guardian context
-    // so that memory extraction is not silently disabled by unverified provenance.
-    session.setGuardianContext({ trustClass: 'guardian', sourceChannel: sourceChannel ?? 'http' });
+    // Resolve local actor identity through the unified trust pipeline.
+    // HTTP API is a trusted local ingress (same as IPC) — the resolved
+    // context tags the message as guardian provenance so memory extraction
+    // is not silently disabled by unverified provenance.
+    session.setGuardianContext(resolveLocalIpcGuardianContext(sourceChannel ?? 'vellum'));
     const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
 
     const attachments = hasAttachments
