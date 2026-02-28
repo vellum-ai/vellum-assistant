@@ -6,11 +6,11 @@ import { createAssistantMessage, createUserMessage } from '../../agent/message-t
 import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbnail } from '../../memory/attachments-store.js';
-import { getAttentionStateByConversationIds } from '../../memory/conversation-attention-store.js';
 import {
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
 } from '../../memory/canonical-guardian-store.js';
+import { getAttentionStateByConversationIds } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';

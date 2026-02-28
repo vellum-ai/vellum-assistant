@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { eq } from 'drizzle-orm';
 
 const testDir = mkdtempSync(join(tmpdir(), 'channel-retry-sweep-test-'));
 
