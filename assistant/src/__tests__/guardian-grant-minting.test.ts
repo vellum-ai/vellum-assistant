@@ -530,3 +530,70 @@ describe('guardian grant minting on tool-approval decisions', () => {
     composeSpy.mockRestore();
   });
 });
+
+describe('approval interception trust-class regression coverage', () => {
+  let deliverSpy: ReturnType<typeof spyOn>;
+  let composeSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    resetTables();
+    deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    composeSpy = spyOn(approvalMessageComposer, 'composeApprovalMessageGenerative')
+      .mockResolvedValue('test message');
+  });
+
+  test('identity-known unknown sender does not auto-deny pending approval', async () => {
+    const requestId = 'req-unknown-no-auto-deny-1';
+    const sessionMock = registerPendingInteraction(requestId, CONVERSATION_ID, TOOL_NAME, TOOL_INPUT);
+    createTestGuardianApproval(requestId);
+
+    const result = await handleApprovalInterception({
+      conversationId: CONVERSATION_ID,
+      content: 'approve',
+      externalChatId: REQUESTER_CHAT,
+      sourceChannel: 'telegram',
+      senderExternalUserId: 'intruder-user-1',
+      replyCallbackUrl: 'https://gateway.test/deliver',
+      guardianCtx: {
+        trustClass: 'unknown',
+      },
+      assistantId: ASSISTANT_ID,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.type).toBe('assistant_turn');
+    expect(sessionMock).not.toHaveBeenCalled();
+
+    deliverSpy.mockRestore();
+    composeSpy.mockRestore();
+  });
+
+  test('legacy unverified sender still auto-denies pending approval', async () => {
+    const requestId = 'req-unknown-auto-deny-1';
+    const sessionMock = registerPendingInteraction(requestId, CONVERSATION_ID, TOOL_NAME, TOOL_INPUT);
+    createTestGuardianApproval(requestId);
+
+    const result = await handleApprovalInterception({
+      conversationId: CONVERSATION_ID,
+      content: 'approve',
+      externalChatId: REQUESTER_CHAT,
+      sourceChannel: 'telegram',
+      senderExternalUserId: undefined,
+      replyCallbackUrl: 'https://gateway.test/deliver',
+      guardianCtx: {
+        trustClass: 'unknown',
+        denialReason: 'no_identity',
+      },
+      assistantId: ASSISTANT_ID,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.type).toBe('decision_applied');
+    expect(sessionMock).toHaveBeenCalled();
+    expect(sessionMock.mock.calls[0]?.[0]).toBe(requestId);
+    expect(sessionMock.mock.calls[0]?.[1]).toBe('deny');
+
+    deliverSpy.mockRestore();
+    composeSpy.mockRestore();
+  });
+});
