@@ -1302,15 +1302,6 @@ exports[`IPC message snapshots ServerMessage types message_complete serializes t
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types message_request_complete serializes to expected JSON 1`] = `
-{
-  "requestId": "req-inline-001",
-  "runStillActive": true,
-  "sessionId": "sess-001",
-  "type": "message_request_complete",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types session_info serializes to expected JSON 1`] = `
 {
   "correlationId": "corr-001",

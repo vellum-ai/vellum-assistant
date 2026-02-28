@@ -267,7 +267,6 @@
     "message_dequeued",
     "message_queued",
     "message_queued_deleted",
-    "message_request_complete",
     "model_info",
     "navigate_settings",
     "notification_intent",
