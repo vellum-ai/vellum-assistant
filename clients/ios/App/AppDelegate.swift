@@ -202,7 +202,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     /// Ensures an actor token is present. If missing, waits for the daemon
     /// to become reachable and calls the bootstrap endpoint with exponential
     /// backoff. Runs entirely in the background and never blocks the UI.
-    private func ensureActorTokenBootstrap() {
+    func ensureActorTokenBootstrap() {
         actorTokenBootstrapTask?.cancel()
 
         actorTokenBootstrapTask = Task { [weak self] in
@@ -213,9 +213,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
             // If no pairing config exists (fresh install or logged-out state),
             // bail out immediately. Without a gateway URL the daemon connection
-            // will never succeed, so looping would just drain battery. The
-            // bootstrap will be re-triggered after a successful QR pairing via
-            // the clientProvider rebuild path.
+            // will never succeed, so looping would just drain battery.
+            // QRPairingSheet re-triggers this method after a successful pairing
+            // when no actor token was included in the pairing response.
             let gatewayURL = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL)
             guard let gatewayURL, !gatewayURL.isEmpty else {
                 log.info("Actor token bootstrap skipped — no pairing config present")

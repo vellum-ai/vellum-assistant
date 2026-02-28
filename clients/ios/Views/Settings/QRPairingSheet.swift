@@ -543,6 +543,17 @@ struct QRPairingSheet: View {
         phase = .connecting
         clientProvider.rebuildClient()
 
+        // If the pairing response did not include an actor token, re-trigger
+        // the bootstrap loop so the device obtains one from the daemon now
+        // that a valid gateway URL is configured. Without this, a fresh
+        // install that pairs in-session would lack an actor token until the
+        // next app restart.
+        if !ActorTokenManager.hasToken {
+            if let appDelegate = UIApplication.shared.delegate as? AppDelegate {
+                appDelegate.ensureActorTokenBootstrap()
+            }
+        }
+
         Task {
             do {
                 try await clientProvider.client.connect()
