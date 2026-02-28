@@ -46,22 +46,22 @@ mock.module('../util/logger.js', () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import {
+  applyCanonicalGuardianDecision,
+} from '../approvals/guardian-decision-primitive.js';
+import type { ActorContext } from '../approvals/guardian-request-resolvers.js';
+import {
+  getRegisteredKinds,
+  getResolver,
+} from '../approvals/guardian-request-resolvers.js';
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from '../memory/canonical-guardian-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import {
-  applyCanonicalGuardianDecision,
-} from '../approvals/guardian-decision-primitive.js';
-import {
-  getResolver,
-  getRegisteredKinds,
-} from '../approvals/guardian-request-resolvers.js';
-import type { ActorContext } from '../approvals/guardian-request-resolvers.js';
-import {
-  routeGuardianReply,
   type GuardianReplyContext,
+  routeGuardianReply,
 } from '../runtime/guardian-reply-router.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 
@@ -198,6 +198,20 @@ describe('routing invariant: all decision paths reference applyCanonicalGuardian
     });
   }
 
+  test('daemon/session-process.ts no longer references legacy guardian-action interception', () => {
+    const fullPath = join(srcRoot, 'daemon/session-process.ts');
+    const source = readFileSync(fullPath, 'utf-8');
+    expect(source).not.toContain("../memory/guardian-action-store.js");
+    expect(source).not.toContain('getPendingDeliveriesByConversation');
+  });
+
+  test('daemon/session-process.ts seeds router hints from delivery and conversation scopes', () => {
+    const fullPath = join(srcRoot, 'daemon/session-process.ts');
+    const source = readFileSync(fullPath, 'utf-8');
+    expect(source).toContain('listPendingCanonicalGuardianRequestsByDestinationConversation');
+    expect(source).toContain('listCanonicalGuardianRequests');
+  });
+
   test('guardian-reply-router routes all decisions through applyCanonicalGuardianDecision', () => {
     const fullPath = join(srcRoot, 'runtime/guardian-reply-router.ts');
     const source = readFileSync(fullPath, 'utf-8');
@@ -276,7 +290,7 @@ describe('routing invariant: identity checks enforced before decisions', () => {
   });
 
   test('identity mismatch on code-only message blocks detail leakage', async () => {
-    const req = createCanonicalGuardianRequest({
+    createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
       conversationId: 'conv-1',
@@ -515,6 +529,123 @@ describe('routing invariant: code-only messages return clarification', () => {
 
 describe('routing invariant: disambiguation stays fail-closed', () => {
   beforeEach(() => resetTables());
+
+  test('single hinted pending request accepts explicit plain-text approve without NL generator', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: 'DDD444',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    registerPendingToolApprovalInteraction(req.id, 'conv-1', 'shell');
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'approve',
+      conversationId: 'conv-guardian-thread',
+      pendingRequestIds: [req.id],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe('canonical_decision_applied');
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe('approved');
+  });
+
+  test('single hinted pending request does not auto-approve broad acknowledgment text', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: 'GGG777',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'ok, what is this for?',
+      conversationId: 'conv-guardian-thread',
+      pendingRequestIds: [req.id],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(false);
+    expect(result.type).toBe('not_consumed');
+    expect(result.decisionApplied).toBe(false);
+
+    const unchanged = getCanonicalGuardianRequest(req.id);
+    expect(unchanged!.status).toBe('pending');
+  });
+
+  test('explicit empty pendingRequestIds hint stays fail-closed for trusted actors', async () => {
+    createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-other',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: 'HHH888',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'approve',
+      actor: trustedActor(),
+      conversationId: 'conv-unrelated',
+      pendingRequestIds: [],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(false);
+    expect(result.type).toBe('not_consumed');
+    expect(result.decisionApplied).toBe(false);
+  });
+
+  test('multiple hinted pending requests with plain-text approve returns disambiguation', async () => {
+    const req1 = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: 'EEE555',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const req2 = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: 'FFF666',
+      toolName: 'file_write',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'approve',
+      conversationId: 'conv-guardian-thread',
+      pendingRequestIds: [req1.id, req2.id],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe('disambiguation_needed');
+    expect(result.decisionApplied).toBe(false);
+    expect(result.replyText).toContain('EEE555');
+    expect(result.replyText).toContain('FFF666');
+
+    const r1 = getCanonicalGuardianRequest(req1.id);
+    const r2 = getCanonicalGuardianRequest(req2.id);
+    expect(r1!.status).toBe('pending');
+    expect(r2!.status).toBe('pending');
+  });
 
   test('multiple pending requests without target return disambiguation (not auto-resolve)', async () => {
     // Create two pending requests for the same guardian

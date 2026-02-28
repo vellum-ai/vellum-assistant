@@ -404,6 +404,50 @@ export function listCanonicalGuardianDeliveries(requestId: string): CanonicalGua
     .map(rowToDelivery);
 }
 
+/**
+ * List pending canonical requests that were delivered to a specific
+ * destination conversation.
+ *
+ * This bridges inbound guardian replies (which arrive on the destination
+ * conversation) back to their canonical request records. The caller can
+ * optionally scope by destination channel when the same conversation ID
+ * namespace could exist across channels.
+ */
+export function listPendingCanonicalGuardianRequestsByDestinationConversation(
+  destinationConversationId: string,
+  destinationChannel?: string,
+): CanonicalGuardianRequest[] {
+  const db = getDb();
+
+  const deliveryConditions = [eq(canonicalGuardianDeliveries.destinationConversationId, destinationConversationId)];
+  if (destinationChannel) {
+    deliveryConditions.push(eq(canonicalGuardianDeliveries.destinationChannel, destinationChannel));
+  }
+
+  const deliveries = db
+    .select()
+    .from(canonicalGuardianDeliveries)
+    .where(and(...deliveryConditions))
+    .all();
+
+  if (deliveries.length === 0) return [];
+
+  const seenRequestIds = new Set<string>();
+  const pendingRequests: CanonicalGuardianRequest[] = [];
+
+  for (const delivery of deliveries) {
+    if (seenRequestIds.has(delivery.requestId)) continue;
+    seenRequestIds.add(delivery.requestId);
+
+    const request = getCanonicalGuardianRequest(delivery.requestId);
+    if (request && request.status === 'pending') {
+      pendingRequests.push(request);
+    }
+  }
+
+  return pendingRequests;
+}
+
 export interface UpdateCanonicalGuardianDeliveryParams {
   status?: string;
   destinationMessageId?: string;

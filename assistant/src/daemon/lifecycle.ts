@@ -59,7 +59,6 @@ import type { ServerMessage } from './ipc-protocol.js';
 import { initializeProvidersAndTools, registerMessagingProviders,registerWatcherProviders } from './providers-setup.js';
 import { seedInterfaceFiles } from './seed-files.js';
 import { DaemonServer } from './server.js';
-import { setApprovalConversationGenerator, setGuardianActionCopyGenerator, setGuardianFollowUpConversationGenerator } from './session-process.js';
 import { initSlashPairingContext } from './session-slash.js';
 import { installShutdownHandlers } from './shutdown-handlers.js';
 
@@ -320,21 +319,9 @@ export async function runDaemon(): Promise<void> {
         server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
       interfacesDir: getInterfacesDir(),
       approvalCopyGenerator: createApprovalCopyGenerator(),
-      approvalConversationGenerator: (() => {
-        const gen = createApprovalConversationGenerator();
-        setApprovalConversationGenerator(gen);
-        return gen;
-      })(),
-      guardianActionCopyGenerator: (() => {
-        const gen = createGuardianActionCopyGenerator();
-        setGuardianActionCopyGenerator(gen);
-        return gen;
-      })(),
-      guardianFollowUpConversationGenerator: (() => {
-        const gen = createGuardianFollowUpConversationGenerator();
-        setGuardianFollowUpConversationGenerator(gen);
-        return gen;
-      })(),
+      approvalConversationGenerator: createApprovalConversationGenerator(),
+      guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
+      guardianFollowUpConversationGenerator: createGuardianFollowUpConversationGenerator(),
       sendMessageDeps: {
         getOrCreateSession: (conversationId) =>
           server.getSessionForMessages(conversationId),

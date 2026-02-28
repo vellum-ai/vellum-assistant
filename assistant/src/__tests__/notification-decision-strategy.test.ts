@@ -55,6 +55,23 @@ describe('notification decision strategy', () => {
       expect(copy.vellum!.body).toContain('What is the gate code?');
     });
 
+    test('guardian.question template includes request-code instructions when present', () => {
+      const signal = makeSignal({
+        sourceEventName: 'guardian.question',
+        contextPayload: {
+          questionText: 'What is the gate code?',
+          requestCode: 'A1B2C3',
+        },
+      });
+
+      const copy = composeFallbackCopy(signal, channels);
+      expect(copy.vellum).toBeDefined();
+      expect(copy.vellum!.body).toContain('A1B2C3');
+      expect(copy.vellum!.body).toContain('approve');
+      expect(copy.vellum!.body).toContain('reject');
+      expect(copy.telegram!.deliveryText).toContain('A1B2C3');
+    });
+
     test('reminder.fired template uses message from payload', () => {
       const signal = makeSignal({
         sourceEventName: 'reminder.fired',

@@ -31,6 +31,7 @@ import {
   getCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
+  listPendingCanonicalGuardianRequestsByDestinationConversation,
   resolveCanonicalGuardianRequest,
   updateCanonicalGuardianDelivery,
   updateCanonicalGuardianRequest,
@@ -413,7 +414,7 @@ describe('canonical-guardian-store', () => {
       destinationChannel: 'telegram',
       destinationChatId: 'chat-123',
     });
-    const d2 = createCanonicalGuardianDelivery({
+    createCanonicalGuardianDelivery({
       requestId: req.id,
       destinationChannel: 'sms',
       destinationChatId: 'chat-456',
@@ -438,6 +439,58 @@ describe('canonical-guardian-store', () => {
 
     const deliveries = listCanonicalGuardianDeliveries(req.id);
     expect(deliveries).toHaveLength(0);
+  });
+
+  test('lists pending requests by destination conversation', () => {
+    const pendingReq = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+    });
+    const resolvedReq = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+    });
+    updateCanonicalGuardianRequest(resolvedReq.id, { status: 'approved' });
+
+    createCanonicalGuardianDelivery({
+      requestId: pendingReq.id,
+      destinationChannel: 'vellum',
+      destinationConversationId: 'conv-guardian-1',
+    });
+    createCanonicalGuardianDelivery({
+      requestId: resolvedReq.id,
+      destinationChannel: 'vellum',
+      destinationConversationId: 'conv-guardian-1',
+    });
+
+    const pending = listPendingCanonicalGuardianRequestsByDestinationConversation(
+      'conv-guardian-1',
+      'vellum',
+    );
+    expect(pending).toHaveLength(1);
+    expect(pending[0].id).toBe(pendingReq.id);
+  });
+
+  test('destination conversation lookup deduplicates request IDs', () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+    });
+
+    createCanonicalGuardianDelivery({
+      requestId: req.id,
+      destinationChannel: 'vellum',
+      destinationConversationId: 'conv-guardian-2',
+    });
+    createCanonicalGuardianDelivery({
+      requestId: req.id,
+      destinationChannel: 'telegram',
+      destinationConversationId: 'conv-guardian-2',
+    });
+
+    const pending = listPendingCanonicalGuardianRequestsByDestinationConversation('conv-guardian-2');
+    expect(pending).toHaveLength(1);
+    expect(pending[0].id).toBe(req.id);
   });
 
   test('updates delivery status', () => {

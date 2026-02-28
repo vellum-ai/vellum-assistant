@@ -17,24 +17,24 @@
  * to allow for incremental migration and independent testability.
  */
 
-import type { ApprovalAction } from './channel-approval-types.js';
-import type {
-  ApprovalConversationContext,
-  ApprovalConversationGenerator,
-} from './http-types.js';
-import { runApprovalConversationTurn } from './approval-conversation-turn.js';
 import {
   applyCanonicalGuardianDecision,
   type CanonicalDecisionResult,
 } from '../approvals/guardian-decision-primitive.js';
 import type { ActorContext, ChannelDeliveryContext } from '../approvals/guardian-request-resolvers.js';
 import {
+  type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
   getCanonicalGuardianRequestByCode,
   listCanonicalGuardianRequests,
-  type CanonicalGuardianRequest,
 } from '../memory/canonical-guardian-store.js';
 import { getLogger } from '../util/logger.js';
+import { runApprovalConversationTurn } from './approval-conversation-turn.js';
+import type { ApprovalAction } from './channel-approval-types.js';
+import type {
+  ApprovalConversationContext,
+  ApprovalConversationGenerator,
+} from './http-types.js';
 
 const log = getLogger('guardian-reply-router');
 
@@ -165,10 +165,13 @@ function findPendingCanonicalRequests(
   conversationId?: string,
 ): CanonicalGuardianRequest[] {
   // When explicit IDs are provided, look them up directly
-  if (pendingRequestIds && pendingRequestIds.length > 0) {
+  if (pendingRequestIds) {
+    if (pendingRequestIds.length === 0) {
+      return [];
+    }
     return pendingRequestIds
       .map(getCanonicalGuardianRequest)
-      .filter((r): r is CanonicalGuardianRequest => r !== null && r.status === 'pending');
+      .filter((r): r is CanonicalGuardianRequest => r?.status === 'pending');
   }
 
   // Query by guardian identity when available
@@ -226,7 +229,8 @@ function notConsumed(): GuardianReplyResult {
 export async function routeGuardianReply(
   ctx: GuardianReplyContext,
 ): Promise<GuardianReplyResult> {
-  const { messageText, channel, actor, conversationId, callbackData, approvalConversationGenerator, channelDeliveryContext } = ctx;
+  const { messageText, actor, conversationId, callbackData, approvalConversationGenerator, channelDeliveryContext } = ctx;
+  const pendingRequests = findPendingCanonicalRequests(actor, ctx.pendingRequestIds, conversationId);
 
   // ── 1. Deterministic callback parsing (button presses) ──
   // No conversationId scoping here — the guardian's reply comes from a
@@ -315,11 +319,37 @@ export async function routeGuardianReply(
     }
   }
 
+  // ── 2.5. Deterministic plain-text decisions for known pending targets ──
+  // Desktop sessions intentionally do not enable NL classification; when the
+  // caller has exactly one known pending request and sends an explicit
+  // approve/reject phrase ("approve", "yes", "reject", "no"), apply the
+  // decision directly instead of falling through to legacy handlers.
+  if (messageText.length > 0 && pendingRequests.length > 0) {
+    const inferredAction = inferDecisionActionFromFreeText(messageText);
+    if (inferredAction) {
+      if (pendingRequests.length === 1) {
+        return applyDecision(
+          pendingRequests[0].id,
+          inferredAction,
+          actor,
+          messageText,
+          channelDeliveryContext,
+        );
+      }
+
+      const disambiguationReply = composeDisambiguationReply(pendingRequests);
+      return {
+        decisionApplied: false,
+        consumed: true,
+        type: 'disambiguation_needed',
+        replyText: disambiguationReply,
+      };
+    }
+  }
+
   // ── 3. NL classification via the conversational approval engine ──
   if (messageText.length > 0 && approvalConversationGenerator) {
-    const allPendingRequests = findPendingCanonicalRequests(actor, ctx.pendingRequestIds, conversationId);
-
-    if (allPendingRequests.length === 0) {
+    if (pendingRequests.length === 0) {
       return notConsumed();
     }
 
@@ -329,14 +359,14 @@ export async function routeGuardianReply(
     // conversationId would incorrectly drop valid pending requests. Identity-
     // based filtering in findPendingCanonicalRequests already constrains
     // results to the correct guardian.
-    const pendingRequests = allPendingRequests;
+    const pendingRequestsForClassification = pendingRequests;
 
     // Build the conversation context for the NL engine
     const engineContext: ApprovalConversationContext = {
-      toolName: pendingRequests[0].toolName ?? 'unknown',
+      toolName: pendingRequestsForClassification[0].toolName ?? 'unknown',
       allowedActions: guardianAllowedActions(),
       role: 'guardian',
-      pendingApprovals: pendingRequests.map(r => ({
+      pendingApprovals: pendingRequestsForClassification.map(r => ({
         requestId: r.id,
         toolName: r.toolName ?? 'unknown',
       })),
@@ -354,12 +384,12 @@ export async function routeGuardianReply(
       // but runApprovalConversationTurn fail-closed because no targetRequestId
       // was provided. In this case, produce a disambiguation reply instead of
       // a generic "I couldn't process that" message.
-      if (pendingRequests.length > 1) {
+      if (pendingRequestsForClassification.length > 1) {
         log.info(
-          { event: 'router_nl_disambiguation_needed', pendingCount: pendingRequests.length },
+          { event: 'router_nl_disambiguation_needed', pendingCount: pendingRequestsForClassification.length },
           'Engine returned keep_pending with multiple pending requests — producing disambiguation',
         );
-        const disambiguationReply = composeDisambiguationReply(pendingRequests, undefined);
+        const disambiguationReply = composeDisambiguationReply(pendingRequestsForClassification, undefined);
         return {
           decisionApplied: false,
           consumed: true,
@@ -385,16 +415,17 @@ export async function routeGuardianReply(
     }
 
     // Resolve the target request
-    const targetId = engineResult.targetRequestId ?? (pendingRequests.length === 1 ? pendingRequests[0].id : undefined);
+    const targetId = engineResult.targetRequestId
+      ?? (pendingRequestsForClassification.length === 1 ? pendingRequestsForClassification[0].id : undefined);
 
     if (!targetId) {
       // Multi-pending and engine didn't pick a target — need disambiguation.
       // Fail-closed: never auto-resolve when the target is ambiguous.
       log.info(
-        { event: 'router_nl_disambiguation_needed', pendingCount: pendingRequests.length },
+        { event: 'router_nl_disambiguation_needed', pendingCount: pendingRequestsForClassification.length },
         'NL engine returned a decision but no target for multi-pending requests',
       );
-      const disambiguationReply = composeDisambiguationReply(pendingRequests, engineResult.replyText);
+      const disambiguationReply = composeDisambiguationReply(pendingRequestsForClassification, engineResult.replyText);
       return {
         decisionApplied: false,
         consumed: true,
@@ -512,7 +543,47 @@ async function applyDecision(
 // Text-to-action inference
 // ---------------------------------------------------------------------------
 
-const REJECT_PATTERNS = /^(no|deny|reject|decline|cancel|block)\b/i;
+const CODE_REJECT_PATTERNS = /^(no|deny|reject|decline|cancel|block)\b/i;
+const EXPLICIT_APPROVE_PHRASES: ReadonlySet<string> = new Set([
+  'approve',
+  'approved',
+  'approve once',
+  'yes',
+  'y',
+  'allow',
+  'go ahead',
+  'proceed',
+  'do it',
+]);
+const EXPLICIT_REJECT_PHRASES: ReadonlySet<string> = new Set([
+  'reject',
+  'deny',
+  'decline',
+  'no',
+  'n',
+  'block',
+  'cancel',
+]);
+
+function normalizeDecisionPhrase(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?]+$/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Strict free-text decision parser used when no request code is present.
+ * Returns null unless the message starts with an explicit approve/reject cue.
+ */
+function inferDecisionActionFromFreeText(text: string): ApprovalAction | null {
+  const normalized = normalizeDecisionPhrase(text);
+  if (!normalized) return null;
+  if (EXPLICIT_REJECT_PHRASES.has(normalized)) return 'reject';
+  if (EXPLICIT_APPROVE_PHRASES.has(normalized)) return 'approve_once';
+  return null;
+}
 
 /**
  * Infer a guardian decision action from free-text after a request code.
@@ -523,7 +594,7 @@ function inferActionFromText(text: string): ApprovalAction {
     return 'approve_once';
   }
 
-  if (REJECT_PATTERNS.test(text.trim())) {
+  if (CODE_REJECT_PATTERNS.test(text.trim())) {
     return 'reject';
   }
 
