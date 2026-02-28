@@ -328,6 +328,12 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     // session-scoped interaction should be resolved.
     expect(resolveMock).toHaveBeenCalledTimes(1);
     expect(resolveMock).toHaveBeenCalledWith('req-live');
+    expect(resolveCanonicalGuardianRequestMock).toHaveBeenCalledTimes(1);
+    expect(resolveCanonicalGuardianRequestMock).toHaveBeenCalledWith(
+      'req-live',
+      'pending',
+      { status: 'denied' },
+    );
   });
 
   test('registers IPC confirmation events for NL approval routing', async () => {

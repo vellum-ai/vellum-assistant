@@ -688,6 +688,7 @@ export async function handleUserMessage(
       // stale request IDs are not reused as routing candidates.
       for (const interaction of pendingInteractions.getByConversation(msg.sessionId)) {
         if (interaction.session === session && interaction.kind === 'confirmation') {
+          syncCanonicalStatusFromIpcConfirmationDecision(interaction.requestId, 'deny');
           pendingInteractions.resolve(interaction.requestId);
         }
       }
