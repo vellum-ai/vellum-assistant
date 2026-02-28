@@ -157,7 +157,22 @@ function parseArgs(): HatchArgs {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "-d") {
+    if (arg === "--help" || arg === "-h") {
+      console.log("Usage: vellum hatch [species] [options]");
+      console.log("");
+      console.log("Create a new assistant instance.");
+      console.log("");
+      console.log("Species:");
+      console.log("  vellum       Default assistant (default)");
+      console.log("  openclaw     OpenClaw adapter");
+      console.log("");
+      console.log("Options:");
+      console.log("  -d                        Run in detached mode");
+      console.log("  --name <name>             Custom instance name");
+      console.log("  --remote <host>           Remote host (local, gcp, aws, custom)");
+      console.log("  --daemon-only             Start daemon only, skip gateway");
+      process.exit(0);
+    } else if (arg === "-d") {
       detached = true;
     } else if (arg === "--daemon-only") {
       daemonOnly = true;
