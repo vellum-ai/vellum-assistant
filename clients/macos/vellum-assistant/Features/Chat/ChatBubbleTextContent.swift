@@ -53,8 +53,24 @@ extension ChatBubble {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        let result = (try? AttributedString(markdown: text, options: options))
+        var result = (try? AttributedString(markdown: text, options: options))
             ?? AttributedString(text)
+        var inlineCodeRanges: [Range<AttributedString.Index>] = []
+        for run in result.runs {
+            if let intent = run.inlinePresentationIntent, intent.contains(.code) {
+                inlineCodeRanges.append(run.range)
+            }
+        }
+        for range in inlineCodeRanges.reversed() {
+            result[range].foregroundColor = VColor.codeText
+            result[range].backgroundColor = VColor.codeBackground
+            var trailing = AttributedString("\u{2009}")
+            trailing.backgroundColor = VColor.codeBackground
+            result.insert(trailing, at: range.upperBound)
+            var leading = AttributedString("\u{2009}")
+            leading.backgroundColor = VColor.codeBackground
+            result.insert(leading, at: range.lowerBound)
+        }
         if isStreaming {
             lastStreamingInlineMarkdown = (text, result)
             return result
@@ -142,6 +158,24 @@ extension ChatBubble {
         )
         var parsed = (try? AttributedString(markdown: trimmed, options: options))
             ?? AttributedString(trimmed)
+
+        // Apply background, red text, and padding to inline code spans
+        var markdownCodeRanges: [Range<AttributedString.Index>] = []
+        for run in parsed.runs {
+            if let intent = run.inlinePresentationIntent, intent.contains(.code) {
+                markdownCodeRanges.append(run.range)
+            }
+        }
+        for range in markdownCodeRanges.reversed() {
+            parsed[range].foregroundColor = VColor.codeText
+            parsed[range].backgroundColor = VColor.codeBackground
+            var trailing = AttributedString("\u{2009}")
+            trailing.backgroundColor = VColor.codeBackground
+            parsed.insert(trailing, at: range.upperBound)
+            var leading = AttributedString("\u{2009}")
+            leading.backgroundColor = VColor.codeBackground
+            parsed.insert(leading, at: range.lowerBound)
+        }
 
         // Highlight slash command token (e.g. /model) in blue
         if let slashMatch = trimmed.range(of: #"^/\w+"#, options: .regularExpression) {

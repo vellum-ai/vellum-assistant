@@ -46,7 +46,7 @@ private struct CodeBlockView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.codeBackground)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
@@ -293,8 +293,25 @@ public struct MarkdownRenderer: View {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        return (try? AttributedString(markdown: text, options: options))
+        var result = (try? AttributedString(markdown: text, options: options))
             ?? AttributedString(text)
+        var codeRanges: [Range<AttributedString.Index>] = []
+        for run in result.runs {
+            if let intent = run.inlinePresentationIntent, intent.contains(.code) {
+                codeRanges.append(run.range)
+            }
+        }
+        for range in codeRanges.reversed() {
+            result[range].foregroundColor = VColor.codeText
+            result[range].backgroundColor = VColor.codeBackground
+            var trailing = AttributedString("\u{2009}")
+            trailing.backgroundColor = VColor.codeBackground
+            result.insert(trailing, at: range.upperBound)
+            var leading = AttributedString("\u{2009}")
+            leading.backgroundColor = VColor.codeBackground
+            result.insert(leading, at: range.lowerBound)
+        }
+        return result
     }
 }
 

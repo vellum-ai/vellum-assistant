@@ -13,7 +13,7 @@ struct MarkdownSegmentView: View {
     var secondaryTextColor: Color = VColor.textSecondary
     var mutedTextColor: Color = VColor.textMuted
     var tintColor: Color = VColor.accent
-    var codeBackgroundColor: Color = VColor.backgroundSubtle
+    var codeBackgroundColor: Color = VColor.codeBackground
     var hrColor: Color = VColor.surfaceBorder
 
     @Environment(\.conversationZoomScale) private var zoomScale
@@ -287,6 +287,24 @@ struct MarkdownSegmentView: View {
             default:
                 break
             }
+        }
+
+        // Apply background, red text, and padding to inline code spans
+        var codeRanges: [Range<AttributedString.Index>] = []
+        for run in result.runs {
+            if let intent = run.inlinePresentationIntent, intent.contains(.code) {
+                codeRanges.append(run.range)
+            }
+        }
+        for range in codeRanges.reversed() {
+            result[range].foregroundColor = VColor.codeText
+            result[range].backgroundColor = VColor.codeBackground
+            var trailing = AttributedString("\u{2009}")
+            trailing.backgroundColor = VColor.codeBackground
+            result.insert(trailing, at: range.upperBound)
+            var leading = AttributedString("\u{2009}")
+            leading.backgroundColor = VColor.codeBackground
+            result.insert(leading, at: range.lowerBound)
         }
 
         return result
