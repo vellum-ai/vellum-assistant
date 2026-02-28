@@ -55,7 +55,7 @@ describe('notification decision strategy', () => {
       expect(copy.vellum!.body).toContain('What is the gate code?');
     });
 
-    test('guardian.question template includes request-code instructions when present', () => {
+    test('guardian.question template includes free-text answer instructions when requestCode is present', () => {
       const signal = makeSignal({
         sourceEventName: 'guardian.question',
         contextPayload: {
@@ -67,9 +67,27 @@ describe('notification decision strategy', () => {
       const copy = composeFallbackCopy(signal, channels);
       expect(copy.vellum).toBeDefined();
       expect(copy.vellum!.body).toContain('A1B2C3');
+      expect(copy.vellum!.body).toContain('<your answer>');
+      expect(copy.vellum!.body).not.toContain('approve');
+      expect(copy.vellum!.body).not.toContain('reject');
+      expect(copy.telegram!.deliveryText).toContain('A1B2C3');
+    });
+
+    test('guardian.question template uses approve/reject instructions when toolName is present', () => {
+      const signal = makeSignal({
+        sourceEventName: 'guardian.question',
+        contextPayload: {
+          questionText: 'Allow running host_bash?',
+          requestCode: 'D4E5F6',
+          toolName: 'host_bash',
+        },
+      });
+
+      const copy = composeFallbackCopy(signal, channels);
+      expect(copy.vellum).toBeDefined();
+      expect(copy.vellum!.body).toContain('D4E5F6');
       expect(copy.vellum!.body).toContain('approve');
       expect(copy.vellum!.body).toContain('reject');
-      expect(copy.telegram!.deliveryText).toContain('A1B2C3');
     });
 
     test('reminder.fired template uses message from payload', () => {

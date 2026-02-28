@@ -19,6 +19,10 @@ function str(value: unknown, fallback: string): string {
   return fallback;
 }
 
+function hasToolApprovalContext(payload: Record<string, unknown>): boolean {
+  return nonEmpty(typeof payload.toolName === 'string' ? payload.toolName : undefined) !== undefined;
+}
+
 export function nonEmpty(value: string | undefined): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
@@ -48,9 +52,12 @@ const TEMPLATES: Record<string, CopyTemplate> = {
     }
 
     const normalizedCode = requestCode.toUpperCase();
+    const instruction = hasToolApprovalContext(payload)
+      ? `Reference code: ${normalizedCode}. Reply "${normalizedCode} approve" or "${normalizedCode} reject".`
+      : `Reference code: ${normalizedCode}. Reply "${normalizedCode} <your answer>".`;
     return {
       title: 'Guardian Question',
-      body: `${question}\n\nReference code: ${normalizedCode}. Reply "${normalizedCode} approve" or "${normalizedCode} reject".`,
+      body: `${question}\n\n${instruction}`,
     };
   },
 

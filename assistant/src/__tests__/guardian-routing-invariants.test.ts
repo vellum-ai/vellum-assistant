@@ -475,6 +475,37 @@ describe('routing invariant: code-only messages return clarification', () => {
     expect(unchanged!.status).toBe('pending');
   });
 
+  test('code-only pending_question asks for free-text answer (not approve/reject)', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+      sourceChannel: 'voice',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      callSessionId: 'call-1',
+      pendingQuestionId: 'pq-1',
+      requestCode: 'A2B3C4',
+      questionText: 'What time works best?',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'A2B3C4',
+      conversationId: 'conv-1',
+    }));
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe('code_only_clarification');
+    expect(result.decisionApplied).toBe(false);
+    expect(result.replyText).toContain('A2B3C4');
+    expect(result.replyText).toContain('<your answer>');
+    expect(result.replyText).not.toContain('approve');
+    expect(result.replyText).not.toContain('reject');
+
+    const unchanged = getCanonicalGuardianRequest(req.id);
+    expect(unchanged!.status).toBe('pending');
+  });
+
   test('code with decision text does apply the decision', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',

@@ -96,7 +96,7 @@ describe('notification decision fallback copy', () => {
     expect(decision.renderedCopy.vellum?.body).not.toContain('Action required: guardian.question');
   });
 
-  test('enforces request-code instructions for guardian.question when requestCode exists', async () => {
+  test('enforces free-text answer instructions for guardian.question when requestCode exists', async () => {
     const signal = makeSignal({
       contextPayload: {
         questionText: 'What is the gate code?',
@@ -107,11 +107,12 @@ describe('notification decision fallback copy', () => {
 
     expect(decision.fallbackUsed).toBe(true);
     expect(decision.renderedCopy.vellum?.body).toContain('A1B2C3');
-    expect(decision.renderedCopy.vellum?.body).toContain('approve');
-    expect(decision.renderedCopy.vellum?.body).toContain('reject');
+    expect(decision.renderedCopy.vellum?.body).toContain('<your answer>');
+    expect(decision.renderedCopy.vellum?.body).not.toContain('approve');
+    expect(decision.renderedCopy.vellum?.body).not.toContain('reject');
   });
 
-  test('enforcement appends explicit approve/reject instructions when LLM copy only mentions request code', async () => {
+  test('enforcement appends free-text answer instructions when LLM copy only mentions request code', async () => {
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
     };
@@ -136,6 +137,41 @@ describe('notification decision fallback copy', () => {
       contextPayload: {
         questionText: 'What is the gate code?',
         requestCode: 'A1B2C3',
+      },
+    });
+
+    const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 <your answer>"');
+  });
+
+  test('enforcement appends explicit approve/reject instructions for tool-approval guardian questions', async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: 'record_notification_decision',
+      input: {
+        shouldNotify: true,
+        selectedChannels: ['vellum'],
+        reasoningSummary: 'LLM decision',
+        renderedCopy: {
+          vellum: {
+            title: 'Guardian Question',
+            body: 'Use reference code A1B2C3 for this request.',
+          },
+        },
+        dedupeKey: 'guardian-question-tool-approval-test',
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeSignal({
+      contextPayload: {
+        questionText: 'Allow running host_bash?',
+        requestCode: 'A1B2C3',
+        toolName: 'host_bash',
       },
     });
 

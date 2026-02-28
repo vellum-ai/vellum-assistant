@@ -409,12 +409,18 @@ export function validateThreadActions(
 function ensureGuardianRequestCodeInCopy(
   copy: RenderedChannelCopy,
   requestCode: string,
+  mode: 'approval' | 'answer',
 ): RenderedChannelCopy {
-  const instruction = `Reference code: ${requestCode}. Reply "${requestCode} approve" or "${requestCode} reject".`;
+  const instruction = mode === 'approval'
+    ? `Reference code: ${requestCode}. Reply "${requestCode} approve" or "${requestCode} reject".`
+    : `Reference code: ${requestCode}. Reply "${requestCode} <your answer>".`;
   const hasParserCompatibleInstructions = (text: string | undefined): boolean => {
     if (typeof text !== 'string') return false;
     const upper = text.toUpperCase();
-    return upper.includes(`${requestCode} APPROVE`) && upper.includes(`${requestCode} REJECT`);
+    if (mode === 'approval') {
+      return upper.includes(`${requestCode} APPROVE`) && upper.includes(`${requestCode} REJECT`);
+    }
+    return upper.includes(`REFERENCE CODE: ${requestCode}`) && upper.includes(`"${requestCode} `);
   };
 
   const ensureText = (text: string | undefined): string => {
@@ -445,6 +451,13 @@ function enforceGuardianRequestCode(
   if (typeof rawCode !== 'string' || rawCode.trim().length === 0) return decision;
 
   const requestCode = rawCode.trim().toUpperCase();
+  const mode: 'approval' | 'answer' = (() => {
+    const rawToolName = signal.contextPayload.toolName;
+    if (typeof rawToolName === 'string' && rawToolName.trim().length > 0) {
+      return 'approval';
+    }
+    return 'answer';
+  })();
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
   };
@@ -452,7 +465,7 @@ function enforceGuardianRequestCode(
   for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
     const copy = nextCopy[channel];
     if (!copy) continue;
-    nextCopy[channel] = ensureGuardianRequestCodeInCopy(copy, requestCode);
+    nextCopy[channel] = ensureGuardianRequestCodeInCopy(copy, requestCode, mode);
   }
 
   return {

@@ -280,7 +280,7 @@ export async function routeGuardianReply(
           consumed: true,
           type: 'canonical_decision_stale',
           requestId: request.id,
-          replyText: failureReplyText('already_resolved', request.requestCode),
+          replyText: failureReplyText('already_resolved', request.requestCode, request),
         };
       }
 
@@ -643,6 +643,10 @@ function inferActionFromText(text: string): ApprovalAction {
   return 'approve_once';
 }
 
+function isPendingQuestionRequest(request?: CanonicalGuardianRequest | null): boolean {
+  return request?.kind === 'pending_question';
+}
+
 // ---------------------------------------------------------------------------
 // Failure reason reply text
 // ---------------------------------------------------------------------------
@@ -653,7 +657,11 @@ type CanonicalFailureReason = 'already_resolved' | 'identity_mismatch' | 'invali
  * Map a canonical decision failure reason to a distinct, actionable reply
  * so the guardian understands exactly what happened and what to do next.
  */
-function failureReplyText(reason: CanonicalFailureReason, requestCode?: string | null): string {
+function failureReplyText(
+  reason: CanonicalFailureReason,
+  requestCode?: string | null,
+  request?: CanonicalGuardianRequest,
+): string {
   switch (reason) {
     case 'already_resolved':
       return 'This request has already been resolved.';
@@ -662,6 +670,11 @@ function failureReplyText(reason: CanonicalFailureReason, requestCode?: string |
     case 'identity_mismatch':
       return "You don't have permission to decide on this request.";
     case 'invalid_action':
+      if (isPendingQuestionRequest(request)) {
+        return requestCode
+          ? `I found request ${requestCode}, but I still need your answer. Reply "${requestCode} <your answer>".`
+          : "I couldn't determine your answer. Reply with the request code followed by your answer (e.g., \"ABC123 3pm works\").";
+      }
       return requestCode
         ? `I found request ${requestCode}, but I need to know your decision. Reply "${requestCode} approve" or "${requestCode} reject".`
         : "I couldn't determine your intended action. Reply with the request code followed by 'approve' or 'reject' (e.g., \"ABC123 approve\").";
@@ -681,6 +694,17 @@ function failureReplyText(reason: CanonicalFailureReason, requestCode?: string |
  */
 function composeCodeOnlyClarification(request: CanonicalGuardianRequest): string {
   const code = request.requestCode ?? 'unknown';
+  if (isPendingQuestionRequest(request)) {
+    const lines: string[] = [
+      `I found question ${code}.`,
+    ];
+    if (request.questionText) {
+      lines.push(`Question: ${request.questionText}`);
+    }
+    lines.push(`Reply "${code} <your answer>" to send your answer.`);
+    return lines.join('\n');
+  }
+
   const toolLabel = request.toolName ?? 'an action';
   const lines: string[] = [
     `I found request ${code} for ${toolLabel}.`,
@@ -715,15 +739,24 @@ function composeDisambiguationReply(
   lines.push(`You have ${pendingRequests.length} pending requests. Please specify which one:`);
 
   for (const req of pendingRequests) {
-    const toolLabel = req.toolName ?? 'action';
+    const toolLabel = isPendingQuestionRequest(req)
+      ? (req.questionText ?? 'question')
+      : (req.toolName ?? 'action');
     const code = req.requestCode ?? req.id.slice(0, 6).toUpperCase();
     lines.push(`  - ${code}: ${toolLabel}`);
   }
 
-  // Include a concrete example using the first request's code
-  const exampleCode = pendingRequests[0].requestCode ?? pendingRequests[0].id.slice(0, 6).toUpperCase();
+  const questionRequest = pendingRequests.find((req) => isPendingQuestionRequest(req));
+  const decisionRequest = pendingRequests.find((req) => !isPendingQuestionRequest(req));
   lines.push('');
-  lines.push(`Reply "${exampleCode} approve" to approve a specific request.`);
+  if (questionRequest) {
+    const exampleCode = questionRequest.requestCode ?? questionRequest.id.slice(0, 6).toUpperCase();
+    lines.push(`For questions: reply "${exampleCode} <your answer>".`);
+  }
+  if (decisionRequest) {
+    const exampleCode = decisionRequest.requestCode ?? decisionRequest.id.slice(0, 6).toUpperCase();
+    lines.push(`For approvals: reply "${exampleCode} approve" or "${exampleCode} reject".`);
+  }
 
   return lines.join('\n');
 }
