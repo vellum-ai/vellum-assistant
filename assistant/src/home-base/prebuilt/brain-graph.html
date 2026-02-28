@@ -533,8 +533,19 @@
       document.getElementById('panel-3d').classList.toggle('active', mode === '3d');
       document.getElementById('btn-2d').classList.toggle('active', mode === '2d');
       document.getElementById('btn-3d').classList.toggle('active', mode === '3d');
-      if (mode === '3d' && window.brainData && typeof window.initThreeD === 'function') {
-        window.initThreeD(window.brainData);
+      if (mode === '3d') {
+        if (window.brainData && typeof window.initThreeD === 'function') {
+          window.initThreeD(window.brainData);
+        }
+        // Re-start the animation loop if it was previously stopped (e.g. after returning from 2D)
+        if (typeof window.resumeThreeD === 'function') {
+          window.resumeThreeD();
+        }
+      } else {
+        // Stop the Three.js render loop when leaving 3D to avoid wasting CPU/GPU
+        if (typeof window.stopThreeD === 'function') {
+          window.stopThreeD();
+        }
       }
     }
     window.switchMode = switchMode;
@@ -916,6 +927,12 @@
         window.brainData = data;
         updateStats(data);
         renderBrain(data);
+        // If the user switched to 3D before this fetch resolved, the panel is
+        // already active but initThreeD was never called. Kick it off now.
+        if (document.getElementById('panel-3d').classList.contains('active') &&
+            typeof window.initThreeD === 'function') {
+          window.initThreeD(data);
+        }
       } catch (err) {
         console.error('Brain graph load error:', err);
         var panel = document.getElementById('panel-2d');
@@ -970,6 +987,26 @@
   let initialized = false;
   let animFrameId = null;
   let renderer = null;
+  // animate reference stored here so resumeThreeD can call it without a closure capture issue
+  let animateFn = null;
+
+  function stopAnimation() {
+    if (animFrameId !== null) {
+      cancelAnimationFrame(animFrameId);
+      animFrameId = null;
+    }
+  }
+
+  // Exposed so the tab-switch handler in the non-module script can call them
+  window.stopThreeD = stopAnimation;
+  window.resumeThreeD = function resumeThreeD() {
+    // Only restart if the 3D scene is already initialised and loop is not running
+    if (initialized && animFrameId === null && typeof animateFn === 'function') {
+      animateFn();
+    }
+  };
+
+  window.addEventListener('beforeunload', stopAnimation);
 
   window.initThreeD = function initThreeD(data) {
     // Avoid double-initialisation if already running
@@ -1206,6 +1243,8 @@
 
       renderer.render(scene, camera);
     }
+    // Store reference so resumeThreeD can restart the loop after stopThreeD cancels it
+    animateFn = animate;
     animate();
   };
   </script>
