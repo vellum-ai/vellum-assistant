@@ -28,7 +28,7 @@ import { buildAssistantEvent } from '../assistant-event.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
-import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
+import { verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 import type {
   ApprovalConversationGenerator,
   MessageProcessor,
@@ -455,13 +455,33 @@ export async function handleSendMessage(
 
   // ── Queue-if-busy path (preferred when sendMessageDeps is wired) ────
   if (deps.sendMessageDeps) {
+    // Vellum HTTP requests prefer actor-token identity. When absent (e.g. CLI
+    // bearer-auth only), fall back to local IPC identity resolution so
+    // bearer-authenticated local clients are not rejected.
+    const actorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req) : null;
+    if (actorVerification && !actorVerification.ok) {
+      return httpError(
+        actorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
+        actorVerification.message,
+        actorVerification.status,
+      );
+    }
+
     const smDeps = deps.sendMessageDeps;
     const session = await smDeps.getOrCreateSession(mapping.conversationId);
-    // Resolve local actor identity through the unified trust pipeline.
-    // HTTP API is a trusted local ingress (same as IPC) — the resolved
-    // context tags the message as guardian provenance so memory extraction
-    // is not silently disabled by unverified provenance.
-    session.setGuardianContext(resolveLocalIpcGuardianContext(sourceChannel ?? 'vellum'));
+    // Resolve actor identity from the verified actor token. The token's
+    // guardianPrincipalId is matched against the vellum guardian binding
+    // through the standard trust pipeline.
+    if (actorVerification?.ok) {
+      session.setGuardianContext(actorVerification.guardianContext);
+    } else {
+      // Non-vellum channels (e.g. voice) go through the channel ingress
+      // path with their own trust resolution.
+      session.setGuardianContext({
+        sourceChannel,
+        trustClass: 'unknown',
+      });
+    }
     const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
 
     const attachments = hasAttachments
@@ -550,12 +570,27 @@ export async function handleSendMessage(
     return httpError('SERVICE_UNAVAILABLE', 'Message processing not configured', 503);
   }
 
+  // Require actor token for vellum channel requests on the legacy path too,
+  // with local IPC fallback for bearer-authenticated CLI clients.
+  const legacyActorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req) : null;
+  if (legacyActorVerification && !legacyActorVerification.ok) {
+    return httpError(
+      legacyActorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
+      legacyActorVerification.message,
+      legacyActorVerification.status,
+    );
+  }
+
+  const guardianContext = legacyActorVerification?.ok
+    ? legacyActorVerification.guardianContext
+    : { trustClass: 'unknown' as const, sourceChannel };
+
   try {
     const result = await processor(
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,
-      { guardianContext: { trustClass: 'guardian', sourceChannel } },
+      { guardianContext },
       sourceChannel,
       sourceInterface,
     );

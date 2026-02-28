@@ -3,6 +3,10 @@
  *
  * These endpoints let desktop clients fetch pending guardian prompts and
  * submit button decisions without relying on text parsing.
+ *
+ * After M5 cutover: all guardian action endpoints require a valid actor
+ * token via the X-Actor-Token header, and guardian decisions additionally
+ * verify the actor is the bound guardian.
  */
 import {
   applyCanonicalGuardianDecision,
@@ -16,6 +20,11 @@ import type { ApprovalAction } from '../channel-approval-types.js';
 import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';
 import { buildDecisionActions } from '../guardian-decision-types.js';
 import { httpError } from '../http-errors.js';
+import {
+  isActorBoundGuardian,
+  isLocalFallbackBoundGuardian,
+  verifyHttpActorTokenWithLocalFallback,
+} from '../middleware/actor-token.js';
 
 // ---------------------------------------------------------------------------
 // GET /v1/guardian-actions/pending?conversationId=...
@@ -23,12 +32,22 @@ import { httpError } from '../http-errors.js';
 
 /**
  * List pending guardian decision prompts for a conversation.
+ * Requires a valid actor token.
  *
  * Returns guardian approval requests (from the channel guardian store) that
  * are still pending, mapped to the GuardianDecisionPrompt shape so clients
  * can render structured button UIs.
  */
 export function handleGuardianActionsPending(req: Request): Response {
+  const tokenResult = verifyHttpActorTokenWithLocalFallback(req);
+  if (!tokenResult.ok) {
+    return httpError(
+      tokenResult.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
+      tokenResult.message,
+      tokenResult.status,
+    );
+  }
+
   const url = new URL(req.url);
   const conversationId = url.searchParams.get('conversationId');
 
@@ -46,12 +65,28 @@ export function handleGuardianActionsPending(req: Request): Response {
 
 /**
  * Submit a guardian action decision.
+ * Requires a valid actor token for a bound guardian.
  *
  * Routes all decisions through the unified canonical guardian decision
  * primitive which handles CAS resolution, resolver dispatch, and grant
  * minting.
  */
 export async function handleGuardianActionDecision(req: Request): Promise<Response> {
+  const tokenResult = verifyHttpActorTokenWithLocalFallback(req);
+  if (!tokenResult.ok) {
+    return httpError(
+      tokenResult.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
+      tokenResult.message,
+      tokenResult.status,
+    );
+  }
+  const isBoundGuardian = tokenResult.claims
+    ? isActorBoundGuardian(tokenResult.claims)
+    : isLocalFallbackBoundGuardian();
+  if (!isBoundGuardian) {
+    return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
+  }
+
   const body = await req.json() as {
     requestId?: string;
     action?: string;
@@ -82,11 +117,17 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
     }
   }
 
+  // Resolve the actor's external user ID: from the token claims if present,
+  // otherwise from the vellum guardian binding (local fallback).
+  const actorExternalUserId = tokenResult.claims
+    ? tokenResult.claims.guardianPrincipalId
+    : tokenResult.guardianContext.guardianExternalUserId;
+
   const canonicalResult = await applyCanonicalGuardianDecision({
     requestId,
     action: action as ApprovalAction,
     actorContext: {
-      externalUserId: undefined,
+      externalUserId: actorExternalUserId,
       channel: 'vellum',
       isTrusted: true,
     },

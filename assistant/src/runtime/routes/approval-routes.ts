@@ -3,20 +3,76 @@
  *
  * These endpoints resolve pending confirmations, secrets, and trust rules
  * by requestId — orthogonal to message sending.
+ *
+ * After M5 cutover: all approval endpoints require a valid actor token
+ * via the X-Actor-Token header. Guardian decisions additionally verify
+ * that the actor is the bound guardian.
  */
 import { getConversationByKey } from '../../memory/conversation-key-store.js';
 import { addRule } from '../../permissions/trust-store.js';
 import { getTool } from '../../tools/registry.js';
 import { getLogger } from '../../util/logger.js';
 import { httpError } from '../http-errors.js';
+import {
+  isActorBoundGuardian,
+  isLocalFallbackBoundGuardian,
+  verifyHttpActorTokenWithLocalFallback,
+} from '../middleware/actor-token.js';
 import * as pendingInteractions from '../pending-interactions.js';
 
 const log = getLogger('approval-routes');
 
 /**
+ * Verify the actor token from the request with local fallback.
+ * Returns an error Response if verification fails, or null if
+ * the actor is authenticated (via actor token or local identity).
+ */
+function requireActorToken(req: Request): Response | null {
+  const result = verifyHttpActorTokenWithLocalFallback(req);
+  if (!result.ok) {
+    return httpError(
+      result.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
+      result.message,
+      result.status,
+    );
+  }
+  return null;
+}
+
+/**
+ * Verify the actor token and confirm the actor is the bound guardian.
+ * When no actor token is present (bearer-authenticated local client),
+ * falls back to local IPC identity resolution and checks the local
+ * identity is the bound guardian.
+ */
+function requireBoundGuardian(req: Request): Response | null {
+  const result = verifyHttpActorTokenWithLocalFallback(req);
+  if (!result.ok) {
+    return httpError(
+      result.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
+      result.message,
+      result.status,
+    );
+  }
+  // For actor-token-authenticated requests, check the token's identity.
+  // For local fallback (bearer-auth only), check the local identity.
+  const isBoundGuardian = result.claims
+    ? isActorBoundGuardian(result.claims)
+    : isLocalFallbackBoundGuardian();
+  if (!isBoundGuardian) {
+    return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
+  }
+  return null;
+}
+
+/**
  * POST /v1/confirm — resolve a pending confirmation by requestId.
+ * Requires a valid actor token (guardian-bound).
  */
 export async function handleConfirm(req: Request): Promise<Response> {
+  const authError = requireBoundGuardian(req);
+  if (authError) return authError;
+
   const body = await req.json() as {
     requestId?: string;
     decision?: string;
@@ -43,8 +99,12 @@ export async function handleConfirm(req: Request): Promise<Response> {
 
 /**
  * POST /v1/secret — resolve a pending secret request by requestId.
+ * Requires a valid actor token (guardian-bound).
  */
 export async function handleSecret(req: Request): Promise<Response> {
+  const authError = requireBoundGuardian(req);
+  if (authError) return authError;
+
   const body = await req.json() as {
     requestId?: string;
     value?: string;
@@ -76,6 +136,7 @@ export async function handleSecret(req: Request): Promise<Response> {
 
 /**
  * POST /v1/trust-rules — add a trust rule for a pending confirmation.
+ * Requires a valid actor token (guardian-bound).
  *
  * Does NOT resolve the confirmation itself (the client still needs to
  * POST /v1/confirm to approve/deny). Validates the pattern and scope
@@ -83,6 +144,9 @@ export async function handleSecret(req: Request): Promise<Response> {
  * confirmation_request.
  */
 export async function handleTrustRule(req: Request): Promise<Response> {
+  const authError = requireBoundGuardian(req);
+  if (authError) return authError;
+
   const body = await req.json() as {
     requestId?: string;
     pattern?: string;
@@ -155,12 +219,15 @@ export async function handleTrustRule(req: Request): Promise<Response> {
 
 /**
  * GET /v1/pending-interactions?conversationKey=...
+ * Requires a valid actor token.
  *
  * Returns pending confirmations and secrets for a conversation, allowing
  * polling-based clients (like the CLI) to discover approval requests
  * without SSE.
  */
-export function handleListPendingInteractions(url: URL): Response {
+export function handleListPendingInteractions(url: URL, req: Request): Response {
+  const authError = requireActorToken(req);
+  if (authError) return authError;
   const conversationKey = url.searchParams.get('conversationKey');
   const conversationId = url.searchParams.get('conversationId');
 
