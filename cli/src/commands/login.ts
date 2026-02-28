@@ -7,6 +7,17 @@ import {
 
 export async function login(): Promise<void> {
   const args = process.argv.slice(3);
+
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("Usage: vellum login --token <session-token>");
+    console.log("");
+    console.log("Log in to the Vellum platform.");
+    console.log("");
+    console.log("Options:");
+    console.log("  --token <token>    Session token from the Vellum platform");
+    process.exit(0);
+  }
+
   let token: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
