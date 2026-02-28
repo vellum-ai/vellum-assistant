@@ -15,9 +15,12 @@ import { type DrizzleDb, getSqliteFrom } from '../db-connection.js';
  *   - The `expected_phone_e164` column is always a phone number regardless
  *     of channel, so it is normalized unconditionally.
  *
- * Collision handling: when normalizing a value would collide with an existing
- * row under the same unique-key scope, the duplicate row is deleted instead
- * of updated (the canonical row already exists with the target value).
+ * Collision handling: source queries are ordered by `updated_at DESC`
+ * (falling back to `rowid DESC` when the column is absent) so the
+ * most-recently-updated row is processed first and receives the UPDATE.
+ * When a subsequent (older) duplicate normalizes to the same value
+ * within the same unique-key scope, it is deleted — preserving the
+ * most recent state deterministically.
  *
  * Idempotent: already-normalized values pass through normalizePhoneNumber
  * unchanged, and the checkpoint key prevents re-execution.
@@ -48,6 +51,8 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
 
   // Helper: normalize a column's phone-like values in a table filtered by channel.
   // When uniqueKeyScope is provided, checks for collisions before updating.
+  // Rows are ordered by updated_at DESC (or rowid DESC as fallback) so the
+  // most-recently-updated row is processed first and survives collisions.
   function normalizeColumnByChannel(
     table: string,
     column: string,
@@ -69,6 +74,11 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     ).get(table, channelColumn);
     if (!chanColExists) return;
 
+    const hasUpdatedAt = !!raw.query(
+      `SELECT 1 FROM pragma_table_info(?) WHERE name = 'updated_at'`,
+    ).get(table);
+    const orderBy = hasUpdatedAt ? 'updated_at DESC' : 'rowid DESC';
+
     const selectColumns = [`id`, column];
     if (uniqueKeyScope) {
       for (const peer of uniqueKeyScope.peerColumns) {
@@ -77,7 +87,7 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     }
 
     const rows = raw.query(
-      `SELECT ${selectColumns.join(', ')} FROM ${table} WHERE ${channelColumn} IN (${PHONE_CHANNELS.map(() => '?').join(',')}) AND ${column} IS NOT NULL`,
+      `SELECT ${selectColumns.join(', ')} FROM ${table} WHERE ${channelColumn} IN (${PHONE_CHANNELS.map(() => '?').join(',')}) AND ${column} IS NOT NULL ORDER BY ${orderBy}`,
     ).all(...PHONE_CHANNELS) as Array<{ id: string; [key: string]: string }>;
 
     if (rows.length === 0) return;
@@ -118,6 +128,8 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
   // Helper: normalize a column unconditionally (no channel filter).
   // Used for columns that are always phone numbers (e.g., expected_phone_e164).
   // When uniqueKeyScope is provided, checks for collisions before updating.
+  // Rows are ordered by updated_at DESC (or rowid DESC as fallback) so the
+  // most-recently-updated row is processed first and survives collisions.
   function normalizeColumnUnconditionally(
     table: string,
     column: string,
@@ -133,6 +145,11 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     ).get(table, column);
     if (!colExists) return;
 
+    const hasUpdatedAt = !!raw.query(
+      `SELECT 1 FROM pragma_table_info(?) WHERE name = 'updated_at'`,
+    ).get(table);
+    const orderBy = hasUpdatedAt ? 'updated_at DESC' : 'rowid DESC';
+
     const selectColumns = [`id`, column];
     if (uniqueKeyScope) {
       for (const peer of uniqueKeyScope.peerColumns) {
@@ -141,7 +158,7 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     }
 
     const rows = raw.query(
-      `SELECT ${selectColumns.join(', ')} FROM ${table} WHERE ${column} IS NOT NULL`,
+      `SELECT ${selectColumns.join(', ')} FROM ${table} WHERE ${column} IS NOT NULL ORDER BY ${orderBy}`,
     ).all() as Array<{ id: string; [key: string]: string }>;
 
     if (rows.length === 0) return;
