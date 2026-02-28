@@ -226,7 +226,6 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
     { name: "daemon", pgrepName: "vellum-daemon", port: RUNTIME_HTTP_PORT, pidFile: join(vellumDir, "vellum.pid") },
     { name: "qdrant", pgrepName: "qdrant", port: QDRANT_PORT, pidFile: join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid") },
     { name: "gateway", pgrepName: "vellum-gateway", port: GATEWAY_PORT, pidFile: join(vellumDir, "gateway.pid") },
-    { name: "embed-worker", pgrepName: "embed-worker", port: 0, pidFile: join(vellumDir, "embed-worker.pid") },
   ];
 
   const results = await Promise.all(specs.map(detectProcess));
