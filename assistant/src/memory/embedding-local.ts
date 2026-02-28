@@ -1,7 +1,8 @@
-import { existsSync } from 'node:fs';
+import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { getLogger } from '../util/logger.js';
-import { getEmbeddingModelsDir } from '../util/platform.js';
+import { getEmbeddingModelsDir, getRootDir } from '../util/platform.js';
 import { PromiseGuard } from '../util/promise-guard.js';
 import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
 import { EmbeddingRuntimeManager } from './embedding-runtime-manager.js';
@@ -152,6 +153,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     // Worker is running — drain stderr in background for ongoing logging
     this.drainStderr(proc.stderr);
 
+    // Write PID file so `vellum ps` can see the embed worker
+    this.writePidFile(proc.pid);
+
     log.info({ pid: proc.pid, model: this.model }, 'Embedding worker process started');
   }
 
@@ -191,13 +195,14 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         // Reader cancelled or stream errored
       }
 
-      // Worker exited — reject all pending requests
+      // Worker exited — reject all pending requests and clean up
       for (const [, pending] of this.pendingRequests) {
         pending.resolve({ error: 'Embedding worker process exited unexpectedly' });
       }
       this.pendingRequests.clear();
       this.workerProc = null;
       this.stdoutReaderActive = false;
+      this.removePidFile();
       this.stdoutBuffer = '';
       // Allow re-initialization on next embed() call
       this.initGuard.reset();
@@ -280,5 +285,23 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         }
       });
     });
+  }
+
+  private static readonly PID_FILENAME = 'embed-worker.pid';
+
+  private writePidFile(pid: number): void {
+    try {
+      writeFileSync(join(getRootDir(), LocalEmbeddingBackend.PID_FILENAME), String(pid));
+    } catch {
+      // Best-effort — doesn't affect functionality
+    }
+  }
+
+  private removePidFile(): void {
+    try {
+      unlinkSync(join(getRootDir(), LocalEmbeddingBackend.PID_FILENAME));
+    } catch {
+      // Best-effort
+    }
   }
 }

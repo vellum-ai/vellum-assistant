@@ -80,28 +80,37 @@ export class VellumQdrantClient {
 
     log.info({ collection: this.collection, vectorSize: this.vectorSize }, 'Creating Qdrant collection');
 
-    await this.client.createCollection(this.collection, {
-      vectors: {
-        size: this.vectorSize,
-        distance: 'Cosine',
-        on_disk: this.onDisk,
-      },
-      hnsw_config: {
-        on_disk: this.onDisk,
-        m: 16,
-        ef_construct: 100,
-      },
-      quantization_config: this.quantization === 'scalar'
-        ? {
-          scalar: {
-            type: 'int8',
-            quantile: 0.99,
-            always_ram: true,
-          },
-        }
-        : undefined,
-      on_disk_payload: this.onDisk,
-    });
+    try {
+      await this.client.createCollection(this.collection, {
+        vectors: {
+          size: this.vectorSize,
+          distance: 'Cosine',
+          on_disk: this.onDisk,
+        },
+        hnsw_config: {
+          on_disk: this.onDisk,
+          m: 16,
+          ef_construct: 100,
+        },
+        quantization_config: this.quantization === 'scalar'
+          ? {
+            scalar: {
+              type: 'int8',
+              quantile: 0.99,
+              always_ram: true,
+            },
+          }
+          : undefined,
+        on_disk_payload: this.onDisk,
+      });
+    } catch (err) {
+      // 409 = collection was created by a concurrent caller — that's fine
+      if (err instanceof Error && 'status' in err && (err as { status: number }).status === 409) {
+        this.collectionReady = true;
+        return;
+      }
+      throw err;
+    }
 
     // Create payload indexes for efficient filtering
     await Promise.all([

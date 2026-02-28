@@ -191,8 +191,8 @@ async function detectProcess(spec: ProcessSpec): Promise<DetectedProcess> {
     return { name: spec.name, pid: pids[0], port: spec.port, running: true };
   }
 
-  // Tier 2: TCP port probe
-  const listening = await probePort(spec.port);
+  // Tier 2: TCP port probe (skip for processes without a port)
+  const listening = spec.port > 0 && await probePort(spec.port);
   if (listening) {
     const filePid = readPidFile(spec.pidFile);
     return {
@@ -215,7 +215,7 @@ async function detectProcess(spec: ProcessSpec): Promise<DetectedProcess> {
 function formatDetectionInfo(proc: DetectedProcess): string {
   const parts: string[] = [];
   if (proc.pid) parts.push(`PID ${proc.pid}`);
-  parts.push(`port ${proc.port}`);
+  if (proc.port > 0) parts.push(`port ${proc.port}`);
   return parts.join(" | ");
 }
 
@@ -226,6 +226,7 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
     { name: "daemon", pgrepName: "vellum-daemon", port: RUNTIME_HTTP_PORT, pidFile: join(vellumDir, "vellum.pid") },
     { name: "qdrant", pgrepName: "qdrant", port: QDRANT_PORT, pidFile: join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid") },
     { name: "gateway", pgrepName: "vellum-gateway", port: GATEWAY_PORT, pidFile: join(vellumDir, "gateway.pid") },
+    { name: "embed-worker", pgrepName: "embed-worker", port: 0, pidFile: join(vellumDir, "embed-worker.pid") },
   ];
 
   const results = await Promise.all(specs.map(detectProcess));
