@@ -19,7 +19,7 @@ import { SessionExpiredError } from '../lib/client.js';
 
 const SESSION_EXPIRED_MSG =
   'Your Twitter session has expired. Please sign in to Twitter in Chrome — ' +
-  'run `x refresh` to capture your session automatically.';
+  'run `twitter refresh` to capture your session automatically.';
 
 /**
  * Replicates the error-to-payload logic from `run()` in twitter-cli.ts.

@@ -95,7 +95,7 @@ function requireSession(): TwitterSession {
 async function findTwitterTab(): Promise<string> {
   const res = await fetch(`${CDP_BASE}/json/list`).catch(() => null);
   if (!res?.ok) {
-    throw new SessionExpiredError('Chrome CDP not available. Run `vellum twitter refresh` first.');
+    throw new SessionExpiredError('Chrome CDP not available. Run `twitter refresh` first.');
   }
   const targets = (await res.json()) as Array<{ type: string; url: string; webSocketDebuggerUrl: string }>;
   const tab = targets.find(

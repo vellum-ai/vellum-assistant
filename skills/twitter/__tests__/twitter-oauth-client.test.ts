@@ -4,30 +4,11 @@ import { afterEach,beforeEach, describe, expect, mock, test } from 'bun:test';
 
 let secureKeyStore: Record<string, string> = {};
 
-mock.module('../../../assistant/src/security/secure-keys.js', () => ({
+// Mock the shared security module used by oauth-client
+mock.module('../lib/shared/security.js', () => ({
   getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
-  setSecureKey: (account: string, value: string) => {
-    secureKeyStore[account] = value;
-    return true;
-  },
-  deleteSecureKey: () => true,
-  listSecureKeys: () => Object.keys(secureKeyStore),
-  getBackendType: () => 'encrypted',
-  isDowngradedFromKeychain: () => false,
-  _resetBackend: () => {},
-  _setBackend: () => {},
-}));
-
-// withValidToken: call the callback directly with a fake token.
-mock.module('../../../assistant/src/security/token-manager.js', () => ({
   withValidToken: async (_service: string, cb: (token: string) => Promise<unknown>) =>
     cb('fake-oauth-token'),
-  TokenExpiredError: class TokenExpiredError extends Error {
-    constructor(public readonly service: string, message?: string) {
-      super(message ?? `Token expired for "${service}".`);
-      this.name = 'TokenExpiredError';
-    }
-  },
 }));
 
 import {

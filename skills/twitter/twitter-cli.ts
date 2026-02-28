@@ -61,7 +61,7 @@ function getJson(cmd: Command): boolean {
 
 const SESSION_EXPIRED_MSG =
   'Your Twitter session has expired. Please sign in to Twitter in Chrome — ' +
-  'run `x refresh` to capture your session automatically.';
+  'run `twitter refresh` to capture your session automatically.';
 
 async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
   try {

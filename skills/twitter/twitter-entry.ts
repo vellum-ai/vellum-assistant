@@ -2,12 +2,12 @@
 /**
  * Standalone X (Twitter) CLI entry point.
  *
- * Invoked via the launcher script at ~/.vellum/bin/x,
+ * Invoked via the launcher script at ~/.vellum/bin/twitter,
  * which is created when the twitter skill is installed.
  *
  * registerTwitterCommand() creates a nested `x` subcommand
  * (designed for `vellum x <sub>`). We extract that subcommand
- * and use it as the root so `x status` works directly.
+ * and use it as the root so `twitter status` works directly.
  */
 
 import { Command } from 'commander';

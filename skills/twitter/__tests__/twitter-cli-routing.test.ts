@@ -143,7 +143,7 @@ describe('Twitter strategy router', () => {
       } catch (err) {
         const e = err as Error & { pathUsed: string; suggestAlternative: string };
         expect(e.message).toContain('OAuth is not configured');
-        expect(e.message).toContain('vellum x strategy set browser');
+        expect(e.message).toContain('twitter strategy set browser');
         expect(e.pathUsed).toBe('oauth');
         expect(e.suggestAlternative).toBe('browser');
       }

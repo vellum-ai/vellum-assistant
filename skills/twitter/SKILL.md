@@ -2,16 +2,16 @@
 name: "X"
 description: "Read and post on X (formerly Twitter) via OAuth or browser session"
 user-invocable: true
-metadata: {"vellum": {"emoji": "𝕏", "cli": {"command": "x", "entry": "twitter-entry.ts"}}}
+metadata: {"vellum": {"emoji": "𝕏", "cli": {"command": "twitter", "entry": "twitter-entry.ts"}}}
 ---
 
-You are an X (formerly Twitter) assistant. Use the `host_bash` tool (not `bash`) to run `x` CLI commands.
+You are an X (formerly Twitter) assistant. Use the `host_bash` tool (not `bash`) to run `twitter` CLI commands.
 
 ## CLI Setup
 
-**IMPORTANT: Always use `host_bash` (not `bash`) for all `x` commands.** The X CLI needs host access for Chrome CDP, session cookies, and the CLI binary — none of which are available inside the sandbox.
+**IMPORTANT: Always use `host_bash` (not `bash`) for all `twitter` commands.** The X CLI needs host access for Chrome CDP, session cookies, and the CLI binary — none of which are available inside the sandbox.
 
-`x` is a standalone CLI tool installed at `~/.vellum/bin/x`. It should already be on your PATH. If `x` is not found, prepend `PATH="$HOME/.vellum/bin:$PATH"` to the command. Do NOT search for the binary, inspect wrapper scripts, or try to discover how the CLI works. Just run the commands as documented below.
+`twitter` is a standalone CLI tool installed at `~/.vellum/bin/twitter`. It should already be on your PATH. If `twitter` is not found, prepend `PATH="$HOME/.vellum/bin:$PATH"` to the command. Do NOT search for the binary, inspect wrapper scripts, or try to discover how the CLI works. Just run the commands as documented below.
 
 ## Connection Options
 
@@ -24,21 +24,21 @@ OAuth uses the official X API v2. It is the most reliable connection method and 
 - Supports: **post** and **reply**
 - Read-only operations (timeline, search, home, bookmarks, notifications, likes, followers, following, media) always use the browser path directly, regardless of the strategy setting.
 - Setup: Collect the OAuth Client ID (and optional Client Secret) from the user in chat using `credential_store` with `action: "prompt"` (canonical field names: `client_id`, `client_secret`), then initiate the `twitter_auth_start` IPC flow. See the **First-Use Decision Flow** for the full sequence.
-- Set the strategy: `x strategy set oauth`
+- Set the strategy: `twitter strategy set oauth`
 
 ### Browser session (no developer credentials needed)
 
 The browser path is quick to start and useful when the user does not have X developer app credentials. It captures auth cookies from Chrome and uses them to interact with X.
 
 - Supports: **all operations** (post, reply, timeline, search, home, bookmarks, notifications, likes, followers, following, media)
-- Setup: Run `x refresh` to open Chrome and capture session cookies automatically.
-- Set the strategy: `x strategy set browser`
+- Setup: Run `twitter refresh` to open Chrome and capture session cookies automatically.
+- Set the strategy: `twitter strategy set browser`
 
 ### Auto mode (default)
 
 When the strategy is `auto` (the default), the router tries OAuth first for supported operations if credentials are available, then falls back to the browser path. This gives the best of both worlds without requiring manual switching.
 
-- Set auto mode: `x strategy set auto`
+- Set auto mode: `twitter strategy set auto`
 
 ## First-Use Decision Flow
 
@@ -52,13 +52,13 @@ When the user triggers a Twitter operation and no strategy has been configured y
 
 2. **Present both options with trade-offs:**
    - **OAuth**: Most reliable and official. Requires X developer app credentials (OAuth Client ID and optional Client Secret). Supports posting and replying. Set up right here in the chat.
-   - **Browser session**: Quick to start, no developer credentials needed. Supports all operations including reading timelines and searching. Set up with `x refresh`.
+   - **Browser session**: Quick to start, no developer credentials needed. Supports all operations including reading timelines and searching. Set up with `twitter refresh`.
 
 3. **Ask the user which they prefer.** Do not choose for them.
 
 4. **Execute setup for the chosen path:**
    - If OAuth: Collect the credentials in-chat using the secure credential prompt, then connect. Follow the **OAuth Setup Sequence** below.
-   - If browser: Run `x refresh` to capture session cookies from Chrome.
+   - If browser: Run `twitter refresh` to capture session cookies from Chrome.
 
 ### OAuth Setup Sequence
 
@@ -95,9 +95,9 @@ When a Twitter operation fails, follow these steps:
 2. **Explain the likely cause clearly** to the user.
 
 3. **Suggest trying the other path as an alternative:**
-   - If the browser session expired: suggest setting up OAuth for post/reply operations, or refresh the browser session with `x refresh`.
-   - If OAuth failed or is not configured: suggest using the browser path with `x strategy set browser` and `x refresh`.
-   - If the operation is unsupported via OAuth: explain that this write operation is not yet supported via OAuth, and suggest using the browser path with `x strategy set browser`.
+   - If the browser session expired: suggest setting up OAuth for post/reply operations, or refresh the browser session with `twitter refresh`.
+   - If OAuth failed or is not configured: suggest using the browser path with `twitter strategy set browser` and `twitter refresh`.
+   - If the operation is unsupported via OAuth: explain that this write operation is not yet supported via OAuth, and suggest using the browser path with `twitter strategy set browser`.
 
 4. **Offer concrete steps to switch:**
    ```bash
@@ -202,13 +202,13 @@ Returns tweets that contain media from the user's profile.
 
 When the user asks to check mentions, check X, or see what's happening:
 
-1. Fetch notifications: `x notifications --count 20 --json`
-2. Fetch their recent tweets to see replies: `x timeline <theirScreenName> --count 10 --json`
+1. Fetch notifications: `twitter notifications --count 20 --json`
+2. Fetch their recent tweets to see replies: `twitter timeline <theirScreenName> --count 10 --json`
 3. Summarize what needs attention:
    - Group by type: replies to their tweets, likes, new followers, mentions
-   - For anything that looks like it needs a reply, fetch the full thread with `x tweet <tweetId>` to understand context
+   - For anything that looks like it needs a reply, fetch the full thread with `twitter tweet <tweetId>` to understand context
    - Prioritize: direct questions > mentions > engagement notifications
-4. For items that need replies, draft a response and ask the user to approve before sending with `x reply`
+4. For items that need replies, draft a response and ask the user to approve before sending with `twitter reply`
 
 Present the summary as a scannable list, not a wall of text. Lead with action items.
 
@@ -216,8 +216,8 @@ Present the summary as a scannable list, not a wall of text. Lead with action it
 
 When the user wants to understand what people are saying about something:
 
-1. Search: `x search "topic" --count 20 --json`
-2. For the most interesting tweets, fetch threads: `x tweet <tweetId>`
+1. Search: `twitter search "topic" --count 20 --json`
+2. For the most interesting tweets, fetch threads: `twitter tweet <tweetId>`
 3. Summarize: key themes, notable voices, sentiment, and any emerging consensus
 4. If the user wants to engage, draft a post or reply that adds to the conversation
 
@@ -225,9 +225,9 @@ When the user wants to understand what people are saying about something:
 
 When the user wants to see how their posts are performing:
 
-1. Fetch their recent tweets: `x timeline <screenName> --count 20 --json`
+1. Fetch their recent tweets: `twitter timeline <screenName> --count 20 --json`
 2. For each tweet, note engagement signals from the text/metadata
-3. Fetch notifications to see who's interacting: `x notifications --count 20 --json`
+3. Fetch notifications to see who's interacting: `twitter notifications --count 20 --json`
 4. Summarize: which posts got traction, who's engaging, any conversations worth continuing
 
 ## Tips
@@ -237,6 +237,6 @@ When the user wants to see how their posts are performing:
 - All commands return JSON with an `ok` field
 - When drafting replies, match the tone of the conversation — casual threads get casual replies
 - Always show the user what you're about to post and get approval before sending
-- If a browser session is expired, refresh it with `x refresh` before retrying, or suggest switching to OAuth for post/reply operations
-- If an operation fails, check `x status --json` to diagnose the issue before retrying
+- If a browser session is expired, refresh it with `twitter refresh` before retrying, or suggest switching to OAuth for post/reply operations
+- If an operation fails, check `twitter status --json` to diagnose the issue before retrying
 - The `post` and `reply` commands include a `pathUsed` field in their response so you can tell the user which connection method was used

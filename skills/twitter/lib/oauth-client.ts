@@ -7,8 +7,8 @@
  * browser-based CDP client.
  */
 
-import { getSecureKey } from '../../../assistant/src/security/secure-keys.js';
-import { withValidToken } from '../../../assistant/src/security/token-manager.js';
+import { getSecureKey } from './shared/security.js';
+import { withValidToken } from './shared/security.js';
 
 const TWITTER_API_BASE = 'https://api.x.com/2';
 const SERVICE = 'integration:twitter';
