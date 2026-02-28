@@ -40,6 +40,14 @@ function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: st
   return { fixture, requiredEnv, body };
 }
 
+function checkRequiredEnv(requiredEnv: string[] | undefined): void {
+  if (!requiredEnv) return;
+  const missing = requiredEnv.filter((v) => !process.env[v]);
+  if (missing.length > 0) {
+    throw new Error(`Missing required env vars: ${missing.join(", ")}`);
+  }
+}
+
 // ── macOS Screen Recording ──────────────────────────────────────────
 
 function startScreenRecording(videoPath: string): ChildProcess | undefined {
@@ -78,13 +86,7 @@ for (const file of caseFiles) {
   const testName = file.replace(/\.md$/, "");
 
   test(testName, async ({ page }, testInfo) => {
-    // Skip when required env vars are missing
-    if (requiredEnv && requiredEnv.length > 0) {
-      const missing = requiredEnv.filter((v) => !process.env[v]);
-      if (missing.length > 0) {
-        test.skip(true, `Missing required env vars: ${missing.join(", ")}`);
-      }
-    }
+    checkRequiredEnv(requiredEnv);
 
     let fixtureCtx: FixtureContext | undefined;
     let recorder: ChildProcess | undefined;
