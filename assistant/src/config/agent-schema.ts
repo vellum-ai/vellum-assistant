@@ -131,7 +131,7 @@ export const WorkspaceGitConfigSchema = z.object({
   commitMessageLLM: z.object({
     enabled: z.boolean({ error: 'workspaceGit.commitMessageLLM.enabled must be a boolean' }).default(false),
     useConfiguredProvider: z.boolean({ error: 'workspaceGit.commitMessageLLM.useConfiguredProvider must be a boolean' }).default(true),
-    providerFastModelOverrides: z.record(z.string(), z.string()).default({} as any),
+    providerFastModelOverrides: z.record(z.string(), z.string()).default({} as Record<string, string>),
     timeoutMs: z.number({ error: 'workspaceGit.commitMessageLLM.timeoutMs must be a number' })
       .int('workspaceGit.commitMessageLLM.timeoutMs must be an integer')
       .positive('workspaceGit.commitMessageLLM.timeoutMs must be a positive integer')
@@ -163,8 +163,19 @@ export const WorkspaceGitConfigSchema = z.object({
         .int().positive().default(2000),
       backoffMaxMs: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.backoffMaxMs must be a number' })
         .int().positive().default(60000),
-    }).default({} as any),
-  }).default({} as any),
+    }).default({ openAfterFailures: 3, backoffBaseMs: 2000, backoffMaxMs: 60000 }),
+  }).default({
+    enabled: false,
+    useConfiguredProvider: true,
+    providerFastModelOverrides: {},
+    timeoutMs: 600,
+    maxTokens: 120,
+    temperature: 0.2,
+    maxFilesInPrompt: 30,
+    maxDiffBytes: 12000,
+    minRemainingTurnBudgetMs: 1000,
+    breaker: { openAfterFailures: 3, backoffBaseMs: 2000, backoffMaxMs: 60000 },
+  }),
 });
 
 export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;

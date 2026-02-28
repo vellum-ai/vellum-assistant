@@ -76,7 +76,7 @@ export const CallsVoiceConfigSchema = z.object({
   fallbackToStandardOnError: z
     .boolean({ error: 'calls.voice.fallbackToStandardOnError must be a boolean' })
     .default(true),
-  elevenlabs: CallsElevenLabsConfigSchema.default({} as any),
+  elevenlabs: CallsElevenLabsConfigSchema.default(CallsElevenLabsConfigSchema.parse({})),
 });
 
 export const CallerIdentityConfigSchema = z.object({
@@ -125,14 +125,14 @@ export const CallsConfigSchema = z.object({
     .positive('calls.userConsultTimeoutSeconds must be a positive integer')
     .max(2_147_483, 'calls.userConsultTimeoutSeconds must be at most 2147483 (setTimeout-safe limit)')
     .default(120),
-  disclosure: CallsDisclosureConfigSchema.default({} as any),
-  safety: CallsSafetyConfigSchema.default({} as any),
-  voice: CallsVoiceConfigSchema.default({} as any),
+  disclosure: CallsDisclosureConfigSchema.default(CallsDisclosureConfigSchema.parse({})),
+  safety: CallsSafetyConfigSchema.default(CallsSafetyConfigSchema.parse({})),
+  voice: CallsVoiceConfigSchema.default(CallsVoiceConfigSchema.parse({})),
   model: z
     .string({ error: 'calls.model must be a string' })
     .optional(),
-  callerIdentity: CallerIdentityConfigSchema.default({} as any),
-  verification: CallsVerificationConfigSchema.default({} as any),
+  callerIdentity: CallerIdentityConfigSchema.default(CallerIdentityConfigSchema.parse({})),
+  verification: CallsVerificationConfigSchema.default(CallsVerificationConfigSchema.parse({})),
 });
 
 export type CallsConfig = z.infer<typeof CallsConfigSchema>;

@@ -24,8 +24,8 @@ export const RemoteProviderConfigSchema = z.object({
 });
 
 export const RemoteProvidersConfigSchema = z.object({
-  skillssh: RemoteProviderConfigSchema.default({} as any),
-  clawhub: RemoteProviderConfigSchema.default({} as any),
+  skillssh: RemoteProviderConfigSchema.default(RemoteProviderConfigSchema.parse({})),
+  clawhub: RemoteProviderConfigSchema.default(RemoteProviderConfigSchema.parse({})),
 });
 
 // 'unknown' is valid as a risk label on a skill but not as a threshold — setting the threshold
@@ -41,12 +41,12 @@ export const RemotePolicyConfigSchema = z.object({
 });
 
 export const SkillsConfigSchema = z.object({
-  entries: z.record(z.string(), SkillEntryConfigSchema).default({} as any),
-  load: SkillsLoadConfigSchema.default({} as any),
-  install: SkillsInstallConfigSchema.default({} as any),
+  entries: z.record(z.string(), SkillEntryConfigSchema).default({} as Record<string, never>),
+  load: SkillsLoadConfigSchema.default(SkillsLoadConfigSchema.parse({})),
+  install: SkillsInstallConfigSchema.default(SkillsInstallConfigSchema.parse({})),
   allowBundled: z.array(z.string()).nullable().default(null),
-  remoteProviders: RemoteProvidersConfigSchema.default({} as any),
-  remotePolicy: RemotePolicyConfigSchema.default({} as any),
+  remoteProviders: RemoteProvidersConfigSchema.default(RemoteProvidersConfigSchema.parse({})),
+  remotePolicy: RemotePolicyConfigSchema.default(RemotePolicyConfigSchema.parse({})),
 });
 
 export type SkillEntryConfig = z.infer<typeof SkillEntryConfigSchema>;
