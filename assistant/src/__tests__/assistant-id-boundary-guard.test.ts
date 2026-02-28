@@ -202,6 +202,37 @@ describe('assistant ID boundary', () => {
         'the daemon HTTP server should not have assistant-scoped path literals.\n' +
         violations.join('\n'),
     ).toEqual([]);
+
+    // Guard against prefix-less assistants/ route patterns that extract an
+    // assistantId.  dispatchEndpoint receives the endpoint *after* the /v1/
+    // prefix has been stripped, so a regex like `assistants\/([^/]+)` would
+    // capture an external assistant ID from the path — violating the
+    // assistant-scoping boundary.
+    //
+    // The transitional rewrite `assistants\/[^/]+\/(.+)` is allowlisted
+    // because it only captures the trailing path (not the assistantId).
+    const prefixLessViolations: string[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Match regex patterns like assistants\/([^/]+) that capture the ID
+      // segment.  We look for the escaped-slash form used inside JS regex
+      // literals (e.g. /^assistants\/([^/]+)\//).
+      if (/assistants\\\/\(\[/.test(line)) {
+        // Allowlist the transitional rewrite which only captures the
+        // trailing path, not the assistantId itself.
+        if (!isTransitionalRewriteLine(line)) {
+          prefixLessViolations.push(`  line ${i + 1}: ${line.trim()}`);
+        }
+      }
+    }
+
+    expect(
+      prefixLessViolations,
+      'Found prefix-less assistants/([^/]+) route pattern that extracts an assistantId. ' +
+        'The daemon should not parse assistant IDs from URL paths — use ' +
+        'DAEMON_INTERNAL_ASSISTANT_ID instead.\n' +
+        prefixLessViolations.join('\n'),
+    ).toEqual([]);
   });
 
   // -------------------------------------------------------------------------

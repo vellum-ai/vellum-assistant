@@ -14,6 +14,7 @@ import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import { queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { upsertBinding } from '../memory/external-conversation-store.js';
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { isGuardian } from '../runtime/channel-guardian-service.js';
 import { getSecureKey } from '../security/secure-keys.js';
 import { getLogger } from '../util/logger.js';
@@ -208,7 +209,7 @@ export type CreateInboundVoiceSessionResult = {
 export function createInboundVoiceSession(
   input: CreateInboundVoiceSessionInput,
 ): CreateInboundVoiceSessionResult {
-  const { callSid, fromNumber, toNumber, assistantId = 'self' } = input;
+  const { callSid, fromNumber, toNumber, assistantId = DAEMON_INTERNAL_ASSISTANT_ID } = input;
 
   // Check if a session already exists for this CallSid (replay protection)
   const existing = getCallSessionByCallSid(callSid);
@@ -219,7 +220,7 @@ export function createInboundVoiceSession(
 
   // Create a dedicated voice conversation keyed by CallSid so inbound calls
   // get their own conversation thread.
-  const voiceConvKey = assistantId && assistantId !== 'self'
+  const voiceConvKey = assistantId && assistantId !== DAEMON_INTERNAL_ASSISTANT_ID
     ? `asst:${assistantId}:voice:inbound:${callSid}`
     : `voice:inbound:${callSid}`;
   const { conversationId: voiceConversationId } = getOrCreateConversation(voiceConvKey);
@@ -272,7 +273,7 @@ export function createInboundVoiceSession(
  * Initiate a new outbound call.
  */
 export async function startCall(input: StartCallInput): Promise<StartCallResult | CallError> {
-  const { phoneNumber, task, context: callContext, conversationId, callerIdentityMode, assistantId = 'self' } = input;
+  const { phoneNumber, task, context: callContext, conversationId, callerIdentityMode, assistantId = DAEMON_INTERNAL_ASSISTANT_ID } = input;
 
   if (!phoneNumber || typeof phoneNumber !== 'string') {
     return { ok: false, error: 'phone_number is required and must be a string', status: 400 };
@@ -644,7 +645,7 @@ export type StartGuardianVerificationCallResult =
 export async function startGuardianVerificationCall(
   input: StartGuardianVerificationCallInput,
 ): Promise<StartGuardianVerificationCallResult> {
-  const { phoneNumber, guardianVerificationSessionId, assistantId = 'self', originConversationId } = input;
+  const { phoneNumber, guardianVerificationSessionId, assistantId = DAEMON_INTERNAL_ASSISTANT_ID, originConversationId } = input;
 
   if (!phoneNumber || !E164_REGEX.test(phoneNumber)) {
     return { ok: false, error: 'phone_number must be in E.164 format', status: 400 };

@@ -87,7 +87,7 @@ export interface GuardianVerificationRequest {
   action: 'create_challenge' | 'status' | 'revoke' | 'start_outbound' | 'resend_outbound' | 'cancel_outbound';
   channel?: ChannelId;  // Defaults to 'telegram'
   sessionId?: string;
-  assistantId?: string;  // Defaults to 'self'
+  assistantId?: string;  // Defaults to DAEMON_INTERNAL_ASSISTANT_ID
   rebind?: boolean;  // When true, allows creating a challenge even if a binding already exists
   /** E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions. */
   destination?: string;
