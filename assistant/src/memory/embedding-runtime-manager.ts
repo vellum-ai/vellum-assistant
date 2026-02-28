@@ -326,13 +326,20 @@ export class EmbeddingRuntimeManager {
       rmSync(join(nodeModules, 'onnxruntime-common', 'README.md'), { force: true });
 
       // Step 3: Create a stub "sharp" package so that the pre-built
-      // transformers.node.mjs can import it without error.  The transformers
-      // code checks `if (sharp)` and falls back gracefully when it's null.
-      // We don't need image processing — only text embeddings.
+      // transformers.node.mjs can import it without error. The bundle checks
+      // `if (sharp)` at module initialization time — the stub must be truthy.
+      // We only use text embeddings, never image processing.
       const sharpDir = join(nodeModules, 'sharp');
       mkdirSync(sharpDir, { recursive: true });
       writeFileSync(join(sharpDir, 'package.json'), '{"name":"sharp","version":"0.0.0","main":"index.js"}\n');
-      writeFileSync(join(sharpDir, 'index.js'), 'module.exports = null;\n');
+      writeFileSync(join(sharpDir, 'index.js'), [
+        '// Stub: only text embeddings are used, no image processing.',
+        '// Must be a truthy function so transformers.node.mjs initialization passes.',
+        'function sharp() { throw new Error("sharp stub: image processing not available"); }',
+        'sharp.format = {};',
+        'module.exports = sharp;',
+        '',
+      ].join('\n'));
 
       // Step 4: Write embed worker script
       writeFileSync(join(tmpDir, WORKER_FILENAME), generateWorkerScript());
