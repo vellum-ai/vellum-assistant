@@ -933,7 +933,10 @@
     /* ── Data fetch ───────────────────────────────────────────── */
     async function loadBrainData() {
       try {
-        var res = await fetch('/v1/brain-graph');
+        var apiToken = document.querySelector('meta[name="api-token"]')?.content;
+        var headers = {};
+        if (apiToken) headers['Authorization'] = 'Bearer ' + apiToken;
+        var res = await fetch('/v1/brain-graph', { headers });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         var data = await res.json();
         updateStats(data);
