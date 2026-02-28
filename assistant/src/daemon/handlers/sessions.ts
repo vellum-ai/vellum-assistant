@@ -1154,7 +1154,15 @@ export function handleHistoryRequest(
           surfaceId: s.surfaceId,
           surfaceType: s.surfaceType,
           title: s.title,
-          data: {} as Record<string, unknown>,
+          data: {
+            ...(s.surfaceType === 'dynamic_page'
+              ? {
+                  ...(s.data.preview ? { preview: s.data.preview } : {}),
+                  ...(s.data.appId ? { appId: s.data.appId } : {}),
+                  ...(s.data.appType ? { appType: s.data.appType } : {}),
+                }
+              : {}),
+          } as Record<string, unknown>,
           ...(s.actions ? { actions: s.actions } : {}),
           ...(s.display ? { display: s.display } : {}),
         })))

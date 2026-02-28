@@ -910,7 +910,7 @@ public extension Surface {
     }
 
     private static func parseDynamicPageData(_ dict: [String: Any?]) -> DynamicPageSurfaceData? {
-        guard let html = dict["html"] as? String else { return nil }
+        let html = dict["html"] as? String ?? ""
         return DynamicPageSurfaceData(
             html: html,
             width: dict["width"] as? Int,

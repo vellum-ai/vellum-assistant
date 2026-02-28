@@ -462,6 +462,59 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         XCTAssertEqual(msg.inlineSurfaces[0].surfaceType, .dynamicPage)
     }
 
+    func testPopulateFromHistoryWithLightModeSurface() {
+        // Light-mode history strips html but preserves preview metadata.
+        // The surface should still parse and render as an inline preview card.
+        let surfaceData: [String: AnyCodable] = [
+            "preview": AnyCodable([
+                "title": "Slides",
+                "subtitle": "5 pages"
+            ] as [String: Any]),
+            "appId": AnyCodable("app-light-1")
+        ]
+        let historySurface = IPCHistoryResponseSurface(
+            surfaceId: "hist-light-surface",
+            surfaceType: "dynamic_page",
+            title: "Light Mode App",
+            data: surfaceData,
+            actions: nil,
+            display: nil
+        )
+        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+            IPCHistoryResponseMessage(
+                id: nil,
+                role: "assistant",
+                text: "Here are your slides",
+                timestamp: 6000,
+                toolCalls: nil,
+                toolCallsBeforeText: nil,
+                attachments: nil,
+                textSegments: nil,
+                contentOrder: nil,
+                surfaces: [historySurface],
+                subagentNotification: nil
+            ),
+        ]
+
+        viewModel.populateFromHistory(historyItems)
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.inlineSurfaces.count, 1,
+                       "Light-mode surface with preview should still hydrate as inline")
+        let surface = msg.inlineSurfaces[0]
+        XCTAssertEqual(surface.id, "hist-light-surface")
+        if case .dynamicPage(let dpData) = surface.data {
+            XCTAssertEqual(dpData.html, "",
+                           "html should default to empty string when stripped by light mode")
+            XCTAssertNotNil(dpData.preview, "Preview metadata should be preserved")
+            XCTAssertEqual(dpData.preview?.title, "Slides")
+            XCTAssertEqual(dpData.appId, "app-light-1")
+        } else {
+            XCTFail("Surface data should be a dynamic page")
+        }
+    }
+
     // MARK: - Surface content order tracking
 
     func testDynamicPreviewAppearsInContentOrder() {
