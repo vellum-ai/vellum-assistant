@@ -3026,20 +3026,6 @@ public struct IPCMessageDequeued: Codable, Sendable {
     }
 }
 
-public struct IPCMessageRequestComplete: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let requestId: String
-    public let runStillActive: Bool?
-
-    public init(type: String, sessionId: String, requestId: String, runStillActive: Bool? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.requestId = requestId
-        self.runStillActive = runStillActive
-    }
-}
-
 public struct IPCMessageQueued: Codable, Sendable {
     public let type: String
     public let sessionId: String
@@ -3063,6 +3049,26 @@ public struct IPCMessageQueuedDeleted: Codable, Sendable {
         self.type = type
         self.sessionId = sessionId
         self.requestId = requestId
+    }
+}
+
+/// Request-level terminal signal for a user message lifecycle.
+/// 
+/// Unlike `message_complete`, this does not imply the active assistant turn
+/// has completed. It is used for paths that consume a request inline while a
+/// separate in-flight turn may still be running.
+public struct IPCMessageRequestComplete: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let requestId: String
+    /// True when an existing turn is still running after this request is finalized.
+    public let runStillActive: Bool?
+
+    public init(type: String, sessionId: String, requestId: String, runStillActive: Bool? = nil) {
+        self.type = type
+        self.sessionId = sessionId
+        self.requestId = requestId
+        self.runStillActive = runStillActive
     }
 }
 
