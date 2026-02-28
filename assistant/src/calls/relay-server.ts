@@ -11,8 +11,10 @@ import { randomInt } from 'node:crypto';
 import type { ServerWebSocket } from 'bun';
 
 import { getConfig } from '../config/loader.js';
+import { getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { findActiveVoiceInvites } from '../memory/ingress-invite-store.js';
+import { upsertMember } from '../memory/ingress-member-store.js';
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
 import { notifyGuardianOfAccessRequest } from '../runtime/access-request-helper.js';
 import {
@@ -31,6 +33,7 @@ import { redeemVoiceInviteCode } from '../runtime/ingress-service.js';
 import { parseJsonSafe } from '../util/json.js';
 import { getLogger } from '../util/logger.js';
 import { normalizeAssistantId } from '../util/platform.js';
+import { getUserConsultationTimeoutMs } from './call-constants.js';
 import { CallController } from './call-controller.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
@@ -143,7 +146,7 @@ export function setRelayBroadcast(fn: (msg: import('../daemon/ipc-contract.js').
 /**
  * Manages a single WebSocket connection for one call.
  */
-export type RelayConnectionState = 'connected' | 'verification_pending' | 'disconnecting';
+export type RelayConnectionState = 'connected' | 'verification_pending' | 'awaiting_name' | 'awaiting_guardian_decision' | 'disconnecting';
 
 export class RelayConnection {
   private ws: ServerWebSocket<RelayWebSocketData>;
@@ -181,6 +184,18 @@ export class RelayConnection {
   private inviteRedemptionCodeLength = 6;
   private inviteRedemptionFriendName: string | null = null;
   private inviteRedemptionGuardianName: string | null = null;
+
+  // In-call guardian approval wait state (friend-initiated)
+  private accessRequestWaitActive = false;
+  private accessRequestId: string | null = null;
+  private accessRequestAssistantId: string | null = null;
+  private accessRequestFromNumber: string | null = null;
+  private accessRequestPollTimer: ReturnType<typeof setInterval> | null = null;
+  private accessRequestTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  private accessRequestCallerName: string | null = null;
+
+  // Name capture timeout (unknown inbound callers)
+  private nameCaptureTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
@@ -305,6 +320,19 @@ export class RelayConnection {
       this.controller.destroy();
       this.controller = null;
     }
+    if (this.accessRequestPollTimer) {
+      clearInterval(this.accessRequestPollTimer);
+      this.accessRequestPollTimer = null;
+    }
+    if (this.accessRequestTimeoutTimer) {
+      clearTimeout(this.accessRequestTimeoutTimer);
+      this.accessRequestTimeoutTimer = null;
+    }
+    if (this.nameCaptureTimeoutTimer) {
+      clearTimeout(this.nameCaptureTimeoutTimer);
+      this.nameCaptureTimeoutTimer = null;
+    }
+    this.accessRequestWaitActive = false;
     this.abortController.abort();
     log.info({ callSessionId: this.callSessionId }, 'RelayConnection destroyed');
   }
@@ -316,6 +344,9 @@ export class RelayConnection {
    * we still finalize the call lifecycle from the relay close signal.
    */
   handleTransportClosed(code?: number, reason?: string): void {
+    // Clean up access request wait state on disconnect to stop polling
+    this.clearAccessRequestWait();
+
     const session = getCallSession(this.callSessionId);
     if (!session) return;
     if (isTerminalState(session.status)) return;
@@ -501,9 +532,9 @@ export class RelayConnection {
       const pendingChallenge = getPendingChallenge(assistantId, 'voice');
 
       if (actorTrust.trustClass === 'unknown' && !pendingChallenge) {
-        // Before denying, check if there is an active voice invite bound
-        // to the caller's phone number. If so, enter the invite redemption
-        // subflow instead of denying the call outright.
+        // Before entering the name capture flow, check if there is an
+        // active voice invite bound to the caller's phone number. If so,
+        // enter the invite redemption subflow instead.
         let voiceInvites: ReturnType<typeof findActiveVoiceInvites> = [];
         try {
           voiceInvites = findActiveVoiceInvites({
@@ -530,54 +561,49 @@ export class RelayConnection {
           return;
         }
 
-        log.info(
-          { callSessionId: this.callSessionId, from: msg.from, trustClass: actorTrust.trustClass },
-          'Inbound voice ACL: unknown caller denied',
-        );
+        // Blocked members get immediate denial — the guardian already made
+        // an explicit decision to block them.
+        if (actorTrust.memberRecord?.status === 'blocked') {
+          log.info(
+            { callSessionId: this.callSessionId, from: msg.from, trustClass: actorTrust.trustClass },
+            'Inbound voice ACL: blocked caller denied',
+          );
 
-        recordCallEvent(this.callSessionId, 'inbound_acl_denied', {
-          from: msg.from,
-          trustClass: actorTrust.trustClass,
-          denialReason: actorTrust.denialReason,
-        });
+          recordCallEvent(this.callSessionId, 'inbound_acl_denied', {
+            from: msg.from,
+            trustClass: actorTrust.trustClass,
+            denialReason: actorTrust.denialReason,
+          });
 
-        // For revoked/pending members, notify the guardian so they can
-        // re-approve. Blocked members are intentionally excluded — the
-        // guardian already made an explicit decision to block them.
-        let guardianNotified = false;
-        if (actorTrust.memberRecord?.status !== 'blocked') {
-          try {
-            const accessResult = notifyGuardianOfAccessRequest({
-              canonicalAssistantId: assistantId,
-              sourceChannel: 'voice',
-              externalChatId: msg.from,
-              senderExternalUserId: actorTrust.canonicalSenderId ?? msg.from,
-            });
-            guardianNotified = accessResult.notified;
-          } catch (err) {
-            log.error({ err, callSessionId: this.callSessionId }, 'Failed to create access request for denied voice caller');
-          }
+          this.sendTextToken('This number is not authorized to use this assistant.', true);
+
+          this.connectionState = 'disconnecting';
+
+          updateCallSession(this.callSessionId, {
+            status: 'failed',
+            endedAt: Date.now(),
+            lastError: 'Inbound voice ACL: caller blocked',
+          });
+
+          setTimeout(() => {
+            this.endSession('Inbound voice ACL denied — blocked');
+          }, 3000);
+          return;
         }
 
-        // Deny with deterministic voice copy and end the call.
-        // Mark as disconnecting so handlePrompt ignores caller input
-        // during the delay before the session ends.
-        const denialMessage = guardianNotified
-          ? 'This number is not authorized. Your request has been forwarded to the account guardian.'
-          : 'This number is not authorized to use this assistant.';
-        this.sendTextToken(denialMessage, true);
+        // Unknown/revoked/pending callers enter the name capture + guardian
+        // approval wait flow instead of being hard-rejected.
+        log.info(
+          { callSessionId: this.callSessionId, from: msg.from, trustClass: actorTrust.trustClass },
+          'Inbound voice ACL: unknown caller — entering name capture flow',
+        );
 
-        this.connectionState = 'disconnecting';
-
-        updateCallSession(this.callSessionId, {
-          status: 'failed',
-          endedAt: Date.now(),
-          lastError: 'Inbound voice ACL: caller not authorized',
+        recordCallEvent(this.callSessionId, 'inbound_acl_name_capture_started', {
+          from: msg.from,
+          trustClass: actorTrust.trustClass,
         });
 
-        setTimeout(() => {
-          this.endSession('Inbound voice ACL denied');
-        }, 3000);
+        this.startNameCapture(assistantId, msg.from);
         return;
       }
 
@@ -1028,6 +1054,344 @@ export class RelayConnection {
   }
 
   /**
+   * Enter the name capture subflow for unknown inbound callers.
+   * Prompts the caller to provide their name so we can include it
+   * in the guardian notification.
+   */
+  private startNameCapture(assistantId: string, fromNumber: string): void {
+    this.accessRequestAssistantId = assistantId;
+    this.accessRequestFromNumber = fromNumber;
+    this.connectionState = 'awaiting_name';
+
+    this.sendTextToken(
+      "Sorry, I don't recognize this number. I'll let my guardian know you called and see if I have permission to speak with you. Can I get your name?",
+      true,
+    );
+
+    // Start a timeout so silent callers don't keep the call open indefinitely.
+    // Uses a 30-second window — enough time to speak a name but short enough
+    // to avoid wasting resources on callers who never respond.
+    const NAME_CAPTURE_TIMEOUT_MS = 30_000;
+    this.nameCaptureTimeoutTimer = setTimeout(() => {
+      if (this.connectionState !== 'awaiting_name') return;
+      this.handleNameCaptureTimeout();
+    }, NAME_CAPTURE_TIMEOUT_MS);
+
+    log.info(
+      { callSessionId: this.callSessionId, assistantId, timeoutMs: NAME_CAPTURE_TIMEOUT_MS },
+      'Name capture started for unknown inbound caller',
+    );
+  }
+
+  /**
+   * Handle the caller's name response during the name capture subflow.
+   * Creates a canonical access request, notifies the guardian, and
+   * enters the bounded wait loop for the guardian decision.
+   */
+  private handleNameCaptureResponse(callerName: string): void {
+    if (!this.accessRequestAssistantId || !this.accessRequestFromNumber) {
+      return;
+    }
+
+    // Clear the name capture timeout since the caller responded.
+    if (this.nameCaptureTimeoutTimer) {
+      clearTimeout(this.nameCaptureTimeoutTimer);
+      this.nameCaptureTimeoutTimer = null;
+    }
+
+    this.accessRequestCallerName = callerName;
+
+    recordCallEvent(this.callSessionId, 'inbound_acl_name_captured', {
+      from: this.accessRequestFromNumber,
+      callerName,
+    });
+
+    // Create canonical access request and notify the guardian, including
+    // the caller's spoken name and voice channel metadata.
+    try {
+      const accessResult = notifyGuardianOfAccessRequest({
+        canonicalAssistantId: this.accessRequestAssistantId,
+        sourceChannel: 'voice',
+        externalChatId: this.accessRequestFromNumber,
+        senderExternalUserId: this.accessRequestFromNumber,
+        senderName: callerName,
+      });
+
+      if (accessResult.notified) {
+        this.accessRequestId = accessResult.requestId;
+        log.info(
+          { callSessionId: this.callSessionId, requestId: accessResult.requestId, callerName },
+          'Guardian notified of voice access request with caller name',
+        );
+      } else {
+        log.warn(
+          { callSessionId: this.callSessionId },
+          'Failed to notify guardian of voice access request — no sender ID',
+        );
+      }
+    } catch (err) {
+      log.error({ err, callSessionId: this.callSessionId }, 'Failed to create access request for voice caller');
+    }
+
+    // If the access request was not successfully created (notifyGuardianOfAccessRequest
+    // threw or returned notified: false), fail closed rather than leaving the caller
+    // stuck on hold with no guardian poll target.
+    if (!this.accessRequestId) {
+      log.warn(
+        { callSessionId: this.callSessionId },
+        'Access request ID is null after notification attempt — failing closed',
+      );
+      this.handleAccessRequestTimeout();
+      return;
+    }
+
+    // Enter the bounded wait loop for the guardian decision
+    this.startAccessRequestWait();
+  }
+
+  /**
+   * Start a bounded in-call wait loop polling the canonical request
+   * status until approved, denied, or timeout.
+   */
+  private startAccessRequestWait(): void {
+    this.accessRequestWaitActive = true;
+    this.connectionState = 'awaiting_guardian_decision';
+
+    const timeoutMs = getUserConsultationTimeoutMs();
+    const pollIntervalMs = 2000;
+
+    this.sendTextToken(
+      "Thank you. I've let my guardian know. Please hold while I check if I have permission to speak with you.",
+      true,
+    );
+
+    updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
+
+    // Poll the canonical request status
+    this.accessRequestPollTimer = setInterval(() => {
+      if (!this.accessRequestWaitActive || !this.accessRequestId) {
+        this.clearAccessRequestWait();
+        return;
+      }
+
+      const request = getCanonicalGuardianRequest(this.accessRequestId);
+      if (!request) {
+        return;
+      }
+
+      if (request.status === 'approved') {
+        this.handleAccessRequestApproved();
+      } else if (request.status === 'denied') {
+        this.handleAccessRequestDenied();
+      }
+      // 'pending' continues polling; 'expired'/'cancelled' handled by timeout
+    }, pollIntervalMs);
+
+    // Timeout: give up waiting for the guardian
+    this.accessRequestTimeoutTimer = setTimeout(() => {
+      if (!this.accessRequestWaitActive) return;
+
+      log.info(
+        { callSessionId: this.callSessionId, requestId: this.accessRequestId },
+        'Access request in-call wait timed out',
+      );
+
+      this.handleAccessRequestTimeout();
+    }, timeoutMs);
+
+    log.info(
+      { callSessionId: this.callSessionId, requestId: this.accessRequestId, timeoutMs },
+      'Access request in-call wait started',
+    );
+  }
+
+  /**
+   * Clean up access request wait state (timers, flags).
+   */
+  private clearAccessRequestWait(): void {
+    this.accessRequestWaitActive = false;
+    if (this.accessRequestPollTimer) {
+      clearInterval(this.accessRequestPollTimer);
+      this.accessRequestPollTimer = null;
+    }
+    if (this.accessRequestTimeoutTimer) {
+      clearTimeout(this.accessRequestTimeoutTimer);
+      this.accessRequestTimeoutTimer = null;
+    }
+  }
+
+  /**
+   * Handle an approved access request: activate the caller as a trusted
+   * contact, update runtime context, and continue with normal call flow.
+   */
+  private handleAccessRequestApproved(): void {
+    this.clearAccessRequestWait();
+    this.connectionState = 'connected';
+
+    const assistantId = this.accessRequestAssistantId!;
+    const fromNumber = this.accessRequestFromNumber!;
+    const callerName = this.accessRequestCallerName;
+
+    recordCallEvent(this.callSessionId, 'inbound_acl_access_approved', {
+      from: fromNumber,
+      callerName,
+      requestId: this.accessRequestId,
+    });
+
+    // Activate the caller as a trusted contact via the existing upsert path
+    try {
+      upsertMember({
+        assistantId,
+        sourceChannel: 'voice',
+        externalUserId: fromNumber,
+        externalChatId: fromNumber,
+        displayName: callerName ?? undefined,
+        status: 'active',
+        policy: 'allow',
+      });
+    } catch (err) {
+      log.error({ err, callSessionId: this.callSessionId }, 'Failed to activate voice caller as trusted contact');
+    }
+
+    // Re-resolve actor trust now that the member is active
+    const updatedTrust = resolveActorTrust({
+      assistantId,
+      sourceChannel: 'voice',
+      externalChatId: fromNumber,
+      senderExternalUserId: fromNumber,
+    });
+
+    if (this.controller) {
+      this.controller.setGuardianContext(
+        toGuardianRuntimeContextFromTrust(updatedTrust, fromNumber),
+      );
+    }
+
+    updateCallSession(this.callSessionId, { status: 'in_progress' });
+
+    log.info(
+      { callSessionId: this.callSessionId, from: fromNumber },
+      'Access request approved — caller activated and continuing call',
+    );
+
+    // Use handleUserInstruction to deliver the approval-aware greeting
+    // through the normal session pipeline.
+    const guardianName = 'my guardian';
+    if (this.controller) {
+      this.controller.handleUserInstruction(
+        `Great, ${guardianName} approved! Now how can I help you?`,
+      ).catch((err) => {
+        log.error({ err, callSessionId: this.callSessionId }, 'Failed to deliver approval greeting');
+      });
+    }
+  }
+
+  /**
+   * Handle a denied access request: deliver deterministic copy and hang up.
+   */
+  private handleAccessRequestDenied(): void {
+    this.clearAccessRequestWait();
+
+    recordCallEvent(this.callSessionId, 'inbound_acl_access_denied', {
+      from: this.accessRequestFromNumber,
+      requestId: this.accessRequestId,
+    });
+
+    this.sendTextToken(
+      "Sorry, my guardian says I'm not allowed to speak with you. Goodbye.",
+      true,
+    );
+
+    this.connectionState = 'disconnecting';
+
+    updateCallSession(this.callSessionId, {
+      status: 'failed',
+      endedAt: Date.now(),
+      lastError: 'Inbound voice ACL: guardian denied access request',
+    });
+
+    log.info(
+      { callSessionId: this.callSessionId },
+      'Access request denied — ending call',
+    );
+
+    setTimeout(() => {
+      this.endSession('Access request denied');
+    }, 3000);
+  }
+
+  /**
+   * Handle an access request timeout: deliver deterministic copy and hang up.
+   */
+  private handleAccessRequestTimeout(): void {
+    this.clearAccessRequestWait();
+
+    recordCallEvent(this.callSessionId, 'inbound_acl_access_timeout', {
+      from: this.accessRequestFromNumber,
+      requestId: this.accessRequestId,
+    });
+
+    this.sendTextToken(
+      "Sorry, I can't get ahold of my guardian right now. I'll let them know you called.",
+      true,
+    );
+
+    this.connectionState = 'disconnecting';
+
+    updateCallSession(this.callSessionId, {
+      status: 'failed',
+      endedAt: Date.now(),
+      lastError: 'Inbound voice ACL: guardian approval wait timed out',
+    });
+
+    log.info(
+      { callSessionId: this.callSessionId },
+      'Access request timed out — ending call',
+    );
+
+    setTimeout(() => {
+      this.endSession('Access request timed out');
+    }, 3000);
+  }
+
+  /**
+   * Handle a name capture timeout: the caller never provided their name
+   * within the allotted window. Deliver deterministic copy and hang up.
+   */
+  private handleNameCaptureTimeout(): void {
+    if (this.nameCaptureTimeoutTimer) {
+      clearTimeout(this.nameCaptureTimeoutTimer);
+      this.nameCaptureTimeoutTimer = null;
+    }
+
+    recordCallEvent(this.callSessionId, 'inbound_acl_name_capture_timeout', {
+      from: this.accessRequestFromNumber,
+    });
+
+    this.sendTextToken(
+      "Sorry, I didn't catch your name. Please try calling back. Goodbye.",
+      true,
+    );
+
+    this.connectionState = 'disconnecting';
+
+    updateCallSession(this.callSessionId, {
+      status: 'failed',
+      endedAt: Date.now(),
+      lastError: 'Inbound voice ACL: name capture timed out',
+    });
+
+    log.info(
+      { callSessionId: this.callSessionId },
+      'Name capture timed out — ending call',
+    );
+
+    setTimeout(() => {
+      this.endSession('Name capture timed out');
+    }, 3000);
+  }
+
+  /**
    * Validate an entered invite code against active voice invites for the
    * caller. On success, create/activate the ingress member and transition
    * to the normal call flow. On failure, allow retries up to max attempts.
@@ -1119,6 +1483,26 @@ export class RelayConnection {
 
     if (!msg.last) {
       // Partial transcript, wait for final
+      return;
+    }
+
+    // During name capture, the caller's response is their name.
+    if (this.connectionState === 'awaiting_name') {
+      const callerName = msg.voicePrompt.trim();
+      log.info(
+        { callSessionId: this.callSessionId, callerName },
+        'Name captured from unknown inbound caller',
+      );
+      this.handleNameCaptureResponse(callerName);
+      return;
+    }
+
+    // During guardian decision wait, ignore caller speech — they are on hold.
+    if (this.connectionState === 'awaiting_guardian_decision') {
+      log.debug(
+        { callSessionId: this.callSessionId },
+        'Ignoring voice prompt during guardian decision wait',
+      );
       return;
     }
 
@@ -1249,6 +1633,11 @@ export class RelayConnection {
 
   private handleDtmf(msg: RelayDtmfMessage): void {
     if (this.connectionState === 'disconnecting') {
+      return;
+    }
+
+    // Ignore DTMF during name capture and guardian decision wait
+    if (this.connectionState === 'awaiting_name' || this.connectionState === 'awaiting_guardian_decision') {
       return;
     }
 

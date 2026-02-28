@@ -262,6 +262,27 @@ describe('HTTP handleGuardianActionDecision', () => {
     expect(mockApplyCanonicalGuardianDecision).toHaveBeenCalledTimes(1);
   });
 
+  test('applies decision for voice access_request kind through canonical primitive', async () => {
+    createTestCanonicalRequest({
+      conversationId: 'conv-voice-access',
+      requestId: 'req-voice-access-1',
+      kind: 'access_request',
+      toolName: 'ingress_access_request',
+      guardianExternalUserId: 'guardian-voice-42',
+    });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: true, requestId: 'req-voice-access-1', grantMinted: false });
+
+    const req = new Request('http://localhost/v1/guardian-actions/decision', {
+      method: 'POST',
+      body: JSON.stringify({ requestId: 'req-voice-access-1', action: 'approve_once' }),
+    });
+    const res = await handleGuardianActionDecision(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.applied).toBe(true);
+    expect(mockApplyCanonicalGuardianDecision).toHaveBeenCalledTimes(1);
+  });
+
   test('returns stale reason from canonical decision primitive', async () => {
     createTestCanonicalRequest({ conversationId: 'conv-stale', requestId: 'req-stale-1' });
     mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: false, reason: 'already_resolved' });
