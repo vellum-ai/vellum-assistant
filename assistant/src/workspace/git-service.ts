@@ -16,6 +16,11 @@ const log = getLogger('workspace-git');
  * Strips all GIT_* env vars (e.g. GIT_DIR, GIT_WORK_TREE) that CI runners
  * or parent processes may set, then adds GIT_CEILING_DIRECTORIES to prevent
  * walking up to a parent repo.
+ *
+ * On macOS, augments PATH with common binary directories so the real git
+ * binary is found even when the daemon is launched from a .app bundle with
+ * a minimal PATH. Without this, the macOS /usr/bin/git shim triggers an
+ * "Install Command Line Developer Tools" popup on every git invocation.
  */
 function cleanGitEnv(workspaceDir: string): Record<string, string> {
   const env: Record<string, string> = {};
@@ -25,6 +30,20 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
     }
   }
   env.GIT_CEILING_DIRECTORIES = workspaceDir;
+
+  const home = process.env.HOME ?? '';
+  const extraDirs = [
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    `${home}/.local/bin`,
+  ];
+  const currentPath = env.PATH ?? '';
+  const pathDirs = currentPath.split(':');
+  const missing = extraDirs.filter(d => !pathDirs.includes(d));
+  if (missing.length > 0) {
+    env.PATH = [...missing, currentPath].filter(Boolean).join(':');
+  }
+
   return env;
 }
 
