@@ -1,5 +1,5 @@
 # Use debian as base image
-FROM debian:bookworm AS builder
+FROM debian:trixie@sha256:3615a749858a1cba49b408fb49c37093db813321355a9ab7c1f9f4836341e9db AS builder
 
 WORKDIR /app
 
