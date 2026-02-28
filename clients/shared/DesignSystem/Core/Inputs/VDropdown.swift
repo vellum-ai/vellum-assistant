@@ -69,6 +69,7 @@ public struct VDropdown<T: Hashable>: View {
             )
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize(horizontal: false, vertical: true)
     }
 }
