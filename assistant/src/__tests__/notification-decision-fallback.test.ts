@@ -96,22 +96,27 @@ describe('notification decision fallback copy', () => {
     expect(decision.renderedCopy.vellum?.body).not.toContain('Action required: guardian.question');
   });
 
-  test('enforces request-code instructions for guardian.question when requestCode exists', async () => {
+  test('enforces free-text answer instructions for guardian.question when requestCode exists', async () => {
     const signal = makeSignal({
       contextPayload: {
+        requestId: 'req-pending-1',
         questionText: 'What is the gate code?',
         requestCode: 'A1B2C3',
+        requestKind: 'pending_question',
+        callSessionId: 'call-1',
+        activeGuardianRequestCount: 1,
       },
     });
     const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(true);
     expect(decision.renderedCopy.vellum?.body).toContain('A1B2C3');
-    expect(decision.renderedCopy.vellum?.body).toContain('approve');
-    expect(decision.renderedCopy.vellum?.body).toContain('reject');
+    expect(decision.renderedCopy.vellum?.body).toContain('<your answer>');
+    expect(decision.renderedCopy.vellum?.body).not.toContain('approve');
+    expect(decision.renderedCopy.vellum?.body).not.toContain('reject');
   });
 
-  test('enforcement appends explicit approve/reject instructions when LLM copy only mentions request code', async () => {
+  test('enforcement appends free-text answer instructions when LLM copy only mentions request code', async () => {
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
     };
@@ -134,8 +139,89 @@ describe('notification decision fallback copy', () => {
 
     const signal = makeSignal({
       contextPayload: {
+        requestId: 'req-pending-1',
         questionText: 'What is the gate code?',
         requestCode: 'A1B2C3',
+        requestKind: 'pending_question',
+        callSessionId: 'call-1',
+        activeGuardianRequestCount: 1,
+      },
+    });
+
+    const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 <your answer>"');
+    expect(decision.renderedCopy.vellum?.body).not.toContain('"A1B2C3 approve"');
+    expect(decision.renderedCopy.vellum?.body).not.toContain('"A1B2C3 reject"');
+  });
+
+  test('enforcement appends answer instructions when LLM copy incorrectly uses approve/reject wording', async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: 'record_notification_decision',
+      input: {
+        shouldNotify: true,
+        selectedChannels: ['vellum'],
+        reasoningSummary: 'LLM decision',
+        renderedCopy: {
+          vellum: {
+            title: 'Guardian Question',
+            body: 'Reference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".',
+          },
+        },
+        dedupeKey: 'guardian-question-wrong-instructions-test',
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeSignal({
+      contextPayload: {
+        requestId: 'req-pending-approve-phrasing',
+        questionText: 'What is the gate code?',
+        requestCode: 'A1B2C3',
+        requestKind: 'pending_question',
+        callSessionId: 'call-1',
+        activeGuardianRequestCount: 1,
+      },
+    });
+
+    const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 <your answer>"');
+  });
+
+  test('enforcement appends explicit approve/reject instructions for tool-approval guardian questions', async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: 'record_notification_decision',
+      input: {
+        shouldNotify: true,
+        selectedChannels: ['vellum'],
+        reasoningSummary: 'LLM decision',
+        renderedCopy: {
+          vellum: {
+            title: 'Guardian Question',
+            body: 'Use reference code A1B2C3 for this request.',
+          },
+        },
+        dedupeKey: 'guardian-question-tool-approval-test',
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeSignal({
+      contextPayload: {
+        requestId: 'req-grant-1',
+        questionText: 'Allow running host_bash?',
+        requestCode: 'A1B2C3',
+        requestKind: 'tool_grant_request',
+        toolName: 'host_bash',
       },
     });
 
@@ -144,5 +230,44 @@ describe('notification decision fallback copy', () => {
     expect(decision.fallbackUsed).toBe(false);
     expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 approve"');
     expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
+  });
+
+  test('approval-mode enforcement removes conflicting answer-mode phrasing', async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: 'record_notification_decision',
+      input: {
+        shouldNotify: true,
+        selectedChannels: ['vellum'],
+        reasoningSummary: 'LLM decision',
+        renderedCopy: {
+          vellum: {
+            title: 'Guardian Question',
+            body: 'Reference code: A1B2C3. Reply "A1B2C3 <your answer>".',
+          },
+        },
+        dedupeKey: 'guardian-question-approval-removes-answer-test',
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeSignal({
+      contextPayload: {
+        requestId: 'req-grant-2',
+        questionText: 'Allow running host_bash?',
+        requestCode: 'A1B2C3',
+        requestKind: 'tool_grant_request',
+        toolName: 'host_bash',
+      },
+    });
+
+    const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 approve"');
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
+    expect(decision.renderedCopy.vellum?.body).not.toContain('<your answer>');
   });
 });

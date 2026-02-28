@@ -128,6 +128,7 @@ export function createOrReuseToolGrantRequest(
     questionText,
     expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
   });
+  const requestCode = canonicalRequest.requestCode ?? canonicalRequest.id.slice(0, 6).toUpperCase();
 
   // Emit notification so guardian is alerted. Uses 'guardian.question' as
   // sourceEventName so that existing request-code guidance in the notification
@@ -145,7 +146,8 @@ export function createOrReuseToolGrantRequest(
     },
     contextPayload: {
       requestId: canonicalRequest.id,
-      requestCode: canonicalRequest.requestCode,
+      requestKind: 'tool_grant_request',
+      requestCode,
       sourceChannel,
       requesterExternalUserId,
       requesterChatId: requesterChatId ?? null,

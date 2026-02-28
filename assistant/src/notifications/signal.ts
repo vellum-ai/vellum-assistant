@@ -4,6 +4,8 @@
  * decision engine route contextually.
  */
 
+import type { GuardianQuestionPayload } from './guardian-question-mode.js';
+
 export interface AttentionHints {
   requiresAction: boolean;
   urgency: 'low' | 'medium' | 'high';
@@ -14,14 +16,23 @@ export interface AttentionHints {
 
 export type RoutingIntent = 'single_channel' | 'multi_channel' | 'all_channels';
 
-export interface NotificationSignal {
+export interface NotificationEventContextPayloadMap {
+  'guardian.question': GuardianQuestionPayload;
+}
+
+export type NotificationContextPayload<TEventName extends string = string> =
+  TEventName extends keyof NotificationEventContextPayloadMap
+    ? NotificationEventContextPayloadMap[TEventName]
+    : Record<string, unknown>;
+
+export interface NotificationSignal<TEventName extends string = string> {
   signalId: string;
   assistantId: string;
   createdAt: number; // epoch ms
   sourceChannel: string; // free-form: 'vellum', 'telegram', 'voice', 'scheduler', etc.
   sourceSessionId: string;
-  sourceEventName: string; // free-form: 'reminder_fired', 'schedule_complete', 'guardian_question', etc.
-  contextPayload: Record<string, unknown>;
+  sourceEventName: TEventName; // free-form: 'reminder_fired', 'schedule_complete', 'guardian_question', etc.
+  contextPayload: NotificationContextPayload<TEventName>;
   attentionHints: AttentionHints;
   /** Routing intent from the source (e.g. reminder). Controls post-decision channel enforcement. */
   routingIntent?: RoutingIntent;
