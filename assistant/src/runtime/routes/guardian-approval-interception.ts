@@ -741,6 +741,35 @@ export async function handleApprovalInterception(
         }
         return { handled: true, type: 'decision_applied' };
       }
+
+      // Guard: non-guardian actors with a guardian binding must not self-approve
+      // even when no guardian approval row exists yet. The guardian approval
+      // row is created asynchronously when the approval prompt is delivered
+      // to the guardian. In the window between the pending confirmation being
+      // created (isInteractive=true) and the guardian approval row being
+      // persisted, any non-guardian actor could otherwise fall through to the
+      // standard conversational engine / legacy parser and resolve their own
+      // pending request via handleChannelDecision.
+      if (guardianCtx.trustClass !== 'guardian' && guardianCtx.guardianExternalUserId) {
+        log.info(
+          { conversationId, externalChatId, guardianExternalUserId: guardianCtx.guardianExternalUserId },
+          'Blocking non-guardian self-approval: pending confirmation exists but guardian approval row not yet created',
+        );
+        try {
+          const pendingText = await composeApprovalMessageGenerative({
+            scenario: 'request_pending_guardian',
+            channel: sourceChannel,
+          }, {}, approvalCopyGenerator);
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: externalChatId,
+            text: pendingText,
+            assistantId,
+          }, bearerToken);
+        } catch (err) {
+          log.error({ err, conversationId }, 'Failed to deliver guardian-pending notice to non-guardian actor (pre-row guard)');
+        }
+        return { handled: true, type: 'assistant_turn' };
+      }
     }
   }
 

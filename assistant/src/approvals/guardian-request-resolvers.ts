@@ -12,7 +12,7 @@
  */
 
 import { answerCall } from '../calls/call-domain.js';
-import type { CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import { getCanonicalGuardianRequest, type CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { upsertMember } from '../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { addRule } from '../permissions/trust-store.js';
@@ -22,6 +22,7 @@ import { createOutboundSession } from '../runtime/channel-guardian-service.js';
 import { deliverChannelReply } from '../runtime/gateway-client.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 import { getTool } from '../tools/registry.js';
+import { TC_GRANT_WAIT_MAX_MS } from '../tools/tool-approval-handler.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('guardian-request-resolvers');
@@ -534,7 +535,61 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
       'Tool grant request resolver: approved (grant minting deferred to canonical primitive)',
     );
 
-    if (channelDeliveryContext && requesterChatId) {
+    // Re-read the canonical request to check whether an inline grant waiter
+    // has already claimed this request. When followupState is
+    // 'inline_wait_active', the requester's original tool call is blocking
+    // on the grant and will resume automatically — sending a "please retry"
+    // notification would be stale and confusing (and could cause duplicate
+    // attempts or one-time-grant denials).
+    //
+    // Staleness guard: the inline_wait_active marker is persisted in DB and
+    // can outlive the actual waiter if the daemon crashes or restarts during
+    // the wait. To avoid permanently suppressing the retry notification, we
+    // treat the marker as stale if the encoded start timestamp is older than
+    // the maximum wait budget plus a 30s buffer.
+    const INLINE_WAIT_STALENESS_BUFFER_MS = 30_000;
+    const freshRequest = getCanonicalGuardianRequest(request.id);
+    const followupState = freshRequest?.followupState ?? '';
+    let inlineWaitActive = followupState.startsWith('inline_wait_active');
+    if (inlineWaitActive && freshRequest) {
+      // The followupState encodes the wall-clock epoch when the inline wait
+      // started (e.g. 'inline_wait_active:1700000000000'). We use this
+      // instead of updatedAt because resolveCanonicalGuardianRequest sets
+      // updatedAt = now during CAS resolution, making updatedAt always fresh
+      // by the time this resolver runs.
+      const colonIdx = followupState.indexOf(':');
+      const waitStartMs = colonIdx !== -1 ? Number(followupState.slice(colonIdx + 1)) : NaN;
+      const markerAgeMs = Number.isFinite(waitStartMs)
+        ? Date.now() - waitStartMs
+        : Infinity; // Treat unparseable timestamps as stale for safety.
+      const stalenessThresholdMs = TC_GRANT_WAIT_MAX_MS + INLINE_WAIT_STALENESS_BUFFER_MS;
+      if (markerAgeMs > stalenessThresholdMs) {
+        log.warn(
+          {
+            event: 'resolver_tool_grant_request_stale_inline_wait',
+            requestId: request.id,
+            toolName: request.toolName,
+            markerAgeMs,
+            stalenessThresholdMs,
+            waitStartMs,
+          },
+          'inline_wait_active marker is stale (daemon likely crashed during wait) — sending retry notification',
+        );
+        inlineWaitActive = false;
+      }
+    }
+
+    if (inlineWaitActive) {
+      log.info(
+        {
+          event: 'resolver_tool_grant_request_skip_retry_notification',
+          requestId: request.id,
+          toolName: request.toolName,
+          followupState: freshRequest?.followupState,
+        },
+        'Skipping requester retry notification — inline grant wait is active and will resume the original invocation',
+      );
+    } else if (channelDeliveryContext && requesterChatId) {
       try {
         await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
           chatId: requesterChatId,
