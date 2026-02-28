@@ -31,6 +31,8 @@ import { DEFAULT_CONFIG } from '../config/defaults.js';
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     ...DEFAULT_CONFIG,
     memory: {
       ...DEFAULT_CONFIG.memory,

@@ -20,7 +20,9 @@ mock.module('../config/loader.js', () => ({
   loadConfig: () => ({}),
   saveConfig: () => {},
   saveRawConfig: () => {},
-  getConfig: () => ({}),
+  getConfig: () => ({
+    ui: {},
+    }),
   invalidateConfigCache: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},

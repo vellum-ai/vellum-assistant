@@ -34,6 +34,8 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     model: 'test',
     provider: 'test',
     apiKeys: {},

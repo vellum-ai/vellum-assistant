@@ -20,6 +20,8 @@ mock.module('../tools/registry.js', () => ({
 // Mock config
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     timeouts: { shellDefaultTimeoutSec: 120, shellMaxTimeoutSec: 600 },
     sandbox: { enabled: false, backend: 'none' },
     secretDetection: { allowOneTimeSend: false },

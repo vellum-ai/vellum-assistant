@@ -11,7 +11,9 @@ const testDir = mkdtempSync(join(tmpdir(), 'handlers-telegram-cfg-test-'));
 let rawConfigStore: Record<string, unknown> = {};
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({}),
+  getConfig: () => ({
+    ui: {},
+    }),
   loadConfig: () => ({}),
   loadRawConfig: () => ({ ...rawConfigStore }),
   saveRawConfig: (cfg: Record<string, unknown>) => {

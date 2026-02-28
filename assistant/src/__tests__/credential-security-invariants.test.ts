@@ -126,6 +126,8 @@ describe('Invariant 1: secrets never enter LLM context', () => {
     // Mock config to enable block mode
     mock.module('../config/loader.js', () => ({
       getConfig: () => ({
+    ui: {},
+    
         secretDetection: {
           enabled: true,
           action: 'block',

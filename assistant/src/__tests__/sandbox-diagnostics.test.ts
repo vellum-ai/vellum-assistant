@@ -38,6 +38,8 @@ let mockSandboxConfig: {
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     sandbox: mockSandboxConfig,
   }),
   loadRawConfig: () => ({}),

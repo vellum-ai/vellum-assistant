@@ -12,7 +12,9 @@ let rawConfigStore: Record<string, unknown> = {};
 let mockIngressPublicBaseUrl: string | undefined = 'https://test.example.com';
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({}),
+  getConfig: () => ({
+    ui: {},
+    }),
   loadConfig: () => ({ ingress: { publicBaseUrl: mockIngressPublicBaseUrl } }),
   loadRawConfig: () => ({ ...rawConfigStore }),
   saveRawConfig: (cfg: Record<string, unknown>) => {

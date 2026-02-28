@@ -34,6 +34,8 @@ mock.module('../util/platform.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     timeouts: { shellDefaultTimeoutSec: 120, shellMaxTimeoutSec: 600 },
     sandbox: {
       enabled: false,

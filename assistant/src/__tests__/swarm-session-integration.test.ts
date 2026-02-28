@@ -21,6 +21,8 @@ let hasApiKey = true;
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'anthropic',
     providerOrder: ['anthropic'],
     apiKeys: { anthropic: hasApiKey ? 'test-key' : '' },

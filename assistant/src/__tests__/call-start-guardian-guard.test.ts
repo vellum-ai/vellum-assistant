@@ -11,6 +11,8 @@ let activeVoiceSession: {
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     calls: { enabled: callsEnabled },
   }),
 }));

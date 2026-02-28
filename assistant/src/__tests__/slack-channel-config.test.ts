@@ -7,7 +7,9 @@ import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 const testDir = mkdtempSync(join(tmpdir(), 'slack-channel-cfg-test-'));
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({}),
+  getConfig: () => ({
+    ui: {},
+    }),
   loadConfig: () => ({}),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},

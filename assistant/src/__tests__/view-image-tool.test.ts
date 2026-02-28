@@ -29,7 +29,9 @@ mock.module('../util/logger.js', () => ({
 }));
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({ memory: {} }),
+  getConfig: () => ({
+    ui: {},
+     memory: {} }),
 }));
 
 await import('../tools/filesystem/view-image.js');
