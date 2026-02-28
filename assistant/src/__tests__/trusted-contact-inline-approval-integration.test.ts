@@ -629,6 +629,24 @@ describe('(d) unknown actor flow: fail-closed with no interactive approval', () 
 // e. Guardian-only prompt delivery invariant
 // ===========================================================================
 
+/**
+ * Mirrors the `isBoundGuardianActor` guard from inbound-message-handler.ts.
+ * Uses the same runtime-value shape so TypeScript treats the comparisons as
+ * `string === string` rather than `'literal_a' === 'literal_b'` (which TS
+ * flags as always-false under strict literal narrowing — TS2367/TS2872).
+ */
+function checkIsBoundGuardianActor(params: {
+  guardianTrustClass: string;
+  guardianExternalUserId: string | undefined;
+  requesterExternalUserId: string;
+}): boolean {
+  return (
+    params.guardianTrustClass === 'guardian'
+    && !!params.guardianExternalUserId
+    && params.requesterExternalUserId === params.guardianExternalUserId
+  );
+}
+
 describe('(e) guardian-only prompt delivery invariant', () => {
   beforeEach(() => {
     deliveredReplies.length = 0;
@@ -646,43 +664,45 @@ describe('(e) guardian-only prompt delivery invariant', () => {
     // trusted contacts) get () => {} (noop) for the watcher. Only guardian
     // actors matching the binding receive the prompt.
 
-    // Simulate what the prompt watcher guard does:
-    // For a trusted_contact: guardianTrustClass !== 'guardian' -> returns noop
-    const isBoundGuardianForTrustedContact =
-      'trusted_contact' === 'guardian' // false
-      && !!('guardian-1') // true
-      && 'requester-1' === 'guardian-1'; // false
+    const result = checkIsBoundGuardianActor({
+      guardianTrustClass: 'trusted_contact',
+      guardianExternalUserId: 'guardian-1',
+      requesterExternalUserId: 'requester-1',
+    });
 
-    expect(isBoundGuardianForTrustedContact).toBe(false);
+    expect(result).toBe(false);
     // The prompt watcher would return a noop for trusted contacts
   });
 
   test('unknown actors do NOT receive approval prompt UI', () => {
-    const isBoundGuardianForUnknown =
-      'unknown' === 'guardian'
-      && !!('guardian-1')
-      && 'unknown-user' === 'guardian-1';
+    const result = checkIsBoundGuardianActor({
+      guardianTrustClass: 'unknown',
+      guardianExternalUserId: 'guardian-1',
+      requesterExternalUserId: 'unknown-user',
+    });
 
-    expect(isBoundGuardianForUnknown).toBe(false);
+    expect(result).toBe(false);
   });
 
   test('guardian actor that matches binding DOES receive approval prompt UI', () => {
-    const isBoundGuardianForGuardian =
-      'guardian' === 'guardian'
-      && !!('guardian-1')
-      && 'guardian-1' === 'guardian-1';
+    const result = checkIsBoundGuardianActor({
+      guardianTrustClass: 'guardian',
+      guardianExternalUserId: 'guardian-1',
+      requesterExternalUserId: 'guardian-1',
+    });
 
-    expect(isBoundGuardianForGuardian).toBe(true);
+    expect(result).toBe(true);
   });
 
   test('guardian actor with identity mismatch does NOT receive approval prompt UI', () => {
     // After guardian rotation, old guardian identity should not receive prompts
-    const isBoundGuardianAfterRotation =
-      'guardian' === 'guardian'
-      && !!('new-guardian-2')
-      && 'old-guardian-1' === 'new-guardian-2';
+    const result = checkIsBoundGuardianActor({
+      guardianTrustClass: 'guardian',
+      guardianExternalUserId: 'new-guardian-2',
+      requesterExternalUserId: 'old-guardian-1',
+    });
 
-    expect(isBoundGuardianAfterRotation).toBe(false);
+    expect(result).toBe(false);
   });
 });
 
