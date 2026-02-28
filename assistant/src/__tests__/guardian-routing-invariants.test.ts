@@ -761,6 +761,45 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
     const resolved = getCanonicalGuardianRequest(req.id);
     expect(resolved!.status).toBe('approved');
   });
+
+  test('code-based routing is constrained to caller-provided pendingRequestIds scope', async () => {
+    const inScope = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: '111AAA',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const outOfScope = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-2',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: '222BBB',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    registerPendingToolApprovalInteraction(inScope.id, 'conv-1', 'shell');
+    registerPendingToolApprovalInteraction(outOfScope.id, 'conv-2', 'shell');
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: '222BBB approve',
+      conversationId: 'conv-guardian-thread',
+      pendingRequestIds: [inScope.id],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(false);
+    expect(result.type).toBe('not_consumed');
+    expect(result.decisionApplied).toBe(false);
+
+    const inScopeAfter = getCanonicalGuardianRequest(inScope.id);
+    const outOfScopeAfter = getCanonicalGuardianRequest(outOfScope.id);
+    expect(inScopeAfter!.status).toBe('pending');
+    expect(outOfScopeAfter!.status).toBe('pending');
+  });
 });
 
 // ===========================================================================
