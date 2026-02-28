@@ -855,6 +855,21 @@ extension ChatViewModel {
                messages[index].status == .processing {
                 messages[index].status = .sent
             }
+            // When no agent turn is in-flight, finalize the assistant message
+            // created by the preceding assistant_text_delta so it doesn't remain
+            // stuck in streaming state or cause subsequent deltas to append to it.
+            if msg.runStillActive != true {
+                flushStreamingBuffer()
+                if let existingId = currentAssistantMessageId,
+                   let index = messages.firstIndex(where: { $0.id == existingId }) {
+                    messages[index].isStreaming = false
+                    messages[index].streamingCodePreview = nil
+                    messages[index].streamingCodeToolName = nil
+                }
+                currentAssistantMessageId = nil
+                currentAssistantHasText = false
+                lastContentWasToolCall = false
+            }
             if msg.runStillActive == false && pendingQueuedCount == 0 {
                 isSending = false
                 isThinking = false

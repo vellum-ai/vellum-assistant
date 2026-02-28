@@ -230,6 +230,15 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
 
     expect(addMessageMock).toHaveBeenCalledTimes(2);
     expect(session.messages).toHaveLength(0);
+    // assistant_text_delta must NOT be sent when the session is processing;
+    // the client's currentAssistantMessageId points to the agent's in-flight
+    // message and the delta would contaminate it.
+    expect(sent.some((msg) => msg.type === 'assistant_text_delta')).toBe(false);
+    expect(sent.map((msg) => msg.type)).toEqual([
+      'message_queued',
+      'message_dequeued',
+      'message_request_complete',
+    ]);
     const requestComplete = sent.find(
       (msg): msg is Extract<ServerMessage, { type: 'message_request_complete' }> => msg.type === 'message_request_complete',
     );
