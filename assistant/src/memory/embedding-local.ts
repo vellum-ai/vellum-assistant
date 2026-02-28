@@ -191,14 +191,27 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     // Type-compatible assignment
     this.workerProc = proc;
 
-    // Log stderr output from worker
-    this.drainStderr(proc.stderr);
-
-    // Start reading stdout for responses
+    // Start reading stdout for responses (needed for waitForReady)
     this.startStdoutReader();
 
-    // Wait for the worker to signal it's ready (model loaded)
-    await this.waitForReady();
+    try {
+      // Wait for the worker to signal it's ready (model loaded)
+      await this.waitForReady();
+    } catch (err) {
+      // Worker failed to start — collect stderr for diagnosis
+      this.workerProc = null;
+      const exitCode = await proc.exited.catch(() => undefined);
+      const stderr = await new Response(proc.stderr).text().catch(() => '');
+      if (stderr.trim()) {
+        log.warn({ stderr: stderr.trim(), exitCode, bunPath }, 'Embedding worker stderr');
+      }
+      throw new Error(
+        `Embedding worker exited (code ${exitCode ?? 'unknown'}): ${stderr.trim() || (err instanceof Error ? err.message : String(err))}`,
+      );
+    }
+
+    // Worker is running — drain stderr in background for ongoing logging
+    this.drainStderr(proc.stderr);
 
     log.info({ pid: proc.pid, model: this.model }, 'Embedding worker process started');
   }

@@ -317,13 +317,12 @@ export class EmbeddingRuntimeManager {
         }
       }
 
-      // Strip non-runtime files to reduce disk usage
+      // Strip non-runtime files to reduce disk usage.
+      // Keep lib/ directories — they contain JS entry points needed for bare
+      // specifier imports in the worker subprocess.
       const onnxNodeDir = join(nodeModules, 'onnxruntime-node');
-      for (const dir of ['script', 'lib']) {
-        rmSync(join(onnxNodeDir, dir), { recursive: true, force: true });
-      }
+      rmSync(join(onnxNodeDir, 'script'), { recursive: true, force: true });
       rmSync(join(onnxNodeDir, 'README.md'), { force: true });
-      rmSync(join(nodeModules, 'onnxruntime-common', 'lib'), { recursive: true, force: true });
       rmSync(join(nodeModules, 'onnxruntime-common', 'README.md'), { force: true });
 
       // Step 3: Create a stub "sharp" package so that the pre-built
