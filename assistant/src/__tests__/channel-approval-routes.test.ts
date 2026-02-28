@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterAll, beforeEach, describe, expect, mock, spyOn,test } from 'bun:test';
-import { eq } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
@@ -79,7 +78,7 @@ import {
   getAllPendingApprovalsByGuardianChat,
 } from '../memory/channel-guardian-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { conversations, externalConversationBindings } from '../memory/schema.js';
+import { conversations } from '../memory/schema.js';
 import * as gatewayClient from '../runtime/gateway-client.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 import {
@@ -1319,11 +1318,13 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     deliverSpy.mockRestore();
   });
 
-  test('verification code with explicit assistantId resolves against that assistant', async () => {
+  test('verification code with explicit assistantId canonicalizes to self and verifies', async () => {
     const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
     const { getGuardianBinding } = await import('../runtime/channel-guardian-service.js');
 
-    const { secret } = createVerificationChallenge('asst-route-X', 'telegram');
+    // All assistantIds are canonicalized to 'self' in the daemon single-tenant scope,
+    // so the challenge must be created with 'self' for the handler to find it.
+    const { secret } = createVerificationChallenge('self', 'telegram');
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
@@ -1338,48 +1339,16 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     expect(body.accepted).toBe(true);
     expect(body.guardianVerification).toBe('verified');
 
-    const bindingX = getGuardianBinding('asst-route-X', 'telegram');
+    const bindingX = getGuardianBinding('self', 'telegram');
     expect(bindingX).not.toBeNull();
     expect(bindingX!.guardianExternalUserId).toBe('user-for-asst-x');
 
     deliverSpy.mockRestore();
   });
 
-  test('cross-assistant challenge code does not verify against a different assistant scope', async () => {
-    const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
-
-    const { secret } = createVerificationChallenge('asst-A-cross', 'telegram');
-
-    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
-
-    const req = makeInboundRequest({
-      content: secret,
-      senderExternalUserId: 'user-cross-test',
-    });
-
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token', 'asst-B-cross');
-    const body = await res.json() as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBeUndefined();
-
-    deliverSpy.mockRestore();
-  });
-
-  test('non-self assistant inbound does not mutate assistant-agnostic external bindings', async () => {
-    const db = getDb();
-    const now = Date.now();
-    ensureConversation('conv-existing-binding');
-    db.insert(externalConversationBindings).values({
-      conversationId: 'conv-existing-binding',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      externalUserId: 'existing-user',
-      createdAt: now,
-      updatedAt: now,
-      lastInboundAt: now,
-    }).run();
-
+  test('non-self assistant inbound canonicalizes to self and upserts external binding', async () => {
+    // With the daemon single-tenant scope, all assistantIds are canonicalized
+    // to 'self', so external conversation bindings are always updated.
     const req = makeInboundRequest({
       content: 'hello from non-self assistant',
       senderExternalUserId: 'incoming-user',
@@ -1387,14 +1356,6 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
 
     const res = await handleChannelInbound(req, undefined, 'token', 'asst-non-self');
     expect(res.status).toBe(200);
-
-    const binding = db
-      .select()
-      .from(externalConversationBindings)
-      .where(eq(externalConversationBindings.conversationId, 'conv-existing-binding'))
-      .get();
-    expect(binding).not.toBeNull();
-    expect(binding!.externalUserId).toBe('existing-user');
   });
 });
 

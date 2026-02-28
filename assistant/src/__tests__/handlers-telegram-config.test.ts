@@ -991,33 +991,16 @@ describe('Guardian verification IPC actions', () => {
   });
 
   test('status action with explicit assistantId checks binding for that assistant', () => {
-    // Create a control binding for a known assistant so we can verify
-    // that querying a *different* assistantId actually returns bound=false
-    // (not just because no bindings exist at all).
+    // The daemon now always resolves assistantId to 'self' (DAEMON_INTERNAL_ASSISTANT_ID),
+    // so bindings must be scoped to 'self' to be found.
     createBinding({
-      assistantId: 'asst-ipc-bound',
+      assistantId: 'self',
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-1',
       guardianDeliveryChatId: 'guardian-chat-1',
     });
 
-    // Querying a different assistant should return bound=false
-    const unboundMsg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'status',
-      channel: 'telegram',
-      assistantId: 'asst-ipc-Y',
-    };
-
-    const { ctx: ctx1, sent: sent1 } = createTestContext();
-    handleGuardianVerification(unboundMsg, {} as net.Socket, ctx1);
-
-    expect(sent1).toHaveLength(1);
-    const unboundRes = sent1[0] as { type: string; success: boolean; bound: boolean };
-    expect(unboundRes.success).toBe(true);
-    expect(unboundRes.bound).toBe(false);
-
-    // Querying the bound assistant should return bound=true
+    // Querying with any assistantId resolves to 'self' — so the binding is found
     const boundMsg: GuardianVerificationRequest = {
       type: 'guardian_verification',
       action: 'status',
@@ -1036,11 +1019,14 @@ describe('Guardian verification IPC actions', () => {
   });
 
   test('assistantId defaults to "self" when not provided', () => {
-    // create_challenge without assistantId should scope to 'self'
+    // create_challenge without assistantId should scope to 'self'.
+    // rebind: true is needed because earlier tests may have created a binding
+    // for 'self' + 'telegram' (the daemon always resolves to 'self').
     const createMsg: GuardianVerificationRequest = {
       type: 'guardian_verification',
       action: 'create_challenge',
       channel: 'telegram',
+      rebind: true,
       // assistantId intentionally omitted
     };
 

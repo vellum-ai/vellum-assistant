@@ -1145,7 +1145,7 @@ describe('relay-server', () => {
     });
 
     // Create a pending voice guardian challenge
-    const secret = createPendingVoiceGuardianChallenge('test-assistant');
+    const secret = createPendingVoiceGuardianChallenge('self');
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, how can I help you?']));
 
@@ -1180,7 +1180,7 @@ describe('relay-server', () => {
     expect(relay.getConnectionState()).toBe('connected');
 
     // Guardian binding should have been created
-    const binding = getGuardianBinding('test-assistant', 'voice');
+    const binding = getGuardianBinding('self', 'voice');
     expect(binding).not.toBeNull();
 
     // Orchestrator greeting should have fired
@@ -1207,7 +1207,7 @@ describe('relay-server', () => {
       assistantId: 'test-assistant',
     });
 
-    const secret = createPendingVoiceGuardianChallenge('test-assistant');
+    const secret = createPendingVoiceGuardianChallenge('self');
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, verified caller!']));
 
@@ -1238,7 +1238,7 @@ describe('relay-server', () => {
     expect(relay.getConnectionState()).toBe('connected');
 
     // Binding created
-    const binding = getGuardianBinding('test-assistant', 'voice');
+    const binding = getGuardianBinding('self', 'voice');
     expect(binding).not.toBeNull();
 
     // Greeting should have started
@@ -1261,7 +1261,7 @@ describe('relay-server', () => {
     });
 
     createBinding({
-      assistantId: 'test-assistant',
+      assistantId: 'self',
       channel: 'voice',
       guardianExternalUserId: '+15550001111',
       guardianDeliveryChatId: '+15550001111',
@@ -1297,12 +1297,12 @@ describe('relay-server', () => {
     });
 
     createBinding({
-      assistantId: 'test-assistant',
+      assistantId: 'self',
       channel: 'voice',
       guardianExternalUserId: '+15550009999',
       guardianDeliveryChatId: '+15550009999',
     });
-    addTrustedVoiceContact('+15550002222', 'test-assistant');
+    addTrustedVoiceContact('+15550002222', 'self');
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Hello there.']));
 
@@ -1344,7 +1344,7 @@ describe('relay-server', () => {
     });
 
     createBinding({
-      assistantId: 'test-assistant',
+      assistantId: 'self',
       channel: 'voice',
       guardianExternalUserId: '+15550001111',
       guardianDeliveryChatId: '+15550001111',
@@ -1388,7 +1388,7 @@ describe('relay-server', () => {
     });
 
     createBinding({
-      assistantId: 'test-assistant',
+      assistantId: 'self',
       channel: 'telegram',
       guardianExternalUserId: 'tg-guardian-user',
       guardianDeliveryChatId: 'tg-guardian-chat',
@@ -1430,7 +1430,7 @@ describe('relay-server', () => {
       assistantId: 'test-assistant',
     });
 
-    const secret = createPendingVoiceGuardianChallenge('test-assistant');
+    const secret = createPendingVoiceGuardianChallenge('self');
     const spokenCode = secret.split('').join(' ');
 
     const { relay } = createMockWs(session.id);
@@ -1476,7 +1476,7 @@ describe('relay-server', () => {
       assistantId: 'test-assistant',
     });
 
-    createPendingVoiceGuardianChallenge('test-assistant');
+    createPendingVoiceGuardianChallenge('self');
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1517,7 +1517,7 @@ describe('relay-server', () => {
       assistantId: 'test-assistant',
     });
 
-    createPendingVoiceGuardianChallenge('test-assistant');
+    createPendingVoiceGuardianChallenge('self');
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1579,7 +1579,7 @@ describe('relay-server', () => {
     // Do NOT create any pending challenge
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Welcome to the line.']));
-    addTrustedVoiceContact('+15559999999', 'test-assistant');
+    addTrustedVoiceContact('+15559999999', 'self');
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1615,7 +1615,7 @@ describe('relay-server', () => {
       assistantId: 'test-assistant',
     });
 
-    createPendingVoiceGuardianChallenge('test-assistant');
+    createPendingVoiceGuardianChallenge('self');
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1665,7 +1665,7 @@ describe('relay-server', () => {
       initiatedFromConversationId: 'conv-gv-pointer-success-origin',
     });
 
-    const secret = createVoiceVerificationSession('test-assistant', '+15559999999', 'gv-session-ptr-success');
+    const secret = createVoiceVerificationSession('self', '+15559999999', 'gv-session-ptr-success');
 
     const { relay } = createMockWs(session.id);
 
@@ -1714,7 +1714,7 @@ describe('relay-server', () => {
       initiatedFromConversationId: 'conv-gv-pointer-fail-origin',
     });
 
-    createVoiceVerificationSession('test-assistant', '+15559999999', 'gv-session-ptr-fail');
+    createVoiceVerificationSession('self', '+15559999999', 'gv-session-ptr-fail');
 
     const { relay } = createMockWs(session.id);
 
