@@ -13,6 +13,7 @@
 
 import { answerCall } from '../calls/call-domain.js';
 import type { CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import { upsertMember } from '../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { addRule } from '../permissions/trust-store.js';
 import type { ApprovalAction } from '../runtime/channel-approval-types.js';
@@ -23,6 +24,46 @@ import { getTool } from '../tools/registry.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('guardian-request-resolvers');
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the canonical assistant ID from an access_request's conversationId.
+ *
+ * Access request conversationIds follow the format:
+ *   `access-req-${canonicalAssistantId}-${sourceChannel}-${senderExternalUserId}`
+ *
+ * When both sourceChannel and requesterExternalUserId are known, we strip the
+ * prefix and suffix to recover the assistantId. Falls back to the
+ * channelDeliveryContext value or `'self'` when parsing is not possible.
+ */
+function resolveAssistantIdFromRequest(
+  request: CanonicalGuardianRequest,
+  channelDeliveryContext: ChannelDeliveryContext | undefined,
+): string {
+  // Prefer channelDeliveryContext when available (channel decision path).
+  if (channelDeliveryContext?.assistantId) {
+    return channelDeliveryContext.assistantId;
+  }
+
+  // Extract from conversationId for access_request kind.
+  const convId = request.conversationId;
+  const channel = request.sourceChannel;
+  const requester = request.requesterExternalUserId;
+
+  if (convId && channel && requester) {
+    const prefix = 'access-req-';
+    const suffix = `-${channel}-${requester}`;
+    if (convId.startsWith(prefix) && convId.endsWith(suffix)) {
+      const extracted = convId.slice(prefix.length, convId.length - suffix.length);
+      if (extracted) return extracted;
+    }
+  }
+
+  return 'self';
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -278,7 +319,7 @@ const accessRequestResolver: GuardianRequestResolver = {
     const requesterExternalUserId = request.requesterExternalUserId ?? '';
     const requesterChatId = request.requesterChatId ?? request.requesterExternalUserId ?? '';
     const decidedByExternalUserId = ctx.actor.externalUserId ?? '';
-    const assistantId = channelDeliveryContext?.assistantId ?? 'self';
+    const assistantId = resolveAssistantIdFromRequest(request, channelDeliveryContext);
 
     if (decision.action === 'reject') {
       log.info(
@@ -340,7 +381,40 @@ const accessRequestResolver: GuardianRequestResolver = {
       return { ok: true, applied: true };
     }
 
-    // On approve: mint an identity-bound verification session so the
+    // Voice approvals: directly activate the trusted contact without minting
+    // a verification session. The caller is already on the line and the
+    // relay server's in-call wait loop will detect the approved status.
+    if (channel === 'voice') {
+      try {
+        upsertMember({
+          assistantId,
+          sourceChannel: 'voice',
+          externalUserId: requesterExternalUserId,
+          externalChatId: requesterChatId,
+          status: 'active',
+          policy: 'allow',
+        });
+      } catch (err) {
+        log.error(
+          { err, requesterExternalUserId },
+          'Access request resolver: failed to activate voice caller as trusted contact',
+        );
+      }
+
+      log.info(
+        {
+          event: 'resolver_access_request_voice_approved',
+          requestId: request.id,
+          channel,
+          requesterExternalUserId,
+        },
+        'Access request resolver: voice approval — direct trusted-contact activation (no verification session)',
+      );
+
+      return { ok: true, applied: true };
+    }
+
+    // Non-voice approvals: mint an identity-bound verification session so the
     // requester can verify their identity.
     const session = createOutboundSession({
       assistantId,
@@ -461,7 +535,7 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision, channelDeliveryContext } = ctx;
     const requesterChatId = request.requesterChatId ?? request.requesterExternalUserId ?? '';
-    const assistantId = channelDeliveryContext?.assistantId ?? 'self';
+    const assistantId = resolveAssistantIdFromRequest(request, channelDeliveryContext);
 
     if (decision.action === 'reject') {
       log.info(

@@ -63,6 +63,7 @@ export { migrateFkCascadeRebuilds } from './120-fk-cascade-rebuilds.js';
 export { createCanonicalGuardianTables } from './121-canonical-guardian-requests.js';
 export { migrateCanonicalGuardianRequesterChatId } from './122-canonical-guardian-requester-chat-id.js';
 export { migrateCanonicalGuardianDeliveriesDestinationIndex } from './123-canonical-guardian-deliveries-destination-index.js';
+export { migrateVoiceInviteDisplayMetadata } from './124-voice-invite-display-metadata.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

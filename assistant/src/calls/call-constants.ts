@@ -41,6 +41,14 @@ export function getUserConsultationTimeoutMs(): number {
   return getConfig().calls.userConsultTimeoutSeconds * 1000;
 }
 
+export function getTtsPlaybackDelayMs(): number {
+  return getConfig().calls.ttsPlaybackDelayMs;
+}
+
+export function getAccessRequestPollIntervalMs(): number {
+  return getConfig().calls.accessRequestPollIntervalMs;
+}
+
 export const SILENCE_TIMEOUT_MS = 30 * 1000; // 30 seconds
 
 // Legacy named exports for backward compatibility (use functions above for config-backed values)

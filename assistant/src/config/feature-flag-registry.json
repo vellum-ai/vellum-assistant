@@ -50,14 +50,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "voice-invite-redemption",
-      "scope": "assistant",
-      "key": "feature_flags.voice-invite-redemption.enabled",
-      "label": "Voice Invite Redemption",
-      "description": "Enable voice invite code redemption for inbound callers with active voice invites",
-      "defaultEnabled": false
-    },
-    {
       "id": "user-hosted-enabled",
       "scope": "macos",
       "key": "user_hosted_enabled",
