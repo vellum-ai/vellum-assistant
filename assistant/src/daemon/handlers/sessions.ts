@@ -516,9 +516,13 @@ export async function handleUserMessage(
               JSON.stringify(consumedAssistantMessage.content),
               consumedChannelMeta,
             );
-            // Keep in-memory history aligned with persisted transcript so
-            // session-history operations (undo/regenerate) target the same turn.
-            session.messages.push(consumedUserMessage, consumedAssistantMessage);
+            // Avoid mutating in-memory history while an agent loop is active;
+            // the loop owns history reconstruction for the in-flight turn.
+            if (!session.isProcessing()) {
+              // Keep in-memory history aligned with persisted transcript so
+              // session-history operations (undo/regenerate) target the same turn.
+              session.messages.push(consumedUserMessage, consumedAssistantMessage);
+            }
 
             // Mirror the normal queued/dequeued lifecycle so desktop clients can
             // reconcile queued bubble state for this just-sent user message.

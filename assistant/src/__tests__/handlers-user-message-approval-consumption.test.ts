@@ -65,6 +65,7 @@ interface TestSession {
   messages: Array<{ role: string; content: unknown[] }>;
   hasEscalationHandler: () => boolean;
   setChannelCapabilities: (caps: unknown) => void;
+  isProcessing: () => boolean;
   hasAnyPendingConfirmation: () => boolean;
   getQueueDepth: () => number;
   denyAllPendingConfirmations: () => void;
@@ -116,6 +117,7 @@ function makeSession(overrides: Partial<TestSession> = {}): TestSession {
     messages: [],
     hasEscalationHandler: () => true,
     setChannelCapabilities: () => {},
+    isProcessing: () => false,
     hasAnyPendingConfirmation: () => true,
     getQueueDepth: () => 0,
     denyAllPendingConfirmations: mock(() => {}),
@@ -198,6 +200,25 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
       (msg): msg is Extract<ServerMessage, { type: 'assistant_text_delta' }> => msg.type === 'assistant_text_delta',
     );
     expect(assistantDelta?.text).toBe('Decision applied.');
+  });
+
+  test('does not mutate in-memory history while processing', async () => {
+    listPendingByDestinationMock.mockReturnValue([{ id: 'req-1' }]);
+    listCanonicalMock.mockReturnValue([{ id: 'req-1' }]);
+    routeGuardianReplyMock.mockResolvedValue({
+      consumed: true,
+      decisionApplied: true,
+      type: 'canonical_decision_applied',
+      requestId: 'req-1',
+    });
+
+    const session = makeSession({ isProcessing: () => true });
+    const { ctx } = createContext(session);
+
+    await handleUserMessage(makeMessage('approve'), {} as net.Socket, ctx);
+
+    expect(addMessageMock).toHaveBeenCalledTimes(2);
+    expect(session.messages).toHaveLength(0);
   });
 
   test('nl keep_pending falls back to existing auto-deny + queue behavior', async () => {
