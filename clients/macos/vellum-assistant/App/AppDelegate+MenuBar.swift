@@ -541,7 +541,7 @@ extension AppDelegate {
     @objc func openNewChat() {
         guard !isBootstrapping else { return }
         showMainWindow()
-        mainWindow?.threadManager.createThread()
+        mainWindow?.threadManager.enterDraftMode()
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
 

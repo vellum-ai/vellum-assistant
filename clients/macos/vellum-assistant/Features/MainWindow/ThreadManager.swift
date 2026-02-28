@@ -30,6 +30,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @Published var activeThreadId: UUID? {
         didSet {
             if let activeThreadId {
+                // Switching to a real thread discards any draft
+                draftViewModel = nil
+
                 let activeViewModel = getOrCreateViewModel(for: activeThreadId)
                 activeViewModel?.ensureMessageLoopStarted()
                 sessionRestorer.loadHistoryIfNeeded(threadId: activeThreadId)
@@ -50,13 +53,19 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                     }
                 }
             } else {
-                lastActiveThreadIdString = nil
+                // Only clear the persisted thread ID outside of restoration.
+                // During init, enterDraftMode() sets activeThreadId = nil before
+                // restoreLastActiveThread() reads the saved value.
+                if !isRestoringThreads {
+                    lastActiveThreadIdString = nil
+                }
             }
             // Subscribe to the new active view model's changes
             subscribeToActiveViewModel()
         }
     }
 
+    @Published private(set) var draftViewModel: ChatViewModel?
     private var chatViewModels: [UUID: ChatViewModel] = [:]
     /// Maximum number of ChatViewModels to keep in memory. When this limit is
     /// exceeded, the least-recently-accessed VM (that isn't the active thread) is
@@ -136,6 +145,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     var activeViewModel: ChatViewModel? {
+        if activeThreadId == nil, let draftViewModel {
+            return draftViewModel
+        }
         guard let activeThreadId else { return nil }
         return getOrCreateViewModel(for: activeThreadId)
     }
@@ -150,13 +162,20 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // On normal launches, suppress writes during restoration so the saved
         // value isn't overwritten before restoreLastActiveThread() reads it.
         self.isRestoringThreads = !isFirstLaunch
-        // Create one default thread so the window is never empty
-        createThread()
+        // Enter draft mode so the window shows an empty chat without a sidebar entry
+        enterDraftMode()
         sessionRestorer.delegate = self
         sessionRestorer.startObserving(skipInitialFetch: isFirstLaunch)
     }
 
     func createThread() {
+        // If we're in draft mode, promote the draft to a real thread so callers
+        // get a guaranteed activeThreadId.
+        if draftViewModel != nil, activeThreadId == nil {
+            promoteDraft(fromUserSend: false)
+            return
+        }
+
         // If the active thread is still empty, just keep it instead of creating another.
         // Only reuse when the thread is truly fresh: no messages at all, no persisted
         // session, and not a private thread (which have different persistence semantics).
@@ -187,6 +206,70 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         evictStaleCachedViewModels()
         activeThreadId = thread.id
         log.info("Created thread \(thread.id) with title \"\(thread.title)\"")
+    }
+
+    /// Enter draft mode: show an empty chat without creating a sidebar thread.
+    /// The thread is only created when the user sends their first message.
+    func enterDraftMode() {
+        // If already in draft mode with an empty draft, no-op (reuse existing draft)
+        if let draftVM = draftViewModel, draftVM.messages.isEmpty, activeThreadId == nil {
+            return
+        }
+
+        let viewModel = makeViewModel()
+        viewModel.isHistoryLoaded = true  // No session yet — nothing to load
+        // Promote on any first send (text, attachment, slash command).
+        // onUserMessageSent fires for all send types unlike onFirstUserMessage
+        // which skips empty text and slash commands.
+        viewModel.onUserMessageSent = { [weak self] in
+            self?.promoteDraft(fromUserSend: true)
+        }
+        draftViewModel = viewModel
+        activeThreadId = nil
+        subscribeToActiveViewModel()
+        log.info("Entered draft mode")
+    }
+
+    /// Promote the draft view model to a real thread.
+    /// - Parameter fromUserSend: true when triggered by a user message send,
+    ///   false when triggered by `createThread()` needing a guaranteed `activeThreadId`.
+    private func promoteDraft(fromUserSend: Bool) {
+        guard let viewModel = draftViewModel else { return }
+
+        let thread = ThreadModel(title: "Untitled")
+        let threadId = thread.id
+        threads.insert(thread, at: 0)
+        chatViewModels[thread.id] = viewModel
+        subscribeToBusyState(for: thread.id, viewModel: viewModel)
+        subscribeToAssistantActivity(for: thread.id, viewModel: viewModel)
+        subscribeToInteractionState(for: thread.id, viewModel: viewModel)
+        touchVMAccessOrder(thread.id)
+        evictStaleCachedViewModels()
+        draftViewModel = nil
+
+        // Increment only on actual user sends, not programmatic createThread() calls.
+        if fromUserSend {
+            completedConversationCount += 1
+        }
+
+        // Wire up callbacks now that we have a real thread.
+        // onFirstUserMessage is already consumed for user-send promotions
+        // (it fires before onUserMessageSent in sendMessage), so only set it
+        // for createThread()-triggered promotions where no message was sent yet.
+        if !fromUserSend {
+            viewModel.onFirstUserMessage = { [weak self] _ in
+                self?.completedConversationCount += 1
+                self?.updateThreadTitle(id: threadId, title: "Untitled")
+                self?.updateLastInteracted(threadId: threadId)
+            }
+        }
+        viewModel.onUserMessageSent = { [weak self] in
+            self?.updateLastInteracted(threadId: threadId)
+        }
+
+        activeThreadId = thread.id
+        updateLastInteracted(threadId: thread.id)
+        log.info("Promoted draft to thread \(thread.id)")
     }
 
     func createPrivateThread() {
