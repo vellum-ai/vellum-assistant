@@ -192,22 +192,26 @@ extension MainWindowView {
                     .background(VColor.backgroundSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             } else {
-                // Gallery mode fallback
-                GeneratedPanel(
-                    onClose: { sharing.showSharePicker = false; windowState.closeDynamicPanel() },
-                    isExpanded: Binding(
-                        get: { windowState.isDynamicExpanded },
-                        set: { windowState.isDynamicExpanded = $0 }
-                    ),
-                    daemonClient: daemonClient,
-                    onOpenApp: { surfaceMsg in
-                        windowState.activeDynamicSurface = surfaceMsg
-                        windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
-                    },
-                    onRecordAppOpen: { id, name, icon, appType in
-                        appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
+                // Loading state while waiting for daemon to send surface data
+                // via ui_surface_show in response to app_open_request.
+                VStack(spacing: VSpacing.md) {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.regular)
+                    Text("Loading app…")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(VColor.backgroundSubtle)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .overlay(alignment: .topTrailing) {
+                    VIconButton(label: "Close", icon: "xmark", iconOnly: true) {
+                        windowState.closeDynamicPanel()
                     }
-                )
+                    .padding(VSpacing.lg)
+                }
             }
         case .appEditing:
             // VSplitView: ChatView (left) + workspace (right)
