@@ -1123,9 +1123,6 @@ extension ChatViewModel {
                 startedAt: Date()
             )
             toolCall.buildingStatus = buildingStatus
-            // Flush any buffered text before processing the tool call so that
-            // text from before the tool call lands in the correct segment.
-            flushStreamingBuffer()
             // Add to existing assistant message or create one.
             // Cap at 100 tool calls per message to prevent unbounded memory growth;
             // overflow falls through to create a new message.
