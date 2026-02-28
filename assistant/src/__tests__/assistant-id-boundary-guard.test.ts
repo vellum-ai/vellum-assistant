@@ -149,14 +149,11 @@ describe('assistant ID boundary', () => {
     const httpServerPath = join(import.meta.dir, '..', 'runtime', 'http-server.ts');
     const content = readFileSync(httpServerPath, 'utf-8');
 
-    // The transitional rewrite in dispatchEndpoint is acceptable — it strips
-    // the assistant-scoped prefix and recurses. What we guard against is a
-    // regex that extracts an assistantId for routing purposes, like:
-    //   /^\/v1\/assistants\/([^/]+)\/(.+)$/
-    // which would mean the server is treating the assistantId as meaningful.
+    // The daemon HTTP server must not contain any assistant-scoped route
+    // patterns. All routes use flat /v1/<endpoint> paths; the gateway handles
+    // legacy assistant-scoped URL rewriting in its runtime proxy layer.
 
-    // Check that there's no regex extracting assistantId from a /v1/assistants/ path
-    // for use as a route handler (as opposed to the rewrite pattern).
+    // Check that there's no regex extracting assistantId from a /v1/assistants/ path.
     // Match both literal slashes (/v1/assistants/([) and escaped slashes in regex
     // literals (\/v1\/assistants\/([) so we catch patterns like:
     //   endpoint.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/)
@@ -166,40 +163,26 @@ describe('assistant ID boundary', () => {
       match,
       'Found a route pattern matching /v1/assistants/([^/]+)/... that extracts an assistantId. ' +
         'The daemon HTTP server should not have assistant-scoped route handlers — ' +
-        'use flat /v1/<endpoint> paths instead. The transitional rewrite in dispatchEndpoint ' +
-        'is the only acceptable place for the assistants/ prefix.',
+        'use flat /v1/<endpoint> paths instead.',
     ).toBeNull();
 
-    // Scan the entire file for assistant-scoped path literals. The only
-    // acceptable occurrence is the transitional rewrite in dispatchEndpoint
-    // (the `assistantScopedMatch` regex and surrounding deprecation log).
-    // Any other reference — in routeRequest, handleAuthenticatedRequest, or
-    // anywhere else — would mean the daemon is treating assistant IDs as
-    // meaningful routing state.
+    // Scan the entire file for assistant-scoped path literals. No references
+    // to /v1/assistants/ should exist — the daemon uses flat paths only.
     const lines = content.split('\n');
     const violations: string[] = [];
-
-    // Allowlist: lines that are part of the transitional dispatchEndpoint
-    // rewrite. We identify them by the `assistantScopedMatch` variable name
-    // or the "Transitional rewrite" comment.
-    const isTransitionalRewriteLine = (line: string): boolean =>
-      line.includes('assistantScopedMatch') ||
-      line.includes('Transitional rewrite');
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       // Match both literal /v1/assistants/ and escaped \/v1\/assistants\/
       if (line.includes('/v1/assistants/') || line.includes('\\/v1\\/assistants\\/')) {
-        if (!isTransitionalRewriteLine(line)) {
-          violations.push(`  line ${i + 1}: ${line.trim()}`);
-        }
+        violations.push(`  line ${i + 1}: ${line.trim()}`);
       }
     }
 
     expect(
       violations,
-      'Found /v1/assistants/ references outside the transitional dispatchEndpoint rewrite — ' +
-        'the daemon HTTP server should not have assistant-scoped path literals.\n' +
+      'Found /v1/assistants/ references in the daemon HTTP server — ' +
+        'the daemon should not have assistant-scoped path literals.\n' +
         violations.join('\n'),
     ).toEqual([]);
 
@@ -208,9 +191,6 @@ describe('assistant ID boundary', () => {
     // prefix has been stripped, so a regex like `assistants\/([^/]+)` would
     // capture an external assistant ID from the path — violating the
     // assistant-scoping boundary.
-    //
-    // The transitional rewrite `assistants\/[^/]+\/(.+)` is allowlisted
-    // because it only captures the trailing path (not the assistantId).
     const prefixLessViolations: string[] = [];
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -218,11 +198,7 @@ describe('assistant ID boundary', () => {
       // segment.  We look for the escaped-slash form used inside JS regex
       // literals (e.g. /^assistants\/([^/]+)\//).
       if (/assistants\\\/\(\[/.test(line)) {
-        // Allowlist the transitional rewrite which only captures the
-        // trailing path, not the assistantId itself.
-        if (!isTransitionalRewriteLine(line)) {
-          prefixLessViolations.push(`  line ${i + 1}: ${line.trim()}`);
-        }
+        prefixLessViolations.push(`  line ${i + 1}: ${line.trim()}`);
       }
     }
 
