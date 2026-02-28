@@ -960,7 +960,7 @@ describe('routing invariant: destination hints enable NL approval without guardi
 describe('routing invariant: invite handoff bypass for access requests', () => {
   beforeEach(() => resetTables());
 
-  test('pending access_request + message "open invite flow" returns not_consumed', async () => {
+  test('pending access_request + message "open invite flow" returns not_consumed with skipApprovalInterception', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'access_request',
       sourceType: 'channel',
@@ -982,6 +982,7 @@ describe('routing invariant: invite handoff bypass for access requests', () => {
     expect(result.consumed).toBe(false);
     expect(result.type).toBe('not_consumed');
     expect(result.decisionApplied).toBe(false);
+    expect(result.skipApprovalInterception).toBe(true);
 
     // Request remains pending — not resolved by the handoff
     const unchanged = getCanonicalGuardianRequest(req.id);

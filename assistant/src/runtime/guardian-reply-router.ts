@@ -85,6 +85,12 @@ export interface GuardianReplyResult {
   requestId?: string;
   /** Detailed result from the canonical decision primitive (when a decision was attempted). */
   canonicalResult?: CanonicalDecisionResult;
+  /**
+   * When true, the caller should skip legacy approval interception for this
+   * message. Set by the invite handoff bypass so that "open invite flow"
+   * reaches the assistant even when other legacy guardian approvals are pending.
+   */
+  skipApprovalInterception?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +338,12 @@ export async function routeGuardianReply(
           { event: 'router_invite_handoff', pendingCount: pendingRequests.length },
           'Guardian sent "open invite flow" with pending access_request — passing through to assistant',
         );
-        return notConsumed();
+        return {
+          consumed: false,
+          decisionApplied: false,
+          type: 'not_consumed' as const,
+          skipApprovalInterception: true,
+        };
       }
     }
   }
