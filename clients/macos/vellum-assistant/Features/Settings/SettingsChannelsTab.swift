@@ -958,31 +958,33 @@ struct SettingsChannelsTab: View {
         valueURL: URL? = nil,
         action: RowAction? = nil
     ) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .frame(width: labelColumnWidth, alignment: .leading)
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                Text(label)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                    .frame(width: labelColumnWidth, alignment: .leading)
 
-            Image(systemName: icon)
-                .foregroundColor(iconColor)
-                .font(.system(size: 12))
+                Image(systemName: icon)
+                    .foregroundColor(iconColor)
+                    .font(.system(size: 12))
 
-            if let url = valueURL {
-                Link(value, destination: url)
-                    .font(valueFont)
-                    .lineLimit(1)
-                    .onHover { hovering in
-                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                    }
-            } else {
-                Text(value)
-                    .font(valueFont)
-                    .foregroundColor(valueColor)
-                    .lineLimit(1)
+                if let url = valueURL {
+                    Link(value, destination: url)
+                        .font(valueFont)
+                        .lineLimit(1)
+                        .onHover { hovering in
+                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        }
+                } else {
+                    Text(value)
+                        .font(valueFont)
+                        .foregroundColor(valueColor)
+                        .lineLimit(1)
+                }
+
+                Spacer()
             }
-
-            Spacer()
 
             if let action {
                 VButton(label: action.label, style: action.style, size: .large, action: action.action)
@@ -1139,39 +1141,41 @@ struct SettingsChannelsTab: View {
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             if verified {
-                HStack(spacing: VSpacing.sm) {
-                    guardianLabel
-                    VStack(alignment: .leading, spacing: 2) {
-                        if let telegramProfileURL {
-                            Link(primaryIdentity ?? "Verified", destination: telegramProfileURL)
-                                .font(VFont.body)
-                                .lineLimit(1)
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
-                        } else {
-                            Text(primaryIdentity ?? "Verified")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                                .lineLimit(1)
-                        }
-                        if let secondaryIdentity {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.sm) {
+                        guardianLabel
+                        VStack(alignment: .leading, spacing: 2) {
                             if let telegramProfileURL {
-                                Link(secondaryIdentity, destination: telegramProfileURL)
-                                    .font(VFont.caption)
+                                Link(primaryIdentity ?? "Verified", destination: telegramProfileURL)
+                                    .font(VFont.body)
                                     .lineLimit(1)
                                     .onHover { hovering in
                                         if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                                     }
                             } else {
-                                Text(secondaryIdentity)
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
+                                Text(primaryIdentity ?? "Verified")
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.textSecondary)
                                     .lineLimit(1)
                             }
+                            if let secondaryIdentity {
+                                if let telegramProfileURL {
+                                    Link(secondaryIdentity, destination: telegramProfileURL)
+                                        .font(VFont.caption)
+                                        .lineLimit(1)
+                                        .onHover { hovering in
+                                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                        }
+                                } else {
+                                    Text(secondaryIdentity)
+                                        .font(VFont.caption)
+                                        .foregroundColor(VColor.textMuted)
+                                        .lineLimit(1)
+                                }
+                            }
                         }
+                        Spacer()
                     }
-                    Spacer()
                     VButton(label: "Revoke", style: .secondary, size: .large) {
                         store.revokeChannelGuardian(channel: channel)
                     }
@@ -1201,7 +1205,7 @@ struct SettingsChannelsTab: View {
             }
 
             if let error {
-                HStack(spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(error)
                         .font(VFont.caption)
                         .foregroundColor(VColor.error)
@@ -1296,9 +1300,6 @@ struct SettingsChannelsTab: View {
                     .font(VFont.body)
                     .foregroundColor(VColor.warning)
                 Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    store.cancelOutboundGuardian(channel: channel)
-                }
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -1421,6 +1422,10 @@ struct SettingsChannelsTab: View {
                 }
             }
             .padding(.leading, labelColumnWidth + VSpacing.sm)
+
+            VButton(label: "Cancel", style: .secondary, size: .large) {
+                store.cancelOutboundGuardian(channel: channel)
+            }
         }
         .onAppear { startCountdownTimer() }
         .onDisappear { stopCountdownTimer() }
@@ -1506,9 +1511,6 @@ struct SettingsChannelsTab: View {
                     .font(VFont.body)
                     .foregroundColor(VColor.warning)
                 Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    store.cancelGuardianChallenge(channel: channel)
-                }
             }
 
             if let command {
@@ -1575,6 +1577,10 @@ struct SettingsChannelsTab: View {
                     )
                     .textSelection(.enabled)
                     .padding(.leading, labelColumnWidth + VSpacing.sm)
+            }
+
+            VButton(label: "Cancel", style: .secondary, size: .large) {
+                store.cancelGuardianChallenge(channel: channel)
             }
         }
     }
@@ -1691,23 +1697,25 @@ struct SettingsChannelsTab: View {
                     .foregroundColor(VColor.warning)
             }
         } else if !hasToken {
-            HStack(spacing: VSpacing.sm) {
-                mobilePairingLabel
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(VColor.warning)
-                    .font(.system(size: 12))
-                Text("Bearer token required")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.warning)
-                Spacer()
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                HStack(spacing: VSpacing.sm) {
+                    mobilePairingLabel
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 12))
+                    Text("Bearer token required")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.warning)
+                }
                 VButton(label: "Generate Token", style: .secondary, size: .large) {
                     regenerateHttpToken()
                 }
             }
         } else {
-            HStack(spacing: VSpacing.sm) {
-                mobilePairingLabel
-                Spacer()
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                HStack(spacing: VSpacing.sm) {
+                    mobilePairingLabel
+                }
                 VButton(label: "Pair Device", leftIcon: "qrcode", style: .primary, size: .large) {
                     showingPairingQR = true
                 }
