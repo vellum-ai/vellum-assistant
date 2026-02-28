@@ -87,44 +87,39 @@ struct GatewaySettingsCard: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Copy gateway address")
                 .help("Copy address")
+
+                InlineConnectionStatus(
+                    status: gatewayStatusInfo,
+                    isRefreshing: store.isCheckingGateway,
+                    lastChecked: store.gatewayLastChecked,
+                    accessibilityLabel: "gateway"
+                ) {
+                    Task { await store.testGatewayOnly() }
+                }
             }
 
             Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
 
-            // Gateway connection status (checks local daemon)
-            ConnectionStatusRow(
-                label: "Gateway",
-                status: gatewayStatusInfo,
-                isRefreshing: store.isCheckingGateway,
-                lastChecked: store.gatewayLastChecked
-            ) {
-                Task { await store.testGatewayOnly() }
-            }
-
-            Divider()
-                .background(VColor.surfaceBorder)
-
             // Gateway URL field
-            HStack(spacing: VSpacing.xs) {
-                Text("Gateway URL")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
+            Text("Gateway URL")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
 
-            VInlineActionField(text: $gatewayUrlText, placeholder: "https://your-tunnel.example.com", allowEmpty: true, isFocused: $isGatewayUrlFocused) {
-                store.saveIngressPublicBaseUrl(gatewayUrlText)
-            }
+            HStack(spacing: VSpacing.sm) {
+                VInlineActionField(text: $gatewayUrlText, placeholder: "https://your-tunnel.example.com", allowEmpty: true, isFocused: $isGatewayUrlFocused) {
+                    store.saveIngressPublicBaseUrl(gatewayUrlText)
+                }
 
-            // Tunnel connection status (checks public URL)
-            ConnectionStatusRow(
-                label: "Tunnel",
-                status: tunnelStatusInfo,
-                isRefreshing: store.isCheckingTunnel,
-                lastChecked: store.tunnelLastChecked
-            ) {
-                Task { await store.testTunnelOnly() }
+                InlineConnectionStatus(
+                    status: tunnelStatusInfo,
+                    isRefreshing: store.isCheckingTunnel,
+                    lastChecked: store.tunnelLastChecked,
+                    accessibilityLabel: "tunnel"
+                ) {
+                    Task { await store.testTunnelOnly() }
+                }
             }
 
             // Diagnostic message when gateway is up but tunnel is down
