@@ -945,7 +945,7 @@ export const assistantIngressInvites = sqliteTable('assistant_ingress_invites', 
   // Voice invite fields (nullable — non-voice invites leave these NULL)
   expectedExternalUserId: text('expected_external_user_id'),
   voiceCodeHash: text('voice_code_hash'),
-  voiceCodeDigits: integer('voice_code_digits').default(6),
+  voiceCodeDigits: integer('voice_code_digits'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

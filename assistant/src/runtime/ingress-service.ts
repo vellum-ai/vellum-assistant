@@ -138,6 +138,9 @@ export function createIngressInvite(params: {
       return { ok: false, error: 'expectedExternalUserId is required for voice invites' };
     }
     const digits = params.voiceCodeDigits ?? 6;
+    if (!Number.isInteger(digits) || digits < 4 || digits > 10) {
+      return { ok: false, error: 'voiceCodeDigits must be an integer between 4 and 10' };
+    }
     voiceCode = generateVoiceCode(digits);
     voiceCodeHash = hashVoiceCode(voiceCode);
   }
@@ -153,7 +156,9 @@ export function createIngressInvite(params: {
       voiceCodeDigits: params.voiceCodeDigits ?? 6,
     } : {}),
   });
-  return { ok: true, data: inviteToResponse(invite, { rawToken, voiceCode }) };
+  // Voice invites must not expose the token — callers must redeem via the
+  // identity-bound voice code flow, not the generic token redemption path.
+  return { ok: true, data: inviteToResponse(invite, { rawToken: isVoice ? undefined : rawToken, voiceCode }) };
 }
 
 export function listIngressInvites(params: {
