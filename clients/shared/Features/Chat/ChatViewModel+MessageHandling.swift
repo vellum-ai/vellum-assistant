@@ -623,7 +623,7 @@ extension ChatViewModel {
                 pendingVoiceMessage = false
                 if let existingId = currentAssistantMessageId,
                    let index = messages.firstIndex(where: { $0.id == existingId }) {
-                    let responseText = messages[index].textSegments.joined()
+                    let responseText = messages[index].textSegments.joined(separator: "\n")
                     onVoiceResponseComplete?(responseText)
                 }
             }
@@ -699,7 +699,7 @@ extension ChatViewModel {
                 // Extract a summary from the last assistant message
                 if let existingId = messages.last(where: { $0.role == .assistant })?.id,
                    let index = messages.firstIndex(where: { $0.id == existingId }) {
-                    let summary = messages[index].textSegments.joined()
+                    let summary = messages[index].textSegments.joined(separator: "\n")
                     callback(summary)
                 } else {
                     callback("Response complete")
@@ -1123,6 +1123,9 @@ extension ChatViewModel {
                 startedAt: Date()
             )
             toolCall.buildingStatus = buildingStatus
+            // Flush any buffered text before processing the tool call so that
+            // text from before the tool call lands in the correct segment.
+            flushStreamingBuffer()
             // Add to existing assistant message or create one.
             // Cap at 100 tool calls per message to prevent unbounded memory growth;
             // overflow falls through to create a new message.

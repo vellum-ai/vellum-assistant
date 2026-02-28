@@ -340,7 +340,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
 
   function finalizeSegment(): void {
     if (hasOpenSegment) {
-      textSegments[textSegments.length - 1] = currentSegmentParts.join('');
+      textSegments[textSegments.length - 1] = currentSegmentParts.join('\n');
       currentSegmentParts = [];
       hasOpenSegment = false;
     }
@@ -445,7 +445,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
 
   finalizeSegment();
 
-  const text = textParts.join('');
+  const text = textParts.join('\n');
   let rendered: string;
   if (attachmentParts.length === 0) {
     rendered = text;

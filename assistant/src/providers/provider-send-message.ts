@@ -110,7 +110,7 @@ export function extractAllText(response: ProviderResponse): string {
   return response.content
     .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
     .map((b) => b.text)
-    .join('');
+    .join('\n');
 }
 
 /**
