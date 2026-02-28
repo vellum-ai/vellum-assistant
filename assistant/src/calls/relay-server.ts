@@ -573,6 +573,38 @@ export class RelayConnection {
         return;
       }
 
+      // Members with policy: 'escalate' require guardian approval, but a live
+      // voice call cannot be paused for async approval. Fail-closed by denying
+      // the call with an appropriate message — mirrors the deny block above.
+      if (actorTrust.memberRecord?.policy === 'escalate') {
+        log.info(
+          { callSessionId: this.callSessionId, from: msg.from, memberId: actorTrust.memberRecord.id, trustClass: actorTrust.trustClass },
+          'Inbound voice ACL: member policy escalate — cannot hold live call for guardian approval',
+        );
+
+        recordCallEvent(this.callSessionId, 'inbound_acl_denied', {
+          from: msg.from,
+          trustClass: actorTrust.trustClass,
+          memberId: actorTrust.memberRecord.id,
+          memberPolicy: actorTrust.memberRecord.policy,
+        });
+
+        this.sendTextToken('This number requires guardian approval for calls. Please have the account guardian update your permissions.', true);
+
+        this.connectionState = 'disconnecting';
+
+        updateCallSession(this.callSessionId, {
+          status: 'failed',
+          endedAt: Date.now(),
+          lastError: 'Inbound voice ACL: member policy escalate — voice calls cannot await guardian approval',
+        });
+
+        setTimeout(() => {
+          this.endSession('Inbound voice ACL: member policy escalate');
+        }, 3000);
+        return;
+      }
+
       // Guardian and trusted-contact callers proceed normally.
       // Update the controller's guardian context with the trust-resolved
       // context so downstream policy gates have accurate actor metadata.
