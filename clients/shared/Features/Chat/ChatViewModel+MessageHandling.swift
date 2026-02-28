@@ -636,15 +636,6 @@ extension ChatViewModel {
                     let replyText = firstAssistant.text
                     onFirstAssistantReply = nil
                     callback(replyText)
-
-                    // Check naming intent and fire the lacks-naming callback
-                    // once. The didSendNamingNudge flag prevents looping if
-                    // the corrective follow-up also lacks naming keywords.
-                    if !didSendNamingNudge && !ChatViewModel.replyContainsNamingIntent(replyText) {
-                        didSendNamingNudge = true
-                        onFirstReplyLacksNamingIntent?()
-                        onFirstReplyLacksNamingIntent = nil
-                    }
                 }
             }
             var completedToolCalls: [ToolCallData]?

@@ -590,9 +590,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     /// Wires `onFirstAssistantReply` on the active ChatViewModel so bootstrap
     /// transitions to `.complete` when the daemon's first reply arrives.
-    /// Also wires a corrective follow-up nudge: if the first reply doesn't
-    /// include naming intent, one silent message is sent to steer the
-    /// conversation toward identity/naming.
     private func wireBootstrapFirstReplyCallback() {
         guard let viewModel = mainWindow?.activeViewModel else {
             log.warning("No active ChatViewModel to wire first-reply callback — completing bootstrap immediately")
@@ -601,13 +598,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
         viewModel.onFirstAssistantReply = { [weak self] _ in
             self?.transitionBootstrap(to: .complete)
-        }
-        viewModel.onFirstReplyLacksNamingIntent = { [weak viewModel] in
-            guard let viewModel else { return }
-            log.info("First bootstrap reply lacked naming intent — sending corrective nudge")
-            viewModel.sendSilently(
-                "Before we get started, what should I call you? And is there a name you'd like me to go by?"
-            )
         }
     }
 
@@ -867,6 +857,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         hasSetupApp = false
         hasSetupDaemon = false
+        daemonClient.disconnect()
+        UserDefaults.standard.removeObject(forKey: "user.profile")
         showOnboarding()
         return true
     }
