@@ -506,6 +506,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     return
                 }
 
+                // If the daemon socket doesn't exist, the daemon process
+                // likely isn't running (e.g. hatch failed). Re-attempt hatch
+                // so we don't loop forever on connect-only retries.
+                let socketPath = DaemonClient.resolveSocketPath()
+                if !FileManager.default.fileExists(atPath: socketPath) {
+                    log.info("Daemon socket missing during bootstrap retry — re-attempting hatch")
+                    try? await assistantCli.hatch(daemonOnly: true)
+                }
+
                 // Attempt a connection if not already in progress
                 if !daemonClient.isConnecting {
                     do {
@@ -2072,13 +2081,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         } else {
             var updated = json
             updated["assistants"] = filtered
-            if let data = try? JSONSerialization.data(withJSONObject: updated, options: [.prettyPrinted, .sortedKeys]) {
-                do {
-                    try data.write(to: LockfilePaths.primary)
-                    log.info("Removed stale entry '\(assistantId, privacy: .private)' from lockfile")
-                } catch {
-                    log.error("Failed to write updated lockfile after removing '\(assistantId, privacy: .private)': \(error)")
-                }
+            do {
+                let data = try JSONSerialization.data(withJSONObject: updated, options: [.prettyPrinted, .sortedKeys])
+                try data.write(to: LockfilePaths.primary)
+                log.info("Removed stale entry '\(assistantId, privacy: .private)' from lockfile")
+            } catch {
+                log.error("Failed to update lockfile after removing '\(assistantId, privacy: .private)': \(error)")
             }
         }
     }
