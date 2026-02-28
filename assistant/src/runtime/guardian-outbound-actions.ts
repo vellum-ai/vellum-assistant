@@ -94,7 +94,6 @@ function getTelegramBotUsername(): string | undefined {
 
 export interface StartOutboundParams {
   channel: ChannelId;
-  assistantId?: string;
   destination?: string;
   rebind?: boolean;
   /** Origin conversation ID so completion/failure pointers can route back. */
@@ -103,14 +102,12 @@ export interface StartOutboundParams {
 
 export interface ResendOutboundParams {
   channel: ChannelId;
-  assistantId?: string;
   /** Origin conversation ID so completion/failure pointers can route back on resend. */
   originConversationId?: string;
 }
 
 export interface CancelOutboundParams {
   channel: ChannelId;
-  assistantId?: string;
 }
 
 /**

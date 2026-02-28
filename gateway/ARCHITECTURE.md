@@ -296,7 +296,7 @@ The guardian system adds a cryptographic trust layer for channel-based interacti
 
 #### Canonical Assistant ID Scoping
 
-All channel ingress paths canonicalize the `assistantId` via `normalizeAssistantId()` (from `util/platform.ts`) before any DB operations. The system uses `"self"` as the canonical single-tenant identifier, but callers may pass the real assistant name (e.g., `"vellum-true-eel"`) or `"self"` depending on context. `normalizeAssistantId()` maps any known lockfile assistant ID to `"self"`, ensuring consistent DB key usage regardless of how the caller identifies the assistant. This canonicalization runs at every ingress boundary: the guardian IPC handler (`config-channels.ts`), the guardian context resolver, the relay server, and the inbound message handler.
+The daemon uses the fixed constant `DAEMON_INTERNAL_ASSISTANT_ID` (`"self"`) from `runtime/assistant-scope.ts` for all assistant-scoped storage keys. Public/external assistant IDs are a gateway/platform concern and never leak into daemon scoping logic. The `normalizeAssistantId()` function in `util/platform.ts` exists solely for the gateway layer to canonicalize inbound requests before proxying -- daemon and runtime code must not call it or accept an `assistantId` parameter for scoping.
 
 #### Guardian Verify Code Parsing
 

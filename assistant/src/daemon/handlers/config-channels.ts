@@ -60,7 +60,6 @@ export function getReadinessService(): ChannelReadinessService {
 
 export function createGuardianChallenge(
   channel?: ChannelId,
-  assistantId?: string,
   rebind?: boolean,
   sessionId?: string,
 ): GuardianVerificationResult {
@@ -89,7 +88,6 @@ export function createGuardianChallenge(
 
 export function getGuardianStatus(
   channel?: ChannelId,
-  _assistantId?: string,
 ): GuardianVerificationResult {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? 'telegram';
@@ -166,10 +164,10 @@ export function handleGuardianVerification(
 
   try {
     if (msg.action === 'create_challenge') {
-      const result = createGuardianChallenge(channel, assistantId, msg.rebind, msg.sessionId);
+      const result = createGuardianChallenge(channel, msg.rebind, msg.sessionId);
       ctx.send(socket, { type: 'guardian_verification_response', ...result });
     } else if (msg.action === 'status') {
-      const result = getGuardianStatus(channel, assistantId);
+      const result = getGuardianStatus(channel);
       ctx.send(socket, { type: 'guardian_verification_response', ...result });
     } else if (msg.action === 'revoke') {
       // Capture binding before revoking so we can revoke the guardian's
@@ -198,13 +196,13 @@ export function handleGuardianVerification(
         channel,
       });
     } else if (msg.action === 'start_outbound') {
-      const result = startOutbound({ channel, assistantId, destination: msg.destination, rebind: msg.rebind, originConversationId: msg.originConversationId });
+      const result = startOutbound({ channel, destination: msg.destination, rebind: msg.rebind, originConversationId: msg.originConversationId });
       ctx.send(socket, { type: 'guardian_verification_response', ...result });
     } else if (msg.action === 'resend_outbound') {
-      const result = resendOutbound({ channel, assistantId, originConversationId: msg.originConversationId });
+      const result = resendOutbound({ channel, originConversationId: msg.originConversationId });
       ctx.send(socket, { type: 'guardian_verification_response', ...result });
     } else if (msg.action === 'cancel_outbound') {
-      const result = cancelOutbound({ channel, assistantId });
+      const result = cancelOutbound({ channel });
       ctx.send(socket, { type: 'guardian_verification_response', ...result });
     } else {
       ctx.send(socket, {
@@ -241,13 +239,13 @@ export async function handleChannelReadiness(
 
     if (msg.action === 'refresh') {
       if (msg.channel) {
-        service.invalidateChannel(msg.channel, msg.assistantId);
+        service.invalidateChannel(msg.channel);
       } else {
         service.invalidateAll();
       }
     }
 
-    const snapshots = await service.getReadiness(msg.channel, msg.includeRemote, msg.assistantId);
+    const snapshots = await service.getReadiness(msg.channel, msg.includeRemote);
 
     ctx.send(socket, {
       type: 'channel_readiness_response',
