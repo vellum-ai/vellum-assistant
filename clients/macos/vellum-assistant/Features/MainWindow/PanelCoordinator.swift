@@ -985,54 +985,52 @@ private struct PublishedButton: View {
     let url: String
     @Binding var copied: Bool
 
-    @State private var isHovered = false
+    @State private var isCopyHovered = false
     @State private var resetTimer: DispatchWorkItem?
 
     var body: some View {
-        Button {
-            resetTimer?.cancel()
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(url, forType: .string)
-            copied = true
-            let timer = DispatchWorkItem { copied = false }
-            resetTimer = timer
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
-        } label: {
-            HStack(spacing: VSpacing.xs) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(VColor.success)
-                Text("Published")
-                    .font(VFont.caption)
-                Divider()
-                    .frame(height: 12)
-                Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(copied ? VColor.success : VColor.buttonSecondaryText)
-                    .animation(VAnimation.fast, value: copied)
-            }
-            .foregroundColor(VColor.buttonSecondaryText)
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.buttonV)
-            .frame(height: 24)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isHovered ? VColor.ghostHover : .clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.buttonSecondaryBorder, lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        HStack(spacing: VSpacing.xs) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(VColor.success)
+            Text("Published")
+                .font(VFont.caption)
+            Divider()
+                .frame(height: 12)
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(copied ? VColor.success : (isCopyHovered ? VColor.textPrimary : VColor.buttonSecondaryText))
+                .animation(VAnimation.fast, value: copied)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    resetTimer?.cancel()
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url, forType: .string)
+                    copied = true
+                    let timer = DispatchWorkItem { copied = false }
+                    resetTimer = timer
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+                }
+                .onHover { hovering in
+                    isCopyHovered = hovering
+                    if hovering { NSCursor.pointingHand.set() }
+                    else { NSCursor.arrow.set() }
+                }
+                .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
         }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { NSCursor.pointingHand.set() }
-            else { NSCursor.arrow.set() }
-        }
+        .foregroundColor(VColor.buttonSecondaryText)
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.buttonV)
+        .frame(height: 24)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.buttonSecondaryBorder, lineWidth: 1)
+        )
         .controlSize(.small)
-        .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
     }
 }
 
