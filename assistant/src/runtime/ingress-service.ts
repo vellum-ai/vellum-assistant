@@ -174,10 +174,10 @@ export function createIngressInvite(params: {
     if (!isValidE164(params.expectedExternalUserId)) {
       return { ok: false, error: 'expectedExternalUserId must be in E.164 format (e.g., +15551234567)' };
     }
-    if (!params.friendName?.trim()) {
+    if (typeof params.friendName !== 'string' || !params.friendName.trim()) {
       return { ok: false, error: 'friendName is required for voice invites' };
     }
-    if (!params.guardianName?.trim()) {
+    if (typeof params.guardianName !== 'string' || !params.guardianName.trim()) {
       return { ok: false, error: 'guardianName is required for voice invites' };
     }
     voiceCode = generateVoiceCode(6);
