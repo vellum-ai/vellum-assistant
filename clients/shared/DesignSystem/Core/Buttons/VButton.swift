@@ -111,7 +111,7 @@ private struct VButtonStyle: ButtonStyle {
     private var cornerRadius: CGFloat {
         switch style {
         case .outlined: return VRadius.xl
-        default: return VRadius.md
+        default: return VRadius.lg
         }
     }
 
@@ -219,20 +219,22 @@ private struct VButtonStyle: ButtonStyle {
     ZStack {
         VColor.background.ignoresSafeArea()
         VStack(spacing: 16) {
-            VButton(label: "Small", style: .primary, size: .small) {}
-            VButton(label: "Medium", style: .primary, size: .medium) {}
-            VButton(label: "Large", style: .primary, size: .large) {}
-            VButton(label: "Tertiary Small", style: .tertiary, size: .small) {}
-            VButton(label: "Tertiary Large", style: .tertiary, size: .large) {}
-            VButton(label: "Secondary", style: .secondary, size: .small) {}
-            VButton(label: "Secondary Medium", style: .secondary, size: .medium) {}
-            VButton(label: "With Left Icon", leftIcon: "plus", style: .primary, size: .small) {}
-            VButton(label: "With Right Icon", rightIcon: "arrow.right", style: .tertiary, size: .small) {}
-            VButton(label: "Both Icons", leftIcon: "star", rightIcon: "chevron.right", style: .secondary, size: .medium) {}
-            VButton(label: "Legacy Icon", icon: "gear", style: .primary, size: .small) {}
+            VButton(label: "Primary", style: .primary, size: .medium) {}
+            VButton(label: "Secondary", style: .secondary, size: .medium) {}
+            VButton(label: "Tertiary", style: .tertiary, size: .medium) {}
+            VButton(label: "Danger", style: .danger, size: .medium) {}
+            VButton(label: "Ghost", style: .ghost, size: .medium) {}
+            VButton(label: "Record", style: .outlined, size: .large) {}
+            HStack(spacing: 12) {
+                VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                VButton(label: "Disconnect", style: .danger, size: .medium) {}
+            }
+            VButton(label: "Connect", style: .primary, size: .medium) {}
+            VButton(label: "With Icon", leftIcon: "plus", style: .primary, size: .small) {}
             VButton(label: "Full Width", style: .primary, isFullWidth: true) {}
+            VButton(label: "Disabled", style: .primary, isDisabled: true) {}
         }
         .padding()
     }
-    .frame(width: 300, height: 500)
+    .frame(width: 320, height: 580)
 }
