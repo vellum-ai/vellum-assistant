@@ -198,6 +198,13 @@ describe('routing invariant: all decision paths reference applyCanonicalGuardian
     });
   }
 
+  test('daemon/session-process.ts no longer references legacy guardian-action interception', () => {
+    const fullPath = join(srcRoot, 'daemon/session-process.ts');
+    const source = readFileSync(fullPath, 'utf-8');
+    expect(source).not.toContain("../memory/guardian-action-store.js");
+    expect(source).not.toContain('getPendingDeliveriesByConversation');
+  });
+
   test('guardian-reply-router routes all decisions through applyCanonicalGuardianDecision', () => {
     const fullPath = join(srcRoot, 'runtime/guardian-reply-router.ts');
     const source = readFileSync(fullPath, 'utf-8');
