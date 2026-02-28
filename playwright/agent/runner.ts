@@ -29,12 +29,14 @@ interface TestCase {
   name: string;
   filePath: string;
   fixture?: string;
+  requiredEnv?: string[];
   rawContent: string;
 }
 
 interface TestCaseResult {
   name: string;
   passed: boolean;
+  skipped?: boolean;
   message: string;
   reasoning: string;
   durationMs: number;
@@ -42,7 +44,8 @@ interface TestCaseResult {
 
 // ── Markdown Parsing ────────────────────────────────────────────────
 
-function parseFrontmatter(content: string): { fixture?: string; body: string } {
+// `required_env` accepts comma-separated env var names (e.g. "FOO, BAR")
+function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: string[]; body: string } {
   const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!frontmatterMatch) {
     return { body: content };
@@ -51,15 +54,20 @@ function parseFrontmatter(content: string): { fixture?: string; body: string } {
   const frontmatterBlock = frontmatterMatch[1];
   const body = frontmatterMatch[2];
   let fixture: string | undefined;
+  let requiredEnv: string[] | undefined;
 
   for (const line of frontmatterBlock.split("\n")) {
     const [key, ...valueParts] = line.split(":");
-    if (key.trim() === "fixture") {
-      fixture = valueParts.join(":").trim();
+    const trimmedKey = key.trim();
+    const value = valueParts.join(":").trim();
+    if (trimmedKey === "fixture") {
+      fixture = value;
+    } else if (trimmedKey === "required_env") {
+      requiredEnv = value.split(",").map((v) => v.trim()).filter(Boolean);
     }
   }
 
-  return { fixture, body };
+  return { fixture, requiredEnv, body };
 }
 
 // ── Test Discovery ──────────────────────────────────────────────────
@@ -71,14 +79,14 @@ function discoverTestCases(casesDir: string, filter?: string): TestCase[] {
   for (const file of files) {
     const filePath = path.join(casesDir, file);
     const rawContent = readFileSync(filePath, "utf-8");
-    const { fixture } = parseFrontmatter(rawContent);
+    const { fixture, requiredEnv } = parseFrontmatter(rawContent);
     const name = file.replace(/\.md$/, "");
 
     if (filter && !name.includes(filter)) {
       continue;
     }
 
-    cases.push({ name, filePath, fixture, rawContent });
+    cases.push({ name, filePath, fixture, requiredEnv, rawContent });
   }
 
   return cases;
@@ -226,6 +234,23 @@ async function main(): Promise<void> {
 
   try {
     for (const testCase of testCases) {
+      // Skip when required env vars are missing
+      if (testCase.requiredEnv && testCase.requiredEnv.length > 0) {
+        const missing = testCase.requiredEnv.filter((v) => !process.env[v]);
+        if (missing.length > 0) {
+          console.log(`⊘ Skipped: ${testCase.name} (missing env vars: ${missing.join(", ")})`);
+          results.push({
+            name: testCase.name,
+            passed: true,
+            skipped: true,
+            message: `Skipped — missing env vars: ${missing.join(", ")}`,
+            reasoning: "",
+            durationMs: 0,
+          });
+          continue;
+        }
+      }
+
       console.log(`▶ Running: ${testCase.name}`);
       const result = await runTestCase(testCase, browser, verbose);
       results.push(result);
@@ -246,13 +271,14 @@ async function main(): Promise<void> {
   }
 
   // Summary
-  const passed = results.filter((r) => r.passed).length;
+  const skipped = results.filter((r) => r.skipped).length;
+  const passed = results.filter((r) => r.passed && !r.skipped).length;
   const failed = results.filter((r) => !r.passed).length;
   const totalDuration = results.reduce((sum, r) => sum + r.durationMs, 0);
 
   console.log("─".repeat(60));
   console.log(
-    `Results: ${passed} passed, ${failed} failed (${(totalDuration / 1000).toFixed(1)}s total)`,
+    `Results: ${passed} passed, ${failed} failed, ${skipped} skipped (${(totalDuration / 1000).toFixed(1)}s total)`,
   );
   console.log("─".repeat(60));
 
