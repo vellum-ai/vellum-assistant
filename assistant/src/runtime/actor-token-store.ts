@@ -152,6 +152,31 @@ export function revokeByDeviceBinding(
 }
 
 /**
+ * Find all active actor token records for a given (assistantId, guardianPrincipalId).
+ * Used for multi-device guardian fanout — returns all bound devices (macOS, iOS, etc.)
+ * so notification targeting can reach every device for the same guardian identity.
+ */
+export function findActiveByGuardianPrincipalId(
+  assistantId: string,
+  guardianPrincipalId: string,
+): ActorTokenRecord[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(actorTokenRecords)
+    .where(
+      and(
+        eq(actorTokenRecords.assistantId, assistantId),
+        eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
+        eq(actorTokenRecords.status, 'active'),
+      ),
+    )
+    .all();
+
+  return rows.map(rowToRecord);
+}
+
+/**
  * Revoke a single token by its hash.
  */
 export function revokeByTokenHash(tokenHash: string): boolean {

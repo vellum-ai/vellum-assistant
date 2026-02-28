@@ -2,7 +2,10 @@
  * Resolves per-channel destination endpoints for notification delivery.
  *
  * - Vellum: no external endpoint needed — delivery goes through the IPC
- *   broadcast mechanism to connected desktop/mobile clients.
+ *   broadcast mechanism to connected desktop/mobile clients. The
+ *   guardianPrincipalId from the vellum binding is included in metadata
+ *   so downstream adapters can scope guardian-sensitive notifications to
+ *   bound guardian devices only.
  * - Binding-based channels (telegram, sms): require a chat/delivery ID
  *   sourced from the guardian binding for the assistant.
  */
@@ -35,7 +38,18 @@ export function resolveDestinations(
     switch (channel as NotificationChannel) {
       case 'vellum': {
         // Vellum delivery is local IPC — no external endpoint required.
-        result.set('vellum', { channel: 'vellum' });
+        // Include the guardianPrincipalId from the vellum binding so the
+        // adapter can annotate guardian-sensitive notifications for scoped
+        // delivery to bound guardian devices.
+        const vellumBinding = getActiveBinding(assistantId, 'vellum');
+        const metadata: Record<string, unknown> = {};
+        if (vellumBinding) {
+          metadata.guardianPrincipalId = vellumBinding.guardianExternalUserId;
+        }
+        result.set('vellum', {
+          channel: 'vellum',
+          metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+        });
         break;
       }
       case 'telegram':
