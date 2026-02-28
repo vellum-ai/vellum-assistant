@@ -58,16 +58,23 @@ mock.module('../config/env.js', () => ({
 
 // Track emitNotificationSignal calls
 const emitSignalCalls: Array<Record<string, unknown>> = [];
+let mockEmitResult: {
+  signalId: string;
+  deduplicated: boolean;
+  dispatched: boolean;
+  reason: string;
+  deliveryResults: Array<Record<string, unknown>>;
+} = {
+  signalId: 'mock-signal-id',
+  deduplicated: false,
+  dispatched: true,
+  reason: 'mock',
+  deliveryResults: [],
+};
 mock.module('../notifications/emit-signal.js', () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emitSignalCalls.push(params);
-    return {
-      signalId: 'mock-signal-id',
-      deduplicated: false,
-      dispatched: true,
-      reason: 'mock',
-      deliveryResults: [],
-    };
+    return mockEmitResult;
   },
 }));
 
@@ -79,7 +86,10 @@ mock.module('../runtime/gateway-client.js', () => ({
   },
 }));
 
-import { listCanonicalGuardianRequests } from '../memory/canonical-guardian-store.js';
+import {
+  listCanonicalGuardianDeliveries,
+  listCanonicalGuardianRequests,
+} from '../memory/canonical-guardian-store.js';
 import {
   createBinding,
 } from '../memory/channel-guardian-store.js';
@@ -111,6 +121,17 @@ function resetState(): void {
   db.run('DELETE FROM canonical_guardian_deliveries');
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
+  mockEmitResult = {
+    signalId: 'mock-signal-id',
+    deduplicated: false,
+    dispatched: true,
+    reason: 'mock',
+    deliveryResults: [],
+  };
+}
+
+async function flushAsyncAccessRequestBookkeeping(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
@@ -480,5 +501,90 @@ describe('access-request-helper unit tests', () => {
     expect(payload.requestCode).toBeDefined();
     expect(typeof payload.requestCode).toBe('string');
     expect((payload.requestCode as string).length).toBe(6);
+  });
+
+  test('notifyGuardianOfAccessRequest persists canonical delivery rows from notification results', async () => {
+    mockEmitResult = {
+      signalId: 'sig-deliveries',
+      deduplicated: false,
+      dispatched: true,
+      reason: 'ok',
+      deliveryResults: [
+        {
+          channel: 'vellum',
+          destination: 'vellum',
+          status: 'sent',
+          conversationId: 'conv-guardian-access-request',
+        },
+        {
+          channel: 'telegram',
+          destination: 'guardian-chat-123',
+          status: 'sent',
+        },
+      ],
+    };
+
+    const result = notifyGuardianOfAccessRequest({
+      canonicalAssistantId: 'self',
+      sourceChannel: 'voice',
+      externalChatId: '+15556667777',
+      senderExternalUserId: '+15556667777',
+      senderName: 'Noah',
+    });
+
+    expect(result.notified).toBe(true);
+    if (!result.notified) return;
+
+    await flushAsyncAccessRequestBookkeeping();
+
+    const deliveries = listCanonicalGuardianDeliveries(result.requestId);
+    const vellum = deliveries.find((d) => d.destinationChannel === 'vellum');
+    const telegram = deliveries.find((d) => d.destinationChannel === 'telegram');
+
+    expect(vellum).toBeDefined();
+    expect(vellum!.destinationConversationId).toBe('conv-guardian-access-request');
+    expect(vellum!.status).toBe('sent');
+    expect(telegram).toBeDefined();
+    expect(telegram!.destinationChatId).toBe('guardian-chat-123');
+    expect(telegram!.status).toBe('sent');
+  });
+
+  test('notifyGuardianOfAccessRequest records failed vellum fallback when pipeline has no vellum delivery', async () => {
+    mockEmitResult = {
+      signalId: 'sig-no-vellum',
+      deduplicated: false,
+      dispatched: true,
+      reason: 'telegram-only',
+      deliveryResults: [
+        {
+          channel: 'telegram',
+          destination: 'guardian-chat-456',
+          status: 'sent',
+        },
+      ],
+    };
+
+    const result = notifyGuardianOfAccessRequest({
+      canonicalAssistantId: 'self',
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-123',
+      senderExternalUserId: 'unknown-user',
+      senderName: 'Alice',
+    });
+
+    expect(result.notified).toBe(true);
+    if (!result.notified) return;
+
+    await flushAsyncAccessRequestBookkeeping();
+
+    const deliveries = listCanonicalGuardianDeliveries(result.requestId);
+    const vellum = deliveries.find((d) => d.destinationChannel === 'vellum');
+    const telegram = deliveries.find((d) => d.destinationChannel === 'telegram');
+
+    expect(vellum).toBeDefined();
+    expect(vellum!.status).toBe('failed');
+    expect(telegram).toBeDefined();
+    expect(telegram!.destinationChatId).toBe('guardian-chat-456');
+    expect(telegram!.status).toBe('sent');
   });
 });

@@ -15,16 +15,27 @@
 
 import type { ChannelId } from '../channels/types.js';
 import {
+  createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
+  updateCanonicalGuardianDelivery,
 } from '../memory/canonical-guardian-store.js';
 import { listActiveBindingsByAssistant } from '../memory/channel-guardian-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
+import type { NotificationDeliveryResult } from '../notifications/types.js';
 import { getLogger } from '../util/logger.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
 import { GUARDIAN_APPROVAL_TTL_MS } from './routes/channel-route-shared.js';
 
 const log = getLogger('access-request-helper');
+
+function applyDeliveryStatus(deliveryId: string, result: NotificationDeliveryResult): void {
+  if (result.status === 'sent') {
+    updateCanonicalGuardianDelivery(deliveryId, { status: 'sent' });
+    return;
+  }
+  updateCanonicalGuardianDelivery(deliveryId, { status: 'failed' });
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -147,6 +158,7 @@ export function notifyGuardianOfAccessRequest(
     expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
   });
 
+  let vellumDeliveryId: string | null = null;
   void emitNotificationSignal({
     sourceEventName: 'ingress.access_request',
     sourceChannel,
@@ -170,7 +182,61 @@ export function notifyGuardianOfAccessRequest(
       guardianBindingChannel,
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
-  });
+    onThreadCreated: (info) => {
+      if (info.sourceEventName !== 'ingress.access_request' || vellumDeliveryId) return;
+      const delivery = createCanonicalGuardianDelivery({
+        requestId: canonicalRequest.id,
+        destinationChannel: 'vellum',
+        destinationConversationId: info.conversationId,
+      });
+      vellumDeliveryId = delivery.id;
+    },
+  })
+    .then((signalResult) => {
+      for (const result of signalResult.deliveryResults) {
+        if (result.channel === 'vellum') {
+          if (!vellumDeliveryId) {
+            const delivery = createCanonicalGuardianDelivery({
+              requestId: canonicalRequest.id,
+              destinationChannel: 'vellum',
+              destinationConversationId: result.conversationId,
+            });
+            vellumDeliveryId = delivery.id;
+          }
+          applyDeliveryStatus(vellumDeliveryId, result);
+          continue;
+        }
+
+        if (result.channel !== 'telegram' && result.channel !== 'sms') {
+          continue;
+        }
+
+        const delivery = createCanonicalGuardianDelivery({
+          requestId: canonicalRequest.id,
+          destinationChannel: result.channel,
+          destinationChatId: result.destination.length > 0 ? result.destination : undefined,
+        });
+        applyDeliveryStatus(delivery.id, result);
+      }
+
+      if (!vellumDeliveryId) {
+        const fallback = createCanonicalGuardianDelivery({
+          requestId: canonicalRequest.id,
+          destinationChannel: 'vellum',
+        });
+        updateCanonicalGuardianDelivery(fallback.id, { status: 'failed' });
+        log.warn(
+          { requestId: canonicalRequest.id, reason: signalResult.reason },
+          'Notification pipeline did not produce a vellum delivery result for access request',
+        );
+      }
+    })
+    .catch((err) => {
+      log.error(
+        { err, requestId: canonicalRequest.id, sourceChannel, senderExternalUserId },
+        'Failed to persist access request delivery rows from notification pipeline',
+      );
+    });
 
   log.info(
     { sourceChannel, senderExternalUserId, senderIdentifier, guardianBindingChannel },

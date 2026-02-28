@@ -364,9 +364,6 @@ export async function processMessage(
         }).map((request) => request.id),
       ]))
     : [];
-  const pendingRequestIds = canonicalPendingRequestIdsForConversation.length > 0
-    ? canonicalPendingRequestIdsForConversation
-    : undefined;
 
   // ── Canonical guardian reply router (desktop/session path) ──
   // Desktop/session guardian replies are canonical-only. Messages consumed
@@ -381,7 +378,7 @@ export async function processMessage(
         isTrusted: true,
       },
       conversationId: session.conversationId,
-      pendingRequestIds,
+      pendingRequestIds: canonicalPendingRequestIdsForConversation,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
       // and callback parsing remain active.
