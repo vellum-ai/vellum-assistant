@@ -1,0 +1,28 @@
+github_to_slack_all_notifications:
+  noanflaherty: U04C2QS2404
+  asharma53: U04BTP01B2S
+  AnitaKirkovska: U060M1MUT7F
+  ashleeradka: U06LGSYA9JP
+  awlevin: U07CLDQ4TB3
+  NgoHarrison: U07M5C935Q8
+  vincent0426: U08CJM4D56D
+  TirmanSidhu: U08ASQYPTB6
+  emmiekehoe: U08Q1QHGKTM
+  alex-nork: U095KUZ3L20
+  tkheyfets: U09AWSU8XM1
+  Jasonnnz: U09DVL1JN3V
+
+github_to_slack_failure_notifications: # neutral good
+  siddseethepalli: U04C0B3038A
+  dvargas92495: U05D5EGNNMS
+  clopen-set: U08QQU27M0W
+  m-abboud: U06CMAEKH4L
+  Shaarson: U08EREL8F18
+
+github_to_slack_success_notifications: # chaotic evil
+
+github_to_slack_cancelled_notifications: # chaotic neutral
+  dvargas92495: U05D5EGNNMS
+  clopen-set: U08QQU27M0W
+  m-abboud: U06CMAEKH4L
+  Shaarson: U08EREL8F18
