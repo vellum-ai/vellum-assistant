@@ -12,7 +12,7 @@ Verify that when a user clicks "Don't Allow" on a tool permission prompt, the as
 
 1. Launch the App
 2. Open a chat thread
-3. Send a message that triggers a tool requiring permission, such as "run `ls` in my home directory"
+3. Send a message that triggers a tool requiring permission, such as "create a file called test.txt on my Desktop"
 4. Wait for a permission prompt to appear **inline in the chat** — it will show buttons like "Allow Once", "Always Allow", and "Don't Allow" directly within the conversation
 5. Click the "Don't Allow" button on the inline permission prompt. Do NOT navigate to Settings or any other panel — the button is right there in the chat
 6. Verify that the assistant acknowledges the denial and continues operating normally

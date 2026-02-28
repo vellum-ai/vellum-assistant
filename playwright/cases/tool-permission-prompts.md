@@ -12,7 +12,7 @@ Verify that when the assistant attempts to run a tool that requires user permiss
 
 1. Launch the App
 2. Open a chat thread
-3. Send a message that triggers a tool requiring permission, such as "run `ls` in my home directory"
+3. Send a message that triggers a tool requiring permission, such as "create a file called test.txt on my Desktop"
 4. Wait for the assistant to respond
 5. Verify that a tool permission prompt appears asking the user to allow or deny the action
 
