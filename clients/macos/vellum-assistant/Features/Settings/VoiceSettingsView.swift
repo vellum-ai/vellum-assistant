@@ -310,9 +310,7 @@ struct VoiceSettingsView: View {
                     .foregroundColor(VColor.textMuted)
             }
             Spacer()
-            Toggle("", isOn: $wakeWordEnabled)
-                .toggleStyle(.switch)
-                .labelsHidden()
+            VToggle(isOn: $wakeWordEnabled)
                 .accessibilityLabel("Enable wake word listening")
         }
         .padding(VSpacing.lg)

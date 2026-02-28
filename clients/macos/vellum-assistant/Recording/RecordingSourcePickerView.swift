@@ -291,9 +291,7 @@ struct RecordingSourcePickerView: View {
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                Toggle("", isOn: $viewModel.includeAudio)
-                    .toggleStyle(ButtonPrimarySwitchStyle())
-                    .labelsHidden()
+                VToggle(isOn: $viewModel.includeAudio)
                     .accessibilityLabel("System audio")
             }
             .padding(.horizontal, VSpacing.xl)
@@ -307,9 +305,7 @@ struct RecordingSourcePickerView: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
                     Spacer()
-                    Toggle("", isOn: $viewModel.includeMicrophone)
-                        .toggleStyle(ButtonPrimarySwitchStyle())
-                        .labelsHidden()
+                    VToggle(isOn: $viewModel.includeMicrophone)
                         .accessibilityLabel("Microphone")
                 }
                 .padding(.horizontal, VSpacing.xl)
@@ -386,36 +382,3 @@ private struct ScrollViewScrollerHider: NSViewRepresentable {
     }
 }
 
-// MARK: - Custom Toggle Style
-
-/// Switch toggle style that fills the track with `VColor.buttonPrimary` when on,
-/// matching the Start Recording button color exactly. Uses the same dimensions
-/// as VToggle for visual consistency.
-private struct ButtonPrimarySwitchStyle: ToggleStyle {
-    private let trackWidth: CGFloat = 40
-    private let trackHeight: CGFloat = 22
-    private let knobSize: CGFloat = 16
-    private let knobPadding: CGFloat = 3
-
-    func makeBody(configuration: Configuration) -> some View {
-        HStack {
-            configuration.label
-            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-                Capsule()
-                    .fill(configuration.isOn ? VColor.buttonPrimary : VColor.toggleOff)
-                    .frame(width: trackWidth, height: trackHeight)
-                    .overlay(
-                        Capsule()
-                            .stroke(VColor.toggleBorder, lineWidth: 1)
-                    )
-
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: knobSize, height: knobSize)
-                    .padding(.horizontal, knobPadding)
-            }
-            .animation(VAnimation.fast, value: configuration.isOn)
-            .onTapGesture { configuration.isOn.toggle() }
-        }
-    }
-}

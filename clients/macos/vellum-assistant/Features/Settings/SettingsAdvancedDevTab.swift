@@ -106,7 +106,7 @@ struct SettingsAdvancedDevTab: View {
 
     private func assistantFlagRow(flag: DaemonClient.AssistantFeatureFlag) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            Toggle(flag.displayName, isOn: Binding(
+            VToggle(isOn: Binding(
                 get: {
                     assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
                 },
@@ -139,8 +139,7 @@ struct SettingsAdvancedDevTab: View {
                         }
                     }
                 }
-            ))
-            .toggleStyle(.switch)
+            ), label: flag.displayName)
             .font(VFont.body)
             .foregroundColor(VColor.textSecondary)
 
@@ -171,14 +170,13 @@ struct SettingsAdvancedDevTab: View {
             } else {
                 ForEach(Array(macOSFlagStates.enumerated()), id: \.element.id) { index, entry in
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                        Toggle(entry.label, isOn: Binding(
+                        VToggle(isOn: Binding(
                             get: { macOSFlagStates[index].enabled },
                             set: { newValue in
                                 macOSFlagStates[index].enabled = newValue
                                 MacOSClientFeatureFlagManager.shared.setOverride(entry.key, enabled: newValue)
                             }
-                        ))
-                        .toggleStyle(.switch)
+                        ), label: entry.label)
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
 
