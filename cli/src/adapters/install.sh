@@ -94,12 +94,10 @@ configure_shell_profile() {
     if [[ "$shell_name" == */zsh ]]; then
         profiles+=("$HOME/.zshrc")
     elif [[ "$shell_name" == */bash ]]; then
-        # On macOS, login shells read .bash_profile; on Linux, .bashrc
-        if [ -f "$HOME/.bash_profile" ]; then
-            profiles+=("$HOME/.bash_profile")
-        else
-            profiles+=("$HOME/.bashrc")
-        fi
+        # Write to both .bashrc (non-login shells, e.g. new terminal on Linux)
+        # and .bash_profile (login shells, e.g. macOS Terminal.app)
+        profiles+=("$HOME/.bashrc")
+        [ -f "$HOME/.bash_profile" ] && profiles+=("$HOME/.bash_profile")
     else
         # Unknown shell — try both
         profiles+=("$HOME/.bashrc")
@@ -118,31 +116,32 @@ configure_shell_profile() {
 # Create a symlink so `vellum` is available without ~/.bun/bin in PATH.
 # Tries /usr/local/bin first (works on most systems), falls back to
 # ~/.local/bin (user-writable, no sudo needed).
+# This is best-effort — failure must not abort the install script.
 symlink_vellum() {
     local vellum_bin="$HOME/.bun/bin/vellum"
     if [ ! -f "$vellum_bin" ]; then
-        return
+        return 0
     fi
 
     # Skip if vellum is already resolvable outside of ~/.bun/bin
     local resolved
     resolved=$(command -v vellum 2>/dev/null || true)
     if [ -n "$resolved" ] && [ "$resolved" != "$vellum_bin" ]; then
-        return
+        return 0
     fi
 
     # Try /usr/local/bin (may need sudo on some systems)
     if [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
-        ln -sf "$vellum_bin" /usr/local/bin/vellum 2>/dev/null && {
+        if ln -sf "$vellum_bin" /usr/local/bin/vellum 2>/dev/null; then
             success "Symlinked /usr/local/bin/vellum → $vellum_bin"
-            return
-        }
+            return 0
+        fi
     fi
 
     # Fallback: ~/.local/bin
     local local_bin="$HOME/.local/bin"
-    mkdir -p "$local_bin"
-    ln -sf "$vellum_bin" "$local_bin/vellum" 2>/dev/null && {
+    mkdir -p "$local_bin" 2>/dev/null || true
+    if ln -sf "$vellum_bin" "$local_bin/vellum" 2>/dev/null; then
         success "Symlinked $local_bin/vellum → $vellum_bin"
         # Ensure ~/.local/bin is in PATH in shell profile
         for profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
@@ -150,8 +149,10 @@ symlink_vellum() {
                 printf '\nexport PATH="%s:$PATH"\n' "$local_bin" >> "$profile"
             fi
         done
-        return
-    }
+        return 0
+    fi
+
+    return 0
 }
 
 install_vellum() {
@@ -181,6 +182,12 @@ main() {
     configure_shell_profile
     install_vellum
     symlink_vellum
+
+    # Source the shell profile so vellum hatch runs with the correct PATH
+    # in this session (the profile changes only take effect in new shells
+    # otherwise).
+    export BUN_INSTALL="$HOME/.bun"
+    export PATH="$BUN_INSTALL/bin:$PATH"
 
     info "Running vellum hatch..."
     printf "\n"
