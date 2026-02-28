@@ -142,8 +142,10 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
   const memberDisplayName = typeof memberRecord?.displayName === 'string' && memberRecord.displayName.trim().length > 0
     ? memberRecord.displayName.trim()
     : undefined;
-  const resolvedUsername = senderUsername ?? memberUsername;
-  const resolvedDisplayName = senderDisplayName ?? memberDisplayName;
+  // Prefer member profile metadata over transient sender metadata so guardian-
+  // curated contact details are canonical for assistant-facing identity.
+  const resolvedUsername = memberUsername ?? senderUsername;
+  const resolvedDisplayName = memberDisplayName ?? senderDisplayName;
   const resolvedIdentifier = resolvedUsername ? `@${resolvedUsername}` : canonicalSenderId ?? undefined;
 
   // Trust classification

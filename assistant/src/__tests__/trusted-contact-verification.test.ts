@@ -168,6 +168,33 @@ describe('trusted contact verification → member activation', () => {
     expect(trust.actorMetadata.identifier).toBe('@jeff_handle');
   });
 
+  test('resolveActorTrust prioritizes member displayName over sender displayName', () => {
+    upsertMember({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalUserId: 'requester-user-jeff-priority',
+      externalChatId: 'requester-chat-jeff-priority',
+      status: 'active',
+      policy: 'allow',
+      displayName: 'Jeff',
+      username: 'jeff_handle',
+    });
+
+    const trust = resolveActorTrust({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalChatId: 'requester-chat-jeff-priority',
+      senderExternalUserId: 'requester-user-jeff-priority',
+      senderUsername: 'jeffrey_telegram',
+      senderDisplayName: 'Jeffrey',
+    });
+
+    expect(trust.trustClass).toBe('trusted_contact');
+    expect(trust.actorMetadata.displayName).toBe('Jeff');
+    expect(trust.actorMetadata.username).toBe('jeff_handle');
+    expect(trust.actorMetadata.identifier).toBe('@jeff_handle');
+  });
+
   test('post-verify message is accepted (ACL check passes)', () => {
     // Create and verify a trusted contact
     const session = createOutboundSession({
