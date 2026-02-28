@@ -545,13 +545,23 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
     // Staleness guard: the inline_wait_active marker is persisted in DB and
     // can outlive the actual waiter if the daemon crashes or restarts during
     // the wait. To avoid permanently suppressing the retry notification, we
-    // treat the marker as stale if the request's updatedAt is older than the
-    // maximum wait budget plus a 30s buffer.
+    // treat the marker as stale if the encoded start timestamp is older than
+    // the maximum wait budget plus a 30s buffer.
     const INLINE_WAIT_STALENESS_BUFFER_MS = 30_000;
     const freshRequest = getCanonicalGuardianRequest(request.id);
-    let inlineWaitActive = freshRequest?.followupState === 'inline_wait_active';
+    const followupState = freshRequest?.followupState ?? '';
+    let inlineWaitActive = followupState.startsWith('inline_wait_active');
     if (inlineWaitActive && freshRequest) {
-      const markerAgeMs = Date.now() - new Date(freshRequest.updatedAt).getTime();
+      // The followupState encodes the wall-clock epoch when the inline wait
+      // started (e.g. 'inline_wait_active:1700000000000'). We use this
+      // instead of updatedAt because resolveCanonicalGuardianRequest sets
+      // updatedAt = now during CAS resolution, making updatedAt always fresh
+      // by the time this resolver runs.
+      const colonIdx = followupState.indexOf(':');
+      const waitStartMs = colonIdx !== -1 ? Number(followupState.slice(colonIdx + 1)) : NaN;
+      const markerAgeMs = Number.isFinite(waitStartMs)
+        ? Date.now() - waitStartMs
+        : Infinity; // Treat unparseable timestamps as stale for safety.
       const stalenessThresholdMs = TC_GRANT_WAIT_MAX_MS + INLINE_WAIT_STALENESS_BUFFER_MS;
       if (markerAgeMs > stalenessThresholdMs) {
         log.warn(
@@ -561,7 +571,7 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
             toolName: request.toolName,
             markerAgeMs,
             stalenessThresholdMs,
-            updatedAt: freshRequest.updatedAt,
+            waitStartMs,
           },
           'inline_wait_active marker is stale (daemon likely crashed during wait) — sending retry notification',
         );

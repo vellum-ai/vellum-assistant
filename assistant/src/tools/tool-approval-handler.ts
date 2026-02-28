@@ -425,7 +425,7 @@ export class ToolApprovalHandler {
           // send a stale "please retry" notification even though the
           // original invocation is about to resume inline.
           updateCanonicalGuardianRequest(escalation.requestId, {
-            followupState: 'inline_wait_active',
+            followupState: 'inline_wait_active:' + Date.now(),
           });
 
           const waitResult = await waitForInlineGrant(
