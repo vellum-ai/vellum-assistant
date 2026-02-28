@@ -541,6 +541,38 @@ export class RelayConnection {
         return;
       }
 
+      // Members with policy: 'deny' have status: 'active' so resolveActorTrust
+      // classifies them as trusted_contact, but the guardian has explicitly
+      // denied their access. Block them the same way the text-channel path does.
+      if (actorTrust.memberRecord?.policy === 'deny') {
+        log.info(
+          { callSessionId: this.callSessionId, from: msg.from, memberId: actorTrust.memberRecord.id, trustClass: actorTrust.trustClass },
+          'Inbound voice ACL: member policy deny',
+        );
+
+        recordCallEvent(this.callSessionId, 'inbound_acl_denied', {
+          from: msg.from,
+          trustClass: actorTrust.trustClass,
+          memberId: actorTrust.memberRecord.id,
+          memberPolicy: actorTrust.memberRecord.policy,
+        });
+
+        this.sendTextToken('This number is not authorized to use this assistant.', true);
+
+        this.connectionState = 'disconnecting';
+
+        updateCallSession(this.callSessionId, {
+          status: 'failed',
+          endedAt: Date.now(),
+          lastError: 'Inbound voice ACL: member policy deny',
+        });
+
+        setTimeout(() => {
+          this.endSession('Inbound voice ACL: member policy deny');
+        }, 3000);
+        return;
+      }
+
       // Guardian and trusted-contact callers proceed normally.
       // Update the controller's guardian context with the trust-resolved
       // context so downstream policy gates have accurate actor metadata.
