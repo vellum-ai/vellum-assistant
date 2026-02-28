@@ -3,16 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test": "playwright test --project=standard",
-    "test:headed": "playwright test --project=standard --headed",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
-    "test:agent": "playwright test --project=agent",
-    "test:agent:headed": "playwright test --project=agent --headed",
-    "test:agent:verbose": "VERBOSE=1 playwright test --project=agent",
-    "test:agent:ci": "bun run scripts/agent-ci.ts",
-    "test:agent:ci:detach": "bun run scripts/agent-ci.ts -d",
-    "test:all": "playwright test"
+    "test:verbose": "VERBOSE=1 playwright test",
+    "test:ci": "bun run scripts/agent-ci.ts",
+    "test:ci:detach": "bun run scripts/agent-ci.ts -d"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0"

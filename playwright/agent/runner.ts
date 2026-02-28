@@ -1,7 +1,7 @@
 /**
  * Standalone agent-based test runner (bypasses Playwright's test framework).
  *
- * Prefer `bun run test:agent` which uses Playwright's test runner and gives
+ * Prefer `bun run test` which uses Playwright's test runner and gives
  * you the full HTML report with video recordings, traces, and screenshots.
  *
  * This standalone runner is kept for quick local iteration without Playwright

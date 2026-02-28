@@ -10,21 +10,7 @@ export default defineConfig({
   use: {
     video: "on",
     trace: "retain-on-failure",
+    // Agent tests need Chromium for the AI agent to browse
+    browserName: "chromium",
   },
-  projects: [
-    {
-      name: "standard",
-      testMatch: /^(?!.*agent-cases).*\.spec\.ts$/,
-      timeout: 120_000,
-    },
-    {
-      name: "agent",
-      testMatch: "agent-cases.spec.ts",
-      timeout: 10 * 60_000,
-      use: {
-        // Agent tests need Chromium for the AI agent to browse
-        browserName: "chromium",
-      },
-    },
-  ],
 });
