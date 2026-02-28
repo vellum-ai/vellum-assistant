@@ -505,23 +505,23 @@ export class RelayConnection {
         // Before denying, check if there is an active voice invite bound
         // to the caller's phone number. If so, enter the invite redemption
         // subflow instead of denying the call outright.
-        let hasActiveVoiceInvite = false;
+        let voiceInvites: ReturnType<typeof findActiveVoiceInvites> = [];
         try {
-          const voiceInvites = findActiveVoiceInvites({
+          voiceInvites = findActiveVoiceInvites({
             assistantId,
             expectedExternalUserId: msg.from,
           });
-          hasActiveVoiceInvite = voiceInvites.length > 0;
         } catch (err) {
           log.warn({ err, callSessionId: this.callSessionId }, 'Failed to check voice invites for unknown caller');
         }
 
-        if (hasActiveVoiceInvite) {
+        if (voiceInvites.length > 0) {
           log.info(
             { callSessionId: this.callSessionId, from: msg.from },
             'Inbound voice ACL: unknown caller has active voice invite — entering redemption flow',
           );
-          this.startInviteRedemption(assistantId, msg.from);
+          const inviteCodeLength = Math.max(...voiceInvites.map(i => i.voiceCodeDigits ?? 6));
+          this.startInviteRedemption(assistantId, msg.from, inviteCodeLength);
           return;
         }
 
@@ -996,23 +996,24 @@ export class RelayConnection {
    * who has an active voice invite. Prompts the caller to enter their
    * invite code via DTMF or speech.
    */
-  private startInviteRedemption(assistantId: string, fromNumber: string): void {
+  private startInviteRedemption(assistantId: string, fromNumber: string, codeLength: number): void {
     this.inviteRedemptionActive = true;
     this.inviteRedemptionAssistantId = assistantId;
     this.inviteRedemptionFromNumber = fromNumber;
     this.connectionState = 'verification_pending';
     this.verificationAttempts = 0;
     this.verificationMaxAttempts = 3;
-    this.inviteRedemptionCodeLength = 6;
+    this.inviteRedemptionCodeLength = codeLength;
     this.dtmfBuffer = '';
 
     recordCallEvent(this.callSessionId, 'invite_redemption_started', {
       assistantId,
+      codeLength,
       maxAttempts: this.verificationMaxAttempts,
     });
 
     this.sendTextToken(
-      'Please enter your invite code using your keypad, or speak the digits now.',
+      `Please enter your ${codeLength}-digit invite code using your keypad, or speak the digits now.`,
       true,
     );
 
