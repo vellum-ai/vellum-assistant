@@ -744,6 +744,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   '<channel_capabilities>',
   '<channel_command_context>',
   '<channel_turn_context>',
+  '<guardian_context>',
   '<inbound_actor_context>',
   '<interface_turn_context>',
   '<voice_call_control>',
