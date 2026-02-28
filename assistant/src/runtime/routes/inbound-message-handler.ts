@@ -14,7 +14,6 @@ import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import {
   createCanonicalGuardianRequest,
-  listCanonicalGuardianRequests,
 } from '../../memory/canonical-guardian-store.js';
 import { recordConversationSeenSignal } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
@@ -26,6 +25,7 @@ import { canonicalizeInboundIdentity } from '../../util/canonicalize-identity.js
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import { readHttpToken } from '../../util/platform.js';
+import { notifyGuardianOfAccessRequest } from '../access-request-helper.js';
 import {
   buildApprovalUIMetadata,
   getApprovalInfoByConversation,
@@ -313,11 +313,11 @@ export async function handleChannelInbound(
         log.info({ sourceChannel, externalUserId: canonicalSenderId }, 'Ingress ACL: no member record, denying');
 
         // Notify the guardian about the access request so they can approve/deny.
-        // Only fires when a guardian binding exists and no duplicate pending
-        // request already exists for this requester.
+        // Uses the shared helper which handles guardian binding lookup,
+        // deduplication, canonical request creation, and notification emission.
         let guardianNotified = false;
         try {
-          guardianNotified = notifyGuardianOfAccessRequest({
+          const accessResult = notifyGuardianOfAccessRequest({
             canonicalAssistantId,
             sourceChannel,
             externalChatId,
@@ -325,6 +325,7 @@ export async function handleChannelInbound(
             senderName: body.senderName,
             senderUsername: body.senderUsername,
           });
+          guardianNotified = accessResult.notified;
         } catch (err) {
           log.error({ err, sourceChannel, externalChatId }, 'Failed to notify guardian of access request');
         }
@@ -403,7 +404,7 @@ export async function handleChannelInbound(
           let guardianNotified = false;
           if (resolvedMember.status !== 'blocked') {
             try {
-              guardianNotified = notifyGuardianOfAccessRequest({
+              const accessResult = notifyGuardianOfAccessRequest({
                 canonicalAssistantId,
                 sourceChannel,
                 externalChatId,
@@ -411,6 +412,7 @@ export async function handleChannelInbound(
                 senderName: body.senderName,
                 senderUsername: body.senderUsername,
               });
+              guardianNotified = accessResult.notified;
             } catch (err) {
               log.error({ err, sourceChannel, externalChatId }, 'Failed to notify guardian of access request');
             }
@@ -1246,105 +1248,6 @@ async function handleInviteTokenIntercept(params: {
   // Failed redemption — inform the user and deny
   channelDeliveryStore.markProcessed(dedupResult.eventId);
   return Response.json({ accepted: true, eventId: dedupResult.eventId, denied: true, inviteRedemption: outcome.reason });
-}
-
-// ---------------------------------------------------------------------------
-// Non-member access request notification
-// ---------------------------------------------------------------------------
-
-/**
- * Fire-and-forget: look up the guardian binding and, if present, create an
- * approval request + emit a notification signal so the guardian can
- * approve/deny the unknown user. Deduplicates by checking for an existing
- * pending approval for the same (requester, assistant, channel).
- */
-function notifyGuardianOfAccessRequest(params: {
-  canonicalAssistantId: string;
-  sourceChannel: ChannelId;
-  externalChatId: string;
-  senderExternalUserId?: string;
-  senderName?: string;
-  senderUsername?: string;
-}): boolean {
-  const {
-    canonicalAssistantId,
-    sourceChannel,
-    externalChatId,
-    senderExternalUserId,
-    senderName,
-    senderUsername,
-  } = params;
-
-  if (!senderExternalUserId) return false;
-
-  const binding = getGuardianBinding(canonicalAssistantId, sourceChannel);
-  if (!binding) {
-    log.debug({ sourceChannel, canonicalAssistantId }, 'No guardian binding for access request notification');
-    return false;
-  }
-
-  // Deduplicate: skip if there is already a pending canonical request for
-  // the same requester on this channel.  Still return true — the guardian
-  // was already notified for this request.
-  const existingCanonical = listCanonicalGuardianRequests({
-    status: 'pending',
-    requesterExternalUserId: senderExternalUserId,
-    sourceChannel,
-    kind: 'access_request',
-  });
-  if (existingCanonical.length > 0) {
-    log.debug(
-      { sourceChannel, senderExternalUserId, existingId: existingCanonical[0].id },
-      'Skipping duplicate access request notification',
-    );
-    return true;
-  }
-
-  const senderIdentifier = senderName || senderUsername || senderExternalUserId;
-  const requestId = `access-req-${canonicalAssistantId}-${sourceChannel}-${senderExternalUserId}-${Date.now()}`;
-
-  const canonicalRequest = createCanonicalGuardianRequest({
-    id: requestId,
-    kind: 'access_request',
-    sourceType: 'channel',
-    sourceChannel,
-    conversationId: `access-req-${sourceChannel}-${senderExternalUserId}`,
-    requesterExternalUserId: senderExternalUserId,
-    guardianExternalUserId: binding.guardianExternalUserId,
-    toolName: 'ingress_access_request',
-    questionText: `${senderIdentifier} is requesting access to the assistant`,
-    expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
-  });
-
-  void emitNotificationSignal({
-    sourceEventName: 'ingress.access_request',
-    sourceChannel,
-    sourceSessionId: `access-req-${sourceChannel}-${senderExternalUserId}`,
-    assistantId: canonicalAssistantId,
-    attentionHints: {
-      requiresAction: true,
-      urgency: 'high',
-      isAsyncBackground: false,
-      visibleInSourceNow: false,
-    },
-    contextPayload: {
-      requestId,
-      sourceChannel,
-      externalChatId,
-      senderExternalUserId,
-      senderName: senderName ?? null,
-      senderUsername: senderUsername ?? null,
-      senderIdentifier,
-    },
-    dedupeKey: `access-request:${canonicalRequest.id}`,
-  });
-
-  log.info(
-    { sourceChannel, senderExternalUserId, senderIdentifier },
-    'Guardian notified of non-member access request',
-  );
-
-  return true;
 }
 
 // ---------------------------------------------------------------------------

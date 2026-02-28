@@ -13,6 +13,8 @@ import type { ServerWebSocket } from 'bun';
 import { getConfig } from '../config/loader.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
+import { notifyGuardianOfAccessRequest } from '../runtime/access-request-helper.js';
+import { resolveActorTrust, toGuardianContextCompat } from '../runtime/actor-trust-resolver.js';
 import {
   getPendingChallenge,
   validateAndConsumeChallenge,
@@ -471,9 +473,116 @@ export class RelayConnection {
     if (!isInbound && verificationConfig.enabled) {
       await this.startVerification(session, verificationConfig);
     } else if (isInbound) {
-      // For inbound calls, check if there's a pending voice guardian
-      // challenge that the caller needs to complete before proceeding.
+      // ── Trusted-contact ACL enforcement for inbound voice ──
+      // Resolve the caller's trust classification before allowing the call
+      // to proceed. Guardian and trusted-contact callers pass through;
+      // unknown callers are denied with deterministic voice copy and an
+      // access request is created for the guardian — unless there is a
+      // pending voice guardian challenge, in which case the caller is
+      // expected to be unknown (no binding yet) and should enter the
+      // verification flow.
+      const actorTrust = resolveActorTrust({
+        assistantId,
+        sourceChannel: 'voice',
+        externalChatId: msg.from,
+        senderExternalUserId: msg.from || undefined,
+      });
+
+      // Check for a pending voice guardian challenge before the ACL deny
+      // gate. An unknown caller with a pending challenge is expected —
+      // they need to complete verification to establish a binding.
       const pendingChallenge = getPendingChallenge(assistantId, 'voice');
+
+      if (actorTrust.trustClass === 'unknown' && !pendingChallenge) {
+        log.info(
+          { callSessionId: this.callSessionId, from: msg.from, trustClass: actorTrust.trustClass },
+          'Inbound voice ACL: unknown caller denied',
+        );
+
+        recordCallEvent(this.callSessionId, 'inbound_acl_denied', {
+          from: msg.from,
+          trustClass: actorTrust.trustClass,
+          denialReason: actorTrust.denialReason,
+        });
+
+        // Create/dedupe canonical access request via the shared helper
+        let guardianNotified = false;
+        try {
+          const accessResult = notifyGuardianOfAccessRequest({
+            canonicalAssistantId: assistantId,
+            sourceChannel: 'voice',
+            externalChatId: msg.from,
+            senderExternalUserId: actorTrust.canonicalSenderId ?? msg.from,
+          });
+          guardianNotified = accessResult.notified;
+        } catch (err) {
+          log.error({ err, callSessionId: this.callSessionId }, 'Failed to create access request for denied voice caller');
+        }
+
+        // Deny with deterministic voice copy and end the call.
+        // Mark as disconnecting so handlePrompt ignores caller input
+        // during the delay before the session ends.
+        const denialMessage = guardianNotified
+          ? 'This number is not authorized. Your request has been forwarded to the account guardian.'
+          : 'This number is not authorized to use this assistant.';
+        this.sendTextToken(denialMessage, true);
+
+        this.connectionState = 'disconnecting';
+
+        updateCallSession(this.callSessionId, {
+          status: 'failed',
+          endedAt: Date.now(),
+          lastError: 'Inbound voice ACL: caller not authorized',
+        });
+
+        setTimeout(() => {
+          this.endSession('Inbound voice ACL denied');
+        }, 3000);
+        return;
+      }
+
+      // Members with policy: 'deny' have status: 'active' so resolveActorTrust
+      // classifies them as trusted_contact, but the guardian has explicitly
+      // denied their access. Block them the same way the text-channel path does.
+      if (actorTrust.memberRecord?.policy === 'deny') {
+        log.info(
+          { callSessionId: this.callSessionId, from: msg.from, memberId: actorTrust.memberRecord.id, trustClass: actorTrust.trustClass },
+          'Inbound voice ACL: member policy deny',
+        );
+
+        recordCallEvent(this.callSessionId, 'inbound_acl_denied', {
+          from: msg.from,
+          trustClass: actorTrust.trustClass,
+          memberId: actorTrust.memberRecord.id,
+          memberPolicy: actorTrust.memberRecord.policy,
+        });
+
+        this.sendTextToken('This number is not authorized to use this assistant.', true);
+
+        this.connectionState = 'disconnecting';
+
+        updateCallSession(this.callSessionId, {
+          status: 'failed',
+          endedAt: Date.now(),
+          lastError: 'Inbound voice ACL: member policy deny',
+        });
+
+        setTimeout(() => {
+          this.endSession('Inbound voice ACL: member policy deny');
+        }, 3000);
+        return;
+      }
+
+      // Guardian and trusted-contact callers proceed normally.
+      // Update the controller's guardian context with the trust-resolved
+      // context so downstream policy gates have accurate actor metadata.
+      if (this.controller && actorTrust.trustClass !== 'unknown') {
+        const resolvedGuardianContext = toGuardianRuntimeContext(
+          'voice',
+          toGuardianContextCompat(actorTrust, msg.from),
+        );
+        this.controller.setGuardianContext(resolvedGuardianContext);
+      }
 
       if (pendingChallenge) {
         this.startInboundGuardianVerification(assistantId, msg.from);
