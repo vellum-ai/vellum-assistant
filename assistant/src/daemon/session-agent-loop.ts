@@ -200,6 +200,26 @@ export async function runAgentLoopImpl(
   ctx.profiler.startRequest();
   let turnStarted = false;
 
+  // Generate title early — the user message alone is sufficient context.
+  // Firing here (before the LLM call) removes the delay of waiting for the
+  // full assistant response. The second-pass regeneration at turn 3 will
+  // refine the title with more context if needed.
+  const currentConvForTitle = conversationStore.getConversation(ctx.conversationId);
+  if (isReplaceableTitle(currentConvForTitle?.title ?? null)) {
+    queueGenerateConversationTitle({
+      conversationId: ctx.conversationId,
+      provider: ctx.provider,
+      userMessage: options?.titleText ?? content,
+      onTitleUpdated: (title) => {
+        onEvent({
+          type: 'session_title_updated',
+          sessionId: ctx.conversationId,
+          title,
+        });
+      },
+    });
+  }
+
   try {
     const preMessageResult = await getHookManager().trigger('pre-message', {
       sessionId: ctx.conversationId,
@@ -718,27 +738,6 @@ export async function runAgentLoopImpl(
         type: 'message_complete',
         sessionId: ctx.conversationId,
         ...(emittedAttachments.length > 0 ? { attachments: emittedAttachments } : {}),
-      });
-    }
-
-    // Generate title if the current conversation title is still a replaceable
-    // placeholder. This replaces the previous `isFirstMessage` gate so that
-    // assistant-seeded/system-seeded threads also receive generated titles.
-    const currentConv = conversationStore.getConversation(ctx.conversationId);
-    if (isReplaceableTitle(currentConv?.title ?? null)) {
-      queueGenerateConversationTitle({
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        userMessage: options?.titleText ?? content,
-        assistantResponse: state.firstAssistantText || undefined,
-        onTitleUpdated: (title) => {
-          onEvent({
-            type: 'session_title_updated',
-            sessionId: ctx.conversationId,
-            title,
-          });
-        },
-        signal: abortController.signal,
       });
     }
 
