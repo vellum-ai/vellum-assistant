@@ -186,6 +186,8 @@ struct MarkdownSegmentView: View {
             hasher.combine(String(describing: segment))
         }
         hasher.combine(secondaryTextColor.description)
+        hasher.combine(textColor.description)
+        hasher.combine(codeBackgroundColor.description)
         hasher.combine(zoomScale)
         let cacheKey = hasher.finalize()
 
@@ -195,7 +197,7 @@ struct MarkdownSegmentView: View {
             return cached.value
         }
 
-        let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, zoomScale: zoomScale)
+        let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, codeTextColor: textColor, codeBackgroundColor: codeBackgroundColor, zoomScale: zoomScale)
 
         // Skip caching for very long segment groups to avoid a single huge
         // entry evicting many smaller, more frequently accessed entries.
@@ -221,6 +223,8 @@ struct MarkdownSegmentView: View {
     private static func buildAttributedStringUncached(
         from segments: [MarkdownSegment],
         secondaryTextColor: Color,
+        codeTextColor: Color = VColor.codeText,
+        codeBackgroundColor: Color = VColor.codeBackground,
         zoomScale: CGFloat = 1.0
     ) -> AttributedString {
         let mdOptions = AttributedString.MarkdownParsingOptions(
@@ -289,7 +293,7 @@ struct MarkdownSegmentView: View {
             }
         }
 
-        // Apply background, red text, and padding to inline code spans
+        // Apply background, text color, and padding to inline code spans
         var codeRanges: [Range<AttributedString.Index>] = []
         for run in result.runs {
             if let intent = run.inlinePresentationIntent, intent.contains(.code) {
@@ -297,13 +301,13 @@ struct MarkdownSegmentView: View {
             }
         }
         for range in codeRanges.reversed() {
-            result[range].foregroundColor = VColor.codeText
-            result[range].backgroundColor = VColor.codeBackground
+            result[range].foregroundColor = codeTextColor
+            result[range].backgroundColor = codeBackgroundColor
             var trailing = AttributedString("\u{2009}")
-            trailing.backgroundColor = VColor.codeBackground
+            trailing.backgroundColor = codeBackgroundColor
             result.insert(trailing, at: range.upperBound)
             var leading = AttributedString("\u{2009}")
-            leading.backgroundColor = VColor.codeBackground
+            leading.backgroundColor = codeBackgroundColor
             result.insert(leading, at: range.lowerBound)
         }
 
