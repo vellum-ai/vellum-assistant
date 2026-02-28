@@ -22,15 +22,12 @@ git config core.hooksPath .githooks
 
 Automatically checks for plain text keys and secrets before allowing a commit.
 
-**What it detects:**
-- API keys and tokens
-- AWS credentials (access keys, secret keys)
-- Private keys (RSA, DSA, PEM)
-- Passwords in plain text
-- Database connection strings with credentials
-- Bearer tokens
-- Slack and GitHub tokens
-- Generic secrets and high-entropy strings
+**What it checks:**
+
+1. **Secret scanning** — Detects plain text keys, tokens, passwords, and other sensitive information
+2. **Prettier formatting** — Runs `prettier --check` on staged files in `assistant/`, `cli/`, and `gateway/`
+3. **ESLint** — Runs `eslint` on staged source files in `assistant/`, `cli/`, and `gateway/`
+4. **IPC contract verification** — When IPC contract files are staged, verifies generated Swift models, inventory snapshot, and decoder sync are up to date
 
 **Behavior:**
 - ✅ Blocks commits containing potential secrets
@@ -38,6 +35,7 @@ Automatically checks for plain text keys and secrets before allowing a commit.
 - ✅ Allows clean commits to proceed without interruption
 - ✅ Avoids known false positives for architecture/db identifier strings like `assistant_auth_tokens` and migration checkpoint keys
 - ✅ Ignores checksum/hash fixture fields (for example `nonceSha256`) while still scanning adjacent lines
+- ✅ Runs prettier and eslint on staged files in assistant, cli, and gateway directories
 - ✅ When IPC contract files are staged, verifies the generated Swift models and inventory snapshot are up to date
 - ✅ Catches unstaged generated output files (e.g., regenerated but not `git add`-ed)
 
