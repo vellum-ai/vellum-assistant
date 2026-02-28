@@ -605,7 +605,8 @@ export async function runAgentLoopImpl(
     const newMessages = updatedHistory.slice(preRunHistoryLength).map((msg) => {
       if (msg.role !== 'assistant') return msg;
       const { cleanedContent } = cleanAssistantContent(msg.content);
-      return { ...msg, content: cleanedContent as ContentBlock[] };
+      const cleanedBlocks = cleanedContent as ContentBlock[];
+      return { ...msg, content: cleanedBlocks };
     });
 
     const hasAssistantResponse = newMessages.some((msg) => msg.role === 'assistant');

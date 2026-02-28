@@ -504,6 +504,7 @@ final class HTTPTransport {
                     onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
                         applied: false,
                         reason: "authentication_failed",
+                        resolverFailureReason: nil,
                         requestId: requestId,
                         userText: nil
                     )))
@@ -515,6 +516,7 @@ final class HTTPTransport {
                     onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
                         applied: false,
                         reason: "HTTP \(http.statusCode)",
+                        resolverFailureReason: nil,
                         requestId: requestId,
                         userText: nil
                     )))
@@ -534,6 +536,7 @@ final class HTTPTransport {
             onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
                 applied: false,
                 reason: error.localizedDescription,
+                resolverFailureReason: nil,
                 requestId: requestId,
                 userText: nil
             )))

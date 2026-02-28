@@ -13,6 +13,7 @@ public struct VIconButton: View {
     public let action: () -> Void
 
     @State private var isHovered = false
+    @FocusState private var isFocused: Bool
 
     public init(label: String, icon: String = "", customIcon: Image? = nil, isActive: Bool = false, iconOnly: Bool = false, tooltip: String? = nil, action: @escaping () -> Void) {
         self.label = label
@@ -41,7 +42,8 @@ public struct VIconButton: View {
             }
             .foregroundColor(iconForegroundColor)
         }
-        .buttonStyle(VIconButtonStyle(isActive: isActive, isHovered: isHovered))
+        .focused($isFocused)
+        .buttonStyle(VIconButtonStyle(isActive: isActive, isHovered: isHovered, isFocused: isFocused))
         #if os(macOS)
         .onHover { hovering in
             isHovered = hovering

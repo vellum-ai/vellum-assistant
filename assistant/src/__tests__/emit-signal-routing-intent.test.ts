@@ -7,6 +7,7 @@ const runDeterministicChecksMock = mock();
 const createEventMock = mock();
 const updateEventDedupeKeyMock = mock();
 const dispatchDecisionMock = mock();
+const activeBindingChannels = new Set<string>(['telegram']);
 
 mock.module('../util/logger.js', () => ({
   getLogger: () =>
@@ -21,7 +22,7 @@ mock.module('../channels/config.js', () => ({
 
 mock.module('../memory/channel-guardian-store.js', () => ({
   getActiveBinding: (_assistantId: string, channel: string) =>
-    channel === 'telegram'
+    activeBindingChannels.has(channel)
       ? {
         guardianDeliveryChatId: 'guardian-chat-123',
         guardianExternalUserId: 'guardian-user-123',
@@ -83,6 +84,8 @@ describe('emitNotificationSignal routing intent re-persistence', () => {
     createEventMock.mockReset();
     updateEventDedupeKeyMock.mockReset();
     dispatchDecisionMock.mockReset();
+    activeBindingChannels.clear();
+    activeBindingChannels.add('telegram');
 
     createEventMock.mockReturnValue({ id: 'evt-1' });
     runDeterministicChecksMock.mockResolvedValue({ passed: true });
@@ -175,5 +178,44 @@ describe('emitNotificationSignal routing intent re-persistence', () => {
     });
 
     expect(updateDecisionMock).not.toHaveBeenCalled();
+  });
+
+  test('excludes unverified binding channels from connected channel candidates', async () => {
+    activeBindingChannels.clear();
+
+    const decision = {
+      shouldNotify: true,
+      selectedChannels: ['vellum'],
+      reasoningSummary: 'Local only',
+      renderedCopy: {
+        vellum: { title: 'Reminder', body: 'Check this' },
+      },
+      dedupeKey: 'dedupe-rem-3',
+      confidence: 0.8,
+      fallbackUsed: false,
+      persistedDecisionId: 'dec-3',
+    };
+
+    evaluateSignalMock.mockResolvedValue(decision);
+    enforceRoutingIntentMock.mockImplementation((inputDecision: unknown) => inputDecision);
+
+    await emitNotificationSignal({
+      sourceEventName: 'reminder.fired',
+      sourceChannel: 'scheduler',
+      sourceSessionId: 'rem-3',
+      attentionHints: {
+        requiresAction: false,
+        urgency: 'medium',
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: { reminderId: 'rem-3' },
+      routingIntent: 'single_channel',
+    });
+
+    expect(evaluateSignalMock).toHaveBeenCalled();
+    const callArgs = evaluateSignalMock.mock.calls[0];
+    expect(callArgs).toBeDefined();
+    expect(callArgs?.[1]).toEqual(['vellum']);
   });
 });

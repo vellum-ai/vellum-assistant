@@ -7,34 +7,18 @@
  */
 
 import { createAssistantMessage,createUserMessage } from '../agent/message-types.js';
-import { answerCall } from '../calls/call-domain.js';
-import { isTerminalState } from '../calls/call-state-machine.js';
-import { getCallSession } from '../calls/call-store.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
+import {
+  listCanonicalGuardianRequests,
+  listPendingCanonicalGuardianRequestsByDestinationConversation,
+} from '../memory/canonical-guardian-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
-import {
-  finalizeFollowup,
-  getDeliveriesByRequestId,
-  getExpiredDeliveriesByConversation,
-  getFollowupDeliveriesByConversation,
-  getGuardianActionRequest,
-  getPendingDeliveriesByConversation,
-  getPendingRequestByCallSessionId,
-  progressFollowupState,
-  resolveGuardianActionRequest,
-  startFollowupFromExpiredRequest,
-} from '../memory/guardian-action-store.js';
 import { extractPreferences } from '../notifications/preference-extractor.js';
 import { createPreference } from '../notifications/preferences-store.js';
 import type { Message } from '../providers/types.js';
-import { processGuardianFollowUpTurn } from '../runtime/guardian-action-conversation-turn.js';
-import { executeFollowupAction } from '../runtime/guardian-action-followup-executor.js';
-import { tryMintGuardianActionGrant } from '../runtime/guardian-action-grant-minter.js';
-import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
-import type { ApprovalConversationGenerator, GuardianActionCopyGenerator, GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
 import { routeGuardianReply } from '../runtime/guardian-reply-router.js';
 import { getLogger } from '../util/logger.js';
 import { resolveGuardianInviteIntent } from './guardian-invite-intent.js';
@@ -48,31 +32,6 @@ import { resolveSlash, type SlashContext } from './session-slash.js';
 import type { TraceEmitter } from './trace-emitter.js';
 
 const log = getLogger('session-process');
-
-// ---------------------------------------------------------------------------
-// Module-level generator injection
-// ---------------------------------------------------------------------------
-// The daemon lifecycle creates the generator once and injects it here so the
-// mac/IPC channel path can classify follow-up replies without threading the
-// generator through Session / DaemonServer constructors.
-let _guardianFollowUpGenerator: GuardianFollowUpConversationGenerator | undefined;
-let _guardianActionCopyGenerator: GuardianActionCopyGenerator | undefined;
-let _approvalConversationGenerator: ApprovalConversationGenerator | undefined;
-
-/** Inject the guardian follow-up conversation generator (called from lifecycle.ts). */
-export function setGuardianFollowUpConversationGenerator(gen: GuardianFollowUpConversationGenerator): void {
-  _guardianFollowUpGenerator = gen;
-}
-
-/** Inject the guardian action copy generator (called from lifecycle.ts). */
-export function setGuardianActionCopyGenerator(gen: GuardianActionCopyGenerator): void {
-  _guardianActionCopyGenerator = gen;
-}
-
-/** Inject the approval conversation generator (called from lifecycle.ts). */
-export function setApprovalConversationGenerator(gen: ApprovalConversationGenerator): void {
-  _approvalConversationGenerator = gen;
-}
 
 /** Build a model_info event with fresh config data. */
 function buildModelInfoEvent(): ServerMessage {
@@ -405,15 +364,23 @@ export async function processMessage(
   await session.ensureActorScopedHistory();
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
+  const trimmedContent = content.trim();
+  const canonicalPendingRequestIdsForConversation = trimmedContent.length > 0
+    ? Array.from(new Set([
+        ...listPendingCanonicalGuardianRequestsByDestinationConversation(session.conversationId, 'vellum').map((request) => request.id),
+        ...listCanonicalGuardianRequests({
+          status: 'pending',
+          conversationId: session.conversationId,
+        }).map((request) => request.id),
+      ]))
+    : [];
 
   // ── Canonical guardian reply router (desktop/session path) ──
-  // Attempts to route inbound messages through the canonical decision pipeline
-  // before falling through to the legacy guardian action interception. Handles
-  // deterministic request code prefixes and NL classification, with all
-  // decisions flowing through applyCanonicalGuardianDecision.
-  if (content.trim().length > 0) {
+  // Desktop/session guardian replies are canonical-only. Messages consumed
+  // by the router never hit the general agent loop.
+  if (trimmedContent.length > 0) {
     const routerResult = await routeGuardianReply({
-      messageText: content.trim(),
+      messageText: trimmedContent,
       channel: 'vellum',
       actor: {
         externalUserId: undefined,
@@ -421,6 +388,7 @@ export async function processMessage(
         isTrusted: true,
       },
       conversationId: session.conversationId,
+      pendingRequestIds: canonicalPendingRequestIdsForConversation,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
       // and callback parsing remain active.
@@ -466,277 +434,6 @@ export async function processMessage(
       );
 
       return persisted.id;
-    }
-  }
-
-  // ── Unified guardian action answer interception (mac channel) ──
-  // Deterministic priority matching: pending → follow-up → expired.
-  // When the guardian includes an explicit request code, match it across all
-  // states in priority order. When only one actionable request exists,
-  // auto-match without requiring a code prefix.
-  {
-    const allPending = getPendingDeliveriesByConversation(session.conversationId);
-    const allFollowup = getFollowupDeliveriesByConversation(session.conversationId);
-    const allExpired = getExpiredDeliveriesByConversation(session.conversationId);
-    const totalActionable = allPending.length + allFollowup.length + allExpired.length;
-
-    if (totalActionable > 0) {
-      const guardianIfCtx = session.getTurnInterfaceContext();
-      const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum', assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum', provenanceActorRole: 'guardian' as const };
-
-      // Try to parse an explicit request code from the message, in priority order
-      type CodeMatch = { delivery: typeof allPending[0]; request: NonNullable<ReturnType<typeof getGuardianActionRequest>>; state: 'pending' | 'followup' | 'expired'; answerText: string };
-      let codeMatch: CodeMatch | null = null;
-      const upperContent = content.toUpperCase();
-      const orderedSets: Array<{ deliveries: typeof allPending; state: 'pending' | 'followup' | 'expired' }> = [
-        { deliveries: allPending, state: 'pending' },
-        { deliveries: allFollowup, state: 'followup' },
-        { deliveries: allExpired, state: 'expired' },
-      ];
-      for (const { deliveries, state } of orderedSets) {
-        for (const d of deliveries) {
-          const req = getGuardianActionRequest(d.requestId);
-          if (req && upperContent.startsWith(req.requestCode)) {
-            codeMatch = { delivery: d, request: req, state, answerText: content.slice(req.requestCode.length).trim() };
-            break;
-          }
-        }
-        if (codeMatch) break;
-      }
-
-      // Explicit code targets a non-pending state: handle terminal superseded
-      if (codeMatch && codeMatch.state !== 'pending') {
-        const targetReq = codeMatch.request;
-        if (targetReq.status === 'expired' && targetReq.expiredReason === 'superseded') {
-          const callSession = getCallSession(targetReq.callSessionId);
-          const callStillActive = callSession && !isTerminalState(callSession.status);
-          if (!callStillActive) {
-            const userMsg = createUserMessage(content, attachments);
-            const persisted = await conversationStore.addMessage(session.conversationId, 'user', JSON.stringify(userMsg.content), guardianChannelMeta);
-            session.messages.push(userMsg);
-            const staleText = await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_superseded' }, {}, _guardianActionCopyGenerator);
-            const staleMsg = createAssistantMessage(staleText);
-            await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(staleMsg.content), guardianChannelMeta);
-            session.messages.push(staleMsg);
-            onEvent({ type: 'assistant_text_delta', text: staleText });
-            onEvent({ type: 'message_complete', sessionId: session.conversationId });
-            return persisted.id;
-          }
-        }
-      }
-
-      // Auto-match: single actionable request across all states
-      if (!codeMatch && totalActionable === 1) {
-        const singleDelivery = allPending[0] ?? allFollowup[0] ?? allExpired[0];
-        const singleReq = getGuardianActionRequest(singleDelivery.requestId);
-        if (singleReq) {
-          const state: 'pending' | 'followup' | 'expired' = allPending.length === 1 ? 'pending' : allFollowup.length === 1 ? 'followup' : 'expired';
-          let text = content;
-          if (upperContent.startsWith(singleReq.requestCode)) {
-            text = content.slice(singleReq.requestCode.length).trim();
-          }
-          codeMatch = { delivery: singleDelivery, request: singleReq, state, answerText: text };
-        }
-      }
-
-      // Unknown code: message starts with a 6-char alphanumeric token that doesn't match
-      if (!codeMatch && totalActionable > 0) {
-        const possibleCodeMatch = content.match(/^([A-F0-9]{6})\s/i);
-        if (possibleCodeMatch) {
-          const candidateCode = possibleCodeMatch[1].toUpperCase();
-          const allDeliveries = [...allPending, ...allFollowup, ...allExpired];
-          const knownCodes = allDeliveries
-            .map((d) => { const req = getGuardianActionRequest(d.requestId); return req?.requestCode; })
-            .filter((code): code is string => typeof code === 'string');
-          if (!knownCodes.includes(candidateCode)) {
-            const userMsg = createUserMessage(content, attachments);
-            const persisted = await conversationStore.addMessage(session.conversationId, 'user', JSON.stringify(userMsg.content), guardianChannelMeta);
-            session.messages.push(userMsg);
-            const unknownText = await composeGuardianActionMessageGenerative({ scenario: 'guardian_unknown_code', unknownCode: candidateCode }, {}, _guardianActionCopyGenerator);
-            const unknownMsg = createAssistantMessage(unknownText);
-            await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(unknownMsg.content), guardianChannelMeta);
-            session.messages.push(unknownMsg);
-            onEvent({ type: 'assistant_text_delta', text: unknownText });
-            onEvent({ type: 'message_complete', sessionId: session.conversationId });
-            return persisted.id;
-          }
-        }
-      }
-
-      // No match and multiple actionable requests → disambiguation
-      if (!codeMatch && totalActionable > 1) {
-        const userMsg = createUserMessage(content, attachments);
-        const persisted = await conversationStore.addMessage(session.conversationId, 'user', JSON.stringify(userMsg.content), guardianChannelMeta);
-        session.messages.push(userMsg);
-        const allDeliveries = [...allPending, ...allFollowup, ...allExpired];
-        const codes = allDeliveries
-          .map((d) => { const req = getGuardianActionRequest(d.requestId); return req ? req.requestCode : null; })
-          .filter((code): code is string => typeof code === 'string' && code.length > 0);
-        const disambiguationScenario = allPending.length > 0
-          ? 'guardian_pending_disambiguation' as const
-          : allFollowup.length > 0
-            ? 'guardian_followup_disambiguation' as const
-            : 'guardian_expired_disambiguation' as const;
-        const disambiguationText = await composeGuardianActionMessageGenerative(
-          { scenario: disambiguationScenario, requestCodes: codes },
-          { requiredKeywords: codes },
-          _guardianActionCopyGenerator,
-        );
-        const disambiguationMsg = createAssistantMessage(disambiguationText);
-        await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(disambiguationMsg.content), guardianChannelMeta);
-        session.messages.push(disambiguationMsg);
-        onEvent({ type: 'assistant_text_delta', text: disambiguationText });
-        onEvent({ type: 'message_complete', sessionId: session.conversationId });
-        return persisted.id;
-      }
-
-      // Dispatch matched delivery by state
-      if (codeMatch) {
-        const { request, state, answerText } = codeMatch;
-
-        // PENDING state handler
-        if (state === 'pending' && request.status === 'pending') {
-          const userMsg = createUserMessage(content, attachments);
-          const persisted = await conversationStore.addMessage(session.conversationId, 'user', JSON.stringify(userMsg.content), guardianChannelMeta);
-          session.messages.push(userMsg);
-
-          const answerResult = await answerCall({ callSessionId: request.callSessionId, answer: answerText, pendingQuestionId: request.pendingQuestionId });
-
-          if ('ok' in answerResult && answerResult.ok) {
-            const resolved = resolveGuardianActionRequest(request.id, answerText, 'vellum');
-            if (resolved) {
-              await tryMintGuardianActionGrant({ request, answerText, decisionChannel: 'vellum', approvalConversationGenerator: _approvalConversationGenerator });
-            }
-            const replyText = resolved
-              ? 'Your answer has been relayed to the call.'
-              : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_answered' }, {}, _guardianActionCopyGenerator);
-            const replyMsg = createAssistantMessage(replyText);
-            await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(replyMsg.content), guardianChannelMeta);
-            session.messages.push(replyMsg);
-            onEvent({ type: 'assistant_text_delta', text: replyText });
-          } else {
-            const errorDetail = 'error' in answerResult ? answerResult.error : 'Unknown error';
-            log.warn({ callSessionId: request.callSessionId, error: errorDetail }, 'answerCall failed for mac guardian answer');
-            const failureText = await composeGuardianActionMessageGenerative({ scenario: 'guardian_answer_delivery_failed' }, {}, _guardianActionCopyGenerator);
-            const failMsg = createAssistantMessage(failureText);
-            await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(failMsg.content), guardianChannelMeta);
-            session.messages.push(failMsg);
-            onEvent({ type: 'assistant_text_delta', text: failureText });
-          }
-          onEvent({ type: 'message_complete', sessionId: session.conversationId });
-          return persisted.id;
-        }
-
-        // FOLLOW-UP state handler
-        if (state === 'followup' && request.followupState === 'awaiting_guardian_choice') {
-          const userMsg = createUserMessage(content, attachments);
-          const persisted = await conversationStore.addMessage(session.conversationId, 'user', JSON.stringify(userMsg.content), guardianChannelMeta);
-          session.messages.push(userMsg);
-
-          const turnResult = await processGuardianFollowUpTurn(
-            { questionText: request.questionText, lateAnswerText: request.lateAnswerText ?? '', guardianReply: answerText },
-            _guardianFollowUpGenerator,
-          );
-
-          let stateApplied = true;
-          if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-            stateApplied = progressFollowupState(request.id, 'dispatching', turnResult.disposition) !== null;
-          } else if (turnResult.disposition === 'decline') {
-            stateApplied = finalizeFollowup(request.id, 'declined') !== null;
-          }
-
-          if (!stateApplied) {
-            log.warn({ requestId: request.id, disposition: turnResult.disposition }, 'Follow-up state transition failed (already resolved)');
-          }
-
-          const replyText = stateApplied
-            ? turnResult.replyText
-            : await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_followup' }, {}, _guardianActionCopyGenerator);
-          const replyMsg = createAssistantMessage(replyText);
-          await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(replyMsg.content), guardianChannelMeta);
-          session.messages.push(replyMsg);
-          onEvent({ type: 'assistant_text_delta', text: replyText });
-          onEvent({ type: 'message_complete', sessionId: session.conversationId });
-
-          if (stateApplied && (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back')) {
-            void (async () => {
-              try {
-                const execResult = await executeFollowupAction(request.id, turnResult.disposition as 'call_back' | 'message_back', _guardianActionCopyGenerator);
-                const completionMsg = createAssistantMessage(execResult.guardianReplyText);
-                await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(completionMsg.content), guardianChannelMeta);
-                session.messages.push(completionMsg);
-                onEvent({ type: 'assistant_text_delta', text: execResult.guardianReplyText });
-                onEvent({ type: 'message_complete', sessionId: session.conversationId });
-              } catch (execErr) {
-                log.error({ err: execErr, requestId: request.id }, 'Follow-up action execution or completion message failed');
-              }
-            })();
-          }
-          return persisted.id;
-        }
-
-        // EXPIRED state handler
-        if (state === 'expired' && request.status === 'expired' && request.followupState === 'none') {
-          const userMsg = createUserMessage(content, attachments);
-          const persisted = await conversationStore.addMessage(session.conversationId, 'user', JSON.stringify(userMsg.content), guardianChannelMeta);
-          session.messages.push(userMsg);
-
-          // Superseded remap
-          if (request.expiredReason === 'superseded') {
-            const callSession = getCallSession(request.callSessionId);
-            const callStillActive = callSession && !isTerminalState(callSession.status);
-            const currentPending = callStillActive ? getPendingRequestByCallSessionId(request.callSessionId) : null;
-
-            if (callStillActive && currentPending) {
-              const currentDeliveries = getDeliveriesByRequestId(currentPending.id);
-              const guardianExtUserId = session.guardianContext?.guardianExternalUserId;
-              // When guardianExternalUserId is present, verify the sender has a
-              // matching delivery on the current pending request. When it's absent
-              // (trusted Vellum/HTTP session), allow the remap without delivery check.
-              const senderHasDelivery = guardianExtUserId
-                ? currentDeliveries.some((d) => d.destinationExternalUserId === guardianExtUserId)
-                : true;
-              if (!senderHasDelivery) {
-                log.info({ supersededRequestId: request.id, currentRequestId: currentPending.id, guardianExternalUserId: guardianExtUserId }, 'Superseded remap skipped: sender has no delivery on current pending request');
-              } else {
-                const remapResult = await answerCall({ callSessionId: currentPending.callSessionId, answer: answerText, pendingQuestionId: currentPending.pendingQuestionId });
-                if ('ok' in remapResult && remapResult.ok) {
-                  const resolved = resolveGuardianActionRequest(currentPending.id, answerText, 'vellum');
-                  if (resolved) {
-                    await tryMintGuardianActionGrant({ request: currentPending, answerText, decisionChannel: 'vellum', approvalConversationGenerator: _approvalConversationGenerator });
-                  }
-                  const remapText = await composeGuardianActionMessageGenerative({ scenario: 'guardian_superseded_remap', questionText: currentPending.questionText }, {}, _guardianActionCopyGenerator);
-                  const remapMsg = createAssistantMessage(remapText);
-                  await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(remapMsg.content), guardianChannelMeta);
-                  session.messages.push(remapMsg);
-                  onEvent({ type: 'assistant_text_delta', text: remapText });
-                  onEvent({ type: 'message_complete', sessionId: session.conversationId });
-                  log.info({ supersededRequestId: request.id, remappedToRequestId: currentPending.id }, 'Late approval for superseded request remapped to current pending request');
-                  return persisted.id;
-                }
-                log.warn({ callSessionId: currentPending.callSessionId, error: 'error' in remapResult ? remapResult.error : 'unknown' }, 'Superseded remap answerCall failed, falling through to follow-up');
-              }
-            }
-          }
-
-          const followupResult = startFollowupFromExpiredRequest(request.id, answerText);
-          if (followupResult) {
-            const followupText = await composeGuardianActionMessageGenerative({ scenario: 'guardian_late_answer_followup', questionText: request.questionText, lateAnswerText: answerText }, {}, _guardianActionCopyGenerator);
-            const replyMsg = createAssistantMessage(followupText);
-            await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(replyMsg.content), guardianChannelMeta);
-            session.messages.push(replyMsg);
-            onEvent({ type: 'assistant_text_delta', text: followupText });
-          } else {
-            const staleText = await composeGuardianActionMessageGenerative({ scenario: 'guardian_stale_expired' }, {}, _guardianActionCopyGenerator);
-            const staleMsg = createAssistantMessage(staleText);
-            await conversationStore.addMessage(session.conversationId, 'assistant', JSON.stringify(staleMsg.content), guardianChannelMeta);
-            session.messages.push(staleMsg);
-            onEvent({ type: 'assistant_text_delta', text: staleText });
-          }
-          onEvent({ type: 'message_complete', sessionId: session.conversationId });
-          return persisted.id;
-        }
-      }
     }
   }
 

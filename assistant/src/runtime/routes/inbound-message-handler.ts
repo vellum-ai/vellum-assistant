@@ -921,6 +921,12 @@ export async function handleChannelInbound(
       conversationId: result.conversationId,
       callbackData: body.callbackData,
       approvalConversationGenerator,
+      channelDeliveryContext: {
+        replyCallbackUrl,
+        guardianChatId: externalChatId,
+        assistantId: canonicalAssistantId,
+        bearerToken,
+      },
     });
 
     if (routerResult.consumed) {
@@ -1331,6 +1337,7 @@ function startPendingApprovalPromptWatcher(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;
+  guardianActorRole: GuardianContext['actorRole'];
   replyCallbackUrl: string;
   bearerToken?: string;
   assistantId?: string;
@@ -1340,11 +1347,18 @@ function startPendingApprovalPromptWatcher(params: {
     conversationId,
     sourceChannel,
     externalChatId,
+    guardianActorRole,
     replyCallbackUrl,
     bearerToken,
     assistantId,
     approvalCopyGenerator,
   } = params;
+
+  // Approval prompt delivery is guardian-only. Non-guardian and unverified
+  // actors must never receive approval prompt broadcasts for the conversation.
+  if (guardianActorRole !== 'guardian') {
+    return () => {};
+  }
 
   let active = true;
   const deliveredRequestIds = new Set<string>();
@@ -1424,6 +1438,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
         conversationId,
         sourceChannel,
         externalChatId,
+        guardianActorRole: guardianCtx.actorRole,
         replyCallbackUrl,
         bearerToken,
         assistantId,
