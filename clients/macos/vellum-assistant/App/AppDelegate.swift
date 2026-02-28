@@ -794,6 +794,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 if alert.runModal() != .alertFirstButtonReturn {
                     return false
                 }
+                // Retire failed but user chose Force Remove — clean the stale
+                // lockfile entry so onboarding can re-run with a fresh lockfile.
+                self.removeLockfileEntry(assistantId: name)
             }
         } else {
             assistantCli.stop()
@@ -1175,48 +1178,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         }
 
-        // Eagerly spawn the daemon binary so the IPC socket appears as fast as
-        // possible. The CLI hatch command can take 60-120s (it waits for the
-        // socket + gateway), which causes the "Still starting..." interstitial.
-        // By spawning the daemon directly first, the retry coordinator can
-        // connect within seconds while the CLI runs in the background.
-        if !isCurrentAssistantRemote {
-            assistantCli.ensureDaemonRunning()
-        }
-
         Task {
             if !isCurrentAssistantRemote {
                 // On first launch post-onboarding, use daemonOnly: false so the CLI
                 // creates a lockfile entry. On subsequent launches, daemonOnly: true
                 // prevents duplicates.
                 let needsLockfileEntry = isFirstLaunch && !self.lockfileHasAssistants()
-                var hatchSucceeded = false
                 do {
                     try await assistantCli.hatch(daemonOnly: !needsLockfileEntry)
-                    hatchSucceeded = true
                 } catch {
                     log.error("Failed to hatch assistant during daemon setup: \(error)")
-                    // If full hatch (with lockfile entry) failed, fall back to
-                    // daemon-only hatch so the daemon at least starts.
                     if needsLockfileEntry {
-                        log.info("Retrying hatch with daemonOnly: true as fallback")
-                        do {
-                            try await assistantCli.hatch(daemonOnly: true)
-                            hatchSucceeded = true
-                        } catch {
-                            log.error("Fallback daemon-only hatch also failed: \(error)")
-                        }
+                        log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
+                        try? await assistantCli.hatch(daemonOnly: true)
                     }
                 }
                 if needsLockfileEntry {
-                    if hatchSucceeded {
-                        _ = self.loadAssistantFromLockfile()
-                    } else {
-                        // Both hatch attempts failed — remove the guard lockfile
-                        // entry to avoid a zombie "local-pending" assistant that
-                        // would prevent onboarding from re-running.
-                        self.removeGuardLockfileEntry()
-                    }
+                    _ = self.loadAssistantFromLockfile()
                 }
                 assistantCli.startMonitoring()
             }
@@ -2083,37 +2061,34 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Onboarding
 
-    /// Returns `true` when `~/.vellum.lock.json` contains at least one real
-    /// assistant entry (excludes the `local-pending` guard entry written by
-    /// `ensureDaemonRunning()` to prevent stale-process cleanup).
+    /// Returns `true` when `~/.vellum.lock.json` contains at least one
+    /// assistant entry.
     private func lockfileHasAssistants() -> Bool {
         guard let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]] else {
             return false
         }
-        return assistants.contains { ($0["assistantId"] as? String) != "local-pending" }
+        return !assistants.isEmpty
     }
 
-    /// Remove the guard lockfile entry written by `ensureDaemonRunning()`.
-    /// Called when both hatch attempts fail so the zombie "local-pending"
-    /// entry doesn't prevent onboarding from re-running on next launch.
-    private func removeGuardLockfileEntry() {
+    /// Remove a specific assistant entry from the lockfile. Used after a
+    /// failed retire + Force Remove to clean up the stale entry so the
+    /// next onboarding run starts with a fresh lockfile.
+    private func removeLockfileEntry(assistantId: String) {
         guard let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]] else {
             return
         }
-        let filtered = assistants.filter { ($0["assistantId"] as? String) != "local-pending" }
+        let filtered = assistants.filter { ($0["assistantId"] as? String) != assistantId }
         if filtered.isEmpty {
-            // No real entries remain — delete the lockfile entirely
             try? FileManager.default.removeItem(at: LockfilePaths.primary)
-            log.info("Removed guard lockfile (no real entries remain)")
+            log.info("Removed lockfile (no entries remain after force-removing '\(assistantId, privacy: .private)')")
         } else {
-            // Write back without the guard entry
             var updated = json
             updated["assistants"] = filtered
             if let data = try? JSONSerialization.data(withJSONObject: updated, options: [.prettyPrinted, .sortedKeys]) {
                 try? data.write(to: LockfilePaths.primary)
-                log.info("Removed guard entry from lockfile")
+                log.info("Removed stale entry '\(assistantId, privacy: .private)' from lockfile")
             }
         }
     }
