@@ -194,6 +194,12 @@ struct MainWindowView: View {
         let startTime = Date()
         let timeout: TimeInterval = 300 // 5 minutes
 
+        // Preserve SettingsStore's handler so it continues receiving updates
+        // after polling ends. Without this, the poll closure permanently
+        // overwrites SettingsStore's onVercelApiConfigResponse and hasVercelKey
+        // is never updated again.
+        let previousHandler = daemonClient.onVercelApiConfigResponse
+
         sharing.credentialPollTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [self] timer in
             Task { @MainActor in
                 // Timeout check
@@ -201,15 +207,21 @@ struct MainWindowView: View {
                     timer.invalidate()
                     sharing.credentialPollTimer = nil
                     sharing.pendingPublish = nil
+                    daemonClient.onVercelApiConfigResponse = previousHandler
                     return
                 }
 
                 // Poll for credential
                 daemonClient.onVercelApiConfigResponse = { [self] response in
+                    // Forward to the previous handler (e.g. SettingsStore) so it
+                    // stays in sync with credential state during polling.
+                    previousHandler?(response)
+
                     if response.success && response.hasToken, let pending = sharing.pendingPublish {
                         timer.invalidate()
                         sharing.credentialPollTimer = nil
                         sharing.pendingPublish = nil
+                        daemonClient.onVercelApiConfigResponse = previousHandler
                         // Auto-retry publish with saved params
                         publishPage(html: pending.html, title: pending.title, appId: pending.appId)
                     }
@@ -608,6 +620,9 @@ struct MainWindowView: View {
         }
         .onDisappear {
             copyThread.cancel()
+            sharing.credentialPollTimer?.invalidate()
+            sharing.credentialPollTimer = nil
+            sharing.pendingPublish = nil
             daemonClient.stopSSE()
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
