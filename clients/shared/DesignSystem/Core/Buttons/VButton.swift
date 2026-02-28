@@ -181,7 +181,7 @@ private struct VButtonStyle: ButtonStyle {
         case .outlined:
             return .clear
         case .success:
-            if isPressed { return adaptiveColor(light: Forest._300, dark: Forest._800) }
+            if isPressed { return adaptiveColor(light: Forest._400, dark: Forest._700) }
             if isHovered { return adaptiveColor(light: Forest._300, dark: Forest._800) }
             return adaptiveColor(light: Forest._200, dark: Forest._900)
         }
