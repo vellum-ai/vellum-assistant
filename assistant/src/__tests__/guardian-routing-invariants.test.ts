@@ -205,11 +205,13 @@ describe('routing invariant: all decision paths reference applyCanonicalGuardian
     expect(source).not.toContain('getPendingDeliveriesByConversation');
   });
 
-  test('daemon/session-process.ts seeds router hints from delivery and conversation scopes', () => {
+  test('daemon/session-process.ts seeds router hints from delivery/conversation scopes and passes undefined when empty', () => {
     const fullPath = join(srcRoot, 'daemon/session-process.ts');
     const source = readFileSync(fullPath, 'utf-8');
     expect(source).toContain('listPendingCanonicalGuardianRequestsByDestinationConversation');
     expect(source).toContain('listCanonicalGuardianRequests');
+    expect(source).toContain('const pendingRequestIds = canonicalPendingRequestIdsForConversation.length > 0');
+    expect(source).toContain('pendingRequestIds,');
   });
 
   test('guardian-reply-router routes all decisions through applyCanonicalGuardianDecision', () => {
