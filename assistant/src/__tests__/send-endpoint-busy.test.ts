@@ -14,6 +14,8 @@ import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
+import { createCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'send-endpoint-busy-test-')));
 
@@ -53,6 +55,7 @@ import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import type { AssistantEvent } from '../runtime/assistant-event.js';
 import { AssistantEventHub } from '../runtime/assistant-event-hub.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
+import * as pendingInteractions from '../runtime/pending-interactions.js';
 
 initializeDb();
 
@@ -63,6 +66,7 @@ initializeDb();
 /** Session that completes its agent loop quickly and emits a text delta + message_complete. */
 function makeCompletingSession(): Session {
   let processing = false;
+  const messages: unknown[] = [];
   return {
     isProcessing: () => processing,
     persistUserMessage: (_content: string, _attachments: unknown[], requestId?: string) => {
@@ -77,6 +81,9 @@ function makeCompletingSession(): Session {
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     updateClient: () => {},
+    hasAnyPendingConfirmation: () => false,
+    hasPendingConfirmation: () => false,
+    denyAllPendingConfirmations: () => {},
     enqueueMessage: () => ({ queued: false, requestId: 'noop' }),
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent({ type: 'assistant_text_delta', text: 'Hello!' });
@@ -85,13 +92,14 @@ function makeCompletingSession(): Session {
     },
     handleConfirmationResponse: () => {},
     handleSecretResponse: () => {},
-    hasAnyPendingConfirmation: () => false,
+    getMessages: () => messages as never[],
   } as unknown as Session;
 }
 
 /** Session that hangs forever in the agent loop (simulates a busy session). */
 function makeHangingSession(): Session {
   let processing = false;
+  const messages: unknown[] = [];
   const enqueuedMessages: Array<{ content: string; onEvent: (msg: ServerMessage) => void; requestId: string }> = [];
   return {
     isProcessing: () => processing,
@@ -107,6 +115,9 @@ function makeHangingSession(): Session {
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     updateClient: () => {},
+    hasAnyPendingConfirmation: () => false,
+    hasPendingConfirmation: () => false,
+    denyAllPendingConfirmations: () => {},
     enqueueMessage: (content: string, _attachments: unknown[], onEvent: (msg: ServerMessage) => void, requestId: string) => {
       enqueuedMessages.push({ content, onEvent, requestId });
       return { queued: true, requestId };
@@ -117,9 +128,60 @@ function makeHangingSession(): Session {
     },
     handleConfirmationResponse: () => {},
     handleSecretResponse: () => {},
-    hasAnyPendingConfirmation: () => false,
+    getMessages: () => messages as never[],
     _enqueuedMessages: enqueuedMessages,
   } as unknown as Session;
+}
+
+function makePendingApprovalSession(requestId: string, processing: boolean): {
+  session: Session;
+  runAgentLoopMock: ReturnType<typeof mock>;
+  enqueueMessageMock: ReturnType<typeof mock>;
+  denyAllPendingConfirmationsMock: ReturnType<typeof mock>;
+  handleConfirmationResponseMock: ReturnType<typeof mock>;
+} {
+  const pending = new Set([requestId]);
+  const messages: unknown[] = [];
+  const runAgentLoopMock = mock(async () => {});
+  const enqueueMessageMock = mock((_content: string, _attachments: unknown[], _onEvent: (msg: ServerMessage) => void, queuedRequestId: string) => ({
+    queued: true,
+    requestId: queuedRequestId,
+  }));
+  const denyAllPendingConfirmationsMock = mock(() => {
+    pending.clear();
+  });
+  const handleConfirmationResponseMock = mock((resolvedRequestId: string) => {
+    pending.delete(resolvedRequestId);
+  });
+
+  const session = {
+    isProcessing: () => processing,
+    persistUserMessage: (_content: string, _attachments: unknown[], reqId?: string) => reqId ?? 'msg-1',
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+    setChannelCapabilities: () => {},
+    setAssistantId: () => {},
+    setGuardianContext: () => {},
+    setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
+    updateClient: () => {},
+    hasAnyPendingConfirmation: () => pending.size > 0,
+    hasPendingConfirmation: (candidateRequestId: string) => pending.has(candidateRequestId),
+    denyAllPendingConfirmations: denyAllPendingConfirmationsMock,
+    enqueueMessage: enqueueMessageMock,
+    runAgentLoop: runAgentLoopMock,
+    handleConfirmationResponse: handleConfirmationResponseMock,
+    handleSecretResponse: () => {},
+    getMessages: () => messages as never[],
+  } as unknown as Session;
+
+  return {
+    session,
+    runAgentLoopMock,
+    enqueueMessageMock,
+    denyAllPendingConfirmationsMock,
+    handleConfirmationResponseMock,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +201,9 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     db.run('DELETE FROM messages');
     db.run('DELETE FROM conversations');
     db.run('DELETE FROM conversation_keys');
+    db.run('DELETE FROM canonical_guardian_deliveries');
+    db.run('DELETE FROM canonical_guardian_requests');
+    pendingInteractions.clear();
     eventHub = new AssistantEventHub();
   });
 
@@ -222,6 +287,116 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const types = publishedEvents.map((e) => e.message.type);
     expect(types).toContain('assistant_text_delta');
     expect(types).toContain('message_complete');
+
+    await stopServer();
+  });
+
+  test('consumes explicit approval text when a single pending confirmation exists (idle)', async () => {
+    const conversationKey = 'conv-inline-idle';
+    const { conversationId } = getOrCreateConversation(conversationKey);
+    const requestId = 'req-inline-idle';
+    const {
+      session,
+      runAgentLoopMock,
+      enqueueMessageMock,
+      denyAllPendingConfirmationsMock,
+      handleConfirmationResponseMock,
+    } = makePendingApprovalSession(requestId, false);
+
+    pendingInteractions.register(requestId, {
+      session,
+      conversationId,
+      kind: 'confirmation',
+    });
+    createCanonicalGuardianRequest({
+      id: requestId,
+      kind: 'tool_approval',
+      sourceType: 'desktop',
+      sourceChannel: 'vellum',
+      conversationId,
+      toolName: 'call_start',
+      status: 'pending',
+      requestCode: 'ABC123',
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    });
+
+    await startServer(() => session);
+
+    const res = await fetch(messagesUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({
+        conversationKey,
+        content: 'yes',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
+    });
+    const body = await res.json() as { accepted: boolean; messageId?: string; queued?: boolean };
+
+    expect(res.status).toBe(202);
+    expect(body.accepted).toBe(true);
+    expect(body.messageId).toBeDefined();
+    expect(body.queued).toBeUndefined();
+    expect(handleConfirmationResponseMock).toHaveBeenCalledTimes(1);
+    expect(denyAllPendingConfirmationsMock).toHaveBeenCalledTimes(0);
+    expect(enqueueMessageMock).toHaveBeenCalledTimes(0);
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(0);
+
+    await stopServer();
+  });
+
+  test('consumes explicit approval text while busy instead of auto-denying and queueing', async () => {
+    const conversationKey = 'conv-inline-busy';
+    const { conversationId } = getOrCreateConversation(conversationKey);
+    const requestId = 'req-inline-busy';
+    const {
+      session,
+      runAgentLoopMock,
+      enqueueMessageMock,
+      denyAllPendingConfirmationsMock,
+      handleConfirmationResponseMock,
+    } = makePendingApprovalSession(requestId, true);
+
+    pendingInteractions.register(requestId, {
+      session,
+      conversationId,
+      kind: 'confirmation',
+    });
+    createCanonicalGuardianRequest({
+      id: requestId,
+      kind: 'tool_approval',
+      sourceType: 'desktop',
+      sourceChannel: 'vellum',
+      conversationId,
+      toolName: 'call_start',
+      status: 'pending',
+      requestCode: 'DEF456',
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    });
+
+    await startServer(() => session);
+
+    const res = await fetch(messagesUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({
+        conversationKey,
+        content: 'approve',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
+    });
+    const body = await res.json() as { accepted: boolean; messageId?: string; queued?: boolean };
+
+    expect(res.status).toBe(202);
+    expect(body.accepted).toBe(true);
+    expect(body.messageId).toBeDefined();
+    expect(body.queued).toBeUndefined();
+    expect(handleConfirmationResponseMock).toHaveBeenCalledTimes(1);
+    expect(denyAllPendingConfirmationsMock).toHaveBeenCalledTimes(0);
+    expect(enqueueMessageMock).toHaveBeenCalledTimes(0);
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(0);
 
     await stopServer();
   });

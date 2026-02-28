@@ -4,6 +4,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
+import { createAssistantMessage, createUserMessage } from '../../agent/message-types.js';
 import { CHANNEL_IDS, INTERFACE_IDS, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { mergeToolResults,renderHistoryContent } from '../../daemon/handlers.js';
 import type { ServerMessage } from '../../daemon/ipc-protocol.js';
@@ -11,6 +12,8 @@ import * as attachmentsStore from '../../memory/attachments-store.js';
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
+  listCanonicalGuardianRequests,
+  listPendingCanonicalGuardianRequestsByDestinationConversation,
 } from '../../memory/canonical-guardian-store.js';
 import {
   getConversationByKey,
@@ -21,6 +24,7 @@ import { getConfiguredProvider } from '../../providers/provider-send-message.js'
 import type { Provider } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
 import { buildAssistantEvent } from '../assistant-event.js';
+import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
 import type {
   MessageProcessor,
@@ -34,6 +38,149 @@ import * as pendingInteractions from '../pending-interactions.js';
 const log = getLogger('conversation-routes');
 
 const SUGGESTION_CACHE_MAX = 100;
+
+function hasAnyPendingConfirmation(session: import('../../daemon/session.js').Session): boolean {
+  const maybeMethod = (session as { hasAnyPendingConfirmation?: () => boolean }).hasAnyPendingConfirmation;
+  return typeof maybeMethod === 'function' ? maybeMethod.call(session) : false;
+}
+
+function hasPendingConfirmation(
+  session: import('../../daemon/session.js').Session,
+  requestId: string,
+): boolean {
+  const maybeMethod = (session as { hasPendingConfirmation?: (id: string) => boolean }).hasPendingConfirmation;
+  return typeof maybeMethod === 'function' ? maybeMethod.call(session, requestId) : false;
+}
+
+function pushSessionMessageIfAvailable(
+  session: import('../../daemon/session.js').Session,
+  message: ReturnType<typeof createUserMessage> | ReturnType<typeof createAssistantMessage>,
+): void {
+  const maybeGetMessages = (session as { getMessages?: () => Array<typeof message> }).getMessages;
+  if (typeof maybeGetMessages !== 'function') {
+    return;
+  }
+  maybeGetMessages.call(session).push(message);
+}
+
+function collectLivePendingConfirmationRequestIds(
+  conversationId: string,
+  sourceChannel: string,
+  session: import('../../daemon/session.js').Session,
+): string[] {
+  const pendingInteractionRequestIds = pendingInteractions
+    .getByConversation(conversationId)
+    .filter(
+      (interaction) =>
+        interaction.kind === 'confirmation'
+        && interaction.session === session
+        && hasPendingConfirmation(session, interaction.requestId),
+    )
+    .map((interaction) => interaction.requestId);
+
+  const pendingCanonicalRequestIds = [
+    ...listPendingCanonicalGuardianRequestsByDestinationConversation(conversationId, sourceChannel)
+      .filter((request) => request.kind === 'tool_approval')
+      .map((request) => request.id),
+    ...listCanonicalGuardianRequests({
+      status: 'pending',
+      conversationId,
+      kind: 'tool_approval',
+    }).map((request) => request.id),
+  ].filter((requestId) => hasPendingConfirmation(session, requestId));
+
+  return Array.from(new Set([
+    ...pendingInteractionRequestIds,
+    ...pendingCanonicalRequestIds,
+  ]));
+}
+
+async function tryConsumeInlineApprovalReply(params: {
+  conversationId: string;
+  sourceChannel: string;
+  sourceInterface: string;
+  content: string;
+  attachments: Array<{
+    id: string;
+    filename: string;
+    mimeType: string;
+    data: string;
+  }>;
+  session: import('../../daemon/session.js').Session;
+  onEvent: (msg: ServerMessage) => void;
+}): Promise<{ consumed: boolean; messageId?: string }> {
+  const {
+    conversationId,
+    sourceChannel,
+    sourceInterface,
+    content,
+    attachments,
+    session,
+    onEvent,
+  } = params;
+  const trimmedContent = content.trim();
+
+  if (!hasAnyPendingConfirmation(session) || trimmedContent.length === 0) {
+    return { consumed: false };
+  }
+
+  const pendingRequestIds = collectLivePendingConfirmationRequestIds(conversationId, sourceChannel, session);
+  if (pendingRequestIds.length === 0) {
+    return { consumed: false };
+  }
+
+  const routerResult = await routeGuardianReply({
+    messageText: trimmedContent,
+    channel: sourceChannel,
+    actor: {
+      externalUserId: undefined,
+      channel: sourceChannel,
+      isTrusted: true,
+    },
+    conversationId,
+    pendingRequestIds,
+  });
+
+  if (!routerResult.consumed || routerResult.type === 'nl_keep_pending') {
+    return { consumed: false };
+  }
+
+  const channelMeta = {
+    userMessageChannel: sourceChannel,
+    assistantMessageChannel: sourceChannel,
+    userMessageInterface: sourceInterface,
+    assistantMessageInterface: sourceInterface,
+    provenanceActorRole: 'guardian' as const,
+  };
+
+  const userMessage = createUserMessage(content, attachments);
+  const persistedUser = await conversationStore.addMessage(
+    conversationId,
+    'user',
+    JSON.stringify(userMessage.content),
+    channelMeta,
+  );
+
+  const replyText = (routerResult.replyText?.trim())
+    || (routerResult.decisionApplied ? 'Decision applied.' : 'Request already resolved.');
+  const assistantMessage = createAssistantMessage(replyText);
+  await conversationStore.addMessage(
+    conversationId,
+    'assistant',
+    JSON.stringify(assistantMessage.content),
+    channelMeta,
+  );
+
+  // Avoid mutating in-memory history / emitting stream deltas while a run is active.
+  if (!session.isProcessing()) {
+    pushSessionMessageIfAvailable(session, userMessage);
+    pushSessionMessageIfAvailable(session, assistantMessage);
+    onEvent({ type: 'assistant_text_delta', text: replyText, sessionId: conversationId });
+    onEvent({ type: 'message_complete', sessionId: conversationId });
+  }
+
+  return { consumed: true, messageId: persistedUser.id };
+}
 
 function getInterfaceFilesWithMtimes(interfacesDir: string | null): Array<{ path: string; mtimeMs: number }> {
   if (!interfacesDir || !existsSync(interfacesDir)) return [];
@@ -290,10 +437,26 @@ export async function handleSendMessage(
       ? smDeps.resolveAttachments(attachmentIds)
       : [];
 
+    const inlineReplyResult = await tryConsumeInlineApprovalReply({
+      conversationId: mapping.conversationId,
+      sourceChannel,
+      sourceInterface,
+      content: content ?? '',
+      attachments,
+      session,
+      onEvent,
+    });
+    if (inlineReplyResult.consumed) {
+      return Response.json(
+        { accepted: true, ...(inlineReplyResult.messageId ? { messageId: inlineReplyResult.messageId } : {}) },
+        { status: 202 },
+      );
+    }
+
     if (session.isProcessing()) {
       // If a tool confirmation is pending, auto-deny it so the agent
       // can finish the current turn and process this queued message.
-      if (session.hasAnyPendingConfirmation()) {
+      if (hasAnyPendingConfirmation(session)) {
         session.denyAllPendingConfirmations();
         pendingInteractions.removeBySession(session);
       }
