@@ -38,6 +38,7 @@ export { createScopedApprovalGrantsTable } from './033-scoped-approval-grants.js
 export { migrateGuardianActionToolMetadata } from './034-guardian-action-tool-metadata.js';
 export { migrateGuardianActionSupersession } from './035-guardian-action-supersession.js';
 export { migrateNormalizePhoneIdentities } from './036-normalize-phone-identities.js';
+export { migrateVoiceInviteColumns } from './037-voice-invite-columns.js';
 export { createCoreTables } from './100-core-tables.js';
 export { createWatchersAndLogsTables } from './101-watchers-and-logs.js';
 export { addCoreColumns } from './102-alter-table-columns.js';

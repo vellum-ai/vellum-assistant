@@ -22,9 +22,12 @@ import {
   revokeMember,
   upsertMember,
 } from '../memory/ingress-member-store.js';
+import { generateVoiceCode, hashVoiceCode } from '../util/voice-code.js';
 import {
   type InviteRedemptionOutcome,
+  type VoiceRedemptionOutcome,
   redeemInvite as redeemInviteTyped,
+  redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
 } from './invite-redemption-service.js';
 
 // ---------------------------------------------------------------------------
@@ -41,6 +44,10 @@ export interface InviteResponseData {
   expiresAt: number | null;
   status: string;
   note?: string;
+  // Voice invite fields (present only for voice invites)
+  expectedExternalUserId?: string;
+  voiceCode?: string;
+  voiceCodeDigits?: number;
   createdAt: number;
 }
 
@@ -61,17 +68,20 @@ export interface MemberResponseData {
 // Mappers
 // ---------------------------------------------------------------------------
 
-function inviteToResponse(inv: IngressInvite, rawToken?: string): InviteResponseData {
+function inviteToResponse(inv: IngressInvite, opts?: { rawToken?: string; voiceCode?: string }): InviteResponseData {
   return {
     id: inv.id,
     sourceChannel: inv.sourceChannel,
-    ...(rawToken ? { token: rawToken } : {}),
+    ...(opts?.rawToken ? { token: opts.rawToken } : {}),
     tokenHash: inv.tokenHash,
     maxUses: inv.maxUses,
     useCount: inv.useCount,
     expiresAt: inv.expiresAt,
     status: inv.status,
     note: inv.note ?? undefined,
+    ...(inv.expectedExternalUserId ? { expectedExternalUserId: inv.expectedExternalUserId } : {}),
+    ...(opts?.voiceCode ? { voiceCode: opts.voiceCode } : {}),
+    ...(inv.voiceCodeDigits != null ? { voiceCodeDigits: inv.voiceCodeDigits } : {}),
     createdAt: inv.createdAt,
   };
 }
@@ -108,17 +118,42 @@ export function createIngressInvite(params: {
   note?: string;
   maxUses?: number;
   expiresInMs?: number;
+  // Voice invite parameters
+  expectedExternalUserId?: string;
+  voiceCodeDigits?: number;
 }): IngressResult<InviteResponseData> {
   if (!params.sourceChannel) {
     return { ok: false, error: 'sourceChannel is required for create' };
   }
+
+  // For voice invites: generate a one-time numeric code, hash it, and pass
+  // the hash to the store. The plaintext code is included in the response
+  // exactly once and never stored.
+  let voiceCode: string | undefined;
+  let voiceCodeHash: string | undefined;
+  const isVoice = params.sourceChannel === 'voice';
+
+  if (isVoice) {
+    if (!params.expectedExternalUserId) {
+      return { ok: false, error: 'expectedExternalUserId is required for voice invites' };
+    }
+    const digits = params.voiceCodeDigits ?? 6;
+    voiceCode = generateVoiceCode(digits);
+    voiceCodeHash = hashVoiceCode(voiceCode);
+  }
+
   const { invite, rawToken } = createInvite({
     sourceChannel: params.sourceChannel,
     note: params.note,
     maxUses: params.maxUses,
     expiresInMs: params.expiresInMs,
+    ...(isVoice ? {
+      expectedExternalUserId: params.expectedExternalUserId,
+      voiceCodeHash,
+      voiceCodeDigits: params.voiceCodeDigits ?? 6,
+    } : {}),
   });
-  return { ok: true, data: inviteToResponse(invite, rawToken) };
+  return { ok: true, data: inviteToResponse(invite, { rawToken, voiceCode }) };
 }
 
 export function listIngressInvites(params: {
@@ -172,6 +207,7 @@ export function redeemIngressInvite(params: {
 // ---------------------------------------------------------------------------
 
 export { type InviteRedemptionOutcome } from './invite-redemption-service.js';
+export { type VoiceRedemptionOutcome } from './invite-redemption-service.js';
 
 export function redeemIngressInviteTyped(params: {
   rawToken: string;
@@ -183,6 +219,15 @@ export function redeemIngressInviteTyped(params: {
   assistantId?: string;
 }): InviteRedemptionOutcome {
   return redeemInviteTyped(params);
+}
+
+export function redeemVoiceInviteCode(params: {
+  assistantId?: string;
+  callerExternalUserId: string;
+  sourceChannel: 'voice';
+  code: string;
+}): VoiceRedemptionOutcome {
+  return redeemVoiceInviteCodeTyped(params);
 }
 
 // ---------------------------------------------------------------------------

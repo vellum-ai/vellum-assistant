@@ -8,8 +8,9 @@
  */
 
 import { getSqlite } from '../memory/db.js';
-import { findByTokenHash, hashToken, markInviteExpired, recordInviteUse,redeemInvite as storeRedeemInvite } from '../memory/ingress-invite-store.js';
+import { findByTokenHash, hashToken, markInviteExpired, recordInviteUse, redeemInvite as storeRedeemInvite, findActiveVoiceInvites } from '../memory/ingress-invite-store.js';
 import { findMember, upsertMember } from '../memory/ingress-member-store.js';
+import { hashVoiceCode } from '../util/voice-code.js';
 
 // ---------------------------------------------------------------------------
 // Outcome type
@@ -19,6 +20,13 @@ export type InviteRedemptionOutcome =
   | { ok: true; type: 'redeemed'; memberId: string; inviteId: string }
   | { ok: true; type: 'already_member'; memberId: string }
   | { ok: false; reason: 'invalid_token' | 'expired' | 'revoked' | 'max_uses_reached' | 'channel_mismatch' | 'missing_identity' };
+
+// Generic failure reasons for voice redemption — intentionally vague to avoid
+// leaking information about which invites exist or which identity is bound.
+export type VoiceRedemptionOutcome =
+  | { ok: true; type: 'redeemed'; memberId: string; inviteId: string }
+  | { ok: true; type: 'already_member'; memberId: string }
+  | { ok: false; reason: 'invalid_or_expired' };
 
 // ---------------------------------------------------------------------------
 // Error-string to typed-reason mapping
@@ -177,5 +185,127 @@ export function redeemInvite(params: {
     type: 'redeemed',
     memberId: result.member.id,
     inviteId: result.invite.id,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// redeemVoiceInviteCode
+// ---------------------------------------------------------------------------
+
+/**
+ * Redeem a voice invite code for a caller identified by their E.164 phone number.
+ *
+ * Unlike token-based redemption, voice redemption:
+ *   1. Filters only active voice invites bound to the caller's identity
+ *      (expectedExternalUserId must match callerExternalUserId).
+ *   2. Validates the short numeric code by hashing it and comparing to the
+ *      stored voiceCodeHash.
+ *   3. Enforces expiry and use limits.
+ *   4. On success: upserts/reactivates a member with status 'active', policy 'allow'.
+ *   5. Consumes one invite use atomically (increment useCount).
+ *
+ * Failure responses are intentionally generic ("invalid_or_expired") to prevent
+ * oracle attacks that could reveal which invites exist or which phone numbers
+ * are bound.
+ */
+export function redeemVoiceInviteCode(params: {
+  assistantId?: string;
+  callerExternalUserId: string;
+  sourceChannel: 'voice';
+  code: string;
+}): VoiceRedemptionOutcome {
+  const { assistantId = 'self', callerExternalUserId, code } = params;
+
+  if (!callerExternalUserId) {
+    return { ok: false, reason: 'invalid_or_expired' };
+  }
+
+  // Find all active voice invites bound to the caller's phone number
+  const candidates = findActiveVoiceInvites({
+    assistantId,
+    expectedExternalUserId: callerExternalUserId,
+  });
+
+  if (candidates.length === 0) {
+    return { ok: false, reason: 'invalid_or_expired' };
+  }
+
+  const codeHash = hashVoiceCode(code);
+  const now = Date.now();
+
+  // Search for a matching invite: code hash match, not expired, uses remaining
+  const invite = candidates.find((inv) => {
+    if (inv.voiceCodeHash !== codeHash) return false;
+    if (inv.expiresAt <= now) return false;
+    if (inv.useCount >= inv.maxUses) return false;
+    return true;
+  });
+
+  if (!invite) {
+    // Mark any expired candidates while we're here
+    for (const inv of candidates) {
+      if (inv.expiresAt <= now && inv.status === 'active') {
+        markInviteExpired(inv.id);
+      }
+    }
+    return { ok: false, reason: 'invalid_or_expired' };
+  }
+
+  // Channel enforcement: voice invites can only be redeemed on the voice channel
+  if (invite.sourceChannel !== 'voice') {
+    return { ok: false, reason: 'invalid_or_expired' };
+  }
+
+  // Check for existing membership
+  const existingMember = findMember({
+    assistantId: invite.assistantId,
+    sourceChannel: 'voice',
+    externalUserId: callerExternalUserId,
+  });
+
+  if (existingMember && existingMember.status === 'active') {
+    return { ok: true, type: 'already_member', memberId: existingMember.id };
+  }
+
+  // Blocked members cannot bypass the guardian's explicit block
+  if (existingMember && existingMember.status === 'blocked') {
+    return { ok: false, reason: 'invalid_or_expired' };
+  }
+
+  // Atomic redemption: upsert member + consume invite use in a transaction
+  const STALE_INVITE = Symbol('stale_invite');
+  let memberId: string | undefined;
+
+  try {
+    getSqlite().transaction(() => {
+      const member = upsertMember({
+        assistantId: invite.assistantId,
+        sourceChannel: 'voice',
+        externalUserId: callerExternalUserId,
+        status: 'active',
+        policy: 'allow',
+        inviteId: invite.id,
+      });
+      memberId = member.id;
+
+      const recorded = recordInviteUse({
+        inviteId: invite.id,
+        externalUserId: callerExternalUserId,
+      });
+
+      if (!recorded) throw STALE_INVITE;
+    }).immediate();
+  } catch (err) {
+    if (err === STALE_INVITE) {
+      return { ok: false, reason: 'invalid_or_expired' };
+    }
+    throw err;
+  }
+
+  return {
+    ok: true,
+    type: 'redeemed',
+    memberId: memberId!,
+    inviteId: invite.id,
   };
 }

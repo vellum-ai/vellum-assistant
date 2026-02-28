@@ -942,6 +942,10 @@ export const assistantIngressInvites = sqliteTable('assistant_ingress_invites', 
   redeemedByExternalUserId: text('redeemed_by_external_user_id'),
   redeemedByExternalChatId: text('redeemed_by_external_chat_id'),
   redeemedAt: integer('redeemed_at'),
+  // Voice invite fields (nullable — non-voice invites leave these NULL)
+  expectedExternalUserId: text('expected_external_user_id'),
+  voiceCodeHash: text('voice_code_hash'),
+  voiceCodeDigits: integer('voice_code_digits').default(6),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

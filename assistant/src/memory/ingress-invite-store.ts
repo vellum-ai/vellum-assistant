@@ -33,6 +33,10 @@ export interface IngressInvite {
   redeemedByExternalUserId: string | null;
   redeemedByExternalChatId: string | null;
   redeemedAt: number | null;
+  // Voice invite fields (null for non-voice invites)
+  expectedExternalUserId: string | null;
+  voiceCodeHash: string | null;
+  voiceCodeDigits: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -90,6 +94,9 @@ function rowToInvite(row: typeof assistantIngressInvites.$inferSelect): IngressI
     redeemedByExternalUserId: row.redeemedByExternalUserId,
     redeemedByExternalChatId: row.redeemedByExternalChatId,
     redeemedAt: row.redeemedAt,
+    expectedExternalUserId: row.expectedExternalUserId,
+    voiceCodeHash: row.voiceCodeHash,
+    voiceCodeDigits: row.voiceCodeDigits,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -127,6 +134,10 @@ export function createInvite(params: {
   note?: string;
   maxUses?: number;
   expiresInMs?: number;
+  // Voice invite metadata (all optional — omitted for non-voice invites)
+  expectedExternalUserId?: string;
+  voiceCodeHash?: string;
+  voiceCodeDigits?: number;
 }): { invite: IngressInvite; rawToken: string } {
   const db = getDb();
   const now = Date.now();
@@ -148,6 +159,9 @@ export function createInvite(params: {
     redeemedByExternalUserId: null,
     redeemedByExternalChatId: null,
     redeemedAt: null,
+    expectedExternalUserId: params.expectedExternalUserId ?? null,
+    voiceCodeHash: params.voiceCodeHash ?? null,
+    voiceCodeDigits: params.voiceCodeDigits ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -431,4 +445,35 @@ export function findByTokenHash(tokenHash: string): IngressInvite | null {
     .get();
 
   return row ? rowToInvite(row) : null;
+}
+
+// ---------------------------------------------------------------------------
+// findActiveVoiceInvites
+// ---------------------------------------------------------------------------
+
+/**
+ * Find all active voice invites bound to a specific caller identity.
+ * Used by the voice invite redemption flow to locate candidate invites
+ * before code hash matching.
+ */
+export function findActiveVoiceInvites(params: {
+  assistantId: string;
+  expectedExternalUserId: string;
+}): IngressInvite[] {
+  const db = getDb();
+
+  const rows = db
+    .select()
+    .from(assistantIngressInvites)
+    .where(
+      and(
+        eq(assistantIngressInvites.assistantId, params.assistantId),
+        eq(assistantIngressInvites.sourceChannel, 'voice'),
+        eq(assistantIngressInvites.status, 'active'),
+        eq(assistantIngressInvites.expectedExternalUserId, params.expectedExternalUserId),
+      ),
+    )
+    .all();
+
+  return rows.map(rowToInvite);
 }

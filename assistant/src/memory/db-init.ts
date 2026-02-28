@@ -7,6 +7,7 @@ import {
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
   migrateNormalizePhoneIdentities,
+  migrateVoiceInviteColumns,
   createChannelGuardianTables,
   createContactsAndTriageTables,
   createConversationAttentionTables,
@@ -160,6 +161,9 @@ export function initializeDb(): void {
 
   // 25. Normalize phone-like identity fields to E.164 across guardian and ingress tables
   migrateNormalizePhoneIdentities(database);
+
+  // 26. Voice invite columns on assistant_ingress_invites
+  migrateVoiceInviteColumns(database);
 
   validateMigrationState(database);
 }
