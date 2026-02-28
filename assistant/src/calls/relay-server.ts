@@ -33,7 +33,7 @@ import { redeemVoiceInviteCode } from '../runtime/ingress-service.js';
 import { parseJsonSafe } from '../util/json.js';
 import { getLogger } from '../util/logger.js';
 import { normalizeAssistantId } from '../util/platform.js';
-import { getUserConsultationTimeoutMs } from './call-constants.js';
+import { getAccessRequestPollIntervalMs, getTtsPlaybackDelayMs, getUserConsultationTimeoutMs } from './call-constants.js';
 import { CallController } from './call-controller.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
@@ -578,7 +578,7 @@ export class RelayConnection {
 
           setTimeout(() => {
             this.endSession('Inbound voice ACL denied — blocked');
-          }, 3000);
+          }, getTtsPlaybackDelayMs());
           return;
         }
 
@@ -637,7 +637,7 @@ export class RelayConnection {
 
         setTimeout(() => {
           this.endSession('Inbound voice ACL: member policy deny');
-        }, 3000);
+        }, getTtsPlaybackDelayMs());
         return;
       }
 
@@ -669,7 +669,7 @@ export class RelayConnection {
 
         setTimeout(() => {
           this.endSession('Inbound voice ACL: member policy escalate');
-        }, 3000);
+        }, getTtsPlaybackDelayMs());
         return;
       }
 
@@ -933,7 +933,7 @@ export class RelayConnection {
 
         setTimeout(() => {
           this.endSession('Guardian verification succeeded');
-        }, 3000);
+        }, getTtsPlaybackDelayMs());
       } else {
         // Inbound: proceed to normal call flow
         if (this.controller) {
@@ -1004,7 +1004,7 @@ export class RelayConnection {
 
         setTimeout(() => {
           this.endSession('Guardian verification failed');
-        }, 2000);
+        }, getTtsPlaybackDelayMs());
       } else {
         const retryText = isOutbound
           ? composeVerificationVoice(GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_RETRY, { codeDigits })
@@ -1160,7 +1160,7 @@ export class RelayConnection {
     this.connectionState = 'awaiting_guardian_decision';
 
     const timeoutMs = getUserConsultationTimeoutMs();
-    const pollIntervalMs = 2000;
+    const pollIntervalMs = getAccessRequestPollIntervalMs();
 
     this.sendTextToken(
       "Thank you. I've let my guardian know. Please hold while I check if I have permission to speak with you.",
@@ -1319,7 +1319,7 @@ export class RelayConnection {
 
     setTimeout(() => {
       this.endSession('Access request denied');
-    }, 3000);
+    }, getTtsPlaybackDelayMs());
   }
 
   /**
@@ -1353,7 +1353,7 @@ export class RelayConnection {
 
     setTimeout(() => {
       this.endSession('Access request timed out');
-    }, 3000);
+    }, getTtsPlaybackDelayMs());
   }
 
   /**
@@ -1390,7 +1390,7 @@ export class RelayConnection {
 
     setTimeout(() => {
       this.endSession('Name capture timed out');
-    }, 3000);
+    }, getTtsPlaybackDelayMs());
   }
 
   /**
@@ -1474,7 +1474,7 @@ export class RelayConnection {
 
       setTimeout(() => {
         this.endSession('Invite redemption failed');
-      }, 3000);
+      }, getTtsPlaybackDelayMs());
     }
   }
 
@@ -1747,7 +1747,7 @@ export class RelayConnection {
             // End the call with failed status after TTS plays
             setTimeout(() => {
               this.endSession('Verification failed');
-            }, 2000);
+            }, getTtsPlaybackDelayMs());
           } else {
             // Allow another attempt
             log.info(

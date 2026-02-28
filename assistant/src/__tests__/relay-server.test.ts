@@ -56,6 +56,8 @@ const mockConfig = {
     provider: 'twilio',
     maxDurationSeconds: 3600,
     userConsultTimeoutSeconds: 120,
+    ttsPlaybackDelayMs: 0,
+    accessRequestPollIntervalMs: 50,
     disclosure: { enabled: false, text: '' },
     safety: { denyCategories: [] },
     callerIdentity: {
@@ -739,7 +741,7 @@ describe('relay-server', () => {
     expect(getLatestAssistantText('conv-relay-verify-race')).toContain('**Call failed**');
 
     // Let the delayed endSession callback flush to avoid timer bleed across tests.
-    await new Promise((resolve) => setTimeout(resolve, 2100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     const finalState = getCallSession(session.id);
     expect(finalState).not.toBeNull();
@@ -1552,7 +1554,7 @@ describe('relay-server', () => {
     expect(events.some((e) => e.eventType === 'guardian_voice_verification_failed')).toBe(true);
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 2100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Verify end message was sent
     const endMessages = ws.sentMessages
@@ -1693,7 +1695,7 @@ describe('relay-server', () => {
     expect(originText).toContain('succeeded');
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 3100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     relay.destroy();
   });
@@ -1746,7 +1748,7 @@ describe('relay-server', () => {
     expect(originText).toContain('failed');
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 2100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     relay.destroy();
   });
@@ -1873,7 +1875,7 @@ describe('relay-server', () => {
     expect(events.some((e) => e.eventType === 'invite_redemption_failed')).toBe(true);
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 3100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Verify end message was sent
     const endMessages = ws.sentMessages
@@ -2095,7 +2097,7 @@ describe('relay-server', () => {
     expect(textMessages.some((m) => (m.token ?? '').includes('not authorized'))).toBe(true);
 
     // Let delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 3100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     relay.destroy();
   });
@@ -2191,8 +2193,8 @@ describe('relay-server', () => {
       decidedByExternalUserId: undefined,
     });
 
-    // Wait for the poll interval to detect the approval (poll is every 2 seconds)
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+    // Wait for the poll interval to detect the approval
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     // Should have transitioned to connected state
     expect(relay.getConnectionState()).toBe('connected');
@@ -2254,7 +2256,7 @@ describe('relay-server', () => {
     });
 
     // Wait for poll to detect the denial
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     // Should be disconnecting
     expect(relay.getConnectionState()).toBe('disconnecting');
@@ -2275,10 +2277,10 @@ describe('relay-server', () => {
     expect(events.some((e) => e.eventType === 'inbound_acl_access_denied')).toBe(true);
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 3100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     relay.destroy();
-  }, 10_000);
+  });
 
   test('name capture flow: timeout ends call with deterministic copy', async () => {
     // Override the consultation timeout to a very short value for testing
@@ -2335,13 +2337,13 @@ describe('relay-server', () => {
     expect(events.some((e) => e.eventType === 'inbound_acl_access_timeout')).toBe(true);
 
     // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 3100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Restore default timeout
     mockConfig.calls.userConsultTimeoutSeconds = 120;
 
     relay.destroy();
-  }, 10_000);
+  });
 
   test('name capture flow: transport close during guardian wait cleans up timers', async () => {
     ensureConversation('conv-access-transport-close');
