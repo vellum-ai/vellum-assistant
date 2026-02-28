@@ -34,6 +34,7 @@ import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-c
 import { createIngressControlPlaneProxyHandler } from "./http/routes/ingress-control-plane-proxy.js";
 import { matchIngressControlPlaneRoute } from "./http/routes/ingress-control-plane-route-match.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
+import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { validateBearerToken } from "./http/auth/bearer.js";
 import { getLogger, initLogger } from "./logger.js";
 import { CircuitBreakerOpenError } from "./runtime/client.js";
@@ -205,6 +206,7 @@ function main() {
   const telegramControlPlaneProxy = createTelegramControlPlaneProxyHandler(config);
   const ingressControlPlaneProxy = createIngressControlPlaneProxyHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
+  const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
 
@@ -445,6 +447,18 @@ function main() {
         const authError = requireRuntimeBearerAuth();
         if (authError) return authError;
         return runtimeHealthProxy.handleRuntimeHealth(tracedReq);
+      }
+
+      // ── Brain graph proxy ──
+      if (url.pathname === "/v1/brain-graph" && req.method === "GET") {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+        return brainGraphProxy.handleBrainGraph(tracedReq);
+      }
+      if (url.pathname === "/v1/brain-graph-ui" && req.method === "GET") {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+        return brainGraphProxy.handleBrainGraphUI(tracedReq);
       }
 
       // ── Telegram integration control-plane proxy ──
