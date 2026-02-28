@@ -75,14 +75,36 @@ describe('onboarding template contracts', () => {
       const lower = bootstrap.toLowerCase();
       expect(lower).toContain('completion gate');
       expect(lower).toContain('do not delete this file');
-      // All conditions must be present
+      // Assistant name is hard-required
       expect(lower).toContain('you have a name');
+      expect(lower).toContain('hard requirement');
       expect(lower).toContain('vibe');
-      expect(lower).toContain("user's name");
+      // User detail fields must be resolved (provided, inferred, or declined)
+      expect(lower).toContain('resolved');
       expect(lower).toContain('work role');
       expect(lower).toContain('2 suggestions shown');
       expect(lower).toContain('selected one, deferred both');
       expect(lower).toContain('home base');
+    });
+
+    test('contains privacy/refusal policy', () => {
+      const lower = bootstrap.toLowerCase();
+      // Must have a privacy section
+      expect(lower).toContain('privacy');
+      // Assistant name is hard-required, user details are best-effort
+      expect(lower).toContain('hard-required');
+      expect(lower).toContain('best-effort');
+      // Refusal is a valid resolution
+      expect(lower).toContain('declined');
+      expect(lower).toContain('do not push');
+    });
+
+    test('defines resolved as provided, inferred, or declined', () => {
+      const lower = bootstrap.toLowerCase();
+      // The template must define what "resolved" means
+      expect(lower).toContain('resolved');
+      expect(lower).toContain('inferred');
+      expect(lower).toContain('declined');
     });
 
     test('preserves no em dashes instruction', () => {
@@ -135,6 +157,12 @@ describe('onboarding template contracts', () => {
       expect(user).toContain('Work role:');
       expect(user).toContain('Hobbies/fun:');
       expect(user).toContain('Daily tools:');
+    });
+
+    test('documents resolved-field status conventions', () => {
+      const lower = user.toLowerCase();
+      expect(lower).toContain('declined_by_user');
+      expect(lower).toContain('resolved');
     });
   });
 });
