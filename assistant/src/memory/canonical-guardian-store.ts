@@ -292,7 +292,7 @@ export interface UpdateCanonicalGuardianRequestParams {
   status?: CanonicalRequestStatus;
   answerText?: string;
   decidedByExternalUserId?: string;
-  followupState?: string;
+  followupState?: string | null;
   expiresAt?: string;
 }
 
