@@ -2278,7 +2278,7 @@ describe('relay-server', () => {
     await new Promise((resolve) => setTimeout(resolve, 3100));
 
     relay.destroy();
-  });
+  }, 10_000);
 
   test('name capture flow: timeout ends call with deterministic copy', async () => {
     // Override the consultation timeout to a very short value for testing
@@ -2341,7 +2341,7 @@ describe('relay-server', () => {
     mockConfig.calls.userConsultTimeoutSeconds = 120;
 
     relay.destroy();
-  });
+  }, 10_000);
 
   test('name capture flow: transport close during guardian wait cleans up timers', async () => {
     ensureConversation('conv-access-transport-close');
