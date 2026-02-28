@@ -63,7 +63,6 @@ import {
 import type { SkillProjectionCache } from './session-skill-tools.js';
 import { recordUsage } from './session-usage.js';
 import type { TraceEmitter } from './trace-emitter.js';
-import { guardUnverifiedChannelAssistantOutput } from './unverified-channel-output-guard.js';
 
 const log = getLogger('session-agent-loop');
 
@@ -605,17 +604,8 @@ export async function runAgentLoopImpl(
     const newMessages = updatedHistory.slice(preRunHistoryLength).map((msg) => {
       if (msg.role !== 'assistant') return msg;
       const { cleanedContent } = cleanAssistantContent(msg.content);
-      const guarded = guardUnverifiedChannelAssistantOutput(
-        cleanedContent as ContentBlock[],
-        ctx.guardianContext ?? null,
-      );
-      if (guarded.sanitized) {
-        rlog.warn(
-          { reason: guarded.reason, actorRole: ctx.guardianContext?.actorRole },
-          'Sanitized unverified-channel assistant output during history reconstruction',
-        );
-      }
-      return { ...msg, content: guarded.content };
+      const cleanedBlocks = cleanedContent as ContentBlock[];
+      return { ...msg, content: cleanedBlocks };
     });
 
     const hasAssistantResponse = newMessages.some((msg) => msg.role === 'assistant');

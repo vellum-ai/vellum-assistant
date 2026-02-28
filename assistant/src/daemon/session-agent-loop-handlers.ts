@@ -20,7 +20,6 @@ import type { ServerMessage } from './ipc-protocol.js';
 import type { AgentLoopSessionContext } from './session-agent-loop.js';
 import { buildSessionErrorMessage,classifySessionError, isContextTooLarge } from './session-error.js';
 import { isProviderOrderingError } from './session-slash.js';
-import { guardUnverifiedChannelAssistantOutput } from './unverified-channel-output-guard.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -331,17 +330,7 @@ export async function handleMessageComplete(
   // Clean assistant content and accumulate directives
   const { cleanedContent, directives: msgDirectives, warnings: msgWarnings } =
     cleanAssistantContent(event.message.content);
-  const guardedContentResult = guardUnverifiedChannelAssistantOutput(
-    cleanedContent as ContentBlock[],
-    deps.ctx.guardianContext ?? null,
-  );
-  if (guardedContentResult.sanitized) {
-    deps.rlog.warn(
-      { reason: guardedContentResult.reason, actorRole: deps.ctx.guardianContext?.actorRole },
-      'Sanitized unverified-channel assistant output that claimed guardian relay/approval',
-    );
-  }
-  const guardedContent = guardedContentResult.content;
+  const cleanedBlocks = cleanedContent as ContentBlock[];
   state.accumulatedDirectives.push(...msgDirectives);
   state.directiveWarnings.push(...msgWarnings);
   if (msgDirectives.length > 0) {
@@ -352,7 +341,7 @@ export async function handleMessageComplete(
   }
 
   // Build content with UI surfaces
-  const contentWithSurfaces: ContentBlock[] = [...guardedContent];
+  const contentWithSurfaces: ContentBlock[] = [...cleanedBlocks];
   for (const surface of deps.ctx.currentTurnSurfaces) {
     contentWithSurfaces.push({
       type: 'ui_surface',
@@ -383,7 +372,7 @@ export async function handleMessageComplete(
   deps.ctx.currentTurnSurfaces = [];
 
   // Emit trace event
-  const charCount = guardedContent
+  const charCount = cleanedBlocks
     .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
     .reduce((sum, b) => sum + b.text.length, 0);
   const toolUseCount = event.message.content

@@ -2645,4 +2645,48 @@ describe('background channel processing approval prompts', () => {
     expect(processCalls.length).toBeGreaterThan(0);
     expect(processCalls[0].options?.isInteractive).toBe(false);
   });
+
+  test('unverified channel turns never broadcast approval prompts', async () => {
+    // No guardian binding is created, so the sender resolves to unverified_channel.
+    const deliverPromptSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+    const processCalls: Array<{ options?: Record<string, unknown> }> = [];
+
+    const processMessage = mock(async (
+      conversationId: string,
+      _content: string,
+      _attachmentIds?: string[],
+      options?: Record<string, unknown>,
+    ) => {
+      processCalls.push({ options });
+
+      // Simulate a pending confirmation becoming visible while background
+      // processing is running. Unverified actors must still not receive it.
+      registerPendingInteraction('req-bg-unverified-1', conversationId, 'host_bash', {
+        input: { command: 'ls -la' },
+        riskLevel: 'medium',
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      return { messageId: 'msg-bg-unverified-1' };
+    });
+
+    const req = makeInboundRequest({
+      content: 'run ls',
+      sourceChannel: 'telegram',
+      replyCallbackUrl: 'https://gateway.test/deliver/telegram',
+      externalMessageId: 'msg-bg-unverified-1',
+    });
+
+    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage, 'token');
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    expect(processCalls.length).toBeGreaterThan(0);
+    expect(processCalls[0].options?.isInteractive).toBe(false);
+    expect(deliverPromptSpy).not.toHaveBeenCalled();
+
+    deliverPromptSpy.mockRestore();
+  });
 });
