@@ -286,6 +286,16 @@ extension AppDelegate {
     /// app is active. All notification types get a fallback native alert when
     /// backgrounded to guarantee delivery if the notification_intent IPC is late.
     func handleNotificationThreadCreated(_ msg: IPCNotificationThreadCreated) {
+        // Guardian scoping: skip thread creation for notifications targeted at
+        // a different guardian identity.
+        if let target = msg.targetGuardianPrincipalId {
+            let localId = ActorTokenManager.getGuardianPrincipalId()
+            if localId == nil || localId != target {
+                log.info("Skipping notification_thread_created for guardian \(target) — local guardian is \(localId ?? "nil")")
+                return
+            }
+        }
+
         ensureMainWindowExists()
         mainWindow?.threadManager.createNotificationThread(
             conversationId: msg.conversationId,

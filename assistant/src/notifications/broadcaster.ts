@@ -12,6 +12,7 @@
 import { v4 as uuid } from 'uuid';
 
 import { getLogger } from '../util/logger.js';
+import { isGuardianSensitiveEvent } from './adapters/macos.js';
 import { pairDeliveryWithConversation } from './conversation-pairing.js';
 import { composeFallbackCopy } from './copy-composer.js';
 import { createDelivery, findDeliveryByDecisionAndChannel, updateDeliveryStatus } from './deliveries-store.js';
@@ -34,6 +35,8 @@ export interface ThreadCreatedInfo {
   conversationId: string;
   title: string;
   sourceEventName: string;
+  /** Present when the thread is for a guardian-sensitive notification. */
+  targetGuardianPrincipalId?: string;
 }
 export type OnThreadCreatedFn = (info: ThreadCreatedInfo) => void;
 export interface BroadcastDecisionOptions {
@@ -163,6 +166,18 @@ export class NotificationBroadcaster {
       if (channel === 'vellum' && pairing.conversationId) {
         deepLinkTarget = { ...deepLinkTarget, conversationId: pairing.conversationId };
 
+        // Resolve guardian scoping for thread-created events so clients
+        // can filter guardian-sensitive threads the same way they filter
+        // guardian-sensitive notification intents.
+        const guardianPrincipalId =
+          typeof destination.metadata?.guardianPrincipalId === 'string'
+            ? destination.metadata.guardianPrincipalId
+            : undefined;
+        const targetGuardianPrincipalId =
+          guardianPrincipalId && isGuardianSensitiveEvent(signal.sourceEventName)
+            ? guardianPrincipalId
+            : undefined;
+
         const threadTitle =
           copy.threadTitle ??
           copy.title ??
@@ -171,6 +186,7 @@ export class NotificationBroadcaster {
           conversationId: pairing.conversationId,
           title: threadTitle,
           sourceEventName: signal.sourceEventName,
+          targetGuardianPrincipalId,
         };
 
         // The per-dispatch onThreadCreated callback fires whenever a vellum

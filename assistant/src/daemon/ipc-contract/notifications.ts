@@ -8,6 +8,12 @@ export interface NotificationIntent {
   body: string;
   /** Optional deep-link metadata so the client can navigate to the relevant context. */
   deepLinkMetadata?: Record<string, unknown>;
+  /**
+   * When set, this notification is guardian-sensitive and should only be
+   * displayed by clients whose guardian identity matches this principal ID.
+   * Clients not bound to this guardian should ignore the notification.
+   */
+  targetGuardianPrincipalId?: string;
 }
 
 /** Server push — broadcast when a notification creates a new vellum conversation thread. */
@@ -16,6 +22,11 @@ export interface NotificationThreadCreated {
   conversationId: string;
   title: string;
   sourceEventName: string;
+  /**
+   * When set, this thread was created for a guardian-sensitive notification
+   * and should only be surfaced by clients bound to this guardian identity.
+   */
+  targetGuardianPrincipalId?: string;
 }
 
 /** Client ack sent after UNUserNotificationCenter.add() completes (or fails). */

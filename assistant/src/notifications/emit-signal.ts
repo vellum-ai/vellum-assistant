@@ -72,9 +72,10 @@ function getBroadcaster(): NotificationBroadcaster {
           conversationId: info.conversationId,
           title: info.title,
           sourceEventName: info.sourceEventName,
+          targetGuardianPrincipalId: info.targetGuardianPrincipalId,
         });
         log.info(
-          { conversationId: info.conversationId },
+          { conversationId: info.conversationId, guardianScoped: info.targetGuardianPrincipalId != null },
           'Emitted notification_thread_created push event',
         );
       });
